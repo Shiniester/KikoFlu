@@ -6,11 +6,12 @@ import 'package:flutter/material.dart';
 
 import '../models/work.dart';
 import '../services/storage_service.dart';
+import '../services/speculative_transfer_coordinator.dart';
 
-const _maxPendingCoverPrefetches = 12;
-final Queue<_CoverPrefetchTask> _coverPrefetchQueue = Queue();
-final Set<ImageProvider<Object>> _queuedCoverProviders = {};
-bool _isDrainingCoverPrefetchQueue = false;
+typedef WorkCoverPrecache = Future<void> Function(
+  ImageProvider<Object> provider,
+  BuildContext context,
+);
 
 int calculateWorkCoverCacheWidth({
   required double viewportWidth,
@@ -66,71 +67,246 @@ ImageProvider<Object> createWorkCoverImageProvider({
   return ResizeImage.resizeIfNeeded(cacheWidth, null, provider);
 }
 
-void prefetchWorkCovers(
-  BuildContext context,
-  Iterable<Work> works, {
-  required String host,
-  required String token,
-  required int crossAxisCount,
-  bool isListCard = true,
-}) {
-  if (host.isEmpty) return;
+/// A page-scoped queue for speculative cover decoding.
+///
+/// Work is deduplicated by server, work id and target decode width. Resetting
+/// the controller invalidates queued work when an account or data source
+/// changes. Active image decodes are allowed to finish, but their completion is
+/// ignored and never starts work from the invalidated generation.
+class WorkCoverPrefetchController {
+  WorkCoverPrefetchController({
+    this.maxConcurrent = 2,
+    this.maxPending = 12,
+    WorkCoverPrecache? precache,
+  })  : assert(maxConcurrent > 0),
+        assert(maxPending >= 0),
+        _precache = precache ?? _defaultPrecache;
 
-  final targetWidth = resolveWorkCoverCacheWidth(
-    context,
-    crossAxisCount: crossAxisCount,
-    isListCard: isListCard,
-  );
-  for (final work in works) {
-    final provider = createWorkCoverImageProvider(
-      work: work,
-      host: host,
-      token: token,
-      cacheWidth: targetWidth,
+  final int maxConcurrent;
+  final int maxPending;
+  final WorkCoverPrecache _precache;
+  final Queue<_CoverPrefetchTask> _queue = Queue();
+  final Map<_CoverPrefetchKey, int> _scheduledKeys = {};
+  final List<Completer<void>> _idleWaiters = [];
+
+  int _generation = 0;
+  int _activeCount = 0;
+  bool _paused = false;
+  bool _disposed = false;
+
+  int get activeCount => _activeCount;
+  int get pendingCount => _queue.length;
+  bool get isPaused => _paused;
+
+  void prefetch(
+    BuildContext context,
+    Iterable<Work> works, {
+    required String host,
+    required String token,
+    required int crossAxisCount,
+    bool isListCard = true,
+    Map<String, String>? headers,
+  }) {
+    if (_disposed || host.isEmpty || !context.mounted) return;
+
+    final targetWidth = resolveWorkCoverCacheWidth(
+      context,
+      crossAxisCount: crossAxisCount,
+      isListCard: isListCard,
     );
-    _enqueueCoverPrefetch(context, provider);
-  }
-}
-
-void _enqueueCoverPrefetch(
-  BuildContext context,
-  ImageProvider<Object> provider,
-) {
-  if (_queuedCoverProviders.contains(provider) ||
-      _coverPrefetchQueue.length >= _maxPendingCoverPrefetches) {
-    return;
-  }
-
-  _queuedCoverProviders.add(provider);
-  _coverPrefetchQueue.add(_CoverPrefetchTask(context, provider));
-  if (!_isDrainingCoverPrefetchQueue) {
-    unawaited(_drainCoverPrefetchQueue());
-  }
-}
-
-Future<void> _drainCoverPrefetchQueue() async {
-  _isDrainingCoverPrefetchQueue = true;
-  try {
-    while (_coverPrefetchQueue.isNotEmpty) {
-      final task = _coverPrefetchQueue.removeFirst();
-      try {
-        if (task.context.mounted) {
-          await precacheImage(task.provider, task.context);
-        }
-      } catch (_) {
-        // A failed speculative request must not affect normal image loading.
-      } finally {
-        _queuedCoverProviders.remove(task.provider);
-      }
+    for (final work in works) {
+      if (_queue.length >= maxPending) break;
+      final key = _CoverPrefetchKey(host, work.id, targetWidth);
+      if (_scheduledKeys.containsKey(key)) continue;
+      final provider = createWorkCoverImageProvider(
+        work: work,
+        host: host,
+        token: token,
+        cacheWidth: targetWidth,
+        headers: headers,
+      );
+      _scheduledKeys[key] = _generation;
+      _queue.add(
+        _CoverPrefetchTask(
+          context: context,
+          provider: provider,
+          key: key,
+          generation: _generation,
+        ),
+      );
     }
-  } finally {
-    _isDrainingCoverPrefetchQueue = false;
+    _pump();
   }
+
+  /// Pauses speculative work without discarding the bounded pending queue.
+  void setPaused(bool paused) {
+    if (_disposed || _paused == paused) return;
+    _paused = paused;
+    if (!paused) _pump();
+  }
+
+  /// Invalidates work from the previous page/account/data-source generation.
+  void cancelPending() {
+    if (_disposed) return;
+    _generation++;
+    _queue.clear();
+    _scheduledKeys.clear();
+    _completeIdleWaitersIfNeeded();
+  }
+
+  Future<void> whenIdle() {
+    if (_activeCount == 0 && _queue.isEmpty) return Future.value();
+    final completer = Completer<void>();
+    _idleWaiters.add(completer);
+    return completer.future;
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    cancelPending();
+    _disposed = true;
+  }
+
+  void _pump() {
+    if (_disposed || _paused) return;
+    while (_activeCount < maxConcurrent && _queue.isNotEmpty) {
+      final task = _queue.removeFirst();
+      if (task.generation != _generation || !task.context.mounted) {
+        _removeScheduledKey(task);
+        continue;
+      }
+      _activeCount++;
+      unawaited(_run(task));
+    }
+    _completeIdleWaitersIfNeeded();
+  }
+
+  Future<void> _run(_CoverPrefetchTask task) async {
+    try {
+      await _precache(task.provider, task.context);
+    } catch (_) {
+      // A failed speculative request must not affect normal image loading.
+    } finally {
+      _activeCount--;
+      _removeScheduledKey(task);
+      _pump();
+    }
+  }
+
+  void _removeScheduledKey(_CoverPrefetchTask task) {
+    if (_scheduledKeys[task.key] == task.generation) {
+      _scheduledKeys.remove(task.key);
+    }
+  }
+
+  void _completeIdleWaitersIfNeeded() {
+    if (_activeCount != 0 || _queue.isNotEmpty || _idleWaiters.isEmpty) return;
+    final waiters = List<Completer<void>>.of(_idleWaiters);
+    _idleWaiters.clear();
+    for (final waiter in waiters) {
+      if (!waiter.isCompleted) waiter.complete();
+    }
+  }
+
+  static Future<void> _defaultPrecache(
+    ImageProvider<Object> provider,
+    BuildContext context,
+  ) {
+    return precacheImage(provider, context);
+  }
+}
+
+/// Keeps a cover prefetch controller alive for exactly one page subtree.
+class WorkCoverPrefetchScope extends StatefulWidget {
+  const WorkCoverPrefetchScope({
+    super.key,
+    required this.sourceKey,
+    required this.builder,
+    this.paused = false,
+  });
+
+  final Object sourceKey;
+  final bool paused;
+  final Widget Function(
+    BuildContext context,
+    WorkCoverPrefetchController controller,
+  ) builder;
+
+  @override
+  State<WorkCoverPrefetchScope> createState() =>
+      _WorkCoverPrefetchScopeState();
+}
+
+class _WorkCoverPrefetchScopeState extends State<WorkCoverPrefetchScope> {
+  final WorkCoverPrefetchController _controller =
+      WorkCoverPrefetchController();
+  late final StreamSubscription<bool> _pauseSubscription;
+  bool _globallyPaused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final transferCoordinator = SpeculativeTransferCoordinator.instance;
+    _globallyPaused = transferCoordinator.shouldPauseSpeculativeTransfers;
+    _applyPauseState();
+    _pauseSubscription = transferCoordinator.pauseChanges.listen((paused) {
+      _globallyPaused = paused;
+      _applyPauseState();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant WorkCoverPrefetchScope oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.sourceKey != widget.sourceKey) {
+      _controller.cancelPending();
+    }
+    _applyPauseState();
+  }
+
+  @override
+  void dispose() {
+    _pauseSubscription.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _controller);
+
+  void _applyPauseState() {
+    _controller.setPaused(widget.paused || _globallyPaused);
+  }
+}
+
+class _CoverPrefetchKey {
+  const _CoverPrefetchKey(this.host, this.workId, this.targetWidth);
+
+  final String host;
+  final int workId;
+  final int targetWidth;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _CoverPrefetchKey &&
+      other.host == host &&
+      other.workId == workId &&
+      other.targetWidth == targetWidth;
+
+  @override
+  int get hashCode => Object.hash(host, workId, targetWidth);
 }
 
 class _CoverPrefetchTask {
-  const _CoverPrefetchTask(this.context, this.provider);
+  const _CoverPrefetchTask({
+    required this.context,
+    required this.provider,
+    required this.key,
+    required this.generation,
+  });
 
   final BuildContext context;
   final ImageProvider<Object> provider;
+  final _CoverPrefetchKey key;
+  final int generation;
 }

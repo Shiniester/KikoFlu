@@ -28,7 +28,9 @@ class HistoryScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: VirtualizedSliverCollection(
+      body: WorkCoverPrefetchScope(
+        sourceKey: (auth, history),
+        builder: (context, coverPrefetch) => VirtualizedSliverCollection(
         items: history,
         itemId: (record) => record.work.id,
         layout: VirtualizedCollectionLayout.grid,
@@ -63,7 +65,7 @@ class HistoryScreen extends ConsumerWidget {
           if (topInset > 0)
             SliverToBoxAdapter(child: SizedBox(height: topInset)),
         ],
-        onPrefetch: (records) => prefetchWorkCovers(
+        onPrefetch: (records) => coverPrefetch.prefetch(
           context,
           records.map((record) => record.work),
           host: auth.host,
@@ -95,6 +97,7 @@ class HistoryScreen extends ConsumerWidget {
         itemBuilder: (context, record, index) => HistoryWorkCard(
           key: ValueKey(record.work.id),
           record: record,
+        ),
         ),
       ),
       floatingActionButton: history.isNotEmpty

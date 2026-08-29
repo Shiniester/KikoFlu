@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -80,5 +82,101 @@ void main() {
         cacheKey: 'work_cover_123456',
       ),
     );
+  });
+
+  testWidgets('bounds concurrency, queue size, and duplicate work',
+      (tester) async {
+    final completions = <Completer<void>>[];
+    var active = 0;
+    var maxActive = 0;
+    var starts = 0;
+    final controller = WorkCoverPrefetchController(
+      precache: (provider, context) {
+        starts++;
+        active++;
+        maxActive = active > maxActive ? active : maxActive;
+        final completion = Completer<void>();
+        completions.add(completion);
+        return completion.future.whenComplete(() => active--);
+      },
+    );
+    addTearDown(controller.dispose);
+    final works = List.generate(
+      30,
+      (index) => Work(id: index, title: 'Work $index'),
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(builder: (context) {
+        controller.prefetch(
+          context,
+          works,
+          host: 'https://example.com',
+          token: 'token',
+          crossAxisCount: 2,
+          headers: const {},
+        );
+        controller.prefetch(
+          context,
+          works.take(12),
+          host: 'https://example.com',
+          token: 'token',
+          crossAxisCount: 2,
+          headers: const {},
+        );
+        return const SizedBox.shrink();
+      }),
+    ));
+    await tester.pump();
+
+    expect(starts, 2);
+    expect(maxActive, 2);
+    expect(controller.pendingCount, lessThanOrEqualTo(12));
+
+    while (completions.any((completion) => !completion.isCompleted)) {
+      completions.firstWhere((completion) => !completion.isCompleted).complete();
+      await tester.pump();
+    }
+    await controller.whenIdle();
+    expect(starts, 12);
+    expect(maxActive, 2);
+  });
+
+  testWidgets('cancels queued work when the page source changes',
+      (tester) async {
+    final first = Completer<void>();
+    var starts = 0;
+    final controller = WorkCoverPrefetchController(
+      maxConcurrent: 1,
+      precache: (provider, context) {
+        starts++;
+        return first.future;
+      },
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(builder: (context) {
+        controller.prefetch(
+          context,
+          List.generate(5, (index) => Work(id: index, title: '$index')),
+          host: 'https://old.example.com',
+          token: 'token',
+          crossAxisCount: 2,
+          headers: const {},
+        );
+        return const SizedBox.shrink();
+      }),
+    ));
+    await tester.pump();
+    expect(starts, 1);
+
+    controller.cancelPending();
+    first.complete();
+    await tester.pump();
+    await controller.whenIdle();
+
+    expect(starts, 1);
+    expect(controller.pendingCount, 0);
   });
 }

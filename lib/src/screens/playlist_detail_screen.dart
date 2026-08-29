@@ -408,7 +408,9 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
         : 1;
     final contentPadding = isMasonry ? spacing : 8.0;
 
-    return VirtualizedSliverCollection(
+    return WorkCoverPrefetchScope(
+      sourceKey: (auth.host, auth.token, widget.playlistId, state.works),
+      builder: (context, coverPrefetch) => VirtualizedSliverCollection(
       controller: _scrollController,
       items: state.works,
       itemId: (work) => work.id,
@@ -456,7 +458,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
         ),
       ),
       onRetry: notifier.refresh,
-      onPrefetch: (works) => prefetchWorkCovers(
+      onPrefetch: (works) => coverPrefetch.prefetch(
         context,
         works,
         host: auth.host,
@@ -505,6 +507,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                 auth.token,
               ),
             ),
+      ),
     );
   }
 

@@ -20,6 +20,7 @@ import 'playback_history_service.dart';
 import 'playback_session_store.dart';
 import 'download_path_service.dart';
 import 'storage_service.dart';
+import 'speculative_transfer_coordinator.dart';
 import '../utils/image_blur_util.dart';
 import '../utils/local_file_url.dart';
 import '../utils/reorder_utils.dart';
@@ -270,6 +271,10 @@ class AudioPlayerService {
         );
       }
       _lastDiagnosticProcessingState = state.processingState;
+      SpeculativeTransferCoordinator.instance.setPlayerBuffering(
+        state.processingState == ProcessingState.loading ||
+            state.processingState == ProcessingState.buffering,
+      );
       if (state.processingState == ProcessingState.completed) {
         if (Platform.isMacOS) {
           // macOS: Use dedicated handler to prevent duplicate triggers
@@ -678,6 +683,11 @@ class AudioPlayerService {
   // 在后台提前把下一首流式音频拉到缓存，切歌时即可命中本地缓存，避免卡顿空档。
   // 单曲循环、本地文件、已缓存曲目均自动跳过，不影响正常播放逻辑。
   void _maybePreloadNextTrack(Duration position, Duration? duration) {
+    if (SpeculativeTransferCoordinator
+        .instance
+        .shouldPauseSpeculativeTransfers) {
+      return;
+    }
     final threshold = _preloadThreshold;
     if (threshold == null || threshold <= Duration.zero) return;
     if (_appLoopMode == LoopMode.one) return;
@@ -704,6 +714,12 @@ class AudioPlayerService {
   }
 
   Future<void> _preloadNextTrackToCache(AudioTrack track) async {
+    if (SpeculativeTransferCoordinator
+        .instance
+        .shouldPauseSpeculativeTransfers) {
+      if (_prefetchedNextHash == track.hash) _prefetchedNextHash = null;
+      return;
+    }
     final hash = track.hash;
     if (hash == null || hash.isEmpty) return;
     final url = track.url;
@@ -1524,13 +1540,13 @@ class AudioPlayerService {
   }
 
   String? _remoteAudioUrlForHash(String hash) {
-    final host = StorageService.getString('server_host')
-        ?.trim()
-        .replaceFirst(RegExp(r'/+$'), '');
+    final host = StorageService.getString(
+      'server_host',
+    )?.trim().replaceFirst(RegExp(r'/+$'), '');
     if (host == null || host.isEmpty) return null;
 
-    final normalizedHost = host.startsWith('http://') ||
-            host.startsWith('https://')
+    final normalizedHost =
+        host.startsWith('http://') || host.startsWith('https://')
         ? host
         : 'https://$host';
     final token = StorageService.getString('auth_token');

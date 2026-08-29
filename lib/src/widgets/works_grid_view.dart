@@ -110,7 +110,10 @@ class WorksGridView extends ConsumerWidget {
         LayoutType.list => 1,
       };
       final isGrid = layoutType != LayoutType.list;
-      return VirtualizedSliverCollection<Work>(
+      return WorkCoverPrefetchScope(
+        sourceKey: (auth.$1, auth.$2, key, pageStorageKey, works),
+        builder: (context, coverPrefetch) =>
+            VirtualizedSliverCollection<Work>(
         controller: scrollController,
         pageStorageKey: pageStorageKey,
         sliversBefore: sliversBefore,
@@ -147,7 +150,7 @@ class WorksGridView extends ConsumerWidget {
         ),
         onRetry: onRetry,
         onPrefetch: (items) {
-          prefetchWorkCovers(
+          coverPrefetch.prefetch(
             context,
             items,
             host: auth.$1,
@@ -179,6 +182,7 @@ class WorksGridView extends ConsumerWidget {
                         ),
                       )
                 : null,
+            ),
       );
     });
   }

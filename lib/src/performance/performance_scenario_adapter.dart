@@ -76,18 +76,24 @@ class OptimizedPerformanceScenarioAdapter
     required ValueNotifier<int> position,
     required ValueNotifier<int> track,
   }) {
-    return AnimatedBuilder(
-      animation: Listenable.merge([position, track]),
-      builder: (context, child) {
-        return Column(
-          children: [
-            const Expanded(child: Center(child: FlutterLogo(size: 240))),
-            Text('Track ${track.value}'),
-            LinearProgressIndicator(value: (position.value % 1000) / 1000),
-            const SizedBox(height: 24),
-          ],
-        );
-      },
+    return Column(
+      children: [
+        Expanded(
+          child: ValueListenableBuilder<int>(
+            valueListenable: track,
+            builder: (context, value, child) => Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [const FlutterLogo(size: 240), Text('Track $value')],
+            ),
+          ),
+        ),
+        ValueListenableBuilder<int>(
+          valueListenable: position,
+          builder: (context, value, child) =>
+              LinearProgressIndicator(value: (value % 1000) / 1000),
+        ),
+        const SizedBox(height: 24),
+      ],
     );
   }
 
