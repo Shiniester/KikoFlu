@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../models/work.dart';
-import '../models/download_task.dart';
+import '../models/download_task_change.dart';
 import '../providers/auth_provider.dart';
 import '../providers/audio_provider.dart';
 import '../providers/lyric_provider.dart';
@@ -85,7 +85,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   bool _isLoading = false;
   String? _errorMessage;
   String? _mainFolderPath; // 主文件夹路径
-  StreamSubscription<List<DownloadTask>>? _downloadTasksSubscription;
+  StreamSubscription<DownloadTaskChange>? _downloadTasksSubscription;
   int _loadGeneration = 0;
   int _downloadScanGeneration = 0;
 
@@ -164,12 +164,15 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   // 监听下载任务变化，当有任务完成或被删除时重新检测
   void _listenToDownloadTasks() {
     final downloadService = DownloadService.instance;
-    _downloadTasksSubscription = downloadService.tasksStream.listen((tasks) {
-      // 过滤出与当前作品相关的任务
-      final workTasks = tasks.where((t) => t.workId == widget.work.id).toList();
-
-      // 如果有任务状态变化，重新检测已下载文件
-      if (workTasks.isNotEmpty) {
+    _downloadTasksSubscription =
+        downloadService.taskChangesStream.listen((change) {
+      final isReset = change.type == DownloadTaskChangeType.reset;
+      final affectsCurrentWork = change.task?.workId == widget.work.id ||
+          change.previousTask?.workId == widget.work.id;
+      final statusChanged =
+          change.previousTask?.status != change.task?.status;
+      if (isReset ||
+          (affectsCurrentWork && (change.isStructural || statusChanged))) {
         _checkDownloadedFiles();
       }
     });

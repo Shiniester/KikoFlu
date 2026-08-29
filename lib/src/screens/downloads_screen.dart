@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../models/download_task.dart';
+import '../providers/download_provider.dart';
 import '../services/download_service.dart';
 import '../utils/string_utils.dart';
 import '../utils/ui_tokens.dart';
@@ -97,15 +98,18 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final activeTaskIds =
+        ref.watch(activeDownloadTaskIdsProvider).valueOrNull ??
+        DownloadService.instance.tasks
+            .where((task) => task.status != DownloadStatus.completed)
+            .map((task) => task.id)
+            .toList(growable: false);
     return Scaffold(
       appBar: AppBar(
         scrolledUnderElevation: 0,
         title: _isSelectionMode
             ? Text(S.of(context).selectedCount(_selectedTaskIds.length))
-            : Text(
-                S.of(context).downloadTasks,
-                style: UiTextStyles.pageTitle,
-              ),
+            : Text(S.of(context).downloadTasks, style: UiTextStyles.pageTitle),
         leading: _isSelectionMode
             ? IconButton(
                 icon: const Icon(Icons.close),
@@ -168,29 +172,15 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
                 ),
               ],
       ),
-      body: StreamBuilder<List<DownloadTask>>(
-        stream: DownloadService.instance.tasksStream,
-        initialData: DownloadService.instance.tasks,
-        builder: (context, snapshot) {
-          final tasks = snapshot.data ?? [];
-
-          final downloadingTasks = tasks
-              .where(
-                (t) =>
-                    t.status == DownloadStatus.downloading ||
-                    t.status == DownloadStatus.paused ||
-                    t.status == DownloadStatus.pending ||
-                    t.status == DownloadStatus.failed,
-              )
-              .toList();
-
-          return _buildDownloadingList(downloadingTasks);
-        },
-      ),
+      body: _buildDownloadingList(activeTaskIds),
     );
   }
 
-  Widget _buildDownloadingList(List<DownloadTask> tasks) {
+  Widget _buildDownloadingList(List<String> taskIds) {
+    final tasks = taskIds
+        .map(DownloadService.instance.taskById)
+        .whereType<DownloadTask>()
+        .toList(growable: false);
     if (tasks.isEmpty) {
       return Center(
         child: Column(
@@ -248,56 +238,65 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
               style: const TextStyle(fontSize: 12),
             ),
             trailing: _isSelectionMode ? null : const Icon(Icons.expand_more),
-            children: workTasks.map((task) => _buildTaskTile(task)).toList(),
+            children: workTasks.map((task) => _buildTaskTile(task.id)).toList(),
           ),
         );
       },
     );
   }
 
-  Widget _buildTaskTile(DownloadTask task) {
-    if (DownloadService.performanceMode) {
-      DownloadService.instance.debugRecordPerformanceTaskRowBuild();
-    }
-    final isSelected = _selectedTaskIds.contains(task.id);
+  Widget _buildTaskTile(String taskId) {
+    return DownloadTaskConsumer(
+      key: ValueKey(taskId),
+      taskId: taskId,
+      debugOnBuild: DownloadService.performanceMode
+          ? DownloadService.instance.debugRecordPerformanceTaskRowBuild
+          : null,
+      builder: (context, task) {
+        final isSelected = _selectedTaskIds.contains(task.id);
 
-    return ListTile(
-      key: ValueKey(task.id),
-      leading: _isSelectionMode
-          ? Checkbox(
-              value: isSelected,
-              onChanged: (_) => _toggleTaskSelection(task.id),
-            )
-          : _buildStatusIcon(task.status),
-      title: Text(task.fileName, maxLines: 1, overflow: TextOverflow.ellipsis),
-      onTap: _isSelectionMode ? () => _toggleTaskSelection(task.id) : null,
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (task.totalBytes != null && task.totalBytes! > 0) ...[
-            const SizedBox(height: 4),
-            LinearProgressIndicator(
-              value: task.progress,
-              backgroundColor: Colors.grey[300],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes!)} (${(task.progress * 100).toStringAsFixed(1)}%)',
-              style: const TextStyle(fontSize: 11),
-            ),
-          ],
-          if (task.error != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              S.of(context).errorWithMessage(task.error!),
-              style: const TextStyle(fontSize: 11, color: Colors.red),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ],
-      ),
-      trailing: _buildTaskActions(task),
+        return ListTile(
+          leading: _isSelectionMode
+              ? Checkbox(
+                  value: isSelected,
+                  onChanged: (_) => _toggleTaskSelection(task.id),
+                )
+              : _buildStatusIcon(task.status),
+          title: Text(
+            task.fileName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          onTap: _isSelectionMode ? () => _toggleTaskSelection(task.id) : null,
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (task.totalBytes != null && task.totalBytes! > 0) ...[
+                const SizedBox(height: 4),
+                LinearProgressIndicator(
+                  value: task.progress,
+                  backgroundColor: Colors.grey[300],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes!)} (${(task.progress * 100).toStringAsFixed(1)}%)',
+                  style: const TextStyle(fontSize: 11),
+                ),
+              ],
+              if (task.error != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  S.of(context).errorWithMessage(task.error!),
+                  style: const TextStyle(fontSize: 11, color: Colors.red),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ],
+          ),
+          trailing: _buildTaskActions(task),
+        );
+      },
     );
   }
 
