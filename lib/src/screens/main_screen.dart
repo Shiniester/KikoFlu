@@ -9,6 +9,7 @@ import '../providers/auth_provider.dart';
 import '../widgets/main_bottom_navigation_bar.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/liquid_glass_layout.dart';
+import '../widgets/lazy_indexed_stack.dart';
 import 'works_screen.dart';
 import 'search_screen.dart';
 import 'my_screen.dart';
@@ -31,6 +32,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   final ValueNotifier<double> _liquidDockExtent = ValueNotifier(0);
 
   late final List<Widget> _screens;
+  final Set<int> _visitedTabs = {0};
 
   @override
   void initState() {
@@ -89,6 +91,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
     setState(() {
       _currentIndex = index;
+      _visitedTabs.add(index);
     });
 
     if (index == _settingsTabIndex) {
@@ -161,14 +164,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
                       final pages = PageStorage(
                         bucket: _bucket,
-                        child: IndexedStack(
+                        child: LazyIndexedStack(
                           index: _currentIndex,
-                          children: List.generate(_screens.length, (index) {
-                            return HeroMode(
-                              enabled: index == _currentIndex,
-                              child: _screens[index],
-                            );
-                          }),
+                          visitedIndices: _visitedTabs,
+                          children: _screens,
                         ),
                       );
                       final miniPlayer = Consumer(
@@ -348,14 +347,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                   child: LiquidGlassDockMediaQuery(
                     child: PageStorage(
                       bucket: _bucket,
-                      child: IndexedStack(
+                      child: LazyIndexedStack(
                         index: _currentIndex,
-                        children: List.generate(_screens.length, (index) {
-                          return HeroMode(
-                            enabled: index == _currentIndex,
-                            child: _screens[index],
-                          );
-                        }),
+                        visitedIndices: _visitedTabs,
+                        children: _screens,
                       ),
                     ),
                   ),

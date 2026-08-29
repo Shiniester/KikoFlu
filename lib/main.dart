@@ -32,6 +32,8 @@ import 'src/services/log_service.dart';
 import 'src/services/audio_player_service.dart';
 import 'src/services/playback_history_service.dart';
 import 'src/services/platform_appearance_service.dart';
+import 'src/services/app_bootstrap_coordinator.dart';
+import 'src/services/background_work_scheduler.dart';
 import 'src/models/work.dart';
 import 'l10n/app_localizations.dart';
 import 'src/providers/audio_provider.dart';
@@ -43,6 +45,7 @@ import 'src/utils/desktop_window_options.dart';
 import 'src/utils/global_keys.dart';
 import 'src/utils/system_ui_style.dart';
 import 'src/widgets/screen_awake_observer.dart';
+import 'src/widgets/app_bootstrap_gate.dart';
 import 'src/performance/performance_recorder.dart';
 
 void _setEnv(String key, String value) {
@@ -52,9 +55,9 @@ void _setEnv(String key, String value) {
     try {
       final setEnvironmentVariable = ffi.DynamicLibrary.open('kernel32.dll')
           .lookupFunction<
-              ffi.Int32 Function(ffi.Pointer<Utf16>, ffi.Pointer<Utf16>),
-              int Function(ffi.Pointer<Utf16>,
-                  ffi.Pointer<Utf16>)>('SetEnvironmentVariableW');
+            ffi.Int32 Function(ffi.Pointer<Utf16>, ffi.Pointer<Utf16>),
+            int Function(ffi.Pointer<Utf16>, ffi.Pointer<Utf16>)
+          >('SetEnvironmentVariableW');
       setEnvironmentVariable(keyNative, valueNative);
     } finally {
       calloc.free(keyNative);
@@ -64,9 +67,11 @@ void _setEnv(String key, String value) {
     final keyNative = key.toNativeUtf8();
     final valueNative = value.toNativeUtf8();
     try {
-      final setenv = ffi.DynamicLibrary.process().lookupFunction<
-          ffi.Int32 Function(ffi.Pointer<Utf8>, ffi.Pointer<Utf8>, ffi.Int32),
-          int Function(ffi.Pointer<Utf8>, ffi.Pointer<Utf8>, int)>('setenv');
+      final setenv = ffi.DynamicLibrary.process()
+          .lookupFunction<
+            ffi.Int32 Function(ffi.Pointer<Utf8>, ffi.Pointer<Utf8>, ffi.Int32),
+            int Function(ffi.Pointer<Utf8>, ffi.Pointer<Utf8>, int)
+          >('setenv');
       setenv(keyNative, valueNative, 1);
     } finally {
       calloc.free(keyNative);
@@ -191,7 +196,8 @@ video=no
 sub-auto=no
 ''';
       } else if (Platform.isLinux) {
-        configContent = '''
+        configContent =
+            '''
 audio-spdif=ac3,dts,eac3
 volume-max=400
 log-file=${p.join(configDir.path, 'mpv_debug.log')}
@@ -200,7 +206,8 @@ video=no
 sub-auto=no
 ''';
       } else {
-        configContent = '''
+        configContent =
+            '''
 ao=coreaudio
 audio-exclusive=yes
 audio-spdif=ac3,dts,eac3
@@ -228,7 +235,8 @@ video=no
 sub-auto=no
 ''';
       } else {
-        configContent = '''
+        configContent =
+            '''
 volume-max=400
 log-file=${p.join(configDir.path, 'mpv_debug.log')}
 msg-level=all=v
@@ -237,12 +245,78 @@ sub-auto=no
 ''';
       }
       await configFile.writeAsString(configContent);
-      LogService.instance
-          .captureOutput('[Audio] Updated mpv.conf: Video Disabled');
+      LogService.instance.captureOutput(
+        '[Audio] Updated mpv.conf: Video Disabled',
+      );
     }
   } catch (e) {
     LogService.instance.captureOutput('[Audio] Error configuring mpv: $e');
   }
+}
+
+Future<void> _initializeHiveBackend() async {
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    final appDocDir = await getApplicationDocumentsDirectory();
+    await Hive.initFlutter(p.join(appDocDir.path, 'KikoFlu'));
+  } else {
+    await Hive.initFlutter();
+  }
+}
+
+Future<void> _initializeCriticalServices({
+  required bool proxyInitialized,
+}) async {
+  final proxyFuture = proxyInitialized
+      ? Future<void>.value()
+      : ProxyConfig.init();
+  final accountDatabaseFuture = AccountDatabase.instance.database;
+  final orientationFuture = SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
+
+  await _initializeHiveBackend();
+  await Future.wait<dynamic>([
+    proxyFuture,
+    accountDatabaseFuture,
+    orientationFuture,
+    StorageService.init(),
+  ]);
+  HttpOverrides.global = KikoFluHttpOverrides();
+
+  final appearanceTasks = <Future<void>>[];
+  if (Platform.isMacOS) {
+    appearanceTasks.add(PlatformAppearanceService.instance.initialize());
+  }
+  if (Platform.isIOS || Platform.isMacOS) {
+    appearanceTasks.add(LiquidGlass.capabilities().then((_) {}));
+  }
+  await Future.wait(appearanceTasks);
+}
+
+AppBootstrapCoordinator _createBootstrapCoordinator({
+  required bool proxyInitialized,
+}) {
+  return AppBootstrapCoordinator(
+    initializeCritical: () =>
+        _initializeCriticalServices(proxyInitialized: proxyInitialized),
+    deferredTasks: [
+      DeferredBootstrapTask(
+        key: 'download-reconcile',
+        priority: BackgroundWorkPriority.startup,
+        run: DownloadService.instance.initialize,
+      ),
+      DeferredBootstrapTask(
+        key: 'cache-maintenance',
+        priority: BackgroundWorkPriority.maintenance,
+        run: () async {
+          await CacheService.checkAndCleanCache(force: true);
+        },
+      ),
+    ],
+  );
 }
 
 void main(List<String> args) async {
@@ -253,12 +327,20 @@ void main(List<String> args) async {
     await enableEdgeToEdgeSystemUi();
   }
 
-  // 初始化代理配置，并让所有 HttpClient（API/下载/音频流）走代理
-  await ProxyConfig.init();
-  HttpOverrides.global = KikoFluHttpOverrides();
-
   // 初始化日志系统，拦截 print/debugPrint 输出
   setupLogCapture();
+
+  final isDesktop = Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+  var proxyInitialized = false;
+
+  // Desktop media backends need proxy environment variables before mpv is
+  // initialized. Mobile platforms initialize proxy settings inside the
+  // bootstrap gate so the first Flutter frame is not delayed.
+  if (isDesktop || args.firstOrNull == 'multi_window') {
+    await ProxyConfig.init();
+    HttpOverrides.global = KikoFluHttpOverrides();
+    proxyInitialized = true;
+  }
 
   if (args.firstOrNull == 'multi_window') {
     final windowId = args.length > 1 ? args[1] : '0';
@@ -277,16 +359,13 @@ void main(List<String> args) async {
     // Initialize window manager for the new window
     await windowManager.ensureInitialized();
 
-    runApp(DesktopFloatingLyric(
-      windowId: windowId,
-      arguments: argument,
-    ));
+    runApp(DesktopFloatingLyric(windowId: windowId, arguments: argument));
     return;
   }
 
   // Use media_kit only for desktop platforms. Android is natively supported
   // by just_audio and should stay on its Media3/AudioTrack backend.
-  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+  if (isDesktop) {
     await _configureMpv();
     JustAudioMediaKit.ensureInitialized();
   }
@@ -297,7 +376,7 @@ void main(List<String> args) async {
   }
 
   // Set minimum window size for desktop platforms
-  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+  if (isDesktop) {
     await windowManager.ensureInitialized();
 
     final windowOptions = createDesktopWindowOptions(
@@ -310,51 +389,24 @@ void main(List<String> args) async {
     });
   }
 
-  // Initialize Hive for local storage
-  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-    // For desktop platforms, use application documents directory
-    final appDocDir = await getApplicationDocumentsDirectory();
-    await Hive.initFlutter(p.join(appDocDir.path, 'KikoFlu'));
-  } else {
-    // For mobile platforms, use default path
-    await Hive.initFlutter();
-  }
-  await StorageService.init();
-
-  // Initialize account database
-  await AccountDatabase.instance.database;
-
-  // 启动时检查并清理缓存（如果超过上限）
-  CacheService.checkAndCleanCache(force: true).catchError((e) {
-    LogService.instance.captureOutput('[Cache] 启动时检查缓存失�? $e');
-  });
-
-  // 初始化下载服�?
-  await DownloadService.instance.initialize();
-
   // Android applies this together with edge-to-edge before initialization.
   if (!Platform.isAndroid) {
     SystemChrome.setSystemUIOverlayStyle(transparentSystemBarsStyle);
   }
 
-  // 允许横竖屏旋�?
-  SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-    DeviceOrientation.landscapeLeft,
-    DeviceOrientation.landscapeRight,
-  ]);
-
-  if (Platform.isMacOS) {
-    await PlatformAppearanceService.instance.initialize();
-  }
-
-  // Resolve the real native-material capability before providers choose the
-  // first-run navigation style. Older Apple OSes stay on the classic default.
-  await LiquidGlass.capabilities();
+  final bootstrapCoordinator = _createBootstrapCoordinator(
+    proxyInitialized: proxyInitialized,
+  );
 
   runZonedGuarded(
-    () => runApp(const ProviderScope(child: KikoeruApp())),
+    () => runApp(
+      ProviderScope(
+        child: AppBootstrapGate(
+          coordinator: bootstrapCoordinator,
+          readyBuilder: (_) => const KikoeruApp(),
+        ),
+      ),
+    ),
     (error, stack) {
       LogService.instance.error('$error\n$stack', tag: 'Zone');
     },
@@ -448,9 +500,11 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
-      PlaybackHistoryService.instance
-          .flushNow(reason: FlushReason.appBackground);
+      PlaybackHistoryService.instance.flushNow(
+        reason: FlushReason.appBackground,
+      );
       AudioPlayerService.instance.persistPlaybackPosition();
+      unawaited(DownloadService.instance.flushPendingWrites());
     }
   }
 
@@ -459,6 +513,7 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
     // 桌面端关闭窗口时 flush 播放历史
     await PlaybackHistoryService.instance.flushNow(reason: FlushReason.dispose);
     await AudioPlayerService.instance.persistPlaybackPosition();
+    await DownloadService.instance.flushPendingWrites();
     if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
       // 关闭主窗口时，同时关闭悬浮字幕窗口
       await FloatingLyricService.instance.hide();
@@ -511,12 +566,12 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
         // 根据用户设置决定是否使用动态颜�?
         final ColorScheme? lightScheme =
             themeSettings.colorSchemeType == ColorSchemeType.dynamic
-                ? lightDynamic
-                : null;
+            ? lightDynamic
+            : null;
         final ColorScheme? darkScheme =
             themeSettings.colorSchemeType == ColorSchemeType.dynamic
-                ? darkDynamic
-                : null;
+            ? darkDynamic
+            : null;
 
         // 根据用户设置决定主题模式
         final requestedMode = switch (themeSettings.themeMode) {

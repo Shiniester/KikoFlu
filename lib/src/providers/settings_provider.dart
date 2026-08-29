@@ -26,11 +26,12 @@ class LiquidGlassNavigationNotifier extends StateNotifier<bool> {
     _loadPreference();
   }
 
+  static bool get _isApplePlatform =>
+      defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.macOS;
+
   static bool defaultForCapabilities(LiquidGlassCapabilities? capabilities) {
-    final isApplePlatform =
-        defaultTargetPlatform == TargetPlatform.iOS ||
-        defaultTargetPlatform == TargetPlatform.macOS;
-    return isApplePlatform && capabilities?.nativeGlass == true;
+    return _isApplePlatform && capabilities?.nativeGlass == true;
   }
 
   static bool get defaultValue =>
@@ -45,6 +46,11 @@ class LiquidGlassNavigationNotifier extends StateNotifier<bool> {
       final savedValue = prefs.getBool(preferenceKey);
       if (savedValue != null) {
         state = savedValue;
+        return;
+      }
+
+      if (!_isApplePlatform) {
+        state = false;
         return;
       }
 

@@ -10,13 +10,16 @@ class StorageService {
   static late SharedPreferences _prefs;
 
   static Future<void> init() async {
-    // Initialize Hive boxes
-    _settingsBox = await Hive.openBox('settings');
-    _userBox = await Hive.openBox('users');
-    _cacheBox = await Hive.openBox('cache');
-
-    // Initialize SharedPreferences
-    _prefs = await SharedPreferences.getInstance();
+    final results = await Future.wait<dynamic>([
+      Hive.openBox('settings'),
+      Hive.openBox('users'),
+      Hive.openBox('cache'),
+      SharedPreferences.getInstance(),
+    ]);
+    _settingsBox = results[0] as Box;
+    _userBox = results[1] as Box;
+    _cacheBox = results[2] as Box;
+    _prefs = results[3] as SharedPreferences;
   }
 
   // Settings

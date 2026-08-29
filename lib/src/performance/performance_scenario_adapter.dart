@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../models/download_task.dart';
 import '../screens/downloads_screen.dart';
+import '../services/background_work_scheduler.dart';
 import '../services/download_service.dart';
 import '../services/subtitle_database.dart';
 import '../services/subtitle_library_service.dart';
+import '../widgets/lazy_indexed_stack.dart';
 import 'performance_download_counters.dart';
 
 /// Stable boundary used by both the v3.8.2 baseline and optimized candidate.
@@ -43,14 +45,15 @@ abstract interface class PerformanceScenarioAdapter {
 }
 
 PerformanceScenarioAdapter createPerformanceScenarioAdapter() {
-  return const LegacyPerformanceScenarioAdapter();
+  return const OptimizedPerformanceScenarioAdapter();
 }
 
-class LegacyPerformanceScenarioAdapter implements PerformanceScenarioAdapter {
-  const LegacyPerformanceScenarioAdapter();
+class OptimizedPerformanceScenarioAdapter
+    implements PerformanceScenarioAdapter {
+  const OptimizedPerformanceScenarioAdapter();
 
   @override
-  String get implementation => 'v3.8.2-legacy';
+  String get implementation => 'v3.8.2-optimized';
 
   @override
   Widget buildTabHost({
@@ -58,7 +61,11 @@ class LegacyPerformanceScenarioAdapter implements PerformanceScenarioAdapter {
     required Set<int> visitedIndices,
     required List<Widget> children,
   }) {
-    return IndexedStack(index: index, children: children);
+    return LazyIndexedStack(
+      index: index,
+      visitedIndices: visitedIndices,
+      children: children,
+    );
   }
 
   @override
@@ -85,7 +92,9 @@ class LegacyPerformanceScenarioAdapter implements PerformanceScenarioAdapter {
   }
 
   @override
-  Future<void> waitForBackgroundWork() async {}
+  Future<void> waitForBackgroundWork() {
+    return BackgroundWorkScheduler.instance.whenIdle();
+  }
 
   @override
   void injectDownloadTasks(List<DownloadTask> tasks) {
