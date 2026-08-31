@@ -156,6 +156,32 @@ void main() {
         expect(prefs.getBool('proxy_enabled'), isFalse);
       },
     );
+
+    test('can defer native proxy discovery past the critical path', () async {
+      const channel = MethodChannel('com.meteor.kikoeruflutter/system_proxy');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      var discoveryCalls = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        discoveryCalls++;
+        return 'http=proxy.example:8080';
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      SharedPreferences.setMockInitialValues({
+        'proxy_mode': 'manual',
+        'proxy_address': '127.0.0.1:7890',
+      });
+      final prefs = await SharedPreferences.getInstance();
+
+      await ProxyConfig.init(preferences: prefs, refreshSystemProxy: false);
+
+      expect(discoveryCalls, 0);
+      expect(ProxyConfig.mode, ProxyMode.manual);
+      expect(ProxyConfig.address, '127.0.0.1:7890');
+
+      await ProxyConfig.refreshSystemProxy();
+      expect(discoveryCalls, 1);
+    });
   });
 
   test('uses native system proxy entries by URI scheme', () async {

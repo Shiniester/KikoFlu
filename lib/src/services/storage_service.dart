@@ -8,18 +8,63 @@ class StorageService {
   static late Box _userBox;
   static late Box _cacheBox;
   static late SharedPreferences _prefs;
+  static Future<void>? _criticalInitFuture;
+  static Future<void>? _secondaryInitFuture;
+  static bool _criticalInitialized = false;
+  static bool _secondaryInitialized = false;
 
-  static Future<void> init() async {
-    final results = await Future.wait<dynamic>([
-      Hive.openBox('settings'),
-      Hive.openBox('users'),
-      Hive.openBox('cache'),
-      SharedPreferences.getInstance(),
-    ]);
-    _settingsBox = results[0] as Box;
-    _userBox = results[1] as Box;
-    _cacheBox = results[2] as Box;
-    _prefs = results[3] as SharedPreferences;
+  static Future<void> init({SharedPreferences? preferences}) async {
+    await initCritical(preferences: preferences);
+    await initSecondary();
+  }
+
+  /// Opens only the stores required to restore the current account and build
+  /// the first interactive frame.
+  static Future<void> initCritical({SharedPreferences? preferences}) {
+    if (_criticalInitialized) {
+      if (preferences != null) _prefs = preferences;
+      return Future.value();
+    }
+    return _criticalInitFuture ??= _initializeCritical(preferences);
+  }
+
+  static Future<void> _initializeCritical(
+    SharedPreferences? preferences,
+  ) async {
+    try {
+      final results = await Future.wait<dynamic>([
+        Hive.openBox('users'),
+        preferences == null
+            ? SharedPreferences.getInstance()
+            : Future<SharedPreferences>.value(preferences),
+      ]);
+      _userBox = results[0] as Box;
+      _prefs = results[1] as SharedPreferences;
+      _criticalInitialized = true;
+    } finally {
+      _criticalInitFuture = null;
+    }
+  }
+
+  /// Opens legacy settings/cache boxes after the first frame. Their format and
+  /// APIs remain unchanged for compatibility with existing data and callers.
+  static Future<void> initSecondary() {
+    if (_secondaryInitialized) return Future.value();
+    return _secondaryInitFuture ??= _initializeSecondary();
+  }
+
+  static Future<void> _initializeSecondary() async {
+    try {
+      final results = await Future.wait<Box>([
+        Hive.openBox('settings'),
+        Hive.openBox('cache'),
+      ]);
+      _settingsBox = results[0];
+      _cacheBox = results[1];
+      _secondaryInitialized = true;
+    } finally {
+      _secondaryInitFuture = null;
+    }
   }
 
   // Settings

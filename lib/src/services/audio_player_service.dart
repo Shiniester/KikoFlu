@@ -459,9 +459,12 @@ class AudioPlayerService {
     }
 
     try {
-      // 清理上一首歌创建的临时文件
-      await _cleanupTempPlaybackFile();
-      await _hapticsService.stop();
+      // Cleanup and haptics teardown are independent. Neither should add a
+      // second serial wait to every user-initiated track switch.
+      await Future.wait<void>([
+        _cleanupTempPlaybackFile(),
+        _hapticsService.stop(),
+      ]);
 
       String? audioFilePath;
       String? fallbackStreamUrl;
@@ -544,18 +547,19 @@ class AudioPlayerService {
       }
 
       // Do not replace system Now Playing metadata until the source itself is
-      // known to be usable. Metadata failure must not invalidate playable audio.
-      try {
-        await _updateMediaItem(
+      // known to be usable. Artwork/privacy processing is not on the playback
+      // ready path and must not inflate switch latency.
+      unawaited(
+        _updateMediaItem(
           track,
           privacyEnabled: _privacyEnabled,
           blurCover: _privacyBlurCover,
           maskTitle: _privacyMaskTitle,
           customTitle: _privacyCustomTitle,
-        );
-      } catch (error) {
-        _log.captureOutput('[Audio] Failed to update media item: $error');
-      }
+        ).catchError((Object error, StackTrace stackTrace) {
+          _log.captureOutput('[Audio] Failed to update media item: $error');
+        }),
+      );
     } catch (e) {
       _emitPlaybackDiagnostic(
         PlaybackDiagnosticEventType.trackLoadFailed,
@@ -575,8 +579,8 @@ class AudioPlayerService {
     if (emitCurrentTrack) {
       _currentTrackController.add(track);
     }
-    await persistPlaybackSession();
     _emitPlaybackDiagnostic(PlaybackDiagnosticEventType.trackReady, track);
+    unawaited(persistPlaybackSession());
   }
 
   // Update media item for system notification

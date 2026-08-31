@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -263,26 +264,66 @@ Future<void> _initializeHiveBackend() async {
   }
 }
 
-Future<void> _initializeCriticalServices({
-  required bool proxyInitialized,
-}) async {
-  final proxyFuture = proxyInitialized
-      ? Future<void>.value()
-      : ProxyConfig.init();
-  final accountDatabaseFuture = AccountDatabase.instance.database;
-  final orientationFuture = SystemChrome.setPreferredOrientations([
+Future<T> _runBootstrapTask<T>(String name, Future<T> Function() task) async {
+  final stopwatch = Stopwatch()..start();
+  final timeline = developer.TimelineTask()..start('app.bootstrap.$name');
+  var failed = false;
+  try {
+    return await task();
+  } catch (_) {
+    failed = true;
+    rethrow;
+  } finally {
+    stopwatch.stop();
+    final elapsedMs = stopwatch.elapsedMicroseconds / 1000;
+    timeline.finish(arguments: {'durationMs': elapsedMs, 'failed': failed});
+    PerformanceRecorder.instance.recordMetric(
+      'bootstrap${name.split('-').map((part) => '${part[0].toUpperCase()}${part.substring(1)}').join()}Ms',
+      elapsedMs,
+    );
+  }
+}
+
+Future<void> _setPreferredOrientations() {
+  return SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
+}
 
-  await _initializeHiveBackend();
+Future<void> _initializeCriticalServices({
+  required bool proxyInitialized,
+}) async {
+  final preferencesFuture = _runBootstrapTask(
+    'preferences',
+    SharedPreferences.getInstance,
+  );
+  final hiveFuture = _runBootstrapTask('hive-backend', _initializeHiveBackend);
+  final proxyFuture = proxyInitialized
+      ? Future<void>.value()
+      : _runBootstrapTask('proxy-settings', () async {
+          final preferences = await preferencesFuture;
+          await ProxyConfig.init(
+            preferences: preferences,
+            refreshSystemProxy: false,
+          );
+        });
+  final accountDatabaseFuture = _runBootstrapTask('account-database', () async {
+    await AccountDatabase.instance.database;
+  });
+  final storageFuture = _runBootstrapTask('storage-critical', () async {
+    final results = await Future.wait<dynamic>([hiveFuture, preferencesFuture]);
+    await StorageService.initCritical(
+      preferences: results[1] as SharedPreferences,
+    );
+  });
+
   await Future.wait<dynamic>([
     proxyFuture,
     accountDatabaseFuture,
-    orientationFuture,
-    StorageService.init(),
+    storageFuture,
   ]);
   HttpOverrides.global = KikoFluHttpOverrides();
 
@@ -299,23 +340,46 @@ Future<void> _initializeCriticalServices({
 AppBootstrapCoordinator _createBootstrapCoordinator({
   required bool proxyInitialized,
 }) {
+  final deferredTasks = <DeferredBootstrapTask>[
+    if (!proxyInitialized)
+      const DeferredBootstrapTask(
+        key: 'system-proxy-refresh',
+        priority: BackgroundWorkPriority.startup,
+        run: ProxyConfig.refreshSystemProxy,
+      ),
+    const DeferredBootstrapTask(
+      key: 'storage-secondary',
+      priority: BackgroundWorkPriority.startup,
+      run: StorageService.initSecondary,
+    ),
+    const DeferredBootstrapTask(
+      key: 'preferred-orientations',
+      priority: BackgroundWorkPriority.startup,
+      run: _setPreferredOrientations,
+    ),
+    DeferredBootstrapTask(
+      key: 'download-reconcile',
+      priority: BackgroundWorkPriority.startup,
+      run: DownloadService.instance.initialize,
+    ),
+    DeferredBootstrapTask(
+      key: 'cache-maintenance',
+      priority: BackgroundWorkPriority.maintenance,
+      run: () async {
+        try {
+          await CacheService.checkAndCleanCache(force: true);
+        } finally {
+          // The inventory is derived data. Release its potentially large entry
+          // list after startup maintenance instead of retaining it for hours.
+          CacheService.invalidateCacheInventory();
+        }
+      },
+    ),
+  ];
   return AppBootstrapCoordinator(
     initializeCritical: () =>
         _initializeCriticalServices(proxyInitialized: proxyInitialized),
-    deferredTasks: [
-      DeferredBootstrapTask(
-        key: 'download-reconcile',
-        priority: BackgroundWorkPriority.startup,
-        run: DownloadService.instance.initialize,
-      ),
-      DeferredBootstrapTask(
-        key: 'cache-maintenance',
-        priority: BackgroundWorkPriority.maintenance,
-        run: () async {
-          await CacheService.checkAndCleanCache(force: true);
-        },
-      ),
-    ],
+    deferredTasks: deferredTasks,
   );
 }
 
@@ -445,10 +509,35 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       PerformanceRecorder.instance.markFirstInteractive();
       _initPlaybackHistoryService();
-      ref.read(audioPlayerControllerProvider.notifier).initialize();
-
-      // Silent update check on startup
-      _checkForUpdates();
+      final scheduler = BackgroundWorkScheduler.instance;
+      unawaited(
+        scheduler
+            .schedule<void>(
+              key: 'playback-restore',
+              priority: BackgroundWorkPriority.userInitiated,
+              task: ref.read(audioPlayerControllerProvider.notifier).initialize,
+            )
+            .catchError((Object error, StackTrace stackTrace) {
+              LogService.instance.error(
+                '$error\n$stackTrace',
+                tag: 'AudioBootstrap',
+              );
+            }),
+      );
+      unawaited(
+        scheduler
+            .schedule<void>(
+              key: 'startup-update-check',
+              priority: BackgroundWorkPriority.maintenance,
+              task: _checkForUpdates,
+            )
+            .catchError((Object error, StackTrace stackTrace) {
+              LogService.instance.error(
+                '$error\n$stackTrace',
+                tag: 'UpdateBootstrap',
+              );
+            }),
+      );
     });
   }
 

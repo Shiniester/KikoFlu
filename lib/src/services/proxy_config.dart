@@ -63,14 +63,22 @@ class ProxyConfig {
     return normalized == null ? null : 'http://$normalized';
   }
 
-  /// 启动时从 SharedPreferences 加载配置
-  static Future<void> init() async {
-    SharedPreferences? prefs;
-    try {
-      prefs = await SharedPreferences.getInstance();
-    } catch (_) {
-      // Preferences may be unavailable during a platform bootstrap. Keep the
-      // new system default and still attempt native proxy discovery below.
+  /// 启动时从 SharedPreferences 加载配置。
+  ///
+  /// Mobile bootstrap can defer the native system-proxy channel call until
+  /// after the first frame while still installing the persisted proxy mode.
+  static Future<void> init({
+    SharedPreferences? preferences,
+    bool refreshSystemProxy = true,
+  }) async {
+    var prefs = preferences;
+    if (prefs == null) {
+      try {
+        prefs = await SharedPreferences.getInstance();
+      } catch (_) {
+        // Preferences may be unavailable during a platform bootstrap. Keep
+        // the new system default and optionally attempt discovery below.
+      }
     }
 
     final storedMode = prefs?.getString(_keyMode);
@@ -96,7 +104,7 @@ class ProxyConfig {
       }
     }
 
-    await refreshSystemProxy();
+    if (refreshSystemProxy) await ProxyConfig.refreshSystemProxy();
   }
 
   /// 保存配置（同时更新内存中的值）

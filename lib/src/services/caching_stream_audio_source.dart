@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 // ignore_for_file: experimental_member_use
@@ -11,15 +10,25 @@ class CachingStreamAudioSource extends StreamAudioSource {
   CachingStreamAudioSource({
     required this.uri,
     required this.hash,
-  });
+    HttpClient? client,
+  }) : _clientOverride = client;
+
+  static final HttpClient _sharedClient = _createClient();
 
   final Uri uri;
   final String hash;
+  final HttpClient? _clientOverride;
+
+  static HttpClient _createClient() {
+    return HttpClient()
+      ..connectionTimeout = const Duration(seconds: 15)
+      ..idleTimeout = const Duration(seconds: 30);
+  }
 
   @override
   Future<StreamAudioResponse> request([int? start, int? end]) async {
     final resolvedStart = start ?? 0;
-    final client = HttpClient();
+    final client = _clientOverride ?? _sharedClient;
     final request = await client.getUrl(uri);
 
     if (resolvedStart != 0 || end != null) {
@@ -39,7 +48,7 @@ class CachingStreamAudioSource extends StreamAudioSource {
     final response = await request.close();
 
     if (response.statusCode >= 400) {
-      client.close(force: true);
+      await response.drain<void>();
       throw HttpException(
         'Failed to load audio (status: ${response.statusCode})',
         uri: uri,
@@ -52,73 +61,69 @@ class CachingStreamAudioSource extends StreamAudioSource {
         : (totalLength != null ? totalLength - resolvedStart : null);
     final contentType = response.headers.contentType?.toString();
 
-    final controller = StreamController<List<int>>();
     final tempFile = await CacheService.prepareAudioCacheTempFile(hash);
     final existingLength = await tempFile.length();
 
     // 非顺序请求时，仅做透传，不写入缓存
     if (resolvedStart != existingLength) {
-      () async {
-        try {
-          await for (final chunk in response) {
-            controller.add(chunk);
-          }
-          await controller.close();
-        } catch (error, stackTrace) {
-          controller.addError(error, stackTrace);
-          await controller.close();
-        } finally {
-          client.close();
-        }
-      }();
-
       return StreamAudioResponse(
         sourceLength: totalLength,
         contentLength: responseLength,
         offset: resolvedStart,
-        stream: controller.stream,
+        stream: response,
         contentType: contentType ?? 'application/octet-stream',
       );
     }
-
-    final raf = await tempFile.open(mode: FileMode.writeOnlyAppend);
-
-    () async {
-      try {
-        await for (final chunk in response) {
-          controller.add(chunk);
-          await raf.writeFrom(chunk);
-        }
-        await raf.flush();
-        await raf.close();
-        await controller.close();
-
-        if (totalLength != null) {
-          final finalized = await CacheService.finalizeAudioCacheFile(
-            hash,
-            expectedSize: totalLength,
-          );
-          if (!finalized) {
-            await CacheService.resetAudioCachePartial(hash);
-          }
-        }
-      } catch (error, stackTrace) {
-        await raf.close();
-        await CacheService.resetAudioCachePartial(hash);
-        controller.addError(error, stackTrace);
-        await controller.close();
-      } finally {
-        client.close();
-      }
-    }();
 
     return StreamAudioResponse(
       sourceLength: totalLength,
       contentLength: responseLength,
       offset: resolvedStart,
-      stream: controller.stream,
+      stream: _streamAndCache(
+        response: response,
+        tempFile: tempFile,
+        totalLength: totalLength,
+      ),
       contentType: contentType ?? 'application/octet-stream',
     );
+  }
+
+  /// An async generator propagates downstream cancellation to the HTTP
+  /// response. Switching tracks therefore stops the abandoned transfer instead
+  /// of leaving dozens of old streams competing with the requested track.
+  Stream<List<int>> _streamAndCache({
+    required HttpClientResponse response,
+    required File tempFile,
+    required int? totalLength,
+  }) async* {
+    final raf = await tempFile.open(mode: FileMode.writeOnlyAppend);
+    var closed = false;
+    try {
+      await for (final chunk in response) {
+        // Deliver audio before waiting for the cache write to finish.
+        yield chunk;
+        await raf.writeFrom(chunk);
+      }
+      await raf.flush();
+      await raf.close();
+      closed = true;
+      if (totalLength != null) {
+        final finalized = await CacheService.finalizeAudioCacheFile(
+          hash,
+          expectedSize: totalLength,
+        );
+        if (!finalized) await CacheService.resetAudioCachePartial(hash);
+      }
+    } catch (_) {
+      if (!closed) {
+        await raf.close();
+        closed = true;
+      }
+      await CacheService.resetAudioCachePartial(hash);
+      rethrow;
+    } finally {
+      if (!closed) await raf.close();
+    }
   }
 
   int? _parseSourceLength(HttpHeaders headers, int start) {
