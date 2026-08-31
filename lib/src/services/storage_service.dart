@@ -32,14 +32,11 @@ class StorageService {
     SharedPreferences? preferences,
   ) async {
     try {
-      final results = await Future.wait<dynamic>([
-        Hive.openBox('users'),
-        preferences == null
-            ? SharedPreferences.getInstance()
-            : Future<SharedPreferences>.value(preferences),
-      ]);
-      _userBox = results[0] as Box;
-      _prefs = results[1] as SharedPreferences;
+      // The first route restores the current account from SharedPreferences.
+      // Saved-account management is not visible until its dedicated screen is
+      // opened, so opening Hive and its user box here only adds disk I/O to the
+      // first-interactive path.
+      _prefs = preferences ?? await SharedPreferences.getInstance();
       _criticalInitialized = true;
     } finally {
       _criticalInitFuture = null;
@@ -56,11 +53,13 @@ class StorageService {
   static Future<void> _initializeSecondary() async {
     try {
       final results = await Future.wait<Box>([
+        Hive.openBox('users'),
         Hive.openBox('settings'),
         Hive.openBox('cache'),
       ]);
-      _settingsBox = results[0];
-      _cacheBox = results[1];
+      _userBox = results[0];
+      _settingsBox = results[1];
+      _cacheBox = results[2];
       _secondaryInitialized = true;
     } finally {
       _secondaryInitFuture = null;
@@ -82,6 +81,7 @@ class StorageService {
 
   // User data
   static Future<void> setUser(String key, dynamic value) async {
+    await initSecondary();
     await _userBox.put(key, value);
   }
 
@@ -90,6 +90,7 @@ class StorageService {
   }
 
   static Future<void> removeUser(String key) async {
+    await initSecondary();
     await _userBox.delete(key);
   }
 

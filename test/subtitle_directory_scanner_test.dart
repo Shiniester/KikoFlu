@@ -72,4 +72,23 @@ void main() {
 
     await expectLater(future, throwsA(isA<ScanCancelledException>()));
   });
+
+  test('collects results spanning multiple isolate batches', () async {
+    final directory = Directory(
+      '${root.path}${Platform.pathSeparator}已解析'
+      '${Platform.pathSeparator}RJ7654321',
+    )..createSync(recursive: true);
+    for (var index = 0; index < 300; index++) {
+      File(
+        '${directory.path}${Platform.pathSeparator}track_$index.srt',
+      ).writeAsStringSync('$index');
+    }
+
+    final result = await const SubtitleDirectoryScanner().scan(
+      request: ScanRequest(rootPath: root.path, operation: 'test-batches'),
+    );
+
+    expect(result.value, hasLength(300));
+    expect(result.value.map((entry) => entry.fileName).toSet(), hasLength(300));
+  });
 }

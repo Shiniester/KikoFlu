@@ -29,7 +29,7 @@ class _AppBootstrapGateState extends State<AppBootstrapGate> {
   void initState() {
     super.initState();
     widget.coordinator.addListener(_handleStateChanged);
-    unawaited(widget.coordinator.start());
+    _startOrSchedule();
   }
 
   @override
@@ -39,7 +39,7 @@ class _AppBootstrapGateState extends State<AppBootstrapGate> {
     oldWidget.coordinator.removeListener(_handleStateChanged);
     widget.coordinator.addListener(_handleStateChanged);
     _deferredScheduled = false;
-    unawaited(widget.coordinator.start());
+    _startOrSchedule();
   }
 
   @override
@@ -52,15 +52,27 @@ class _AppBootstrapGateState extends State<AppBootstrapGate> {
   void _handleStateChanged() {
     if (!mounted) return;
     setState(() {});
-    if (widget.coordinator.state.isReady && !_deferredScheduled) {
-      _deferredScheduled = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        developer.Timeline.instantSync('app.bootstrap.firstInteractive');
-        PerformanceRecorder.instance.markFirstInteractive();
-        unawaited(widget.coordinator.runDeferred());
-      });
+    _scheduleDeferredIfReady();
+  }
+
+  void _startOrSchedule() {
+    final state = widget.coordinator.state;
+    if (state.isReady) {
+      _scheduleDeferredIfReady();
+    } else if (state.phase != BootstrapPhase.failed) {
+      unawaited(widget.coordinator.start());
     }
+  }
+
+  void _scheduleDeferredIfReady() {
+    if (!widget.coordinator.state.isReady || _deferredScheduled) return;
+    _deferredScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      developer.Timeline.instantSync('app.bootstrap.firstInteractive');
+      PerformanceRecorder.instance.markFirstInteractive();
+      unawaited(widget.coordinator.runDeferred());
+    });
   }
 
   @override

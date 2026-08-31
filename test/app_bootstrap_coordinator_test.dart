@@ -68,4 +68,36 @@ void main() {
     deferred.complete();
     await tester.pump();
   });
+
+  testWidgets('prestarted gate renders ready tree on its first frame', (
+    tester,
+  ) async {
+    var deferredRuns = 0;
+    final coordinator = AppBootstrapCoordinator(
+      initializeCritical: () async {},
+      scheduler: BackgroundWorkScheduler(),
+      deferredTasks: [
+        DeferredBootstrapTask(
+          key: 'deferred-prestarted',
+          run: () async => deferredRuns++,
+        ),
+      ],
+    );
+    await coordinator.start();
+
+    await tester.pumpWidget(
+      AppBootstrapGate(
+        coordinator: coordinator,
+        readyBuilder: (_) => const Directionality(
+          textDirection: TextDirection.ltr,
+          child: Text('ready-first-frame'),
+        ),
+      ),
+    );
+
+    expect(find.text('ready-first-frame'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    await tester.pump();
+    expect(deferredRuns, 1);
+  });
 }

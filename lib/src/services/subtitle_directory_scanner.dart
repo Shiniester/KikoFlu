@@ -53,6 +53,7 @@ class SubtitleDirectoryScanner {
     final stopwatch = Stopwatch()..start();
     final receivePort = ReceivePort();
     final completer = Completer<_SubtitleWorkerResult>();
+    final records = <SubtitleScanEntry>[];
     late final Isolate isolate;
 
     final subscription = receivePort.listen((message) {
@@ -75,15 +76,15 @@ class SubtitleDirectoryScanner {
               currentPath: message['currentPath'] as String?,
             ),
           );
+        case 'records':
+          final batch = (message['records']! as List<Object?>)
+              .cast<Map<Object?, Object?>>();
+          records.addAll(batch.map(SubtitleScanEntry.fromMessage));
         case 'result':
           if (completer.isCompleted) return;
-          final records = (message['records']! as List<Object?>)
-              .cast<Map<Object?, Object?>>()
-              .map(SubtitleScanEntry.fromMessage)
-              .toList(growable: false);
           completer.complete(
             _SubtitleWorkerResult(
-              records: records,
+              records: List<SubtitleScanEntry>.unmodifiable(records),
               scannedEntries: message['scannedEntries']! as int,
             ),
           );
@@ -144,10 +145,17 @@ void _subtitleScanWorker(Map<String, Object?> arguments) {
   final sendPort = arguments['sendPort']! as SendPort;
   final rootPath = arguments['rootPath']! as String;
   final directoryPath = arguments['directoryPath']! as String;
-  final records = <Map<String, Object?>>[];
+  var records = <Map<String, Object?>>[];
   var scannedEntries = 0;
 
   try {
+    void flushRecords() {
+      if (records.isEmpty) return;
+      final batch = records;
+      records = <Map<String, Object?>>[];
+      sendPort.send({'type': 'records', 'records': batch});
+    }
+
     void scanDirectory(Directory directory) {
       if (directory.path.length > 240) return;
 
@@ -191,6 +199,10 @@ void _subtitleScanWorker(Map<String, Object?> arguments) {
             'modifiedAt': stat.modified.toIso8601String(),
             'normalizedName': _computeNormalizedName(fileName),
           });
+          // Bound both the worker heap and the cross-isolate copy. The old
+          // implementation retained all 10,000 maps until the final send,
+          // temporarily overlapping them with their receiving-side copies.
+          if (records.length >= 128) flushRecords();
         } on FileSystemException {
           // The file may have moved while scanning. It will be picked up next
           // time instead of aborting the complete inventory.
@@ -199,11 +211,8 @@ void _subtitleScanWorker(Map<String, Object?> arguments) {
     }
 
     scanDirectory(Directory(directoryPath));
-    sendPort.send({
-      'type': 'result',
-      'records': records,
-      'scannedEntries': scannedEntries,
-    });
+    flushRecords();
+    sendPort.send({'type': 'result', 'scannedEntries': scannedEntries});
   } catch (error) {
     sendPort.send({'type': 'error', 'error': error.toString()});
   }

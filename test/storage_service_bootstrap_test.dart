@@ -8,7 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('critical storage defers legacy settings and cache boxes', () async {
+  test('critical storage defers all Hive boxes', () async {
     final root = await Directory.systemTemp.createTemp(
       'kikoflu-storage-bootstrap-',
     );
@@ -22,17 +22,17 @@ void main() {
 
     await StorageService.initCritical(preferences: preferences);
 
-    expect(Hive.isBoxOpen('users'), isTrue);
+    expect(Hive.isBoxOpen('users'), isFalse);
     expect(Hive.isBoxOpen('settings'), isFalse);
     expect(Hive.isBoxOpen('cache'), isFalse);
     expect(StorageService.getString('critical'), 'ready');
-    await StorageService.setUser('account', 'current');
-    expect(StorageService.getUser<String>('account'), 'current');
-
     await StorageService.initSecondary();
 
+    expect(Hive.isBoxOpen('users'), isTrue);
     expect(Hive.isBoxOpen('settings'), isTrue);
     expect(Hive.isBoxOpen('cache'), isTrue);
+    await StorageService.setUser('account', 'current');
+    expect(StorageService.getUser<String>('account'), 'current');
     await StorageService.setSetting('theme', 'system');
     await StorageService.setCache('derived', 1);
     expect(StorageService.getSetting<String>('theme'), 'system');

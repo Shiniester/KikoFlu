@@ -310,21 +310,11 @@ Future<void> _initializeCriticalServices({
             refreshSystemProxy: false,
           );
         });
-  final accountDatabaseFuture = _runBootstrapTask('account-database', () async {
-    await AccountDatabase.instance.database;
-  });
   final storageFuture = _runBootstrapTask('storage-critical', () async {
-    final results = await Future.wait<dynamic>([hiveFuture, preferencesFuture]);
-    await StorageService.initCritical(
-      preferences: results[1] as SharedPreferences,
-    );
+    await StorageService.initCritical(preferences: await preferencesFuture);
   });
 
-  await Future.wait<dynamic>([
-    proxyFuture,
-    accountDatabaseFuture,
-    storageFuture,
-  ]);
+  await Future.wait<dynamic>([hiveFuture, proxyFuture, storageFuture]);
   HttpOverrides.global = KikoFluHttpOverrides();
 
   final appearanceTasks = <Future<void>>[];
@@ -351,6 +341,13 @@ AppBootstrapCoordinator _createBootstrapCoordinator({
       key: 'storage-secondary',
       priority: BackgroundWorkPriority.startup,
       run: StorageService.initSecondary,
+    ),
+    DeferredBootstrapTask(
+      key: 'account-database',
+      priority: BackgroundWorkPriority.startup,
+      run: () async {
+        await AccountDatabase.instance.database;
+      },
     ),
     const DeferredBootstrapTask(
       key: 'preferred-orientations',
@@ -461,6 +458,12 @@ void main(List<String> args) async {
   final bootstrapCoordinator = _createBootstrapCoordinator(
     proxyInitialized: proxyInitialized,
   );
+
+  // Complete only the small, retryable critical phase before constructing the
+  // first widget tree. This avoids building and tearing down a temporary
+  // MaterialApp before the real application while still allowing the gate to
+  // render its retry UI when critical initialization fails.
+  await bootstrapCoordinator.start();
 
   runZonedGuarded(
     () => runApp(

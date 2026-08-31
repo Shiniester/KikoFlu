@@ -814,7 +814,10 @@ class AudioPlayerService {
     if (_hapticsEnabled) {
       _hapticsService.start();
     }
-    await persistPlaybackPosition();
+    // Position persistence is serialized by the session store and is not
+    // required before audio starts. Keeping it off the user-visible play/switch
+    // path avoids a SharedPreferences round trip on every track change.
+    unawaited(persistPlaybackPosition());
 
     // macOS specific: Check if track completed immediately (workaround for immediate completion bug)
     if (Platform.isMacOS &&

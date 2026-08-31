@@ -7,13 +7,26 @@ import '../models/account.dart';
 class AccountDatabase {
   static final AccountDatabase instance = AccountDatabase._init();
   static Database? _database;
+  static Future<Database>? _databaseFuture;
 
   AccountDatabase._init();
 
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDB('accounts.db');
-    return _database!;
+    final existing = _databaseFuture;
+    if (existing != null) return existing;
+
+    late final Future<Database> opening;
+    opening = _initDB('accounts.db')
+        .then((database) {
+          _database = database;
+          return database;
+        })
+        .whenComplete(() {
+          if (identical(_databaseFuture, opening)) _databaseFuture = null;
+        });
+    _databaseFuture = opening;
+    return opening;
   }
 
   Future<Database> _initDB(String filePath) async {
@@ -82,11 +95,7 @@ class AccountDatabase {
   Future<Account?> getAccount(int id) async {
     final db = await database;
 
-    final maps = await db.query(
-      'accounts',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    final maps = await db.query('accounts', where: 'id = ?', whereArgs: [id]);
 
     if (maps.isNotEmpty) {
       return Account.fromMap(maps.first);
@@ -143,11 +152,7 @@ class AccountDatabase {
 
   Future<int> deleteAccount(int id) async {
     final db = await database;
-    return await db.delete(
-      'accounts',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    return await db.delete('accounts', where: 'id = ?', whereArgs: [id]);
   }
 
   Future<int> setActiveAccount(int id) async {
@@ -161,10 +166,7 @@ class AccountDatabase {
       // Activate the selected account and update lastUsedAt
       result = await txn.update(
         'accounts',
-        {
-          'isActive': 1,
-          'lastUsedAt': DateTime.now().toIso8601String(),
-        },
+        {'isActive': 1, 'lastUsedAt': DateTime.now().toIso8601String()},
         where: 'id = ?',
         whereArgs: [id],
       );
