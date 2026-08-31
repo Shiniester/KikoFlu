@@ -1,6 +1,6 @@
 # KikoFlu Android Profile 性能闭环
 
-这套工具在同一实体 Android 设备上运行 5 轮固定 Profile 场景，并追加一次真实账号的 Media3 soak。严格比较只接受 schema 2 报告；报告必须包含不同的 baseline/candidate Git SHA、相同 fixture SHA-256 和有效 thermal 状态。
+这套工具在同一实体 Android 设备上运行 5 轮固定 Profile 场景，并追加一次真实账号的 Media3 soak。严格比较只接受 schema 3 报告；报告必须包含不同的 baseline/candidate Git SHA、相同 fixture SHA-256、操作增量峰值 PSS 和有效 thermal 状态。
 
 ## 固定数据与场景
 

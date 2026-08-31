@@ -53,8 +53,8 @@ Future<void> main(List<String> arguments) async {
       (first['scenarioAdapterVersion'] as num?)?.toInt() ?? 0;
   final fixture = Map<String, Object?>.from(first['fixture']! as Map);
   final fixtureHash = fixture['contentHash']?.toString() ?? '';
-  if (schemaVersion < 2 || adapterVersion < 2 || fixtureHash.isEmpty) {
-    throw const FormatException('Run files do not use strict schema 2');
+  if (schemaVersion < 3 || adapterVersion < 3 || fixtureHash.isEmpty) {
+    throw const FormatException('Run files do not use strict schema 3');
   }
   for (final report in runReports.skip(1)) {
     if (report['schemaVersion'] != schemaVersion ||

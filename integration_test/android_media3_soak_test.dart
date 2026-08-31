@@ -139,7 +139,7 @@ void main() {
           diagnosticCounts[PlaybackDiagnosticEventType.cacheError.name] ?? 0;
 
       binding.reportData = {
-        'schemaVersion': 2,
+        'schemaVersion': 3,
         'label': label,
         'revision': revision,
         'fixtureHash': fixtureHash,

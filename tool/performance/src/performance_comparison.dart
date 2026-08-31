@@ -43,14 +43,25 @@ const defaultPerformanceRules = <PerformanceMetricRule>[
     PerformanceRuleKind.improveBy25Percent,
   ),
   PerformanceMetricRule(
-    'scanPeakPssMb',
+    'scanPeakPssDeltaMb',
     PerformanceRuleKind.improveBy25Percent,
+  ),
+  PerformanceMetricRule(
+    'scanPeakPssMb',
+    PerformanceRuleKind.noRegressionOver5Percent,
   ),
   PerformanceMetricRule(
     'zipImportDurationMs',
     PerformanceRuleKind.improveBy25Percent,
   ),
-  PerformanceMetricRule('zipPeakPssMb', PerformanceRuleKind.improveBy25Percent),
+  PerformanceMetricRule(
+    'zipPeakPssDeltaMb',
+    PerformanceRuleKind.improveBy25Percent,
+  ),
+  PerformanceMetricRule(
+    'zipPeakPssMb',
+    PerformanceRuleKind.noRegressionOver5Percent,
+  ),
   PerformanceMetricRule(
     'downloadListBuilds',
     PerformanceRuleKind.improveBy25Percent,
@@ -281,8 +292,8 @@ PerformanceComparison comparePerformanceReports(
   int requiredRuns = 5,
 }) {
   final errors = <String>[];
-  if (baseline.schemaVersion < 2 || candidate.schemaVersion < 2) {
-    errors.add('严格比较仅接受 schemaVersion 2 或更高版本');
+  if (baseline.schemaVersion < 3 || candidate.schemaVersion < 3) {
+    errors.add('严格比较仅接受 schemaVersion 3 或更高版本');
   }
   if (baseline.label != 'baseline' || candidate.label != 'candidate') {
     errors.add('报告标签必须分别为 baseline 与 candidate');
@@ -295,7 +306,7 @@ PerformanceComparison comparePerformanceReports(
   if (baseline.scenario.isEmpty || baseline.scenario != candidate.scenario) {
     errors.add('基线与候选的场景名称不一致');
   }
-  if (baseline.scenarioAdapterVersion < 2 ||
+  if (baseline.scenarioAdapterVersion < 3 ||
       baseline.scenarioAdapterVersion != candidate.scenarioAdapterVersion) {
     errors.add('基线与候选未使用同一稳定场景适配器');
   }

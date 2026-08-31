@@ -174,7 +174,8 @@ void main() {
           'scanDurationMs',
           scanMeasurement.stopwatch.elapsedMicroseconds / 1000,
         )
-        ..recordMetric('scanPeakPssMb', scanMeasurement.peakPssMb);
+        ..recordMetric('scanPeakPssMb', scanMeasurement.peakPssMb)
+        ..recordMetric('scanPeakPssDeltaMb', scanMeasurement.peakPssDeltaMb);
 
       final zipMeasurement = await _measurePeakPss(
         () => adapter.importSubtitleArchive(
@@ -188,7 +189,8 @@ void main() {
           'zipImportDurationMs',
           zipMeasurement.stopwatch.elapsedMicroseconds / 1000,
         )
-        ..recordMetric('zipPeakPssMb', zipMeasurement.peakPssMb);
+        ..recordMetric('zipPeakPssMb', zipMeasurement.peakPssMb)
+        ..recordMetric('zipPeakPssDeltaMb', zipMeasurement.peakPssDeltaMb);
     } finally {
       adapter.clearDownloadTasks();
       if (await outputRoot.exists()) {
@@ -197,9 +199,9 @@ void main() {
     }
 
     binding.reportData = {
-      'schemaVersion': 2,
-      'scenario': 'kikoflu-android-profile-v2',
-      'scenarioAdapterVersion': 2,
+      'schemaVersion': 3,
+      'scenario': 'kikoflu-android-profile-v3',
+      'scenarioAdapterVersion': 3,
       'adapterImplementation': adapter.implementation,
       'fixture': manifest.toReportJson(),
       'run': recorder.createRun(
@@ -316,10 +318,12 @@ Future<Map<String, dynamic>> _readObject(String path) async {
   return Map<String, dynamic>.from(decoded);
 }
 
-Future<({T value, Stopwatch stopwatch, double peakPssMb})> _measurePeakPss<T>(
-  Future<T> Function() operation,
-) async {
-  var peakPss = _currentPssBytes();
+Future<
+  ({T value, Stopwatch stopwatch, double peakPssMb, double peakPssDeltaMb})
+>
+_measurePeakPss<T>(Future<T> Function() operation) async {
+  final startingPss = _currentPssBytes();
+  var peakPss = startingPss;
   final timer = Timer.periodic(const Duration(milliseconds: 50), (_) {
     final current = _currentPssBytes();
     if (current > peakPss) peakPss = current;
@@ -327,11 +331,15 @@ Future<({T value, Stopwatch stopwatch, double peakPssMb})> _measurePeakPss<T>(
   final stopwatch = Stopwatch()..start();
   try {
     final value = await operation();
+    final finalPss = _currentPssBytes();
+    if (finalPss > peakPss) peakPss = finalPss;
     stopwatch.stop();
     return (
       value: value,
       stopwatch: stopwatch,
       peakPssMb: peakPss / (1024 * 1024),
+      peakPssDeltaMb:
+          (peakPss > startingPss ? peakPss - startingPss : 0) / (1024 * 1024),
     );
   } finally {
     timer.cancel();
@@ -364,7 +372,7 @@ Future<void> _waitForFirstInteractive(
   final timeout = Stopwatch()..start();
   while (recorder.metric('firstInteractiveMs') == null &&
       timeout.elapsed < const Duration(seconds: 90)) {
-    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 10));
   }
   expect(
     recorder.metric('firstInteractiveMs'),

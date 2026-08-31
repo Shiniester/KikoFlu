@@ -39,9 +39,28 @@ void main() {
     final result = comparePerformanceReports(baseline, candidate);
 
     expect(result.passed, isFalse);
-    expect(result.errors, contains(contains('schemaVersion 2')));
+    expect(result.errors, contains(contains('schemaVersion 3')));
     expect(result.errors, contains(contains('Git SHA')));
     expect(result.errors, contains(contains('已哈希数据集')));
+  });
+
+  test('rejects schema 3 reports missing incremental peak PSS', () {
+    final baseline = _report(
+      label: 'baseline',
+      revision: '1111111',
+      metrics: Map<String, double>.of(_baselineMetrics)
+        ..remove('scanPeakPssDeltaMb'),
+    );
+    final candidate = _report(
+      label: 'candidate',
+      revision: '2222222',
+      metrics: _passingMetrics,
+    );
+
+    final result = comparePerformanceReports(baseline, candidate);
+
+    expect(result.passed, isFalse);
+    expect(result.errors, contains('缺少验收指标: scanPeakPssDeltaMb'));
   });
 
   test('fails missing runs, hot runs, and progress latency breaches', () {
@@ -138,8 +157,10 @@ const _baselineMetrics = <String, double>{
   'playerFrameP95Ms': 24,
   'scanDurationMs': 1000,
   'scanPeakPssMb': 500,
+  'scanPeakPssDeltaMb': 200,
   'zipImportDurationMs': 5000,
   'zipPeakPssMb': 500,
+  'zipPeakPssDeltaMb': 300,
   'downloadListBuilds': 1000,
   'downloadTemporaryAllocations': 10000,
   'trackSwitchMedianMs': 200,
@@ -161,9 +182,11 @@ const _passingMetrics = <String, double>{
   'homeFrameP95Ms': 16.5,
   'playerFrameP95Ms': 15,
   'scanDurationMs': 700,
-  'scanPeakPssMb': 350,
+  'scanPeakPssMb': 510,
+  'scanPeakPssDeltaMb': 140,
   'zipImportDurationMs': 3500,
-  'zipPeakPssMb': 300,
+  'zipPeakPssMb': 490,
+  'zipPeakPssDeltaMb': 200,
   'downloadListBuilds': 700,
   'downloadTemporaryAllocations': 7000,
   'trackSwitchMedianMs': 120,
@@ -183,7 +206,7 @@ PerformanceReport _report({
   required String label,
   required String revision,
   required Map<String, double> metrics,
-  int schemaVersion = 2,
+  int schemaVersion = 3,
   int runs = 5,
   String thermalStatus = '1',
   Map<String, Object?> fixture = const {
@@ -193,10 +216,10 @@ PerformanceReport _report({
 }) {
   return PerformanceReport(
     schemaVersion: schemaVersion,
-    scenario: 'kikoflu-android-profile-v2',
+    scenario: 'kikoflu-android-profile-v3',
     label: label,
     revision: revision,
-    scenarioAdapterVersion: 2,
+    scenarioAdapterVersion: 3,
     device: const {
       'serial': 'device-1',
       'model': 'Pixel',
