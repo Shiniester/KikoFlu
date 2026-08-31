@@ -132,10 +132,6 @@ function Get-AppFixtureHash {
 }
 
 function Start-AppForDrive {
-  # Some OEM builds expose the system buffer for reading but reject clearing it.
-  # The VM service announcement is written to main, so scope both operations to
-  # that public buffer and avoid making an unrelated device permission fatal.
-  Invoke-Adb @('-s', $DeviceId, 'logcat', '-b', 'main', '-c') | Out-Null
   Invoke-Adb @('-s', $DeviceId, 'shell', 'am', 'force-stop', $packageName) | Out-Null
   Invoke-Adb @(
     '-s',
@@ -148,12 +144,22 @@ function Start-AppForDrive {
   ) | Out-Null
 
   for ($attempt = 1; $attempt -le 120; $attempt++) {
-    $logs = & $adbExecutable -s $DeviceId logcat -b main -d -v brief 2>$null
-    $match = [regex]::Match(
+    $pidOutput = & $adbExecutable -s $DeviceId shell pidof $packageName 2>$null
+    $appPid = (($pidOutput -join '') -split '\s+')[0]
+    if (-not $appPid) {
+      Start-Sleep -Milliseconds 250
+      continue
+    }
+
+    # Reading only the newly started process avoids stale VM service entries and
+    # works on OEM builds that reject clearing every logcat buffer over USB.
+    $logs = & $adbExecutable -s $DeviceId logcat -b main --pid=$appPid -d -v brief 2>$null
+    $matches = [regex]::Matches(
       ($logs -join "`n"),
       'The Dart VM service is listening on (http://[^\s]+)'
     )
-    if ($match.Success) {
+    if ($matches.Count -gt 0) {
+      $match = $matches[$matches.Count - 1]
       $deviceUri = [uri]$match.Groups[1].Value
       $hostPortText = Invoke-Adb @(
         '-s',
