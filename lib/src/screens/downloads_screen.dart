@@ -256,6 +256,9 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
   }
 
   Widget _buildTaskTile(DownloadTask task) {
+    if (DownloadService.performanceMode) {
+      DownloadService.instance.debugRecordPerformanceTaskRowBuild();
+    }
     final isSelected = _selectedTaskIds.contains(task.id);
 
     return ListTile(

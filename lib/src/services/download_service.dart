@@ -5,6 +5,8 @@ import 'package:dio/dio.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/download_task.dart';
+import '../performance/performance_build_guard.dart';
+import '../performance/performance_download_counters.dart';
 import '../utils/file_icon_utils.dart';
 import 'cache_service.dart';
 import 'storage_service.dart';
@@ -30,6 +32,10 @@ class DownloadService {
   final StreamController<List<DownloadTask>> _tasksController =
       StreamController<List<DownloadTask>>.broadcast();
   final List<DownloadTask> _tasks = [];
+  List<DownloadTask>? _tasksBeforePerformanceFixture;
+  bool _performanceFixtureActive = false;
+  int _performanceTaskRowBuilds = 0;
+  int _performanceTemporaryListAllocations = 0;
   final Dio _dio = Dio();
   final LocalWorkMetadataService _localMetadataService =
       const LocalWorkMetadataService();
@@ -44,7 +50,83 @@ class DownloadService {
   bool _needsSave = false;
 
   Stream<List<DownloadTask>> get tasksStream => _tasksController.stream;
-  List<DownloadTask> get tasks => List.unmodifiable(_tasks);
+  List<DownloadTask> get tasks {
+    if (_performanceFixtureActive) {
+      _performanceTemporaryListAllocations++;
+    }
+    return List.unmodifiable(_tasks);
+  }
+
+  static const bool performanceMode = PerformanceBuildGuard.enabled;
+
+  /// Installs an in-memory task fixture for the real downloads screen.
+  ///
+  /// The previous task list is retained and restored by
+  /// [debugClearPerformanceTasks]. No fixture task is persisted.
+  void debugInjectPerformanceTasks(List<DownloadTask> tasks) {
+    PerformanceBuildGuard.requireEnabled('download task fixture injection');
+    _tasksBeforePerformanceFixture ??= List<DownloadTask>.of(_tasks);
+    _performanceFixtureActive = true;
+    _tasks
+      ..clear()
+      ..addAll(tasks);
+    _emitPerformanceTaskSnapshot();
+  }
+
+  void debugAdvancePerformanceTasks(int tick) {
+    PerformanceBuildGuard.requireEnabled('download task fixture update');
+    if (!_performanceFixtureActive) {
+      throw StateError('Performance download tasks have not been injected.');
+    }
+    final activeIndexes = <int>[];
+    for (var index = 0; index < _tasks.length; index++) {
+      if (_tasks[index].status == DownloadStatus.downloading) {
+        activeIndexes.add(index);
+      }
+    }
+    for (final index in activeIndexes.take(3)) {
+      final task = _tasks[index];
+      final total = task.totalBytes ?? 20 * 1024 * 1024;
+      final downloaded = (tick * 1024 * 1024).clamp(0, total);
+      _tasks[index] = task.copyWith(downloadedBytes: downloaded);
+      _emitPerformanceTaskSnapshot();
+    }
+  }
+
+  void debugRecordPerformanceTaskRowBuild() {
+    if (_performanceFixtureActive) _performanceTaskRowBuilds++;
+  }
+
+  void debugResetPerformanceCounters() {
+    PerformanceBuildGuard.requireEnabled('download performance counters');
+    _performanceTaskRowBuilds = 0;
+    _performanceTemporaryListAllocations = 0;
+  }
+
+  PerformanceDownloadCounters get debugPerformanceCounters {
+    PerformanceBuildGuard.requireEnabled('download performance counters');
+    return PerformanceDownloadCounters(
+      taskRowBuilds: _performanceTaskRowBuilds,
+      temporaryListAllocations: _performanceTemporaryListAllocations,
+    );
+  }
+
+  void debugClearPerformanceTasks() {
+    PerformanceBuildGuard.requireEnabled('download task fixture cleanup');
+    final previous = _tasksBeforePerformanceFixture;
+    if (previous == null) return;
+    _tasks
+      ..clear()
+      ..addAll(previous);
+    _tasksBeforePerformanceFixture = null;
+    _performanceFixtureActive = false;
+    _tasksController.add(List<DownloadTask>.of(_tasks));
+  }
+
+  void _emitPerformanceTaskSnapshot() {
+    _performanceTemporaryListAllocations++;
+    _tasksController.add(List<DownloadTask>.of(_tasks));
+  }
 
   // 获取正在下载或等待下载的任务数量
   int get activeDownloadCount => _tasks

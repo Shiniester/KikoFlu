@@ -43,6 +43,7 @@ import 'src/utils/desktop_window_options.dart';
 import 'src/utils/global_keys.dart';
 import 'src/utils/system_ui_style.dart';
 import 'src/widgets/screen_awake_observer.dart';
+import 'src/performance/performance_recorder.dart';
 
 void _setEnv(String key, String value) {
   if (Platform.isWindows) {
@@ -246,6 +247,7 @@ sub-auto=no
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  PerformanceRecorder.instance.start();
 
   if (Platform.isAndroid) {
     await enableEdgeToEdgeSystemUi();
@@ -389,6 +391,7 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
     }
     // Initialize audio and video services
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      PerformanceRecorder.instance.markFirstInteractive();
       _initPlaybackHistoryService();
       ref.read(audioPlayerControllerProvider.notifier).initialize();
 

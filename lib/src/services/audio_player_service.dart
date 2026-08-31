@@ -10,6 +10,8 @@ import 'package:smtc_windows/smtc_windows.dart';
 
 import '../models/audio_track.dart';
 import '../models/audio_gain_settings.dart';
+import '../models/playback_diagnostic_event.dart';
+import '../performance/performance_build_guard.dart';
 import 'cache_service.dart';
 import 'caching_stream_audio_source.dart';
 import 'audio_haptics_service.dart';
@@ -20,6 +22,7 @@ import 'download_path_service.dart';
 import 'storage_service.dart';
 import '../utils/image_blur_util.dart';
 import '../utils/local_file_url.dart';
+import '../utils/reorder_utils.dart';
 
 final _log = LogService.instance;
 
@@ -117,6 +120,11 @@ class AudioPlayerService {
       StreamController.broadcast();
   final StreamController<bool> _trackLoadingController =
       StreamController<bool>.broadcast();
+  final StreamController<PlaybackDiagnosticEvent>
+  _playbackDiagnosticController =
+      StreamController<PlaybackDiagnosticEvent>.broadcast(sync: true);
+  final List<PlaybackDiagnosticEvent> _playbackDiagnostics = [];
+  ProcessingState? _lastDiagnosticProcessingState;
 
   // Initialize the service
   Future<void> initialize() async {
@@ -251,6 +259,17 @@ class AudioPlayerService {
 
     // Listen to player state changes
     _player.playerStateStream.listen((state) {
+      if (state.processingState == ProcessingState.buffering &&
+          _lastDiagnosticProcessingState != ProcessingState.buffering &&
+          !_isSwitchingTrack &&
+          state.playing &&
+          _player.position > Duration.zero) {
+        _emitPlaybackDiagnostic(
+          PlaybackDiagnosticEventType.unexpectedBuffering,
+          currentTrack,
+        );
+      }
+      _lastDiagnosticProcessingState = state.processingState;
       if (state.processingState == ProcessingState.completed) {
         if (Platform.isMacOS) {
           // macOS: Use dedicated handler to prevent duplicate triggers
@@ -402,6 +421,10 @@ class AudioPlayerService {
     AudioTrack track, {
     bool emitCurrentTrack = true,
   }) async {
+    _emitPlaybackDiagnostic(
+      PlaybackDiagnosticEventType.trackLoadStarted,
+      track,
+    );
     final localPath = LocalFileUrl.pathFromUrl(track.url);
     final sourceUri = Uri.tryParse(track.url);
     final sourceKind = localPath != null
@@ -498,6 +521,11 @@ class AudioPlayerService {
             _log.captureOutput('[Audio] 流式播放并写入缓存: ${track.title}');
             loaded = true;
           } catch (error) {
+            _emitPlaybackDiagnostic(
+              PlaybackDiagnosticEventType.cacheError,
+              track,
+              error: error,
+            );
             _log.captureOutput('[Audio] 构建缓存流失败，回退到直接流式: $error');
           }
         }
@@ -524,6 +552,11 @@ class AudioPlayerService {
         _log.captureOutput('[Audio] Failed to update media item: $error');
       }
     } catch (e) {
+      _emitPlaybackDiagnostic(
+        PlaybackDiagnosticEventType.trackLoadFailed,
+        track,
+        error: e,
+      );
       _log.captureOutput('Error loading audio source: $e');
       rethrow;
     } finally {
@@ -538,6 +571,7 @@ class AudioPlayerService {
       _currentTrackController.add(track);
     }
     await persistPlaybackSession();
+    _emitPlaybackDiagnostic(PlaybackDiagnosticEventType.trackReady, track);
   }
 
   // Update media item for system notification
@@ -703,6 +737,11 @@ class AudioPlayerService {
       succeeded = true;
       _log.captureOutput('[Audio] 预加载下一首完成: ${track.title}');
     } catch (e) {
+      _emitPlaybackDiagnostic(
+        PlaybackDiagnosticEventType.cacheError,
+        track,
+        error: e,
+      );
       _log.captureOutput('[Audio] 预加载下一首失败: ${track.title} - $e');
     } finally {
       if (!succeeded && _prefetchedNextHash == hash) {
@@ -772,6 +811,11 @@ class AudioPlayerService {
     // lifetime of the track.
     unawaited(
       playback.catchError((Object error, StackTrace stackTrace) {
+        _emitPlaybackDiagnostic(
+          PlaybackDiagnosticEventType.playbackError,
+          currentTrack,
+          error: error,
+        );
         _log.captureOutput('[Audio] Playback failed: $error');
       }),
     );
@@ -901,22 +945,10 @@ class AudioPlayerService {
   }
 
   Future<void> moveTrack(int oldIndex, int newIndex) async {
-    if (oldIndex < 0 || oldIndex >= _queue.length) return;
-
-    if (newIndex < 0) {
-      newIndex = 0;
-    } else if (newIndex > _queue.length) {
-      newIndex = _queue.length;
-    }
-
-    if (oldIndex == newIndex) return;
-
     final currentTrackId = (_queue.isNotEmpty && _currentIndex < _queue.length)
         ? _queue[_currentIndex].id
         : null;
-
-    final track = _queue.removeAt(oldIndex);
-    _queue.insert(newIndex, track);
+    if (!reorderByFinalIndex(_queue, oldIndex, newIndex)) return;
 
     if (currentTrackId != null) {
       final updatedIndex = _queue.indexWhere(
@@ -1126,6 +1158,18 @@ class AudioPlayerService {
   Stream<List<AudioTrack>> get queueStream => _queueController.stream;
   Stream<AudioTrack?> get currentTrackStream => _currentTrackController.stream;
   Stream<bool> get trackLoadingStream => _trackLoadingController.stream;
+  Stream<PlaybackDiagnosticEvent> get playbackDiagnosticEventStream =>
+      _playbackDiagnosticController.stream;
+
+  List<PlaybackDiagnosticEvent> get debugPlaybackDiagnostics {
+    PerformanceBuildGuard.requireEnabled('playback diagnostics');
+    return List<PlaybackDiagnosticEvent>.unmodifiable(_playbackDiagnostics);
+  }
+
+  void debugClearPlaybackDiagnostics() {
+    PerformanceBuildGuard.requireEnabled('playback diagnostics');
+    _playbackDiagnostics.clear();
+  }
 
   Duration get position => _player.position;
   Duration? get duration => _player.duration;
@@ -1142,6 +1186,23 @@ class AudioPlayerService {
 
   bool get hasNext => _currentIndex < _queue.length - 1;
   bool get hasPrevious => _currentIndex > 0;
+
+  void _emitPlaybackDiagnostic(
+    PlaybackDiagnosticEventType type,
+    AudioTrack? track, {
+    Object? error,
+  }) {
+    if (!PerformanceBuildGuard.enabled) return;
+    final event = PlaybackDiagnosticEvent(
+      type: type,
+      timestamp: DateTime.now().toUtc(),
+      trackKey: track?.hash ?? track?.id,
+      workId: track?.workId,
+      detail: error?.runtimeType.toString(),
+    );
+    _playbackDiagnostics.add(event);
+    _playbackDiagnosticController.add(event);
+  }
 
   // Audio settings
   Future<void> setRepeatMode(LoopMode mode) async {
@@ -1261,6 +1322,7 @@ class AudioPlayerService {
     await _cleanupTempPlaybackFile();
     await _queueController.close();
     await _currentTrackController.close();
+    await _playbackDiagnosticController.close();
     await _player.dispose();
   }
 

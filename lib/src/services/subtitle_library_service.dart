@@ -243,6 +243,20 @@ class SubtitleLibraryService {
     }
   }
 
+  /// Scans an explicitly supplied source path through the same user-level
+  /// record parser used by the subtitle library database rebuild.
+  static Future<List<SubtitleFileRecord>> scanDirectoryFromPath(
+    String sourcePath,
+  ) async {
+    final source = Directory(sourcePath);
+    if (!await source.exists()) {
+      throw FileSystemException('字幕扫描目录不存在', sourcePath);
+    }
+    final records = <SubtitleFileRecord>[];
+    await _scanDirectoryForRecords(source, source.path, records);
+    return List<SubtitleFileRecord>.unmodifiable(records);
+  }
+
   /// 同步单个目录到数据库（删除旧记录 + 重新扫描）
   static Future<void> _syncDirectoryToDatabase(String directoryPath) async {
     final libraryDir = await getSubtitleLibraryDirectory();
@@ -736,7 +750,40 @@ class SubtitleLibraryService {
         );
       }
 
-      final archiveFile = File(platformFile.path!);
+      return importArchiveFromPath(
+        platformFile.path!,
+        displayName: platformFile.name,
+        extension: platformFile.extension,
+        onProgress: onProgress,
+      );
+    } catch (e) {
+      return ImportResult(
+        success: false,
+        message: '导入压缩包失败: $e',
+      );
+    }
+  }
+
+  /// Imports an archive selected by the caller. File-picker based imports
+  /// delegate here, while Profile scenarios can inject isolated source and
+  /// target paths without touching the user's subtitle database.
+  static Future<ImportResult> importArchiveFromPath(
+    String sourcePath, {
+    String? displayName,
+    String? extension,
+    String? targetLibraryPath,
+    bool refreshIndex = true,
+    Function(String)? onProgress,
+  }) async {
+    try {
+      final archiveFile = File(sourcePath);
+      if (!await archiveFile.exists()) {
+        return ImportResult(success: false, message: '压缩包不存在');
+      }
+      final archiveName = displayName ?? p.basename(sourcePath);
+      final archiveExtension =
+          (extension ?? p.extension(sourcePath).replaceFirst('.', ''))
+              .toLowerCase();
 
       // 检查文件大小（限制 16GB）
       const maxArchiveSize = 16 * 1024 * 1024 * 1024; // 16GB
@@ -751,11 +798,16 @@ class SubtitleLibraryService {
 
       final bytes = await archiveFile.readAsBytes();
 
-      final libraryDir = await getSubtitleLibraryDirectory();
+      final libraryDir = targetLibraryPath == null
+          ? await getSubtitleLibraryDirectory()
+          : Directory(targetLibraryPath);
+      if (!await libraryDir.exists()) {
+        await libraryDir.create(recursive: true);
+      }
 
       // 先验证压缩包格式
       try {
-        if (platformFile.extension == 'zip') {
+        if (archiveExtension == 'zip') {
           ZipDecoder().decodeBytes(bytes, verify: false);
         } else {
           return ImportResult(
@@ -786,7 +838,7 @@ class SubtitleLibraryService {
       try {
         // 智能判断是否需要为根压缩包创建文件夹
         // 如果压缩包名符合 RJ 号格式，且内容不是已经包含在同名文件夹中，则创建文件夹
-        final zipName = platformFile.name;
+        final zipName = archiveName;
         final zipNameWithoutExt = zipName.replaceAll(
             RegExp(r'\.(zip|rar|7z)$', caseSensitive: false), '');
 
@@ -798,7 +850,7 @@ class SubtitleLibraryService {
           try {
             // 重新解码一次用于检查结构（虽然有性能损耗，但为了正确性是值得的）
             // 注意：这里假设是 ZIP，前面已经检查过
-            if (platformFile.extension == 'zip') {
+            if (archiveExtension == 'zip') {
               rootArchive = ZipDecoder().decodeBytes(bytes, verify: false);
             }
           } catch (e) {
@@ -821,7 +873,7 @@ class SubtitleLibraryService {
         _log.captureOutput('[SubtitleLibrary] 解压到临时目录: ${tempDir.path}');
         await _processArchiveBytes(
           bytes,
-          platformFile.extension ?? 'zip',
+          archiveExtension,
           tempDir.path,
           relativePath,
           stats,
@@ -883,17 +935,23 @@ class SubtitleLibraryService {
       }
 
       // 刷新相关文件夹缓存
-      if (modifiedPaths.isNotEmpty) {
-        onProgress?.call('正在刷新缓存...');
-        await _refreshDirectoriesAfterChange(modifiedPaths,
-            onProgress: onProgress);
-      } else {
-        // 如果没有收集到具体路径（异常情况），回退到刷新整个分类
-        final parsedDirPath = p.join(libraryDir.path, parsedFolderName);
-        final unknownDirPath = p.join(libraryDir.path, unknownFolderName);
-        onProgress?.call('正在刷新缓存...');
-        await _refreshDirectoriesAfterChange({parsedDirPath, unknownDirPath},
-            onProgress: onProgress);
+      if (refreshIndex) {
+        if (modifiedPaths.isNotEmpty) {
+          onProgress?.call('正在刷新缓存...');
+          await _refreshDirectoriesAfterChange(
+            modifiedPaths,
+            onProgress: onProgress,
+          );
+        } else {
+          // 如果没有收集到具体路径（异常情况），回退到刷新整个分类
+          final parsedDirPath = p.join(libraryDir.path, parsedFolderName);
+          final unknownDirPath = p.join(libraryDir.path, unknownFolderName);
+          onProgress?.call('正在刷新缓存...');
+          await _refreshDirectoriesAfterChange(
+            {parsedDirPath, unknownDirPath},
+            onProgress: onProgress,
+          );
+        }
       }
 
       String message = '成功导入 ${stats.successCount} 个字幕文件';
