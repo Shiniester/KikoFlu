@@ -27,6 +27,9 @@ param(
   [ValidateRange(2, 20)]
   [int]$ProfileRuns = 5,
 
+  [ValidateRange(0, 120)]
+  [int]$RoundCooldownSeconds = 20,
+
   [switch]$SkipSoak
 )
 
@@ -443,6 +446,10 @@ try {
       }
     }
     if (-not $accepted) { throw "Unable to obtain a thermally valid run $run." }
+    if ($run -lt $ProfileRuns -and $RoundCooldownSeconds -gt 0) {
+      Write-Host "Cooling for $RoundCooldownSeconds seconds before the next run..."
+      Start-Sleep -Seconds $RoundCooldownSeconds
+    }
   }
 
   $soakFile = $null

@@ -324,7 +324,11 @@ Future<
 _measurePeakPss<T>(Future<T> Function() operation) async {
   final startingPss = _currentPssBytes();
   var peakPss = startingPss;
-  final timer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+  // PSS collection walks process page tables. Sampling a 1 GB legacy ZIP
+  // import every 50 ms materially perturbs low-memory devices and can trigger
+  // swap storms, so use a still-subsecond interval that captures multi-second
+  // operation peaks without dominating the operation being measured.
+  final timer = Timer.periodic(const Duration(milliseconds: 250), (_) {
     final current = _currentPssBytes();
     if (current > peakPss) peakPss = current;
   });
