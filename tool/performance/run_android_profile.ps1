@@ -31,7 +31,8 @@ $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $resolvedOutput = [IO.Path]::GetFullPath((Join-Path $repositoryRoot $OutputDirectory))
 $resolvedFixtures = [IO.Path]::GetFullPath((Join-Path $repositoryRoot $FixtureDirectory))
 $packageName = 'com.meteor.kikoeruflutter'
-$deviceFixtureRoot = "/sdcard/Android/data/$packageName/files/performance_fixtures"
+$deviceFixtureRoot = "/data/user/0/$packageName/files/performance_fixtures"
+$deviceStagingRoot = '/data/local/tmp/kikoflu-performance-fixtures'
 $deviceManifestPath = "$deviceFixtureRoot/manifest.json"
 $deviceControlPath = "$deviceFixtureRoot/control.json"
 $devicePlaybackManifestPath = "$deviceFixtureRoot/playback_fixture.json"
@@ -40,13 +41,135 @@ function Invoke-Adb {
   param([string[]]$Arguments)
   $output = & adb @Arguments
   if ($LASTEXITCODE -ne 0) {
-    throw "adb failed: adb $($Arguments -join ' ')"
+    $safeArguments = $Arguments | ForEach-Object {
+      if ($_ -eq $DeviceId) { '<device>' } else { $_ }
+    }
+    throw "adb failed: adb $($safeArguments -join ' ')"
   }
   return ($output -join "`n").Trim()
 }
 
+function Invoke-AppCommand {
+  param([string[]]$Arguments)
+  return Invoke-Adb (@('-s', $DeviceId, 'shell', 'run-as', $packageName) + $Arguments)
+}
+
+function Push-AppFile {
+  param(
+    [string]$HostPath,
+    [string]$DevicePath
+  )
+  $stagingFile = "/data/local/tmp/kikoflu-performance-$([guid]::NewGuid().ToString('N'))"
+  try {
+    Invoke-Adb @('-s', $DeviceId, 'push', $HostPath, $stagingFile) | Out-Null
+    $deviceParent = $DevicePath.Substring(0, $DevicePath.LastIndexOf('/'))
+    Invoke-AppCommand @('mkdir', '-p', $deviceParent) | Out-Null
+    Invoke-AppCommand @('cp', $stagingFile, $DevicePath) | Out-Null
+  } finally {
+    Invoke-Adb @('-s', $DeviceId, 'shell', 'rm', '-f', $stagingFile) | Out-Null
+  }
+}
+
+function Push-AppFixtureDirectory {
+  param([string]$HostPath)
+  Invoke-Adb @('-s', $DeviceId, 'shell', 'rm', '-rf', $deviceStagingRoot) | Out-Null
+  Invoke-Adb @('-s', $DeviceId, 'shell', 'mkdir', '-p', $deviceStagingRoot) | Out-Null
+  try {
+    Invoke-Adb @('-s', $DeviceId, 'push', (Join-Path $HostPath '.'), "$deviceStagingRoot/") | Out-Null
+    Invoke-AppCommand @('rm', '-rf', $deviceFixtureRoot) | Out-Null
+    Invoke-AppCommand @('mkdir', '-p', $deviceFixtureRoot) | Out-Null
+    Invoke-AppCommand @('cp', '-R', "$deviceStagingRoot/.", "$deviceFixtureRoot/") | Out-Null
+  } finally {
+    Invoke-Adb @('-s', $DeviceId, 'shell', 'rm', '-rf', $deviceStagingRoot) | Out-Null
+  }
+}
+
+function Get-AppFixtureHash {
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  $output = & adb -s $DeviceId shell run-as $packageName cat $deviceManifestPath 2>$null
+  $exitCode = $LASTEXITCODE
+  $ErrorActionPreference = $previousErrorActionPreference
+  if ($exitCode -ne 0) { return '' }
+  try {
+    $deviceManifest = (($output -join "`n") | ConvertFrom-Json)
+    return [string]$deviceManifest.contentHash
+  } catch {
+    return ''
+  }
+}
+
+function Start-AppForDrive {
+  Invoke-Adb @('-s', $DeviceId, 'logcat', '-c') | Out-Null
+  Invoke-Adb @('-s', $DeviceId, 'shell', 'am', 'force-stop', $packageName) | Out-Null
+  Invoke-Adb @(
+    '-s',
+    $DeviceId,
+    'shell',
+    'am',
+    'start',
+    '-n',
+    "$packageName/.MainActivity"
+  ) | Out-Null
+
+  for ($attempt = 1; $attempt -le 120; $attempt++) {
+    $logs = & adb -s $DeviceId logcat -d -v brief 2>$null
+    $match = [regex]::Match(
+      ($logs -join "`n"),
+      'The Dart VM service is listening on (http://[^\s]+)'
+    )
+    if ($match.Success) {
+      $deviceUri = [uri]$match.Groups[1].Value
+      $hostPortText = Invoke-Adb @(
+        '-s',
+        $DeviceId,
+        'forward',
+        'tcp:0',
+        "tcp:$($deviceUri.Port)"
+      )
+      $hostPort = [int]$hostPortText
+      $hostUri = [UriBuilder]$deviceUri
+      $hostUri.Host = '127.0.0.1'
+      $hostUri.Port = $hostPort
+      return @{
+        hostPort = $hostPort
+        uri = $hostUri.Uri.AbsoluteUri
+      }
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  throw 'Timed out waiting for the Profile app VM service.'
+}
+
+function Invoke-ExistingAppDrive {
+  param(
+    [string]$Target,
+    [string]$OutputPath
+  )
+  $connection = Start-AppForDrive
+  $env:KIKOFLU_PERF_RUN_OUTPUT = $OutputPath
+  try {
+    $existingApp = "--use-existing-app=$($connection.uri)"
+    & flutter drive `
+      --profile `
+      --device-id $DeviceId `
+      --driver test_driver/performance_driver.dart `
+      --target $Target `
+      $existingApp `
+      --no-dds `
+      --no-pub | Out-Host
+    $driveExitCode = $LASTEXITCODE
+    return $driveExitCode
+  } finally {
+    Invoke-Adb @('-s', $DeviceId, 'forward', '--remove', "tcp:$($connection.hostPort)") | Out-Null
+    Invoke-Adb @('-s', $DeviceId, 'shell', 'am', 'force-stop', $packageName) | Out-Null
+  }
+}
+
 function Get-ThermalStatus {
-  $output = Invoke-Adb @('-s', $DeviceId, 'shell', 'cmd', 'thermalservice', 'get-current-status')
+  $output = & adb -s $DeviceId shell cmd thermalservice get-current-status 2>$null
+  if ($LASTEXITCODE -ne 0) { $output = '' }
+  $output = ($output -join "`n").Trim()
   $match = [regex]::Match($output, '(\d+)\s*$')
   if (-not $match.Success) {
     $output = Invoke-Adb @('-s', $DeviceId, 'shell', 'dumpsys', 'thermalservice')
@@ -85,7 +208,7 @@ function Push-ControlFile {
     [hashtable]$Values
   )
   Write-JsonFile -Path $Path -Value $Values
-  Invoke-Adb @('-s', $DeviceId, 'push', $Path, $deviceControlPath) | Out-Null
+  Push-AppFile -HostPath $Path -DevicePath $deviceControlPath
 }
 
 function Write-JsonFile {
@@ -223,12 +346,15 @@ try {
   }
 
   Invoke-Adb @('-s', $DeviceId, 'install', '-r', '-t', $scenarioApkPath) | Out-Null
-  Invoke-Adb @('-s', $DeviceId, 'shell', 'rm', '-rf', $deviceFixtureRoot) | Out-Null
-  Invoke-Adb @('-s', $DeviceId, 'shell', 'mkdir', '-p', $deviceFixtureRoot) | Out-Null
-  Invoke-Adb @('-s', $DeviceId, 'push', (Join-Path $resolvedFixtures '.'), "$deviceFixtureRoot/") | Out-Null
+  if ((Get-AppFixtureHash) -ne $fixtureHash) {
+    Push-AppFixtureDirectory -HostPath $resolvedFixtures
+  }
+  if ((Get-AppFixtureHash) -ne $fixtureHash) {
+    throw 'The fixture copied to the Android app does not match the host manifest.'
+  }
 
   if (Test-Path -LiteralPath $PlaybackFixture) {
-    Invoke-Adb @('-s', $DeviceId, 'push', $PlaybackFixture, $devicePlaybackManifestPath) | Out-Null
+    Push-AppFile -HostPath $PlaybackFixture -DevicePath $devicePlaybackManifestPath
   } elseif ($Label -eq 'candidate') {
     throw 'Candidate soak requires the playback fixture created by baseline.'
   }
@@ -257,18 +383,11 @@ try {
         trackSwitches = 50
       }
 
-      Invoke-Adb @('-s', $DeviceId, 'shell', 'am', 'force-stop', $packageName) | Out-Null
       $runFile = Join-Path $runDirectory "run_$run.json"
-      $env:KIKOFLU_PERF_RUN_OUTPUT = $runFile
-      & flutter drive `
-        --profile `
-        --device-id $DeviceId `
-        --driver test_driver/performance_driver.dart `
-        --target integration_test/android_profile_test.dart `
-        --use-application-binary $scenarioApkPath `
-        --dart-define=KIKOFLU_PERFORMANCE=true `
-        --dart-define="KIKOFLU_PERF_CONTROL_PATH=$deviceControlPath"
-      if ($LASTEXITCODE -ne 0) { throw "Profile run $run failed." }
+      $driveExitCode = Invoke-ExistingAppDrive `
+        -Target 'integration_test/android_profile_test.dart' `
+        -OutputPath $runFile
+      if ($driveExitCode -ne 0) { throw "Profile run $run failed." }
 
       $postThermal = Get-ThermalStatus
       if ($postThermal -le $MaximumThermalStatus) {
@@ -302,18 +421,11 @@ try {
       soakMinutes = $SoakMinutes
       trackSwitches = 50
     }
-    Invoke-Adb @('-s', $DeviceId, 'shell', 'am', 'force-stop', $packageName) | Out-Null
     $soakFile = Join-Path $runDirectory 'media3_soak.json'
-    $env:KIKOFLU_PERF_RUN_OUTPUT = $soakFile
-    & flutter drive `
-      --profile `
-      --device-id $DeviceId `
-      --driver test_driver/performance_driver.dart `
-      --target integration_test/android_media3_soak_test.dart `
-      --use-application-binary $soakApkPath `
-      --dart-define=KIKOFLU_PERFORMANCE=true `
-      --dart-define="KIKOFLU_PERF_CONTROL_PATH=$deviceControlPath"
-    if ($LASTEXITCODE -ne 0) { throw 'Media3 soak failed.' }
+    $driveExitCode = Invoke-ExistingAppDrive `
+      -Target 'integration_test/android_media3_soak_test.dart' `
+      -OutputPath $soakFile
+    if ($driveExitCode -ne 0) { throw 'Media3 soak failed.' }
 
     $soakData = Read-ReportData -Path $soakFile
     if ($soakData.playbackFixture.contentHash -notmatch '^[a-f0-9]{64}$') {

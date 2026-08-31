@@ -14,9 +14,10 @@ import 'package:kikoeru_flutter/src/performance/performance_recorder.dart';
 import 'package:kikoeru_flutter/src/performance/performance_scenario_adapter.dart';
 import 'package:kikoeru_flutter/src/widgets/virtualized_sliver_collection.dart';
 
-final Stopwatch _processStartupStopwatch = Stopwatch()..start();
+final Stopwatch _processStartupStopwatch = Stopwatch();
 
 void main() {
+  _processStartupStopwatch.start();
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
 
