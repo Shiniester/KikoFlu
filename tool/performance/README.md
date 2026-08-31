@@ -22,6 +22,16 @@ dart run tool/performance/generate_fixtures.dart `
 
 清单记录每类数据的哈希及组合 `contentHash`。如需重建必须显式增加 `--force`。原始 fixture、设备序列号、JSON 报告和真实播放清单都位于被 Git 忽略的 `build/` 下。
 
+## 固定 Android 工具链
+
+Windows 主机可用项目内安装器准备固定工具链：Microsoft OpenJDK 17.0.20.1、Android command-line tools 22.0、Platform 36、Build Tools 36.0.0、Platform Tools 与 NDK 28.2.13676358。下载包会校验官方 SHA-256，随后执行 license、`flutter doctor -v` 和 Profile APK 预检。
+
+```powershell
+pwsh -File tool/performance/setup_android_toolchain.ps1
+```
+
+工具链位于被忽略的 `build/toolchains`；性能运行脚本会自动发现它，不依赖系统级 JDK、SDK 或 `adb`。仅需核对安装而暂不构建 APK 时可传入 `-SkipProfileBuild`。
+
 ## 运行 baseline 与 candidate
 
 设备要求 API 24 以上、`/data` 至少 8GB 可用空间、Wi-Fi 已启用、关闭省电模式并保持相同动画倍率。脚本在每轮前强制停止应用并等待 thermal status 不高于 2；运行后过热的轮次会自动作废重跑。

@@ -9,6 +9,8 @@ param(
 
   [string]$FixtureDirectory = 'build/performance_fixtures',
 
+  [string]$ToolchainDirectory = 'build/toolchains',
+
   [ValidateRange(2, 16384)]
   [int]$ZipMegabytes = 512,
 
@@ -30,6 +32,36 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $resolvedOutput = [IO.Path]::GetFullPath((Join-Path $repositoryRoot $OutputDirectory))
 $resolvedFixtures = [IO.Path]::GetFullPath((Join-Path $repositoryRoot $FixtureDirectory))
+$resolvedToolchain = if ([IO.Path]::IsPathRooted($ToolchainDirectory)) {
+  [IO.Path]::GetFullPath($ToolchainDirectory)
+} else {
+  [IO.Path]::GetFullPath((Join-Path $repositoryRoot $ToolchainDirectory))
+}
+$localAndroidSdk = Join-Path $resolvedToolchain 'android-sdk'
+$localJdk = Get-ChildItem -LiteralPath $resolvedToolchain -Directory -ErrorAction SilentlyContinue |
+  Where-Object {
+    $_.Name -like 'jdk-17*' -and
+    (Test-Path -LiteralPath (Join-Path $_.FullName 'bin/java.exe'))
+  } |
+  Sort-Object Name -Descending |
+  Select-Object -First 1
+if ((Test-Path -LiteralPath $localAndroidSdk) -and $null -ne $localJdk) {
+  $env:JAVA_HOME = $localJdk.FullName
+  $env:ANDROID_HOME = $localAndroidSdk
+  $env:ANDROID_SDK_ROOT = $localAndroidSdk
+  $env:ANDROID_USER_HOME = Join-Path $resolvedToolchain 'android-user-home'
+  $env:GRADLE_USER_HOME = Join-Path $resolvedToolchain 'gradle-home'
+  New-Item -ItemType Directory -Force -Path @(
+    $env:ANDROID_USER_HOME,
+    $env:GRADLE_USER_HOME
+  ) | Out-Null
+  $env:Path = "$($localJdk.FullName)\bin;$localAndroidSdk\platform-tools;$env:Path"
+}
+$adbExecutable = if (Test-Path -LiteralPath (Join-Path $localAndroidSdk 'platform-tools/adb.exe')) {
+  Join-Path $localAndroidSdk 'platform-tools/adb.exe'
+} else {
+  'adb'
+}
 $packageName = 'com.meteor.kikoeruflutter'
 $deviceFixtureRoot = "/data/user/0/$packageName/files/performance_fixtures"
 $deviceStagingRoot = '/data/local/tmp/kikoflu-performance-fixtures'
@@ -39,7 +71,7 @@ $devicePlaybackManifestPath = "$deviceFixtureRoot/playback_fixture.json"
 
 function Invoke-Adb {
   param([string[]]$Arguments)
-  $output = & adb @Arguments
+  $output = & $adbExecutable @Arguments
   if ($LASTEXITCODE -ne 0) {
     $safeArguments = $Arguments | ForEach-Object {
       if ($_ -eq $DeviceId) { '<device>' } else { $_ }
@@ -87,7 +119,7 @@ function Push-AppFixtureDirectory {
 function Get-AppFixtureHash {
   $previousErrorActionPreference = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
-  $output = & adb -s $DeviceId shell run-as $packageName cat $deviceManifestPath 2>$null
+  $output = & $adbExecutable -s $DeviceId shell run-as $packageName cat $deviceManifestPath 2>$null
   $exitCode = $LASTEXITCODE
   $ErrorActionPreference = $previousErrorActionPreference
   if ($exitCode -ne 0) { return '' }
@@ -113,7 +145,7 @@ function Start-AppForDrive {
   ) | Out-Null
 
   for ($attempt = 1; $attempt -le 120; $attempt++) {
-    $logs = & adb -s $DeviceId logcat -d -v brief 2>$null
+    $logs = & $adbExecutable -s $DeviceId logcat -d -v brief 2>$null
     $match = [regex]::Match(
       ($logs -join "`n"),
       'The Dart VM service is listening on (http://[^\s]+)'
@@ -167,7 +199,7 @@ function Invoke-ExistingAppDrive {
 }
 
 function Get-ThermalStatus {
-  $output = & adb -s $DeviceId shell cmd thermalservice get-current-status 2>$null
+  $output = & $adbExecutable -s $DeviceId shell cmd thermalservice get-current-status 2>$null
   if ($LASTEXITCODE -ne 0) { $output = '' }
   $output = ($output -join "`n").Trim()
   $match = [regex]::Match($output, '(\d+)\s*$')
@@ -229,7 +261,7 @@ function Read-ReportData {
 
 New-Item -ItemType Directory -Force -Path $resolvedOutput | Out-Null
 
-$connected = & adb devices
+$connected = & $adbExecutable devices
 if ($LASTEXITCODE -ne 0 -or -not ($connected -match "(?m)^$([regex]::Escape($DeviceId))\s+device$")) {
   throw "Android device '$DeviceId' is not connected and authorized."
 }
