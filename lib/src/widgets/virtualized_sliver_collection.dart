@@ -673,7 +673,7 @@ class _VirtualizedSliverCollectionState<T>
     Widget scrollView = CustomScrollView(
       key: widget.pageStorageKey,
       controller: _controller,
-      cacheExtent: widget.cacheExtent,
+      scrollCacheExtent: ScrollCacheExtent.pixels(widget.cacheExtent),
       physics: widget.physics,
       slivers: [
         ...widget.sliversBefore,

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/services/file_size_resolver.dart';
+import 'package:path/path.dart' as p;
 
 void main() {
   group('FileSizeResolver', () {
@@ -35,6 +36,7 @@ void main() {
       String? requestedPath;
       final resolver = FileSizeResolver(
         downloadRootPath: () async => '/downloads',
+        pathContext: p.posix,
         fileLength: (path) async {
           requestedPath = path;
           return 2048;
@@ -51,54 +53,60 @@ void main() {
       expect(requestedPath, '/downloads/123/Disc 1/track.mp3');
     });
 
-    test('reads local file length from localRelativePath when present',
-        () async {
-      String? requestedPath;
-      final resolver = FileSizeResolver(
-        downloadRootPath: () async => '/downloads',
-        fileLength: (path) async {
-          requestedPath = path;
-          return 1024;
-        },
-      );
+    test(
+      'reads local file length from localRelativePath when present',
+      () async {
+        String? requestedPath;
+        final resolver = FileSizeResolver(
+          downloadRootPath: () async => '/downloads',
+          pathContext: p.posix,
+          fileLength: (path) async {
+            requestedPath = path;
+            return 1024;
+          },
+        );
 
-      final size = await resolver.resolveOffline(
-        item: const {
-          'title': 'track?.mp3',
-          'localRelativePath': 'Disc_1/track_.mp3',
-        },
-        workId: 123,
-        parentPath: 'Disc:1',
-      );
+        final size = await resolver.resolveOffline(
+          item: const {
+            'title': 'track?.mp3',
+            'localRelativePath': 'Disc_1/track_.mp3',
+          },
+          workId: 123,
+          parentPath: 'Disc:1',
+        );
 
-      expect(size, 1024);
-      expect(requestedPath, '/downloads/123/Disc_1/track_.mp3');
-    });
+        expect(size, 1024);
+        expect(requestedPath, '/downloads/123/Disc_1/track_.mp3');
+      },
+    );
 
-    test('reads local file length from an imported RJ work directory',
-        () async {
-      String? requestedPath;
-      final resolver = FileSizeResolver(
-        downloadRootPath: () async => '/downloads',
-        fileLength: (path) async {
-          requestedPath = path;
-          return 512;
-        },
-      );
+    test(
+      'reads local file length from an imported RJ work directory',
+      () async {
+        String? requestedPath;
+        final resolver = FileSizeResolver(
+          downloadRootPath: () async => '/downloads',
+          pathContext: p.posix,
+          fileLength: (path) async {
+            requestedPath = path;
+            return 512;
+          },
+        );
 
-      final size = await resolver.resolveOffline(
-        item: {'title': 'track.mp3'},
-        workId: 123456,
-        parentPath: 'Disc 1',
-        workDirPath: '/downloads/[circle][RJ123456]Title',
-      );
+        final size = await resolver.resolveOffline(
+          item: {'title': 'track.mp3'},
+          workId: 123456,
+          parentPath: 'Disc 1',
+          workDirPath: '/downloads/[circle][RJ123456]Title',
+        );
 
-      expect(size, 512);
-      expect(
-        requestedPath,
-        '/downloads/[circle][RJ123456]Title/Disc 1/track.mp3',
-      );
-    });
+        expect(size, 512);
+        expect(
+          requestedPath,
+          '/downloads/[circle][RJ123456]Title/Disc 1/track.mp3',
+        );
+      },
+    );
 
     test('returns null for missing local file or resolver errors', () async {
       final missingResolver = FileSizeResolver(

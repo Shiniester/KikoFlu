@@ -1,22 +1,18 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import 'download_file_path_service.dart';
 import '../utils/file_tree_utils.dart';
 import '../utils/local_file_url.dart';
 
-typedef AudioDownloadedPathResolver = Future<String?> Function(
-  int workId,
-  String hash,
-);
+typedef AudioDownloadedPathResolver =
+    Future<String?> Function(int workId, String hash);
 typedef AudioDownloadRootProvider = Future<String> Function();
 typedef CachedAudioPathResolver = Future<String?> Function(String hash);
 typedef AudioFileExists = Future<bool> Function(String path);
 
-enum OfflineAudioPlaybackTargetStatus {
-  ready,
-  missingId,
-  missingFile,
-}
+enum OfflineAudioPlaybackTargetStatus { ready, missingId, missingFile }
 
 class OfflineAudioPlaybackTarget {
   const OfflineAudioPlaybackTarget({
@@ -78,12 +74,16 @@ class AudioFileUrlResolver {
     required this.downloadRootPath,
     required this.resolveCachedAudioPath,
     this.fileExists = _defaultFileExists,
+    this.pathContext,
   });
 
   final AudioDownloadedPathResolver resolveDownloadedPath;
   final AudioDownloadRootProvider downloadRootPath;
   final CachedAudioPathResolver resolveCachedAudioPath;
   final AudioFileExists fileExists;
+  final p.Context? pathContext;
+
+  p.Context get _pathContext => pathContext ?? p.context;
 
   Future<String?> resolveOnline({
     required dynamic file,
@@ -119,10 +119,7 @@ class AudioFileUrlResolver {
     final mediaStreamUrl = FileTreeUtils.property(file, 'mediaStreamUrl');
     if (mediaStreamUrl != null && mediaStreamUrl.toString().isNotEmpty) {
       return _withToken(
-        _absoluteMediaUrl(
-          mediaStreamUrl.toString(),
-          host,
-        ),
+        _absoluteMediaUrl(mediaStreamUrl.toString(), host),
         token,
       );
     }
@@ -131,8 +128,8 @@ class AudioFileUrlResolver {
 
     final normalizedHost =
         host.startsWith('http://') || host.startsWith('https://')
-            ? host
-            : 'https://$host';
+        ? host
+        : 'https://$host';
     return '$normalizedHost/api/media/stream/$fileHash?token=$token';
   }
 
@@ -154,6 +151,7 @@ class AudioFileUrlResolver {
         file,
         parentPath,
       ),
+      context: _pathContext,
     );
     if (await fileExists(filePath)) {
       return LocalFileUrl.fromPath(filePath);
@@ -174,13 +172,17 @@ class AudioFileUrlResolver {
       defaultValue: unknownTitle,
     );
 
-    final workDir = workDirPath ??
+    final workDir =
+        workDirPath ??
         DownloadFilePathService.localPathForRelativePath(
           rootPath: await downloadRootPath(),
           relativePath: workId.toString(),
+          context: _pathContext,
         );
-    final explicitLocalPath =
-        FileTreeUtils.property(file, 'localPath')?.toString().trim();
+    final explicitLocalPath = FileTreeUtils.property(
+      file,
+      'localPath',
+    )?.toString().trim();
     final localPath = explicitLocalPath != null && explicitLocalPath.isNotEmpty
         ? explicitLocalPath
         : DownloadFilePathService.localPathForRelativePath(
@@ -189,6 +191,7 @@ class AudioFileUrlResolver {
               file,
               parentPath,
             ),
+            context: _pathContext,
           );
 
     if (!await fileExists(localPath)) {
@@ -201,9 +204,11 @@ class AudioFileUrlResolver {
     final coverPath = DownloadFilePathService.localPathForRelativePath(
       rootPath: workDir,
       relativePath: coverRelativePath ?? 'cover.jpg',
+      context: _pathContext,
     );
-    final artworkUrl =
-        await fileExists(coverPath) ? LocalFileUrl.fromPath(coverPath) : null;
+    final artworkUrl = await fileExists(coverPath)
+        ? LocalFileUrl.fromPath(coverPath)
+        : null;
 
     return OfflineAudioPlaybackTargetResult.ready(
       OfflineAudioPlaybackTarget(
@@ -231,6 +236,7 @@ class AudioFileUrlResolver {
       rootPath: rootPath,
       workId: workId,
       relativePath: relativePath,
+      context: _pathContext,
     );
     if (await fileExists(filePath)) {
       return filePath;

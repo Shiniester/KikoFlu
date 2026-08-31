@@ -85,7 +85,7 @@ class PlaylistDialog extends ConsumerWidget {
                       padding: EdgeInsets.zero,
                       itemCount: tracks.length,
                       buildDefaultDragHandles: false,
-                      onReorder: (oldIndex, newIndex) {
+                      onReorderItem: (oldIndex, newIndex) {
                         ref
                             .read(audioPlayerControllerProvider.notifier)
                             .moveTrack(oldIndex, newIndex);

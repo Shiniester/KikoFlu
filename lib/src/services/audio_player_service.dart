@@ -909,10 +909,6 @@ class AudioPlayerService {
       newIndex = _queue.length;
     }
 
-    if (newIndex > oldIndex) {
-      newIndex -= 1;
-    }
-
     if (oldIndex == newIndex) return;
 
     final currentTrackId = (_queue.isNotEmpty && _currentIndex < _queue.length)

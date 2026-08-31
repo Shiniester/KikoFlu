@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import 'download_file_path_service.dart';
 import '../utils/file_tree_utils.dart';
 
@@ -10,10 +12,12 @@ class FileSizeResolver {
   const FileSizeResolver({
     required this.downloadRootPath,
     this.fileLength = _defaultFileLength,
+    this.pathContext,
   });
 
   final FileSizeDownloadRootProvider downloadRootPath;
   final FileSizeLengthReader fileLength;
+  final p.Context? pathContext;
 
   Future<int?> resolveOffline({
     required dynamic item,
@@ -30,10 +34,12 @@ class FileSizeResolver {
     if (title.isEmpty) return null;
 
     try {
-      final workDir = workDirPath ??
+      final workDir =
+          workDirPath ??
           DownloadFilePathService.localPathForRelativePath(
             rootPath: await downloadRootPath(),
             relativePath: workId.toString(),
+            context: pathContext,
           );
       final filePath = DownloadFilePathService.localPathForRelativePath(
         rootPath: workDir,
@@ -41,6 +47,7 @@ class FileSizeResolver {
           item,
           parentPath,
         ),
+        context: pathContext,
       );
 
       return await fileLength(filePath);

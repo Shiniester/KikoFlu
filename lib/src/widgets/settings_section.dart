@@ -95,11 +95,8 @@ Future<bool> confirmAndRestoreSettingsDefaults({
   return true;
 }
 
-typedef SettingsReorderItemBuilder<T> = Widget Function(
-  BuildContext context,
-  T item,
-  int index,
-);
+typedef SettingsReorderItemBuilder<T> =
+    Widget Function(BuildContext context, T item, int index);
 
 class SettingsReorderablePage<T> extends StatelessWidget {
   const SettingsReorderablePage({
@@ -134,18 +131,14 @@ class SettingsReorderablePage<T> extends StatelessWidget {
             icon: Icons.info_outline,
             title: infoTitle,
             margin: const EdgeInsets.all(16),
-            child: Text(
-              infoDescription,
-              style: UiTextStyles.supporting,
-            ),
+            child: Text(infoDescription, style: UiTextStyles.supporting),
           ),
           Expanded(
             child: ReorderableListView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               itemCount: items.length,
-              onReorder: (oldIndex, newIndex) {
+              onReorderItem: (oldIndex, newIndex) {
                 final reordered = List<T>.of(items);
-                if (newIndex > oldIndex) newIndex -= 1;
                 final item = reordered.removeAt(oldIndex);
                 reordered.insert(newIndex, item);
                 onOrderChanged(reordered);
@@ -329,7 +322,8 @@ class SettingsListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final resolvedIconColor = iconColor ??
+    final resolvedIconColor =
+        iconColor ??
         (enabled ? colorScheme.primary : colorScheme.onSurfaceVariant);
 
     return ListTile(
@@ -341,7 +335,8 @@ class SettingsListTile extends StatelessWidget {
           ? null
           : Text(
               subtitle!,
-              style: subtitleStyle ??
+              style:
+                  subtitleStyle ??
                   (enabled
                       ? null
                       : TextStyle(color: colorScheme.onSurfaceVariant)),
@@ -376,11 +371,8 @@ class SettingsNavigationTile extends StatelessWidget {
       icon: icon,
       title: title,
       subtitle: subtitle,
-      trailing: trailing ??
-          Icon(
-            Icons.arrow_forward_ios,
-            size: trailingIconSize,
-          ),
+      trailing:
+          trailing ?? Icon(Icons.arrow_forward_ios, size: trailingIconSize),
       onTap: onTap,
     );
   }
@@ -443,8 +435,9 @@ class SettingsDivider extends StatelessWidget {
       thickness: 0.6,
       indent: indent,
       endIndent: endIndent,
-      color:
-          Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.45),
+      color: Theme.of(
+        context,
+      ).colorScheme.outlineVariant.withValues(alpha: 0.45),
     );
   }
 }

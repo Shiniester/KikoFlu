@@ -45,8 +45,8 @@ class PlaybackHistoryService {
       _instance ??= PlaybackHistoryService._();
 
   PlaybackHistoryService._({
-    PlaybackHistoryStore store = const DatabasePlaybackHistoryStore(),
-  }) : _store = store;
+    this._store = const DatabasePlaybackHistoryStore(),
+  });
 
   final PlaybackHistoryStore _store;
 
@@ -95,10 +95,12 @@ class PlaybackHistoryService {
           playlistTotal: playerService.queue.length,
           positionMs: playerService.position.inMilliseconds,
         );
-        unawaited(_enqueueOperation(() async {
-          if (generation != _attachmentGeneration) return;
-          await _onTrackChanged(snapshot, generation);
-        }));
+        unawaited(
+          _enqueueOperation(() async {
+            if (generation != _attachmentGeneration) return;
+            await _onTrackChanged(snapshot, generation);
+          }),
+        );
       }
     });
 
@@ -112,21 +114,25 @@ class PlaybackHistoryService {
   void _onCheckpointTick(AudioPlayerService playerService) {
     if (!playerService.playing) return;
     final positionMs = playerService.position.inMilliseconds;
-    unawaited(_enqueueOperation(() async {
-      if (_currentWorkId == null || _currentWork == null) return;
+    unawaited(
+      _enqueueOperation(() async {
+        if (_currentWorkId == null || _currentWork == null) return;
 
-      // 与上次持久化位置差值不足 3 秒则不写
-      if ((positionMs - _lastPersistedPositionMs).abs() < 3000) return;
+        // 与上次持久化位置差值不足 3 秒则不写
+        if ((positionMs - _lastPersistedPositionMs).abs() < 3000) return;
 
-      _lastKnownPositionMs = positionMs;
-      _dirty = true;
-      await _persistNow(FlushReason.checkpoint);
-    }));
+        _lastKnownPositionMs = positionMs;
+        _dirty = true;
+        await _persistNow(FlushReason.checkpoint);
+      }),
+    );
   }
 
   /// 当轨道切换时，先 flush 上一首的进度，再更新会话
   Future<void> _onTrackChanged(
-      _TrackChangeSnapshot snapshot, int generation) async {
+    _TrackChangeSnapshot snapshot,
+    int generation,
+  ) async {
     // flush 上一首的状态
     if (_dirty && _currentWork != null) {
       await _persistNow(FlushReason.trackChanged);
@@ -210,8 +216,7 @@ class PlaybackHistoryService {
   }
 
   /// 应用进入后台时调用
-  Future<void> flushNow(
-      {FlushReason reason = FlushReason.appBackground}) {
+  Future<void> flushNow({FlushReason reason = FlushReason.appBackground}) {
     return _enqueueOperation(() async {
       if (_currentWorkId == null || _currentWork == null) return;
 
