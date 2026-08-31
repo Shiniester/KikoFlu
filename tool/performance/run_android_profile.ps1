@@ -132,7 +132,10 @@ function Get-AppFixtureHash {
 }
 
 function Start-AppForDrive {
-  Invoke-Adb @('-s', $DeviceId, 'logcat', '-c') | Out-Null
+  # Some OEM builds expose the system buffer for reading but reject clearing it.
+  # The VM service announcement is written to main, so scope both operations to
+  # that public buffer and avoid making an unrelated device permission fatal.
+  Invoke-Adb @('-s', $DeviceId, 'logcat', '-b', 'main', '-c') | Out-Null
   Invoke-Adb @('-s', $DeviceId, 'shell', 'am', 'force-stop', $packageName) | Out-Null
   Invoke-Adb @(
     '-s',
@@ -145,7 +148,7 @@ function Start-AppForDrive {
   ) | Out-Null
 
   for ($attempt = 1; $attempt -le 120; $attempt++) {
-    $logs = & $adbExecutable -s $DeviceId logcat -d -v brief 2>$null
+    $logs = & $adbExecutable -s $DeviceId logcat -b main -d -v brief 2>$null
     $match = [regex]::Match(
       ($logs -join "`n"),
       'The Dart VM service is listening on (http://[^\s]+)'
