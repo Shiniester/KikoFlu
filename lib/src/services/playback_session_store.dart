@@ -75,6 +75,26 @@ abstract interface class PlaybackSessionStore {
   Future<void> clear();
 }
 
+/// Runs restoration as a failure-safe transaction.
+///
+/// A backend load failure must not leave a stale queue that will be retried on
+/// every launch. The caller owns the concrete player state and supplies the
+/// cleanup operation.
+Future<bool> runPlaybackSessionRestore({
+  required Future<void> Function() restore,
+  required Future<void> Function() clearOnFailure,
+  void Function(Object error)? onFailure,
+}) async {
+  try {
+    await restore();
+    return true;
+  } catch (error) {
+    onFailure?.call(error);
+    await clearOnFailure();
+    return false;
+  }
+}
+
 class SharedPreferencesPlaybackSessionStore implements PlaybackSessionStore {
   const SharedPreferencesPlaybackSessionStore();
 
@@ -90,8 +110,9 @@ class SharedPreferencesPlaybackSessionStore implements PlaybackSessionStore {
     try {
       final json = jsonDecode(encoded);
       if (json is! Map) throw const FormatException('Invalid session JSON');
-      final snapshot =
-          PlaybackSessionSnapshot.fromJson(Map<String, dynamic>.from(json));
+      final snapshot = PlaybackSessionSnapshot.fromJson(
+        Map<String, dynamic>.from(json),
+      );
       final positionMs = prefs.getInt(positionKey);
       if (positionMs == null) return snapshot;
       return PlaybackSessionSnapshot(

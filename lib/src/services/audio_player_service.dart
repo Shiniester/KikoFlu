@@ -1081,34 +1081,42 @@ class AudioPlayerService {
     _sessionCompleted = false;
     _sessionOwnerKey = currentOwnerKey;
     try {
-      _queue
-        ..clear()
-        ..addAll(snapshot.queue.map(_refreshStoredTrackCredentials));
-      _currentIndex = snapshot.currentIndex;
-      _queueController.add(List<AudioTrack>.from(_queue));
-      _log.captureOutput(
-        '[AudioSession] Loading restored source at index=$_currentIndex',
-      );
-      await _loadTrack(_queue[_currentIndex], emitCurrentTrack: false);
+      await runPlaybackSessionRestore(
+        restore: () async {
+          _queue
+            ..clear()
+            ..addAll(snapshot.queue.map(_refreshStoredTrackCredentials));
+          _currentIndex = snapshot.currentIndex;
+          _queueController.add(List<AudioTrack>.from(_queue));
+          _log.captureOutput(
+            '[AudioSession] Loading restored source at index=$_currentIndex',
+          );
+          await _loadTrack(_queue[_currentIndex], emitCurrentTrack: false);
 
-      var restoredPosition = snapshot.position;
-      final trackDuration = _player.duration;
-      if (trackDuration != null &&
-          trackDuration > Duration.zero &&
-          restoredPosition >= trackDuration) {
-        restoredPosition = trackDuration - const Duration(milliseconds: 1);
-      }
-      await _player.seek(restoredPosition);
-      _lastSessionPositionMs = restoredPosition.inMilliseconds;
-      _updatePlaybackState();
-      _currentTrackController.add(_queue[_currentIndex]);
-      _log.captureOutput(
-        '[AudioSession] Restored ${_queue.length} tracks at '
-        'index=$_currentIndex position=${restoredPosition.inMilliseconds}ms',
+          var restoredPosition = snapshot.position;
+          final trackDuration = _player.duration;
+          if (trackDuration != null &&
+              trackDuration > Duration.zero &&
+              restoredPosition >= trackDuration) {
+            restoredPosition = trackDuration - const Duration(milliseconds: 1);
+          }
+          await _player.seek(restoredPosition);
+          _lastSessionPositionMs = restoredPosition.inMilliseconds;
+          _updatePlaybackState();
+          _currentTrackController.add(_queue[_currentIndex]);
+          _log.captureOutput(
+            '[AudioSession] Restored ${_queue.length} tracks at '
+            'index=$_currentIndex '
+            'position=${restoredPosition.inMilliseconds}ms',
+          );
+        },
+        clearOnFailure: clearQueue,
+        onFailure: (error) {
+          _log.captureOutput(
+            '[AudioSession] Failed to restore session: $error',
+          );
+        },
       );
-    } catch (error) {
-      _log.captureOutput('[AudioSession] Failed to restore session: $error');
-      await clearQueue();
     } finally {
       _isRestoringSession = false;
     }
