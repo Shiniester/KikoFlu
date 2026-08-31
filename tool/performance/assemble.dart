@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 Future<void> main(List<String> arguments) async {
-  if (arguments.length < 7 || arguments.contains('--help')) {
+  if (arguments.length < 6 || arguments.contains('--help')) {
     stdout.writeln(
       'Usage: dart run tool/performance/assemble.dart <output.json> '
       '<device.json> <baseline|candidate> <git-sha> '

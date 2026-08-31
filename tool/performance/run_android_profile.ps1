@@ -24,6 +24,9 @@ param(
   [ValidateRange(0, 2)]
   [int]$MaximumThermalStatus = 2,
 
+  [ValidateRange(2, 20)]
+  [int]$ProfileRuns = 5,
+
   [switch]$SkipSoak
 )
 
@@ -401,7 +404,7 @@ try {
   }
 
   $runFiles = @()
-  for ($run = 1; $run -le 5; $run++) {
+  for ($run = 1; $run -le $ProfileRuns; $run++) {
     $accepted = $false
     for ($attempt = 1; $attempt -le 5 -and -not $accepted; $attempt++) {
       $thermal = Wait-ForThermalReady
