@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import 'download_file_path_service.dart';
 import '../utils/file_tree_utils.dart';
 import '../utils/local_file_url.dart';
@@ -19,11 +21,7 @@ class PreviewFileItem {
   final String hash;
 
   Map<String, String> toGalleryMap() {
-    return {
-      'url': url,
-      'title': title,
-      'hash': hash,
-    };
+    return {'url': url, 'title': title, 'hash': hash};
   }
 }
 
@@ -49,14 +47,9 @@ class PreviewImageGalleryTarget {
 }
 
 class PreviewImageGalleryResult {
-  const PreviewImageGalleryResult._({
-    required this.status,
-    this.target,
-  });
+  const PreviewImageGalleryResult._({required this.status, this.target});
 
-  factory PreviewImageGalleryResult.ready(
-    PreviewImageGalleryTarget target,
-  ) {
+  factory PreviewImageGalleryResult.ready(PreviewImageGalleryTarget target) {
     return PreviewImageGalleryResult._(
       status: PreviewImageGalleryStatus.ready,
       target: target,
@@ -125,10 +118,7 @@ class PreviewDocumentTargetResult {
     PreviewDocumentTargetStatus status, {
     required String title,
   }) {
-    return PreviewDocumentTargetResult._(
-      status: status,
-      title: title,
-    );
+    return PreviewDocumentTargetResult._(status: status, title: title);
   }
 
   final PreviewDocumentTargetStatus status;
@@ -145,10 +135,7 @@ class PreviewDocumentTargetResult {
 }
 
 class PreviewVideoTarget {
-  const PreviewVideoTarget({
-    required this.source,
-    this.localPath,
-  });
+  const PreviewVideoTarget({required this.source, this.localPath});
 
   final String source;
   final String? localPath;
@@ -158,10 +145,7 @@ class PreviewVideoTarget {
 }
 
 class PreviewVideoTargetResult {
-  const PreviewVideoTargetResult._({
-    required this.status,
-    this.target,
-  });
+  const PreviewVideoTargetResult._({required this.status, this.target});
 
   factory PreviewVideoTargetResult.ready(PreviewVideoTarget target) {
     return PreviewVideoTargetResult._(
@@ -202,10 +186,14 @@ class FilePreviewResolver {
   const FilePreviewResolver({
     required this.downloadRootPath,
     this.fileExists = _defaultFileExists,
+    this.pathContext,
   });
 
   final PreviewDownloadRootProvider downloadRootPath;
   final PreviewFileExists fileExists;
+  final p.Context? pathContext;
+
+  p.Context get _pathContext => pathContext ?? p.context;
 
   static String normalizeHost(String host) {
     if (host.startsWith('http://') || host.startsWith('https://')) {
@@ -370,8 +358,10 @@ class FilePreviewResolver {
       );
     }
 
-    final selectedHash =
-        FileTreeUtils.property(selectedFile, 'hash')?.toString();
+    final selectedHash = FileTreeUtils.property(
+      selectedFile,
+      'hash',
+    )?.toString();
     final initialIndex = imageFiles.indexWhere(
       (file) =>
           FileTreeUtils.property(file, 'hash')?.toString() == selectedHash,
@@ -411,6 +401,7 @@ class FilePreviewResolver {
     final localPath = DownloadFilePathService.localPathForRelativePath(
       rootPath: workDir,
       relativePath: relativePath,
+      context: _pathContext,
     );
     return LocalPreviewFile(
       relativePath: relativePath,
@@ -495,10 +486,7 @@ class FilePreviewResolver {
     }
 
     return PreviewVideoTargetResult.ready(
-      PreviewVideoTarget(
-        source: localFile.url,
-        localPath: localFile.path,
-      ),
+      PreviewVideoTarget(source: localFile.url, localPath: localFile.path),
     );
   }
 
@@ -537,11 +525,13 @@ class FilePreviewResolver {
       );
       if (localUrl == null) continue;
 
-      items.add(PreviewFileItem(
-        url: localUrl,
-        title: FileTreeUtils.titleOf(file, defaultValue: unknownTitle),
-        hash: hash,
-      ));
+      items.add(
+        PreviewFileItem(
+          url: localUrl,
+          title: FileTreeUtils.titleOf(file, defaultValue: unknownTitle),
+          hash: hash,
+        ),
+      );
     }
 
     return items;
@@ -555,8 +545,10 @@ class FilePreviewResolver {
     required String unknownTitle,
     String? workDirPath,
   }) async {
-    final selectedHash =
-        FileTreeUtils.property(selectedFile, 'hash')?.toString();
+    final selectedHash = FileTreeUtils.property(
+      selectedFile,
+      'hash',
+    )?.toString();
     final selectedIndex = imageFiles.indexWhere(
       (file) =>
           FileTreeUtils.property(file, 'hash')?.toString() == selectedHash,
@@ -609,6 +601,7 @@ class FilePreviewResolver {
         rootPath: rootPath,
         workId: workId,
         relativePath: relativePath,
+        context: _pathContext,
       );
       if (await fileExists(localPath)) {
         return LocalFileUrl.fromPath(localPath);
@@ -629,6 +622,7 @@ class FilePreviewResolver {
     return DownloadFilePathService.localPathForRelativePath(
       rootPath: await downloadRootPath(),
       relativePath: workId.toString(),
+      context: _pathContext,
     );
   }
 

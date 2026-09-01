@@ -8,15 +8,62 @@ class StorageService {
   static late Box _userBox;
   static late Box _cacheBox;
   static late SharedPreferences _prefs;
+  static Future<void>? _criticalInitFuture;
+  static Future<void>? _secondaryInitFuture;
+  static bool _criticalInitialized = false;
+  static bool _secondaryInitialized = false;
 
-  static Future<void> init() async {
-    // Initialize Hive boxes
-    _settingsBox = await Hive.openBox('settings');
-    _userBox = await Hive.openBox('users');
-    _cacheBox = await Hive.openBox('cache');
+  static Future<void> init({SharedPreferences? preferences}) async {
+    await initCritical(preferences: preferences);
+    await initSecondary();
+  }
 
-    // Initialize SharedPreferences
-    _prefs = await SharedPreferences.getInstance();
+  /// Opens only the stores required to restore the current account and build
+  /// the first interactive frame.
+  static Future<void> initCritical({SharedPreferences? preferences}) {
+    if (_criticalInitialized) {
+      if (preferences != null) _prefs = preferences;
+      return Future.value();
+    }
+    return _criticalInitFuture ??= _initializeCritical(preferences);
+  }
+
+  static Future<void> _initializeCritical(
+    SharedPreferences? preferences,
+  ) async {
+    try {
+      // The first route restores the current account from SharedPreferences.
+      // Saved-account management is not visible until its dedicated screen is
+      // opened, so opening Hive and its user box here only adds disk I/O to the
+      // first-interactive path.
+      _prefs = preferences ?? await SharedPreferences.getInstance();
+      _criticalInitialized = true;
+    } finally {
+      _criticalInitFuture = null;
+    }
+  }
+
+  /// Opens legacy settings/cache boxes after the first frame. Their format and
+  /// APIs remain unchanged for compatibility with existing data and callers.
+  static Future<void> initSecondary() {
+    if (_secondaryInitialized) return Future.value();
+    return _secondaryInitFuture ??= _initializeSecondary();
+  }
+
+  static Future<void> _initializeSecondary() async {
+    try {
+      final results = await Future.wait<Box>([
+        Hive.openBox('users'),
+        Hive.openBox('settings'),
+        Hive.openBox('cache'),
+      ]);
+      _userBox = results[0];
+      _settingsBox = results[1];
+      _cacheBox = results[2];
+      _secondaryInitialized = true;
+    } finally {
+      _secondaryInitFuture = null;
+    }
   }
 
   // Settings
@@ -34,6 +81,7 @@ class StorageService {
 
   // User data
   static Future<void> setUser(String key, dynamic value) async {
+    await initSecondary();
     await _userBox.put(key, value);
   }
 
@@ -42,6 +90,7 @@ class StorageService {
   }
 
   static Future<void> removeUser(String key) async {
+    await initSecondary();
     await _userBox.delete(key);
   }
 

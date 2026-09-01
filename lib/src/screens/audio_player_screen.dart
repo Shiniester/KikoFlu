@@ -232,10 +232,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   @override
   Widget build(BuildContext context) {
     final currentTrack = ref.watch(currentTrackProvider);
-    final isPlaying = ref.watch(isPlayingProvider);
-    final position = ref.watch(positionProvider);
-    final duration = ref.watch(durationProvider);
-    final audioState = ref.watch(audioPlayerControllerProvider);
     final isTrackLoading =
         ref.watch(isTrackLoadingProvider).valueOrNull ?? false;
     final isLandscape =
@@ -261,19 +257,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
           ? _buildLandscapeLayout(
               context,
               currentTrack,
-              isPlaying,
-              position,
-              duration,
-              audioState,
               isTrackLoading,
             )
           : _buildPortraitLayout(
               context,
               currentTrack,
-              isPlaying,
-              position,
-              duration,
-              audioState,
               isTrackLoading,
             ),
     );
@@ -333,10 +321,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   Widget _buildPortraitLayout(
     BuildContext context,
     AsyncValue currentTrack,
-    bool isPlaying,
-    AsyncValue<Duration> position,
-    AsyncValue<Duration?> duration,
-    AudioPlayerState audioState,
     bool isTrackLoading,
   ) {
     return Stack(
@@ -449,10 +433,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                   ],
                   PlayerControlsWidget(
                     isLandscape: false,
-                    audioState: audioState,
-                    isPlaying: isPlaying,
-                    position: position,
-                    duration: duration,
                     isSeekingManually: _isSeekingManually,
                     seekValue: _seekValue,
                     onSeekChanged: _handleSeekChanged,
@@ -485,10 +465,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   Widget _buildLandscapeLayout(
     BuildContext context,
     AsyncValue currentTrack,
-    bool isPlaying,
-    AsyncValue<Duration> position,
-    AsyncValue<Duration?> duration,
-    AudioPlayerState audioState,
     bool isTrackLoading,
   ) {
     final content = currentTrack.when(
@@ -617,10 +593,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                         // 控制组件
                         PlayerControlsWidget(
                           isLandscape: true,
-                          audioState: audioState,
-                          isPlaying: isPlaying,
-                          position: position,
-                          duration: duration,
                           isSeekingManually: _isSeekingManually,
                           seekValue: _seekValue,
                           onSeekChanged: _handleSeekChanged,

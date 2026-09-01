@@ -524,6 +524,12 @@ class SEn extends S {
   String get projectRepo => 'Project Repository';
 
   @override
+  String get upstreamAuthor => 'Upstream Author';
+
+  @override
+  String get upstreamRepo => 'Upstream Repository';
+
+  @override
   String get openSourceLicense => 'Open Source License';
 
   @override
@@ -972,25 +978,31 @@ class SEn extends S {
       'Choose how tapping audio updates the playlist:';
 
   @override
-  String get audioTapPlaylistModeReplace => 'Replace Entire List';
+  String get audioTapPlaylistModeReplace => 'Replace Mode';
 
   @override
   String get audioTapPlaylistModeReplaceDescription =>
       'Replace the current playlist with every playable audio file in the tapped file\'s folder.';
 
   @override
-  String get audioTapPlaylistModeAppendDirectory => 'Append Folder';
+  String get audioTapPlaylistModeAppendDirectory => 'Append Mode';
 
   @override
   String get audioTapPlaylistModeAppendDirectoryDescription =>
       'Append every playable audio file in the tapped file\'s folder. Existing tracks are not duplicated.';
 
   @override
-  String get audioTapPlaylistModeAppendSingle => 'Append Tapped Audio Only';
+  String get audioTapPlaylistModeAppendSingle => 'Single-Audio Append Mode';
 
   @override
   String get audioTapPlaylistModeAppendSingleDescription =>
       'Append only the tapped audio file. Existing tracks are not duplicated.';
+
+  @override
+  String get audioTapPlaylistModeAppendChip => 'Append Mode';
+
+  @override
+  String get audioTapPlaylistModeAppendSingleChip => 'Single-Audio Append Mode';
 
   @override
   String get preloadNextTitle => 'Preload Next Track';

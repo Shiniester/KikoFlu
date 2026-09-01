@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/app_localizations.dart';
+import '../providers/download_provider.dart';
 import '../services/download_service.dart';
-import '../models/download_task.dart';
 import '../screens/downloads_screen.dart';
 
 /// 下载任务浮动按钮
 /// 只在有活跃下载任务时显示
-class DownloadFab extends StatelessWidget {
+class DownloadFab extends ConsumerWidget {
   const DownloadFab({super.key});
 
   void _navigateToDownloads(BuildContext context) {
@@ -18,27 +19,23 @@ class DownloadFab extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<List<DownloadTask>>(
-      stream: DownloadService.instance.tasksStream,
-      builder: (context, snapshot) {
-        final activeCount = DownloadService.instance.activeDownloadCount;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final activeCount = ref.watch(downloadSummaryProvider).valueOrNull?.active ??
+        DownloadService.instance.activeDownloadCount;
 
-        // 没有活跃任务时不显示
-        if (activeCount == 0) {
-          return const SizedBox.shrink();
-        }
+    // 没有活跃任务时不显示
+    if (activeCount == 0) {
+      return const SizedBox.shrink();
+    }
 
-        return Badge(
-          isLabelVisible: true,
-          label: Text('$activeCount'),
-          child: FloatingActionButton(
-            onPressed: () => _navigateToDownloads(context),
-            tooltip: S.of(context).downloadTasks,
-            child: const Icon(Icons.download),
-          ),
-        );
-      },
+    return Badge(
+      isLabelVisible: true,
+      label: Text('$activeCount'),
+      child: FloatingActionButton(
+        onPressed: () => _navigateToDownloads(context),
+        tooltip: S.of(context).downloadTasks,
+        child: const Icon(Icons.download),
+      ),
     );
   }
 }

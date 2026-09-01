@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
@@ -181,7 +182,7 @@ void main() {
       VirtualizedSliverCollection<int>(
         items: List.generate(100, (index) => index),
         itemId: (item) => item,
-        cacheExtent: 0,
+        scrollCacheExtent: const ScrollCacheExtent.pixels(0),
         prefetchItemCount: 4,
         showEndIndicator: false,
         onPrefetch: (items) => prefetchedBatches.add(items),
@@ -214,7 +215,7 @@ void main() {
           itemIdReads++;
           return item;
         },
-        cacheExtent: 360,
+        scrollCacheExtent: const ScrollCacheExtent.pixels(360),
         prefetchItemCount: 1,
         showEndIndicator: false,
         onPrefetch: (_) {},

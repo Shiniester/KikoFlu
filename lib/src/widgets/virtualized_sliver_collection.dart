@@ -113,17 +113,11 @@ class VirtualizedCollectionController {
   }
 }
 
-typedef VirtualizedItemBuilder<T> = Widget Function(
-  BuildContext context,
-  T item,
-  int index,
-);
+typedef VirtualizedItemBuilder<T> =
+    Widget Function(BuildContext context, T item, int index);
 
-typedef VirtualizedErrorBuilder = Widget Function(
-  BuildContext context,
-  Object error,
-  VoidCallback retry,
-);
+typedef VirtualizedErrorBuilder =
+    Widget Function(BuildContext context, Object error, VoidCallback retry);
 
 class VirtualizedSliverCollection<T> extends StatefulWidget {
   const VirtualizedSliverCollection({
@@ -162,25 +156,25 @@ class VirtualizedSliverCollection<T> extends StatefulWidget {
     this.onPrefetch,
     this.prefetchItemCount = 6,
     this.nearEndExtent = 720,
-    this.cacheExtent = ScrollOptimization.cacheExtent,
+    this.scrollCacheExtent,
     this.physics,
     this.addAutomaticKeepAlives = true,
     this.addRepaintBoundaries = true,
     this.fillEmptyViewport = true,
     this.collectionTrailingBuilder,
-  })  : assert(
-          layout != VirtualizedCollectionLayout.grid || gridDelegate != null,
-          'gridDelegate is required for grid layout',
-        ),
-        assert(
-          layout != VirtualizedCollectionLayout.masonry ||
-              (masonryCrossAxisCount != null && masonryCrossAxisCount > 0),
-          'masonryCrossAxisCount is required for masonry layout',
-        ),
-        assert(
-          pagination == null || onLoadMore == null,
-          'Explicit pagination and infinite loading are mutually exclusive',
-        );
+  }) : assert(
+         layout != VirtualizedCollectionLayout.grid || gridDelegate != null,
+         'gridDelegate is required for grid layout',
+       ),
+       assert(
+         layout != VirtualizedCollectionLayout.masonry ||
+             (masonryCrossAxisCount != null && masonryCrossAxisCount > 0),
+         'masonryCrossAxisCount is required for masonry layout',
+       ),
+       assert(
+         pagination == null || onLoadMore == null,
+         'Explicit pagination and infinite loading are mutually exclusive',
+       );
 
   final List<T> items;
   final Object Function(T item) itemId;
@@ -216,7 +210,12 @@ class VirtualizedSliverCollection<T> extends StatefulWidget {
   final ValueChanged<List<T>>? onPrefetch;
   final int prefetchItemCount;
   final double nearEndExtent;
-  final double cacheExtent;
+
+  /// Logical pixels retained before and after the viewport.
+  ///
+  /// Android defaults to 75% of the viewport, clamped to 240–720 px. Other
+  /// platforms keep the existing 360 px behavior.
+  final ScrollCacheExtent? scrollCacheExtent;
   final ScrollPhysics? physics;
   final bool addAutomaticKeepAlives;
   final bool addRepaintBoundaries;
@@ -240,6 +239,8 @@ class _VirtualizedSliverCollectionState<T>
   bool _pageRequestInFlight = false;
   Object? _lastLoadSignature;
   List<Object> _lastVisibleIds = const [];
+  late Map<Object, int> _indexById;
+  late int _indexedItemCount;
 
   bool get _tracksItems =>
       widget.onVisibleItemsChanged != null || widget.onPrefetch != null;
@@ -248,6 +249,7 @@ class _VirtualizedSliverCollectionState<T>
   void initState() {
     super.initState();
     _setController(widget.controller);
+    _rebuildIndex();
     widget.collectionController?._attach(_controller);
     _scheduleInspection();
   }
@@ -261,14 +263,31 @@ class _VirtualizedSliverCollectionState<T>
       _setController(widget.controller);
     }
     if (!identical(
-        oldWidget.collectionController, widget.collectionController)) {
+      oldWidget.collectionController,
+      widget.collectionController,
+    )) {
       oldWidget.collectionController?._detach(_controller);
     }
     widget.collectionController?._attach(_controller);
 
-    final currentIds = widget.items.map(widget.itemId).toSet();
-    _prefetchedIds.removeWhere((id) => !currentIds.contains(id));
+    if (!identical(oldWidget.items, widget.items) ||
+        _indexedItemCount != widget.items.length) {
+      _rebuildIndex();
+      _prefetchedIds.removeWhere((id) => !_indexById.containsKey(id));
+    }
     _scheduleInspection();
+  }
+
+  void _rebuildIndex() {
+    _indexById = <Object, int>{};
+    for (var index = 0; index < widget.items.length; index++) {
+      _indexById[widget.itemId(widget.items[index])] = index;
+    }
+    _indexedItemCount = widget.items.length;
+    assert(
+      _indexById.length == widget.items.length,
+      'VirtualizedSliverCollection item IDs must be unique',
+    );
   }
 
   @override
@@ -374,11 +393,13 @@ class _VirtualizedSliverCollectionState<T>
     for (final index in visibleIndices) {
       if (index < 0 || index >= widget.items.length) continue;
       final item = widget.items[index];
-      visible.add(VirtualizedVisibleItem(
-        index: index,
-        id: widget.itemId(item),
-        item: item,
-      ));
+      visible.add(
+        VirtualizedVisibleItem(
+          index: index,
+          id: widget.itemId(item),
+          item: item,
+        ),
+      );
     }
 
     final visibleIds = visible.map((entry) => entry.id).toList(growable: false);
@@ -401,7 +422,9 @@ class _VirtualizedSliverCollectionState<T>
     if (widget.onPrefetch == null || _mountedItems.isEmpty) return;
 
     var tailIndex = _mountedTailIndex;
-    if (tailIndex == null || tailIndex < 0 || tailIndex >= widget.items.length) {
+    if (tailIndex == null ||
+        tailIndex < 0 ||
+        tailIndex >= widget.items.length) {
       tailIndex = _findMountedTailIndex();
       _mountedTailIndex = tailIndex;
     }
@@ -417,8 +440,10 @@ class _VirtualizedSliverCollectionState<T>
   }
 
   void _dispatchPrefetch(int start) {
-    final end =
-        (start + widget.prefetchItemCount).clamp(0, widget.items.length);
+    final end = (start + widget.prefetchItemCount).clamp(
+      0,
+      widget.items.length,
+    );
     final pending = <T>[];
     for (var index = start; index < end; index++) {
       final item = widget.items[index];
@@ -480,8 +505,9 @@ class _VirtualizedSliverCollectionState<T>
       return;
     }
 
-    final lastId =
-        widget.items.isEmpty ? null : widget.itemId(widget.items.last);
+    final lastId = widget.items.isEmpty
+        ? null
+        : widget.itemId(widget.items.last);
     final signature = Object.hash(widget.items.length, lastId);
     if (!force && _lastLoadSignature == signature) return;
     _lastLoadSignature = signature;
@@ -517,17 +543,18 @@ class _VirtualizedSliverCollectionState<T>
           child: child,
         );
       },
-      childCount: widget.items.length +
+      childCount:
+          widget.items.length +
           (widget.collectionTrailingBuilder == null ? 0 : 1),
       // flutter_staggered_grid_view 0.7.0 does not correctly re-layout
       // masonry children reparented through findChildIndexCallback.
       findChildIndexCallback:
           widget.layout == VirtualizedCollectionLayout.masonry
-              ? null
-              : (key) {
-                  if (key is! _VirtualizedItemKey) return null;
-                  return indexById[key.value];
-                },
+          ? null
+          : (key) {
+              if (key is! _VirtualizedItemKey) return null;
+              return indexById[key.value];
+            },
       addAutomaticKeepAlives: widget.addAutomaticKeepAlives,
       addRepaintBoundaries: widget.addRepaintBoundaries,
     );
@@ -595,9 +622,9 @@ class _VirtualizedSliverCollectionState<T>
               onGoToPage: pagination.onGoToPage == null
                   ? null
                   : (page) => _changePage(
-                        pagination,
-                        () => pagination.onGoToPage!(page),
-                      ),
+                      pagination,
+                      () => pagination.onGoToPage!(page),
+                    ),
               endMessage: pagination.endMessage,
             ),
             if (pagination.extraBuilder != null) ...[
@@ -642,38 +669,37 @@ class _VirtualizedSliverCollectionState<T>
 
   @override
   Widget build(BuildContext context) {
-    final indexById = <Object, int>{};
-    for (var index = 0; index < widget.items.length; index++) {
-      indexById[widget.itemId(widget.items[index])] = index;
-    }
-    assert(
-      indexById.length == widget.items.length,
-      'VirtualizedSliverCollection item IDs must be unique',
-    );
-
-    final delegate = _buildDelegate(indexById);
+    final delegate = _buildDelegate(_indexById);
     final liquidGlassDockExtent = LiquidGlassDockScope.extentOf(context);
     final trailingSafeExtent = liquidGlassDockExtent;
+    final viewportHeight = MediaQuery.sizeOf(context).height;
+    final resolvedCacheExtent =
+        widget.scrollCacheExtent ??
+        (Theme.of(context).platform == TargetPlatform.android
+            ? ScrollCacheExtent.pixels(
+                (viewportHeight * 0.75).clamp(240.0, 720.0).toDouble(),
+              )
+            : const ScrollCacheExtent.pixels(ScrollOptimization.cacheExtent));
     final collection = switch (widget.layout) {
       VirtualizedCollectionLayout.list => SliverList(delegate: delegate),
       VirtualizedCollectionLayout.grid => SliverGrid(
-          delegate: delegate,
-          gridDelegate: widget.gridDelegate!,
-        ),
+        delegate: delegate,
+        gridDelegate: widget.gridDelegate!,
+      ),
       VirtualizedCollectionLayout.masonry => SliverMasonryGrid(
-          delegate: delegate,
-          gridDelegate: SliverSimpleGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: widget.masonryCrossAxisCount!,
-          ),
-          mainAxisSpacing: widget.masonryMainAxisSpacing,
-          crossAxisSpacing: widget.masonryCrossAxisSpacing,
+        delegate: delegate,
+        gridDelegate: SliverSimpleGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: widget.masonryCrossAxisCount!,
         ),
+        mainAxisSpacing: widget.masonryMainAxisSpacing,
+        crossAxisSpacing: widget.masonryCrossAxisSpacing,
+      ),
     };
 
     Widget scrollView = CustomScrollView(
       key: widget.pageStorageKey,
       controller: _controller,
-      cacheExtent: widget.cacheExtent,
+      scrollCacheExtent: resolvedCacheExtent,
       physics: widget.physics,
       slivers: [
         ...widget.sliversBefore,
@@ -719,8 +745,7 @@ class _VirtualizedSliverCollectionState<T>
       );
     }
 
-    if (widget.onPrefetch != null &&
-        widget.onVisibleItemsChanged == null) {
+    if (widget.onPrefetch != null && widget.onVisibleItemsChanged == null) {
       scrollView = NotificationListener<ScrollEndNotification>(
         onNotification: (_) {
           _scheduleInspection();

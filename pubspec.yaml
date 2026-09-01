@@ -3,7 +3,7 @@ description: A cross-platform Flutter app for browsing and playing Kikoeru serve
 
 publish_to: 'none'
 
-version: 3.8.1
+version: 3.8.2
 
 environment:
   sdk: '>=3.12.1 <4.0.0'
@@ -32,7 +32,10 @@ dependencies:
   
   # Audio & Video & Pdf
   just_audio: ^0.9.36
-  just_audio_media_kit: ^2.0.7
+  # Upstream 2.1.0 leaves load() pending when libmpv reports an open error.
+  # Keep the pinned adapter patch local so restore failures reach Dart.
+  just_audio_media_kit:
+    path: third_party/just_audio_media_kit
   media_kit: ^1.2.0
   media_kit_libs_windows_audio: ^1.0.9
   media_kit_libs_linux: ^1.1.5
@@ -92,6 +95,8 @@ dependencies:
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
 
   flutter_lints: ^3.0.1

@@ -18,8 +18,12 @@ class AboutScreen extends ConsumerStatefulWidget {
 }
 
 class _AboutScreenState extends ConsumerState<AboutScreen> {
-  static final Uri _repoUri =
-      Uri.parse('https://github.com/Meteor-Sage/Kikoeru-Flutter');
+  static const String _author = 'Shiniester';
+  static const String _upstreamAuthor = 'pa-jesusf';
+  static final Uri _originRepoUri =
+      Uri.parse('https://github.com/Shiniester/KikoFlu');
+  static final Uri _upstreamRepoUri =
+      Uri.parse('https://github.com/pa-jesusf/KikoFlu');
   late final Future<_AboutData> _aboutFuture;
 
   @override
@@ -173,7 +177,7 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
                   icon: Icons.person_outline,
                   iconColor: primaryColor,
                   title: S.of(context).author,
-                  subtitle: 'Meteor-Sage',
+                  subtitle: _author,
                 ),
               ),
               const SizedBox(height: 16),
@@ -182,9 +186,29 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
                   icon: Icons.link,
                   iconColor: primaryColor,
                   title: S.of(context).projectRepo,
-                  subtitle: _repoUri.toString(),
+                  subtitle: _originRepoUri.toString(),
                   trailing: const Icon(Icons.open_in_new),
-                  onTap: () => _openRepository(),
+                  onTap: () => _openRepository(_originRepoUri),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SettingsSectionCard(
+                child: SettingsListTile(
+                  icon: Icons.person_outline,
+                  iconColor: primaryColor,
+                  title: S.of(context).upstreamAuthor,
+                  subtitle: _upstreamAuthor,
+                ),
+              ),
+              const SizedBox(height: 16),
+              SettingsSectionCard(
+                child: SettingsListTile(
+                  icon: Icons.link,
+                  iconColor: primaryColor,
+                  title: S.of(context).upstreamRepo,
+                  subtitle: _upstreamRepoUri.toString(),
+                  trailing: const Icon(Icons.open_in_new),
+                  onTap: () => _openRepository(_upstreamRepoUri),
                 ),
               ),
               const SizedBox(height: 16),
@@ -205,8 +229,8 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
     );
   }
 
-  Future<void> _openRepository() async {
-    await _openUrl(_repoUri.toString());
+  Future<void> _openRepository(Uri repository) async {
+    await _openUrl(repository.toString());
   }
 
   Future<void> _openUrl(String urlString) async {

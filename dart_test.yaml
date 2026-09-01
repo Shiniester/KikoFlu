@@ -1,0 +1,3 @@
+tags:
+  external:
+    skip: "Requires live third-party network services; run explicitly with --run-skipped --tags external."

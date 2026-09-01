@@ -526,6 +526,12 @@ class SRu extends S {
   String get projectRepo => 'Репозиторий проекта';
 
   @override
+  String get upstreamAuthor => 'Автор исходного проекта';
+
+  @override
+  String get upstreamRepo => 'Репозиторий исходного проекта';
+
+  @override
   String get openSourceLicense => 'Лицензия открытого ПО';
 
   @override
@@ -977,26 +983,31 @@ class SRu extends S {
       'Выберите, как нажатие на аудио изменяет плейлист:';
 
   @override
-  String get audioTapPlaylistModeReplace => 'Заменить весь список';
+  String get audioTapPlaylistModeReplace => 'Режим замены';
 
   @override
   String get audioTapPlaylistModeReplaceDescription =>
       'Заменить текущий плейлист всеми доступными аудиофайлами из папки выбранного файла.';
 
   @override
-  String get audioTapPlaylistModeAppendDirectory => 'Добавить папку';
+  String get audioTapPlaylistModeAppendDirectory => 'Режим добавления';
 
   @override
   String get audioTapPlaylistModeAppendDirectoryDescription =>
       'Добавить в конец все доступные аудиофайлы из папки выбранного файла. Дубликаты не добавляются.';
 
   @override
-  String get audioTapPlaylistModeAppendSingle =>
-      'Добавить только выбранное аудио';
+  String get audioTapPlaylistModeAppendSingle => 'Добавление одного аудио';
 
   @override
   String get audioTapPlaylistModeAppendSingleDescription =>
       'Добавить в конец только выбранный аудиофайл. Дубликаты не добавляются.';
+
+  @override
+  String get audioTapPlaylistModeAppendChip => 'Режим добавления';
+
+  @override
+  String get audioTapPlaylistModeAppendSingleChip => 'Добавление одного аудио';
 
   @override
   String get preloadNextTitle => 'Предзагрузка следующего';

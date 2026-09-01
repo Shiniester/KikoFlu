@@ -22,7 +22,6 @@ class PlaylistDialog extends ConsumerWidget {
     final queueAsync = ref.watch(queueProvider);
     final currentTrack = ref.watch(currentTrackProvider);
     final authState = ref.watch(authProvider);
-    final playlistMode = ref.watch(audioTapPlaylistModeProvider);
 
     // Get current queue synchronously as fallback
     final audioService = ref.read(audioPlayerServiceProvider);
@@ -47,38 +46,18 @@ class PlaylistDialog extends ConsumerWidget {
                 padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
-                    Text(
-                      S.of(context).playlistTitle,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                    Expanded(
+                      child: Text(
+                        S.of(context).playlistTitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                     const Spacer(),
-                    PopupMenuButton<AudioTapPlaylistMode>(
-                      tooltip:
-                          '${S.of(context).audioTapPlaylistMode}: ${playlistMode.localizedName(context)}',
-                      initialValue: playlistMode,
-                      icon: Icon(
-                        _modeIcon(playlistMode),
-                        color: playlistMode !=
-                                AudioTapPlaylistMode.replaceQueue
-                            ? Theme.of(context).colorScheme.primary
-                            : null,
-                      ),
-                      onSelected: (mode) {
-                        ref
-                            .read(audioTapPlaylistModeProvider.notifier)
-                            .updateMode(mode);
-                      },
-                      itemBuilder: (context) => [
-                        for (final mode in AudioTapPlaylistMode.values)
-                          CheckedPopupMenuItem(
-                            value: mode,
-                            checked: mode == playlistMode,
-                            child: Text(mode.localizedName(context)),
-                          ),
-                      ],
-                    ),
+                    const PlaylistModeToggle(),
                     IconButton(
                       icon: const Icon(Icons.close),
                       onPressed: () => Navigator.of(context).pop(),
@@ -106,7 +85,7 @@ class PlaylistDialog extends ConsumerWidget {
                       padding: EdgeInsets.zero,
                       itemCount: tracks.length,
                       buildDefaultDragHandles: false,
-                      onReorder: (oldIndex, newIndex) {
+                      onReorderItem: (oldIndex, newIndex) {
                         ref
                             .read(audioPlayerControllerProvider.notifier)
                             .moveTrack(oldIndex, newIndex);
@@ -148,26 +127,32 @@ class PlaylistDialog extends ConsumerWidget {
                                 if (isCurrentTrack)
                                   Icon(
                                     Icons.music_note,
-                                    color:
-                                        Theme.of(context).colorScheme.primary,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
                                     size: 18,
                                   ),
                                 IconButton(
                                   tooltip: S.of(context).remove,
-                                  icon: const Icon(Icons.delete_outline,
-                                      size: 20),
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    size: 20,
+                                  ),
                                   onPressed: () {
                                     ref
-                                        .read(audioPlayerControllerProvider
-                                            .notifier)
+                                        .read(
+                                          audioPlayerControllerProvider
+                                              .notifier,
+                                        )
                                         .removeTrackAt(index);
                                   },
                                 ),
                                 ReorderableDragStartListener(
                                   index: index,
                                   child: const Padding(
-                                    padding:
-                                        EdgeInsets.symmetric(horizontal: 4),
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                    ),
                                     child: Icon(Icons.drag_handle, size: 20),
                                   ),
                                 ),
@@ -178,7 +163,8 @@ class PlaylistDialog extends ConsumerWidget {
                               onTap: () async {
                                 await ref
                                     .read(
-                                        audioPlayerControllerProvider.notifier)
+                                      audioPlayerControllerProvider.notifier,
+                                    )
                                     .skipToIndex(index);
                                 if (context.mounted) {
                                   Navigator.of(context).pop();
@@ -186,7 +172,9 @@ class PlaylistDialog extends ConsumerWidget {
                               },
                               child: Container(
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 8),
+                                  horizontal: 16,
+                                  vertical: 8,
+                                ),
                                 decoration: BoxDecoration(
                                   gradient: isCurrentTrack
                                       ? LinearGradient(
@@ -213,9 +201,9 @@ class PlaylistDialog extends ConsumerWidget {
                                       height: 48,
                                       decoration: BoxDecoration(
                                         borderRadius: BorderRadius.circular(6),
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .surfaceContainerHighest,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.surfaceContainerHighest,
                                       ),
                                       child: resolvedCover != null
                                           ? PrivacyBlurCover(
@@ -224,41 +212,60 @@ class PlaylistDialog extends ConsumerWidget {
                                               child: ClipRRect(
                                                 borderRadius:
                                                     BorderRadius.circular(6),
-                                                child: LocalFileUrl
-                                                        .isLocalFileUrl(
-                                                            resolvedCover)
+                                                child:
+                                                    LocalFileUrl.isLocalFileUrl(
+                                                      resolvedCover,
+                                                    )
                                                     ? Image.file(
-                                                        File(LocalFileUrl
-                                                            .pathFromUrl(
-                                                                resolvedCover)!),
+                                                        File(
+                                                          LocalFileUrl.pathFromUrl(
+                                                            resolvedCover,
+                                                          )!,
+                                                        ),
                                                         fit: BoxFit.cover,
-                                                        errorBuilder: (context,
-                                                            error, stackTrace) {
-                                                          return const Icon(
-                                                              Icons.music_note,
-                                                              size: 24);
-                                                        },
+                                                        errorBuilder:
+                                                            (
+                                                              context,
+                                                              error,
+                                                              stackTrace,
+                                                            ) {
+                                                              return const Icon(
+                                                                Icons
+                                                                    .music_note,
+                                                                size: 24,
+                                                              );
+                                                            },
                                                       )
                                                     : CachedNetworkImage(
                                                         imageUrl: resolvedCover,
                                                         fit: BoxFit.cover,
-                                                        errorWidget: (context,
-                                                            url, error) {
-                                                          return const Icon(
-                                                              Icons.music_note,
-                                                              size: 24);
-                                                        },
+                                                        errorWidget:
+                                                            (
+                                                              context,
+                                                              url,
+                                                              error,
+                                                            ) {
+                                                              return const Icon(
+                                                                Icons
+                                                                    .music_note,
+                                                                size: 24,
+                                                              );
+                                                            },
                                                         placeholder:
-                                                            (context, url) =>
-                                                                const Center(
-                                                          child:
-                                                              CircularProgressIndicator(),
-                                                        ),
+                                                            (
+                                                              context,
+                                                              url,
+                                                            ) => const Center(
+                                                              child:
+                                                                  CircularProgressIndicator(),
+                                                            ),
                                                       ),
                                               ),
                                             )
-                                          : const Icon(Icons.music_note,
-                                              size: 24),
+                                          : const Icon(
+                                              Icons.music_note,
+                                              size: 24,
+                                            ),
                                     ),
                                     const SizedBox(width: 12),
                                     Expanded(
@@ -278,9 +285,9 @@ class PlaylistDialog extends ConsumerWidget {
                                                         ? FontWeight.bold
                                                         : FontWeight.normal,
                                                     color: isCurrentTrack
-                                                        ? Theme.of(context)
-                                                            .colorScheme
-                                                            .primary
+                                                        ? Theme.of(
+                                                            context,
+                                                          ).colorScheme.primary
                                                         : null,
                                                   ),
                                                   maxLines: 1,
@@ -292,28 +299,30 @@ class PlaylistDialog extends ConsumerWidget {
                                                 Padding(
                                                   padding:
                                                       const EdgeInsets.only(
-                                                          bottom: 4),
+                                                        bottom: 4,
+                                                      ),
                                                   child: actionButtons,
                                                 ),
                                             ],
                                           ),
                                           if (track.artist != null)
                                             Padding(
-                                              padding:
-                                                  const EdgeInsets.only(top: 2),
+                                              padding: const EdgeInsets.only(
+                                                top: 2,
+                                              ),
                                               child: Text(
                                                 track.artist!,
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                                 style: TextStyle(
                                                   color: isCurrentTrack
-                                                      ? Theme.of(context)
-                                                          .colorScheme
-                                                          .primary
+                                                      ? Theme.of(
+                                                          context,
+                                                        ).colorScheme.primary
                                                       : Theme.of(context)
-                                                          .textTheme
-                                                          .bodySmall
-                                                          ?.color,
+                                                            .textTheme
+                                                            .bodySmall
+                                                            ?.color,
                                                 ),
                                               ),
                                             ),
@@ -322,7 +331,8 @@ class PlaylistDialog extends ConsumerWidget {
                                               alignment: Alignment.centerRight,
                                               child: Padding(
                                                 padding: const EdgeInsets.only(
-                                                    top: 2),
+                                                  top: 2,
+                                                ),
                                                 child: actionButtons,
                                               ),
                                             ),
@@ -349,13 +359,44 @@ class PlaylistDialog extends ConsumerWidget {
 
   /// 显示播放列表对话框
   static void show(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => const PlaylistDialog(),
+    showDialog(context: context, builder: (context) => const PlaylistDialog());
+  }
+}
+
+/// Opens the queue update mode menu and shows the currently selected mode.
+class PlaylistModeToggle extends ConsumerWidget {
+  const PlaylistModeToggle({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(audioTapPlaylistModeProvider);
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return PopupMenuButton<AudioTapPlaylistMode>(
+      tooltip:
+          '${S.of(context).audioTapPlaylistMode}: ${mode.localizedName(context)}',
+      initialValue: mode,
+      icon: Icon(
+        _modeIcon(mode),
+        color: mode == AudioTapPlaylistMode.replaceQueue
+            ? null
+            : colorScheme.primary,
+      ),
+      onSelected: (nextMode) {
+        ref.read(audioTapPlaylistModeProvider.notifier).updateMode(nextMode);
+      },
+      itemBuilder: (context) => [
+        for (final option in AudioTapPlaylistMode.values)
+          CheckedPopupMenuItem(
+            value: option,
+            checked: option == mode,
+            child: Text(option.localizedName(context)),
+          ),
+      ],
     );
   }
 
-  IconData _modeIcon(AudioTapPlaylistMode mode) {
+  static IconData _modeIcon(AudioTapPlaylistMode mode) {
     return switch (mode) {
       AudioTapPlaylistMode.replaceQueue => Icons.playlist_play,
       AudioTapPlaylistMode.appendDirectory => Icons.playlist_add,

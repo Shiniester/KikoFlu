@@ -36,8 +36,6 @@ class MiniPlayer extends ConsumerStatefulWidget {
 }
 
 class _MiniPlayerState extends ConsumerState<MiniPlayer> {
-  bool _isDragging = false;
-  double _dragValue = 0.0;
   String? _lastTrackId;
   bool _isAdjustingVolume = false;
   double _tempVolume = 1.0;
@@ -45,12 +43,11 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
   @override
   Widget build(BuildContext context) {
     final currentTrack = ref.watch(currentTrackProvider);
-    final isPlaying = ref.watch(isPlayingProvider);
-    final isTrackLoading =
-        ref.watch(isTrackLoadingProvider).valueOrNull ?? false;
-    final position = ref.watch(positionProvider);
-    final duration = ref.watch(durationProvider);
-    final authState = ref.watch(authProvider);
+    final auth = ref.watch(
+      authProvider.select(
+        (state) => (host: state.host ?? '', token: state.token ?? ''),
+      ),
+    );
     final isMiniPlayerVisible = ref.watch(miniPlayerVisibilityProvider);
     final useLiquidGlass = ref.watch(liquidGlassNavigationProvider);
     final fallbackGlassTransparency =
@@ -81,28 +78,14 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
           return const SizedBox.shrink();
         }
 
-        final progress = position.when(
-          data: (pos) => duration.when(
-            data: (dur) => dur != null && dur.inMilliseconds > 0
-                ? pos.inMilliseconds / dur.inMilliseconds
-                : 0.0,
-            loading: () => 0.0,
-            error: (_, __) => 0.0,
-          ),
-          loading: () => 0.0,
-          error: (_, __) => 0.0,
-        );
-
-        final displayProgress = _isDragging ? _dragValue : progress;
-
         // Build work cover URL（优先使用本地文件）
         String? workCoverUrl;
         // 优先使用 track.artworkUrl（可能是本地文件 file://）
         if (LocalFileUrl.isLocalFileUrl(track.artworkUrl)) {
           workCoverUrl = track.artworkUrl;
         } else if (track.workId != null) {
-          final host = authState.host ?? '';
-          final token = authState.token ?? '';
+          final host = auth.host;
+          final token = auth.token;
           if (host.isNotEmpty) {
             var normalizedHost = host;
             if (!normalizedHost.startsWith('http://') &&
@@ -128,11 +111,17 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
           },
           child: Consumer(
             builder: (context, ref, child) {
-              final currentLyric = ref.watch(currentLyricTextProvider);
-              final lyricState = ref.watch(lyricControllerProvider);
-              final hasLyrics = lyricState.lyrics.isNotEmpty;
+              final isPlaying = ref.watch(isPlayingProvider);
+              final hasLyrics = ref.watch(
+                lyricControllerProvider.select(
+                  (state) => state.lyrics.isNotEmpty,
+                ),
+              );
+              final hasCurrentLyric = ref.watch(
+                currentLyricTextProvider.select((lyric) => lyric != null),
+              );
               final shouldShowLyric =
-                  isPlaying && hasLyrics && currentLyric != null;
+                  isPlaying && hasLyrics && hasCurrentLyric;
               final playerHeight = shouldShowLyric ? 88.0 : 72.0;
 
               final playerContent = Container(
@@ -155,151 +144,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                 ),
                 child: Column(
                   children: [
-                    // Lyric display and progress bar wrapped in gesture detector
-                    GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onHorizontalDragStart: (details) {
-                        setState(() {
-                          _isDragging = true;
-                        });
-                      },
-                      onHorizontalDragUpdate: (details) {
-                        final box = context.findRenderObject() as RenderBox?;
-                        if (box != null) {
-                          final localPosition = details.localPosition.dx;
-                          final width = box.size.width;
-                          final value = (localPosition / width).clamp(0.0, 1.0);
-                          setState(() {
-                            _dragValue = value;
-                          });
-                        }
-                      },
-                      onHorizontalDragEnd: (details) {
-                        final dur = duration.valueOrNull;
-                        if (dur != null) {
-                          final seekPosition = Duration(
-                            milliseconds:
-                                (_dragValue * dur.inMilliseconds).round(),
-                          );
-                          ref
-                              .read(audioPlayerControllerProvider.notifier)
-                              .seekAndPersist(seekPosition);
-                        }
-                        setState(() {
-                          _isDragging = false;
-                        });
-                      },
-                      onTapUp: (details) {
-                        final box = context.findRenderObject() as RenderBox?;
-                        if (box != null) {
-                          final localPosition = details.localPosition.dx;
-                          final width = box.size.width;
-                          final value = (localPosition / width).clamp(0.0, 1.0);
-                          final dur = duration.valueOrNull;
-                          if (dur != null) {
-                            final seekPosition = Duration(
-                              milliseconds:
-                                  (value * dur.inMilliseconds).round(),
-                            );
-                            ref
-                                .read(audioPlayerControllerProvider.notifier)
-                                .seekAndPersist(seekPosition);
-                          }
-                        }
-                      },
-                      child: Column(
-                        children: [
-                          // Lyric display (only show when playing and has lyrics)
-                          Consumer(
-                            builder: (context, ref, child) {
-                              final currentLyric =
-                                  ref.watch(currentLyricTextProvider);
-                              final lyricState =
-                                  ref.watch(lyricControllerProvider);
-                              final lyricSettings =
-                                  ref.watch(playerLyricSettingsProvider);
-                              final hasLyrics = lyricState.lyrics.isNotEmpty;
-
-                              // Only show when playing and has lyrics
-                              if (!isPlaying ||
-                                  !hasLyrics ||
-                                  currentLyric == null) {
-                                return const SizedBox.shrink();
-                              }
-
-                              return Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 2,
-                                ),
-                                child: Text(
-                                  currentLyric,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.copyWith(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .primary,
-                                        fontSize: lyricSettings.miniFontSize,
-                                        height: lyricSettings.miniLineHeight,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                ),
-                              );
-                            },
-                          ),
-                          // Draggable Progress bar
-                          SizedBox(
-                            height: 4,
-                            child: SliderTheme(
-                              data: SliderTheme.of(context).copyWith(
-                                trackHeight: 4,
-                                thumbShape: const RoundSliderThumbShape(
-                                  enabledThumbRadius: 0,
-                                  disabledThumbRadius: 0,
-                                ),
-                                overlayShape: SliderComponentShape.noOverlay,
-                                activeTrackColor:
-                                    Theme.of(context).colorScheme.primary,
-                                inactiveTrackColor: Theme.of(context)
-                                    .colorScheme
-                                    .outline
-                                    .withValues(alpha: 0.2),
-                              ),
-                              child: Slider(
-                                value: displayProgress.clamp(0.0, 1.0),
-                                onChanged: (value) {
-                                  setState(() {
-                                    _isDragging = true;
-                                    _dragValue = value;
-                                  });
-                                },
-                                onChangeEnd: (value) {
-                                  final dur = duration.valueOrNull;
-                                  if (dur != null) {
-                                    final seekPosition = Duration(
-                                      milliseconds:
-                                          (value * dur.inMilliseconds).round(),
-                                    );
-                                    ref
-                                        .read(audioPlayerControllerProvider
-                                            .notifier)
-                                        .seekAndPersist(seekPosition);
-                                  }
-                                  setState(() {
-                                    _isDragging = false;
-                                  });
-                                },
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    const _MiniPlayerProgressArea(),
                     // Player controls
                     Expanded(
                       child: Padding(
@@ -397,36 +242,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                                   icon: const Icon(Icons.skip_previous),
                                   iconSize: 24,
                                 ),
-                                if (isTrackLoading)
-                                  const SizedBox(
-                                    width: 28,
-                                    height: 28,
-                                    child: Padding(
-                                      padding: EdgeInsets.all(2),
-                                      child: CircularProgressIndicator(
-                                          strokeWidth: 2.5),
-                                    ),
-                                  )
-                                else
-                                  IconButton(
-                                    onPressed: () {
-                                      if (isPlaying) {
-                                        ref
-                                            .read(audioPlayerControllerProvider
-                                                .notifier)
-                                            .pause();
-                                      } else {
-                                        ref
-                                            .read(audioPlayerControllerProvider
-                                                .notifier)
-                                            .play();
-                                      }
-                                    },
-                                    icon: Icon(isPlaying
-                                        ? Icons.pause
-                                        : Icons.play_arrow),
-                                    iconSize: 28,
-                                  ),
+                                const _MiniPlayerPlayButton(),
                                 IconButton(
                                   onPressed: () async {
                                     try {
@@ -453,12 +269,15 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                                 // Volume control (desktop platforms only)
                                 Consumer(
                                   builder: (context, ref, child) {
-                                    final audioState = ref
-                                        .watch(audioPlayerControllerProvider);
+                                    final volume = ref.watch(
+                                      audioPlayerControllerProvider.select(
+                                        (state) => state.volume,
+                                      ),
+                                    );
                                     // 使用临时音量值避免拖动时重建
                                     final displayVolume = _isAdjustingVolume
                                         ? _tempVolume
-                                        : audioState.volume;
+                                        : volume;
                                     return VolumeControl(
                                       volume: displayVolume,
                                       onVolumeChanged: (value) {
@@ -586,6 +405,165 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
     return Hero(
       tag: 'audio_player_artwork_${track.id}',
       child: image,
+    );
+  }
+}
+
+class _MiniPlayerProgressArea extends ConsumerStatefulWidget {
+  const _MiniPlayerProgressArea();
+
+  @override
+  ConsumerState<_MiniPlayerProgressArea> createState() =>
+      _MiniPlayerProgressAreaState();
+}
+
+class _MiniPlayerProgressAreaState
+    extends ConsumerState<_MiniPlayerProgressArea> {
+  bool _isDragging = false;
+  double _dragValue = 0;
+
+  void _seek(double value, Duration duration) {
+    if (duration <= Duration.zero) return;
+    ref.read(audioPlayerControllerProvider.notifier).seekAndPersist(
+          Duration(
+            milliseconds: (value * duration.inMilliseconds).round(),
+          ),
+        );
+  }
+
+  double _valueFromPointer(Offset localPosition, BuildContext context) {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null || box.size.width <= 0) return _dragValue;
+    return (localPosition.dx / box.size.width).clamp(0.0, 1.0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final position = ref.watch(positionProvider).valueOrNull ?? Duration.zero;
+    final duration = ref.watch(durationProvider).valueOrNull ?? Duration.zero;
+    final progress = duration.inMilliseconds > 0
+        ? position.inMilliseconds / duration.inMilliseconds
+        : 0.0;
+    final displayProgress = _isDragging ? _dragValue : progress;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onHorizontalDragStart: (_) => setState(() => _isDragging = true),
+      onHorizontalDragUpdate: (details) {
+        setState(() {
+          _dragValue = _valueFromPointer(details.localPosition, context);
+        });
+      },
+      onHorizontalDragEnd: (_) {
+        _seek(_dragValue, duration);
+        setState(() => _isDragging = false);
+      },
+      onTapUp: (details) {
+        _seek(_valueFromPointer(details.localPosition, context), duration);
+      },
+      child: Column(
+        children: [
+          const _MiniPlayerLyricLine(),
+          SizedBox(
+            height: 4,
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 4,
+                thumbShape: const RoundSliderThumbShape(
+                  enabledThumbRadius: 0,
+                  disabledThumbRadius: 0,
+                ),
+                overlayShape: SliderComponentShape.noOverlay,
+                activeTrackColor: Theme.of(context).colorScheme.primary,
+                inactiveTrackColor: Theme.of(context)
+                    .colorScheme
+                    .outline
+                    .withValues(alpha: 0.2),
+              ),
+              child: Slider(
+                value: displayProgress.clamp(0.0, 1.0),
+                onChanged: (value) {
+                  setState(() {
+                    _isDragging = true;
+                    _dragValue = value;
+                  });
+                },
+                onChangeEnd: (value) {
+                  _seek(value, duration);
+                  setState(() => _isDragging = false);
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MiniPlayerLyricLine extends ConsumerWidget {
+  const _MiniPlayerLyricLine();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isPlaying = ref.watch(isPlayingProvider);
+    final currentLyric = ref.watch(currentLyricTextProvider);
+    final hasLyrics = ref.watch(
+      lyricControllerProvider.select((state) => state.lyrics.isNotEmpty),
+    );
+    final lyricSettings = ref.watch(playerLyricSettingsProvider);
+    if (!isPlaying || !hasLyrics || currentLyric == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      child: Text(
+        currentLyric,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.primary,
+              fontSize: lyricSettings.miniFontSize,
+              height: lyricSettings.miniLineHeight,
+              fontWeight: FontWeight.w600,
+            ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.center,
+      ),
+    );
+  }
+}
+
+class _MiniPlayerPlayButton extends ConsumerWidget {
+  const _MiniPlayerPlayButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isTrackLoading =
+        ref.watch(isTrackLoadingProvider).valueOrNull ?? false;
+    if (isTrackLoading) {
+      return const SizedBox(
+        width: 28,
+        height: 28,
+        child: Padding(
+          padding: EdgeInsets.all(2),
+          child: CircularProgressIndicator(strokeWidth: 2.5),
+        ),
+      );
+    }
+
+    final isPlaying = ref.watch(isPlayingProvider);
+    return IconButton(
+      onPressed: () {
+        final controller = ref.read(audioPlayerControllerProvider.notifier);
+        if (isPlaying) {
+          controller.pause();
+        } else {
+          controller.play();
+        }
+      },
+      icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+      iconSize: 28,
     );
   }
 }

@@ -55,8 +55,14 @@ class AuthState extends Equatable {
   }
 
   @override
-  List<Object?> get props =>
-      [currentUser, token, host, isLoading, error, isLoggedIn];
+  List<Object?> get props => [
+    currentUser,
+    token,
+    host,
+    isLoading,
+    error,
+    isLoggedIn,
+  ];
 }
 
 // Auth notifier
@@ -77,7 +83,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final userJson = StorageService.getMap('current_user');
 
       _log.captureOutput(
-          '[Auth] Stored token: ${token != null ? "exists" : "null"}');
+        '[Auth] Stored token: ${token != null ? "exists" : "null"}',
+      );
       _log.captureOutput('[Auth] Stored host: $host');
 
       if (token != null && host != null) {
@@ -101,7 +108,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
           _log.captureOutput('[Auth] Validating token...');
           await _refreshUserInfo();
           _log.captureOutput(
-              '[Auth] Token is valid, user logged in successfully');
+            '[Auth] Token is valid, user logged in successfully',
+          );
           return; // Token is valid, we're done
         } catch (e) {
           _log.captureOutput('[Auth] Token validation failed: $e');
@@ -116,7 +124,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (activeAccount != null) {
         // Silently re-login with saved credentials
         _log.captureOutput(
-            '[Auth] Found active account in database: ${activeAccount.username}');
+          '[Auth] Found active account in database: ${activeAccount.username}',
+        );
         _log.captureOutput('[Auth] Re-logging in with saved account...');
 
         _apiService.init('', activeAccount.host);
@@ -134,11 +143,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
           return;
         } else {
           _log.captureOutput(
-              '[Auth] Re-login failed due to network or server issue');
+            '[Auth] Re-login failed due to network or server issue',
+          );
           // 网络问题导致登录失败，但我们有缓存的账户信息
           // 允许用户以离线模式进入应用（可以使用本地下载内容）
           _log.captureOutput(
-              '[Auth] Entering offline mode with cached account');
+            '[Auth] Entering offline mode with cached account',
+          );
 
           // 使用缓存的账户信息设置基本状态
           _apiService.init('', activeAccount.host);
@@ -177,7 +188,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
         final activeAccount = await AccountDatabase.instance.getActiveAccount();
         if (activeAccount != null) {
           _log.captureOutput(
-              '[Auth] Exception occurred but found cached account, entering offline mode');
+            '[Auth] Exception occurred but found cached account, entering offline mode',
+          );
 
           _apiService.init('', activeAccount.host);
 
@@ -226,7 +238,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
     try {
       _log.captureOutput(
-          '[Auth] Login attempt - username: $username, host: $host, silent: $silent');
+        '[Auth] Login attempt - username: $username, host: $host, silent: $silent',
+      );
 
       // 删除主机地址末尾的斜杠，以免请求资源时出现地址错误
       if (host.endsWith("/")) {
@@ -300,8 +313,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
       // Save or update account in database
       try {
-        final existingAccounts =
-            await AccountDatabase.instance.getAllAccounts();
+        final existingAccounts = await AccountDatabase.instance
+            .getAllAccounts();
         final existingAccount = existingAccounts.firstWhere(
           (acc) => acc.username == username && acc.host == normalizedHost,
           orElse: () => Account(
@@ -366,8 +379,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  Future<bool> register(String username, String password, String host,
-      [String? serverCookie]) async {
+  Future<bool> register(
+    String username,
+    String password,
+    String host, [
+    String? serverCookie,
+  ]) async {
     state = state.copyWith(isLoading: true, error: null);
 
     if (serverCookie != null && serverCookie.isNotEmpty) {
@@ -454,7 +471,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
         _log.captureOutput('[Auth] Registered account saved to database');
       } catch (e) {
         _log.captureOutput(
-            '[Auth] Failed to save registered account to database: $e');
+          '[Auth] Failed to save registered account to database: $e',
+        );
       }
 
       state = state.copyWith(
@@ -488,10 +506,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         }
       }
 
-      state = state.copyWith(
-        isLoading: false,
-        error: errorMessage,
-      );
+      state = state.copyWith(isLoading: false, error: errorMessage);
       return false;
     }
   }
@@ -568,7 +583,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
     if (token != null && host != null) {
       _log.captureOutput(
-          '[Auth] Switching user - username: ${user.name}, host: $host');
+        '[Auth] Switching user - username: ${user.name}, host: $host',
+      );
 
       if (serverCookie != null && serverCookie.isNotEmpty) {
         await StorageService.setString('server_cookie', serverCookie);
@@ -595,6 +611,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<List<User>> getSavedUsers() async {
+    await StorageService.initSecondary();
     final userKeys = StorageService.getAllUserKeys();
     final users = <User>[];
 

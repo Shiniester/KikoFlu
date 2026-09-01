@@ -10,6 +10,8 @@ import 'package:smtc_windows/smtc_windows.dart';
 
 import '../models/audio_track.dart';
 import '../models/audio_gain_settings.dart';
+import '../models/playback_diagnostic_event.dart';
+import '../performance/performance_build_guard.dart';
 import 'cache_service.dart';
 import 'caching_stream_audio_source.dart';
 import 'audio_haptics_service.dart';
@@ -18,8 +20,10 @@ import 'playback_history_service.dart';
 import 'playback_session_store.dart';
 import 'download_path_service.dart';
 import 'storage_service.dart';
+import 'speculative_transfer_coordinator.dart';
 import '../utils/image_blur_util.dart';
 import '../utils/local_file_url.dart';
+import '../utils/reorder_utils.dart';
 
 final _log = LogService.instance;
 
@@ -117,6 +121,11 @@ class AudioPlayerService {
       StreamController.broadcast();
   final StreamController<bool> _trackLoadingController =
       StreamController<bool>.broadcast();
+  final StreamController<PlaybackDiagnosticEvent>
+  _playbackDiagnosticController =
+      StreamController<PlaybackDiagnosticEvent>.broadcast(sync: true);
+  final List<PlaybackDiagnosticEvent> _playbackDiagnostics = [];
+  ProcessingState? _lastDiagnosticProcessingState;
 
   // Initialize the service
   Future<void> initialize() async {
@@ -251,6 +260,21 @@ class AudioPlayerService {
 
     // Listen to player state changes
     _player.playerStateStream.listen((state) {
+      if (state.processingState == ProcessingState.buffering &&
+          _lastDiagnosticProcessingState != ProcessingState.buffering &&
+          !_isSwitchingTrack &&
+          state.playing &&
+          _player.position > Duration.zero) {
+        _emitPlaybackDiagnostic(
+          PlaybackDiagnosticEventType.unexpectedBuffering,
+          currentTrack,
+        );
+      }
+      _lastDiagnosticProcessingState = state.processingState;
+      SpeculativeTransferCoordinator.instance.setPlayerBuffering(
+        state.processingState == ProcessingState.loading ||
+            state.processingState == ProcessingState.buffering,
+      );
       if (state.processingState == ProcessingState.completed) {
         if (Platform.isMacOS) {
           // macOS: Use dedicated handler to prevent duplicate triggers
@@ -402,8 +426,20 @@ class AudioPlayerService {
     AudioTrack track, {
     bool emitCurrentTrack = true,
   }) async {
+    _emitPlaybackDiagnostic(
+      PlaybackDiagnosticEventType.trackLoadStarted,
+      track,
+    );
+    final localPath = LocalFileUrl.pathFromUrl(track.url);
+    final sourceUri = Uri.tryParse(track.url);
+    final sourceKind = localPath != null
+        ? 'local'
+        : (sourceUri?.scheme.isNotEmpty ?? false)
+        ? sourceUri!.scheme
+        : 'unknown';
     _log.captureOutput(
-      '[Audio] _loadTrack: title="${track.title}", url="${track.url}"',
+      '[Audio] _loadTrack: id="${track.id}", title="${track.title}", '
+      'source=$sourceKind',
     );
 
     // 换曲目后清空预加载标记，让新的"下一首"可重新触发预取
@@ -423,16 +459,18 @@ class AudioPlayerService {
     }
 
     try {
-      // 清理上一首歌创建的临时文件
-      await _cleanupTempPlaybackFile();
-      await _hapticsService.stop();
+      // Cleanup and haptics teardown are independent. Neither should add a
+      // second serial wait to every user-initiated track switch.
+      await Future.wait<void>([
+        _cleanupTempPlaybackFile(),
+        _hapticsService.stop(),
+      ]);
 
       String? audioFilePath;
       String? fallbackStreamUrl;
       bool loaded = false;
 
       // 优先检查是否是本地文件（file:// 协议）
-      final localPath = LocalFileUrl.pathFromUrl(track.url);
       if (localPath != null) {
         final localFile = File(localPath);
         _log.captureOutput('[Audio] 检查本地文件: $localPath');
@@ -491,6 +529,11 @@ class AudioPlayerService {
             _log.captureOutput('[Audio] 流式播放并写入缓存: ${track.title}');
             loaded = true;
           } catch (error) {
+            _emitPlaybackDiagnostic(
+              PlaybackDiagnosticEventType.cacheError,
+              track,
+              error: error,
+            );
             _log.captureOutput('[Audio] 构建缓存流失败，回退到直接流式: $error');
           }
         }
@@ -504,19 +547,25 @@ class AudioPlayerService {
       }
 
       // Do not replace system Now Playing metadata until the source itself is
-      // known to be usable. Metadata failure must not invalidate playable audio.
-      try {
-        await _updateMediaItem(
+      // known to be usable. Artwork/privacy processing is not on the playback
+      // ready path and must not inflate switch latency.
+      unawaited(
+        _updateMediaItem(
           track,
           privacyEnabled: _privacyEnabled,
           blurCover: _privacyBlurCover,
           maskTitle: _privacyMaskTitle,
           customTitle: _privacyCustomTitle,
-        );
-      } catch (error) {
-        _log.captureOutput('[Audio] Failed to update media item: $error');
-      }
+        ).catchError((Object error, StackTrace stackTrace) {
+          _log.captureOutput('[Audio] Failed to update media item: $error');
+        }),
+      );
     } catch (e) {
+      _emitPlaybackDiagnostic(
+        PlaybackDiagnosticEventType.trackLoadFailed,
+        track,
+        error: e,
+      );
       _log.captureOutput('Error loading audio source: $e');
       rethrow;
     } finally {
@@ -530,7 +579,8 @@ class AudioPlayerService {
     if (emitCurrentTrack) {
       _currentTrackController.add(track);
     }
-    await persistPlaybackSession();
+    _emitPlaybackDiagnostic(PlaybackDiagnosticEventType.trackReady, track);
+    unawaited(persistPlaybackSession());
   }
 
   // Update media item for system notification
@@ -637,6 +687,11 @@ class AudioPlayerService {
   // 在后台提前把下一首流式音频拉到缓存，切歌时即可命中本地缓存，避免卡顿空档。
   // 单曲循环、本地文件、已缓存曲目均自动跳过，不影响正常播放逻辑。
   void _maybePreloadNextTrack(Duration position, Duration? duration) {
+    if (SpeculativeTransferCoordinator
+        .instance
+        .shouldPauseSpeculativeTransfers) {
+      return;
+    }
     final threshold = _preloadThreshold;
     if (threshold == null || threshold <= Duration.zero) return;
     if (_appLoopMode == LoopMode.one) return;
@@ -663,6 +718,12 @@ class AudioPlayerService {
   }
 
   Future<void> _preloadNextTrackToCache(AudioTrack track) async {
+    if (SpeculativeTransferCoordinator
+        .instance
+        .shouldPauseSpeculativeTransfers) {
+      if (_prefetchedNextHash == track.hash) _prefetchedNextHash = null;
+      return;
+    }
     final hash = track.hash;
     if (hash == null || hash.isEmpty) return;
     final url = track.url;
@@ -696,6 +757,11 @@ class AudioPlayerService {
       succeeded = true;
       _log.captureOutput('[Audio] 预加载下一首完成: ${track.title}');
     } catch (e) {
+      _emitPlaybackDiagnostic(
+        PlaybackDiagnosticEventType.cacheError,
+        track,
+        error: e,
+      );
       _log.captureOutput('[Audio] 预加载下一首失败: ${track.title} - $e');
     } finally {
       if (!succeeded && _prefetchedNextHash == hash) {
@@ -748,7 +814,10 @@ class AudioPlayerService {
     if (_hapticsEnabled) {
       _hapticsService.start();
     }
-    await persistPlaybackPosition();
+    // Position persistence is serialized by the session store and is not
+    // required before audio starts. Keeping it off the user-visible play/switch
+    // path avoids a SharedPreferences round trip on every track change.
+    unawaited(persistPlaybackPosition());
 
     // macOS specific: Check if track completed immediately (workaround for immediate completion bug)
     if (Platform.isMacOS &&
@@ -765,6 +834,11 @@ class AudioPlayerService {
     // lifetime of the track.
     unawaited(
       playback.catchError((Object error, StackTrace stackTrace) {
+        _emitPlaybackDiagnostic(
+          PlaybackDiagnosticEventType.playbackError,
+          currentTrack,
+          error: error,
+        );
         _log.captureOutput('[Audio] Playback failed: $error');
       }),
     );
@@ -894,26 +968,10 @@ class AudioPlayerService {
   }
 
   Future<void> moveTrack(int oldIndex, int newIndex) async {
-    if (oldIndex < 0 || oldIndex >= _queue.length) return;
-
-    if (newIndex < 0) {
-      newIndex = 0;
-    } else if (newIndex > _queue.length) {
-      newIndex = _queue.length;
-    }
-
-    if (newIndex > oldIndex) {
-      newIndex -= 1;
-    }
-
-    if (oldIndex == newIndex) return;
-
     final currentTrackId = (_queue.isNotEmpty && _currentIndex < _queue.length)
         ? _queue[_currentIndex].id
         : null;
-
-    final track = _queue.removeAt(oldIndex);
-    _queue.insert(newIndex, track);
+    if (!reorderByFinalIndex(_queue, oldIndex, newIndex)) return;
 
     if (currentTrackId != null) {
       final updatedIndex = _queue.indexWhere(
@@ -1046,31 +1104,42 @@ class AudioPlayerService {
     _sessionCompleted = false;
     _sessionOwnerKey = currentOwnerKey;
     try {
-      _queue
-        ..clear()
-        ..addAll(snapshot.queue.map(_refreshStoredTrackCredentials));
-      _currentIndex = snapshot.currentIndex;
-      _queueController.add(List<AudioTrack>.from(_queue));
-      await _loadTrack(_queue[_currentIndex], emitCurrentTrack: false);
+      await runPlaybackSessionRestore(
+        restore: () async {
+          _queue
+            ..clear()
+            ..addAll(snapshot.queue.map(_refreshStoredTrackCredentials));
+          _currentIndex = snapshot.currentIndex;
+          _queueController.add(List<AudioTrack>.from(_queue));
+          _log.captureOutput(
+            '[AudioSession] Loading restored source at index=$_currentIndex',
+          );
+          await _loadTrack(_queue[_currentIndex], emitCurrentTrack: false);
 
-      var restoredPosition = snapshot.position;
-      final trackDuration = _player.duration;
-      if (trackDuration != null &&
-          trackDuration > Duration.zero &&
-          restoredPosition >= trackDuration) {
-        restoredPosition = trackDuration - const Duration(milliseconds: 1);
-      }
-      await _player.seek(restoredPosition);
-      _lastSessionPositionMs = restoredPosition.inMilliseconds;
-      _updatePlaybackState();
-      _currentTrackController.add(_queue[_currentIndex]);
-      _log.captureOutput(
-        '[AudioSession] Restored ${_queue.length} tracks at '
-        'index=$_currentIndex position=${restoredPosition.inMilliseconds}ms',
+          var restoredPosition = snapshot.position;
+          final trackDuration = _player.duration;
+          if (trackDuration != null &&
+              trackDuration > Duration.zero &&
+              restoredPosition >= trackDuration) {
+            restoredPosition = trackDuration - const Duration(milliseconds: 1);
+          }
+          await _player.seek(restoredPosition);
+          _lastSessionPositionMs = restoredPosition.inMilliseconds;
+          _updatePlaybackState();
+          _currentTrackController.add(_queue[_currentIndex]);
+          _log.captureOutput(
+            '[AudioSession] Restored ${_queue.length} tracks at '
+            'index=$_currentIndex '
+            'position=${restoredPosition.inMilliseconds}ms',
+          );
+        },
+        clearOnFailure: clearQueue,
+        onFailure: (error) {
+          _log.captureOutput(
+            '[AudioSession] Failed to restore session: $error',
+          );
+        },
       );
-    } catch (error) {
-      _log.captureOutput('[AudioSession] Failed to restore session: $error');
-      await clearQueue();
     } finally {
       _isRestoringSession = false;
     }
@@ -1120,6 +1189,18 @@ class AudioPlayerService {
   Stream<List<AudioTrack>> get queueStream => _queueController.stream;
   Stream<AudioTrack?> get currentTrackStream => _currentTrackController.stream;
   Stream<bool> get trackLoadingStream => _trackLoadingController.stream;
+  Stream<PlaybackDiagnosticEvent> get playbackDiagnosticEventStream =>
+      _playbackDiagnosticController.stream;
+
+  List<PlaybackDiagnosticEvent> get debugPlaybackDiagnostics {
+    PerformanceBuildGuard.requireEnabled('playback diagnostics');
+    return List<PlaybackDiagnosticEvent>.unmodifiable(_playbackDiagnostics);
+  }
+
+  void debugClearPlaybackDiagnostics() {
+    PerformanceBuildGuard.requireEnabled('playback diagnostics');
+    _playbackDiagnostics.clear();
+  }
 
   Duration get position => _player.position;
   Duration? get duration => _player.duration;
@@ -1136,6 +1217,23 @@ class AudioPlayerService {
 
   bool get hasNext => _currentIndex < _queue.length - 1;
   bool get hasPrevious => _currentIndex > 0;
+
+  void _emitPlaybackDiagnostic(
+    PlaybackDiagnosticEventType type,
+    AudioTrack? track, {
+    Object? error,
+  }) {
+    if (!PerformanceBuildGuard.enabled) return;
+    final event = PlaybackDiagnosticEvent(
+      type: type,
+      timestamp: DateTime.now().toUtc(),
+      trackKey: track?.hash ?? track?.id,
+      workId: track?.workId,
+      detail: error?.runtimeType.toString(),
+    );
+    _playbackDiagnostics.add(event);
+    _playbackDiagnosticController.add(event);
+  }
 
   // Audio settings
   Future<void> setRepeatMode(LoopMode mode) async {
@@ -1255,6 +1353,7 @@ class AudioPlayerService {
     await _cleanupTempPlaybackFile();
     await _queueController.close();
     await _currentTrackController.close();
+    await _playbackDiagnosticController.close();
     await _player.dispose();
   }
 
@@ -1448,13 +1547,13 @@ class AudioPlayerService {
   }
 
   String? _remoteAudioUrlForHash(String hash) {
-    final host = StorageService.getString('server_host')
-        ?.trim()
-        .replaceFirst(RegExp(r'/+$'), '');
+    final host = StorageService.getString(
+      'server_host',
+    )?.trim().replaceFirst(RegExp(r'/+$'), '');
     if (host == null || host.isEmpty) return null;
 
-    final normalizedHost = host.startsWith('http://') ||
-            host.startsWith('https://')
+    final normalizedHost =
+        host.startsWith('http://') || host.startsWith('https://')
         ? host
         : 'https://$host';
     final token = StorageService.getString('auth_token');

@@ -9,7 +9,7 @@ import 'package:flutter/material.dart';
 /// 使用方法：
 /// ```dart
 /// CustomScrollView(
-///   cacheExtent: ScrollOptimization.cacheExtent,
+///   scrollCacheExtent: ScrollOptimization.cacheExtent,
 ///   physics: ScrollOptimization.physics,
 ///   ...
 /// )

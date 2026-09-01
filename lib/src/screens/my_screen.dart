@@ -13,8 +13,7 @@ import '../widgets/virtualized_sliver_collection.dart';
 import '../widgets/floating_feed_toolbar.dart';
 import '../widgets/liquid_glass_layout.dart';
 import '../widgets/download_fab.dart';
-import '../services/download_service.dart';
-import '../models/download_task.dart';
+import '../providers/download_provider.dart';
 import 'downloads_screen.dart';
 import 'local_downloads_screen.dart';
 import 'subtitle_library_screen.dart';
@@ -53,6 +52,8 @@ class _MyScreenState extends ConsumerState<MyScreen>
     final tabs = <_TabInfo>[];
     final authState = ref.watch(authProvider);
     final isOfficialServer = ServerUtils.isOfficialServer(authState.host);
+    final activeDownloadCount =
+        ref.watch(downloadSummaryProvider).valueOrNull?.active ?? 0;
 
     if (settings.showOnlineMarks) {
       tabs.add(_TabInfo(
@@ -96,20 +97,14 @@ class _MyScreenState extends ConsumerState<MyScreen>
         primaryToolbarVisible: _tabSwitcherVisible,
       ),
       showFab: true,
-      fabWidget: StreamBuilder<List<DownloadTask>>(
-        stream: DownloadService.instance.tasksStream,
-        builder: (context, snapshot) {
-          final activeCount = DownloadService.instance.activeDownloadCount;
-          return Badge(
-            isLabelVisible: activeCount > 0,
-            label: Text('$activeCount'),
-            child: FloatingActionButton(
-              onPressed: _navigateToDownloads,
-              tooltip: S.of(context).downloadTasks,
-              child: const Icon(Icons.download),
-            ),
-          );
-        },
+      fabWidget: Badge(
+        isLabelVisible: activeDownloadCount > 0,
+        label: Text('$activeDownloadCount'),
+        child: FloatingActionButton(
+          onPressed: _navigateToDownloads,
+          tooltip: S.of(context).downloadTasks,
+          child: const Icon(Icons.download),
+        ),
       ),
     ));
 

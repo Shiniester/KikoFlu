@@ -22,9 +22,13 @@ class OfflineLocalFileScanResult {
 class OfflineLocalFileScanner {
   const OfflineLocalFileScanner({
     this.fileExists = _defaultFileExists,
+    this.pathContext,
   });
 
   final OfflineFileExists fileExists;
+  final p.Context? pathContext;
+
+  p.Context get _pathContext => pathContext ?? p.context;
 
   Future<OfflineLocalFileScanResult> scan({
     required List<dynamic> fileTree,
@@ -47,10 +51,7 @@ class OfflineLocalFileScanner {
     );
     FileTreeUtils.sortItemsByTitle(files);
 
-    return OfflineLocalFileScanResult(
-      files: files,
-      fileExists: existingFiles,
-    );
+    return OfflineLocalFileScanResult(files: files, fileExists: existingFiles);
   }
 
   Future<List<dynamic>> _filterItems(
@@ -99,8 +100,10 @@ class OfflineLocalFileScanner {
     if (children == null || children.isEmpty) return null;
 
     final title = FileTreeUtils.titleOf(item, defaultValue: 'unknown');
-    final folderPath =
-        DownloadFilePathService.localRelativePathForItem(item, parentPath);
+    final folderPath = DownloadFilePathService.localRelativePathForItem(
+      item,
+      parentPath,
+    );
     final filteredChildren = await _filterItems(
       children,
       workDirPath,
@@ -130,11 +133,14 @@ class OfflineLocalFileScanner {
     Set<String> knownRelativePaths,
   ) async {
     final title = FileTreeUtils.titleOf(item, defaultValue: 'unknown');
-    final relativePath =
-        DownloadFilePathService.localRelativePathForItem(item, parentPath);
+    final relativePath = DownloadFilePathService.localRelativePathForItem(
+      item,
+      parentPath,
+    );
     final filePath = DownloadFilePathService.localPathForRelativePath(
       rootPath: workDirPath,
       relativePath: relativePath,
+      context: _pathContext,
     );
 
     final exists = await fileExists(filePath);
@@ -142,7 +148,8 @@ class OfflineLocalFileScanner {
     if (!exists || isDownloading) return null;
 
     final normalizedRelativePath = _normalizeRelativePath(relativePath);
-    final hash = FileTreeUtils.property(item, 'hash')?.toString() ??
+    final hash =
+        FileTreeUtils.property(item, 'hash')?.toString() ??
         'local:$normalizedRelativePath';
 
     knownRelativePaths.add(normalizedRelativePath);
@@ -189,11 +196,13 @@ class OfflineLocalFileScanner {
       entities.add(entity);
     }
     entities.sort(
-      (a, b) => p.basename(a.path).compareTo(p.basename(b.path)),
+      (a, b) => _pathContext
+          .basename(a.path)
+          .compareTo(_pathContext.basename(b.path)),
     );
 
     for (final entity in entities) {
-      final title = p.basename(entity.path);
+      final title = _pathContext.basename(entity.path);
       final relativePath = parentPath.isEmpty ? title : '$parentPath/$title';
       final normalizedRelativePath = _normalizeRelativePath(relativePath);
 

@@ -1,12 +1,12 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import 'download_file_path_service.dart';
 import '../utils/file_tree_utils.dart';
 
-typedef DownloadedPathResolver = Future<String?> Function(
-  int workId,
-  String hash,
-);
+typedef DownloadedPathResolver =
+    Future<String?> Function(int workId, String hash);
 typedef DownloadRootPathProvider = Future<String> Function();
 typedef DownloadedFileExists = Future<bool> Function(String path);
 
@@ -25,11 +25,13 @@ class DownloadedFileStateScanner {
     required this.resolveDownloadedPath,
     required this.downloadRootPath,
     this.fileExists = _defaultFileExists,
+    this.pathContext,
   });
 
   final DownloadedPathResolver resolveDownloadedPath;
   final DownloadRootPathProvider downloadRootPath;
   final DownloadedFileExists fileExists;
+  final p.Context? pathContext;
 
   Future<DownloadedFileState> scan({
     required int workId,
@@ -61,6 +63,7 @@ class DownloadedFileStateScanner {
         rootPath: rootPath,
         workId: workId,
         relativePath: relativePath,
+        context: pathContext ?? p.context,
       );
       if (await fileExists(localPath)) {
         downloadedFiles[hash] = true;
@@ -85,8 +88,10 @@ class DownloadedFileStateScanner {
 
       if (!isFolder && hash != null) {
         downloadedFiles[hash] = false;
-        fileRelativePaths[hash] =
-            FileTreeUtils.localRelativePathOf(item, parentPath);
+        fileRelativePaths[hash] = FileTreeUtils.localRelativePathOf(
+          item,
+          parentPath,
+        );
       }
 
       final children = FileTreeUtils.childrenOf(item);

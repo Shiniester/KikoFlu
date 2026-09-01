@@ -16,6 +16,7 @@ import '../utils/string_utils.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/scroll_optimization.dart';
 import '../providers/auth_provider.dart';
+import '../providers/download_provider.dart';
 import '../widgets/sort_dialog.dart';
 import 'offline_work_detail_screen.dart';
 import '../widgets/privacy_blur_cover.dart';
@@ -552,11 +553,12 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
   Widget build(BuildContext context) {
     super.build(context);
 
-    return StreamBuilder<List<DownloadTask>>(
-      stream: DownloadService.instance.tasksStream,
-      initialData: DownloadService.instance.tasks,
-      builder: (context, snapshot) {
-        final tasks = snapshot.data ?? [];
+        final taskIds = ref.watch(downloadTaskIdsProvider).valueOrNull ??
+            DownloadService.instance.taskIds;
+        final tasks = taskIds
+            .map(DownloadService.instance.taskById)
+            .whereType<DownloadTask>()
+            .toList(growable: false);
         final completedTasks =
             tasks.where((t) => t.status == DownloadStatus.completed).toList();
 
@@ -693,8 +695,6 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
               ),
           ],
         );
-      },
-    );
   }
 
   Widget _buildPrimaryToolbar(Map<int, List<DownloadTask>> groupedTasks) {

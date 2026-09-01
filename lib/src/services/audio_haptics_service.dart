@@ -14,16 +14,27 @@ typedef AudioHapticsPositionProvider = Duration Function();
 typedef AudioHapticsPlayingProvider = bool Function();
 
 class AudioHapticsService {
-  AudioHapticsService({
+  factory AudioHapticsService({
     MethodChannel? channel,
     AudioHapticPatternGenerator patternGenerator =
         const AudioHapticPatternGenerator(),
     AudioHapticsPositionProvider? positionProvider,
     AudioHapticsPlayingProvider? playingProvider,
-  })  : _channel = channel ?? const MethodChannel(_channelName),
-        _patternGenerator = patternGenerator,
-        _positionProvider = positionProvider,
-        _playingProvider = playingProvider {
+  }) {
+    return AudioHapticsService._(
+      channel: channel ?? const MethodChannel(_channelName),
+      patternGenerator: patternGenerator,
+      positionProvider: positionProvider,
+      playingProvider: playingProvider,
+    );
+  }
+
+  AudioHapticsService._({
+    required this._channel,
+    required this._patternGenerator,
+    this._positionProvider,
+    this._playingProvider,
+  }) {
     _channel.setMethodCallHandler(_handlePlatformCall);
   }
 
@@ -123,21 +134,16 @@ class AudioHapticsService {
         'file=${await _fileState(path)}',
         tag: 'AudioHaptics',
       );
-      final raw = await _channel.invokeMethod<Map<dynamic, dynamic>>(
-        'analyze',
-        {
-          'path': path,
-          'frameMs': AudioHapticPatternGenerator.defaultFrameMs,
-          'maxDurationMs': 3 * 60 * 60 * 1000,
-        },
-      );
+      final raw = await _channel
+          .invokeMethod<Map<dynamic, dynamic>>('analyze', {
+            'path': path,
+            'frameMs': AudioHapticPatternGenerator.defaultFrameMs,
+            'maxDurationMs': 3 * 60 * 60 * 1000,
+          });
       if (generation != _analysisGeneration || raw == null) return;
 
       final analysis = AudioHapticAnalysis.fromPlatform(raw);
-      _events = _patternGenerator.generate(
-        analysis,
-        userIntensity: _intensity,
-      );
+      _events = _patternGenerator.generate(analysis, userIntensity: _intensity);
       _nextEventIndex = _indexForPosition(
         _positionProvider?.call() ?? Duration.zero,
       );
@@ -260,14 +266,12 @@ class AudioHapticsService {
       case 'analysisFailed':
         return null;
       case 'diagnostic':
-        _hapticsLog.info(
-          _analysisMessage(call.arguments),
-          tag: 'AudioHaptics',
-        );
+        _hapticsLog.info(_analysisMessage(call.arguments), tag: 'AudioHaptics');
         return null;
       default:
         throw MissingPluginException(
-            'Unknown audio haptics method: ${call.method}');
+          'Unknown audio haptics method: ${call.method}',
+        );
     }
   }
 

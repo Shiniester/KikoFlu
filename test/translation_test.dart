@@ -25,7 +25,7 @@ void main() {
       expect(result, isNot(equals(sourceText)));
       // 验证包含常见的翻译结果
       expect(result, anyOf(contains('你好'), contains('您好'), contains('喂')));
-    });
+    }, tags: 'external');
 
     // 测试微软翻译源
     test('Microsoft Translator should translate "Hello" to Chinese', () async {
@@ -44,7 +44,7 @@ void main() {
       expect(result, isNotEmpty);
       expect(result, isNot(equals(sourceText)));
       expect(result, anyOf(contains('你好'), contains('您好')));
-    });
+    }, tags: 'external');
 
     // 测试 Google 翻译源
     test('Google Translator should translate "Hello" to Chinese', () async {
@@ -59,7 +59,8 @@ void main() {
 
         final duration = DateTime.now().difference(startTime);
         debugPrint(
-            'Google Translation Result: "$sourceText" -> "${result.text}"');
+          'Google Translation Result: "$sourceText" -> "${result.text}"',
+        );
         debugPrint('Time taken: ${duration.inMilliseconds}ms');
 
         expect(result.text, isNotEmpty);
@@ -73,6 +74,6 @@ void main() {
         // 这里选择抛出异常让测试失败，以便用户知道不可用。
         rethrow;
       }
-    });
+    }, tags: 'external');
   });
 }
