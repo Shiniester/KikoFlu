@@ -223,6 +223,8 @@
   "checkUpdate": "Check for Updates",
   "author": "Author",
   "projectRepo": "Project Repository",
+  "upstreamAuthor": "Upstream Author",
+  "upstreamRepo": "Upstream Repository",
   "openSourceLicense": "Open Source License",
   "cannotOpenLink": "Cannot open link",
   "openLinkFailed": "Failed to open link: {error}",

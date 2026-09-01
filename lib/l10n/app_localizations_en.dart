@@ -524,6 +524,12 @@ class SEn extends S {
   String get projectRepo => 'Project Repository';
 
   @override
+  String get upstreamAuthor => 'Upstream Author';
+
+  @override
+  String get upstreamRepo => 'Upstream Repository';
+
+  @override
   String get openSourceLicense => 'Open Source License';
 
   @override

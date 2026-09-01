@@ -511,6 +511,12 @@ class SJa extends S {
   String get projectRepo => 'プロジェクトリポジトリ';
 
   @override
+  String get upstreamAuthor => 'アップストリーム作者';
+
+  @override
+  String get upstreamRepo => 'アップストリームリポジトリ';
+
+  @override
   String get openSourceLicense => 'オープンソースライセンス';
 
   @override

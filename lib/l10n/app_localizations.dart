@@ -1068,6 +1068,18 @@ abstract class S {
   /// **'Project Repository'**
   String get projectRepo;
 
+  /// No description provided for @upstreamAuthor.
+  ///
+  /// In en, this message translates to:
+  /// **'Upstream Author'**
+  String get upstreamAuthor;
+
+  /// No description provided for @upstreamRepo.
+  ///
+  /// In en, this message translates to:
+  /// **'Upstream Repository'**
+  String get upstreamRepo;
+
   /// No description provided for @openSourceLicense.
   ///
   /// In en, this message translates to:

@@ -509,6 +509,12 @@ class SZh extends S {
   String get projectRepo => '项目仓库';
 
   @override
+  String get upstreamAuthor => '上游作者';
+
+  @override
+  String get upstreamRepo => '上游仓库';
+
+  @override
   String get openSourceLicense => '开源协议';
 
   @override
@@ -4131,6 +4137,12 @@ class SZhHant extends SZh {
 
   @override
   String get projectRepo => '專案倉庫';
+
+  @override
+  String get upstreamAuthor => '上游作者';
+
+  @override
+  String get upstreamRepo => '上游倉庫';
 
   @override
   String get openSourceLicense => '開源協議';

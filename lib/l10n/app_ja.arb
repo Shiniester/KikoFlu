@@ -182,6 +182,8 @@
   "checkUpdate": "アップデートを確認",
   "author": "作者",
   "projectRepo": "プロジェクトリポジトリ",
+  "upstreamAuthor": "アップストリーム作者",
+  "upstreamRepo": "アップストリームリポジトリ",
   "openSourceLicense": "オープンソースライセンス",
   "cannotOpenLink": "リンクを開けません",
   "openLinkFailed": "リンクを開けませんでした: {error}",

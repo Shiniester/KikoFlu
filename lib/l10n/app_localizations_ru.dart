@@ -526,6 +526,12 @@ class SRu extends S {
   String get projectRepo => 'Репозиторий проекта';
 
   @override
+  String get upstreamAuthor => 'Автор исходного проекта';
+
+  @override
+  String get upstreamRepo => 'Репозиторий исходного проекта';
+
+  @override
   String get openSourceLicense => 'Лицензия открытого ПО';
 
   @override

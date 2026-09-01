@@ -182,6 +182,8 @@
   "checkUpdate": "檢查更新",
   "author": "作者",
   "projectRepo": "專案倉庫",
+  "upstreamAuthor": "上游作者",
+  "upstreamRepo": "上游倉庫",
   "openSourceLicense": "開源協議",
   "cannotOpenLink": "無法開啟連結",
   "openLinkFailed": "開啟連結失敗：{error}",
