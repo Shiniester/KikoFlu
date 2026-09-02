@@ -14,6 +14,13 @@ import '../../utils/l10n_extensions.dart';
 import '../../utils/local_file_url.dart';
 import '../privacy_blur_cover.dart';
 import 'player_glass_surface.dart';
+import 'player_vertical_gestures.dart';
+
+const List<AudioTapPlaylistMode> _playlistModeMenuOrder = [
+  AudioTapPlaylistMode.addToQueue,
+  AudioTapPlaylistMode.playNext,
+  AudioTapPlaylistMode.replaceQueue,
+];
 
 Future<bool> confirmClearPlaybackQueue(BuildContext context) async {
   return await showDialog<bool>(
@@ -44,6 +51,7 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
     this.onTrackSelected,
     this.onClear,
     this.onDismissRequested,
+    this.dismissDrag,
     this.showCloseButton = false,
     this.horizontalPadding = 8,
   });
@@ -52,6 +60,7 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
   final VoidCallback? onTrackSelected;
   final Future<void> Function()? onClear;
   final VoidCallback? onDismissRequested;
+  final PlayerVerticalDragCallbacks? dismissDrag;
   final bool showCloseButton;
   final double horizontalPadding;
 
@@ -60,9 +69,6 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
 }
 
 class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
-  double _topOverscroll = 0;
-  bool _dismissTriggered = false;
-
   @override
   Widget build(BuildContext context) {
     final queueAsync = ref.watch(queueProvider);
@@ -73,14 +79,19 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
     final currentIndex = tracks.indexWhere(
       (track) => track.id == currentTrack?.id,
     );
+    final colorScheme = Theme.of(context).colorScheme;
+    final queueMetaStyle = Theme.of(
+      context,
+    ).textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant);
 
     return RepaintBoundary(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (currentTrack != null)
-            GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onVerticalDragEnd: _handleHeaderDragEnd,
+            PlayerVerticalSwipeRegion(
+              onSwipeDown: widget.onDismissRequested,
+              swipeDownDrag: widget.dismissDrag,
               child: _NowPlayingQueueHeader(
                 track: currentTrack,
                 horizontalPadding: widget.horizontalPadding,
@@ -91,11 +102,12 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
                 ),
               ),
             ),
-          GestureDetector(
+          PlayerVerticalSwipeRegion(
             key: const ValueKey('player-queue-title-dismiss-surface'),
-            behavior: HitTestBehavior.translucent,
-            onVerticalDragEnd: _handleHeaderDragEnd,
+            onSwipeDown: widget.onDismissRequested,
+            swipeDownDrag: widget.dismissDrag,
             child: Padding(
+              key: const ValueKey('player-queue-title-bar'),
               padding: EdgeInsets.fromLTRB(
                 widget.horizontalPadding,
                 8,
@@ -110,9 +122,7 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
                       tracks.isEmpty
                           ? '0 / 0'
                           : '${currentIndex < 0 ? 0 : currentIndex + 1} / ${tracks.length}',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+                      style: queueMetaStyle,
                     ),
                   ),
                   Expanded(
@@ -133,7 +143,19 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
                         ? const SizedBox.shrink()
                         : TextButton(
                             onPressed: widget.onClear,
-                            child: Text(S.of(context).clear),
+                            style: TextButton.styleFrom(
+                              foregroundColor: colorScheme.onSurfaceVariant,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
+                              minimumSize: const Size(0, 36),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            child: Text(
+                              S.of(context).clear,
+                              style: queueMetaStyle,
+                            ),
                           ),
                   ),
                   if (widget.showCloseButton)
@@ -156,8 +178,9 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
                       child: Text(S.of(context).playlistEmpty),
                     ),
                   )
-                : NotificationListener<ScrollNotification>(
-                    onNotification: _handleQueueScroll,
+                : PlayerScrollEdgeActions(
+                    onPullDownAtTop: widget.onDismissRequested,
+                    pullDownDrag: widget.dismissDrag,
                     child: ReorderableListView.builder(
                       key: const ValueKey('player-queue-list'),
                       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -218,31 +241,6 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
         ],
       ),
     );
-  }
-
-  void _handleHeaderDragEnd(DragEndDetails details) {
-    if ((details.primaryVelocity ?? 0) > 420) {
-      widget.onDismissRequested?.call();
-    }
-  }
-
-  bool _handleQueueScroll(ScrollNotification notification) {
-    if (widget.onDismissRequested == null) return false;
-    if (notification is OverscrollNotification &&
-        notification.metrics.pixels <= notification.metrics.minScrollExtent &&
-        notification.overscroll < 0) {
-      _topOverscroll += -notification.overscroll;
-      if (_topOverscroll >= 54 && !_dismissTriggered) {
-        _dismissTriggered = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) widget.onDismissRequested?.call();
-        });
-      }
-    } else if (notification is ScrollEndNotification) {
-      _topOverscroll = 0;
-      _dismissTriggered = false;
-    }
-    return false;
   }
 }
 
@@ -377,7 +375,11 @@ class _QueueTrackTile extends StatelessWidget {
                 IconButton(
                   tooltip: S.of(context).remove,
                   onPressed: onRemove,
-                  icon: const Icon(Icons.remove),
+                  icon: Icon(
+                    Icons.remove,
+                    size: 20,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
@@ -525,14 +527,13 @@ class _PlaylistModePillState extends ConsumerState<PlaylistModePill> {
                   padding: const EdgeInsets.only(bottom: 8),
                   child: SizedBox(
                     width: _pillWidth,
-                    child: PlayerGlassSurface(
+                    child: PlayerTransientGlassSurface(
                       key: const ValueKey('playlist-mode-expanded-options'),
                       borderRadius: BorderRadius.circular(14),
-                      borderColor: Colors.transparent,
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          for (final option in AudioTapPlaylistMode.values)
+                          for (final option in _playlistModeMenuOrder)
                             Material(
                               color: Colors.transparent,
                               child: InkWell(
@@ -635,7 +636,7 @@ class PlaylistModeToggle extends ConsumerWidget {
         ref.read(audioTapPlaylistModeProvider.notifier).updateMode(nextMode);
       },
       itemBuilder: (context) => [
-        for (final option in AudioTapPlaylistMode.values)
+        for (final option in _playlistModeMenuOrder)
           CheckedPopupMenuItem(
             value: option,
             checked: option == mode,

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -117,279 +118,298 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
           playerVisualPaletteProvider(paletteRequest),
         );
 
-        return Dismissible(
-          key: Key('miniplayer_${track.id}'),
-          direction: DismissDirection.down,
-          background: Container(color: Colors.transparent),
-          onDismissed: (direction) {
-            unawaited(
-              ref
-                  .read(audioPlayerControllerProvider.notifier)
-                  .dismissMiniPlayer(),
-            );
-          },
-          child: Consumer(
-            builder: (context, ref, child) {
-              final isPlaying = ref.watch(isPlayingProvider);
-              final hasLyrics = ref.watch(
-                lyricControllerProvider.select(
-                  (state) => state.lyrics.isNotEmpty,
+        return _MiniPlayerUpwardLauncher(
+          reduceMotion: MediaQuery.disableAnimationsOf(context),
+          createRoute: () => createAudioPlayerRoute<void>(
+            initialPalette:
+                preparedPalette.valueOrNull ??
+                PlayerVisualPalette.fallback(
+                  seed: playerTheme.colorScheme.primary,
+                  brightness: playerTheme.brightness,
                 ),
+            initialPaletteTrackId: track.id,
+          ),
+          child: Dismissible(
+            key: Key('miniplayer_${track.id}'),
+            direction: DismissDirection.down,
+            background: Container(color: Colors.transparent),
+            onDismissed: (direction) {
+              unawaited(
+                ref
+                    .read(audioPlayerControllerProvider.notifier)
+                    .dismissMiniPlayer(),
               );
-              final hasCurrentLyric = ref.watch(
-                currentLyricTextProvider.select((lyric) => lyric != null),
-              );
-              final shouldShowLyric = isPlaying && hasLyrics && hasCurrentLyric;
-              final playerHeight = shouldShowLyric ? 88.0 : 72.0;
+            },
+            child: Consumer(
+              builder: (context, ref, child) {
+                final isPlaying = ref.watch(isPlayingProvider);
+                final hasLyrics = ref.watch(
+                  lyricControllerProvider.select(
+                    (state) => state.lyrics.isNotEmpty,
+                  ),
+                );
+                final hasCurrentLyric = ref.watch(
+                  currentLyricTextProvider.select((lyric) => lyric != null),
+                );
+                final shouldShowLyric =
+                    isPlaying && hasLyrics && hasCurrentLyric;
+                final playerHeight = shouldShowLyric ? 88.0 : 72.0;
 
-              final playerContent = Container(
-                height: playerHeight,
-                decoration: BoxDecoration(
-                  color: useLiquidGlass
-                      ? Colors.transparent
-                      : Theme.of(context).colorScheme.surface,
-                  border: useLiquidGlass
-                      ? null
-                      : Border(
-                          top: BorderSide(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.outline.withValues(alpha: 0.2),
-                            width: 1,
+                final playerContent = Container(
+                  height: playerHeight,
+                  decoration: BoxDecoration(
+                    color: useLiquidGlass
+                        ? Colors.transparent
+                        : Theme.of(context).colorScheme.surface,
+                    border: useLiquidGlass
+                        ? null
+                        : Border(
+                            top: BorderSide(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.outline.withValues(alpha: 0.2),
+                              width: 1,
+                            ),
                           ),
-                        ),
-                ),
-                child: Column(
-                  children: [
-                    const _MiniPlayerProgressArea(),
-                    // Player controls
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        child: Row(
-                          children: [
-                            // Left tap area: artwork + info opens full player
-                            Expanded(
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () async {
-                                  PlayerVisualPalette initialPalette;
-                                  try {
-                                    initialPalette =
-                                        preparedPalette.valueOrNull ??
-                                        await ref.read(
-                                          playerVisualPaletteProvider(
-                                            paletteRequest,
-                                          ).future,
-                                        );
-                                  } catch (_) {
-                                    initialPalette =
-                                        PlayerVisualPalette.fallback(
-                                          seed: playerTheme.colorScheme.primary,
-                                          brightness: playerTheme.brightness,
-                                        );
-                                  }
-                                  if (!context.mounted) return;
-                                  openAudioPlayer<void>(
-                                    context,
-                                    initialPalette: initialPalette,
-                                    initialPaletteTrackId: track.id,
-                                  );
-                                },
-                                child: Row(
-                                  children: [
-                                    // Album art (use work cover) with optional Hero animation
-                                    _buildArtwork(
+                  ),
+                  child: Column(
+                    children: [
+                      const _MiniPlayerProgressArea(),
+                      // Player controls
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            children: [
+                              // Left tap area: artwork + info opens full player
+                              Expanded(
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () async {
+                                    PlayerVisualPalette initialPalette;
+                                    try {
+                                      initialPalette =
+                                          preparedPalette.valueOrNull ??
+                                          await ref.read(
+                                            playerVisualPaletteProvider(
+                                              paletteRequest,
+                                            ).future,
+                                          );
+                                    } catch (_) {
+                                      initialPalette =
+                                          PlayerVisualPalette.fallback(
+                                            seed:
+                                                playerTheme.colorScheme.primary,
+                                            brightness: playerTheme.brightness,
+                                          );
+                                    }
+                                    if (!context.mounted) return;
+                                    openAudioPlayer<void>(
                                       context,
-                                      track,
-                                      workCoverUrl: workCoverUrl,
-                                    ),
-                                    const SizedBox(width: 12),
-                                    // Track info
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          Text(
-                                            track.title,
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .bodyMedium
-                                                ?.copyWith(
-                                                  fontWeight: FontWeight.w500,
-                                                ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                          if (track.artist != null) ...[
-                                            const SizedBox(height: 2),
+                                      initialPalette: initialPalette,
+                                      initialPaletteTrackId: track.id,
+                                    );
+                                  },
+                                  child: Row(
+                                    children: [
+                                      // Album art (use work cover) with optional Hero animation
+                                      _buildArtwork(
+                                        context,
+                                        track,
+                                        workCoverUrl: workCoverUrl,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      // Track info
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
                                             Text(
-                                              track.artist!,
+                                              track.title,
                                               style: Theme.of(context)
                                                   .textTheme
-                                                  .bodySmall
+                                                  .bodyMedium
                                                   ?.copyWith(
-                                                    color: Theme.of(context)
-                                                        .colorScheme
-                                                        .onSurfaceVariant,
+                                                    fontWeight: FontWeight.w500,
                                                   ),
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
                                             ),
+                                            if (track.artist != null) ...[
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                track.artist!,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .bodySmall
+                                                    ?.copyWith(
+                                                      color: Theme.of(context)
+                                                          .colorScheme
+                                                          .onSurfaceVariant,
+                                                    ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ],
                                           ],
-                                        ],
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
-                            // Controls (do not trigger navigation)
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  onPressed: () async {
-                                    try {
-                                      await ref
-                                          .read(
-                                            audioPlayerControllerProvider
-                                                .notifier,
-                                          )
-                                          .skipToPrevious();
-                                    } catch (e) {
-                                      if (!context.mounted) return;
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            e.toString().replaceAll(
-                                              'Exception: ',
-                                              '',
-                                            ),
-                                          ),
-                                          duration: const Duration(seconds: 1),
-                                        ),
-                                      );
-                                    }
-                                  },
-                                  icon: const Icon(Icons.skip_previous),
-                                  iconSize: 24,
-                                ),
-                                const _MiniPlayerPlayButton(),
-                                IconButton(
-                                  onPressed: () async {
-                                    try {
-                                      await ref
-                                          .read(
-                                            audioPlayerControllerProvider
-                                                .notifier,
-                                          )
-                                          .skipToNext();
-                                    } catch (e) {
-                                      if (!context.mounted) return;
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            e.toString().replaceAll(
-                                              'Exception: ',
-                                              '',
-                                            ),
-                                          ),
-                                          duration: const Duration(seconds: 1),
-                                        ),
-                                      );
-                                    }
-                                  },
-                                  icon: const Icon(Icons.skip_next),
-                                  iconSize: 24,
-                                ),
-                                // Volume control (desktop platforms only)
-                                Consumer(
-                                  builder: (context, ref, child) {
-                                    final volume = ref.watch(
-                                      audioPlayerControllerProvider.select(
-                                        (state) => state.volume,
-                                      ),
-                                    );
-                                    // 使用临时音量值避免拖动时重建
-                                    final displayVolume = _isAdjustingVolume
-                                        ? _tempVolume
-                                        : volume;
-                                    return VolumeControl(
-                                      volume: displayVolume,
-                                      onVolumeChanged: (value) {
-                                        setState(() {
-                                          _isAdjustingVolume = true;
-                                          _tempVolume = value;
-                                        });
-                                        ref
+                              // Controls (do not trigger navigation)
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    onPressed: () async {
+                                      try {
+                                        await ref
                                             .read(
                                               audioPlayerControllerProvider
                                                   .notifier,
                                             )
-                                            .setVolume(value);
-                                      },
-                                      onVolumeChangeEnd: () {
-                                        setState(() {
-                                          _isAdjustingVolume = false;
-                                        });
-                                      },
-                                      iconSize: 24,
-                                    );
-                                  },
-                                ),
-                              ],
-                            ),
-                          ],
+                                            .skipToPrevious();
+                                      } catch (e) {
+                                        if (!context.mounted) return;
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              e.toString().replaceAll(
+                                                'Exception: ',
+                                                '',
+                                              ),
+                                            ),
+                                            duration: const Duration(
+                                              seconds: 1,
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    },
+                                    icon: const Icon(Icons.skip_previous),
+                                    iconSize: 24,
+                                  ),
+                                  const _MiniPlayerPlayButton(),
+                                  IconButton(
+                                    onPressed: () async {
+                                      try {
+                                        await ref
+                                            .read(
+                                              audioPlayerControllerProvider
+                                                  .notifier,
+                                            )
+                                            .skipToNext();
+                                      } catch (e) {
+                                        if (!context.mounted) return;
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              e.toString().replaceAll(
+                                                'Exception: ',
+                                                '',
+                                              ),
+                                            ),
+                                            duration: const Duration(
+                                              seconds: 1,
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    },
+                                    icon: const Icon(Icons.skip_next),
+                                    iconSize: 24,
+                                  ),
+                                  // Volume control (desktop platforms only)
+                                  Consumer(
+                                    builder: (context, ref, child) {
+                                      final volume = ref.watch(
+                                        audioPlayerControllerProvider.select(
+                                          (state) => state.volume,
+                                        ),
+                                      );
+                                      // 使用临时音量值避免拖动时重建
+                                      final displayVolume = _isAdjustingVolume
+                                          ? _tempVolume
+                                          : volume;
+                                      return VolumeControl(
+                                        volume: displayVolume,
+                                        onVolumeChanged: (value) {
+                                          setState(() {
+                                            _isAdjustingVolume = true;
+                                            _tempVolume = value;
+                                          });
+                                          ref
+                                              .read(
+                                                audioPlayerControllerProvider
+                                                    .notifier,
+                                              )
+                                              .setVolume(value);
+                                        },
+                                        onVolumeChangeEnd: () {
+                                          setState(() {
+                                            _isAdjustingVolume = false;
+                                          });
+                                        },
+                                        iconSize: 24,
+                                      );
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              );
-
-              if (!useLiquidGlass) return playerContent;
-              if (widget.suppressLiquidGlassSurface) {
-                return SizedBox(
-                  height: playerHeight + LiquidGlassLayout.verticalPadding * 2,
+                    ],
+                  ),
                 );
-              }
 
-              return Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: LiquidGlassLayout.horizontalPadding,
-                  vertical: LiquidGlassLayout.verticalPadding,
-                ),
-                child: AnimatedSize(
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOutCubic,
-                  alignment: Alignment.bottomCenter,
-                  child: LiquidGlassContainer(
-                    shape: const LiquidGlassShape.roundedRectangle(
-                      LiquidGlassLayout.cornerRadius,
-                    ),
-                    style: LiquidGlassStyle.regular,
-                    fallbackIntensity: fallbackGlassTransparency,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(
+                if (!useLiquidGlass) return playerContent;
+                if (widget.suppressLiquidGlassSurface) {
+                  return SizedBox(
+                    height:
+                        playerHeight + LiquidGlassLayout.verticalPadding * 2,
+                  );
+                }
+
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: LiquidGlassLayout.horizontalPadding,
+                    vertical: LiquidGlassLayout.verticalPadding,
+                  ),
+                  child: AnimatedSize(
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOutCubic,
+                    alignment: Alignment.bottomCenter,
+                    child: LiquidGlassContainer(
+                      shape: const LiquidGlassShape.roundedRectangle(
                         LiquidGlassLayout.cornerRadius,
                       ),
-                      child: playerContent,
+                      style: LiquidGlassStyle.regular,
+                      fallbackIntensity: fallbackGlassTransparency,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(
+                          LiquidGlassLayout.cornerRadius,
+                        ),
+                        child: playerContent,
+                      ),
                     ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         );
       },
@@ -544,6 +564,206 @@ class _MiniPlayerProgressAreaState
         ],
       ),
     );
+  }
+}
+
+class _MiniPlayerUpwardLauncher extends StatefulWidget {
+  const _MiniPlayerUpwardLauncher({
+    required this.child,
+    required this.createRoute,
+    required this.reduceMotion,
+  });
+
+  final Widget child;
+  final AudioPlayerPageRoute<void> Function() createRoute;
+  final bool reduceMotion;
+
+  @override
+  State<_MiniPlayerUpwardLauncher> createState() =>
+      _MiniPlayerUpwardLauncherState();
+}
+
+class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher>
+    with SingleTickerProviderStateMixin {
+  int? _pointer;
+  Offset? _startPosition;
+  VelocityTracker? _velocityTracker;
+  bool _directionLocked = false;
+  bool _directionRejected = false;
+  AudioPlayerPageRoute<void>? _pendingRoute;
+  OverlayEntry? _previewEntry;
+  late final AnimationController _previewController;
+
+  @override
+  void initState() {
+    super.initState();
+    _previewController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      key: const ValueKey('mini-player-upward-launcher'),
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: _handlePointerDown,
+      onPointerMove: _handlePointerMove,
+      onPointerUp: _handlePointerUp,
+      onPointerCancel: _handlePointerCancel,
+      child: widget.child,
+    );
+  }
+
+  void _handlePointerDown(PointerDownEvent event) {
+    if (_pointer != null) return;
+    _removePreview();
+    _pointer = event.pointer;
+    _startPosition = event.position;
+    _velocityTracker = VelocityTracker.withKind(event.kind)
+      ..addPosition(event.timeStamp, event.position);
+    _directionLocked = false;
+    _directionRejected = false;
+    _pendingRoute = null;
+  }
+
+  void _handlePointerMove(PointerMoveEvent event) {
+    if (event.pointer != _pointer || _directionRejected) return;
+    _velocityTracker?.addPosition(event.timeStamp, event.position);
+    final start = _startPosition;
+    if (start == null) return;
+    final offset = event.position - start;
+    if (!_directionLocked) {
+      if (offset.distance < 8) return;
+      if (offset.dy >= 0 || offset.dy.abs() < offset.dx.abs() * 1.2) {
+        _directionRejected = true;
+        return;
+      }
+      _directionLocked = true;
+      if (!widget.reduceMotion) {
+        _pendingRoute = widget.createRoute();
+        _showPreview();
+      }
+    }
+    if (_pendingRoute == null) return;
+    _previewController.value =
+        ((-offset.dy) / MediaQuery.sizeOf(context).height).clamp(0.0, 1.0);
+  }
+
+  void _handlePointerUp(PointerUpEvent event) {
+    if (event.pointer != _pointer) return;
+    _velocityTracker?.addPosition(event.timeStamp, event.position);
+    final start = _startPosition;
+    final distance = start == null ? 0.0 : start.dy - event.position.dy;
+    if (widget.reduceMotion && _directionLocked && distance >= 36) {
+      unawaited(Navigator.of(context).push<void>(widget.createRoute()));
+      _clearPointer();
+      return;
+    }
+    final route = _pendingRoute;
+    final velocity = _velocityTracker?.getVelocity().pixelsPerSecond.dy ?? 0;
+    final shouldOpen = _previewController.value >= 0.22 || velocity < -650;
+    if (route != null && shouldOpen) {
+      final progress = _previewController.value;
+      unawaited(Navigator.of(context).push<void>(route));
+      if (route.beginVerticalOpenGesture(initialValue: progress)) {
+        route.endVerticalOpenGesture(
+          velocity: velocity,
+          extent: MediaQuery.sizeOf(context).height,
+        );
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) => _removePreview());
+    } else {
+      _settlePreviewClosed();
+    }
+    _clearPointer(keepPreview: true);
+  }
+
+  void _handlePointerCancel(PointerCancelEvent event) {
+    if (event.pointer != _pointer) return;
+    _settlePreviewClosed();
+    _clearPointer(keepPreview: true);
+  }
+
+  void _showPreview() {
+    final route = _pendingRoute;
+    if (route == null || _previewEntry != null) return;
+    _previewController.value = 0;
+    _previewEntry = OverlayEntry(
+      builder: (overlayContext) {
+        final preview = HeroMode(
+          enabled: false,
+          child: route.builder(overlayContext),
+        );
+        return Positioned.fill(
+          child: IgnorePointer(
+            child: AnimatedBuilder(
+              animation: _previewController,
+              child: preview,
+              builder: (context, child) => Align(
+                alignment: Alignment.bottomCenter,
+                child: ClipRect(
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    heightFactor: _previewController.value,
+                    child: child,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    Overlay.of(context, rootOverlay: true).insert(_previewEntry!);
+  }
+
+  void _settlePreviewClosed() {
+    if (_previewEntry == null) return;
+    final remaining = _previewController.value;
+    if (remaining <= 0.001) {
+      _removePreview();
+      return;
+    }
+    final duration = Duration(
+      milliseconds: (260 * remaining).round().clamp(90, 260),
+    );
+    unawaited(() async {
+      try {
+        await _previewController.animateTo(
+          0,
+          duration: duration,
+          curve: Curves.fastEaseInToSlowEaseOut,
+        );
+      } catch (_) {
+        return;
+      }
+      if (mounted) _removePreview();
+    }());
+  }
+
+  void _removePreview() {
+    _previewController.stop();
+    _previewEntry?.remove();
+    _previewEntry = null;
+    _pendingRoute = null;
+  }
+
+  void _clearPointer({bool keepPreview = false}) {
+    _pointer = null;
+    _startPosition = null;
+    _velocityTracker = null;
+    _directionLocked = false;
+    _directionRejected = false;
+    if (!keepPreview) _removePreview();
+  }
+
+  @override
+  void dispose() {
+    _removePreview();
+    _previewController.dispose();
+    super.dispose();
   }
 }
 

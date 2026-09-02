@@ -50,18 +50,117 @@ class PlayerGlassSurface extends StatelessWidget {
       ),
       child: interactive,
     );
+    final clippedSurface = ClipRRect(
+      borderRadius: borderRadius,
+      child: surface,
+    );
+    if (!enabled) {
+      return RepaintBoundary(child: clippedSurface);
+    }
+
     final filter = ImageFilter.blur(sigmaX: sigma, sigmaY: sigma);
     return RepaintBoundary(
       child: ClipRRect(
         borderRadius: borderRadius,
         child: grouped
-            ? BackdropFilter.grouped(
-                filter: filter,
-                enabled: enabled,
-                child: surface,
-              )
-            : BackdropFilter(filter: filter, enabled: enabled, child: surface),
+            ? BackdropFilter.grouped(filter: filter, child: surface)
+            : BackdropFilter(filter: filter, child: surface),
       ),
+    );
+  }
+}
+
+/// One-pass, high-contrast glass used by temporary player overlays.
+///
+/// The stronger perceived blur comes from one bounded sigma-10 backdrop pass
+/// plus a dark tint. Children should use [PlayerGlassMaterial] instead of
+/// adding another backdrop filter.
+class PlayerTransientGlassSurface extends StatelessWidget {
+  const PlayerTransientGlassSurface({
+    super.key,
+    required this.child,
+    this.padding = EdgeInsets.zero,
+    this.borderRadius = const BorderRadius.all(Radius.circular(16)),
+    this.onTap,
+  });
+
+  static const double blurSigma = 10;
+  static const Color surfaceTint = Color(0x75101215);
+  static const Color surfaceBorder = Color(0x24FFFFFF);
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final BorderRadiusGeometry borderRadius;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final baseTheme = Theme.of(context);
+    final baseScheme = baseTheme.colorScheme;
+    final foregroundTheme = baseTheme.copyWith(
+      brightness: Brightness.dark,
+      colorScheme: baseScheme.copyWith(
+        brightness: Brightness.dark,
+        surface: const Color(0xFF17191D),
+        onSurface: Colors.white,
+        onSurfaceVariant: const Color(0xBFFFFFFF),
+        outline: const Color(0x3DFFFFFF),
+        outlineVariant: const Color(0x24FFFFFF),
+      ),
+      iconTheme: baseTheme.iconTheme.copyWith(color: Colors.white),
+      textTheme: baseTheme.textTheme.apply(
+        bodyColor: Colors.white,
+        displayColor: Colors.white,
+      ),
+    );
+    return Theme(
+      data: foregroundTheme,
+      child: PlayerGlassSurface(
+        borderRadius: borderRadius,
+        grouped: false,
+        sigma: blurSigma,
+        tint: surfaceTint,
+        borderColor: surfaceBorder,
+        padding: padding,
+        onTap: onTap,
+        child: child,
+      ),
+    );
+  }
+}
+
+/// Semi-transparent material for cards inside a transient glass overlay.
+/// It deliberately does not create another backdrop filter.
+class PlayerGlassMaterial extends StatelessWidget {
+  const PlayerGlassMaterial({
+    super.key,
+    required this.child,
+    this.padding = EdgeInsets.zero,
+    this.borderRadius = const BorderRadius.all(Radius.circular(12)),
+    this.onTap,
+    this.tint,
+    this.borderColor,
+  });
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final BorderRadiusGeometry borderRadius;
+  final VoidCallback? onTap;
+  final Color? tint;
+  final Color? borderColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return PlayerGlassSurface(
+      enabled: false,
+      grouped: false,
+      borderRadius: borderRadius,
+      tint: tint ?? colors.onSurface.withValues(alpha: 0.075),
+      borderColor: borderColor ?? colors.onSurface.withValues(alpha: 0.10),
+      padding: padding,
+      onTap: onTap,
+      child: child,
     );
   }
 }
@@ -111,9 +210,8 @@ class PlayerGlassAlertDialog extends StatelessWidget {
             maxWidth: width,
             maxHeight: media.size.height * 0.82,
           ),
-          child: PlayerGlassSurface(
+          child: PlayerTransientGlassSurface(
             borderRadius: BorderRadius.circular(16),
-            grouped: false,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -122,7 +220,9 @@ class PlayerGlassAlertDialog extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
                     child: DefaultTextStyle(
-                      style: Theme.of(context).textTheme.titleLarge!,
+                      style: Theme.of(
+                        context,
+                      ).textTheme.titleLarge!.copyWith(color: Colors.white),
                       child: title!,
                     ),
                   ),
@@ -133,7 +233,9 @@ class PlayerGlassAlertDialog extends StatelessWidget {
                           contentPadding ??
                           const EdgeInsets.fromLTRB(20, 14, 20, 16),
                       child: DefaultTextStyle(
-                        style: Theme.of(context).textTheme.bodyMedium!,
+                        style: Theme.of(
+                          context,
+                        ).textTheme.bodyMedium!.copyWith(color: Colors.white),
                         child: content!,
                       ),
                     ),

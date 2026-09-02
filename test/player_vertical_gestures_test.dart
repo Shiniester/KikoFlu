@@ -83,4 +83,95 @@ void main() {
     await tester.pump();
     expect((topCount, bottomCount), (1, 1));
   });
+
+  testWidgets(
+    'progressive vertical drag keeps its initial semantic direction',
+    (tester) async {
+      final upUpdates = <double>[];
+      var upStarts = 0;
+      var upEnds = 0;
+      var downStarts = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PlayerVerticalSwipeRegion(
+              key: const ValueKey('progressive-region'),
+              swipeUpDrag: PlayerVerticalDragCallbacks(
+                onStart: () => upStarts++,
+                onUpdate: upUpdates.add,
+                onEnd: (_, __) => upEnds++,
+                onCancel: () {},
+              ),
+              swipeDownDrag: PlayerVerticalDragCallbacks(
+                onStart: () => downStarts++,
+                onUpdate: (_) {},
+                onEnd: (_, __) {},
+                onCancel: () {},
+              ),
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const ValueKey('progressive-region'))),
+      );
+      await gesture.moveBy(const Offset(0, -80));
+      await gesture.moveBy(const Offset(0, 35));
+      await gesture.up();
+
+      expect(upStarts, 1);
+      expect(upEnds, 1);
+      expect(downStarts, 0);
+      expect(upUpdates.first, greaterThan(upUpdates.last));
+    },
+  );
+
+  testWidgets('edge drag keeps ownership and reverses monotonically', (
+    tester,
+  ) async {
+    final updates = <double>[];
+    var starts = 0;
+    var ends = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PlayerScrollEdgeActions(
+            pullDownDrag: PlayerVerticalDragCallbacks(
+              onStart: () => starts++,
+              onUpdate: updates.add,
+              onEnd: (_, __) => ends++,
+              onCancel: () {},
+            ),
+            child: ListView.builder(
+              key: const ValueKey('progressive-edge-list'),
+              physics: const AlwaysScrollableScrollPhysics(
+                parent: ClampingScrollPhysics(),
+              ),
+              itemCount: 30,
+              itemExtent: 48,
+              itemBuilder: (_, index) => Text('edge item $index'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('progressive-edge-list'))),
+    );
+    await gesture.moveBy(const Offset(0, 90));
+    await tester.pump();
+    final outwardDistance = updates.last;
+    await gesture.moveBy(const Offset(0, -42));
+    await tester.pump();
+    expect(updates.last, lessThan(outwardDistance));
+    expect(updates.every((value) => value >= 0), isTrue);
+    await gesture.up();
+    await tester.pump();
+
+    expect(starts, 1);
+    expect(ends, 1);
+  });
 }

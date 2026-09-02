@@ -38,6 +38,21 @@ enum PlayerRightPane { controls, lyrics, queue }
 
 enum PlayerOperatedRegion { left, right }
 
+@immutable
+class _PlayerQueueReturnState {
+  const _PlayerQueueReturnState({
+    required this.compactPage,
+    required this.leftPane,
+    required this.rightPane,
+    required this.lastOperatedRegion,
+  });
+
+  final int compactPage;
+  final PlayerLeftPane leftPane;
+  final PlayerRightPane rightPane;
+  final PlayerOperatedRegion lastOperatedRegion;
+}
+
 const double playerWideLayoutBreakpoint = 840;
 
 bool usesWidePlayerLayout(double width) => width >= playerWideLayoutBreakpoint;
@@ -56,7 +71,8 @@ class AudioPlayerScreen extends ConsumerStatefulWidget {
   ConsumerState<AudioPlayerScreen> createState() => _AudioPlayerScreenState();
 }
 
-class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
+class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
+    with SingleTickerProviderStateMixin {
   static const _lyricTranslationConfirmKey = 'lyric_translation_confirmed_once';
 
   bool _isSeekingManually = false;
@@ -69,13 +85,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   bool _showLyricView = false;
   PlayerLeftPane _leftPane = PlayerLeftPane.cover;
   PlayerRightPane _rightPane = PlayerRightPane.controls;
-  PlayerLeftPane _leftPaneBeforeQueue = PlayerLeftPane.cover;
-  PlayerRightPane _rightPaneBeforeQueue = PlayerRightPane.controls;
   int _compactPage = 1;
-  int _compactPageBeforeQueue = 1;
   PlayerOperatedRegion _lastOperatedRegion = PlayerOperatedRegion.right;
+  _PlayerQueueReturnState? _queueReturnState;
   final PageController _compactPageController = PageController(initialPage: 1);
-  final PageController _compactVerticalPageController = PageController();
   final PageController _wideLeftPageController = PageController();
   final PageController _wideRightPageController = PageController(
     initialPage: 1,
@@ -87,8 +100,15 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   Timer? _unlockButtonTimer;
   bool _routePaletteFrozen = false;
   int _semanticTransitionGeneration = 0;
-  int _verticalTransitionGeneration = 0;
+  late final AnimationController _compactQueueTransitionController;
+  int _queueTransitionGeneration = 0;
+  bool _queueDragActive = false;
+  bool _queueDragOpening = false;
+  double _queueDragStartValue = 0;
+  double _compactQueueExtent = 1;
+  bool _queueTransitionActive = false;
   bool _dismissRequested = false;
+  int _routeDismissGestureGeneration = 0;
 
   // 全屏锁定状态
   bool _isLyricLocked = false;
@@ -97,6 +117,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   @override
   void initState() {
     super.initState();
+    _compactQueueTransitionController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+      reverseDuration: const Duration(milliseconds: 260),
+    );
     _routePaletteFrozen = widget.initialPalette != null;
     if (_routePaletteFrozen) {
       _routePaletteTimer = Timer(const Duration(milliseconds: 300), () {
@@ -140,14 +165,15 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       );
     }
     _compactPageController.dispose();
-    _compactVerticalPageController.dispose();
+    _compactQueueTransitionController.dispose();
     _wideLeftPageController.dispose();
     _wideRightPageController.dispose();
     _keyboardFocusNode.dispose();
     _routePaletteTimer?.cancel();
     _unlockButtonTimer?.cancel();
     _semanticTransitionGeneration++;
-    _verticalTransitionGeneration++;
+    _queueTransitionGeneration++;
+    _routeDismissGestureGeneration++;
     super.dispose();
   }
 
@@ -425,6 +451,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       child: Theme(
         data: playerTheme,
         child: Scaffold(
+          resizeToAvoidBottomInset: false,
           body: CallbackShortcuts(
             bindings: <ShortcutActivator, VoidCallback>{
               const SingleActivator(LogicalKeyboardKey.escape): _handleBack,
@@ -436,6 +463,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                 canPop:
                     _dismissRequested ||
                     (!_isLyricLocked &&
+                        !_queueTransitionActive &&
                         _rightPane == PlayerRightPane.controls &&
                         (_lastWasWide == true
                             ? _leftPane == PlayerLeftPane.cover
@@ -549,9 +577,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (isWide) {
-        if (_compactVerticalPageController.hasClients) {
-          _compactVerticalPageController.jumpToPage(0);
-        }
+        _queueTransitionGeneration++;
+        _queueDragActive = false;
+        _queueTransitionActive = false;
+        _compactQueueTransitionController.value = 0;
         if (_wideLeftPageController.hasClients) {
           _wideLeftPageController.jumpToPage(
             _leftPane == PlayerLeftPane.information ? 1 : 0,
@@ -566,11 +595,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         if (_compactPageController.hasClients) {
           _compactPageController.jumpToPage(compactTarget);
         }
-        if (_compactVerticalPageController.hasClients) {
-          _compactVerticalPageController.jumpToPage(
-            _rightPane == PlayerRightPane.queue ? 1 : 0,
-          );
-        }
+        _compactQueueTransitionController.value =
+            _rightPane == PlayerRightPane.queue ? 1 : 0;
       }
     });
   }
@@ -595,6 +621,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     required String? coverUrl,
   }) {
     final width = MediaQuery.sizeOf(context).width;
+    final dismissDrag = _playerDismissDragCallbacks(context);
     final outerPadding = width >= 1200 ? 48.0 : 24.0;
     final gap = width >= 1200 ? 40.0 : 20.0;
     return SafeArea(
@@ -644,7 +671,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                                       _leftPane == PlayerLeftPane.information &&
                                       _rightPane != PlayerRightPane.queue,
                                   onDismissPlayer: _dismissPlayer,
-                                  onShowQueue: _showQueue,
+                                  dismissDrag: dismissDrag,
+                                  onShowQueue: () => _showQueue(),
                                 ),
                               ),
                             ),
@@ -659,7 +687,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
             child: Column(
               children: [
                 if (_rightPane != PlayerRightPane.queue)
-                  _buildWideHeader(context, track),
+                  _buildWideHeader(context, track, dismissDrag: dismissDrag),
                 Expanded(
                   child: AnimatedSwitcher(
                     duration: _motionDuration(context),
@@ -673,7 +701,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                               physics: const NeverScrollableScrollPhysics(),
                               onPageChanged: _onWideRightPageChanged,
                               children: [
-                                _buildLyricsPane(context, isWide: true),
+                                _buildLyricsPane(
+                                  context,
+                                  isWide: true,
+                                  dismissDrag: dismissDrag,
+                                ),
                                 _buildControlsPane(
                                   context,
                                   track: track,
@@ -693,10 +725,15 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     );
   }
 
-  Widget _buildWideHeader(BuildContext context, AudioTrack track) {
+  Widget _buildWideHeader(
+    BuildContext context,
+    AudioTrack track, {
+    PlayerVerticalDragCallbacks? dismissDrag,
+  }) {
     return PlayerVerticalSwipeRegion(
       key: const ValueKey('wide-header-dismiss-surface'),
       onSwipeDown: _dismissPlayer,
+      swipeDownDrag: dismissDrag,
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 680),
@@ -768,67 +805,98 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
             ),
           );
           _compactSharedWidth = sharedWidth;
-          return PlayerScrollEdgeActions(
-            onPullDownAtTop: _dismissPlayer,
-            child: NotificationListener<ScrollNotification>(
-              onNotification: _handleCompactVerticalScroll,
-              child: PageView(
-                key: const ValueKey('compact-player-vertical-pages'),
-                controller: _compactVerticalPageController,
-                scrollDirection: Axis.vertical,
-                physics: const PageScrollPhysics(
-                  parent: ClampingScrollPhysics(),
-                ),
-                onPageChanged: _onCompactVerticalPageChanged,
-                children: [
-                  Column(
-                    key: const ValueKey('compact-player-layout'),
+          _compactQueueExtent = math.max(1, constraints.maxHeight);
+          final dismissDrag = _playerDismissDragCallbacks(context);
+          final playerStage = Column(
+            key: const ValueKey('compact-player-layout'),
+            children: [
+              _buildCompactHeader(
+                context,
+                track,
+                sharedWidth,
+                dismissDrag: dismissDrag,
+              ),
+              const SizedBox(height: 4),
+              Expanded(
+                child: Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: PageView(
+                    key: const ValueKey('compact-player-pages'),
+                    controller: _compactPageController,
+                    allowImplicitScrolling: true,
+                    onPageChanged: _onCompactPageChanged,
                     children: [
-                      _buildCompactHeader(context, track, sharedWidth),
-                      const SizedBox(height: 4),
-                      Expanded(
-                        child: Directionality(
-                          textDirection: TextDirection.ltr,
-                          child: PageView(
-                            key: const ValueKey('compact-player-pages'),
-                            controller: _compactPageController,
-                            allowImplicitScrolling: true,
-                            onPageChanged: _onCompactPageChanged,
-                            children: [
-                              Center(
-                                child: SizedBox(
-                                  width: sharedWidth,
-                                  height: double.infinity,
-                                  child: PlayerAudioDetailsPanel(
-                                    key: const ValueKey(
-                                      'compact-audio-details-pane',
-                                    ),
-                                    onOpenWork: _openKnownWork,
-                                    isActive:
-                                        !_isLyricLocked &&
-                                        _compactPage == 0 &&
-                                        _rightPane != PlayerRightPane.queue,
-                                    onDismissPlayer: _dismissPlayer,
-                                    onShowQueue: _showQueue,
-                                  ),
-                                ),
-                              ),
-                              _buildCompactMain(
-                                context,
-                                track: track,
-                                coverUrl: coverUrl,
-                                sharedWidth: sharedWidth,
-                              ),
-                              _buildLyricsPane(context, isWide: false),
-                            ],
+                      Center(
+                        child: SizedBox(
+                          width: sharedWidth,
+                          height: double.infinity,
+                          child: PlayerAudioDetailsPanel(
+                            key: const ValueKey('compact-audio-details-pane'),
+                            onOpenWork: _openKnownWork,
+                            isActive:
+                                !_isLyricLocked &&
+                                !_queueTransitionActive &&
+                                _compactPage == 0 &&
+                                _rightPane != PlayerRightPane.queue,
+                            onDismissPlayer: _dismissPlayer,
+                            dismissDrag: dismissDrag,
+                            onShowQueue: () => _showQueue(compactOriginPage: 0),
+                            showQueueDrag: _queueOpenDragCallbacks(0),
                           ),
                         ),
                       ),
+                      _buildCompactMain(
+                        context,
+                        track: track,
+                        coverUrl: coverUrl,
+                        sharedWidth: sharedWidth,
+                        dismissDrag: dismissDrag,
+                      ),
+                      _buildLyricsPane(
+                        context,
+                        isWide: false,
+                        dismissDrag: dismissDrag,
+                      ),
                     ],
                   ),
-                  _buildQueuePane(context, isWide: false),
-                ],
+                ),
               ),
+            ],
+          );
+          final queueStage = _buildQueuePane(context, isWide: false);
+          return ClipRect(
+            key: const ValueKey('compact-player-vertical-pages'),
+            child: AnimatedBuilder(
+              animation: _compactQueueTransitionController,
+              builder: (context, _) {
+                final progress = _compactQueueTransitionController.value;
+                final height = constraints.maxHeight;
+                final playerOffstage =
+                    !_queueTransitionActive && progress >= 0.999;
+                final queueOffstage =
+                    !_queueTransitionActive && progress <= 0.001;
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Transform.translate(
+                      key: const ValueKey('compact-player-stage-transform'),
+                      offset: Offset(0, -height * progress),
+                      child: Offstage(
+                        offstage: playerOffstage,
+                        child: RepaintBoundary(child: playerStage),
+                      ),
+                    ),
+                    Transform.translate(
+                      key: const ValueKey('compact-queue-stage-transform'),
+                      offset: Offset(0, height * (1 - progress)),
+                      child: Offstage(
+                        offstage: queueOffstage,
+                        child: RepaintBoundary(child: queueStage),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           );
         },
@@ -839,11 +907,15 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   Widget _buildCompactHeader(
     BuildContext context,
     AudioTrack track,
-    double sharedWidth,
-  ) {
+    double sharedWidth, {
+    PlayerVerticalDragCallbacks? dismissDrag,
+  }) {
     return PlayerVerticalSwipeRegion(
       key: const ValueKey('compact-header-dismiss-surface'),
       onSwipeDown: _dismissPlayer,
+      swipeDownDrag: dismissDrag,
+      onSwipeUp: () => _showQueue(compactOriginPage: _compactPage),
+      swipeUpDrag: _queueOpenDragCallbacks(_compactPage),
       child: Center(
         child: SizedBox(
           width: sharedWidth,
@@ -905,6 +977,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     required AudioTrack track,
     required String? coverUrl,
     required double sharedWidth,
+    PlayerVerticalDragCallbacks? dismissDrag,
   }) {
     final content = Center(
       child: SizedBox(
@@ -935,8 +1008,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         ),
       ),
     );
-    return KeyedSubtree(
+    return PlayerVerticalSwipeRegion(
       key: const ValueKey('compact-main-queue-swipe-surface'),
+      onSwipeDown: _dismissPlayer,
+      swipeDownDrag: dismissDrag,
+      onSwipeUp: () => _showQueue(compactOriginPage: 1),
+      swipeUpDrag: _queueOpenDragCallbacks(1),
       child: KeyedSubtree(
         key: const ValueKey('compact-main-page'),
         child: content,
@@ -1124,7 +1201,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     );
   }
 
-  Widget _buildLyricsPane(BuildContext context, {required bool isWide}) {
+  Widget _buildLyricsPane(
+    BuildContext context, {
+    required bool isWide,
+    PlayerVerticalDragCallbacks? dismissDrag,
+  }) {
     return Consumer(
       key: ValueKey('lyrics-pane-${isWide ? 'wide' : 'compact'}'),
       builder: (context, ref, child) {
@@ -1142,13 +1223,16 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
             isActive: isWide
                 ? !_isLyricLocked && _rightPane == PlayerRightPane.lyrics
                 : !_isLyricLocked &&
+                      !_queueTransitionActive &&
                       _compactPage == 2 &&
                       _rightPane != PlayerRightPane.queue,
             seekingPosition: _seekingPosition,
             onFullscreen: _enterLyricFullscreen,
             onLongPress: _enterLyricFullscreen,
             onDismissPlayer: _dismissPlayer,
-            onShowQueue: _showQueue,
+            dismissDrag: dismissDrag,
+            onShowQueue: () => _showQueue(compactOriginPage: isWide ? null : 2),
+            showQueueDrag: isWide ? null : _queueOpenDragCallbacks(2),
             actionWidth: isWide ? null : _compactSharedWidth,
             translateButton: _buildLyricTranslateAppBarButton(context),
             onDownload: lyricState.source?.canSaveOriginal == true
@@ -1174,6 +1258,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                 onTrackSelected: () {},
                 onClear: _clearQueueAndClosePlayer,
                 onDismissRequested: _closeQueue,
+                dismissDrag: isWide ? null : _queueCloseDragCallbacks,
                 horizontalPadding: 0,
               ),
             ),
@@ -1189,8 +1274,53 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         : const Duration(milliseconds: 260);
   }
 
+  PlayerVerticalDragCallbacks? _playerDismissDragCallbacks(
+    BuildContext context,
+  ) {
+    if (MediaQuery.disableAnimationsOf(context)) return null;
+    final route = ModalRoute.of(context);
+    if (route is! PlayerInteractiveDismissRoute) return null;
+    final interactiveRoute = route as PlayerInteractiveDismissRoute;
+    final extent = math.max(1.0, MediaQuery.sizeOf(context).height);
+    return PlayerVerticalDragCallbacks(
+      onStart: () {
+        if (!interactiveRoute.beginVerticalDismissGesture()) return;
+        _routeDismissGestureGeneration++;
+        if (!_dismissRequested) setState(() => _dismissRequested = true);
+        _releaseTextInputFocus();
+      },
+      onUpdate: (distance) => interactiveRoute.updateVerticalDismissGesture(
+        distance: distance,
+        extent: extent,
+      ),
+      onEnd: (distance, velocity) {
+        interactiveRoute.endVerticalDismissGesture(
+          velocity: velocity,
+          extent: extent,
+        );
+        _scheduleInteractiveDismissReset();
+      },
+      onCancel: () {
+        interactiveRoute.cancelVerticalDismissGesture();
+        _scheduleInteractiveDismissReset();
+      },
+    );
+  }
+
+  void _scheduleInteractiveDismissReset() {
+    final request = _routeDismissGestureGeneration;
+    Future<void>.delayed(const Duration(milliseconds: 300), () {
+      if (!mounted || request != _routeDismissGestureGeneration) return;
+      if (_dismissRequested) setState(() => _dismissRequested = false);
+    });
+  }
+
   void _onCompactPageChanged(int index) {
-    if (_rightPane == PlayerRightPane.queue || index == _compactPage) return;
+    if (_rightPane == PlayerRightPane.queue ||
+        _queueTransitionActive ||
+        index == _compactPage) {
+      return;
+    }
     final previous = _compactPage;
     setState(() {
       _compactPage = index;
@@ -1208,34 +1338,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         _lastOperatedRegion = PlayerOperatedRegion.right;
       }
     });
-  }
-
-  void _onCompactVerticalPageChanged(int index) {
-    if (index == 1) {
-      _activateQueueState();
-    } else {
-      _restoreQueueState();
-    }
-  }
-
-  bool _handleCompactVerticalScroll(ScrollNotification notification) {
-    if (notification.depth != 0 || notification is! ScrollEndNotification) {
-      return false;
-    }
-    final page = _compactVerticalPageController.hasClients
-        ? _compactVerticalPageController.page
-        : null;
-    if (page == null) return false;
-    final showQueue = page >= 0.5;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (showQueue) {
-        _activateQueueState();
-      } else {
-        _restoreQueueState();
-      }
-    });
-    return false;
   }
 
   void _onWideLeftPageChanged(int index) {
@@ -1331,46 +1433,94 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     });
   }
 
-  void _showQueue() {
-    if (_rightPane == PlayerRightPane.queue) return;
+  void _showQueue({int? compactOriginPage}) {
+    if (_lastWasWide == true) {
+      if (_rightPane == PlayerRightPane.queue) return;
+      _semanticTransitionGeneration++;
+      _activateQueueState(compactOriginPage: compactOriginPage);
+      return;
+    }
+    if (_rightPane == PlayerRightPane.queue &&
+        _compactQueueTransitionController.value >= 1) {
+      return;
+    }
     _semanticTransitionGeneration++;
-    _activateQueueState();
-    _animateCompactQueuePage(1);
+    _captureQueueOrigin(compactOriginPage: compactOriginPage);
+    _settleCompactQueue(open: true, restoreOnClose: false);
   }
 
-  void _activateQueueState() {
+  void _activateQueueState({int? compactOriginPage}) {
     if (_rightPane == PlayerRightPane.queue) return;
+    _captureQueueOrigin(compactOriginPage: compactOriginPage);
     setState(() {
-      _leftPaneBeforeQueue = _leftPane;
-      _rightPaneBeforeQueue = _rightPane;
-      _compactPageBeforeQueue = _compactPage;
       _rightPane = PlayerRightPane.queue;
     });
   }
 
+  void _captureQueueOrigin({int? compactOriginPage}) {
+    if (_queueReturnState != null || _rightPane == PlayerRightPane.queue) {
+      return;
+    }
+    final controllerPage = _compactPageController.hasClients
+        ? _compactPageController.page?.round()
+        : null;
+    final resolvedCompactPage =
+        (compactOriginPage ?? controllerPage ?? _compactPage)
+            .clamp(0, 2)
+            .toInt();
+    _queueReturnState = _PlayerQueueReturnState(
+      compactPage: resolvedCompactPage,
+      leftPane: _leftPane,
+      rightPane: _rightPane,
+      lastOperatedRegion: _lastOperatedRegion,
+    );
+  }
+
   void _closeQueue() {
-    if (_rightPane != PlayerRightPane.queue) return;
+    if (_lastWasWide == true) {
+      if (_rightPane != PlayerRightPane.queue) return;
+      _semanticTransitionGeneration++;
+      _restoreQueueState();
+      return;
+    }
+    if (_compactQueueTransitionController.value <= 0 &&
+        _rightPane != PlayerRightPane.queue) {
+      return;
+    }
     _semanticTransitionGeneration++;
-    _restoreQueueState();
-    _animateCompactQueuePage(0);
+    _settleCompactQueue(
+      open: false,
+      restoreOnClose: _rightPane == PlayerRightPane.queue,
+    );
   }
 
   void _restoreQueueState() {
-    if (_rightPane != PlayerRightPane.queue) return;
-    final restoredRight = _rightPaneBeforeQueue == PlayerRightPane.queue
+    final returnState = _queueReturnState;
+    if (_rightPane != PlayerRightPane.queue && returnState == null) return;
+    final restored =
+        returnState ??
+        const _PlayerQueueReturnState(
+          compactPage: 1,
+          leftPane: PlayerLeftPane.cover,
+          rightPane: PlayerRightPane.controls,
+          lastOperatedRegion: PlayerOperatedRegion.right,
+        );
+    final restoredRight = restored.rightPane == PlayerRightPane.queue
         ? PlayerRightPane.controls
-        : _rightPaneBeforeQueue;
+        : restored.rightPane;
     setState(() {
-      _leftPane = _leftPaneBeforeQueue;
+      _leftPane = restored.leftPane;
       _rightPane = restoredRight;
-      _compactPage = _compactPageBeforeQueue;
+      _compactPage = restored.compactPage;
+      _lastOperatedRegion = restored.lastOperatedRegion;
     });
+    _queueReturnState = null;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (usesWidePlayerLayout(MediaQuery.sizeOf(context).width)) {
         if (_wideLeftPageController.hasClients) {
           _wideLeftPageController.jumpToPage(
-            _leftPane == PlayerLeftPane.information ? 1 : 0,
+            restored.leftPane == PlayerLeftPane.information ? 1 : 0,
           );
         }
         if (_wideRightPageController.hasClients) {
@@ -1379,37 +1529,148 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
           );
         }
       } else if (_compactPageController.hasClients) {
-        _compactPageController.jumpToPage(_compactPageBeforeQueue);
+        _compactPageController.jumpToPage(restored.compactPage);
       }
     });
   }
 
-  void _animateCompactQueuePage(int page) {
-    final request = ++_verticalTransitionGeneration;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted ||
-          request != _verticalTransitionGeneration ||
-          usesWidePlayerLayout(MediaQuery.sizeOf(context).width) ||
-          !_compactVerticalPageController.hasClients) {
+  void _settleCompactQueue({required bool open, required bool restoreOnClose}) {
+    if (!mounted || _lastWasWide == true) return;
+    final request = ++_queueTransitionGeneration;
+    _queueDragActive = false;
+    _compactQueueTransitionController.stop();
+    if (!_queueTransitionActive) {
+      setState(() => _queueTransitionActive = true);
+    }
+    final target = open ? 1.0 : 0.0;
+    final remaining = (_compactQueueTransitionController.value - target).abs();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final duration = reduceMotion || remaining <= 0.001
+        ? Duration.zero
+        : Duration(milliseconds: (260 * remaining).round().clamp(90, 260));
+
+    unawaited(() async {
+      try {
+        if (duration == Duration.zero) {
+          _compactQueueTransitionController.value = target;
+        } else {
+          await _compactQueueTransitionController.animateTo(
+            target,
+            duration: duration,
+            curve: Curves.fastEaseInToSlowEaseOut,
+          );
+        }
+      } catch (_) {
         return;
       }
-      final duration = _motionDuration(context);
-      if (duration == Duration.zero) {
-        _compactVerticalPageController.jumpToPage(page);
+      if (!mounted || request != _queueTransitionGeneration) return;
+      if (open) {
+        _activateQueueState();
+      } else if (restoreOnClose || _rightPane == PlayerRightPane.queue) {
+        _restoreQueueState();
       } else {
-        unawaited(() async {
-          try {
-            await _compactVerticalPageController.animateToPage(
-              page,
-              duration: duration,
-              curve: Curves.easeOutCubic,
-            );
-          } catch (_) {
-            // A newer vertical transition superseded this one.
-          }
-        }());
+        _queueReturnState = null;
       }
-    });
+      if (mounted) setState(() => _queueTransitionActive = false);
+    }());
+  }
+
+  PlayerVerticalDragCallbacks _queueOpenDragCallbacks(int compactOriginPage) =>
+      PlayerVerticalDragCallbacks(
+        onStart: () => _beginQueueOpenDrag(compactOriginPage),
+        onUpdate: (distance) => _updateQueueEdgeDrag(distance, opening: true),
+        onEnd: _endQueueOpenDrag,
+        onCancel: _cancelQueueOpenDrag,
+      );
+
+  PlayerVerticalDragCallbacks get _queueCloseDragCallbacks =>
+      PlayerVerticalDragCallbacks(
+        onStart: _beginQueueCloseDrag,
+        onUpdate: (distance) => _updateQueueEdgeDrag(distance, opening: false),
+        onEnd: _endQueueCloseDrag,
+        onCancel: _cancelQueueCloseDrag,
+      );
+
+  void _beginQueueOpenDrag(int compactOriginPage) {
+    if (!mounted ||
+        _lastWasWide == true ||
+        _queueDragActive ||
+        _compactQueueTransitionController.value >= 1) {
+      return;
+    }
+    _captureQueueOrigin(compactOriginPage: compactOriginPage);
+    _semanticTransitionGeneration++;
+    _queueTransitionGeneration++;
+    _compactQueueTransitionController.stop();
+    _queueDragActive = true;
+    _queueDragOpening = true;
+    _queueDragStartValue = _compactQueueTransitionController.value;
+    if (!_queueTransitionActive) {
+      setState(() => _queueTransitionActive = true);
+    }
+  }
+
+  void _beginQueueCloseDrag() {
+    if (!mounted ||
+        _lastWasWide == true ||
+        _queueDragActive ||
+        _compactQueueTransitionController.value <= 0) {
+      return;
+    }
+    _semanticTransitionGeneration++;
+    _queueTransitionGeneration++;
+    _compactQueueTransitionController.stop();
+    _queueDragActive = true;
+    _queueDragOpening = false;
+    _queueDragStartValue = _compactQueueTransitionController.value;
+    if (!_queueTransitionActive) {
+      setState(() => _queueTransitionActive = true);
+    }
+  }
+
+  void _updateQueueEdgeDrag(double distance, {required bool opening}) {
+    if (!_queueDragActive || _queueDragOpening != opening) return;
+    final delta = distance / _compactQueueExtent;
+    _compactQueueTransitionController.value =
+        (_queueDragStartValue + (opening ? delta : -delta)).clamp(0.0, 1.0);
+  }
+
+  void _endQueueOpenDrag(double distance, double velocity) {
+    if (!_queueDragActive || !_queueDragOpening) return;
+    _queueDragActive = false;
+    final complete =
+        _compactQueueTransitionController.value >= 0.22 || velocity < -650;
+    _settleCompactQueue(
+      open: complete,
+      restoreOnClose: !complete && _rightPane == PlayerRightPane.queue,
+    );
+  }
+
+  void _cancelQueueOpenDrag() {
+    if (!_queueDragActive || !_queueDragOpening) return;
+    _queueDragActive = false;
+    final wasOpen = _rightPane == PlayerRightPane.queue;
+    _settleCompactQueue(open: wasOpen, restoreOnClose: false);
+  }
+
+  void _endQueueCloseDrag(double distance, double velocity) {
+    if (!_queueDragActive || _queueDragOpening) return;
+    _queueDragActive = false;
+    final close =
+        _compactQueueTransitionController.value <= 0.78 || velocity > 650;
+    _settleCompactQueue(
+      open: !close,
+      restoreOnClose: close && _rightPane == PlayerRightPane.queue,
+    );
+  }
+
+  void _cancelQueueCloseDrag() {
+    if (!_queueDragActive || _queueDragOpening) return;
+    _queueDragActive = false;
+    _settleCompactQueue(
+      open: _rightPane == PlayerRightPane.queue,
+      restoreOnClose: false,
+    );
   }
 
   Future<void> _clearQueueAndClosePlayer() async {
@@ -1431,7 +1692,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     if (!mounted || _dismissRequested) return;
     setState(() => _dismissRequested = true);
     _semanticTransitionGeneration++;
-    _verticalTransitionGeneration++;
+    _queueTransitionGeneration++;
+    _compactQueueTransitionController.stop();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(() async {
@@ -1448,7 +1710,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       _exitLyricFullscreen();
       return;
     }
-    if (_rightPane == PlayerRightPane.queue) {
+    if (_rightPane == PlayerRightPane.queue ||
+        (_lastWasWide != true &&
+            _compactQueueTransitionController.value > 0.001)) {
       _closeQueue();
       return;
     }
@@ -1495,16 +1759,14 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         backgroundColor: Colors.transparent,
         barrierColor: Colors.transparent,
         builder: (sheetContext) => PlayerBackdropGroup(
-          child: PlayerGlassSurface(
+          child: PlayerTransientGlassSurface(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-            grouped: false,
-            sigma: 4,
             child: SafeArea(
               top: false,
               child: SizedBox(
                 height: math.min(
-                  MediaQuery.sizeOf(sheetContext).height * 0.72,
-                  620,
+                  MediaQuery.sizeOf(sheetContext).height * 0.62,
+                  520,
                 ),
                 child: PlayerInfoPanel(
                   track: track,

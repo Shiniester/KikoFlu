@@ -46,11 +46,11 @@ class PlayerInfoPanel extends ConsumerWidget {
     return RepaintBoundary(
       child: ListView(
         key: const PageStorageKey('player-info-panel'),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         children: [
           LayoutBuilder(
             builder: (context, constraints) {
-              const spacing = 12.0;
+              const spacing = 8.0;
               final cardWidth = (constraints.maxWidth - spacing) / 2;
               return Wrap(
                 spacing: spacing,
@@ -84,7 +84,7 @@ class PlayerInfoPanel extends ConsumerWidget {
             },
           ),
           if (overflow.isNotEmpty) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
             PlayerOverflowActionsGrid(
               actions: overflow,
               currentProgress: currentProgress,
@@ -125,7 +125,7 @@ class PlayerOverflowActionsGrid extends ConsumerWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         const columns = 2;
-        const spacing = 12.0;
+        const spacing = 8.0;
         final width =
             (constraints.maxWidth - (columns - 1) * spacing) / columns;
         return Wrap(
@@ -238,28 +238,33 @@ class _PlayerOverflowAction extends ConsumerWidget {
 
     return SizedBox(
       key: ValueKey('player-more-action-${action.name}'),
-      height: 88,
-      child: PlayerGlassSurface(
-        borderRadius: BorderRadius.circular(14),
+      height: 72,
+      child: PlayerGlassMaterial(
+        borderRadius: BorderRadius.circular(12),
         tint: active
-            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.16)
-            : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.055),
+            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.20)
+            : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.07),
         onTap: () => _invoke(context, ref),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Icon(
               icon,
+              size: 22,
               color: active ? Theme.of(context).colorScheme.primary : null,
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelLarge,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                fontSize: 13,
+                height: 1.08,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             if (value != null)
               Text(
@@ -267,6 +272,8 @@ class _PlayerOverflowAction extends ConsumerWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontSize: 11,
+                  height: 1.08,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
@@ -397,23 +404,28 @@ class _InfoToggleCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 88,
+      height: 72,
       child: Semantics(
         button: true,
         toggled: value,
-        child: PlayerGlassSurface(
-          borderRadius: BorderRadius.circular(16),
+        child: PlayerGlassMaterial(
+          borderRadius: BorderRadius.circular(12),
           onTap: () => onChanged(!value),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           child: Row(
             children: [
-              Icon(icon, size: 28),
-              const SizedBox(width: 10),
+              Icon(icon, size: 22),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   label,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontSize: 13,
+                    height: 1.08,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -439,22 +451,27 @@ class _InfoActionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 88,
+      height: 72,
       child: Semantics(
         button: true,
-        child: PlayerGlassSurface(
-          borderRadius: BorderRadius.circular(16),
+        child: PlayerGlassMaterial(
+          borderRadius: BorderRadius.circular(12),
           onTap: onTap,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           child: Row(
             children: [
-              Icon(icon, size: 28),
-              const SizedBox(width: 10),
+              Icon(icon, size: 22),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   label,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontSize: 13,
+                    height: 1.08,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],

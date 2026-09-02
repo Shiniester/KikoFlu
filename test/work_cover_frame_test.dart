@@ -22,9 +22,7 @@ void main() {
         const WorkCoverFrame(
           heroTag: 'cover-1',
           isLandscape: false,
-          layers: [
-            Center(child: Text('Cover Layer')),
-          ],
+          layers: [Center(child: Text('Cover Layer'))],
         ),
       ),
     );
@@ -32,6 +30,11 @@ void main() {
     expect(find.byType(Hero), findsOneWidget);
     expect(find.text('Cover Layer'), findsOneWidget);
     expect(find.text('Subtitle'), findsNothing);
+    final coverMaterial = tester.widget<Material>(
+      find.descendant(of: find.byType(Hero), matching: find.byType(Material)),
+    );
+    expect(coverMaterial.borderRadius, BorderRadius.circular(12));
+    expect(coverMaterial.clipBehavior, Clip.antiAlias);
   });
 
   testWidgets('uses the source cover for the Hero flight', (tester) async {
@@ -55,7 +58,10 @@ void main() {
       heroContext,
     );
 
-    expect(identical(shuttle, hero.child), isTrue);
+    expect(shuttle, isA<ClipRRect>());
+    final clippedShuttle = shuttle as ClipRRect;
+    expect(clippedShuttle.borderRadius, BorderRadius.circular(12));
+    expect(identical(clippedShuttle.child, hero.child), isTrue);
   });
 
   testWidgets('shows subtitle and age badges and handles tap', (tester) async {
@@ -70,9 +76,7 @@ void main() {
           showAgeRating: true,
           age: 'R18',
           onTap: () => tapCount++,
-          layers: const [
-            Center(child: Text('Cover Layer')),
-          ],
+          layers: const [Center(child: Text('Cover Layer'))],
         ),
       ),
     );

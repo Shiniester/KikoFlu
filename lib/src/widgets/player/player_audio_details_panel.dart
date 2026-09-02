@@ -16,13 +16,17 @@ class PlayerAudioDetailsPanel extends ConsumerStatefulWidget {
     this.onOpenWork,
     this.isActive = true,
     this.onDismissPlayer,
+    this.dismissDrag,
     this.onShowQueue,
+    this.showQueueDrag,
   });
 
   final ValueChanged<Work>? onOpenWork;
   final bool isActive;
   final VoidCallback? onDismissPlayer;
+  final PlayerVerticalDragCallbacks? dismissDrag;
   final VoidCallback? onShowQueue;
+  final PlayerVerticalDragCallbacks? showQueueDrag;
 
   @override
   ConsumerState<PlayerAudioDetailsPanel> createState() =>
@@ -62,6 +66,8 @@ class _PlayerAudioDetailsPanelState
     return PlayerVerticalSwipeRegion(
       onSwipeDown: widget.onDismissPlayer,
       onSwipeUp: widget.onShowQueue,
+      swipeDownDrag: widget.dismissDrag,
+      swipeUpDrag: widget.showQueueDrag,
       child: child,
     );
   }
@@ -81,6 +87,8 @@ class _PlayerAudioDetailsPanelState
       child: PlayerScrollEdgeActions(
         onPullDownAtTop: widget.onDismissPlayer,
         onPushUpAtBottom: widget.onShowQueue,
+        pullDownDrag: widget.dismissDrag,
+        pushUpDrag: widget.showQueueDrag,
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(
             parent: ClampingScrollPhysics(),
@@ -368,9 +376,8 @@ class _PlayerAudioDetailsPanelState
       backgroundColor: Colors.transparent,
       barrierColor: Colors.transparent,
       builder: (sheetContext) => PlayerBackdropGroup(
-        child: PlayerGlassSurface(
+        child: PlayerTransientGlassSurface(
           borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-          grouped: false,
           child: _AudioVariantFilterSheet(initial: _filter),
         ),
       ),
@@ -503,10 +510,10 @@ class _AudioVariantFilterSheetState extends State<_AudioVariantFilterSheet> {
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
-          20,
-          4,
-          20,
-          20 + MediaQuery.viewInsetsOf(context).bottom,
+          16,
+          10,
+          16,
+          12 + MediaQuery.viewInsetsOf(context).bottom,
         ),
         child: SingleChildScrollView(
           child: Column(
@@ -514,20 +521,31 @@ class _AudioVariantFilterSheetState extends State<_AudioVariantFilterSheet> {
             children: [
               Text(
                 _label(context, 'filterAudio'),
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontSize: 18,
+                  height: 1.1,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               TextField(
                 controller: _keywordController,
                 decoration: InputDecoration(
                   labelText: _label(context, 'keyword'),
-                  prefixIcon: const Icon(Icons.search),
+                  prefixIcon: const Icon(Icons.search, size: 20),
+                  prefixIconConstraints: const BoxConstraints(
+                    minWidth: 40,
+                    minHeight: 40,
+                  ),
                   border: const OutlineInputBorder(),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
               _chips<PlayerSubtitleLanguage>(
                 context,
                 title: _label(context, 'subtitleLanguage'),
@@ -577,20 +595,30 @@ class _AudioVariantFilterSheetState extends State<_AudioVariantFilterSheet> {
               ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
+                dense: true,
+                visualDensity: const VisualDensity(vertical: -3),
                 value: _filter.includeUnknown,
-                title: Text(_label(context, 'includeUnknown')),
+                title: Text(
+                  _label(context, 'includeUnknown'),
+                  style: const TextStyle(fontSize: 12.5, height: 1.1),
+                ),
                 onChanged: (value) => setState(
                   () => _filter = _filter.copyWith(includeUnknown: value),
                 ),
               ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
+                dense: true,
+                visualDensity: const VisualDensity(vertical: -3),
                 value: _filter.showAll,
-                title: Text(_label(context, 'showAll')),
+                title: Text(
+                  _label(context, 'showAll'),
+                  style: const TextStyle(fontSize: 12.5, height: 1.1),
+                ),
                 onChanged: (value) =>
                     setState(() => _filter = _filter.copyWith(showAll: value)),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               Row(
                 children: [
                   TextButton(
@@ -625,19 +653,33 @@ class _AudioVariantFilterSheetState extends State<_AudioVariantFilterSheet> {
     required ValueChanged<Set<T>> onChanged,
   }) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: Theme.of(context).textTheme.labelLarge),
-          const SizedBox(height: 6),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              fontSize: 12,
+              height: 1.08,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
           Wrap(
-            spacing: 8,
-            runSpacing: 6,
+            spacing: 6,
+            runSpacing: 4,
             children: [
               for (final value in values)
                 FilterChip(
-                  label: Text(label(value)),
+                  visualDensity: const VisualDensity(
+                    horizontal: -2,
+                    vertical: -2,
+                  ),
+                  label: Text(
+                    label(value),
+                    style: const TextStyle(fontSize: 12, height: 1.05),
+                  ),
                   selected: selected.contains(value),
                   onSelected: (enabled) {
                     final next = Set<T>.of(selected);

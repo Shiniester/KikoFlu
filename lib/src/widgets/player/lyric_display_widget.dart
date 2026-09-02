@@ -292,7 +292,9 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
     this.snapToCurrentOnFirstLayout = false,
     this.onSeekRequested,
     this.onDismissPlayer,
+    this.dismissDrag,
     this.onShowQueue,
+    this.showQueueDrag,
   });
 
   final Duration? seekingPosition;
@@ -308,7 +310,9 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
   final bool snapToCurrentOnFirstLayout;
   final ValueChanged<Duration>? onSeekRequested;
   final VoidCallback? onDismissPlayer;
+  final PlayerVerticalDragCallbacks? dismissDrag;
   final VoidCallback? onShowQueue;
+  final PlayerVerticalDragCallbacks? showQueueDrag;
 
   @override
   ConsumerState<FullLyricDisplay> createState() => _FullLyricDisplayState();
@@ -578,6 +582,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
       child: PlayerScrollEdgeActions(
         onPullDownAtTop: widget.onDismissPlayer,
         onPushUpAtBottom: widget.onShowQueue,
+        pullDownDrag: widget.dismissDrag,
+        pushUpDrag: widget.showQueueDrag,
         child: ListView.builder(
           key: const ValueKey('full-lyric-list'),
           controller: _scrollController,

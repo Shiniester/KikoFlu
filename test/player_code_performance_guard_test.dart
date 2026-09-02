@@ -124,11 +124,18 @@ void main() {
       final lyricDisplay = File(
         'lib/src/widgets/player/lyric_display_widget.dart',
       ).readAsStringSync();
+      final infoPanel = File(
+        'lib/src/widgets/player/player_info_panel.dart',
+      ).readAsStringSync();
 
       expect(screen, isNot(contains('BackdropFilter')));
       expect(glassSurface, contains('BackdropFilter.grouped'));
       expect(glassSurface, contains('BackdropGroup'));
       expect(glassSurface, contains('this.sigma = 6'));
+      expect(glassSurface, contains('class PlayerTransientGlassSurface'));
+      expect(glassSurface, contains('static const double blurSigma = 10'));
+      expect(glassSurface, contains('class PlayerGlassMaterial'));
+      expect(infoPanel, contains('PlayerGlassMaterial('));
       expect(glassSurface, contains('RepaintBoundary'));
       expect(glassSurface, contains('borderRadius: borderRadius'));
       expect(
@@ -164,7 +171,7 @@ void main() {
     expect(miniPlayer, contains(').future'));
     expect(
       miniPlayer.indexOf('final preparedPalette = ref.watch'),
-      lessThan(miniPlayer.indexOf('return Dismissible(')),
+      lessThan(miniPlayer.indexOf('return _MiniPlayerUpwardLauncher(')),
     );
   });
 }

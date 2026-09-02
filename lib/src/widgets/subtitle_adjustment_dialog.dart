@@ -261,7 +261,7 @@ class _SubtitleAdjustmentDialogState
         : (MediaQuery.sizeOf(context).width - 32).clamp(280.0, 400.0);
     return SizedBox(
       width: width,
-      child: PlayerGlassSurface(
+      child: PlayerTransientGlassSurface(
         borderRadius: BorderRadius.circular(16),
         padding: const EdgeInsets.all(20),
         child: Column(

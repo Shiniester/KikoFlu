@@ -108,6 +108,17 @@ void main() {
     );
     expect(optionsRect.bottom, lessThanOrEqualTo(pillRect.top));
     expect(optionsRect.width, closeTo(pillRect.width, 0.01));
+    final addTop = tester.getTopLeft(
+      find.byKey(const ValueKey('playlist-mode-option-addToQueue')),
+    );
+    final nextTop = tester.getTopLeft(
+      find.byKey(const ValueKey('playlist-mode-option-playNext')),
+    );
+    final replaceTop = tester.getTopLeft(
+      find.byKey(const ValueKey('playlist-mode-option-replaceQueue')),
+    );
+    expect(addTop.dy, lessThan(nextTop.dy));
+    expect(nextTop.dy, lessThan(replaceTop.dy));
 
     await tester.tap(
       find.byKey(const ValueKey('playlist-mode-option-playNext')),

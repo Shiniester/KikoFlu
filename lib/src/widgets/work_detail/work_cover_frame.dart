@@ -6,6 +6,9 @@ import '../age_rating_chip.dart';
 import '../privacy_blur_cover.dart';
 
 const double _coverBadgeInset = 12;
+const BorderRadius _workCoverBorderRadius = BorderRadius.all(
+  Radius.circular(12),
+);
 
 class WorkCoverFrame extends StatelessWidget {
   const WorkCoverFrame({
@@ -43,20 +46,24 @@ class WorkCoverFrame extends StatelessWidget {
           // Reuse the already visible source cover for both directions so
           // the Hero remains stable until the destination is ready.
           flightShuttleBuilder: (_, __, ___, fromHeroContext, _____) =>
-              (fromHeroContext.widget as Hero).child,
+              ClipRRect(
+                borderRadius: _workCoverBorderRadius,
+                child: (fromHeroContext.widget as Hero).child,
+              ),
           child: Material(
             color: Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: _workCoverBorderRadius,
             clipBehavior: Clip.antiAlias,
             child: Container(
               width: isLandscape ? null : double.infinity,
               constraints: BoxConstraints(
                 maxHeight: isLandscape ? mediaSize.height * 0.8 : 500,
-                maxWidth:
-                    isLandscape ? mediaSize.width * 0.45 : double.infinity,
+                maxWidth: isLandscape
+                    ? mediaSize.width * 0.45
+                    : double.infinity,
               ),
               child: PrivacyBlurCover(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: _workCoverBorderRadius,
                 child: Stack(
                   fit: StackFit.passthrough,
                   children: [
@@ -95,10 +102,7 @@ class _SubtitleBadge extends StatelessWidget {
       bottom: _coverBadgeInset,
       child: Container(
         key: const ValueKey('work-cover-subtitle-badge'),
-        padding: const EdgeInsets.symmetric(
-          horizontal: 8,
-          vertical: 4,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
           color: colorScheme.primary,
           borderRadius: BorderRadius.circular(6),

@@ -44,10 +44,10 @@ final _tree = <dynamic>[
     'type': 'folder',
     'title': '简中',
     'children': [
-        {'type': 'audio', 'title': 'track.flac', 'hash': 'audio'},
-        {'type': 'audio', 'title': 'track-2.flac', 'hash': 'audio-2'},
-        {'type': 'text', 'title': 'track_简中.lrc', 'hash': 'lyric'},
-        {'type': 'text', 'title': 'track-2_简中.lrc', 'hash': 'lyric-2'},
+      {'type': 'audio', 'title': 'track.flac', 'hash': 'audio'},
+      {'type': 'audio', 'title': 'track-2.flac', 'hash': 'audio-2'},
+      {'type': 'text', 'title': 'track_简中.lrc', 'hash': 'lyric'},
+      {'type': 'text', 'title': 'track-2_简中.lrc', 'hash': 'lyric-2'},
     ],
   },
 ];
@@ -189,6 +189,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Sound effects'), findsOneWidget);
     expect(find.text('SE'), findsNothing);
-    expect(find.byType(BackdropFilter), findsWidgets);
+    final filterGlass = find.byType(PlayerTransientGlassSurface);
+    expect(filterGlass, findsOneWidget);
+    expect(
+      find.descendant(of: filterGlass, matching: find.byType(BackdropFilter)),
+      findsOneWidget,
+    );
+    final filterTitle = tester.widget<Text>(find.text('Filter audio files'));
+    expect(filterTitle.style?.fontSize, 18);
+    final keywordField = tester.widget<TextField>(find.byType(TextField));
+    expect(keywordField.decoration?.isDense, isTrue);
   });
 }

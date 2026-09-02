@@ -5,6 +5,7 @@ import '../../providers/lyric_provider.dart';
 import '../../providers/player_lyric_style_provider.dart';
 import 'lyric_display_widget.dart';
 import 'player_glass_surface.dart';
+import 'player_vertical_gestures.dart';
 
 class PlayerLyricsSurface extends ConsumerStatefulWidget {
   const PlayerLyricsSurface({
@@ -17,7 +18,9 @@ class PlayerLyricsSurface extends ConsumerStatefulWidget {
     this.onDownload,
     this.onLongPress,
     this.onDismissPlayer,
+    this.dismissDrag,
     this.onShowQueue,
+    this.showQueueDrag,
     this.actionWidth,
   });
 
@@ -29,7 +32,9 @@ class PlayerLyricsSurface extends ConsumerStatefulWidget {
   final VoidCallback? onDownload;
   final VoidCallback? onLongPress;
   final VoidCallback? onDismissPlayer;
+  final PlayerVerticalDragCallbacks? dismissDrag;
   final VoidCallback? onShowQueue;
+  final PlayerVerticalDragCallbacks? showQueueDrag;
   final double? actionWidth;
 
   @override
@@ -59,7 +64,22 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface> {
     if (state.isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
-    final actionHeight = _searching ? 126.0 : 82.0;
+    final mediaQuery = MediaQuery.of(context);
+    const actionRowHeight = 48.0;
+    const searchRowHeight = 56.0;
+    const viewportClearance = 4.0;
+    final keyboardInset = _searching ? mediaQuery.viewInsets.bottom : 0.0;
+    final bottomObstruction = keyboardInset > 0
+        ? keyboardInset
+        : mediaQuery.padding.bottom;
+    final controlsBottom = 14.0 + bottomObstruction;
+    final controlsHeight =
+        actionRowHeight + (_searching ? searchRowHeight : 0.0);
+    final lyricViewportBottom =
+        controlsBottom + controlsHeight + viewportClearance;
+    final insetDuration = mediaQuery.disableAnimations
+        ? Duration.zero
+        : const Duration(milliseconds: 180);
     final selectedIndex = _matchCursor >= 0 && _matchCursor < _matches.length
         ? _matches[_matchCursor]
         : null;
@@ -67,94 +87,105 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface> {
       key: ValueKey('player-lyrics-surface-${widget.isWide}'),
       child: Stack(
         children: [
-          ShaderMask(
-            key: const ValueKey('lyric-edge-fade-mask'),
-            blendMode: BlendMode.dstIn,
-            shaderCallback: (bounds) => const LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.transparent,
-                Colors.white,
-                Colors.white,
-                Colors.transparent,
-              ],
-              stops: [0, 0.09, 0.72, 0.88],
-            ).createShader(bounds),
-            child: FullLyricDisplay(
-              controller: _displayController,
-              seekingPosition: widget.seekingPosition,
-              isPortrait: !widget.isWide,
-              onLongPress: widget.onLongPress,
-              suspendAutoScroll: _searching || !widget.isActive,
-              searchQuery: _searchController.text,
-              selectedSearchIndex: selectedIndex,
-              topPadding: 86,
-              bottomPadding: actionHeight + (widget.isWide ? 136 : 164),
-              snapToCurrentOnFirstLayout: true,
-              onDismissPlayer: widget.onDismissPlayer,
-              onShowQueue: widget.onShowQueue,
+          AnimatedPositioned(
+            duration: insetDuration,
+            curve: Curves.easeOutCubic,
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: lyricViewportBottom,
+            child: ClipRect(
+              key: const ValueKey('lyric-keyboard-safe-viewport'),
+              child: ShaderMask(
+                key: const ValueKey('lyric-edge-fade-mask'),
+                blendMode: BlendMode.dstIn,
+                shaderCallback: (bounds) => const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.white,
+                    Colors.white,
+                    Colors.transparent,
+                  ],
+                  stops: [0, 0.09, 0.72, 0.88],
+                ).createShader(bounds),
+                child: FullLyricDisplay(
+                  controller: _displayController,
+                  seekingPosition: widget.seekingPosition,
+                  isPortrait: !widget.isWide,
+                  onLongPress: widget.onLongPress,
+                  suspendAutoScroll: _searching || !widget.isActive,
+                  searchQuery: _searchController.text,
+                  selectedSearchIndex: selectedIndex,
+                  topPadding: 86,
+                  bottomPadding: widget.isWide ? 136 : 164,
+                  snapToCurrentOnFirstLayout: true,
+                  onDismissPlayer: widget.onDismissPlayer,
+                  dismissDrag: widget.dismissDrag,
+                  onShowQueue: widget.onShowQueue,
+                  showQueueDrag: widget.showQueueDrag,
+                ),
+              ),
             ),
           ),
-          Positioned(
+          AnimatedPositioned(
+            duration: insetDuration,
+            curve: Curves.easeOutCubic,
+            key: const ValueKey('lyric-controls-keyboard-lift'),
             left: 0,
             right: 0,
-            bottom: 14,
-            child: SafeArea(
-              top: false,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_searching) _buildSearchBar(context, state),
-                  SizedBox(
-                    key: const ValueKey('lyric-actions-width-boundary'),
-                    width: widget.actionWidth ?? double.infinity,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        _ActionButton(
-                          key: const ValueKey('lyric-settings-button'),
-                          icon: Icons.text_fields,
-                          label: _label(context, 'settings'),
-                          onPressed: () => _showSettings(context),
+            bottom: controlsBottom,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_searching) _buildSearchBar(context, state),
+                SizedBox(
+                  key: const ValueKey('lyric-actions-width-boundary'),
+                  width: widget.actionWidth ?? double.infinity,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _ActionButton(
+                        key: const ValueKey('lyric-settings-button'),
+                        icon: Icons.text_fields,
+                        label: _label(context, 'settings'),
+                        onPressed: () => _showSettings(context),
+                      ),
+                      _ActionButton(
+                        key: const ValueKey('lyric-download-button'),
+                        icon: Icons.download_outlined,
+                        label: widget.onDownload == null
+                            ? _label(context, 'downloadUnavailable')
+                            : _label(context, 'download'),
+                        onPressed: widget.onDownload,
+                      ),
+                      _ActionButton(
+                        key: const ValueKey('lyric-fullscreen-button'),
+                        icon: Icons.fullscreen,
+                        label: _label(context, 'fullscreen'),
+                        onPressed: state.lyrics.isEmpty
+                            ? null
+                            : widget.onFullscreen,
+                      ),
+                      Semantics(
+                        label: _label(context, 'translate'),
+                        button: true,
+                        child: SizedBox(
+                          width: 48,
+                          child: widget.translateButton,
                         ),
-                        _ActionButton(
-                          key: const ValueKey('lyric-download-button'),
-                          icon: Icons.download_outlined,
-                          label: widget.onDownload == null
-                              ? _label(context, 'downloadUnavailable')
-                              : _label(context, 'download'),
-                          onPressed: widget.onDownload,
-                        ),
-                        _ActionButton(
-                          key: const ValueKey('lyric-fullscreen-button'),
-                          icon: Icons.fullscreen,
-                          label: _label(context, 'fullscreen'),
-                          onPressed: state.lyrics.isEmpty
-                              ? null
-                              : widget.onFullscreen,
-                        ),
-                        Semantics(
-                          label: _label(context, 'translate'),
-                          button: true,
-                          child: SizedBox(
-                            width: 48,
-                            child: widget.translateButton,
-                          ),
-                        ),
-                        _ActionButton(
-                          key: const ValueKey('lyric-search-button'),
-                          icon: _searching ? Icons.close : Icons.search,
-                          label: _label(context, 'search'),
-                          onPressed: state.lyrics.isEmpty
-                              ? null
-                              : _toggleSearch,
-                        ),
-                      ],
-                    ),
+                      ),
+                      _ActionButton(
+                        key: const ValueKey('lyric-search-button'),
+                        icon: _searching ? Icons.close : Icons.search,
+                        label: _label(context, 'search'),
+                        onPressed: state.lyrics.isEmpty ? null : _toggleSearch,
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ],
@@ -170,7 +201,7 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface> {
       width: widget.actionWidth ?? double.infinity,
       child: Padding(
         padding: const EdgeInsets.only(bottom: 8),
-        child: PlayerGlassSurface(
+        child: PlayerTransientGlassSurface(
           borderRadius: BorderRadius.circular(14),
           child: Row(
             children: [
@@ -262,9 +293,8 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface> {
       backgroundColor: Colors.transparent,
       barrierColor: Colors.transparent,
       builder: (_) => const PlayerBackdropGroup(
-        child: PlayerGlassSurface(
+        child: PlayerTransientGlassSurface(
           borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-          grouped: false,
           child: _LyricSettingsSheet(),
         ),
       ),

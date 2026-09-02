@@ -11,6 +11,8 @@ import 'package:kikoeru_flutter/src/models/lyric.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _track = AudioTrack(
@@ -154,10 +156,7 @@ void main() {
     tester,
   ) async {
     await _pumpPlayer(tester, const Size(390, 844));
-    PageView verticalPages() => tester.widget<PageView>(
-      find.byKey(const ValueKey('compact-player-vertical-pages')),
-    );
-    expect(verticalPages().controller!.page, 0);
+    expect(_compactQueueProgress(tester), closeTo(0, 0.001));
 
     await tester.fling(
       find.byKey(const ValueKey('compact-player-vertical-pages')),
@@ -166,7 +165,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('player-queue-pane')), findsOneWidget);
-    expect(verticalPages().controller!.page, 1);
+    expect(_compactQueueProgress(tester), closeTo(1, 0.001));
     expect(find.byIcon(Icons.drag_handle), findsNothing);
     expect(find.byType(ReorderableDelayedDragStartListener), findsOneWidget);
 
@@ -177,7 +176,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('compact-player-pages')), findsOneWidget);
-    expect(verticalPages().controller!.page, 0);
+    expect(_compactQueueProgress(tester), closeTo(0, 0.001));
     expect(tester.takeException(), isNull);
   });
 
@@ -185,26 +184,140 @@ void main() {
     tester,
   ) async {
     await _pumpPlayer(tester, const Size(390, 844));
-    final verticalPages = tester.widget<PageView>(
-      find.byKey(const ValueKey('compact-player-vertical-pages')),
-    );
-
     final pageRect = tester.getRect(
       find.byKey(const ValueKey('compact-player-vertical-pages')),
     );
     final gesture = await tester.startGesture(pageRect.center);
-    await gesture.moveBy(const Offset(0, -24));
-    await gesture.moveBy(const Offset(0, -196));
-    await tester.pump();
-    expect(verticalPages.controller!.page, greaterThan(0));
-    expect(verticalPages.controller!.page, lessThan(1));
-    await gesture.moveBy(const Offset(0, 24));
-    await gesture.moveBy(const Offset(0, 196));
+    final openingProgress = <double>[];
+    for (var index = 0; index < 16; index++) {
+      await gesture.moveBy(const Offset(0, -14));
+      await tester.pump();
+      openingProgress.add(_compactQueueProgress(tester));
+    }
+    for (var index = 1; index < openingProgress.length; index++) {
+      expect(
+        openingProgress[index],
+        greaterThanOrEqualTo(openingProgress[index - 1]),
+      );
+    }
+    expect(_compactQueueProgress(tester), greaterThan(0));
+    expect(_compactQueueProgress(tester), lessThan(1));
+    final closingProgress = <double>[];
+    for (var index = 0; index < 16; index++) {
+      await gesture.moveBy(const Offset(0, 14));
+      await tester.pump();
+      closingProgress.add(_compactQueueProgress(tester));
+    }
+    for (var index = 1; index < closingProgress.length; index++) {
+      expect(
+        closingProgress[index],
+        lessThanOrEqualTo(closingProgress[index - 1]),
+      );
+    }
     await gesture.up();
     await tester.pumpAndSettle();
 
-    expect(verticalPages.controller!.page, 0);
+    expect(_compactQueueProgress(tester), closeTo(0, 0.001));
     expect(find.byKey(const ValueKey('compact-main-page')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('queue opened from details returns to the details page', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(390, 844));
+    final horizontal = tester.widget<PageView>(
+      find.byKey(const ValueKey('compact-player-pages')),
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(320, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(horizontal.controller!.page, 0);
+
+    await tester.drag(
+      find.byKey(const ValueKey('compact-header-dismiss-surface')),
+      const Offset(0, -240),
+    );
+    await tester.pumpAndSettle();
+    expect(_compactQueueProgress(tester), closeTo(1, 0.001));
+
+    final reverseGesture = await tester.startGesture(
+      tester.getCenter(
+        find.byKey(const ValueKey('player-queue-title-dismiss-surface')),
+      ),
+    );
+    await reverseGesture.moveBy(const Offset(0, 24));
+    await reverseGesture.moveBy(const Offset(0, 120));
+    await tester.pump();
+    final draggedPage = _compactQueueProgress(tester);
+    expect(draggedPage, lessThan(1));
+    await reverseGesture.moveBy(const Offset(0, -104));
+    await tester.pump();
+    expect(_compactQueueProgress(tester), greaterThan(draggedPage));
+    await reverseGesture.cancel();
+    await tester.pumpAndSettle();
+    expect(_compactQueueProgress(tester), closeTo(1, 0.001));
+
+    await tester.drag(
+      find.byKey(const ValueKey('player-queue-title-dismiss-surface')),
+      const Offset(0, 240),
+    );
+    await tester.pumpAndSettle();
+    expect(_compactQueueProgress(tester), closeTo(0, 0.001));
+    expect(horizontal.controller!.page, 0);
+    expect(
+      find.byKey(const ValueKey('compact-audio-details-pane')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('queue opened from lyrics returns to the lyric page', (
+    tester,
+  ) async {
+    final lyrics = List.generate(
+      30,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'queue origin lyric $index',
+      ),
+    );
+    await _pumpPlayer(tester, const Size(390, 844), lyrics: lyrics);
+    final horizontal = tester.widget<PageView>(
+      find.byKey(const ValueKey('compact-player-pages')),
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(-320, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(horizontal.controller!.page, 2);
+
+    final lyricList = tester.widget<ListView>(
+      find.byKey(const ValueKey('full-lyric-list')),
+    );
+    lyricList.controller!.jumpTo(
+      lyricList.controller!.position.maxScrollExtent,
+    );
+    await tester.pump();
+    await tester.drag(
+      find.byKey(const ValueKey('full-lyric-list')),
+      const Offset(0, -240),
+    );
+    await tester.pumpAndSettle();
+    expect(_compactQueueProgress(tester), closeTo(1, 0.001));
+
+    await tester.drag(
+      find.byKey(const ValueKey('player-queue-title-dismiss-surface')),
+      const Offset(0, 240),
+    );
+    await tester.pumpAndSettle();
+    expect(_compactQueueProgress(tester), closeTo(0, 0.001));
+    expect(horizontal.controller!.page, 2);
+    expect(find.byKey(const ValueKey('lyrics-pane-compact')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -368,7 +481,7 @@ void main() {
 
     await tester.drag(
       find.byKey(const ValueKey('compact-player-vertical-pages')),
-      const Offset(0, 140),
+      const Offset(0, 240),
     );
     await tester.pumpAndSettle();
     expect(find.text('mini-player-host'), findsOneWidget);
@@ -386,7 +499,7 @@ void main() {
 
     await tester.drag(
       find.byKey(const ValueKey('compact-header-dismiss-surface')),
-      const Offset(0, 160),
+      const Offset(0, 240),
     );
     await tester.pumpAndSettle();
     expect(find.text('mini-player-host'), findsOneWidget);
@@ -404,7 +517,7 @@ void main() {
 
     await tester.drag(
       find.byKey(const ValueKey('compact-header-dismiss-surface')),
-      const Offset(0, 160),
+      const Offset(0, 240),
     );
     await tester.pumpAndSettle();
     expect(find.text('mini-player-host'), findsOneWidget);
@@ -435,13 +548,34 @@ void main() {
     final nowPlaying = tester.getRect(
       find.byKey(const ValueKey('player-queue-now-playing')),
     );
-    final queueTrack = tester.getRect(
-      find.byKey(const ValueKey('player-queue-track-track-1')),
+    final titleBar = tester.getRect(
+      find.byKey(const ValueKey('player-queue-title-bar')),
     );
+    final queueTrackFinder = find.byKey(
+      const ValueKey('player-queue-track-track-1'),
+    );
+    final queueTrack = tester.getRect(queueTrackFinder);
     expect(nowPlaying.left, closeTo(queueBoundary.left, 0.01));
     expect(nowPlaying.right, closeTo(queueBoundary.right, 0.01));
+    expect(titleBar.left, closeTo(queueBoundary.left, 0.01));
+    expect(titleBar.right, closeTo(queueBoundary.right, 0.01));
     expect(queueTrack.left, closeTo(queueBoundary.left, 0.01));
     expect(queueTrack.right, closeTo(queueBoundary.right, 0.01));
+    final countText = tester.widget<Text>(find.text('1 / 1'));
+    final clearText = tester.widget<Text>(find.text('Clear'));
+    expect(clearText.style?.fontSize, countText.style?.fontSize);
+    expect(clearText.style?.color, countText.style?.color);
+    final removeIcon = tester.widget<Icon>(
+      find.descendant(
+        of: queueTrackFinder,
+        matching: find.byIcon(Icons.remove),
+      ),
+    );
+    expect(removeIcon.size, 20);
+    expect(
+      removeIcon.color,
+      Theme.of(tester.element(queueTrackFinder)).colorScheme.onSurfaceVariant,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -479,11 +613,87 @@ void main() {
       );
       expect(fullscreenSize, keepAwakeSize);
       expect(overflowSize, keepAwakeSize);
+      expect(keepAwakeSize.height, 72);
+      final moreGlass = find
+          .ancestor(
+            of: find.byKey(const ValueKey('player-more-keep-awake-card')),
+            matching: find.byType(PlayerTransientGlassSurface),
+          )
+          .first;
+      expect(
+        find.descendant(of: moreGlass, matching: find.byType(BackdropFilter)),
+        findsOneWidget,
+      );
 
       await tester.tapAt(const Offset(8, 8));
       await tester.pumpAndSettle();
       expect(tester.testTextInput.isVisible, isFalse);
       expect(find.byKey(const ValueKey('lyric-search-field')), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'keyboard lifts only lyric controls and clips the lyric viewport',
+    (tester) async {
+      final lyrics = List.generate(
+        8,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text: 'keyboard lyric $index',
+        ),
+      );
+      await _pumpPlayer(tester, const Size(390, 844), lyrics: lyrics);
+      await tester.drag(
+        find.byKey(const ValueKey('compact-player-pages')),
+        const Offset(-320, 0),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('lyric-search-button')));
+      await tester.pumpAndSettle();
+
+      final stageBefore = tester.getRect(
+        find.byKey(const ValueKey('compact-player-vertical-pages')),
+      );
+      final controlsBefore = tester.getRect(
+        find.byKey(const ValueKey('lyric-controls-keyboard-lift')),
+      );
+      final lyricViewportBefore = tester.getRect(
+        find.byKey(const ValueKey('lyric-keyboard-safe-viewport')),
+      );
+      expect(controlsBefore.top - lyricViewportBefore.bottom, closeTo(4, 0.01));
+
+      tester.view.viewInsets = const FakeViewPadding(bottom: 280);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpAndSettle();
+
+      final stageAfter = tester.getRect(
+        find.byKey(const ValueKey('compact-player-vertical-pages')),
+      );
+      final controlsAfter = tester.getRect(
+        find.byKey(const ValueKey('lyric-controls-keyboard-lift')),
+      );
+      final lyricViewportAfter = tester.getRect(
+        find.byKey(const ValueKey('lyric-keyboard-safe-viewport')),
+      );
+      expect(stageAfter, stageBefore);
+      expect(controlsAfter.bottom, closeTo(controlsBefore.bottom - 280, 0.01));
+      expect(
+        lyricViewportAfter.bottom,
+        closeTo(lyricViewportBefore.bottom - 280, 0.01),
+      );
+      expect(lyricViewportAfter.bottom, lessThan(controlsAfter.top));
+      expect(controlsAfter.top - lyricViewportAfter.bottom, closeTo(4, 0.01));
+
+      tester.view.resetViewInsets();
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(
+          find.byKey(const ValueKey('lyric-controls-keyboard-lift')),
+        ),
+        controlsBefore,
+      );
+      expect(tester.takeException(), isNull);
     },
   );
 
@@ -567,22 +777,18 @@ void main() {
     final horizontal = tester.widget<PageView>(
       find.byKey(const ValueKey('compact-player-pages')),
     );
-    final vertical = tester.widget<PageView>(
-      find.byKey(const ValueKey('compact-player-vertical-pages')),
-    );
-
     await tester.drag(
       find.byKey(const ValueKey('compact-player-pages')),
       const Offset(-320, 0),
     );
     await tester.pumpAndSettle();
     expect(horizontal.controller!.page, 2);
-    expect(vertical.controller!.page, 0);
+    expect(_compactQueueProgress(tester), closeTo(0, 0.001));
 
     await tester.tap(find.text('lyric line 3'));
     await tester.pump(const Duration(milliseconds: 700));
     expect(horizontal.controller!.page, 2);
-    expect(vertical.controller!.page, 0);
+    expect(_compactQueueProgress(tester), closeTo(0, 0.001));
     expect(tester.takeException(), isNull);
   });
 
@@ -747,10 +953,21 @@ Future<void> _pumpPlayer(
   if (pushedRoute) {
     unawaited(
       navigatorKey.currentState!.push<void>(
-        MaterialPageRoute<void>(builder: (_) => const AudioPlayerScreen()),
+        AudioPlayerPageRoute<void>(builder: (_) => const AudioPlayerScreen()),
       ),
     );
     await tester.pumpAndSettle();
   }
   await tester.pump(const Duration(milliseconds: 350));
+}
+
+double _compactQueueProgress(WidgetTester tester) {
+  final transform = tester.widget<Transform>(
+    find.byKey(const ValueKey('compact-player-stage-transform')),
+  );
+  final stageHeight = tester
+      .getSize(find.byKey(const ValueKey('compact-player-vertical-pages')))
+      .height;
+  if (stageHeight <= 0) return 0;
+  return (-transform.transform.storage[13] / stageHeight).clamp(0.0, 1.0);
 }

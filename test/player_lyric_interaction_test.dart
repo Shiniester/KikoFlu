@@ -5,6 +5,7 @@ import 'package:kikoeru_flutter/src/models/lyric.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/widgets/player/lyric_display_widget.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
 
 void main() {
@@ -156,6 +157,12 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('lyric-search-button')));
     await tester.pump();
+    final searchGlass = find.byType(PlayerTransientGlassSurface);
+    expect(searchGlass, findsOneWidget);
+    expect(
+      find.descendant(of: searchGlass, matching: find.byType(BackdropFilter)),
+      findsOneWidget,
+    );
     await tester.enterText(
       find.byKey(const ValueKey('lyric-search-field')),
       'matching',
