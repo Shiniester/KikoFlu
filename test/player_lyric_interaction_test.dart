@@ -18,6 +18,25 @@ void main() {
     ),
   );
 
+  test('literal lyric matcher counts non-overlapping occurrences', () {
+    final matches = findLyricSearchMatches([
+      LyricLine(
+        startTime: Duration.zero,
+        endTime: const Duration(seconds: 1),
+        text: 'Echo echo ECHO',
+      ),
+      LyricLine(
+        startTime: const Duration(seconds: 1),
+        endTime: const Duration(seconds: 2),
+        text: 'unrelated',
+      ),
+    ], 'echo');
+
+    expect(matches, hasLength(3));
+    expect(matches.map((match) => match.lineIndex), everyElement(0));
+    expect(matches.map((match) => match.start), [0, 5, 10]);
+  });
+
   testWidgets('active lyric is bold white and tapping seeks then centers', (
     tester,
   ) async {
@@ -122,18 +141,30 @@ void main() {
     },
   );
 
-  testWidgets('lyric search reports matches and navigates them', (
+  testWidgets('lyric search counts words, selects one and centers its line', (
     tester,
   ) async {
+    final searchLyrics = List.generate(
+      42,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: switch (index) {
+          0 => '我看见我',
+          30 => '远处还有我',
+          _ => 'unmatched lyric $index',
+        },
+      ),
+    );
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          positionProvider.overrideWith(
-            (ref) => Stream.value(const Duration(seconds: 2)),
-          ),
+          positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
           lyricControllerProvider.overrideWith(
-            (ref) =>
-                LyricController(ref, initialState: LyricState(lyrics: lyrics)),
+            (ref) => LyricController(
+              ref,
+              initialState: LyricState(lyrics: searchLyrics),
+            ),
           ),
         ],
         child: MaterialApp(
@@ -156,7 +187,7 @@ void main() {
     expect(find.byKey(const ValueKey('lyric-edge-fade-mask')), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('lyric-search-button')));
-    await tester.pump();
+    await tester.pumpAndSettle();
     final searchGlass = find.byType(PlayerTransientGlassSurface);
     expect(searchGlass, findsOneWidget);
     expect(
@@ -165,29 +196,51 @@ void main() {
     );
     await tester.enterText(
       find.byKey(const ValueKey('lyric-search-field')),
-      'matching',
+      '我',
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('1/6'), findsOneWidget);
-    final primary = Theme.of(
+    expect(find.text('1/3'), findsOneWidget);
+    final colors = Theme.of(
       tester.element(find.byType(PlayerLyricsSurface)),
-    ).colorScheme.primary;
-    final highlighted = tester.widget<RichText>(
+    ).colorScheme;
+    RichText highlightedLine(String text) => tester.widget<RichText>(
       find.byWidgetPredicate(
-        (widget) =>
-            widget is RichText &&
-            widget.text.toPlainText() == 'matching lyric 0',
+        (widget) => widget is RichText && widget.text.toPlainText() == text,
       ),
     );
-    final highlightedSpans = _flattenTextSpans(highlighted.text);
-    expect(
-      highlightedSpans.any((span) => span.style?.color == primary),
-      isTrue,
-    );
+    List<TextSpan> hitsIn(String text) => _flattenTextSpans(
+      highlightedLine(text).text,
+    ).where((span) => span.text == '我').toList(growable: false);
+
+    var hits = hitsIn('我看见我');
+    expect(hits, hasLength(2));
+    expect(hits.first.style?.backgroundColor, colors.primary);
+    expect(hits.first.style?.color, colors.onPrimary);
+    expect(hits.last.style?.backgroundColor, isNull);
+    expect(hits.last.style?.color, colors.primary);
+
     await tester.tap(find.byTooltip('Next'));
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(find.text('2/6'), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.text('2/3'), findsOneWidget);
+    hits = hitsIn('我看见我');
+    expect(hits.first.style?.backgroundColor, isNull);
+    expect(hits.last.style?.backgroundColor, colors.primary);
+
+    await tester.tap(find.byTooltip('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('3/3'), findsOneWidget);
+    final viewport = tester.getRect(
+      find.byKey(const ValueKey('lyric-keyboard-safe-viewport')),
+    );
+    final selectedLine = tester.getRect(
+      find.byWidgetPredicate(
+        (widget) => widget is RichText && widget.text.toPlainText() == '远处还有我',
+      ),
+    );
+    expect((selectedLine.center.dy - viewport.center.dy).abs(), lessThan(36));
+    final farHit = hitsIn('远处还有我').single;
+    expect(farHit.style?.backgroundColor, colors.primary);
 
     await tester.tap(find.byKey(const ValueKey('lyric-search-button')));
     await tester.pumpAndSettle();

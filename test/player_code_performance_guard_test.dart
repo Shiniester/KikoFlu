@@ -124,6 +124,12 @@ void main() {
       final lyricDisplay = File(
         'lib/src/widgets/player/lyric_display_widget.dart',
       ).readAsStringSync();
+      final lyricSurface = File(
+        'lib/src/widgets/player/player_lyrics_surface.dart',
+      ).readAsStringSync();
+      final playerRoute = File(
+        'lib/src/widgets/player/player_route.dart',
+      ).readAsStringSync();
       final infoPanel = File(
         'lib/src/widgets/player/player_info_panel.dart',
       ).readAsStringSync();
@@ -152,11 +158,12 @@ void main() {
         isNot(contains('inactive-player-audio-details-panel')),
       );
       expect(detailsPanel, isNot(contains('for (final variant in variants)')));
-      expect(lyricDisplay, isNot(contains('Scrollable.ensureVisible(')));
-      expect(
-        lyricDisplay,
-        contains('_scrollController.position.ensureVisible'),
-      );
+      expect(lyricDisplay, isNot(contains('ensureVisible')));
+      expect(lyricDisplay, contains('_centerInsideVisibleViewport'));
+      expect(lyricSurface, isNot(contains('AnimatedPositioned')));
+      expect(lyricSurface, contains('Transform.translate'));
+      expect(screen, isNot(contains('PlayerInteractiveDismissRoute')));
+      expect(playerRoute, isNot(contains('beginVerticalDismissGesture')));
     },
   );
 

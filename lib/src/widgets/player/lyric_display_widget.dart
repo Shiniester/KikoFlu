@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
+import 'package:flutter/rendering.dart' show RenderBox, ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/lyric.dart';
@@ -9,7 +9,6 @@ import '../../providers/audio_provider.dart';
 import '../../providers/lyric_provider.dart';
 import '../../providers/player_lyric_style_provider.dart';
 import '../../../l10n/app_localizations.dart';
-import 'player_vertical_gestures.dart';
 
 /// Small, single-line lyric display used by the wide cover pane.
 class LyricDisplay extends ConsumerWidget {
@@ -257,6 +256,45 @@ class _PreviewLine extends StatelessWidget {
   }
 }
 
+@immutable
+class LyricSearchMatch {
+  const LyricSearchMatch({
+    required this.lineIndex,
+    required this.start,
+    required this.end,
+  });
+
+  final int lineIndex;
+  final int start;
+  final int end;
+}
+
+List<LyricSearchMatch> findLyricSearchMatches(
+  List<LyricLine> lyrics,
+  String rawQuery,
+) {
+  final query = rawQuery.trim();
+  if (query.isEmpty) return const [];
+  final expression = RegExp(
+    RegExp.escape(query),
+    caseSensitive: false,
+    unicode: true,
+  );
+  final matches = <LyricSearchMatch>[];
+  for (var lineIndex = 0; lineIndex < lyrics.length; lineIndex++) {
+    for (final match in expression.allMatches(lyrics[lineIndex].text)) {
+      matches.add(
+        LyricSearchMatch(
+          lineIndex: lineIndex,
+          start: match.start,
+          end: match.end,
+        ),
+      );
+    }
+  }
+  return matches;
+}
+
 class FullLyricDisplayController {
   _FullLyricDisplayState? _state;
 
@@ -266,12 +304,18 @@ class FullLyricDisplayController {
     if (identical(_state, state)) _state = null;
   }
 
-  void scrollToIndex(int index, {bool animate = true}) {
+  void centerOnIndex(
+    int index, {
+    bool animate = true,
+    double visibleBottomInset = 0,
+  }) {
     _state?._scrollToLyric(
       index,
       animate: animate,
       force: true,
       ignoreAutoScroll: true,
+      visibleBottomInset: visibleBottomInset,
+      animationDuration: const Duration(milliseconds: 280),
     );
   }
 }
@@ -286,15 +330,12 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
     this.controller,
     this.suspendAutoScroll = false,
     this.searchQuery = '',
-    this.selectedSearchIndex,
+    this.selectedSearchMatch,
     this.topPadding = 72,
     this.bottomPadding = 148,
+    this.visibleBottomInset = 0,
     this.snapToCurrentOnFirstLayout = false,
     this.onSeekRequested,
-    this.onDismissPlayer,
-    this.dismissDrag,
-    this.onShowQueue,
-    this.showQueueDrag,
   });
 
   final Duration? seekingPosition;
@@ -304,15 +345,12 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
   final FullLyricDisplayController? controller;
   final bool suspendAutoScroll;
   final String searchQuery;
-  final int? selectedSearchIndex;
+  final LyricSearchMatch? selectedSearchMatch;
   final double topPadding;
   final double bottomPadding;
+  final double visibleBottomInset;
   final bool snapToCurrentOnFirstLayout;
   final ValueChanged<Duration>? onSeekRequested;
-  final VoidCallback? onDismissPlayer;
-  final PlayerVerticalDragCallbacks? dismissDrag;
-  final VoidCallback? onShowQueue;
-  final PlayerVerticalDragCallbacks? showQueueDrag;
 
   @override
   ConsumerState<FullLyricDisplay> createState() => _FullLyricDisplayState();
@@ -320,6 +358,7 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
 
 class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey _viewportKey = GlobalKey();
   final Map<int, GlobalKey> _itemKeys = {};
   int? _currentLyricIndex;
   bool _autoScroll = true;
@@ -424,12 +463,14 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
     bool animate = true,
     bool force = false,
     bool ignoreAutoScroll = false,
+    double? visibleBottomInset,
+    Duration? animationDuration,
   }) {
     if ((!_autoScroll || widget.suspendAutoScroll) && !ignoreAutoScroll) return;
     if (!_scrollController.hasClients || index < 0) return;
     final duration = MediaQuery.disableAnimationsOf(context) || !animate
         ? Duration.zero
-        : const Duration(milliseconds: 460);
+        : animationDuration ?? const Duration(milliseconds: 460);
     final request = ++_scrollRequestGeneration;
     unawaited(
       _performLyricScroll(
@@ -437,6 +478,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
         duration: duration,
         force: force,
         request: request,
+        visibleBottomInset: visibleBottomInset ?? widget.visibleBottomInset,
       ),
     );
   }
@@ -446,6 +488,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
     required Duration duration,
     required bool force,
     required int request,
+    required double visibleBottomInset,
   }) async {
     if (!mounted ||
         request != _scrollRequestGeneration ||
@@ -454,18 +497,24 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
     }
     final itemContext = _getKeyForIndex(index).currentContext;
     final renderObject = itemContext?.findRenderObject();
-    if (renderObject != null) {
-      await _ensureVisibleInsideLyricList(renderObject, duration);
+    if (renderObject is RenderBox) {
+      await _centerInsideVisibleViewport(
+        renderObject,
+        duration,
+        visibleBottomInset,
+      );
       return;
     }
     if (!force) return;
 
     final lyrics = ref.read(lyricControllerProvider).displayLyrics;
-    final viewport = _scrollController.position.viewportDimension;
-    final target = (_estimatedOffset(index, lyrics) - viewport * 0.42).clamp(
-      0.0,
-      _scrollController.position.maxScrollExtent,
-    );
+    if (index >= lyrics.length) return;
+    final visibleHeight = _visibleViewportHeight(visibleBottomInset);
+    final target =
+        (_estimatedOffset(index, lyrics) +
+                _estimateItemHeight(lyrics[index].text, false) / 2 -
+                visibleHeight / 2)
+            .clamp(0.0, _scrollController.position.maxScrollExtent);
     if (duration == Duration.zero) {
       _scrollController.jumpTo(target);
     } else {
@@ -490,30 +539,59 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
     final correctedRenderObject = _getKeyForIndex(
       index,
     ).currentContext?.findRenderObject();
-    if (correctedRenderObject != null) {
-      await _ensureVisibleInsideLyricList(
+    if (correctedRenderObject is RenderBox) {
+      await _centerInsideVisibleViewport(
         correctedRenderObject,
         duration == Duration.zero
             ? Duration.zero
-            : const Duration(milliseconds: 180),
+            : const Duration(milliseconds: 120),
+        visibleBottomInset,
       );
     }
   }
 
-  Future<void> _ensureVisibleInsideLyricList(
-    RenderObject renderObject,
+  double _visibleViewportHeight(double visibleBottomInset) {
+    final viewport = _viewportKey.currentContext?.findRenderObject();
+    final fullHeight = viewport is RenderBox
+        ? viewport.size.height
+        : _scrollController.position.viewportDimension;
+    if (fullHeight <= 1) return 1;
+    return (fullHeight - visibleBottomInset.clamp(0.0, fullHeight - 1))
+        .clamp(1.0, fullHeight)
+        .toDouble();
+  }
+
+  Future<void> _centerInsideVisibleViewport(
+    RenderBox item,
     Duration duration,
+    double visibleBottomInset,
   ) async {
     if (!_scrollController.hasClients) return;
+    final viewport = _viewportKey.currentContext?.findRenderObject();
+    if (viewport is! RenderBox || !item.attached || !viewport.attached) return;
+    final itemCenter = item.localToGlobal(
+      item.size.center(Offset.zero),
+      ancestor: viewport,
+    );
+    final target =
+        (_scrollController.position.pixels +
+                itemCenter.dy -
+                _visibleViewportHeight(visibleBottomInset) / 2)
+            .clamp(
+              _scrollController.position.minScrollExtent,
+              _scrollController.position.maxScrollExtent,
+            );
+    if ((target - _scrollController.position.pixels).abs() < 0.5) return;
     try {
-      // Static Scrollable.ensureVisible also drives ancestor PageViews. Keep
-      // lyric positioning confined to this list so the player stage is fixed.
-      await _scrollController.position.ensureVisible(
-        renderObject,
-        alignment: 0.5,
-        duration: duration,
-        curve: Curves.easeOutCubic,
-      );
+      if (duration == Duration.zero) {
+        _scrollController.jumpTo(target);
+      } else {
+        await _scrollController.animateTo(
+          target,
+          duration: duration,
+          curve: Curves.easeOutCubic,
+        );
+      }
     } catch (_) {
       // Entering/exiting fullscreen can remove the list while it is moving.
     }
@@ -579,11 +657,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
 
     return GestureDetector(
       onLongPress: widget.onLongPress,
-      child: PlayerScrollEdgeActions(
-        onPullDownAtTop: widget.onDismissPlayer,
-        onPushUpAtBottom: widget.onShowQueue,
-        pullDownDrag: widget.dismissDrag,
-        pushUpDrag: widget.showQueueDrag,
+      child: SizedBox.expand(
+        key: _viewportKey,
         child: ListView.builder(
           key: const ValueKey('full-lyric-list'),
           controller: _scrollController,
@@ -619,7 +694,10 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
                   child: _HighlightedLyricText(
                     text: lyric.text,
                     query: widget.searchQuery,
-                    selectedMatch: widget.selectedSearchIndex == index,
+                    selectedMatch:
+                        widget.selectedSearchMatch?.lineIndex == index
+                        ? widget.selectedSearchMatch
+                        : null,
                     style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                       color: Theme.of(context).colorScheme.onSurface.withValues(
                         alpha: active ? 1 : (past ? 0.24 : 0.34),
@@ -651,39 +729,48 @@ class _HighlightedLyricText extends StatelessWidget {
 
   final String text;
   final String query;
-  final bool selectedMatch;
+  final LyricSearchMatch? selectedMatch;
   final TextStyle? style;
 
   @override
   Widget build(BuildContext context) {
     final normalizedQuery = query.trim();
-    if (normalizedQuery.isEmpty ||
-        !text.toLowerCase().contains(normalizedQuery.toLowerCase())) {
+    if (normalizedQuery.isEmpty) {
+      return Text(text, style: style, textAlign: TextAlign.center);
+    }
+    final expression = RegExp(
+      RegExp.escape(normalizedQuery),
+      caseSensitive: false,
+      unicode: true,
+    );
+    final matches = expression.allMatches(text).toList(growable: false);
+    if (matches.isEmpty) {
       return Text(text, style: style, textAlign: TextAlign.center);
     }
     final spans = <InlineSpan>[];
-    final lowerText = text.toLowerCase();
-    final lowerQuery = normalizedQuery.toLowerCase();
     var cursor = 0;
-    while (cursor < text.length) {
-      final index = lowerText.indexOf(lowerQuery, cursor);
-      if (index < 0) {
-        spans.add(TextSpan(text: text.substring(cursor)));
-        break;
+    final colors = Theme.of(context).colorScheme;
+    for (final match in matches) {
+      if (match.start > cursor) {
+        spans.add(TextSpan(text: text.substring(cursor, match.start)));
       }
-      if (index > cursor) {
-        spans.add(TextSpan(text: text.substring(cursor, index)));
-      }
+      final selected =
+          selectedMatch?.start == match.start &&
+          selectedMatch?.end == match.end;
       spans.add(
         TextSpan(
-          text: text.substring(index, index + normalizedQuery.length),
+          text: text.substring(match.start, match.end),
           style: TextStyle(
-            color: Theme.of(context).colorScheme.primary,
-            fontWeight: selectedMatch ? FontWeight.w900 : FontWeight.w800,
+            color: selected ? colors.onPrimary : colors.primary,
+            backgroundColor: selected ? colors.primary : null,
+            fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
           ),
         ),
       );
-      cursor = index + normalizedQuery.length;
+      cursor = match.end;
+    }
+    if (cursor < text.length) {
+      spans.add(TextSpan(text: text.substring(cursor)));
     }
     return Text.rich(
       TextSpan(style: style, children: spans),

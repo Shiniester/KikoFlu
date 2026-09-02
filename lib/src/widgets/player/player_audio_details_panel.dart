@@ -15,16 +15,12 @@ class PlayerAudioDetailsPanel extends ConsumerStatefulWidget {
     super.key,
     this.onOpenWork,
     this.isActive = true,
-    this.onDismissPlayer,
-    this.dismissDrag,
     this.onShowQueue,
     this.showQueueDrag,
   });
 
   final ValueChanged<Work>? onOpenWork;
   final bool isActive;
-  final VoidCallback? onDismissPlayer;
-  final PlayerVerticalDragCallbacks? dismissDrag;
   final VoidCallback? onShowQueue;
   final PlayerVerticalDragCallbacks? showQueueDrag;
 
@@ -64,9 +60,7 @@ class _PlayerAudioDetailsPanelState
 
   Widget _wrapStaticState(Widget child) {
     return PlayerVerticalSwipeRegion(
-      onSwipeDown: widget.onDismissPlayer,
       onSwipeUp: widget.onShowQueue,
-      swipeDownDrag: widget.dismissDrag,
       swipeUpDrag: widget.showQueueDrag,
       child: child,
     );
@@ -85,9 +79,7 @@ class _PlayerAudioDetailsPanelState
     return RepaintBoundary(
       key: const ValueKey('player-audio-details-panel'),
       child: PlayerScrollEdgeActions(
-        onPullDownAtTop: widget.onDismissPlayer,
         onPushUpAtBottom: widget.onShowQueue,
-        pullDownDrag: widget.dismissDrag,
         pushUpDrag: widget.showQueueDrag,
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(

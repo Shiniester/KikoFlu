@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,9 +9,16 @@ import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/models/lyric.dart';
+import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
+import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
+import 'package:kikoeru_flutter/src/providers/player_work_details_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
+import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
+import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+    show KikoeruApiService;
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -24,10 +32,15 @@ const _track = AudioTrack(
 );
 
 void main() {
-  setUp(
-    () =>
-        SharedPreferences.setMockInitialValues({'lyric_hint_has_shown': true}),
-  );
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({
+      'lyric_hint_has_shown': true,
+      'custom_download_path': Directory.systemTemp.path,
+    });
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
+  });
 
   testWidgets('compact player renders the paged stage without overflow', (
     tester,
@@ -36,6 +49,59 @@ void main() {
     expect(find.byKey(const ValueKey('compact-player-pages')), findsOneWidget);
     expect(find.byKey(const ValueKey('wide-player-layout')), findsNothing);
     expect(find.text(_track.title), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('player-track-title-button')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('track title opens one work detail route on compact and wide', (
+    tester,
+  ) async {
+    const track = AudioTrack(
+      id: 'work-track',
+      title: 'Open this work',
+      url: 'https://example.invalid/work.mp3',
+      artist: 'Artist',
+      album: 'Work album',
+      workId: 42,
+    );
+    const work = Work(id: 42, title: 'Work album');
+    const details = PlayerWorkDetailsData(
+      track: track,
+      work: work,
+      fileTree: [],
+      variants: [],
+      fileTreeId: '42:test',
+    );
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      track: track,
+      workDetails: details,
+    );
+
+    final compactTitle = find.byKey(
+      const ValueKey('player-track-title-button'),
+    );
+    final compactTitleButton = tester.widget<InkWell>(compactTitle);
+    compactTitleButton.onTap!();
+    compactTitleButton.onTap!();
+    await tester.pumpAndSettle();
+    expect(find.byType(WorkDetailScreen, skipOffstage: false), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    tester.view.physicalSize = const Size(1280, 720);
+    await tester.pumpAndSettle();
+    final wideTitleButton = tester.widget<InkWell>(
+      find.byKey(const ValueKey('player-track-title-button-wide')),
+    );
+    wideTitleButton.onTap!();
+    wideTitleButton.onTap!();
+    await tester.pumpAndSettle();
+    expect(find.byType(WorkDetailScreen), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -237,7 +303,7 @@ void main() {
     expect(horizontal.controller!.page, 0);
 
     await tester.drag(
-      find.byKey(const ValueKey('compact-header-dismiss-surface')),
+      find.byKey(const ValueKey('compact-header-queue-swipe-surface')),
       const Offset(0, -240),
     );
     await tester.pumpAndSettle();
@@ -308,6 +374,13 @@ void main() {
       const Offset(0, -240),
     );
     await tester.pumpAndSettle();
+    expect(_compactQueueProgress(tester), closeTo(0, 0.001));
+
+    await tester.drag(
+      find.byKey(const ValueKey('lyric-bottom-queue-swipe-surface')),
+      const Offset(0, -240),
+    );
+    await tester.pumpAndSettle();
     expect(_compactQueueProgress(tester), closeTo(1, 0.001));
 
     await tester.drag(
@@ -320,6 +393,78 @@ void main() {
     expect(find.byKey(const ValueKey('lyrics-pane-compact')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'lyrics queue gesture is owned by the blank search and action region',
+    (tester) async {
+      final lyrics = List.generate(
+        24,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text: 'bottom queue lyric $index',
+        ),
+      );
+      await _pumpPlayer(tester, const Size(390, 844), lyrics: lyrics);
+      await tester.drag(
+        find.byKey(const ValueKey('compact-player-pages')),
+        const Offset(-320, 0),
+      );
+      await tester.pumpAndSettle();
+
+      Future<void> closeQueue() async {
+        await tester.drag(
+          find.byKey(const ValueKey('player-queue-title-dismiss-surface')),
+          const Offset(0, 240),
+        );
+        await tester.pumpAndSettle();
+        expect(_compactQueueProgress(tester), closeTo(0, 0.001));
+      }
+
+      Future<void> openFromFinder(Finder finder) async {
+        await tester.drag(finder, const Offset(0, -240));
+        await tester.pumpAndSettle();
+        expect(_compactQueueProgress(tester), closeTo(1, 0.001));
+        await closeQueue();
+      }
+
+      final blankDrag = await tester.startGesture(
+        tester.getCenter(
+          find.byKey(const ValueKey('lyric-bottom-queue-blank')),
+        ),
+      );
+      await blankDrag.moveBy(const Offset(0, -24));
+      await tester.pump();
+      await blankDrag.moveBy(const Offset(0, -216));
+      await blankDrag.up();
+      await tester.pumpAndSettle();
+      expect(_compactQueueProgress(tester), closeTo(1, 0.001));
+      await closeQueue();
+
+      for (final key in const <ValueKey<String>>[
+        ValueKey('lyric-settings-button'),
+        ValueKey('lyric-download-button'),
+        ValueKey('lyric-fullscreen-button'),
+        ValueKey('lyric-translate-button'),
+        ValueKey('lyric-search-button'),
+      ]) {
+        await openFromFinder(find.byKey(key));
+      }
+
+      await tester.tap(find.byKey(const ValueKey('lyric-search-button')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('lyric-search-field')),
+        'queue',
+      );
+      await tester.pump();
+      expect(tester.testTextInput.isVisible, isTrue);
+      await openFromFinder(find.byKey(const ValueKey('lyric-search-field')));
+      expect(tester.testTextInput.isVisible, isFalse);
+      expect(find.text('queue'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('compact swipes right to details and left to lyrics', (
     tester,
@@ -473,7 +618,7 @@ void main() {
     },
   );
 
-  testWidgets('downward main-page swipe dismisses to the mini-player route', (
+  testWidgets('downward main-page swipe does not dismiss the player route', (
     tester,
   ) async {
     await _pumpPlayer(tester, const Size(390, 844), pushedRoute: true);
@@ -484,10 +629,11 @@ void main() {
       const Offset(0, 240),
     );
     await tester.pumpAndSettle();
-    expect(find.text('mini-player-host'), findsOneWidget);
+    expect(find.byKey(const ValueKey('compact-main-page')), findsOneWidget);
+    expect(find.text('mini-player-host'), findsNothing);
   });
 
-  testWidgets('fixed header swipe dismisses directly from the lyric page', (
+  testWidgets('fixed header downward swipe stays on the lyric page', (
     tester,
   ) async {
     await _pumpPlayer(tester, const Size(390, 844), pushedRoute: true);
@@ -498,14 +644,18 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.drag(
-      find.byKey(const ValueKey('compact-header-dismiss-surface')),
+      find.byKey(const ValueKey('compact-header-queue-swipe-surface')),
       const Offset(0, 240),
     );
     await tester.pumpAndSettle();
-    expect(find.text('mini-player-host'), findsOneWidget);
+    final horizontal = tester.widget<PageView>(
+      find.byKey(const ValueKey('compact-player-pages')),
+    );
+    expect(horizontal.controller!.page, 2);
+    expect(find.text('mini-player-host'), findsNothing);
   });
 
-  testWidgets('fixed header swipe dismisses directly from the details page', (
+  testWidgets('fixed header downward swipe stays on the details page', (
     tester,
   ) async {
     await _pumpPlayer(tester, const Size(390, 844), pushedRoute: true);
@@ -516,11 +666,66 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.drag(
-      find.byKey(const ValueKey('compact-header-dismiss-surface')),
+      find.byKey(const ValueKey('compact-header-queue-swipe-surface')),
       const Offset(0, 240),
     );
     await tester.pumpAndSettle();
-    expect(find.text('mini-player-host'), findsOneWidget);
+    final horizontal = tester.widget<PageView>(
+      find.byKey(const ValueKey('compact-player-pages')),
+    );
+    expect(horizontal.controller!.page, 0);
+    expect(find.text('mini-player-host'), findsNothing);
+  });
+
+  testWidgets('details and lyric top overscroll do not dismiss the player', (
+    tester,
+  ) async {
+    final lyrics = List.generate(
+      16,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'no dismiss lyric $index',
+      ),
+    );
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      lyrics: lyrics,
+      pushedRoute: true,
+    );
+    final horizontal = tester.widget<PageView>(
+      find.byKey(const ValueKey('compact-player-pages')),
+    );
+
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(320, 0),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.descendant(
+        of: find.byKey(const ValueKey('compact-audio-details-pane')),
+        matching: find.byType(CustomScrollView),
+      ),
+      const Offset(0, 240),
+    );
+    await tester.pumpAndSettle();
+    expect(horizontal.controller!.page, 0);
+    expect(find.text('mini-player-host'), findsNothing);
+
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(-640, 0),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const ValueKey('full-lyric-list')),
+      const Offset(0, 240),
+    );
+    await tester.pumpAndSettle();
+    expect(horizontal.controller!.page, 2);
+    expect(find.text('mini-player-host'), findsNothing);
   });
 
   testWidgets('short compact stage keeps controls and queue at cover width', (
@@ -661,11 +866,41 @@ void main() {
       final lyricViewportBefore = tester.getRect(
         find.byKey(const ValueKey('lyric-keyboard-safe-viewport')),
       );
+      final lyricScrollable = tester.state<ScrollableState>(
+        find
+            .descendant(
+              of: find.byKey(const ValueKey('full-lyric-list')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      final scrollOffsetBefore = lyricScrollable.position.pixels;
       expect(controlsBefore.top - lyricViewportBefore.bottom, closeTo(4, 0.01));
 
-      tester.view.viewInsets = const FakeViewPadding(bottom: 280);
       addTearDown(tester.view.resetViewInsets);
-      await tester.pumpAndSettle();
+      var previousBottom = controlsBefore.bottom;
+      for (final inset in const [80.0, 160.0, 280.0]) {
+        tester.view.viewInsets = FakeViewPadding(bottom: inset);
+        await tester.pump();
+        final controls = tester.getRect(
+          find.byKey(const ValueKey('lyric-controls-keyboard-lift')),
+        );
+        final viewport = tester.getRect(
+          find.byKey(const ValueKey('lyric-keyboard-safe-viewport')),
+        );
+        expect(controls.bottom, lessThan(previousBottom));
+        expect(controls.bottom, closeTo(controlsBefore.bottom - inset, 0.01));
+        expect(
+          viewport.bottom,
+          closeTo(lyricViewportBefore.bottom - inset, 0.01),
+        );
+        expect(controls.top - viewport.bottom, closeTo(4, 0.01));
+        expect(
+          lyricScrollable.position.pixels,
+          closeTo(scrollOffsetBefore, 0.01),
+        );
+        previousBottom = controls.bottom;
+      }
 
       final stageAfter = tester.getRect(
         find.byKey(const ValueKey('compact-player-vertical-pages')),
@@ -686,7 +921,7 @@ void main() {
       expect(controlsAfter.top - lyricViewportAfter.bottom, closeTo(4, 0.01));
 
       tester.view.resetViewInsets();
-      await tester.pumpAndSettle();
+      await tester.pump();
       expect(
         tester.getRect(
           find.byKey(const ValueKey('lyric-controls-keyboard-lift')),
@@ -901,6 +1136,8 @@ Future<void> _pumpPlayer(
   List<LyricLine>? lyrics,
   Stream<AudioTrack?>? trackStream,
   bool pushedRoute = false,
+  AudioTrack track = _track,
+  PlayerWorkDetailsData? workDetails,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -912,8 +1149,9 @@ Future<void> _pumpPlayer(
     ProviderScope(
       overrides: [
         currentTrackProvider.overrideWith(
-          (ref) => trackStream ?? Stream.value(_track),
+          (ref) => trackStream ?? Stream.value(track),
         ),
+        kikoeruApiServiceProvider.overrideWithValue(_PlayerTestApiService()),
         isTrackLoadingProvider.overrideWith((ref) => Stream.value(false)),
         positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
         durationProvider.overrideWith(
@@ -922,8 +1160,10 @@ Future<void> _pumpPlayer(
         playerStateProvider.overrideWith(
           (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
         ),
-        queueProvider.overrideWith((ref) => Stream.value(const [_track])),
+        queueProvider.overrideWith((ref) => Stream.value([track])),
         lyricAutoLoaderProvider.overrideWith((ref) {}),
+        if (workDetails != null)
+          playerWorkDetailsProvider.overrideWith((ref) async => workDetails),
         if (lyrics != null)
           lyricControllerProvider.overrideWith(
             (ref) =>
@@ -959,6 +1199,20 @@ Future<void> _pumpPlayer(
     await tester.pumpAndSettle();
   }
   await tester.pump(const Duration(milliseconds: 350));
+}
+
+class _PlayerTestApiService extends KikoeruApiService {
+  @override
+  Future<Map<String, dynamic>> getWork(
+    int workId, {
+    bool forceRefresh = false,
+  }) async => <String, dynamic>{'id': workId, 'title': 'Work album'};
+
+  @override
+  Future<List<dynamic>> getWorkTracks(
+    int workId, {
+    bool forceRefresh = false,
+  }) async => const [];
 }
 
 double _compactQueueProgress(WidgetTester tester) {

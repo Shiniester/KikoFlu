@@ -1,23 +1,5 @@
 import 'package:flutter/material.dart';
 
-/// Implemented by the player route so in-page drag regions can drive the
-/// route without importing the screen/route pair into each other.
-abstract interface class PlayerInteractiveDismissRoute {
-  bool beginVerticalDismissGesture();
-
-  void updateVerticalDismissGesture({
-    required double distance,
-    required double extent,
-  });
-
-  void endVerticalDismissGesture({
-    required double velocity,
-    required double extent,
-  });
-
-  void cancelVerticalDismissGesture();
-}
-
 class PlayerVerticalDragCallbacks {
   const PlayerVerticalDragCallbacks({
     required this.onStart,

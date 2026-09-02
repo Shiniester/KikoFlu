@@ -4,7 +4,6 @@ import 'dart:io' show Platform;
 import 'package:flutter/cupertino.dart';
 
 import '../../screens/audio_player_screen.dart';
-import 'player_vertical_gestures.dart';
 import 'player_visual_palette.dart';
 
 AudioPlayerPageRoute<T> createAudioPlayerRoute<T>({
@@ -38,13 +37,11 @@ Future<T?> openAudioPlayer<T>(
 /// Mini Player. Artwork travels independently through its Hero, avoiding a
 /// scale transform on the gradient background.
 class AudioPlayerPageRoute<T> extends PageRoute<T>
-    with CupertinoRouteTransitionMixin<T>
-    implements PlayerInteractiveDismissRoute {
+    with CupertinoRouteTransitionMixin<T> {
   AudioPlayerPageRoute({required this.builder});
 
   final WidgetBuilder builder;
   bool _verticalGestureInProgress = false;
-  bool _verticalGestureOpening = false;
   double _verticalGestureStartValue = 0;
   int _verticalSettleGeneration = 0;
   NavigatorState? _gestureNavigator;
@@ -80,7 +77,6 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
       return false;
     }
     _beginVerticalGesture(
-      opening: true,
       resetValue: _verticalGestureInProgress
           ? null
           : initialValue.clamp(0.0, 1.0),
@@ -88,21 +84,7 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     return true;
   }
 
-  @override
-  bool beginVerticalDismissGesture() {
-    final animationController = controller;
-    final routeNavigator = navigator;
-    if (animationController == null ||
-        routeNavigator == null ||
-        !isCurrent ||
-        popGestureInProgress) {
-      return false;
-    }
-    _beginVerticalGesture(opening: false);
-    return true;
-  }
-
-  void _beginVerticalGesture({required bool opening, double? resetValue}) {
+  void _beginVerticalGesture({double? resetValue}) {
     final animationController = controller!;
     _verticalSettleGeneration++;
     animationController.stop();
@@ -112,7 +94,6 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
       _gestureNavigator!.didStartUserGesture();
     }
     if (resetValue != null) animationController.value = resetValue;
-    _verticalGestureOpening = opening;
     _verticalGestureStartValue = animationController.value;
   }
 
@@ -120,59 +101,33 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     required double distance,
     required double extent,
   }) {
-    if (!_verticalGestureInProgress || !_verticalGestureOpening) return;
-    _updateVerticalGesture(distance: distance, extent: extent, opening: true);
-  }
-
-  @override
-  void updateVerticalDismissGesture({
-    required double distance,
-    required double extent,
-  }) {
-    if (!_verticalGestureInProgress || _verticalGestureOpening) return;
-    _updateVerticalGesture(distance: distance, extent: extent, opening: false);
+    if (!_verticalGestureInProgress) return;
+    _updateVerticalGesture(distance: distance, extent: extent);
   }
 
   void _updateVerticalGesture({
     required double distance,
     required double extent,
-    required bool opening,
   }) {
     final normalizedDistance = distance / extent.clamp(1, double.infinity);
-    controller!.value =
-        (_verticalGestureStartValue +
-                (opening ? normalizedDistance : -normalizedDistance))
-            .clamp(0.0, 1.0);
+    controller!.value = (_verticalGestureStartValue + normalizedDistance).clamp(
+      0.0,
+      1.0,
+    );
   }
 
   void endVerticalOpenGesture({
     required double velocity,
     required double extent,
   }) {
-    if (!_verticalGestureInProgress || !_verticalGestureOpening) return;
+    if (!_verticalGestureInProgress) return;
     final showRoute = controller!.value >= 0.22 || velocity < -650;
     _settleVerticalGesture(showRoute: showRoute);
   }
 
-  @override
-  void endVerticalDismissGesture({
-    required double velocity,
-    required double extent,
-  }) {
-    if (!_verticalGestureInProgress || _verticalGestureOpening) return;
-    final dismissRoute = controller!.value <= 0.78 || velocity > 650;
-    _settleVerticalGesture(showRoute: !dismissRoute);
-  }
-
   void cancelVerticalOpenGesture() {
-    if (!_verticalGestureInProgress || !_verticalGestureOpening) return;
+    if (!_verticalGestureInProgress) return;
     _settleVerticalGesture(showRoute: false);
-  }
-
-  @override
-  void cancelVerticalDismissGesture() {
-    if (!_verticalGestureInProgress || _verticalGestureOpening) return;
-    _settleVerticalGesture(showRoute: true);
   }
 
   void _settleVerticalGesture({required bool showRoute}) {

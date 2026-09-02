@@ -107,8 +107,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   double _queueDragStartValue = 0;
   double _compactQueueExtent = 1;
   bool _queueTransitionActive = false;
-  bool _dismissRequested = false;
-  int _routeDismissGestureGeneration = 0;
+  bool _openingWorkDetail = false;
 
   // 全屏锁定状态
   bool _isLyricLocked = false;
@@ -173,7 +172,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     _unlockButtonTimer?.cancel();
     _semanticTransitionGeneration++;
     _queueTransitionGeneration++;
-    _routeDismissGestureGeneration++;
     super.dispose();
   }
 
@@ -461,13 +459,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
               focusNode: _keyboardFocusNode,
               child: PopScope(
                 canPop:
-                    _dismissRequested ||
-                    (!_isLyricLocked &&
-                        !_queueTransitionActive &&
-                        _rightPane == PlayerRightPane.controls &&
-                        (_lastWasWide == true
-                            ? _leftPane == PlayerLeftPane.cover
-                            : _compactPage == 1)),
+                    !_isLyricLocked &&
+                    !_queueTransitionActive &&
+                    _rightPane == PlayerRightPane.controls &&
+                    (_lastWasWide == true
+                        ? _leftPane == PlayerLeftPane.cover
+                        : _compactPage == 1),
                 onPopInvokedWithResult: (didPop, result) {
                   if (!didPop) _handleBack();
                 },
@@ -621,7 +618,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     required String? coverUrl,
   }) {
     final width = MediaQuery.sizeOf(context).width;
-    final dismissDrag = _playerDismissDragCallbacks(context);
     final outerPadding = width >= 1200 ? 48.0 : 24.0;
     final gap = width >= 1200 ? 40.0 : 20.0;
     return SafeArea(
@@ -670,8 +666,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                                       !_isLyricLocked &&
                                       _leftPane == PlayerLeftPane.information &&
                                       _rightPane != PlayerRightPane.queue,
-                                  onDismissPlayer: _dismissPlayer,
-                                  dismissDrag: dismissDrag,
                                   onShowQueue: () => _showQueue(),
                                 ),
                               ),
@@ -687,7 +681,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
             child: Column(
               children: [
                 if (_rightPane != PlayerRightPane.queue)
-                  _buildWideHeader(context, track, dismissDrag: dismissDrag),
+                  _buildWideHeader(context, track),
                 Expanded(
                   child: AnimatedSwitcher(
                     duration: _motionDuration(context),
@@ -701,11 +695,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                               physics: const NeverScrollableScrollPhysics(),
                               onPageChanged: _onWideRightPageChanged,
                               children: [
-                                _buildLyricsPane(
-                                  context,
-                                  isWide: true,
-                                  dismissDrag: dismissDrag,
-                                ),
+                                _buildLyricsPane(context, isWide: true),
                                 _buildControlsPane(
                                   context,
                                   track: track,
@@ -725,61 +715,24 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     );
   }
 
-  Widget _buildWideHeader(
-    BuildContext context,
-    AudioTrack track, {
-    PlayerVerticalDragCallbacks? dismissDrag,
-  }) {
-    return PlayerVerticalSwipeRegion(
-      key: const ValueKey('wide-header-dismiss-surface'),
-      onSwipeDown: _dismissPlayer,
-      swipeDownDrag: dismissDrag,
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 680),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        track.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          height: 1.12,
-                        ),
-                      ),
-                      if (track.artist case final artist?)
-                        Text(
-                          artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  key: const ValueKey('player-more-button-wide'),
-                  tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
-                  onPressed: () => _showMoreSheet(context, track),
-                  icon: const Icon(Icons.more_horiz),
-                ),
-              ],
-            ),
+  Widget _buildWideHeader(BuildContext context, AudioTrack track) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 680),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: _buildTrackTitleBlock(context, track, true)),
+              const SizedBox(width: 8),
+              IconButton(
+                key: const ValueKey('player-more-button-wide'),
+                tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
+                onPressed: () => _showMoreSheet(context, track),
+                icon: const Icon(Icons.more_horiz),
+              ),
+            ],
           ),
         ),
       ),
@@ -806,16 +759,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
           );
           _compactSharedWidth = sharedWidth;
           _compactQueueExtent = math.max(1, constraints.maxHeight);
-          final dismissDrag = _playerDismissDragCallbacks(context);
           final playerStage = Column(
             key: const ValueKey('compact-player-layout'),
             children: [
-              _buildCompactHeader(
-                context,
-                track,
-                sharedWidth,
-                dismissDrag: dismissDrag,
-              ),
+              _buildCompactHeader(context, track, sharedWidth),
               const SizedBox(height: 4),
               Expanded(
                 child: Directionality(
@@ -838,8 +785,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                                 !_queueTransitionActive &&
                                 _compactPage == 0 &&
                                 _rightPane != PlayerRightPane.queue,
-                            onDismissPlayer: _dismissPlayer,
-                            dismissDrag: dismissDrag,
                             onShowQueue: () => _showQueue(compactOriginPage: 0),
                             showQueueDrag: _queueOpenDragCallbacks(0),
                           ),
@@ -850,13 +795,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                         track: track,
                         coverUrl: coverUrl,
                         sharedWidth: sharedWidth,
-                        dismissDrag: dismissDrag,
                       ),
-                      _buildLyricsPane(
-                        context,
-                        isWide: false,
-                        dismissDrag: dismissDrag,
-                      ),
+                      _buildLyricsPane(context, isWide: false),
                     ],
                   ),
                 ),
@@ -907,13 +847,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   Widget _buildCompactHeader(
     BuildContext context,
     AudioTrack track,
-    double sharedWidth, {
-    PlayerVerticalDragCallbacks? dismissDrag,
-  }) {
+    double sharedWidth,
+  ) {
     return PlayerVerticalSwipeRegion(
-      key: const ValueKey('compact-header-dismiss-surface'),
-      onSwipeDown: _dismissPlayer,
-      swipeDownDrag: dismissDrag,
+      key: const ValueKey('compact-header-queue-swipe-surface'),
       onSwipeUp: () => _showQueue(compactOriginPage: _compactPage),
       swipeUpDrag: _queueOpenDragCallbacks(_compactPage),
       child: Center(
@@ -924,39 +861,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        track.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                          height: 1.12,
-                        ),
-                      ),
-                      if (track.artist case final artist?) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                fontSize: 14,
-                                height: 1.15,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
+                Expanded(child: _buildTrackTitleBlock(context, track, false)),
                 const SizedBox(width: 8),
                 IconButton(
                   key: const ValueKey('player-more-button'),
@@ -972,12 +877,62 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     );
   }
 
+  Widget _buildTrackTitleBlock(
+    BuildContext context,
+    AudioTrack track,
+    bool isWide,
+  ) {
+    final artist = track.artist;
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          track.title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            fontSize: isWide ? 22 : 20,
+            fontWeight: FontWeight.w700,
+            height: 1.12,
+          ),
+        ),
+        if (artist != null) ...[
+          if (!isWide) const SizedBox(height: 2),
+          Text(
+            artist,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              fontSize: isWide ? null : 14,
+              height: isWide ? null : 1.15,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ],
+    );
+    if (track.workId == null) return content;
+    return Semantics(
+      button: true,
+      label: '${track.title}, ${S.of(context).viewDetail}',
+      child: InkWell(
+        key: ValueKey(
+          isWide
+              ? 'player-track-title-button-wide'
+              : 'player-track-title-button',
+        ),
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => _openTrackWorkDetails(context, track),
+        child: content,
+      ),
+    );
+  }
+
   Widget _buildCompactMain(
     BuildContext context, {
     required AudioTrack track,
     required String? coverUrl,
     required double sharedWidth,
-    PlayerVerticalDragCallbacks? dismissDrag,
   }) {
     final content = Center(
       child: SizedBox(
@@ -1010,8 +965,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     );
     return PlayerVerticalSwipeRegion(
       key: const ValueKey('compact-main-queue-swipe-surface'),
-      onSwipeDown: _dismissPlayer,
-      swipeDownDrag: dismissDrag,
       onSwipeUp: () => _showQueue(compactOriginPage: 1),
       swipeUpDrag: _queueOpenDragCallbacks(1),
       child: KeyedSubtree(
@@ -1201,11 +1154,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     );
   }
 
-  Widget _buildLyricsPane(
-    BuildContext context, {
-    required bool isWide,
-    PlayerVerticalDragCallbacks? dismissDrag,
-  }) {
+  Widget _buildLyricsPane(BuildContext context, {required bool isWide}) {
     return Consumer(
       key: ValueKey('lyrics-pane-${isWide ? 'wide' : 'compact'}'),
       builder: (context, ref, child) {
@@ -1229,8 +1178,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
             seekingPosition: _seekingPosition,
             onFullscreen: _enterLyricFullscreen,
             onLongPress: _enterLyricFullscreen,
-            onDismissPlayer: _dismissPlayer,
-            dismissDrag: dismissDrag,
             onShowQueue: () => _showQueue(compactOriginPage: isWide ? null : 2),
             showQueueDrag: isWide ? null : _queueOpenDragCallbacks(2),
             actionWidth: isWide ? null : _compactSharedWidth,
@@ -1272,47 +1219,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     return MediaQuery.of(context).disableAnimations
         ? Duration.zero
         : const Duration(milliseconds: 260);
-  }
-
-  PlayerVerticalDragCallbacks? _playerDismissDragCallbacks(
-    BuildContext context,
-  ) {
-    if (MediaQuery.disableAnimationsOf(context)) return null;
-    final route = ModalRoute.of(context);
-    if (route is! PlayerInteractiveDismissRoute) return null;
-    final interactiveRoute = route as PlayerInteractiveDismissRoute;
-    final extent = math.max(1.0, MediaQuery.sizeOf(context).height);
-    return PlayerVerticalDragCallbacks(
-      onStart: () {
-        if (!interactiveRoute.beginVerticalDismissGesture()) return;
-        _routeDismissGestureGeneration++;
-        if (!_dismissRequested) setState(() => _dismissRequested = true);
-        _releaseTextInputFocus();
-      },
-      onUpdate: (distance) => interactiveRoute.updateVerticalDismissGesture(
-        distance: distance,
-        extent: extent,
-      ),
-      onEnd: (distance, velocity) {
-        interactiveRoute.endVerticalDismissGesture(
-          velocity: velocity,
-          extent: extent,
-        );
-        _scheduleInteractiveDismissReset();
-      },
-      onCancel: () {
-        interactiveRoute.cancelVerticalDismissGesture();
-        _scheduleInteractiveDismissReset();
-      },
-    );
-  }
-
-  void _scheduleInteractiveDismissReset() {
-    final request = _routeDismissGestureGeneration;
-    Future<void>.delayed(const Duration(milliseconds: 300), () {
-      if (!mounted || request != _routeDismissGestureGeneration) return;
-      if (_dismissRequested) setState(() => _dismissRequested = false);
-    });
   }
 
   void _onCompactPageChanged(int index) {
@@ -1688,23 +1594,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     }
   }
 
-  void _dismissPlayer() {
-    if (!mounted || _dismissRequested) return;
-    setState(() => _dismissRequested = true);
-    _semanticTransitionGeneration++;
-    _queueTransitionGeneration++;
-    _compactQueueTransitionController.stop();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      unawaited(() async {
-        final popped = await Navigator.of(context).maybePop();
-        if (mounted && !popped) {
-          setState(() => _dismissRequested = false);
-        }
-      }());
-    });
-  }
-
   void _handleBack() {
     if (_isLyricLocked) {
       _exitLyricFullscreen();
@@ -1819,8 +1708,38 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     unawaited(SystemChannels.textInput.invokeMethod<void>('TextInput.hide'));
   }
 
-  void _openKnownWork(Work work) {
-    Navigator.of(context).push(
+  Future<void> _openTrackWorkDetails(
+    BuildContext context,
+    AudioTrack track,
+  ) async {
+    final workId = track.workId;
+    if (workId == null || _openingWorkDetail) return;
+    _openingWorkDetail = true;
+    _releaseTextInputFocus();
+    try {
+      PlayerWorkDetailsData? details = ref
+          .read(playerWorkDetailsProvider)
+          .valueOrNull;
+      if (details?.work.id != workId) {
+        try {
+          details = await ref.read(playerWorkDetailsProvider.future);
+        } catch (_) {
+          details = null;
+        }
+      }
+      if (!mounted || !context.mounted) return;
+      if (details != null && details.work.id == workId) {
+        await _openKnownWork(details.work);
+      } else {
+        await _navigateToWorkDetail(context, workId);
+      }
+    } finally {
+      _openingWorkDetail = false;
+    }
+  }
+
+  Future<void> _openKnownWork(Work work) {
+    return Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (context) => WorkDetailScreen(work: work),
       ),
