@@ -38,13 +38,13 @@ void main() {
 
     await tester.tap(find.byType(PopupMenuButton<AudioTapPlaylistMode>));
     await tester.pumpAndSettle();
-    expect(find.text('Replace Mode'), findsOneWidget);
-    expect(find.text('Append Mode'), findsOneWidget);
-    expect(find.text('Single-Audio Append Mode'), findsOneWidget);
+    expect(find.text('Replace Playlist'), findsOneWidget);
+    expect(find.text('Play Next'), findsOneWidget);
+    expect(find.text('Add to Playlist'), findsOneWidget);
 
     await tester.tap(
       find.ancestor(
-        of: find.text('Append Mode'),
+        of: find.text('Add to Playlist'),
         matching: find.byType(CheckedPopupMenuItem<AudioTapPlaylistMode>),
       ),
     );
@@ -52,22 +52,74 @@ void main() {
     expect(find.byIcon(Icons.playlist_add), findsOneWidget);
     expect(
       container.read(audioTapPlaylistModeProvider),
-      AudioTapPlaylistMode.appendDirectory,
+      AudioTapPlaylistMode.addToQueue,
     );
 
     await tester.tap(find.byType(PopupMenuButton<AudioTapPlaylistMode>));
     await tester.pumpAndSettle();
     await tester.tap(
       find.ancestor(
-        of: find.text('Single-Audio Append Mode'),
+        of: find.text('Play Next'),
         matching: find.byType(CheckedPopupMenuItem<AudioTapPlaylistMode>),
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.byIcon(Icons.queue_music), findsOneWidget);
+    expect(find.byIcon(Icons.queue_play_next), findsOneWidget);
     expect(
       container.read(audioTapPlaylistModeProvider),
-      AudioTapPlaylistMode.appendSingle,
+      AudioTapPlaylistMode.playNext,
+    );
+  });
+
+  testWidgets('queue mode expansion stays above the existing mode pill', (
+    tester,
+  ) async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(
+          locale: Locale('en'),
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.bottomLeft,
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: PlaylistModePill(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('playlist-mode-pill')));
+    await tester.pumpAndSettle();
+    final optionsRect = tester.getRect(
+      find.byKey(const ValueKey('playlist-mode-expanded-options')),
+    );
+    final pillRect = tester.getRect(
+      find.byKey(const ValueKey('playlist-mode-pill')),
+    );
+    expect(optionsRect.bottom, lessThanOrEqualTo(pillRect.top));
+    expect(optionsRect.width, closeTo(pillRect.width, 0.01));
+
+    await tester.tap(
+      find.byKey(const ValueKey('playlist-mode-option-playNext')),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      container.read(audioTapPlaylistModeProvider),
+      AudioTapPlaylistMode.playNext,
+    );
+    expect(
+      find.byKey(const ValueKey('playlist-mode-expanded-options')),
+      findsNothing,
     );
   });
 }

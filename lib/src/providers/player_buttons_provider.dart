@@ -10,6 +10,7 @@ enum PlayerButtonType {
   volume('音量控制', 'volume'),
   speed('播放速度', 'speed'),
   repeat('循环模式', 'repeat'),
+  queue('播放列表', 'queue'),
   detail('查看详情', 'detail'),
   subtitleAdjustment('字幕轴调整', 'subtitle_adjustment'),
   floatingLyric('悬浮字幕', 'floating_lyric');
@@ -23,20 +24,19 @@ enum PlayerButtonType {
 class PlayerButtonsConfig {
   final List<PlayerButtonType> buttonOrder;
 
-  const PlayerButtonsConfig({
-    required this.buttonOrder,
-  });
+  const PlayerButtonsConfig({required this.buttonOrder});
 
   /// 默认配置 - 移动端
   static const defaultMobile = PlayerButtonsConfig(
     buttonOrder: [
+      PlayerButtonType.repeat,
       PlayerButtonType.seekBackward,
+      PlayerButtonType.mark,
       PlayerButtonType.seekForward,
+      PlayerButtonType.queue,
       PlayerButtonType.floatingLyric,
       PlayerButtonType.sleepTimer,
-      PlayerButtonType.mark,
       PlayerButtonType.speed,
-      PlayerButtonType.repeat,
       PlayerButtonType.subtitleAdjustment,
       PlayerButtonType.detail,
     ],
@@ -45,56 +45,105 @@ class PlayerButtonsConfig {
   /// 默认配置 - 桌面端
   static const defaultDesktop = PlayerButtonsConfig(
     buttonOrder: [
+      PlayerButtonType.repeat,
       PlayerButtonType.seekBackward,
+      PlayerButtonType.mark,
       PlayerButtonType.seekForward,
+      PlayerButtonType.queue,
       PlayerButtonType.floatingLyric,
       PlayerButtonType.sleepTimer,
       PlayerButtonType.volume,
-      PlayerButtonType.mark,
       PlayerButtonType.speed,
-      PlayerButtonType.repeat,
       PlayerButtonType.subtitleAdjustment,
       PlayerButtonType.detail,
     ],
   );
 
-  /// 获取显示的按钮（前4个或5个）
-  List<PlayerButtonType> getVisibleButtons(bool isDesktop) {
-    final maxVisible = isDesktop ? 5 : 4;
-    return buttonOrder.take(maxVisible).toList();
+  static const legacyDefaultMobile = <PlayerButtonType>[
+    PlayerButtonType.seekBackward,
+    PlayerButtonType.seekForward,
+    PlayerButtonType.floatingLyric,
+    PlayerButtonType.sleepTimer,
+    PlayerButtonType.mark,
+    PlayerButtonType.speed,
+    PlayerButtonType.repeat,
+    PlayerButtonType.subtitleAdjustment,
+    PlayerButtonType.detail,
+  ];
+
+  static const legacyDefaultDesktop = <PlayerButtonType>[
+    PlayerButtonType.seekBackward,
+    PlayerButtonType.seekForward,
+    PlayerButtonType.floatingLyric,
+    PlayerButtonType.sleepTimer,
+    PlayerButtonType.volume,
+    PlayerButtonType.mark,
+    PlayerButtonType.speed,
+    PlayerButtonType.repeat,
+    PlayerButtonType.subtitleAdjustment,
+    PlayerButtonType.detail,
+  ];
+
+  /// Default used by the first Salt-style player revision. Only exact matches
+  /// are migrated, so a user-defined order is never overwritten.
+  static const previousDefaultMobile = <PlayerButtonType>[
+    PlayerButtonType.repeat,
+    PlayerButtonType.seekBackward,
+    PlayerButtonType.seekForward,
+    PlayerButtonType.floatingLyric,
+    PlayerButtonType.sleepTimer,
+    PlayerButtonType.mark,
+    PlayerButtonType.speed,
+    PlayerButtonType.subtitleAdjustment,
+    PlayerButtonType.detail,
+  ];
+
+  static const previousDefaultDesktop = <PlayerButtonType>[
+    PlayerButtonType.repeat,
+    PlayerButtonType.seekBackward,
+    PlayerButtonType.seekForward,
+    PlayerButtonType.floatingLyric,
+    PlayerButtonType.sleepTimer,
+    PlayerButtonType.volume,
+    PlayerButtonType.mark,
+    PlayerButtonType.speed,
+    PlayerButtonType.subtitleAdjustment,
+    PlayerButtonType.detail,
+  ];
+
+  /// 获取当前布局可直接显示的按钮。
+  List<PlayerButtonType> getVisibleButtons({required int slotCount}) {
+    assert(slotCount >= 0);
+    return buttonOrder.take(slotCount).toList(growable: false);
   }
 
   /// 获取更多菜单中的按钮
-  List<PlayerButtonType> getMoreButtons(bool isDesktop) {
-    final maxVisible = isDesktop ? 5 : 4;
-    return buttonOrder.skip(maxVisible).toList();
+  List<PlayerButtonType> getMoreButtons({required int slotCount}) {
+    assert(slotCount >= 0);
+    return buttonOrder.skip(slotCount).toList(growable: false);
   }
 
   /// 从JSON加载
   factory PlayerButtonsConfig.fromJson(Map<String, dynamic> json) {
     final orderKeys = (json['buttonOrder'] as List<dynamic>).cast<String>();
     final buttonOrder = orderKeys
-        .map((key) => PlayerButtonType.values.firstWhere(
-              (type) => type.key == key,
-              orElse: () => PlayerButtonType.seekBackward,
-            ))
+        .map(
+          (key) => PlayerButtonType.values.firstWhere(
+            (type) => type.key == key,
+            orElse: () => PlayerButtonType.seekBackward,
+          ),
+        )
         .toList();
     return PlayerButtonsConfig(buttonOrder: buttonOrder);
   }
 
   /// 转换为JSON
   Map<String, dynamic> toJson() {
-    return {
-      'buttonOrder': buttonOrder.map((type) => type.key).toList(),
-    };
+    return {'buttonOrder': buttonOrder.map((type) => type.key).toList()};
   }
 
-  PlayerButtonsConfig copyWith({
-    List<PlayerButtonType>? buttonOrder,
-  }) {
-    return PlayerButtonsConfig(
-      buttonOrder: buttonOrder ?? this.buttonOrder,
-    );
+  PlayerButtonsConfig copyWith({List<PlayerButtonType>? buttonOrder}) {
+    return PlayerButtonsConfig(buttonOrder: buttonOrder ?? this.buttonOrder);
   }
 }
 
@@ -107,9 +156,11 @@ class PlayerButtonsConfigController extends StateNotifier<PlayerButtonsConfig> {
   bool _changedLocally = false;
 
   PlayerButtonsConfigController(this._isDesktop)
-      : super(_isDesktop
+    : super(
+        _isDesktop
             ? PlayerButtonsConfig.defaultDesktop
-            : PlayerButtonsConfig.defaultMobile) {
+            : PlayerButtonsConfig.defaultMobile,
+      ) {
     _loadConfig();
   }
 
@@ -121,17 +172,31 @@ class PlayerButtonsConfigController extends StateNotifier<PlayerButtonsConfig> {
       final jsonString = prefs.getString(key);
 
       if (jsonString != null) {
-        final savedOrder = (jsonString.split(','))
-            .map((key) => PlayerButtonType.values.firstWhere(
-                  (type) => type.key == key,
-                  orElse: () => PlayerButtonType.seekBackward,
-                ))
+        var savedOrder = (jsonString.split(','))
+            .map(
+              (key) => PlayerButtonType.values.firstWhere(
+                (type) => type.key == key,
+                orElse: () => PlayerButtonType.seekBackward,
+              ),
+            )
             .toList();
 
         // 获取默认配置，用于合并新按钮
         final defaultOrder = _isDesktop
             ? PlayerButtonsConfig.defaultDesktop.buttonOrder
             : PlayerButtonsConfig.defaultMobile.buttonOrder;
+        final legacyDefault = _isDesktop
+            ? PlayerButtonsConfig.legacyDefaultDesktop
+            : PlayerButtonsConfig.legacyDefaultMobile;
+        final previousDefault = _isDesktop
+            ? PlayerButtonsConfig.previousDefaultDesktop
+            : PlayerButtonsConfig.previousDefaultMobile;
+        final migratedDefault =
+            _sameOrder(savedOrder, legacyDefault) ||
+            _sameOrder(savedOrder, previousDefault);
+        if (migratedDefault) {
+          savedOrder = List<PlayerButtonType>.from(defaultOrder);
+        }
 
         // 找出新添加的按钮（在默认配置中存在但保存的配置中不存在）
         final newButtons = defaultOrder
@@ -144,7 +209,7 @@ class PlayerButtonsConfigController extends StateNotifier<PlayerButtonsConfig> {
         state = PlayerButtonsConfig(buttonOrder: mergedOrder);
 
         // 如果有新按钮被添加，保存更新后的配置
-        if (newButtons.isNotEmpty) {
+        if (migratedDefault || newButtons.isNotEmpty) {
           await _saveConfig();
         }
       }
@@ -154,6 +219,14 @@ class PlayerButtonsConfigController extends StateNotifier<PlayerButtonsConfig> {
           ? PlayerButtonsConfig.defaultDesktop
           : PlayerButtonsConfig.defaultMobile;
     }
+  }
+
+  bool _sameOrder(List<PlayerButtonType> first, List<PlayerButtonType> second) {
+    if (first.length != second.length) return false;
+    for (var index = 0; index < first.length; index++) {
+      if (first[index] != second[index]) return false;
+    }
+    return true;
   }
 
   Future<void> updateButtonOrder(List<PlayerButtonType> newOrder) async {
@@ -185,11 +258,11 @@ class PlayerButtonsConfigController extends StateNotifier<PlayerButtonsConfig> {
 /// 移动端按钮配置Provider
 final playerButtonsConfigMobileProvider =
     StateNotifierProvider<PlayerButtonsConfigController, PlayerButtonsConfig>(
-  (ref) => PlayerButtonsConfigController(false),
-);
+      (ref) => PlayerButtonsConfigController(false),
+    );
 
 /// 桌面端按钮配置Provider
 final playerButtonsConfigDesktopProvider =
     StateNotifierProvider<PlayerButtonsConfigController, PlayerButtonsConfig>(
-  (ref) => PlayerButtonsConfigController(true),
-);
+      (ref) => PlayerButtonsConfigController(true),
+    );

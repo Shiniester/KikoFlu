@@ -3,26 +3,12 @@ import 'package:kikoeru_flutter/src/models/audio_tap_playlist_mode.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/services/audio_playback_plan_builder.dart';
 
-Map<String, dynamic> audioItem(
-  String title, {
-  String? hash,
-}) {
-  return {
-    'type': 'audio',
-    'title': title,
-    if (hash != null) 'hash': hash,
-  };
+Map<String, dynamic> audioItem(String title, {String? hash}) {
+  return {'type': 'audio', 'title': title, if (hash != null) 'hash': hash};
 }
 
-Map<String, dynamic> folderItem(
-  String title,
-  List<dynamic> children,
-) {
-  return {
-    'type': 'folder',
-    'title': title,
-    'children': children,
-  };
+Map<String, dynamic> folderItem(String title, List<dynamic> children) {
+  return {'type': 'folder', 'title': title, 'children': children};
 }
 
 const _work = Work(
@@ -35,26 +21,28 @@ const _work = Work(
 );
 
 void main() {
-  test('returns missing when selected file is outside the parent directory',
-      () async {
-    final fileTree = [
-      folderItem('Disc 1', [audioItem('track01.mp3', hash: 'h1')]),
-      folderItem('Disc 2', [audioItem('track02.mp3', hash: 'h2')]),
-    ];
+  test(
+    'returns missing when selected file is outside the parent directory',
+    () async {
+      final fileTree = [
+        folderItem('Disc 1', [audioItem('track01.mp3', hash: 'h1')]),
+        folderItem('Disc 2', [audioItem('track02.mp3', hash: 'h2')]),
+      ];
 
-    final plan = await const AudioPlaybackPlanBuilder().build(
-      fileTree: fileTree,
-      parentPath: 'Disc 1',
-      selectedFile: audioItem('track02.mp3', hash: 'h2'),
-      resolveUrl: (_) async => 'file://ok',
-      work: _work,
-      unknownTitle: 'Unknown',
-    );
+      final plan = await const AudioPlaybackPlanBuilder().build(
+        fileTree: fileTree,
+        parentPath: 'Disc 1',
+        selectedFile: audioItem('track02.mp3', hash: 'h2'),
+        resolveUrl: (_) async => 'file://ok',
+        work: _work,
+        unknownTitle: 'Unknown',
+      );
 
-    expect(plan.status, AudioPlaybackPlanStatus.selectedFileMissing);
-    expect(plan.selectedTitle, 'track02.mp3');
-    expect(plan.queue, isNull);
-  });
+      expect(plan.status, AudioPlaybackPlanStatus.selectedFileMissing);
+      expect(plan.selectedTitle, 'track02.mp3');
+      expect(plan.queue, isNull);
+    },
+  );
 
   test('returns empty when no queue items have playable urls', () async {
     final selectedFile = audioItem('track01.mp3', hash: 'h1');
@@ -97,37 +85,61 @@ void main() {
     expect(plan.queue!.tracks.first.artist, 'Alice, Bob');
     expect(plan.queue!.tracks.first.album, 'Work Title');
     expect(plan.queue!.tracks.first.artworkUrl, 'cover.jpg');
-    expect(
-      plan.queue!.tracks.first.subtitleWorkDirPath,
-      '/downloads/123456',
-    );
+    expect(plan.queue!.tracks.first.subtitleWorkDirPath, '/downloads/123456');
   });
 
-  test('append-single mode only resolves and queues the selected audio',
-      () async {
+  test(
+    'add-to-queue mode only resolves and queues the selected audio',
+    () async {
+      final fileTree = [
+        audioItem('track01.mp3', hash: 'h1'),
+        audioItem('track02.mp3', hash: 'h2'),
+        audioItem('track03.mp3', hash: 'h3'),
+      ];
+      final resolvedTitles = <String>[];
+
+      final plan = await const AudioPlaybackPlanBuilder().build(
+        fileTree: fileTree,
+        parentPath: '',
+        selectedFile: fileTree[1],
+        resolveUrl: (file) async {
+          resolvedTitles.add(file['title'] as String);
+          return 'file://${file['title']}';
+        },
+        work: _work,
+        unknownTitle: 'Unknown',
+        playlistMode: AudioTapPlaylistMode.addToQueue,
+      );
+
+      expect(plan.status, AudioPlaybackPlanStatus.ready);
+      expect(plan.queue!.tracks.map((track) => track.id), ['h2']);
+      expect(plan.queue!.startIndex, 0);
+      expect(resolvedTitles, ['track02.mp3']);
+    },
+  );
+
+  test('play-next mode only resolves the selected audio', () async {
     final fileTree = [
       audioItem('track01.mp3', hash: 'h1'),
       audioItem('track02.mp3', hash: 'h2'),
-      audioItem('track03.mp3', hash: 'h3'),
     ];
     final resolvedTitles = <String>[];
 
     final plan = await const AudioPlaybackPlanBuilder().build(
       fileTree: fileTree,
       parentPath: '',
-      selectedFile: fileTree[1],
+      selectedFile: fileTree.last,
       resolveUrl: (file) async {
         resolvedTitles.add(file['title'] as String);
         return 'file://${file['title']}';
       },
       work: _work,
       unknownTitle: 'Unknown',
-      playlistMode: AudioTapPlaylistMode.appendSingle,
+      playlistMode: AudioTapPlaylistMode.playNext,
     );
 
     expect(plan.status, AudioPlaybackPlanStatus.ready);
     expect(plan.queue!.tracks.map((track) => track.id), ['h2']);
-    expect(plan.queue!.startIndex, 0);
     expect(resolvedTitles, ['track02.mp3']);
   });
 

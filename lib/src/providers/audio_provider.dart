@@ -117,65 +117,59 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
   Future<void> _pendingDismissal = Future.value();
 
   AudioPlayerController(this._service, this._ref)
-      : super(const AudioPlayerState()) {
+    : super(const AudioPlayerState()) {
     // 监听防社死设置变化
-    _ref.listen<PrivacyModeSettings>(
-      privacyModeSettingsProvider,
-      (previous, next) {
-        // 设置变化时更新音频服务
-        _service.updatePrivacySettings(
-          enabled: next.enabled,
-          blurCover: next.blurCover,
-          maskTitle: next.maskTitle,
-          customTitle: next.customTitle,
-        );
-      },
-    );
+    _ref.listen<PrivacyModeSettings>(privacyModeSettingsProvider, (
+      previous,
+      next,
+    ) {
+      // 设置变化时更新音频服务
+      _service.updatePrivacySettings(
+        enabled: next.enabled,
+        blurCover: next.blurCover,
+        maskTitle: next.maskTitle,
+        customTitle: next.customTitle,
+      );
+    });
 
     // 监听音频直通设置变化
-    _ref.listen<bool>(
-      audioPassthroughProvider,
-      (previous, next) {
-        if (previous != next) {
-          _service.updateAudioSessionConfig(next);
-        }
-      },
-    );
+    _ref.listen<bool>(audioPassthroughProvider, (previous, next) {
+      if (previous != next) {
+        _service.updateAudioSessionConfig(next);
+      }
+    });
 
-    _ref.listen<AudioHapticsSettings>(
-      audioHapticsSettingsProvider,
-      (previous, next) {
-        if (previous != next) {
-          _service.updateHapticsSettings(
-            enabled: next.enabled,
-            intensity: next.intensity,
-          );
-        }
-      },
-    );
+    _ref.listen<AudioHapticsSettings>(audioHapticsSettingsProvider, (
+      previous,
+      next,
+    ) {
+      if (previous != next) {
+        _service.updateHapticsSettings(
+          enabled: next.enabled,
+          intensity: next.intensity,
+        );
+      }
+    });
 
-    _ref.listen<AudioGainSettings>(
-      audioGainSettingsProvider,
-      (previous, next) {
-        if (previous?.decibels != next.decibels) {
-          _service.updateAudioGain(next.decibels);
-        }
-      },
-    );
+    _ref.listen<AudioGainSettings>(audioGainSettingsProvider, (previous, next) {
+      if (previous?.decibels != next.decibels) {
+        _service.updateAudioGain(next.decibels);
+      }
+    });
 
     // 监听下一首预加载设置变化
-    _ref.listen<PreloadNextSettings>(
-      preloadNextSettingsProvider,
-      (previous, next) {
-        if (previous?.mode != next.mode ||
-            previous?.customSeconds != next.customSeconds) {
-          final seconds = next.effectiveSeconds;
-          _service.updatePreloadThreshold(
-            seconds == null ? null : Duration(seconds: seconds),
-          );
-        }
-      },
-    );
+    _ref.listen<PreloadNextSettings>(preloadNextSettingsProvider, (
+      previous,
+      next,
+    ) {
+      if (previous?.mode != next.mode ||
+          previous?.customSeconds != next.customSeconds) {
+        final seconds = next.effectiveSeconds;
+        _service.updatePreloadThreshold(
+          seconds == null ? null : Duration(seconds: seconds),
+        );
+      }
+    });
   }
 
   Future<void> initialize() async {
@@ -233,80 +227,92 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     final playlistMode = await _ref
         .read(audioTapPlaylistModeProvider.notifier)
         .getMode();
-    final shouldAppend =
-        playlistMode != AudioTapPlaylistMode.replaceQueue && queue.isNotEmpty;
-
-    if (shouldAppend) {
-      final indexMap = await _service.appendTracks([track]);
-      final targetIndex = indexMap[track.id];
-      if (targetIndex != null) {
-        await _service.skipToIndex(targetIndex);
-      }
-    } else {
-      await _service.updateQueue([track]);
-      await _service.play();
+    switch (playlistMode) {
+      case AudioTapPlaylistMode.replaceQueue:
+        await _service.updateQueue([track]);
+        await _service.play();
+      case AudioTapPlaylistMode.addToQueue:
+        await _service.appendTracks([track]);
+      case AudioTapPlaylistMode.playNext:
+        final result = await _service.enqueueNext(track);
+        if (result == EnqueueNextResult.noActiveQueue) {
+          await _service.appendTracks([track]);
+        }
     }
     _ref.read(miniPlayerVisibilityProvider.notifier).show();
 
     // Ensure single-track plays are recorded to history.
-    if (track.workId != null) {
+    if (playlistMode == AudioTapPlaylistMode.replaceQueue &&
+        track.workId != null) {
       try {
         final api = _ref.read(kikoeruApiServiceProvider);
         final json = await api.getWork(track.workId!);
         final work = Work.fromJson(json);
         // Fire-and-forget: record history (don't block the UI)
-        _ref.read(historyProvider.notifier).addOrUpdate(work,
-            track: track, positionMs: _service.position.inMilliseconds);
+        _ref
+            .read(historyProvider.notifier)
+            .addOrUpdate(
+              work,
+              track: track,
+              positionMs: _service.position.inMilliseconds,
+            );
       } catch (e) {
         _log.captureOutput(
-            'Failed to record history for playTrack (id=${track.workId}): $e');
+          'Failed to record history for playTrack (id=${track.workId}): $e',
+        );
       }
     }
   }
 
-  Future<void> playTracks(List<AudioTrack> tracks,
-      {int startIndex = 0,
-      Work? work,
-      AudioTapPlaylistMode? playlistMode}) async {
+  Future<void> playTracks(
+    List<AudioTrack> tracks, {
+    int startIndex = 0,
+    Work? work,
+    AudioTapPlaylistMode? playlistMode,
+  }) async {
     await _pendingDismissal;
     if (tracks.isEmpty) return;
 
-    final AudioTapPlaylistMode effectiveMode = playlistMode ??
+    final AudioTapPlaylistMode effectiveMode =
+        playlistMode ??
         await _ref.read(audioTapPlaylistModeProvider.notifier).getMode();
     final selectedIndex = startIndex.clamp(0, tracks.length - 1);
     final selectedTrack = tracks[selectedIndex];
-    final queueTracks = effectiveMode == AudioTapPlaylistMode.appendSingle
-        ? <AudioTrack>[selectedTrack]
-        : tracks;
-    final queueStartIndex =
-        effectiveMode == AudioTapPlaylistMode.appendSingle ? 0 : selectedIndex;
+    final queueTracks = effectiveMode == AudioTapPlaylistMode.replaceQueue
+        ? tracks
+        : <AudioTrack>[selectedTrack];
+    final queueStartIndex = effectiveMode == AudioTapPlaylistMode.replaceQueue
+        ? selectedIndex
+        : 0;
 
     _log.captureOutput(
-        '[AudioController] playTracks调用: ${queueTracks.length}个轨道, '
-        'startIndex=$queueStartIndex, mode=${effectiveMode.name}');
+      '[AudioController] playTracks调用: ${queueTracks.length}个轨道, '
+      'startIndex=$queueStartIndex, mode=${effectiveMode.name}',
+    );
     _log.captureOutput(
-        '[AudioController] 第一个轨道: title="${queueTracks.first.title}", '
-        'url="${queueTracks.first.url}"');
+      '[AudioController] 第一个轨道: title="${queueTracks.first.title}", '
+      'url="${queueTracks.first.url}"',
+    );
 
-    final shouldAppend = effectiveMode != AudioTapPlaylistMode.replaceQueue &&
-        queue.isNotEmpty;
-
-    if (shouldAppend) {
-      final indexMap = await _service.appendTracks(queueTracks);
-      final targetTrack = queueTracks[queueStartIndex];
-      final targetIndex = indexMap[targetTrack.id];
-      if (targetIndex != null) {
-        await _service.skipToIndex(targetIndex);
-      }
-    } else {
-      await _service.updateQueue(queueTracks, startIndex: queueStartIndex);
-      _log.captureOutput('[AudioController] updateQueue完成');
-      await _service.play();
-      _log.captureOutput('[AudioController] play完成');
+    switch (effectiveMode) {
+      case AudioTapPlaylistMode.replaceQueue:
+        await _service.updateQueue(queueTracks, startIndex: queueStartIndex);
+        _log.captureOutput('[AudioController] updateQueue完成');
+        await _service.play();
+        _log.captureOutput('[AudioController] play完成');
+      case AudioTapPlaylistMode.addToQueue:
+        await _service.appendTracks(queueTracks);
+        _log.captureOutput('[AudioController] 已添加到播放列表末尾');
+      case AudioTapPlaylistMode.playNext:
+        final result = await _service.enqueueNext(selectedTrack);
+        if (result == EnqueueNextResult.noActiveQueue) {
+          await _service.appendTracks([selectedTrack]);
+        }
+        _log.captureOutput('[AudioController] 已安排下一首播放');
     }
     _ref.read(miniPlayerVisibilityProvider.notifier).show();
 
-    if (work != null) {
+    if (effectiveMode == AudioTapPlaylistMode.replaceQueue && work != null) {
       _ref.read(historyProvider.notifier).addOrUpdate(work);
     }
   }
@@ -329,16 +335,20 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     PlaybackHistoryService.instance.onStopped();
   }
 
-  Future<void> dismissMiniPlayer() {
-    _ref.read(miniPlayerVisibilityProvider.notifier).hide();
+  /// Clears the whole playback session and hides all player surfaces.
+  Future<void> clearQueueAndStop() {
     final historyFlush = PlaybackHistoryService.instance.onStopped();
     final clearing = _service.clearQueue();
-    final dismissal = Future.wait([historyFlush, clearing]).then<void>((_) {});
+    final dismissal = Future.wait([historyFlush, clearing]).then<void>((_) {
+      _ref.read(miniPlayerVisibilityProvider.notifier).hide();
+    });
     _pendingDismissal = dismissal.catchError((Object error) {
-      _log.captureOutput('[AudioController] Mini Player dismissal failed: $error');
+      _log.captureOutput('[AudioController] Queue clearing failed: $error');
     });
     return dismissal;
   }
+
+  Future<void> dismissMiniPlayer() => clearQueueAndStop();
 
   Future<void> seek(Duration position) async {
     await _service.seek(position);
@@ -376,6 +386,11 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
 
   Future<void> moveTrack(int oldIndex, int newIndex) async {
     await _service.moveTrack(oldIndex, newIndex);
+  }
+
+  Future<EnqueueNextResult> enqueueNext(AudioTrack track) async {
+    await _pendingDismissal;
+    return _service.enqueueNext(track);
   }
 
   Future<void> setRepeatMode(LoopMode mode) async {
@@ -439,9 +454,9 @@ class AudioPlayerState {
 // Audio Player Controller Provider
 final audioPlayerControllerProvider =
     StateNotifierProvider<AudioPlayerController, AudioPlayerState>((ref) {
-  final service = ref.watch(audioPlayerServiceProvider);
-  return AudioPlayerController(service, ref);
-});
+      final service = ref.watch(audioPlayerServiceProvider);
+      return AudioPlayerController(service, ref);
+    });
 
 // MiniPlayer Visibility Controller
 class MiniPlayerVisibilityController extends StateNotifier<bool> {
@@ -454,8 +469,8 @@ class MiniPlayerVisibilityController extends StateNotifier<bool> {
 // MiniPlayer Visibility Provider
 final miniPlayerVisibilityProvider =
     StateNotifierProvider<MiniPlayerVisibilityController, bool>((ref) {
-  return MiniPlayerVisibilityController();
-});
+      return MiniPlayerVisibilityController();
+    });
 
 // Sleep Timer Controller
 class SleepTimerController extends StateNotifier<SleepTimerState> {
@@ -494,8 +509,9 @@ class SleepTimerController extends StateNotifier<SleepTimerState> {
       if (state.finishCurrentTrack) {
         _waitForTrackEndAndPause();
       } else {
-        final audioController =
-            _ref.read(audioPlayerControllerProvider.notifier);
+        final audioController = _ref.read(
+          audioPlayerControllerProvider.notifier,
+        );
         audioController.pause();
         // 定时器结束后重置状态
         cancelTimer();
@@ -546,15 +562,13 @@ class SleepTimerController extends StateNotifier<SleepTimerState> {
     );
 
     _trackSubscription?.cancel();
-    _trackSubscription = audioController.currentTrackStream.listen(
-      (track) {
-        // 当音轨发生变化（切换到下一首或停止）时暂停
-        if (track?.id != initialTrack.id) {
-          audioController.pause();
-          cancelTimer();
-        }
-      },
-    );
+    _trackSubscription = audioController.currentTrackStream.listen((track) {
+      // 当音轨发生变化（切换到下一首或停止）时暂停
+      if (track?.id != initialTrack.id) {
+        audioController.pause();
+        cancelTimer();
+      }
+    });
   }
 
   /// 取消定时器
@@ -575,10 +589,7 @@ class SleepTimerController extends StateNotifier<SleepTimerState> {
       final newRemaining = newEndTime.difference(DateTime.now());
 
       // 重新设置定时器，并保持当前的"播完暂停"状态
-      setTimer(
-        newRemaining,
-        finishCurrentTrack: state.finishCurrentTrack,
-      );
+      setTimer(newRemaining, finishCurrentTrack: state.finishCurrentTrack);
     }
   }
 
@@ -641,5 +652,5 @@ class SleepTimerState {
 // Sleep Timer Provider
 final sleepTimerProvider =
     StateNotifierProvider<SleepTimerController, SleepTimerState>((ref) {
-  return SleepTimerController(ref);
-});
+      return SleepTimerController(ref);
+    });

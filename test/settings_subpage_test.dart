@@ -185,32 +185,32 @@ void main() {
     await tester.pump();
 
     expect(find.text('Playlist Add Mode'), findsOneWidget);
-    expect(find.text('Current: Replace Mode'), findsOneWidget);
+    expect(find.text('Current: Replace Playlist'), findsOneWidget);
 
     await tester.tap(find.text('Playlist Add Mode'));
     await tester.pumpAndSettle();
-    expect(find.text('Single-Audio Append Mode'), findsOneWidget);
+    expect(find.text('Add to Playlist'), findsOneWidget);
 
-    await tester.tap(find.text('Single-Audio Append Mode'));
+    await tester.tap(find.text('Add to Playlist'));
     await tester.pumpAndSettle();
 
     expect(
       container.read(audioTapPlaylistModeProvider),
-      AudioTapPlaylistMode.appendSingle,
+      AudioTapPlaylistMode.addToQueue,
     );
-    expect(find.text('Current: Single-Audio Append Mode'), findsOneWidget);
+    expect(find.text('Current: Add to Playlist'), findsOneWidget);
 
     final prefs = await SharedPreferences.getInstance();
     expect(
       prefs.getString(AudioTapPlaylistModeNotifier.preferenceKey),
-      AudioTapPlaylistMode.appendSingle.name,
+      AudioTapPlaylistMode.addToQueue.name,
     );
   });
 
   test('audio tap playlist mode restores the persisted selection', () async {
     SharedPreferences.setMockInitialValues({
       AudioTapPlaylistModeNotifier.preferenceKey:
-          AudioTapPlaylistMode.appendDirectory.name,
+          AudioTapPlaylistMode.playNext.name,
     });
     final container = ProviderContainer();
     addTearDown(container.dispose);
@@ -219,8 +219,27 @@ void main() {
         .read(audioTapPlaylistModeProvider.notifier)
         .getMode();
 
-    expect(restoredMode, AudioTapPlaylistMode.appendDirectory);
+    expect(restoredMode, AudioTapPlaylistMode.playNext);
     expect(container.read(audioTapPlaylistModeProvider), restoredMode);
+  });
+
+  test('legacy append modes migrate to add-to-playlist', () async {
+    SharedPreferences.setMockInitialValues({
+      AudioTapPlaylistModeNotifier.preferenceKey: 'appendDirectory',
+    });
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    final restoredMode = await container
+        .read(audioTapPlaylistModeProvider.notifier)
+        .getMode();
+
+    expect(restoredMode, AudioTapPlaylistMode.addToQueue);
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getString(AudioTapPlaylistModeNotifier.preferenceKey),
+      AudioTapPlaylistMode.addToQueue.name,
+    );
   });
 
   testWidgets('lyric style restores defaults from the app bar', (tester) async {

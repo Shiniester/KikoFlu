@@ -1398,6 +1398,18 @@ abstract class S {
   /// **'Playlist'**
   String get playlistTitle;
 
+  /// No description provided for @clearPlaybackQueueTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear playback queue?'**
+  String get clearPlaybackQueueTitle;
+
+  /// No description provided for @clearPlaybackQueueMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'This will stop playback and remove every item from the queue.'**
+  String get clearPlaybackQueueMessage;
+
   /// No description provided for @noAudioPlaying.
   ///
   /// In en, this message translates to:
@@ -1893,7 +1905,7 @@ abstract class S {
   /// No description provided for @audioTapPlaylistModeReplace.
   ///
   /// In en, this message translates to:
-  /// **'Replace Mode'**
+  /// **'Replace Playlist'**
   String get audioTapPlaylistModeReplace;
 
   /// No description provided for @audioTapPlaylistModeReplaceDescription.
@@ -1905,38 +1917,44 @@ abstract class S {
   /// No description provided for @audioTapPlaylistModeAppendDirectory.
   ///
   /// In en, this message translates to:
-  /// **'Append Mode'**
+  /// **'Play Next'**
   String get audioTapPlaylistModeAppendDirectory;
 
   /// No description provided for @audioTapPlaylistModeAppendDirectoryDescription.
   ///
   /// In en, this message translates to:
-  /// **'Append every playable audio file in the tapped file\'s folder. Existing tracks are not duplicated.'**
+  /// **'Place the tapped audio after the current track without interrupting playback.'**
   String get audioTapPlaylistModeAppendDirectoryDescription;
 
   /// No description provided for @audioTapPlaylistModeAppendSingle.
   ///
   /// In en, this message translates to:
-  /// **'Single-Audio Append Mode'**
+  /// **'Add to Playlist'**
   String get audioTapPlaylistModeAppendSingle;
 
   /// No description provided for @audioTapPlaylistModeAppendSingleDescription.
   ///
   /// In en, this message translates to:
-  /// **'Append only the tapped audio file. Existing tracks are not duplicated.'**
+  /// **'Add the tapped audio to the end of the playlist without interrupting or switching playback.'**
   String get audioTapPlaylistModeAppendSingleDescription;
 
   /// No description provided for @audioTapPlaylistModeAppendChip.
   ///
   /// In en, this message translates to:
-  /// **'Append Mode'**
+  /// **'Play Next'**
   String get audioTapPlaylistModeAppendChip;
 
   /// No description provided for @audioTapPlaylistModeAppendSingleChip.
   ///
   /// In en, this message translates to:
-  /// **'Single-Audio Append Mode'**
+  /// **'Add to Playlist'**
   String get audioTapPlaylistModeAppendSingleChip;
+
+  /// No description provided for @copyName.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy Name'**
+  String get copyName;
 
   /// No description provided for @preloadNextTitle.
   ///

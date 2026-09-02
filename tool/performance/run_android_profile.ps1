@@ -30,6 +30,10 @@ param(
   [ValidateRange(0, 120)]
   [int]$RoundCooldownSeconds = 20,
 
+  [switch]$SkipDownloads,
+
+  [switch]$NoSignificantRegression,
+
   [switch]$SkipSoak
 )
 
@@ -428,6 +432,7 @@ try {
         batteryTemperatureTenthsCelsius = $battery.temperature
         soakMinutes = $SoakMinutes
         trackSwitches = 50
+        skipDownloads = [bool]$SkipDownloads
       }
 
       $runFile = Join-Path $runDirectory "run_$run.json"
@@ -502,10 +507,26 @@ try {
   if ($BaselineReport) {
     $comparisonJson = Join-Path $runDirectory 'comparison.json'
     $comparisonMarkdown = Join-Path $runDirectory 'comparison.md'
-    & dart run tool/performance/compare.dart `
-      $BaselineReport $reportPath `
-      --json-output $comparisonJson `
-      --markdown-output $comparisonMarkdown
+    $compareArguments = @(
+      'run',
+      'tool/performance/compare.dart',
+      $BaselineReport,
+      $reportPath,
+      '--json-output',
+      $comparisonJson,
+      '--markdown-output',
+      $comparisonMarkdown
+    )
+    if ($SkipDownloads) { $compareArguments += '--exclude-downloads' }
+    if ($SkipSoak) { $compareArguments += '--exclude-playback-soak' }
+    if ($NoSignificantRegression) {
+      $compareArguments += @(
+        '--no-significant-regression',
+        '--minimum-playback-minutes',
+        $SoakMinutes.ToString()
+      )
+    }
+    & dart @compareArguments
     if ($LASTEXITCODE -ne 0) {
       throw "Performance acceptance failed. See $comparisonMarkdown"
     }

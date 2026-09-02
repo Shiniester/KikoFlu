@@ -36,6 +36,7 @@ void main() {
     final batteryPercent = (control['batteryPercent'] as num).toInt();
     final batteryTemperatureTenthsCelsius =
         (control['batteryTemperatureTenthsCelsius'] as num).toInt();
+    final skipDownloads = control['skipDownloads'] == true;
 
     final adapter = createPerformanceScenarioAdapter();
     final recorder = PerformanceRecorder.instance
@@ -70,12 +71,14 @@ void main() {
     final works = await _readObjectList(
       manifest.resolvePath(manifestPath, manifest.worksPath),
     );
-    final tasks = (await _readObjectList(
-      manifest.resolvePath(manifestPath, manifest.downloadTasksPath),
-    )).map((json) => DownloadTask.fromJson(json)).toList(growable: false);
     expect(works, hasLength(manifest.works));
-    expect(tasks, hasLength(manifest.downloadTasks));
-    adapter.injectDownloadTasks(tasks);
+    if (!skipDownloads) {
+      final tasks = (await _readObjectList(
+        manifest.resolvePath(manifestPath, manifest.downloadTasksPath),
+      )).map((json) => DownloadTask.fromJson(json)).toList(growable: false);
+      expect(tasks, hasLength(manifest.downloadTasks));
+      adapter.injectDownloadTasks(tasks);
+    }
 
     final outputRoot = Directory(
       manifest.resolvePath(manifestPath, 'run_output/run_$runNumber'),
@@ -114,30 +117,32 @@ void main() {
       }
       recorder.endScenario();
 
-      harnessKey.currentState!.selectTab(1);
-      await tester.pump(const Duration(milliseconds: 500));
-      adapter.resetDownloadCounters();
-      final progressLatencies = <double>[];
-      for (var tick = 0; tick < 20; tick++) {
-        final stopwatch = Stopwatch()..start();
-        adapter.advanceActiveDownloads(tick + 1);
+      if (!skipDownloads) {
+        harnessKey.currentState!.selectTab(1);
         await tester.pump(const Duration(milliseconds: 500));
-        stopwatch.stop();
-        progressLatencies.add(stopwatch.elapsedMicroseconds / 1000);
+        adapter.resetDownloadCounters();
+        final progressLatencies = <double>[];
+        for (var tick = 0; tick < 20; tick++) {
+          final stopwatch = Stopwatch()..start();
+          adapter.advanceActiveDownloads(tick + 1);
+          await tester.pump(const Duration(milliseconds: 500));
+          stopwatch.stop();
+          progressLatencies.add(stopwatch.elapsedMicroseconds / 1000);
+        }
+        final downloadCounters = adapter.readDownloadCounters();
+        recorder
+          ..recordMetric('downloadListBuilds', downloadCounters.taskRowBuilds)
+          ..recordMetric(
+            'downloadTemporaryAllocations',
+            downloadCounters.temporaryListAllocations,
+          )
+          ..recordMetric(
+            'downloadProgressLatencyMs',
+            progressLatencies.reduce(
+              (left, right) => left > right ? left : right,
+            ),
+          );
       }
-      final downloadCounters = adapter.readDownloadCounters();
-      recorder
-        ..recordMetric('downloadListBuilds', downloadCounters.taskRowBuilds)
-        ..recordMetric(
-          'downloadTemporaryAllocations',
-          downloadCounters.temporaryListAllocations,
-        )
-        ..recordMetric(
-          'downloadProgressLatencyMs',
-          progressLatencies.reduce(
-            (left, right) => left > right ? left : right,
-          ),
-        );
 
       harnessKey.currentState!.selectTab(2);
       await tester.pump(const Duration(milliseconds: 500));
@@ -192,7 +197,7 @@ void main() {
         ..recordMetric('zipPeakPssMb', zipMeasurement.peakPssMb)
         ..recordMetric('zipPeakPssDeltaMb', zipMeasurement.peakPssDeltaMb);
     } finally {
-      adapter.clearDownloadTasks();
+      if (!skipDownloads) adapter.clearDownloadTasks();
       if (await outputRoot.exists()) {
         await outputRoot.delete(recursive: true);
       }
@@ -200,8 +205,10 @@ void main() {
 
     binding.reportData = {
       'schemaVersion': 3,
-      'scenario': 'kikoflu-android-profile-v3',
-      'scenarioAdapterVersion': 3,
+      'scenario': skipDownloads
+          ? 'kikoflu-android-profile-v3-no-downloads'
+          : 'kikoflu-android-profile-v3',
+      'scenarioAdapterVersion': performanceScenarioAdapterVersion,
       'adapterImplementation': adapter.implementation,
       'fixture': manifest.toReportJson(),
       'run': recorder.createRun(

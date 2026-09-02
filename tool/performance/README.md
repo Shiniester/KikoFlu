@@ -6,7 +6,7 @@
 
 - 500 个作品卡片及连续首页滚动。
 - 1,000 个下载任务，其中 3 个活动任务按 500ms 更新。任务通过仅性能构建可用的内存入口注入真实下载页面，不持久化。
-- 播放器位置连续更新与 50 次确定性 UI 状态切换。
+- 沉浸式播放器渐变、宽窄屏舞台和位置连续更新，以及 50 次确定性切歌视觉状态切换。
 - 10,000 个主机生成的字幕文件，通过字幕服务的可注入路径入口扫描。
 - 512MB、含嵌套 ZIP 的主机生成归档，通过字幕服务的可注入路径入口导入。
 - 真实账号队列连续播放 30 分钟，再执行 50 次真实 Media3 切歌。
@@ -55,9 +55,27 @@ pwsh -File tool/performance/run_android_profile.ps1 `
   -BaselineReport build/performance_reports/<baseline-run>/baseline.json
 ```
 
+只比较非下载场景、并要求相对已优化基线的所有性能指标回退不超过 5% 时，
+baseline 与 candidate 两次运行都传入 `-SkipDownloads`；candidate 另传入
+`-NoSignificantRegression`：
+
+```powershell
+pwsh -File tool/performance/run_android_profile.ps1 `
+  -DeviceId <adb-serial> `
+  -Label candidate `
+  -SkipDownloads `
+  -NoSignificantRegression `
+  -BaselineReport build/performance_reports/<baseline-run>/baseline.json
+```
+
+若设备上的性能 APK 没有可复用的真实账号会话，可对 baseline 与 candidate
+同时传入 `-SkipSoak`。比较器会明确排除真实播放时长、Media3 切歌和播放诊断
+指标，但仍保留确定性播放器进度更新、UI 切歌延迟、帧耗时和卡顿帧门禁。
+
 脚本固定以 `KIKOFLU_PERFORMANCE=true` 构建 Profile APK。普通构建调用下载 fixture 注入或计数接口会抛出 `StateError`。每轮只清理解压输出，不清除应用账号、缓存或播放历史。
 
-`-SkipSoak` 仅用于本地调试；缺少 soak 指标的报告不能通过严格比较。可单独比较已有报告：
+默认严格验收仍要求完整 soak 指标；`-SkipSoak` 只生成明确排除这些指标的
+非账号依赖比较，不能替代完整播放验收。可单独比较已有报告：
 
 ```powershell
 dart run tool/performance/compare.dart baseline.json candidate.json `

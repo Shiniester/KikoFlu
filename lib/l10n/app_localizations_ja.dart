@@ -696,6 +696,12 @@ class SJa extends S {
   String get playlistTitle => 'プレイリスト';
 
   @override
+  String get clearPlaybackQueueTitle => '再生キューをクリアしますか？';
+
+  @override
+  String get clearPlaybackQueueMessage => '再生を停止し、キュー内のすべての項目を削除します。';
+
+  @override
   String get noAudioPlaying => '再生中のオーディオはありません';
 
   @override
@@ -956,31 +962,34 @@ class SJa extends S {
   String get selectAudioTapPlaylistMode => '音声をタップしたときのプレイリスト更新方法を選択：';
 
   @override
-  String get audioTapPlaylistModeReplace => '置き換えモード';
+  String get audioTapPlaylistModeReplace => 'プレイリストを置き換え';
 
   @override
   String get audioTapPlaylistModeReplaceDescription =>
       'タップした音声と同じフォルダー内の再生可能な音声すべてで現在のプレイリストを置き換えます。';
 
   @override
-  String get audioTapPlaylistModeAppendDirectory => '追加モード';
+  String get audioTapPlaylistModeAppendDirectory => '次に再生';
 
   @override
   String get audioTapPlaylistModeAppendDirectoryDescription =>
-      'タップした音声と同じフォルダー内の再生可能な音声をすべて末尾に追加します。既存のトラックは重複しません。';
+      'タップした音声を現在のトラックの直後に配置し、現在の再生は中断しません。';
 
   @override
-  String get audioTapPlaylistModeAppendSingle => '単一音声追加モード';
+  String get audioTapPlaylistModeAppendSingle => 'プレイリストに追加';
 
   @override
   String get audioTapPlaylistModeAppendSingleDescription =>
-      'タップした音声だけを末尾に追加します。既存のトラックは重複しません。';
+      'タップした音声をプレイリストの末尾に追加し、現在の再生は切り替えません。';
 
   @override
-  String get audioTapPlaylistModeAppendChip => '追加モード';
+  String get audioTapPlaylistModeAppendChip => '次に再生';
 
   @override
-  String get audioTapPlaylistModeAppendSingleChip => '単一音声追加モード';
+  String get audioTapPlaylistModeAppendSingleChip => 'プレイリストに追加';
+
+  @override
+  String get copyName => '名前をコピー';
 
   @override
   String get preloadNextTitle => '次をプリロード';

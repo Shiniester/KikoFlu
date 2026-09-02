@@ -27,6 +27,74 @@ import '../utils/reorder_utils.dart';
 
 final _log = LogService.instance;
 
+enum EnqueueNextResult {
+  inserted,
+  moved,
+  alreadyNext,
+  currentTrack,
+  noActiveQueue,
+}
+
+class EnqueueNextQueueMutation {
+  const EnqueueNextQueueMutation({
+    required this.result,
+    required this.queue,
+    required this.currentIndex,
+  });
+
+  final EnqueueNextResult result;
+  final List<AudioTrack> queue;
+  final int currentIndex;
+}
+
+EnqueueNextQueueMutation planEnqueueNext({
+  required List<AudioTrack> queue,
+  required int currentIndex,
+  required AudioTrack track,
+}) {
+  if (queue.isEmpty || currentIndex < 0 || currentIndex >= queue.length) {
+    return EnqueueNextQueueMutation(
+      result: EnqueueNextResult.noActiveQueue,
+      queue: List<AudioTrack>.unmodifiable(queue),
+      currentIndex: currentIndex,
+    );
+  }
+
+  final currentTrackId = queue[currentIndex].id;
+  if (currentTrackId == track.id) {
+    return EnqueueNextQueueMutation(
+      result: EnqueueNextResult.currentTrack,
+      queue: List<AudioTrack>.unmodifiable(queue),
+      currentIndex: currentIndex,
+    );
+  }
+
+  final existingIndex = queue.indexWhere((item) => item.id == track.id);
+  if (existingIndex == currentIndex + 1) {
+    return EnqueueNextQueueMutation(
+      result: EnqueueNextResult.alreadyNext,
+      queue: List<AudioTrack>.unmodifiable(queue),
+      currentIndex: currentIndex,
+    );
+  }
+
+  final nextQueue = List<AudioTrack>.of(queue);
+  final moved = existingIndex >= 0;
+  if (moved) nextQueue.removeAt(existingIndex);
+  final nextCurrentIndex = nextQueue.indexWhere(
+    (item) => item.id == currentTrackId,
+  );
+  final insertionIndex = (nextCurrentIndex + 1)
+      .clamp(0, nextQueue.length)
+      .toInt();
+  nextQueue.insert(insertionIndex, track);
+  return EnqueueNextQueueMutation(
+    result: moved ? EnqueueNextResult.moved : EnqueueNextResult.inserted,
+    queue: List<AudioTrack>.unmodifiable(nextQueue),
+    currentIndex: nextQueue.indexWhere((item) => item.id == currentTrackId),
+  );
+}
+
 class AudioPlayerService {
   static AudioPlayerService? _instance;
   static AudioPlayerService get instance =>
@@ -984,6 +1052,33 @@ class AudioPlayerService {
 
     _queueController.add(List.from(_queue));
     await persistPlaybackSession();
+  }
+
+  /// Inserts [track] immediately after the currently playing item without
+  /// interrupting playback. Existing queue entries are moved instead of
+  /// duplicated so repeated taps stay idempotent.
+  Future<EnqueueNextResult> enqueueNext(AudioTrack track) async {
+    final mutation = planEnqueueNext(
+      queue: _queue,
+      currentIndex: _currentIndex,
+      track: track,
+    );
+    if (mutation.result == EnqueueNextResult.noActiveQueue ||
+        mutation.result == EnqueueNextResult.currentTrack ||
+        mutation.result == EnqueueNextResult.alreadyNext) {
+      return mutation.result;
+    }
+    _queue
+      ..clear()
+      ..addAll(mutation.queue);
+    _currentIndex = mutation.currentIndex;
+
+    // The previously prefetched item may no longer be next in the queue.
+    _prefetchedNextHash = null;
+    _sessionCompleted = false;
+    _queueController.add(List<AudioTrack>.from(_queue));
+    await persistPlaybackSession();
+    return mutation.result;
   }
 
   Future<Map<String, int>> appendTracks(List<AudioTrack> tracks) async {

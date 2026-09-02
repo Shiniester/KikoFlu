@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,22 +8,49 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/work.dart';
+import '../models/audio_track.dart';
 import '../providers/audio_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/lyric_provider.dart';
+import '../providers/player_work_details_provider.dart';
+import '../providers/settings_provider.dart';
 import '../utils/local_file_url.dart';
 import '../utils/system_ui_style.dart';
 import '../widgets/player/player_cover_widget.dart';
 import '../widgets/player/player_controls_widget.dart';
 import '../widgets/player/lyric_display_widget.dart';
 import '../widgets/player/playlist_dialog.dart';
+import '../widgets/player/player_info_panel.dart';
+import '../widgets/player/player_audio_details_panel.dart';
+import '../widgets/player/player_lyrics_surface.dart';
+import '../widgets/player/player_glass_surface.dart';
+import '../widgets/player/player_visual_palette.dart';
+import '../widgets/player/player_vertical_gestures.dart';
+import '../widgets/text_preview_screen.dart';
 import '../widgets/work_bookmark_manager.dart';
 import 'work_detail_screen.dart';
 import '../../l10n/app_localizations.dart';
 
 /// 音频播放器主屏幕
+enum PlayerLeftPane { cover, information }
+
+enum PlayerRightPane { controls, lyrics, queue }
+
+enum PlayerOperatedRegion { left, right }
+
+const double playerWideLayoutBreakpoint = 840;
+
+bool usesWidePlayerLayout(double width) => width >= playerWideLayoutBreakpoint;
+
 class AudioPlayerScreen extends ConsumerStatefulWidget {
-  const AudioPlayerScreen({super.key});
+  const AudioPlayerScreen({
+    super.key,
+    this.initialPalette,
+    this.initialPaletteTrackId,
+  });
+
+  final PlayerVisualPalette? initialPalette;
+  final String? initialPaletteTrackId;
 
   @override
   ConsumerState<AudioPlayerScreen> createState() => _AudioPlayerScreenState();
@@ -39,6 +67,28 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   int? _currentWorkId;
   Duration? _seekingPosition;
   bool _showLyricView = false;
+  PlayerLeftPane _leftPane = PlayerLeftPane.cover;
+  PlayerRightPane _rightPane = PlayerRightPane.controls;
+  PlayerLeftPane _leftPaneBeforeQueue = PlayerLeftPane.cover;
+  PlayerRightPane _rightPaneBeforeQueue = PlayerRightPane.controls;
+  int _compactPage = 1;
+  int _compactPageBeforeQueue = 1;
+  PlayerOperatedRegion _lastOperatedRegion = PlayerOperatedRegion.right;
+  final PageController _compactPageController = PageController(initialPage: 1);
+  final PageController _compactVerticalPageController = PageController();
+  final PageController _wideLeftPageController = PageController();
+  final PageController _wideRightPageController = PageController(
+    initialPage: 1,
+  );
+  final FocusNode _keyboardFocusNode = FocusNode(debugLabel: 'audio-player');
+  bool? _lastWasWide;
+  double? _compactSharedWidth;
+  Timer? _routePaletteTimer;
+  Timer? _unlockButtonTimer;
+  bool _routePaletteFrozen = false;
+  int _semanticTransitionGeneration = 0;
+  int _verticalTransitionGeneration = 0;
+  bool _dismissRequested = false;
 
   // 全屏锁定状态
   bool _isLyricLocked = false;
@@ -47,11 +97,19 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   @override
   void initState() {
     super.initState();
+    _routePaletteFrozen = widget.initialPalette != null;
+    if (_routePaletteFrozen) {
+      _routePaletteTimer = Timer(const Duration(milliseconds: 300), () {
+        if (mounted) setState(() => _routePaletteFrozen = false);
+      });
+    }
     _checkAndShowLyricHint();
   }
 
   /// 进入全屏锁定模式
   void _enterLyricFullscreen() {
+    if (_isLyricLocked) return;
+    _unlockButtonTimer?.cancel();
     setState(() {
       _isLyricLocked = true;
       _showUnlockButton = false;
@@ -62,6 +120,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
   /// 退出全屏锁定模式
   void _exitLyricFullscreen() {
+    if (!_isLyricLocked) return;
+    _unlockButtonTimer?.cancel();
     setState(() {
       _isLyricLocked = false;
       _showUnlockButton = false;
@@ -79,17 +139,27 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         restoreSystemUiAfterImmersiveMode(useEdgeToEdge: Platform.isAndroid),
       );
     }
+    _compactPageController.dispose();
+    _compactVerticalPageController.dispose();
+    _wideLeftPageController.dispose();
+    _wideRightPageController.dispose();
+    _keyboardFocusNode.dispose();
+    _routePaletteTimer?.cancel();
+    _unlockButtonTimer?.cancel();
+    _semanticTransitionGeneration++;
+    _verticalTransitionGeneration++;
     super.dispose();
   }
 
   /// 处理锁定状态下的点击
   void _handleLockedTap() {
+    _unlockButtonTimer?.cancel();
     setState(() {
       _showUnlockButton = !_showUnlockButton;
     });
     // 如果显示解锁按钮，3秒后自动隐藏
     if (_showUnlockButton) {
-      Future.delayed(const Duration(seconds: 3), () {
+      _unlockButtonTimer = Timer(const Duration(seconds: 3), () {
         if (mounted && _showUnlockButton) {
           setState(() {
             _showUnlockButton = false;
@@ -103,7 +173,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     final prefs = await SharedPreferences.getInstance();
     final hasShown = prefs.getBool('lyric_hint_has_shown') ?? false;
 
-    if (!hasShown) {
+    if (!hasShown && mounted) {
       setState(() {
         _showLyricHint = true;
       });
@@ -206,7 +276,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => PlayerGlassAlertDialog(
         title: Text(S.of(dialogContext).translateLyrics),
         content: Text(S.of(dialogContext).lyricTranslationConfirmMessage),
         actions: [
@@ -234,39 +304,1294 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     final currentTrack = ref.watch(currentTrackProvider);
     final isTrackLoading =
         ref.watch(isTrackLoadingProvider).valueOrNull ?? false;
-    final isLandscape =
-        MediaQuery.of(context).orientation == Orientation.landscape;
 
     // 启用自动字幕加载器
     ref.watch(lyricAutoLoaderProvider);
+    // Keep the adjacent information page warm so its cards move with the
+    // PageView instead of appearing only after the page settles.
+    ref.listen(playerWorkDetailsProvider, (_, __) {});
 
-    // 根据主题亮度设置状态栏图标颜色
-    final brightness = Theme.of(context).brightness;
-    final systemOverlayStyle = transparentSystemBarsForBrightness(brightness);
-
-    // 全屏锁定模式：隐藏所有UI，只显示歌词
-    if (_isLyricLocked) {
-      return Scaffold(
-        body: _buildPortraitLyricView(),
-      );
-    }
-
-    return Scaffold(
-      appBar: _buildAppBar(context, systemOverlayStyle, currentTrack),
-      body: isLandscape
-          ? _buildLandscapeLayout(
-              context,
-              currentTrack,
-              isTrackLoading,
-            )
-          : _buildPortraitLayout(
-              context,
-              currentTrack,
-              isTrackLoading,
-            ),
+    return currentTrack.when(
+      data: (track) {
+        if (track == null) {
+          return Scaffold(
+            body: Center(child: Text(S.of(context).noAudioPlaying)),
+          );
+        }
+        _scheduleProgressLoad(track);
+        final coverUrl = _buildWorkCoverUrl(track.workId, track.artworkUrl);
+        final privacyHidesArtwork = ref.watch(
+          privacyModeSettingsProvider.select(
+            (settings) => settings.enabled && settings.blurCoverInApp,
+          ),
+        );
+        final baseTheme = Theme.of(context);
+        final request = PlayerPaletteRequest(
+          source: coverUrl ?? track.artworkUrl,
+          cacheKey: track.workId != null
+              ? 'work_cover_${track.workId}'
+              : track.hash ?? track.id,
+          brightness: baseTheme.brightness,
+          fallbackSeed: baseTheme.colorScheme.primary,
+          suppressArtwork: privacyHidesArtwork,
+        );
+        final resolvedPalette =
+            ref.watch(playerVisualPaletteProvider(request)).value ??
+            PlayerVisualPalette.fallback(
+              seed: baseTheme.colorScheme.primary,
+              brightness: baseTheme.brightness,
+            );
+        final palette =
+            _routePaletteFrozen &&
+                widget.initialPaletteTrackId == track.id &&
+                widget.initialPalette != null
+            ? widget.initialPalette!
+            : resolvedPalette;
+        return _buildSaltPlayerShell(
+          context,
+          track: track,
+          coverUrl: coverUrl,
+          palette: palette,
+          isTrackLoading: isTrackLoading,
+        );
+      },
+      loading: () =>
+          const Scaffold(body: Center(child: CircularProgressIndicator())),
+      error: (error, stack) => Scaffold(
+        body: Center(
+          child: Text(S.of(context).errorWithMessage(error.toString())),
+        ),
+      ),
     );
   }
 
+  void _scheduleProgressLoad(AudioTrack track) {
+    if (track.workId == null || _currentWorkId == track.workId) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _currentWorkId == track.workId) return;
+      setState(() {
+        _currentWorkId = track.workId;
+        _currentProgress = null;
+      });
+      _loadCurrentProgress(track.workId!);
+    });
+  }
+
+  Widget _buildSaltPlayerShell(
+    BuildContext context, {
+    required AudioTrack track,
+    required String? coverUrl,
+    required PlayerVisualPalette palette,
+    required bool isTrackLoading,
+  }) {
+    final baseTheme = Theme.of(context);
+    final playerScheme = baseTheme.colorScheme.copyWith(
+      primary: palette.accent,
+      onPrimary: palette.onAccent,
+      primaryContainer: palette.foreground.withValues(alpha: 0.16),
+      onPrimaryContainer: palette.foreground,
+      surface: Colors.transparent,
+      onSurface: palette.foreground,
+      onSurfaceVariant: palette.secondaryForeground,
+      surfaceContainerHighest: palette.panelColor,
+      outline: palette.panelStroke,
+      outlineVariant: palette.panelStroke,
+    );
+    final playerTheme = baseTheme.copyWith(
+      colorScheme: playerScheme,
+      scaffoldBackgroundColor: Colors.transparent,
+      dividerColor: palette.panelStroke,
+      iconTheme: baseTheme.iconTheme.copyWith(color: palette.foreground),
+      textTheme: baseTheme.textTheme.apply(
+        bodyColor: palette.foreground,
+        displayColor: palette.foreground,
+      ),
+      sliderTheme: baseTheme.sliderTheme.copyWith(
+        activeTrackColor: palette.foreground,
+        thumbColor: palette.foreground,
+        overlayColor: palette.foreground.withValues(alpha: 0.12),
+        inactiveTrackColor: palette.foreground.withValues(alpha: 0.20),
+      ),
+    );
+    final backgroundBrightness = palette.foreground.computeLuminance() > 0.5
+        ? Brightness.dark
+        : Brightness.light;
+    final motionDuration = MediaQuery.of(context).disableAnimations
+        ? Duration.zero
+        : const Duration(milliseconds: 280);
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: transparentSystemBarsForBrightness(backgroundBrightness),
+      child: Theme(
+        data: playerTheme,
+        child: Scaffold(
+          body: CallbackShortcuts(
+            bindings: <ShortcutActivator, VoidCallback>{
+              const SingleActivator(LogicalKeyboardKey.escape): _handleBack,
+            },
+            child: Focus(
+              autofocus: true,
+              focusNode: _keyboardFocusNode,
+              child: PopScope(
+                canPop:
+                    _dismissRequested ||
+                    (!_isLyricLocked &&
+                        _rightPane == PlayerRightPane.controls &&
+                        (_lastWasWide == true
+                            ? _leftPane == PlayerLeftPane.cover
+                            : _compactPage == 1)),
+                onPopInvokedWithResult: (didPop, result) {
+                  if (!didPop) _handleBack();
+                },
+                child: PlayerBackdropGroup(
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: AnimatedSwitcher(
+                          duration: motionDuration,
+                          layoutBuilder: (currentChild, previousChildren) =>
+                              Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  ...previousChildren,
+                                  if (currentChild != null) currentChild,
+                                ],
+                              ),
+                          child: RepaintBoundary(
+                            key: ValueKey(
+                              '${palette.backgroundStart.toARGB32()}:'
+                              '${palette.backgroundEnd.toARGB32()}',
+                            ),
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    palette.backgroundStart,
+                                    palette.backgroundMiddle,
+                                    palette.backgroundEnd,
+                                  ],
+                                  stops: const [0, 0.56, 1],
+                                ),
+                              ),
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  gradient: RadialGradient(
+                                    center: const Alignment(-0.72, 0.62),
+                                    radius: 1.15,
+                                    colors: [
+                                      palette.accent.withValues(alpha: 0.18),
+                                      Colors.transparent,
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned.fill(
+                        child: Offstage(
+                          key: const ValueKey('player-stage-under-fullscreen'),
+                          offstage: _isLyricLocked,
+                          child: IgnorePointer(
+                            ignoring: _isLyricLocked,
+                            child: TickerMode(
+                              enabled: !_isLyricLocked,
+                              child: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final isWide = usesWidePlayerLayout(
+                                    constraints.maxWidth,
+                                  );
+                                  _syncResponsivePageController(isWide);
+                                  return AnimatedSwitcher(
+                                    duration: motionDuration,
+                                    child: isWide
+                                        ? _buildWidePlayer(
+                                            context,
+                                            track: track,
+                                            coverUrl: coverUrl,
+                                          )
+                                        : _buildCompactPlayer(
+                                            context,
+                                            track: track,
+                                            coverUrl: coverUrl,
+                                          ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (_isLyricLocked)
+                        Positioned.fill(child: _buildPortraitLyricView()),
+                      if (_showLyricHint && !_isLyricLocked)
+                        _buildLyricHintBanner(),
+                      if (isTrackLoading) _buildTrackLoadingOverlay(context),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _syncResponsivePageController(bool isWide) {
+    if (_lastWasWide == isWide) return;
+    _lastWasWide = isWide;
+    final compactTarget = _semanticCompactPage;
+    _compactPage = compactTarget;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (isWide) {
+        if (_compactVerticalPageController.hasClients) {
+          _compactVerticalPageController.jumpToPage(0);
+        }
+        if (_wideLeftPageController.hasClients) {
+          _wideLeftPageController.jumpToPage(
+            _leftPane == PlayerLeftPane.information ? 1 : 0,
+          );
+        }
+        if (_wideRightPageController.hasClients) {
+          _wideRightPageController.jumpToPage(
+            _rightPane == PlayerRightPane.lyrics ? 0 : 1,
+          );
+        }
+      } else {
+        if (_compactPageController.hasClients) {
+          _compactPageController.jumpToPage(compactTarget);
+        }
+        if (_compactVerticalPageController.hasClients) {
+          _compactVerticalPageController.jumpToPage(
+            _rightPane == PlayerRightPane.queue ? 1 : 0,
+          );
+        }
+      }
+    });
+  }
+
+  int get _semanticCompactPage {
+    if (_lastOperatedRegion == PlayerOperatedRegion.left &&
+        _leftPane == PlayerLeftPane.information) {
+      return 0;
+    }
+    if (_lastOperatedRegion == PlayerOperatedRegion.right &&
+        _rightPane == PlayerRightPane.lyrics) {
+      return 2;
+    }
+    if (_rightPane == PlayerRightPane.lyrics) return 2;
+    if (_leftPane == PlayerLeftPane.information) return 0;
+    return 1;
+  }
+
+  Widget _buildWidePlayer(
+    BuildContext context, {
+    required AudioTrack track,
+    required String? coverUrl,
+  }) {
+    final width = MediaQuery.sizeOf(context).width;
+    final outerPadding = width >= 1200 ? 48.0 : 24.0;
+    final gap = width >= 1200 ? 40.0 : 20.0;
+    return SafeArea(
+      minimum: EdgeInsets.fromLTRB(outerPadding, 18, outerPadding, 18),
+      child: Row(
+        key: const ValueKey('wide-player-layout'),
+        children: [
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final detailsWidth = math.max(
+                  0.0,
+                  (constraints.maxWidth - 24) * 0.90,
+                );
+                return _rightPane == PlayerRightPane.queue
+                    ? _buildCoverPane(
+                        context,
+                        track: track,
+                        coverUrl: coverUrl,
+                        isWide: true,
+                      )
+                    : Directionality(
+                        textDirection: TextDirection.ltr,
+                        child: PageView(
+                          key: const ValueKey('wide-left-pages'),
+                          controller: _wideLeftPageController,
+                          allowImplicitScrolling: true,
+                          onPageChanged: _onWideLeftPageChanged,
+                          children: [
+                            _buildCoverPane(
+                              context,
+                              track: track,
+                              coverUrl: coverUrl,
+                              isWide: true,
+                            ),
+                            Center(
+                              child: SizedBox(
+                                width: detailsWidth,
+                                height: double.infinity,
+                                child: PlayerAudioDetailsPanel(
+                                  key: const ValueKey(
+                                    'wide-audio-details-pane',
+                                  ),
+                                  onOpenWork: _openKnownWork,
+                                  isActive:
+                                      !_isLyricLocked &&
+                                      _leftPane == PlayerLeftPane.information &&
+                                      _rightPane != PlayerRightPane.queue,
+                                  onDismissPlayer: _dismissPlayer,
+                                  onShowQueue: _showQueue,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+              },
+            ),
+          ),
+          SizedBox(width: gap),
+          Expanded(
+            child: Column(
+              children: [
+                if (_rightPane != PlayerRightPane.queue)
+                  _buildWideHeader(context, track),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: _motionDuration(context),
+                    child: _rightPane == PlayerRightPane.queue
+                        ? _buildQueuePane(context, isWide: true)
+                        : Directionality(
+                            textDirection: TextDirection.ltr,
+                            child: PageView(
+                              key: const ValueKey('wide-right-pages'),
+                              controller: _wideRightPageController,
+                              physics: const NeverScrollableScrollPhysics(),
+                              onPageChanged: _onWideRightPageChanged,
+                              children: [
+                                _buildLyricsPane(context, isWide: true),
+                                _buildControlsPane(
+                                  context,
+                                  track: track,
+                                  isWide: true,
+                                  showTrackHeader: false,
+                                ),
+                              ],
+                            ),
+                          ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWideHeader(BuildContext context, AudioTrack track) {
+    return PlayerVerticalSwipeRegion(
+      key: const ValueKey('wide-header-dismiss-surface'),
+      onSwipeDown: _dismissPlayer,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 680),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        track.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                          height: 1.12,
+                        ),
+                      ),
+                      if (track.artist case final artist?)
+                        Text(
+                          artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  key: const ValueKey('player-more-button-wide'),
+                  tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
+                  onPressed: () => _showMoreSheet(context, track),
+                  icon: const Icon(Icons.more_horiz),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompactPlayer(
+    BuildContext context, {
+    required AudioTrack track,
+    required String? coverUrl,
+  }) {
+    return SafeArea(
+      minimum: const EdgeInsets.fromLTRB(0, 10, 0, 8),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final textScale = MediaQuery.textScalerOf(context).scale(16) / 16;
+          final headerReserve = 72 + (textScale.clamp(1, 2) - 1) * 60;
+          final sharedWidth = _compactContentWidth(
+            context,
+            BoxConstraints(
+              maxWidth: constraints.maxWidth,
+              maxHeight: math.max(0, constraints.maxHeight - headerReserve - 4),
+            ),
+          );
+          _compactSharedWidth = sharedWidth;
+          return PlayerScrollEdgeActions(
+            onPullDownAtTop: _dismissPlayer,
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _handleCompactVerticalScroll,
+              child: PageView(
+                key: const ValueKey('compact-player-vertical-pages'),
+                controller: _compactVerticalPageController,
+                scrollDirection: Axis.vertical,
+                physics: const PageScrollPhysics(
+                  parent: ClampingScrollPhysics(),
+                ),
+                onPageChanged: _onCompactVerticalPageChanged,
+                children: [
+                  Column(
+                    key: const ValueKey('compact-player-layout'),
+                    children: [
+                      _buildCompactHeader(context, track, sharedWidth),
+                      const SizedBox(height: 4),
+                      Expanded(
+                        child: Directionality(
+                          textDirection: TextDirection.ltr,
+                          child: PageView(
+                            key: const ValueKey('compact-player-pages'),
+                            controller: _compactPageController,
+                            allowImplicitScrolling: true,
+                            onPageChanged: _onCompactPageChanged,
+                            children: [
+                              Center(
+                                child: SizedBox(
+                                  width: sharedWidth,
+                                  height: double.infinity,
+                                  child: PlayerAudioDetailsPanel(
+                                    key: const ValueKey(
+                                      'compact-audio-details-pane',
+                                    ),
+                                    onOpenWork: _openKnownWork,
+                                    isActive:
+                                        !_isLyricLocked &&
+                                        _compactPage == 0 &&
+                                        _rightPane != PlayerRightPane.queue,
+                                    onDismissPlayer: _dismissPlayer,
+                                    onShowQueue: _showQueue,
+                                  ),
+                                ),
+                              ),
+                              _buildCompactMain(
+                                context,
+                                track: track,
+                                coverUrl: coverUrl,
+                                sharedWidth: sharedWidth,
+                              ),
+                              _buildLyricsPane(context, isWide: false),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  _buildQueuePane(context, isWide: false),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildCompactHeader(
+    BuildContext context,
+    AudioTrack track,
+    double sharedWidth,
+  ) {
+    return PlayerVerticalSwipeRegion(
+      key: const ValueKey('compact-header-dismiss-surface'),
+      onSwipeDown: _dismissPlayer,
+      child: Center(
+        child: SizedBox(
+          width: sharedWidth,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        track.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          height: 1.12,
+                        ),
+                      ),
+                      if (track.artist case final artist?) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                fontSize: 14,
+                                height: 1.15,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  key: const ValueKey('player-more-button'),
+                  tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
+                  onPressed: () => _showMoreSheet(context, track),
+                  icon: const Icon(Icons.more_horiz),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompactMain(
+    BuildContext context, {
+    required AudioTrack track,
+    required String? coverUrl,
+    required double sharedWidth,
+  }) {
+    final content = Center(
+      child: SizedBox(
+        key: const ValueKey('compact-main-shared-width'),
+        width: sharedWidth,
+        child: Column(
+          children: [
+            Expanded(
+              child: RepaintBoundary(
+                child: PlayerCoverWidget(
+                  track: track,
+                  workCoverUrl: coverUrl,
+                  onTap: _showLyrics,
+                ),
+              ),
+            ),
+            ThreeLineLyricDisplay(onTap: _showLyrics, lineCount: 5),
+            const SizedBox(height: 16),
+            _buildControlsPane(
+              context,
+              track: track,
+              isWide: false,
+              showTrackHeader: false,
+              enableQueueGesture: false,
+              horizontalPadding: 0,
+            ),
+          ],
+        ),
+      ),
+    );
+    return KeyedSubtree(
+      key: const ValueKey('compact-main-queue-swipe-surface'),
+      child: KeyedSubtree(
+        key: const ValueKey('compact-main-page'),
+        child: content,
+      ),
+    );
+  }
+
+  double _compactContentWidth(
+    BuildContext context,
+    BoxConstraints constraints,
+  ) {
+    final textScale = MediaQuery.textScalerOf(context).scale(16) / 16;
+    final reservedHeight = 364 + (textScale.clamp(1, 2) - 1) * 72;
+    final availableWidth = math.max(0.0, constraints.maxWidth - 56);
+    final heightBound =
+        math.max(160.0, constraints.maxHeight - reservedHeight) *
+        PlayerCoverWidget.preferredAspectRatio;
+    return math.min(availableWidth, heightBound);
+  }
+
+  Widget _buildCoverPane(
+    BuildContext context, {
+    required AudioTrack track,
+    required String? coverUrl,
+    required bool isWide,
+  }) {
+    return Padding(
+      key: ValueKey('cover-pane-${isWide ? 'wide' : 'compact'}'),
+      padding: EdgeInsets.symmetric(horizontal: isWide ? 12 : 4),
+      child: Column(
+        children: [
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final width = math.min(
+                  constraints.maxWidth * 0.90,
+                  constraints.maxHeight *
+                      0.84 *
+                      PlayerCoverWidget.preferredAspectRatio,
+                );
+                final height = width / PlayerCoverWidget.preferredAspectRatio;
+                return Center(
+                  child: SizedBox(
+                    width: width,
+                    height: height,
+                    child: RepaintBoundary(
+                      child: PlayerCoverWidget(
+                        track: track,
+                        workCoverUrl: coverUrl,
+                        isLandscape: isWide,
+                        onTap: _showLyrics,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: _showLyrics,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: LyricDisplay(albumName: track.album),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControlsPane(
+    BuildContext context, {
+    required AudioTrack track,
+    required bool isWide,
+    bool showTrackHeader = true,
+    bool enableQueueGesture = true,
+    double? horizontalPadding,
+  }) {
+    final controls = PlayerControlsWidget(
+      isLandscape: isWide,
+      isSeekingManually: _isSeekingManually,
+      seekValue: _seekValue,
+      onSeekChanged: _handleSeekChanged,
+      onSeekEnd: _handleSeekEnd,
+      seekingPosition: _seekingPosition,
+      workId: track.workId,
+      currentProgress: _currentProgress,
+      onMarkPressed: track.workId == null
+          ? null
+          : () => _showMarkDialog(context, track.workId!, track.title),
+      onDetailPressed: track.workId == null
+          ? null
+          : () => _navigateToWorkDetail(context, track.workId!),
+      onQueuePressed: _showQueue,
+      visibleActionCount: 5,
+    );
+    final content = Align(
+      alignment: Alignment.center,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 680),
+        child: SizedBox(
+          width: double.infinity,
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: horizontalPadding ?? 12,
+              vertical: isWide ? 18 : 0,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (showTrackHeader) ...[
+                  Text(
+                    track.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                      height: 1.14,
+                    ),
+                  ),
+                  if (track.artist case final artist?)
+                    Text(
+                      artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  SizedBox(height: isWide ? 24 : 12),
+                ],
+                controls,
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (!isWide) {
+      return KeyedSubtree(
+        key: const ValueKey('controls-pane-compact'),
+        child: content,
+      );
+    }
+
+    // Keep the wide-screen page gesture on a dedicated, non-interactive strip.
+    // A full-size detector behind the scroll view loses hit testing to the
+    // scrollable and can also make sliders/buttons compete for the drag.
+    return Column(
+      key: const ValueKey('controls-pane-wide'),
+      children: [
+        if (enableQueueGesture)
+          SizedBox(
+            height: 72,
+            width: double.infinity,
+            child: GestureDetector(
+              key: const ValueKey('controls-queue-swipe-surface-wide'),
+              behavior: HitTestBehavior.opaque,
+              onVerticalDragEnd: (details) {
+                if ((details.primaryVelocity ?? 0) < -550) _showQueue();
+              },
+              onHorizontalDragEnd: (details) {
+                if ((details.primaryVelocity ?? 0) > 550) _showLyrics();
+              },
+            ),
+          ),
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: Center(child: content),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLyricsPane(BuildContext context, {required bool isWide}) {
+    return Consumer(
+      key: ValueKey('lyrics-pane-${isWide ? 'wide' : 'compact'}'),
+      builder: (context, ref, child) {
+        final lyricState = ref.watch(lyricControllerProvider);
+        return GestureDetector(
+          key: ValueKey('lyrics-swipe-surface-${isWide ? 'wide' : 'compact'}'),
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragEnd: isWide
+              ? (details) {
+                  if ((details.primaryVelocity ?? 0) < -550) _showControls();
+                }
+              : null,
+          child: PlayerLyricsSurface(
+            isWide: isWide,
+            isActive: isWide
+                ? !_isLyricLocked && _rightPane == PlayerRightPane.lyrics
+                : !_isLyricLocked &&
+                      _compactPage == 2 &&
+                      _rightPane != PlayerRightPane.queue,
+            seekingPosition: _seekingPosition,
+            onFullscreen: _enterLyricFullscreen,
+            onLongPress: _enterLyricFullscreen,
+            onDismissPlayer: _dismissPlayer,
+            onShowQueue: _showQueue,
+            actionWidth: isWide ? null : _compactSharedWidth,
+            translateButton: _buildLyricTranslateAppBarButton(context),
+            onDownload: lyricState.source?.canSaveOriginal == true
+                ? () => _openCurrentLyricSource(context, lyricState.source!)
+                : null,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildQueuePane(BuildContext context, {required bool isWide}) {
+    return Align(
+      key: const ValueKey('player-queue-pane'),
+      alignment: Alignment.center,
+      child: SizedBox(
+        key: const ValueKey('player-queue-width-boundary'),
+        width: isWide ? double.infinity : _compactSharedWidth,
+        child: Column(
+          children: [
+            Expanded(
+              child: PlayerQueueSurface(
+                onTrackSelected: () {},
+                onClear: _clearQueueAndClosePlayer,
+                onDismissRequested: _closeQueue,
+                horizontalPadding: 0,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Duration _motionDuration(BuildContext context) {
+    return MediaQuery.of(context).disableAnimations
+        ? Duration.zero
+        : const Duration(milliseconds: 260);
+  }
+
+  void _onCompactPageChanged(int index) {
+    if (_rightPane == PlayerRightPane.queue || index == _compactPage) return;
+    final previous = _compactPage;
+    setState(() {
+      _compactPage = index;
+      if (index == 0) {
+        _leftPane = PlayerLeftPane.information;
+        _lastOperatedRegion = PlayerOperatedRegion.left;
+      } else if (index == 2) {
+        _rightPane = PlayerRightPane.lyrics;
+        _lastOperatedRegion = PlayerOperatedRegion.right;
+      } else if (previous == 0) {
+        _leftPane = PlayerLeftPane.cover;
+        _lastOperatedRegion = PlayerOperatedRegion.left;
+      } else if (previous == 2) {
+        _rightPane = PlayerRightPane.controls;
+        _lastOperatedRegion = PlayerOperatedRegion.right;
+      }
+    });
+  }
+
+  void _onCompactVerticalPageChanged(int index) {
+    if (index == 1) {
+      _activateQueueState();
+    } else {
+      _restoreQueueState();
+    }
+  }
+
+  bool _handleCompactVerticalScroll(ScrollNotification notification) {
+    if (notification.depth != 0 || notification is! ScrollEndNotification) {
+      return false;
+    }
+    final page = _compactVerticalPageController.hasClients
+        ? _compactVerticalPageController.page
+        : null;
+    if (page == null) return false;
+    final showQueue = page >= 0.5;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (showQueue) {
+        _activateQueueState();
+      } else {
+        _restoreQueueState();
+      }
+    });
+    return false;
+  }
+
+  void _onWideLeftPageChanged(int index) {
+    final pane = index == 0 ? PlayerLeftPane.cover : PlayerLeftPane.information;
+    if (_leftPane == pane) return;
+    setState(() {
+      _leftPane = pane;
+      _lastOperatedRegion = PlayerOperatedRegion.left;
+    });
+  }
+
+  void _onWideRightPageChanged(int index) {
+    final pane = index == 0 ? PlayerRightPane.lyrics : PlayerRightPane.controls;
+    if (_rightPane == PlayerRightPane.queue || _rightPane == pane) return;
+    setState(() {
+      _rightPane = pane;
+      _lastOperatedRegion = PlayerOperatedRegion.right;
+    });
+  }
+
+  void _showLyrics() {
+    setState(() {
+      _rightPane = PlayerRightPane.lyrics;
+      _lastOperatedRegion = PlayerOperatedRegion.right;
+      if (_lastWasWide != true) _compactPage = 2;
+    });
+    _animateSemanticPage(
+      wideController: _wideRightPageController,
+      widePage: 0,
+      compactPage: 2,
+    );
+  }
+
+  void _showControls() {
+    setState(() {
+      _rightPane = PlayerRightPane.controls;
+      _lastOperatedRegion = PlayerOperatedRegion.right;
+      if (_lastWasWide != true) _compactPage = 1;
+    });
+    _animateSemanticPage(
+      wideController: _wideRightPageController,
+      widePage: 1,
+      compactPage: 1,
+    );
+  }
+
+  void _showCover() {
+    setState(() {
+      _leftPane = PlayerLeftPane.cover;
+      _lastOperatedRegion = PlayerOperatedRegion.left;
+      if (_lastWasWide != true) _compactPage = 1;
+    });
+    _animateSemanticPage(
+      wideController: _wideLeftPageController,
+      widePage: 0,
+      compactPage: 1,
+    );
+  }
+
+  void _animateSemanticPage({
+    required PageController wideController,
+    required int widePage,
+    required int compactPage,
+  }) {
+    final request = ++_semanticTransitionGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || request != _semanticTransitionGeneration) return;
+      final controller = usesWidePlayerLayout(MediaQuery.sizeOf(context).width)
+          ? wideController
+          : _compactPageController;
+      final page = identical(controller, _compactPageController)
+          ? compactPage
+          : widePage;
+      if (!controller.hasClients) return;
+      final currentPage = controller.page;
+      if (currentPage != null && (currentPage - page).abs() < 0.001) return;
+      final duration = _motionDuration(context);
+      if (duration == Duration.zero) {
+        controller.jumpToPage(page);
+      } else {
+        unawaited(() async {
+          try {
+            await controller.animateToPage(
+              page,
+              duration: duration,
+              curve: Curves.easeOutCubic,
+            );
+          } catch (_) {
+            // A newer page or queue request can detach this controller.
+          }
+        }());
+      }
+    });
+  }
+
+  void _showQueue() {
+    if (_rightPane == PlayerRightPane.queue) return;
+    _semanticTransitionGeneration++;
+    _activateQueueState();
+    _animateCompactQueuePage(1);
+  }
+
+  void _activateQueueState() {
+    if (_rightPane == PlayerRightPane.queue) return;
+    setState(() {
+      _leftPaneBeforeQueue = _leftPane;
+      _rightPaneBeforeQueue = _rightPane;
+      _compactPageBeforeQueue = _compactPage;
+      _rightPane = PlayerRightPane.queue;
+    });
+  }
+
+  void _closeQueue() {
+    if (_rightPane != PlayerRightPane.queue) return;
+    _semanticTransitionGeneration++;
+    _restoreQueueState();
+    _animateCompactQueuePage(0);
+  }
+
+  void _restoreQueueState() {
+    if (_rightPane != PlayerRightPane.queue) return;
+    final restoredRight = _rightPaneBeforeQueue == PlayerRightPane.queue
+        ? PlayerRightPane.controls
+        : _rightPaneBeforeQueue;
+    setState(() {
+      _leftPane = _leftPaneBeforeQueue;
+      _rightPane = restoredRight;
+      _compactPage = _compactPageBeforeQueue;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (usesWidePlayerLayout(MediaQuery.sizeOf(context).width)) {
+        if (_wideLeftPageController.hasClients) {
+          _wideLeftPageController.jumpToPage(
+            _leftPane == PlayerLeftPane.information ? 1 : 0,
+          );
+        }
+        if (_wideRightPageController.hasClients) {
+          _wideRightPageController.jumpToPage(
+            restoredRight == PlayerRightPane.lyrics ? 0 : 1,
+          );
+        }
+      } else if (_compactPageController.hasClients) {
+        _compactPageController.jumpToPage(_compactPageBeforeQueue);
+      }
+    });
+  }
+
+  void _animateCompactQueuePage(int page) {
+    final request = ++_verticalTransitionGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          request != _verticalTransitionGeneration ||
+          usesWidePlayerLayout(MediaQuery.sizeOf(context).width) ||
+          !_compactVerticalPageController.hasClients) {
+        return;
+      }
+      final duration = _motionDuration(context);
+      if (duration == Duration.zero) {
+        _compactVerticalPageController.jumpToPage(page);
+      } else {
+        unawaited(() async {
+          try {
+            await _compactVerticalPageController.animateToPage(
+              page,
+              duration: duration,
+              curve: Curves.easeOutCubic,
+            );
+          } catch (_) {
+            // A newer vertical transition superseded this one.
+          }
+        }());
+      }
+    });
+  }
+
+  Future<void> _clearQueueAndClosePlayer() async {
+    if (!await confirmClearPlaybackQueue(context)) return;
+    try {
+      await ref
+          .read(audioPlayerControllerProvider.notifier)
+          .clearQueueAndStop();
+      if (mounted) Navigator.of(context).pop();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
+
+  void _dismissPlayer() {
+    if (!mounted || _dismissRequested) return;
+    setState(() => _dismissRequested = true);
+    _semanticTransitionGeneration++;
+    _verticalTransitionGeneration++;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(() async {
+        final popped = await Navigator.of(context).maybePop();
+        if (mounted && !popped) {
+          setState(() => _dismissRequested = false);
+        }
+      }());
+    });
+  }
+
+  void _handleBack() {
+    if (_isLyricLocked) {
+      _exitLyricFullscreen();
+      return;
+    }
+    if (_rightPane == PlayerRightPane.queue) {
+      _closeQueue();
+      return;
+    }
+    if (_lastWasWide == true) {
+      if (_lastOperatedRegion == PlayerOperatedRegion.right &&
+          _rightPane == PlayerRightPane.lyrics) {
+        _showControls();
+        return;
+      }
+      if (_lastOperatedRegion == PlayerOperatedRegion.left &&
+          _leftPane == PlayerLeftPane.information) {
+        _showCover();
+        return;
+      }
+      if (_rightPane == PlayerRightPane.lyrics) {
+        _showControls();
+        return;
+      }
+      if (_leftPane == PlayerLeftPane.information) {
+        _showCover();
+        return;
+      }
+    } else {
+      if (_compactPage == 0) {
+        _showCover();
+        return;
+      }
+      if (_compactPage == 2) {
+        _showControls();
+        return;
+      }
+    }
+    Navigator.of(context).maybePop();
+  }
+
+  Future<void> _showMoreSheet(BuildContext context, AudioTrack track) async {
+    _releaseTextInputFocus();
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: false,
+        requestFocus: false,
+        backgroundColor: Colors.transparent,
+        barrierColor: Colors.transparent,
+        builder: (sheetContext) => PlayerBackdropGroup(
+          child: PlayerGlassSurface(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+            grouped: false,
+            sigma: 4,
+            child: SafeArea(
+              top: false,
+              child: SizedBox(
+                height: math.min(
+                  MediaQuery.sizeOf(sheetContext).height * 0.72,
+                  620,
+                ),
+                child: PlayerInfoPanel(
+                  track: track,
+                  currentProgress: _currentProgress,
+                  onMarkPressed: track.workId == null
+                      ? null
+                      : () => _showMarkDialog(
+                          context,
+                          track.workId!,
+                          track.title,
+                        ),
+                  onDetailPressed: track.workId == null
+                      ? null
+                      : () {
+                          Navigator.of(sheetContext).pop();
+                          _navigateToWorkDetail(context, track.workId!);
+                        },
+                  onQueuePressed: () {
+                    Navigator.of(sheetContext).pop();
+                    _showQueue();
+                  },
+                  onImmersiveLyrics: () {
+                    Navigator.of(sheetContext).pop();
+                    _enterLyricFullscreen();
+                  },
+                  visibleActionCount: 5,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        _releaseTextInputFocus();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _releaseTextInputFocus();
+        });
+      }
+    }
+  }
+
+  void _releaseTextInputFocus() {
+    FocusManager.instance.primaryFocus?.unfocus(
+      disposition: UnfocusDisposition.scope,
+    );
+    if (_keyboardFocusNode.canRequestFocus) {
+      _keyboardFocusNode.requestFocus();
+    }
+    unawaited(SystemChannels.textInput.invokeMethod<void>('TextInput.hide'));
+  }
+
+  void _openKnownWork(Work work) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => WorkDetailScreen(work: work),
+      ),
+    );
+  }
+
+  void _openCurrentLyricSource(
+    BuildContext context,
+    LyricSourceDescriptor source,
+  ) {
+    final sourceUrl = source.localPath?.isNotEmpty == true
+        ? LocalFileUrl.fromPath(source.localPath!)
+        : source.url;
+    if (sourceUrl == null || sourceUrl.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(S.of(context).noContentToSave)));
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => TextPreviewScreen(
+          textUrl: sourceUrl,
+          title: source.title,
+          workId: source.workId,
+          hash: source.hash,
+          showSaveOptionsOnLoad: true,
+        ),
+      ),
+    );
+  }
+
+  // ignore: unused_element
   PreferredSizeWidget _buildAppBar(
     BuildContext context,
     SystemUiOverlayStyle systemOverlayStyle,
@@ -318,6 +1643,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildPortraitLayout(
     BuildContext context,
     AsyncValue currentTrack,
@@ -344,17 +1670,17 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
               });
             }
 
-            final workCoverUrl =
-                _buildWorkCoverUrl(track.workId, track.artworkUrl);
+            final workCoverUrl = _buildWorkCoverUrl(
+              track.workId,
+              track.artworkUrl,
+            );
 
             return Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
               child: Column(
                 children: [
                   if (_showLyricView)
-                    Expanded(
-                      child: _buildPortraitLyricView(),
-                    )
+                    Expanded(child: _buildPortraitLyricView())
                   else ...[
                     Flexible(
                       child: Consumer(
@@ -399,9 +1725,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                                   style: Theme.of(context)
                                       .textTheme
                                       .headlineSmall
-                                      ?.copyWith(
-                                        fontWeight: FontWeight.bold,
-                                      ),
+                                      ?.copyWith(fontWeight: FontWeight.bold),
                                   textAlign: TextAlign.center,
                                   maxLines: 3,
                                   overflow: TextOverflow.ellipsis,
@@ -410,13 +1734,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                                 if (track.artist != null)
                                   Text(
                                     track.artist!,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodyLarge
+                                    style: Theme.of(context).textTheme.bodyLarge
                                         ?.copyWith(
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onSurfaceVariant,
                                         ),
                                     textAlign: TextAlign.center,
                                     maxLines: 2,
@@ -441,8 +1763,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                     workId: track.workId,
                     currentProgress: _currentProgress,
                     onMarkPressed: track.workId != null
-                        ? () =>
-                            _showMarkDialog(context, track.workId!, track.title)
+                        ? () => _showMarkDialog(
+                            context,
+                            track.workId!,
+                            track.title,
+                          )
                         : null,
                     onDetailPressed: track.workId != null
                         ? () => _navigateToWorkDetail(context, track.workId!)
@@ -454,7 +1779,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
           },
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (error, stack) => Center(
-              child: Text(S.of(context).errorWithMessage(error.toString()))),
+            child: Text(S.of(context).errorWithMessage(error.toString())),
+          ),
         ),
         if (_showLyricHint) _buildLyricHintBanner(),
         if (isTrackLoading) _buildTrackLoadingOverlay(context),
@@ -462,6 +1788,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildLandscapeLayout(
     BuildContext context,
     AsyncValue currentTrack,
@@ -509,7 +1836,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                       minSpacing1 + minSpacing2 + minSpacing3;
 
                   // 固定元素总高度
-                  final fixedHeight = padding +
+                  final fixedHeight =
+                      padding +
                       titleHeight +
                       (track.artist != null ? artistHeight : 0.0) +
                       controlsHeight +
@@ -520,18 +1848,23 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
                   // 封面最大高度限制
                   final maxCoverHeight = constraints.maxHeight * 0.6;
-                  final coverHeight =
-                      availableForCover.clamp(120.0, maxCoverHeight);
+                  final coverHeight = availableForCover.clamp(
+                    120.0,
+                    maxCoverHeight,
+                  );
 
                   // 计算剩余可分配的空间
-                  final usedHeight = padding +
+                  final usedHeight =
+                      padding +
                       coverHeight +
                       titleHeight +
                       (track.artist != null ? artistHeight : 0.0) +
                       controlsHeight +
                       minTotalSpacing;
-                  final extraSpace = (constraints.maxHeight - usedHeight)
-                      .clamp(0.0, double.infinity);
+                  final extraSpace = (constraints.maxHeight - usedHeight).clamp(
+                    0.0,
+                    double.infinity,
+                  );
 
                   // 将额外空间分配到间距上
                   final spacing1 = minSpacing1 + (extraSpace * 0.4);
@@ -564,10 +1897,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                         // 标题
                         Text(
                           track.title,
-                          style:
-                              Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.bold),
                           textAlign: TextAlign.center,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -576,13 +1907,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                           SizedBox(height: spacing2),
                           Text(
                             track.artist!,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium
+                            style: Theme.of(context).textTheme.bodyMedium
                                 ?.copyWith(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
                                 ),
                             textAlign: TextAlign.center,
                             maxLines: 1,
@@ -602,11 +1931,16 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                           currentProgress: _currentProgress,
                           onMarkPressed: track.workId != null
                               ? () => _showMarkDialog(
-                                  context, track.workId!, track.title)
+                                  context,
+                                  track.workId!,
+                                  track.title,
+                                )
                               : null,
                           onDetailPressed: track.workId != null
-                              ? () =>
-                                  _navigateToWorkDetail(context, track.workId!)
+                              ? () => _navigateToWorkDetail(
+                                  context,
+                                  track.workId!,
+                                )
                               : null,
                         ),
                       ],
@@ -645,12 +1979,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                           const SizedBox(height: 16),
                           Text(
                             S.of(context).noSubtitlesAvailable,
-                            style:
-                                Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurfaceVariant,
-                                    ),
+                            style: Theme.of(context).textTheme.bodyLarge
+                                ?.copyWith(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                ),
                           ),
                         ],
                       ),
@@ -659,9 +1993,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
                   return Stack(
                     children: [
-                      FullLyricDisplay(
-                        seekingPosition: _seekingPosition,
-                      ),
+                      FullLyricDisplay(seekingPosition: _seekingPosition),
                     ],
                   );
                 },
@@ -671,8 +2003,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, stack) => Center(
-          child: Text(S.of(context).errorWithMessage(error.toString()))),
+      error: (error, stack) =>
+          Center(child: Text(S.of(context).errorWithMessage(error.toString()))),
     );
     return _buildTrackLoadingState(
       context: context,
@@ -687,12 +2019,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     required bool isLoading,
   }) {
     if (!isLoading) return child;
-    return Stack(
-      children: [
-        child,
-        _buildTrackLoadingOverlay(context),
-      ],
-    );
+    return Stack(children: [child, _buildTrackLoadingOverlay(context)]);
   }
 
   Widget _buildTrackLoadingOverlay(BuildContext context) {
@@ -832,18 +2159,16 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         final isTranslated = lyricState.isTranslated;
         final showTranslated = lyricState.showTranslated;
         final total = lyricState.translationTotal;
-        final completed =
-            total > 0 ? lyricState.translatedCount.clamp(0, total).toInt() : 0;
+        final completed = total > 0
+            ? lyricState.translatedCount.clamp(0, total).toInt()
+            : 0;
         final progressValue = total > 0 ? completed / total : null;
         final progressLabel = total > 0 ? '$completed/$total' : null;
 
         final String tooltip;
         if (isTranslating) {
           tooltip = total > 0
-              ? S.of(context).translatingProgress(
-                    completed,
-                    total,
-                  )
+              ? S.of(context).translatingProgress(completed, total)
               : S.of(context).translatingLyrics;
         } else if (isTranslated && showTranslated) {
           tooltip = S.of(context).showOriginalLyrics;
@@ -858,20 +2183,22 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
               ? null
               : () async {
                   try {
-                    final controller =
-                        ref.read(lyricControllerProvider.notifier);
+                    final controller = ref.read(
+                      lyricControllerProvider.notifier,
+                    );
 
                     if (isTranslated) {
                       await controller.toggleTranslation();
                       return;
                     }
 
-                    final confirmed =
-                        await _confirmLyricTranslationIfNeeded(context);
+                    final confirmed = await _confirmLyricTranslationIfNeeded(
+                      context,
+                    );
                     if (!confirmed) return;
 
-                    final savedPath =
-                        await controller.translateAndSaveCurrentLyrics();
+                    final savedPath = await controller
+                        .translateAndSaveCurrentLyrics();
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -918,9 +2245,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                             fit: BoxFit.scaleDown,
                             child: Text(
                               progressLabel,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelSmall
+                              style: Theme.of(context).textTheme.labelSmall
                                   ?.copyWith(
                                     fontSize: 8,
                                     fontWeight: FontWeight.w700,
@@ -957,10 +2282,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
           return Material(
             color: Colors.transparent,
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 8,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.primaryContainer,
                 boxShadow: [
@@ -983,10 +2305,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                     child: Text(
                       S.of(context).lyricHintTapCover,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onPrimaryContainer,
-                          ),
+                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      ),
                     ),
                   ),
                   IconButton(
@@ -1013,7 +2333,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   }
 
   Future<void> _showMarkDialog(
-      BuildContext context, int workId, String? workTitle) async {
+    BuildContext context,
+    int workId,
+    String? workTitle,
+  ) async {
     final manager = WorkBookmarkManager(ref: ref, context: context);
 
     await manager.showMarkDialog(
@@ -1038,9 +2361,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         showDialog(
           context: context,
           barrierDismissible: false,
-          builder: (context) => const Center(
-            child: CircularProgressIndicator(),
-          ),
+          builder: (context) =>
+              const Center(child: CircularProgressIndicator()),
         );
       }
 
@@ -1052,9 +2374,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         Navigator.of(context).pop();
 
         Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => WorkDetailScreen(work: work),
-          ),
+          MaterialPageRoute(builder: (context) => WorkDetailScreen(work: work)),
         );
       }
     } catch (e) {
@@ -1063,7 +2383,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(S.of(context).loadFailedWithError(e.toString()))),
+            content: Text(S.of(context).loadFailedWithError(e.toString())),
+          ),
         );
       }
     }

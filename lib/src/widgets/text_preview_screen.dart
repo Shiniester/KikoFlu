@@ -27,6 +27,7 @@ class TextPreviewScreen extends StatefulWidget {
   final int? workId;
   final String? hash;
   final VoidCallback? onSavedToLibrary;
+  final bool showSaveOptionsOnLoad;
 
   const TextPreviewScreen({
     super.key,
@@ -35,6 +36,7 @@ class TextPreviewScreen extends StatefulWidget {
     this.workId,
     this.hash,
     this.onSavedToLibrary,
+    this.showSaveOptionsOnLoad = false,
   });
 
   @override
@@ -64,6 +66,7 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
   List<_TextSearchMatch> _searchMatches = const [];
   int _currentSearchMatchIndex = -1;
   bool _hasLoadedContent = false;
+  bool _initialSaveOptionsShown = false;
   late TextEditingController _textController;
   late TextEditingController _translatedTextController;
   String _detectedEncoding = 'UTF-8'; // 记录检测到的原始编码
@@ -113,8 +116,9 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
   /// 支持 UTF-8、GBK、Shift-JIS 等常见编码
   Future<String> _readFileWithEncoding(File file) async {
     try {
-      final (content, encoding) =
-          await EncodingUtils.readFileWithEncoding(file);
+      final (content, encoding) = await EncodingUtils.readFileWithEncoding(
+        file,
+      );
       _detectedEncoding = encoding;
       LogService.instance.debug('检测到文件编码: $encoding', tag: 'TextPreview');
       return content;
@@ -166,6 +170,14 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
     );
   }
 
+  void _showInitialSaveOptionsIfNeeded() {
+    if (!widget.showSaveOptionsOnLoad || _initialSaveOptionsShown) return;
+    _initialSaveOptionsShown = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _showSaveOptions();
+    });
+  }
+
   Future<void> _saveToLocal() async {
     final l10n = S.of(context);
     // 获取当前显示的内容（可能是编辑后的）
@@ -215,8 +227,10 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
         while (await File(finalPath).exists()) {
           final nameWithoutExt = path.basenameWithoutExtension(fileName);
           final ext = path.extension(fileName);
-          finalPath =
-              path.join(directoryPath, '${nameWithoutExt}_$counter$ext');
+          finalPath = path.join(
+            directoryPath,
+            '${nameWithoutExt}_$counter$ext',
+          );
           counter++;
         }
 
@@ -230,10 +244,7 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      SnackBarUtil.showError(
-        context,
-        l10n.saveFailedWithError(e.toString()),
-      );
+      SnackBarUtil.showError(context, l10n.saveFailedWithError(e.toString()));
     }
   }
 
@@ -255,7 +266,8 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
 
       // 创建“已保存”目录
       final savedDir = Directory(
-          path.join(libraryDir.path, SubtitleLibraryService.savedFolderName));
+        path.join(libraryDir.path, SubtitleLibraryService.savedFolderName),
+      );
       if (!await savedDir.exists()) {
         await savedDir.create();
       }
@@ -297,10 +309,7 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      SnackBarUtil.showError(
-        context,
-        l10n.saveFailedWithError(e.toString()),
-      );
+      SnackBarUtil.showError(context, l10n.saveFailedWithError(e.toString()));
     }
   }
 
@@ -553,6 +562,7 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
             _textController.text = content;
             _isLoading = false;
           });
+          _showInitialSaveOptionsIfNeeded();
           return;
         } else {
           if (!mounted) return;
@@ -580,6 +590,7 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
             _textController.text = cachedContent;
             _isLoading = false;
           });
+          _showInitialSaveOptionsIfNeeded();
           return;
         }
       }
@@ -615,9 +626,11 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
           _textController.text = content;
           _isLoading = false;
         });
+        _showInitialSaveOptionsIfNeeded();
       } else {
         throw Exception(
-            'HTTP ${response.statusCode}: ${response.statusMessage}');
+          'HTTP ${response.statusCode}: ${response.statusMessage}',
+        );
       }
     } catch (e) {
       if (!mounted) return;
@@ -696,8 +709,9 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
             IconButton(
               icon: Icon(
                 _isEditMode ? Icons.visibility : Icons.edit,
-                color:
-                    _isEditMode ? Theme.of(context).colorScheme.primary : null,
+                color: _isEditMode
+                    ? Theme.of(context).colorScheme.primary
+                    : null,
               ),
               onPressed: () {
                 setState(() {

@@ -694,6 +694,12 @@ class SZh extends S {
   String get playlistTitle => '播放列表';
 
   @override
+  String get clearPlaybackQueueTitle => '清空播放队列？';
+
+  @override
+  String get clearPlaybackQueueMessage => '这将停止播放并移除队列中的全部歌曲。';
+
+  @override
   String get noAudioPlaying => '没有正在播放的音频';
 
   @override
@@ -954,31 +960,34 @@ class SZh extends S {
   String get selectAudioTapPlaylistMode => '选择点击音频时如何更新播放列表：';
 
   @override
-  String get audioTapPlaylistModeReplace => '替换模式';
+  String get audioTapPlaylistModeReplace => '替换播放列表';
 
   @override
   String get audioTapPlaylistModeReplaceDescription =>
       '用点击音频所在目录下的所有可播放音频替换当前播放列表。';
 
   @override
-  String get audioTapPlaylistModeAppendDirectory => '追加模式';
+  String get audioTapPlaylistModeAppendDirectory => '下一首播放';
 
   @override
   String get audioTapPlaylistModeAppendDirectoryDescription =>
-      '将点击音频所在目录下的所有可播放音频追加到播放列表尾部；不会重复添加已有音轨。';
+      '将点击的音频放到当前音频之后，不中断当前播放。';
 
   @override
-  String get audioTapPlaylistModeAppendSingle => '单音频追加模式';
+  String get audioTapPlaylistModeAppendSingle => '添加到播放列表';
 
   @override
   String get audioTapPlaylistModeAppendSingleDescription =>
-      '只将点击的这个音频追加到播放列表尾部；不会重复添加已有音轨。';
+      '将点击的音频添加到播放列表末尾，不中断或切换当前播放。';
 
   @override
-  String get audioTapPlaylistModeAppendChip => '追加模式';
+  String get audioTapPlaylistModeAppendChip => '下一首播放';
 
   @override
-  String get audioTapPlaylistModeAppendSingleChip => '单音频追加模式';
+  String get audioTapPlaylistModeAppendSingleChip => '添加到播放列表';
+
+  @override
+  String get copyName => '复制名称';
 
   @override
   String get preloadNextTitle => '预加载下一首';
@@ -4324,6 +4333,12 @@ class SZhHant extends SZh {
   String get playlistTitle => '播放清單';
 
   @override
+  String get clearPlaybackQueueTitle => '清空播放清單？';
+
+  @override
+  String get clearPlaybackQueueMessage => '這將停止播放並移除清單中的全部歌曲。';
+
+  @override
   String get noAudioPlaying => '沒有正在播放的音訊';
 
   @override
@@ -4584,31 +4599,34 @@ class SZhHant extends SZh {
   String get selectAudioTapPlaylistMode => '選擇點擊音訊時如何更新播放清單：';
 
   @override
-  String get audioTapPlaylistModeReplace => '取代模式';
+  String get audioTapPlaylistModeReplace => '取代播放清單';
 
   @override
   String get audioTapPlaylistModeReplaceDescription =>
       '以所點音訊所在目錄中的所有可播放音訊取代目前播放清單。';
 
   @override
-  String get audioTapPlaylistModeAppendDirectory => '追加模式';
+  String get audioTapPlaylistModeAppendDirectory => '下一首播放';
 
   @override
   String get audioTapPlaylistModeAppendDirectoryDescription =>
-      '將所點音訊所在目錄中的所有可播放音訊追加到播放清單尾端；不會重複新增已有音軌。';
+      '將所點音訊放在目前音訊之後，不中斷目前播放。';
 
   @override
-  String get audioTapPlaylistModeAppendSingle => '單音訊追加模式';
+  String get audioTapPlaylistModeAppendSingle => '加入播放清單';
 
   @override
   String get audioTapPlaylistModeAppendSingleDescription =>
-      '只將所點擊的音訊追加到播放清單尾端；不會重複新增已有音軌。';
+      '將所點音訊加入播放清單尾端，不中斷或切換目前播放。';
 
   @override
-  String get audioTapPlaylistModeAppendChip => '追加模式';
+  String get audioTapPlaylistModeAppendChip => '下一首播放';
 
   @override
-  String get audioTapPlaylistModeAppendSingleChip => '單音訊追加模式';
+  String get audioTapPlaylistModeAppendSingleChip => '加入播放清單';
+
+  @override
+  String get copyName => '複製名稱';
 
   @override
   String get preloadNextTitle => '預載下一首';

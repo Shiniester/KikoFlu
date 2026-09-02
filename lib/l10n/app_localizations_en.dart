@@ -711,6 +711,13 @@ class SEn extends S {
   String get playlistTitle => 'Playlist';
 
   @override
+  String get clearPlaybackQueueTitle => 'Clear playback queue?';
+
+  @override
+  String get clearPlaybackQueueMessage =>
+      'This will stop playback and remove every item from the queue.';
+
+  @override
   String get noAudioPlaying => 'No audio playing';
 
   @override
@@ -978,31 +985,34 @@ class SEn extends S {
       'Choose how tapping audio updates the playlist:';
 
   @override
-  String get audioTapPlaylistModeReplace => 'Replace Mode';
+  String get audioTapPlaylistModeReplace => 'Replace Playlist';
 
   @override
   String get audioTapPlaylistModeReplaceDescription =>
       'Replace the current playlist with every playable audio file in the tapped file\'s folder.';
 
   @override
-  String get audioTapPlaylistModeAppendDirectory => 'Append Mode';
+  String get audioTapPlaylistModeAppendDirectory => 'Play Next';
 
   @override
   String get audioTapPlaylistModeAppendDirectoryDescription =>
-      'Append every playable audio file in the tapped file\'s folder. Existing tracks are not duplicated.';
+      'Place the tapped audio after the current track without interrupting playback.';
 
   @override
-  String get audioTapPlaylistModeAppendSingle => 'Single-Audio Append Mode';
+  String get audioTapPlaylistModeAppendSingle => 'Add to Playlist';
 
   @override
   String get audioTapPlaylistModeAppendSingleDescription =>
-      'Append only the tapped audio file. Existing tracks are not duplicated.';
+      'Add the tapped audio to the end of the playlist without interrupting or switching playback.';
 
   @override
-  String get audioTapPlaylistModeAppendChip => 'Append Mode';
+  String get audioTapPlaylistModeAppendChip => 'Play Next';
 
   @override
-  String get audioTapPlaylistModeAppendSingleChip => 'Single-Audio Append Mode';
+  String get audioTapPlaylistModeAppendSingleChip => 'Add to Playlist';
+
+  @override
+  String get copyName => 'Copy Name';
 
   @override
   String get preloadNextTitle => 'Preload Next Track';

@@ -3,11 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/widgets/file_tree_view.dart';
 
-Map<String, dynamic> fileItem(
-  String title, {
-  String? type,
-  String? hash,
-}) {
+Map<String, dynamic> fileItem(String title, {String? type, String? hash}) {
   return {
     'type': type ?? 'file',
     'title': title,
@@ -15,15 +11,8 @@ Map<String, dynamic> fileItem(
   };
 }
 
-Map<String, dynamic> folderItem(
-  String title,
-  List<dynamic> children,
-) {
-  return {
-    'type': 'folder',
-    'title': title,
-    'children': children,
-  };
+Map<String, dynamic> folderItem(String title, List<dynamic> children) {
+  return {'type': 'folder', 'title': title, 'children': children};
 }
 
 Widget _testApp(Widget child) {
@@ -35,8 +24,9 @@ Widget _testApp(Widget child) {
 }
 
 void main() {
-  testWidgets('FileTreeView expands folders and passes file tap context',
-      (tester) async {
+  testWidgets('FileTreeView expands folders and passes file tap context', (
+    tester,
+  ) async {
     final tree = [
       folderItem('Disc 1', [
         fileItem('track01.mp3', type: 'audio', hash: 'audio-hash'),
@@ -87,11 +77,10 @@ void main() {
     expect(tappedParent, 'Disc 1');
   });
 
-  testWidgets('FileTreeView renders metadata, trailing actions, and badges',
-      (tester) async {
-    final tree = [
-      fileItem('track01.mp3', type: 'audio', hash: 'audio-hash'),
-    ];
+  testWidgets('FileTreeView renders metadata, trailing actions, and badges', (
+    tester,
+  ) async {
+    final tree = [fileItem('track01.mp3', type: 'audio', hash: 'audio-hash')];
 
     await tester.pumpWidget(
       _testApp(
@@ -119,5 +108,38 @@ void main() {
     expect(find.byKey(const Key('play-action')), findsOneWidget);
     expect(find.byIcon(Icons.check_circle), findsOneWidget);
     expect(find.byIcon(Icons.subtitles), findsOneWidget);
+  });
+
+  testWidgets('FileTreeView forwards non-folder long presses to file actions', (
+    tester,
+  ) async {
+    final file = fileItem('track01.mp3', type: 'audio', hash: 'audio-hash');
+    dynamic pressedItem;
+    String? pressedTitle;
+    String? pressedParent;
+
+    await tester.pumpWidget(
+      _testApp(
+        FileTreeView(
+          items: [
+            folderItem('Disc 1', [file]),
+          ],
+          expandedFolders: const {'Disc 1'},
+          displayNameFor: (title) => 'translated $title',
+          onToggleFolder: (_) {},
+          onFileTap: (_, __, ___) {},
+          onFileLongPress: (item, title, parentPath) {
+            pressedItem = item;
+            pressedTitle = title;
+            pressedParent = parentPath;
+          },
+        ),
+      ),
+    );
+
+    await tester.longPress(find.text('translated track01.mp3'));
+    expect(pressedItem, same(file));
+    expect(pressedTitle, 'translated track01.mp3');
+    expect(pressedParent, 'Disc 1');
   });
 }

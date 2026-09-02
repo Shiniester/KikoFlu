@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:real_liquid_glass/real_liquid_glass.dart';
@@ -12,11 +11,12 @@ import '../providers/auth_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/player_lyric_style_provider.dart';
 import '../providers/settings_provider.dart';
-import '../screens/audio_player_screen.dart';
 import '../utils/local_file_url.dart';
 import 'privacy_blur_cover.dart';
 import 'volume_control.dart';
 import 'liquid_glass_layout.dart';
+import 'player/player_route.dart';
+import 'player/player_visual_palette.dart';
 
 class MiniPlayer extends ConsumerStatefulWidget {
   final bool enableArtworkHero;
@@ -50,8 +50,9 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
     );
     final isMiniPlayerVisible = ref.watch(miniPlayerVisibilityProvider);
     final useLiquidGlass = ref.watch(liquidGlassNavigationProvider);
-    final fallbackGlassTransparency =
-        ref.watch(fallbackGlassTransparencyProvider);
+    final fallbackGlassTransparency = ref.watch(
+      fallbackGlassTransparencyProvider,
+    );
 
     // 启用自动字幕加载器
     ref.watch(lyricAutoLoaderProvider);
@@ -98,6 +99,24 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
           }
         }
 
+        // Start the low-resolution palette extraction while the Mini Player is
+        // visible. Opening the full player can then use the artwork palette on
+        // its very first frame instead of briefly revealing the theme seed.
+        final playerTheme = Theme.of(context);
+        final privacy = ref.watch(privacyModeSettingsProvider);
+        final paletteRequest = PlayerPaletteRequest(
+          source: workCoverUrl ?? track.artworkUrl,
+          cacheKey: track.workId != null
+              ? 'work_cover_${track.workId}'
+              : track.hash ?? track.id,
+          brightness: playerTheme.brightness,
+          fallbackSeed: playerTheme.colorScheme.primary,
+          suppressArtwork: privacy.enabled && privacy.blurCoverInApp,
+        );
+        final preparedPalette = ref.watch(
+          playerVisualPaletteProvider(paletteRequest),
+        );
+
         return Dismissible(
           key: Key('miniplayer_${track.id}'),
           direction: DismissDirection.down,
@@ -120,8 +139,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
               final hasCurrentLyric = ref.watch(
                 currentLyricTextProvider.select((lyric) => lyric != null),
               );
-              final shouldShowLyric =
-                  isPlaying && hasLyrics && hasCurrentLyric;
+              final shouldShowLyric = isPlaying && hasLyrics && hasCurrentLyric;
               final playerHeight = shouldShowLyric ? 88.0 : 72.0;
 
               final playerContent = Container(
@@ -134,10 +152,9 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                       ? null
                       : Border(
                           top: BorderSide(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .outline
-                                .withValues(alpha: 0.2),
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.outline.withValues(alpha: 0.2),
                             width: 1,
                           ),
                         ),
@@ -149,19 +166,37 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 8),
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
                         child: Row(
                           children: [
                             // Left tap area: artwork + info opens full player
                             Expanded(
                               child: GestureDetector(
                                 behavior: HitTestBehavior.opaque,
-                                onTap: () {
-                                  Navigator.of(context).push(
-                                    _PlayerPageRoute(
-                                      builder: (context) =>
-                                          const AudioPlayerScreen(),
-                                    ),
+                                onTap: () async {
+                                  PlayerVisualPalette initialPalette;
+                                  try {
+                                    initialPalette =
+                                        preparedPalette.valueOrNull ??
+                                        await ref.read(
+                                          playerVisualPaletteProvider(
+                                            paletteRequest,
+                                          ).future,
+                                        );
+                                  } catch (_) {
+                                    initialPalette =
+                                        PlayerVisualPalette.fallback(
+                                          seed: playerTheme.colorScheme.primary,
+                                          brightness: playerTheme.brightness,
+                                        );
+                                  }
+                                  if (!context.mounted) return;
+                                  openAudioPlayer<void>(
+                                    context,
+                                    initialPalette: initialPalette,
+                                    initialPaletteTrackId: track.id,
                                   );
                                 },
                                 child: Row(
@@ -223,17 +258,23 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                                   onPressed: () async {
                                     try {
                                       await ref
-                                          .read(audioPlayerControllerProvider
-                                              .notifier)
+                                          .read(
+                                            audioPlayerControllerProvider
+                                                .notifier,
+                                          )
                                           .skipToPrevious();
                                     } catch (e) {
                                       if (!context.mounted) return;
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
                                         SnackBar(
-                                          content: Text(e
-                                              .toString()
-                                              .replaceAll('Exception: ', '')),
+                                          content: Text(
+                                            e.toString().replaceAll(
+                                              'Exception: ',
+                                              '',
+                                            ),
+                                          ),
                                           duration: const Duration(seconds: 1),
                                         ),
                                       );
@@ -247,17 +288,23 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                                   onPressed: () async {
                                     try {
                                       await ref
-                                          .read(audioPlayerControllerProvider
-                                              .notifier)
+                                          .read(
+                                            audioPlayerControllerProvider
+                                                .notifier,
+                                          )
                                           .skipToNext();
                                     } catch (e) {
                                       if (!context.mounted) return;
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
                                         SnackBar(
-                                          content: Text(e
-                                              .toString()
-                                              .replaceAll('Exception: ', '')),
+                                          content: Text(
+                                            e.toString().replaceAll(
+                                              'Exception: ',
+                                              '',
+                                            ),
+                                          ),
                                           duration: const Duration(seconds: 1),
                                         ),
                                       );
@@ -286,8 +333,10 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                                           _tempVolume = value;
                                         });
                                         ref
-                                            .read(audioPlayerControllerProvider
-                                                .notifier)
+                                            .read(
+                                              audioPlayerControllerProvider
+                                                  .notifier,
+                                            )
                                             .setVolume(value);
                                       },
                                       onVolumeChangeEnd: () {
@@ -368,11 +417,16 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
               borderRadius: BorderRadius.circular(8),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
-                child: LocalFileUrl.isLocalFileUrl(
-                        workCoverUrl ?? track.artworkUrl)
+                child:
+                    LocalFileUrl.isLocalFileUrl(
+                      workCoverUrl ?? track.artworkUrl,
+                    )
                     ? Image.file(
-                        File(LocalFileUrl.pathFromUrl(
-                            workCoverUrl ?? track.artworkUrl)!),
+                        File(
+                          LocalFileUrl.pathFromUrl(
+                            workCoverUrl ?? track.artworkUrl,
+                          )!,
+                        ),
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) {
                           return const Icon(Icons.album, size: 32);
@@ -386,26 +440,19 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                         fit: BoxFit.cover,
                         errorWidget: (context, url, error) =>
                             const Icon(Icons.album, size: 32),
-                        placeholder: (context, url) => const Center(
-                          child: CircularProgressIndicator(),
-                        ),
+                        placeholder: (context, url) =>
+                            const Center(child: CircularProgressIndicator()),
                       ),
               ),
             )
-          : const Icon(
-              Icons.album,
-              size: 32,
-            ),
+          : const Icon(Icons.album, size: 32),
     );
 
-    if (!widget.enableArtworkHero) {
+    if (!widget.enableArtworkHero || MediaQuery.disableAnimationsOf(context)) {
       return image;
     }
 
-    return Hero(
-      tag: 'audio_player_artwork_${track.id}',
-      child: image,
-    );
+    return Hero(tag: 'audio_player_artwork_${track.id}', child: image);
   }
 }
 
@@ -424,10 +471,10 @@ class _MiniPlayerProgressAreaState
 
   void _seek(double value, Duration duration) {
     if (duration <= Duration.zero) return;
-    ref.read(audioPlayerControllerProvider.notifier).seekAndPersist(
-          Duration(
-            milliseconds: (value * duration.inMilliseconds).round(),
-          ),
+    ref
+        .read(audioPlayerControllerProvider.notifier)
+        .seekAndPersist(
+          Duration(milliseconds: (value * duration.inMilliseconds).round()),
         );
   }
 
@@ -475,10 +522,9 @@ class _MiniPlayerProgressAreaState
                 ),
                 overlayShape: SliderComponentShape.noOverlay,
                 activeTrackColor: Theme.of(context).colorScheme.primary,
-                inactiveTrackColor: Theme.of(context)
-                    .colorScheme
-                    .outline
-                    .withValues(alpha: 0.2),
+                inactiveTrackColor: Theme.of(
+                  context,
+                ).colorScheme.outline.withValues(alpha: 0.2),
               ),
               child: Slider(
                 value: displayProgress.clamp(0.0, 1.0),
@@ -521,11 +567,11 @@ class _MiniPlayerLyricLine extends ConsumerWidget {
       child: Text(
         currentLyric,
         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.primary,
-              fontSize: lyricSettings.miniFontSize,
-              height: lyricSettings.miniLineHeight,
-              fontWeight: FontWeight.w600,
-            ),
+          color: Theme.of(context).colorScheme.primary,
+          fontSize: lyricSettings.miniFontSize,
+          height: lyricSettings.miniLineHeight,
+          fontWeight: FontWeight.w600,
+        ),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         textAlign: TextAlign.center,
@@ -564,107 +610,6 @@ class _MiniPlayerPlayButton extends ConsumerWidget {
       },
       icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
       iconSize: 28,
-    );
-  }
-}
-
-/// Custom page route for the audio player that supports iOS swipe-back gesture
-/// while keeping the custom Hero-friendly transition animation.
-///
-/// - Forward (enter): scale + fade from bottom-left, Hero flies from mini player artwork
-/// - Back via swipe: Cupertino slide transition (natural iOS feel)
-/// - Back via button: fade out (letting Hero fly back when available)
-class _PlayerPageRoute<T> extends PageRoute<T>
-    with CupertinoRouteTransitionMixin<T> {
-  _PlayerPageRoute({required this.builder});
-
-  final WidgetBuilder builder;
-
-  @override
-  Widget buildContent(BuildContext context) => builder(context);
-
-  @override
-  String? get title => null;
-
-  @override
-  bool get maintainState => true;
-
-  @override
-  Duration get transitionDuration => const Duration(milliseconds: 400);
-
-  @override
-  Duration get reverseTransitionDuration => const Duration(milliseconds: 400);
-
-  @override
-  Widget buildTransitions(BuildContext context, Animation<double> animation,
-      Animation<double> secondaryAnimation, Widget child) {
-    // On iOS, always delegate to CupertinoRouteTransitionMixin so that
-    // the back-gesture detector stays in the widget tree at all times.
-    // This is critical — without it the HorizontalDragGestureRecognizer is
-    // never installed and swipe-back can never trigger.
-    if (Platform.isIOS) {
-      // While the gesture is in progress OR we're playing the dismiss
-      // animation that was started by a gesture, use the standard
-      // Cupertino slide transition for a natural iOS feel.
-      if (popGestureInProgress) {
-        return CupertinoRouteTransitionMixin.buildPageTransitions<T>(
-          this,
-          context,
-          animation,
-          secondaryAnimation,
-          child,
-        );
-      }
-
-      // Programmatic back (button): fade the page out so Hero can fly back.
-      if (animation.status == AnimationStatus.reverse) {
-        return FadeTransition(opacity: animation, child: child);
-      }
-
-      // Forward enter: scale + fade from bottom-left.
-      if (animation.status == AnimationStatus.forward ||
-          animation.status == AnimationStatus.completed) {
-        const curve = Curves.easeOutCubic;
-        final scale = Tween<double>(begin: 0.0, end: 1.0)
-            .chain(CurveTween(curve: curve))
-            .evaluate(animation);
-        final opacity = CurveTween(curve: Curves.easeIn).evaluate(animation);
-
-        // Wrap with the Cupertino gesture detector so swiping can start
-        // even while the forward animation is settling.
-        return _wrapWithGestureDetector(
-          context,
-          Transform.scale(
-            scale: scale,
-            alignment: Alignment.bottomLeft,
-            child: Opacity(opacity: opacity, child: child),
-          ),
-        );
-      }
-    }
-
-    // Fallback / non-iOS: simple scale + fade
-    const curve = Curves.easeOutCubic;
-    final scale = Tween<double>(begin: 0.0, end: 1.0)
-        .chain(CurveTween(curve: curve))
-        .evaluate(animation);
-    final opacity = CurveTween(curve: Curves.easeIn).evaluate(animation);
-    return Transform.scale(
-      scale: scale,
-      alignment: Alignment.bottomLeft,
-      child: Opacity(opacity: opacity, child: child),
-    );
-  }
-
-  /// Wraps [child] with the Cupertino back-gesture detector so that
-  /// the swipe-from-left-edge gesture recognizer is always installed.
-  Widget _wrapWithGestureDetector(BuildContext context, Widget child) {
-    return CupertinoRouteTransitionMixin.buildPageTransitions<T>(
-      this,
-      context,
-      const AlwaysStoppedAnimation(1.0), // pretend fully visible
-      const AlwaysStoppedAnimation(0.0), // no secondary
-      child,
     );
   }
 }

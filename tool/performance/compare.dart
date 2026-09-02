@@ -8,7 +8,10 @@ Future<void> main(List<String> arguments) async {
     stdout.writeln(
       'Usage: dart run tool/performance/compare.dart '
       '<baseline.json> <candidate.json> '
-      '[--json-output <path>] [--markdown-output <path>]',
+      '[--json-output <path>] [--markdown-output <path>] '
+      '[--exclude-downloads] [--exclude-playback-soak] '
+      '[--no-significant-regression] '
+      '[--minimum-playback-minutes <minutes>]',
     );
     exitCode = arguments.contains('--help') ? 0 : 64;
     return;
@@ -18,6 +21,16 @@ Future<void> main(List<String> arguments) async {
   final candidatePath = arguments[1];
   final jsonOutput = _option(arguments, '--json-output');
   final markdownOutput = _option(arguments, '--markdown-output');
+  final excludeDownloads = arguments.contains('--exclude-downloads');
+  final excludePlaybackSoak = arguments.contains('--exclude-playback-soak');
+  final noSignificantRegression = arguments.contains(
+    '--no-significant-regression',
+  );
+  final minimumPlaybackMinutes =
+      double.tryParse(
+        _option(arguments, '--minimum-playback-minutes') ?? '30',
+      ) ??
+      30;
 
   try {
     final baseline = PerformanceReport.decode(
@@ -26,7 +39,24 @@ Future<void> main(List<String> arguments) async {
     final candidate = PerformanceReport.decode(
       await File(candidatePath).readAsString(),
     );
-    final comparison = comparePerformanceReports(baseline, candidate);
+    final rules = noSignificantRegression
+        ? noSignificantRegressionPerformanceRules(
+            excludeDownloads: excludeDownloads,
+            excludePlaybackSoak: excludePlaybackSoak,
+            minimumPlaybackMinutes: minimumPlaybackMinutes,
+          )
+        : defaultPerformanceRules
+              .where(
+                (rule) =>
+                    (!excludeDownloads || !rule.name.startsWith('download')) &&
+                    (!excludePlaybackSoak || !isPlaybackSoakMetric(rule.name)),
+              )
+              .toList(growable: false);
+    final comparison = comparePerformanceReports(
+      baseline,
+      candidate,
+      rules: rules,
+    );
     final markdown = comparison.toMarkdown();
     stdout.write(markdown);
 

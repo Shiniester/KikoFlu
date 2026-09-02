@@ -63,6 +63,26 @@ void main() {
     expect(result.errors, contains('缺少验收指标: scanPeakPssDeltaMb'));
   });
 
+  test('rejects reports from different measured player workloads', () {
+    final baseline = _report(
+      label: 'baseline',
+      revision: '1111111',
+      metrics: _baselineMetrics,
+      scenarioAdapterVersion: 3,
+    );
+    final candidate = _report(
+      label: 'candidate',
+      revision: '2222222',
+      metrics: _passingMetrics,
+      scenarioAdapterVersion: 4,
+    );
+
+    final result = comparePerformanceReports(baseline, candidate);
+
+    expect(result.passed, isFalse);
+    expect(result.errors, contains('基线与候选未使用同一稳定场景适配器'));
+  });
+
   test('fails missing runs, hot runs, and progress latency breaches', () {
     final baseline = _report(
       label: 'baseline',
@@ -145,6 +165,51 @@ void main() {
 
     expect(result.passed, isTrue);
   });
+
+  test('no-download regression gate allows at most five percent', () {
+    final baselineMetrics = Map<String, double>.of(_baselineMetrics)
+      ..removeWhere((name, _) => name.startsWith('download'))
+      ..removeWhere((name, _) => isPlaybackSoakMetric(name));
+    final passingCandidate = Map<String, double>.from(baselineMetrics)
+      ..['playerFrameP95Ms'] = baselineMetrics['playerFrameP95Ms']! * 1.05;
+    final failingCandidate = Map<String, double>.from(passingCandidate)
+      ..['playerFrameP95Ms'] = baselineMetrics['playerFrameP95Ms']! * 1.051;
+    final rules = noSignificantRegressionPerformanceRules(
+      excludeDownloads: true,
+      excludePlaybackSoak: true,
+      minimumPlaybackMinutes: 5,
+    );
+
+    final passing = comparePerformanceReports(
+      _report(label: 'baseline', revision: '1111111', metrics: baselineMetrics),
+      _report(
+        label: 'candidate',
+        revision: '2222222',
+        metrics: passingCandidate,
+      ),
+      rules: rules,
+    );
+    final failing = comparePerformanceReports(
+      _report(label: 'baseline', revision: '1111111', metrics: baselineMetrics),
+      _report(
+        label: 'candidate',
+        revision: '2222222',
+        metrics: failingCandidate,
+      ),
+      rules: rules,
+    );
+
+    expect(passing.passed, isTrue);
+    expect(failing.passed, isFalse);
+    expect(
+      passing.metrics.any((metric) => metric.name.startsWith('download')),
+      isFalse,
+    );
+    expect(
+      passing.metrics.any((metric) => isPlaybackSoakMetric(metric.name)),
+      isFalse,
+    );
+  });
 }
 
 const _fixtureHash =
@@ -207,6 +272,7 @@ PerformanceReport _report({
   required String revision,
   required Map<String, double> metrics,
   int schemaVersion = 3,
+  int scenarioAdapterVersion = 3,
   int runs = 5,
   String thermalStatus = '1',
   Map<String, Object?> fixture = const {
@@ -219,7 +285,7 @@ PerformanceReport _report({
     scenario: 'kikoflu-android-profile-v3',
     label: label,
     revision: revision,
-    scenarioAdapterVersion: 3,
+    scenarioAdapterVersion: scenarioAdapterVersion,
     device: const {
       'serial': 'device-1',
       'model': 'Pixel',

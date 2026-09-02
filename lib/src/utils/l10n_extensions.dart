@@ -170,9 +170,8 @@ extension AudioTapPlaylistModeL10n on AudioTapPlaylistMode {
     final s = S.of(context);
     return switch (this) {
       AudioTapPlaylistMode.replaceQueue => s.audioTapPlaylistModeReplace,
-      AudioTapPlaylistMode.appendDirectory =>
-        s.audioTapPlaylistModeAppendDirectory,
-      AudioTapPlaylistMode.appendSingle => s.audioTapPlaylistModeAppendSingle,
+      AudioTapPlaylistMode.addToQueue => s.audioTapPlaylistModeAppendSingle,
+      AudioTapPlaylistMode.playNext => s.audioTapPlaylistModeAppendDirectory,
     };
   }
 
@@ -181,10 +180,10 @@ extension AudioTapPlaylistModeL10n on AudioTapPlaylistMode {
     return switch (this) {
       AudioTapPlaylistMode.replaceQueue =>
         s.audioTapPlaylistModeReplaceDescription,
-      AudioTapPlaylistMode.appendDirectory =>
-        s.audioTapPlaylistModeAppendDirectoryDescription,
-      AudioTapPlaylistMode.appendSingle =>
+      AudioTapPlaylistMode.addToQueue =>
         s.audioTapPlaylistModeAppendSingleDescription,
+      AudioTapPlaylistMode.playNext =>
+        s.audioTapPlaylistModeAppendDirectoryDescription,
     };
   }
 
@@ -192,9 +191,8 @@ extension AudioTapPlaylistModeL10n on AudioTapPlaylistMode {
     final s = S.of(context);
     return switch (this) {
       AudioTapPlaylistMode.replaceQueue => null,
-      AudioTapPlaylistMode.appendDirectory => s.audioTapPlaylistModeAppendChip,
-      AudioTapPlaylistMode.appendSingle =>
-        s.audioTapPlaylistModeAppendSingleChip,
+      AudioTapPlaylistMode.addToQueue => s.audioTapPlaylistModeAppendSingleChip,
+      AudioTapPlaylistMode.playNext => s.audioTapPlaylistModeAppendChip,
     };
   }
 }
@@ -318,6 +316,7 @@ extension PlayerButtonTypeL10n on PlayerButtonType {
       PlayerButtonType.volume => s.volume,
       PlayerButtonType.speed => s.playbackSpeed,
       PlayerButtonType.repeat => s.repeatMode,
+      PlayerButtonType.queue => s.playlistTitle,
       PlayerButtonType.detail => s.viewDetail,
       PlayerButtonType.subtitleAdjustment => s.subtitleTimingAdjustment,
       PlayerButtonType.floatingLyric => s.desktopFloatingLyric,

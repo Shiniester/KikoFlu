@@ -3,11 +3,7 @@ import '../models/audio_tap_playlist_mode.dart';
 import '../utils/file_tree_utils.dart';
 import 'audio_track_queue_builder.dart';
 
-enum AudioPlaybackPlanStatus {
-  ready,
-  selectedFileMissing,
-  emptyQueue,
-}
+enum AudioPlaybackPlanStatus { ready, selectedFileMissing, emptyQueue }
 
 class AudioPlaybackPlan {
   const AudioPlaybackPlan._({
@@ -65,8 +61,10 @@ class AudioPlaybackPlanBuilder {
     bool requireHash = false,
     AudioTapPlaylistMode playlistMode = AudioTapPlaylistMode.replaceQueue,
   }) async {
-    final selectedTitle =
-        FileTreeUtils.titleOf(selectedFile, defaultValue: unknownTitle);
+    final selectedTitle = FileTreeUtils.titleOf(
+      selectedFile,
+      defaultValue: unknownTitle,
+    );
     final audioFiles = FileTreeUtils.audioFilesInDirectory(
       fileTree,
       parentPath,
@@ -76,9 +74,9 @@ class AudioPlaybackPlanBuilder {
       return AudioPlaybackPlan.selectedFileMissing(selectedTitle);
     }
 
-    final queueFiles = playlistMode == AudioTapPlaylistMode.appendSingle
-        ? <dynamic>[selectedFile]
-        : audioFiles;
+    final queueFiles = playlistMode == AudioTapPlaylistMode.replaceQueue
+        ? audioFiles
+        : <dynamic>[selectedFile];
 
     final queue = await queueBuilder.build(
       audioFiles: queueFiles,
@@ -97,10 +95,7 @@ class AudioPlaybackPlanBuilder {
       return AudioPlaybackPlan.emptyQueue(selectedTitle);
     }
 
-    return AudioPlaybackPlan.ready(
-      selectedTitle: selectedTitle,
-      queue: queue,
-    );
+    return AudioPlaybackPlan.ready(selectedTitle: selectedTitle, queue: queue);
   }
 
   bool _containsSelectedFile(List<dynamic> audioFiles, dynamic selectedFile) {

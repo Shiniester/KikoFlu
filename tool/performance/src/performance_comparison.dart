@@ -103,6 +103,62 @@ const defaultPerformanceRules = <PerformanceMetricRule>[
   ),
 ];
 
+/// Builds a regression-only gate for comparing a feature branch against an
+/// already optimized reference. Every lower-is-better metric may regress by at
+/// most 5%; jank and playback errors remain strictly non-increasing.
+List<PerformanceMetricRule> noSignificantRegressionPerformanceRules({
+  bool excludeDownloads = false,
+  bool excludePlaybackSoak = false,
+  double minimumPlaybackMinutes = 30,
+}) {
+  final rules = <PerformanceMetricRule>[];
+  for (final rule in defaultPerformanceRules) {
+    if (excludeDownloads && rule.name.startsWith('download')) continue;
+    if (excludePlaybackSoak && _playbackSoakMetrics.contains(rule.name)) {
+      continue;
+    }
+    rules.add(switch (rule.name) {
+      'homeJankyFrames' || 'playerJankyFrames' => PerformanceMetricRule(
+        rule.name,
+        PerformanceRuleKind.noIncrease,
+      ),
+      'playbackUnexpectedBufferingCount' ||
+      'playbackErrorCount' ||
+      'cacheErrorCount' => PerformanceMetricRule(
+        rule.name,
+        PerformanceRuleKind.mustBeZero,
+      ),
+      'playbackDurationMinutes' => PerformanceMetricRule(
+        rule.name,
+        PerformanceRuleKind.minimum,
+        minimum: minimumPlaybackMinutes,
+      ),
+      'realTrackSwitches' => PerformanceMetricRule(
+        rule.name,
+        PerformanceRuleKind.minimum,
+        minimum: 50,
+      ),
+      _ => PerformanceMetricRule(
+        rule.name,
+        PerformanceRuleKind.noRegressionOver5Percent,
+      ),
+    });
+  }
+  return List.unmodifiable(rules);
+}
+
+const _playbackSoakMetrics = {
+  'trackSwitchMedianMs',
+  'trackSwitchP95Ms',
+  'playbackUnexpectedBufferingCount',
+  'playbackErrorCount',
+  'cacheErrorCount',
+  'playbackDurationMinutes',
+  'realTrackSwitches',
+};
+
+bool isPlaybackSoakMetric(String name) => _playbackSoakMetrics.contains(name);
+
 class PerformanceReport {
   const PerformanceReport({
     required this.schemaVersion,

@@ -7,19 +7,14 @@ import '../utils/file_tree_utils.dart';
 import '../utils/snackbar_util.dart';
 
 typedef FileTreeDisplayNameBuilder = String Function(String originalTitle);
-typedef FileTreeItemTap = void Function(
-  dynamic item,
-  String displayTitle,
-  String parentPath,
-);
-typedef FileTreeMetadataBuilder = Widget? Function(
-  BuildContext context,
-  FileTreeEntry entry,
-);
-typedef FileTreeTrailingBuilder = Widget? Function(
-  BuildContext context,
-  FileTreeEntry entry,
-);
+typedef FileTreeItemTap =
+    void Function(dynamic item, String displayTitle, String parentPath);
+typedef FileTreeItemLongPress =
+    void Function(dynamic item, String displayTitle, String parentPath);
+typedef FileTreeMetadataBuilder =
+    Widget? Function(BuildContext context, FileTreeEntry entry);
+typedef FileTreeTrailingBuilder =
+    Widget? Function(BuildContext context, FileTreeEntry entry);
 
 class FileTreeEntry {
   const FileTreeEntry({
@@ -52,6 +47,7 @@ class FileTreeView extends StatelessWidget {
     required this.expandedFolders,
     required this.onToggleFolder,
     required this.onFileTap,
+    this.onFileLongPress,
     this.displayNameFor,
     this.metadataBuilder,
     this.trailingBuilder,
@@ -65,6 +61,7 @@ class FileTreeView extends StatelessWidget {
   final Set<String> expandedFolders;
   final ValueChanged<String> onToggleFolder;
   final FileTreeItemTap onFileTap;
+  final FileTreeItemLongPress? onFileLongPress;
   final FileTreeDisplayNameBuilder? displayNameFor;
   final FileTreeMetadataBuilder? metadataBuilder;
   final FileTreeTrailingBuilder? trailingBuilder;
@@ -75,9 +72,7 @@ class FileTreeView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: _buildEntries(context, items, '', level: 0),
-    );
+    return Column(children: _buildEntries(context, items, '', level: 0));
   }
 
   List<Widget> _buildEntries(
@@ -106,30 +101,31 @@ class FileTreeView extends StatelessWidget {
         level: level,
       );
 
-      widgets.add(_FileTreeRow(
-        entry: entry,
-        metadata: metadataBuilder?.call(context, entry),
-        trailing: trailingBuilder?.call(context, entry),
-        downloaded: _isDownloaded(entry),
-        showDownloadedBadge: showDownloadedBadge,
-        fadeDownloadedItems: fadeDownloadedItems,
-        hasLibrarySubtitle:
-            audioWithLibrarySubtitles.contains(entry.originalTitle),
-        onToggleFolder: onToggleFolder,
-        onFileTap: onFileTap,
-      ));
+      widgets.add(
+        _FileTreeRow(
+          entry: entry,
+          metadata: metadataBuilder?.call(context, entry),
+          trailing: trailingBuilder?.call(context, entry),
+          downloaded: _isDownloaded(entry),
+          showDownloadedBadge: showDownloadedBadge,
+          fadeDownloadedItems: fadeDownloadedItems,
+          hasLibrarySubtitle: audioWithLibrarySubtitles.contains(
+            entry.originalTitle,
+          ),
+          onToggleFolder: onToggleFolder,
+          onFileTap: onFileTap,
+          onFileLongPress: onFileLongPress,
+        ),
+      );
 
       final children = entry.children;
       if (entry.isFolder &&
           entry.isExpanded &&
           children != null &&
           children.isNotEmpty) {
-        widgets.addAll(_buildEntries(
-          context,
-          children,
-          itemPath,
-          level: level + 1,
-        ));
+        widgets.addAll(
+          _buildEntries(context, children, itemPath, level: level + 1),
+        );
       }
     }
 
@@ -155,6 +151,7 @@ class _FileTreeRow extends StatelessWidget {
     required this.hasLibrarySubtitle,
     required this.onToggleFolder,
     required this.onFileTap,
+    required this.onFileLongPress,
   });
 
   final FileTreeEntry entry;
@@ -166,6 +163,7 @@ class _FileTreeRow extends StatelessWidget {
   final bool hasLibrarySubtitle;
   final ValueChanged<String> onToggleFolder;
   final FileTreeItemTap onFileTap;
+  final FileTreeItemLongPress? onFileLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -178,6 +176,10 @@ class _FileTreeRow extends StatelessWidget {
         }
       },
       onLongPress: () {
+        if (!entry.isFolder && onFileLongPress != null) {
+          onFileLongPress!(entry.item, entry.displayTitle, entry.parentPath);
+          return;
+        }
         Clipboard.setData(ClipboardData(text: entry.displayTitle));
         SnackBarUtil.showSuccess(
           context,
@@ -288,11 +290,7 @@ class _FileTreeIcon extends StatelessWidget {
                   color: Colors.white,
                   shape: BoxShape.circle,
                 ),
-                child: Icon(
-                  Icons.subtitles,
-                  color: Colors.blue[600],
-                  size: 13,
-                ),
+                child: Icon(Icons.subtitles, color: Colors.blue[600], size: 13),
               ),
             ),
         ],
@@ -315,10 +313,7 @@ class _FolderCount extends StatelessWidget {
 
     return Text(
       S.of(context).nItems(children.length),
-      style: TextStyle(
-        fontSize: 12,
-        color: Colors.grey[600],
-      ),
+      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
     );
   }
 }

@@ -714,6 +714,13 @@ class SRu extends S {
   String get playlistTitle => 'Плейлист';
 
   @override
+  String get clearPlaybackQueueTitle => 'Очистить очередь воспроизведения?';
+
+  @override
+  String get clearPlaybackQueueMessage =>
+      'Воспроизведение будет остановлено, а все элементы очереди будут удалены.';
+
+  @override
   String get noAudioPlaying => 'Нет воспроизводимого аудио';
 
   @override
@@ -983,31 +990,34 @@ class SRu extends S {
       'Выберите, как нажатие на аудио изменяет плейлист:';
 
   @override
-  String get audioTapPlaylistModeReplace => 'Режим замены';
+  String get audioTapPlaylistModeReplace => 'Заменить плейлист';
 
   @override
   String get audioTapPlaylistModeReplaceDescription =>
       'Заменить текущий плейлист всеми доступными аудиофайлами из папки выбранного файла.';
 
   @override
-  String get audioTapPlaylistModeAppendDirectory => 'Режим добавления';
+  String get audioTapPlaylistModeAppendDirectory => 'Воспроизвести следующим';
 
   @override
   String get audioTapPlaylistModeAppendDirectoryDescription =>
-      'Добавить в конец все доступные аудиофайлы из папки выбранного файла. Дубликаты не добавляются.';
+      'Поставить выбранное аудио сразу после текущего, не прерывая воспроизведение.';
 
   @override
-  String get audioTapPlaylistModeAppendSingle => 'Добавление одного аудио';
+  String get audioTapPlaylistModeAppendSingle => 'Добавить в плейлист';
 
   @override
   String get audioTapPlaylistModeAppendSingleDescription =>
-      'Добавить в конец только выбранный аудиофайл. Дубликаты не добавляются.';
+      'Добавить выбранное аудио в конец плейлиста, не переключая текущее воспроизведение.';
 
   @override
-  String get audioTapPlaylistModeAppendChip => 'Режим добавления';
+  String get audioTapPlaylistModeAppendChip => 'Воспроизвести следующим';
 
   @override
-  String get audioTapPlaylistModeAppendSingleChip => 'Добавление одного аудио';
+  String get audioTapPlaylistModeAppendSingleChip => 'Добавить в плейлист';
+
+  @override
+  String get copyName => 'Копировать имя';
 
   @override
   String get preloadNextTitle => 'Предзагрузка следующего';

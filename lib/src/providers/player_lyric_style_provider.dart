@@ -14,6 +14,7 @@ class PlayerLyricSettings {
   final double fullActiveFontSize;
   final double fullInactiveFontSize;
   final double fullLineHeight;
+  final int fullFontWeight;
 
   const PlayerLyricSettings({
     this.miniFontSize = 11.0,
@@ -23,6 +24,7 @@ class PlayerLyricSettings {
     this.fullActiveFontSize = 18.0,
     this.fullInactiveFontSize = 16.0,
     this.fullLineHeight = 1.5,
+    this.fullFontWeight = 700,
   });
 
   PlayerLyricSettings copyWith({
@@ -33,6 +35,7 @@ class PlayerLyricSettings {
     double? fullActiveFontSize,
     double? fullInactiveFontSize,
     double? fullLineHeight,
+    int? fullFontWeight,
   }) {
     return PlayerLyricSettings(
       miniFontSize: miniFontSize ?? this.miniFontSize,
@@ -42,6 +45,7 @@ class PlayerLyricSettings {
       fullActiveFontSize: fullActiveFontSize ?? this.fullActiveFontSize,
       fullInactiveFontSize: fullInactiveFontSize ?? this.fullInactiveFontSize,
       fullLineHeight: fullLineHeight ?? this.fullLineHeight,
+      fullFontWeight: fullFontWeight ?? this.fullFontWeight,
     );
   }
 }
@@ -66,6 +70,7 @@ class PlayerLyricSettingsNotifier extends StateNotifier<PlayerLyricSettings> {
       fullInactiveFontSize:
           prefs.getDouble('${_keyPrefix}fullInactiveFontSize') ?? 16.0,
       fullLineHeight: prefs.getDouble('${_keyPrefix}fullLineHeight') ?? 1.5,
+      fullFontWeight: prefs.getInt('${_keyPrefix}fullFontWeight') ?? 700,
     );
   }
 
@@ -75,12 +80,19 @@ class PlayerLyricSettingsNotifier extends StateNotifier<PlayerLyricSettings> {
     await prefs.setDouble('${_keyPrefix}miniLineHeight', state.miniLineHeight);
     await prefs.setDouble('${_keyPrefix}smallFontSize', state.smallFontSize);
     await prefs.setDouble(
-        '${_keyPrefix}smallLineHeight', state.smallLineHeight);
+      '${_keyPrefix}smallLineHeight',
+      state.smallLineHeight,
+    );
     await prefs.setDouble(
-        '${_keyPrefix}fullActiveFontSize', state.fullActiveFontSize);
+      '${_keyPrefix}fullActiveFontSize',
+      state.fullActiveFontSize,
+    );
     await prefs.setDouble(
-        '${_keyPrefix}fullInactiveFontSize', state.fullInactiveFontSize);
+      '${_keyPrefix}fullInactiveFontSize',
+      state.fullInactiveFontSize,
+    );
     await prefs.setDouble('${_keyPrefix}fullLineHeight', state.fullLineHeight);
+    await prefs.setInt('${_keyPrefix}fullFontWeight', state.fullFontWeight);
   }
 
   Future<void> updateMiniFontSize(double value) async {
@@ -118,6 +130,20 @@ class PlayerLyricSettingsNotifier extends StateNotifier<PlayerLyricSettings> {
     await _save();
   }
 
+  Future<void> updateFullFontWeight(int value) async {
+    final normalized = (value.clamp(100, 900) ~/ 100) * 100;
+    state = state.copyWith(fullFontWeight: normalized);
+    await _save();
+  }
+
+  Future<void> updateFullFontSize(double value) async {
+    state = state.copyWith(
+      fullActiveFontSize: value,
+      fullInactiveFontSize: value,
+    );
+    await _save();
+  }
+
   Future<void> reset() async {
     state = const PlayerLyricSettings();
     await _save();
@@ -125,7 +151,8 @@ class PlayerLyricSettingsNotifier extends StateNotifier<PlayerLyricSettings> {
 }
 
 final playerLyricSettingsProvider =
-    StateNotifierProvider<PlayerLyricSettingsNotifier, PlayerLyricSettings>(
-        (ref) {
-  return PlayerLyricSettingsNotifier();
-});
+    StateNotifierProvider<PlayerLyricSettingsNotifier, PlayerLyricSettings>((
+      ref,
+    ) {
+      return PlayerLyricSettingsNotifier();
+    });

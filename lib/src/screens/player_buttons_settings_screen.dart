@@ -29,6 +29,8 @@ class PlayerButtonsSettingsScreen extends ConsumerWidget {
         return Icons.speed;
       case PlayerButtonType.repeat:
         return Icons.repeat;
+      case PlayerButtonType.queue:
+        return Icons.queue_music;
       case PlayerButtonType.subtitleAdjustment:
         return Icons.tune;
       case PlayerButtonType.floatingLyric:
@@ -46,11 +48,11 @@ class PlayerButtonsSettingsScreen extends ConsumerWidget {
       message: S.of(context).confirmRestoreButtonOrder,
       restore: () => isDesktop
           ? ref
-              .read(playerButtonsConfigDesktopProvider.notifier)
-              .resetToDefault()
+                .read(playerButtonsConfigDesktopProvider.notifier)
+                .resetToDefault()
           : ref
-              .read(playerButtonsConfigMobileProvider.notifier)
-              .resetToDefault(),
+                .read(playerButtonsConfigMobileProvider.notifier)
+                .resetToDefault(),
     );
   }
 
@@ -62,7 +64,7 @@ class PlayerButtonsSettingsScreen extends ConsumerWidget {
         : playerButtonsConfigMobileProvider;
     final config = ref.watch(provider);
     final notifier = ref.read(provider.notifier);
-    final maxVisible = isDesktop ? 5 : 4;
+    const maxVisible = 5;
 
     return SettingsReorderablePage<PlayerButtonType>(
       title: S.of(context).playerButtonSettings,

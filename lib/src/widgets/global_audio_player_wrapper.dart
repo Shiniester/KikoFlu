@@ -45,9 +45,8 @@ class _GlobalAudioPlayerWrapperState
     final miniPlayer = currentTrack.when(
       data: (track) => track != null
           ? MiniPlayer(
-              enableArtworkHero: false,
-              suppressLiquidGlassSurface:
-                  widget.suppressLiquidGlassMiniPlayer,
+              enableArtworkHero: true,
+              suppressLiquidGlassSurface: widget.suppressLiquidGlassMiniPlayer,
             )
           : const SizedBox.shrink(),
       loading: () => const SizedBox.shrink(),

@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/audio_provider.dart';
-import '../responsive_dialog.dart';
 import '../../../l10n/app_localizations.dart';
+import 'player_glass_surface.dart';
 
 /// 定时器对话框
 class SleepTimerDialog extends ConsumerStatefulWidget {
@@ -29,7 +29,7 @@ class _SleepTimerDialogState extends ConsumerState<SleepTimerDialog> {
   Widget build(BuildContext context) {
     final timerState = ref.watch(sleepTimerProvider);
 
-    return ResponsiveAlertDialog(
+    return PlayerGlassAlertDialog(
       title: Text(S.of(context).sleepTimerTitle),
       content: SingleChildScrollView(
         child: Column(
@@ -58,10 +58,8 @@ class _SleepTimerDialogState extends ConsumerState<SleepTimerDialog> {
                           ? S.of(context).aboutToStop
                           : S.of(context).remainingTime,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onPrimaryContainer,
-                          ),
+                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -70,9 +68,7 @@ class _SleepTimerDialogState extends ConsumerState<SleepTimerDialog> {
                         fontWeight: FontWeight.bold,
                         color: Theme.of(context).colorScheme.onPrimaryContainer,
                         fontSize: timerState.waitingForTrackEnd ? 32 : null,
-                        fontFeatures: const [
-                          FontFeature.tabularFigures(),
-                        ],
+                        fontFeatures: const [FontFeature.tabularFigures()],
                       ),
                     ),
                     if (timerState.finishCurrentTrack &&
@@ -84,10 +80,9 @@ class _SleepTimerDialogState extends ConsumerState<SleepTimerDialog> {
                           vertical: 4,
                         ),
                         decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surface
-                              .withValues(alpha: 0.2),
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surface.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Row(
@@ -96,20 +91,18 @@ class _SleepTimerDialogState extends ConsumerState<SleepTimerDialog> {
                             Icon(
                               Icons.queue_music,
                               size: 14,
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onPrimaryContainer,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onPrimaryContainer,
                             ),
                             const SizedBox(width: 4),
                             Text(
                               S.of(context).finishCurrentTrack,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
+                              style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onPrimaryContainer,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onPrimaryContainer,
                                   ),
                             ),
                           ],
@@ -263,9 +256,9 @@ class _SleepTimerDialogState extends ConsumerState<SleepTimerDialog> {
               initialTime: _selectedTime,
               builder: (context, child) {
                 return MediaQuery(
-                  data: MediaQuery.of(context).copyWith(
-                    alwaysUse24HourFormat: true,
-                  ),
+                  data: MediaQuery.of(
+                    context,
+                  ).copyWith(alwaysUse24HourFormat: true),
                   child: child!,
                 );
               },
@@ -296,11 +289,10 @@ class _SleepTimerDialogState extends ConsumerState<SleepTimerDialog> {
                 Text(
                   _selectedTime.format(context),
                   style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color:
-                            Theme.of(context).colorScheme.onSecondaryContainer,
-                        fontSize: 40,
-                      ),
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.onSecondaryContainer,
+                    fontSize: 40,
+                  ),
                 ),
               ],
             ),
@@ -323,7 +315,9 @@ class _SleepTimerDialogState extends ConsumerState<SleepTimerDialog> {
                 ? targetTime.add(const Duration(days: 1))
                 : targetTime;
 
-            ref.read(sleepTimerProvider.notifier).setTimerUntil(
+            ref
+                .read(sleepTimerProvider.notifier)
+                .setTimerUntil(
                   finalTime,
                   finishCurrentTrack: _finishCurrentTrack,
                 );
@@ -343,12 +337,12 @@ class _SleepTimerDialogState extends ConsumerState<SleepTimerDialog> {
       (
         const Duration(minutes: 15),
         S.of(context).nMinutes(15),
-        Icons.bedtime_outlined
+        Icons.bedtime_outlined,
       ),
       (
         const Duration(minutes: 30),
         S.of(context).nMinutes(30),
-        Icons.bedtime_outlined
+        Icons.bedtime_outlined,
       ),
       (const Duration(hours: 1), S.of(context).nHours(1), Icons.bedtime),
       (const Duration(hours: 2), S.of(context).nHours(2), Icons.bedtime),
@@ -380,10 +374,9 @@ class _SleepTimerDialogState extends ConsumerState<SleepTimerDialog> {
   }) {
     return InkWell(
       onTap: () {
-        ref.read(sleepTimerProvider.notifier).setTimer(
-              duration,
-              finishCurrentTrack: _finishCurrentTrack,
-            );
+        ref
+            .read(sleepTimerProvider.notifier)
+            .setTimer(duration, finishCurrentTrack: _finishCurrentTrack);
       },
       borderRadius: BorderRadius.circular(12),
       child: Container(
@@ -396,17 +389,13 @@ class _SleepTimerDialogState extends ConsumerState<SleepTimerDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              size: 32,
-              color: Theme.of(context).colorScheme.primary,
-            ),
+            Icon(icon, size: 32, color: Theme.of(context).colorScheme.primary),
             const SizedBox(height: 8),
             Text(
               label,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
               textAlign: TextAlign.center,
             ),
           ],
@@ -429,9 +418,7 @@ class _SleepTimerDialogState extends ConsumerState<SleepTimerDialog> {
       label: Text(label),
       style: OutlinedButton.styleFrom(
         foregroundColor: color,
-        side: BorderSide(
-          color: color ?? Theme.of(context).colorScheme.outline,
-        ),
+        side: BorderSide(color: color ?? Theme.of(context).colorScheme.outline),
       ),
     );
   }

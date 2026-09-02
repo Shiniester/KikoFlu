@@ -1,90 +1,172 @@
 import 'dart:io' show File;
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../models/audio_tap_playlist_mode.dart';
+import '../../models/audio_track.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../utils/l10n_extensions.dart';
 import '../../utils/local_file_url.dart';
 import '../privacy_blur_cover.dart';
-import '../../../l10n/app_localizations.dart';
+import 'player_glass_surface.dart';
 
-/// 播放列表对话框
-class PlaylistDialog extends ConsumerWidget {
-  const PlaylistDialog({super.key});
+Future<bool> confirmClearPlaybackQueue(BuildContext context) async {
+  return await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => PlayerGlassAlertDialog(
+          title: Text(S.of(dialogContext).clearPlaybackQueueTitle),
+          content: Text(S.of(dialogContext).clearPlaybackQueueMessage),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: Text(S.of(dialogContext).cancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(S.of(dialogContext).clear),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+}
+
+/// Reusable queue content for the player page and legacy dialog entry points.
+class PlayerQueueSurface extends ConsumerStatefulWidget {
+  const PlayerQueueSurface({
+    super.key,
+    this.onClose,
+    this.onTrackSelected,
+    this.onClear,
+    this.onDismissRequested,
+    this.showCloseButton = false,
+    this.horizontalPadding = 8,
+  });
+
+  final VoidCallback? onClose;
+  final VoidCallback? onTrackSelected;
+  final Future<void> Function()? onClear;
+  final VoidCallback? onDismissRequested;
+  final bool showCloseButton;
+  final double horizontalPadding;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PlayerQueueSurface> createState() => _PlayerQueueSurfaceState();
+}
+
+class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
+  double _topOverscroll = 0;
+  bool _dismissTriggered = false;
+
+  @override
+  Widget build(BuildContext context) {
     final queueAsync = ref.watch(queueProvider);
-    final currentTrack = ref.watch(currentTrackProvider);
+    final currentTrack = ref.watch(currentTrackProvider).valueOrNull;
     final authState = ref.watch(authProvider);
+    final tracks =
+        queueAsync.valueOrNull ?? ref.read(audioPlayerServiceProvider).queue;
+    final currentIndex = tracks.indexWhere(
+      (track) => track.id == currentTrack?.id,
+    );
 
-    // Get current queue synchronously as fallback
-    final audioService = ref.read(audioPlayerServiceProvider);
-    final currentQueue = audioService.queue;
-
-    final borderRadius = BorderRadius.circular(18);
-
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: borderRadius),
-      child: ClipRRect(
-        borderRadius: borderRadius,
-        child: Container(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(context).size.height * 0.7,
-            maxWidth: MediaQuery.of(context).size.width * 0.9,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        S.of(context).playlistTitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    const Spacer(),
-                    const PlaylistModeToggle(),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                  ],
+    return RepaintBoundary(
+      child: Column(
+        children: [
+          if (currentTrack != null)
+            GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onVerticalDragEnd: _handleHeaderDragEnd,
+              child: _NowPlayingQueueHeader(
+                track: currentTrack,
+                horizontalPadding: widget.horizontalPadding,
+                coverUrl: _resolveCoverUrl(
+                  currentTrack,
+                  host: authState.host,
+                  token: authState.token,
                 ),
               ),
-              const Divider(height: 1),
-              // Playlist
-              Expanded(
-                child: Builder(
-                  builder: (context) {
-                    final tracks = queueAsync.valueOrNull ?? currentQueue;
-
-                    if (tracks.isEmpty) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(32),
-                          child: Text(S.of(context).playlistEmpty),
-                        ),
-                      );
-                    }
-
-                    return ReorderableListView.builder(
-                      padding: EdgeInsets.zero,
+            ),
+          GestureDetector(
+            key: const ValueKey('player-queue-title-dismiss-surface'),
+            behavior: HitTestBehavior.translucent,
+            onVerticalDragEnd: _handleHeaderDragEnd,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                widget.horizontalPadding,
+                8,
+                widget.horizontalPadding,
+                10,
+              ),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 68,
+                    child: Text(
+                      tracks.isEmpty
+                          ? '0 / 0'
+                          : '${currentIndex < 0 ? 0 : currentIndex + 1} / ${tracks.length}',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      S.of(context).playlistTitle,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 68,
+                    child: tracks.isEmpty || widget.onClear == null
+                        ? const SizedBox.shrink()
+                        : TextButton(
+                            onPressed: widget.onClear,
+                            child: Text(S.of(context).clear),
+                          ),
+                  ),
+                  if (widget.showCloseButton)
+                    IconButton(
+                      tooltip: MaterialLocalizations.of(
+                        context,
+                      ).closeButtonTooltip,
+                      onPressed: widget.onClose,
+                      icon: const Icon(Icons.close),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          Expanded(
+            child: tracks.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Text(S.of(context).playlistEmpty),
+                    ),
+                  )
+                : NotificationListener<ScrollNotification>(
+                    onNotification: _handleQueueScroll,
+                    child: ReorderableListView.builder(
+                      key: const ValueKey('player-queue-list'),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      physics: const AlwaysScrollableScrollPhysics(
+                        parent: ClampingScrollPhysics(),
+                      ),
                       itemCount: tracks.length,
                       buildDefaultDragHandles: false,
+                      proxyDecorator: (child, index, animation) => child,
                       onReorderItem: (oldIndex, newIndex) {
                         ref
                             .read(audioPlayerControllerProvider.notifier)
@@ -92,296 +174,463 @@ class PlaylistDialog extends ConsumerWidget {
                       },
                       itemBuilder: (context, index) {
                         final track = tracks[index];
-                        final isCurrentTrack =
-                            currentTrack.valueOrNull?.id == track.id;
-
-                        // Build work cover URL（优先使用本地文件）
-                        String? workCoverUrl;
-                        // 优先使用 track.artworkUrl（可能是本地文件 file://）
-                        if (LocalFileUrl.isLocalFileUrl(track.artworkUrl)) {
-                          workCoverUrl = track.artworkUrl;
-                        } else if (track.workId != null) {
-                          final host = authState.host ?? '';
-                          final token = authState.token ?? '';
-                          if (host.isNotEmpty) {
-                            var normalizedHost = host;
-                            if (!normalizedHost.startsWith('http://') &&
-                                !normalizedHost.startsWith('https://')) {
-                              normalizedHost = 'https://$normalizedHost';
-                            }
-                            workCoverUrl = token.isNotEmpty
-                                ? '$normalizedHost/api/cover/${track.workId}?token=$token'
-                                : '$normalizedHost/api/cover/${track.workId}';
-                          }
-                        }
-
-                        final resolvedCover = workCoverUrl ?? track.artworkUrl;
-
-                        return LayoutBuilder(
+                        final isCurrentTrack = track.id == currentTrack?.id;
+                        final coverUrl = _resolveCoverUrl(
+                          track,
+                          host: authState.host,
+                          token: authState.token,
+                        );
+                        return ReorderableDelayedDragStartListener(
                           key: ValueKey(track.id),
-                          builder: (context, constraints) {
-                            final isCompact = constraints.maxWidth < 480;
-                            final actionButtons = Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (isCurrentTrack)
-                                  Icon(
-                                    Icons.music_note,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                    size: 18,
-                                  ),
-                                IconButton(
-                                  tooltip: S.of(context).remove,
-                                  icon: const Icon(
-                                    Icons.delete_outline,
-                                    size: 20,
-                                  ),
-                                  onPressed: () {
-                                    ref
-                                        .read(
-                                          audioPlayerControllerProvider
-                                              .notifier,
-                                        )
-                                        .removeTrackAt(index);
-                                  },
-                                ),
-                                ReorderableDragStartListener(
-                                  index: index,
-                                  child: const Padding(
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: 4,
-                                    ),
-                                    child: Icon(Icons.drag_handle, size: 20),
-                                  ),
-                                ),
-                              ],
-                            );
-
-                            return InkWell(
-                              onTap: () async {
-                                await ref
-                                    .read(
-                                      audioPlayerControllerProvider.notifier,
-                                    )
-                                    .skipToIndex(index);
-                                if (context.mounted) {
-                                  Navigator.of(context).pop();
-                                }
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 8,
-                                ),
-                                decoration: BoxDecoration(
-                                  gradient: isCurrentTrack
-                                      ? LinearGradient(
-                                          colors: [
-                                            Theme.of(context)
-                                                .colorScheme
-                                                .primaryContainer
-                                                .withValues(alpha: 0.4),
-                                            Theme.of(context)
-                                                .colorScheme
-                                                .primaryContainer
-                                                .withValues(alpha: 0.2),
-                                          ],
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                        )
-                                      : null,
-                                ),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Container(
-                                      width: 48,
-                                      height: 48,
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(6),
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.surfaceContainerHighest,
-                                      ),
-                                      child: resolvedCover != null
-                                          ? PrivacyBlurCover(
-                                              borderRadius:
-                                                  BorderRadius.circular(6),
-                                              child: ClipRRect(
-                                                borderRadius:
-                                                    BorderRadius.circular(6),
-                                                child:
-                                                    LocalFileUrl.isLocalFileUrl(
-                                                      resolvedCover,
-                                                    )
-                                                    ? Image.file(
-                                                        File(
-                                                          LocalFileUrl.pathFromUrl(
-                                                            resolvedCover,
-                                                          )!,
-                                                        ),
-                                                        fit: BoxFit.cover,
-                                                        errorBuilder:
-                                                            (
-                                                              context,
-                                                              error,
-                                                              stackTrace,
-                                                            ) {
-                                                              return const Icon(
-                                                                Icons
-                                                                    .music_note,
-                                                                size: 24,
-                                                              );
-                                                            },
-                                                      )
-                                                    : CachedNetworkImage(
-                                                        imageUrl: resolvedCover,
-                                                        fit: BoxFit.cover,
-                                                        errorWidget:
-                                                            (
-                                                              context,
-                                                              url,
-                                                              error,
-                                                            ) {
-                                                              return const Icon(
-                                                                Icons
-                                                                    .music_note,
-                                                                size: 24,
-                                                              );
-                                                            },
-                                                        placeholder:
-                                                            (
-                                                              context,
-                                                              url,
-                                                            ) => const Center(
-                                                              child:
-                                                                  CircularProgressIndicator(),
-                                                            ),
-                                                      ),
-                                              ),
-                                            )
-                                          : const Icon(
-                                              Icons.music_note,
-                                              size: 24,
-                                            ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Expanded(
-                                                child: Text(
-                                                  track.title,
-                                                  style: TextStyle(
-                                                    fontWeight: isCurrentTrack
-                                                        ? FontWeight.bold
-                                                        : FontWeight.normal,
-                                                    color: isCurrentTrack
-                                                        ? Theme.of(
-                                                            context,
-                                                          ).colorScheme.primary
-                                                        : null,
-                                                  ),
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                ),
-                                              ),
-                                              if (!isCompact)
-                                                Padding(
-                                                  padding:
-                                                      const EdgeInsets.only(
-                                                        bottom: 4,
-                                                      ),
-                                                  child: actionButtons,
-                                                ),
-                                            ],
-                                          ),
-                                          if (track.artist != null)
-                                            Padding(
-                                              padding: const EdgeInsets.only(
-                                                top: 2,
-                                              ),
-                                              child: Text(
-                                                track.artist!,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  color: isCurrentTrack
-                                                      ? Theme.of(
-                                                          context,
-                                                        ).colorScheme.primary
-                                                      : Theme.of(context)
-                                                            .textTheme
-                                                            .bodySmall
-                                                            ?.color,
-                                                ),
-                                              ),
-                                            ),
-                                          if (isCompact)
-                                            Align(
-                                              alignment: Alignment.centerRight,
-                                              child: Padding(
-                                                padding: const EdgeInsets.only(
-                                                  top: 2,
-                                                ),
-                                                child: actionButtons,
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
+                          index: index,
+                          child: _QueueTrackTile(
+                            track: track,
+                            horizontalPadding: widget.horizontalPadding,
+                            coverUrl: coverUrl,
+                            isCurrentTrack: isCurrentTrack,
+                            onTap: () async {
+                              await ref
+                                  .read(audioPlayerControllerProvider.notifier)
+                                  .skipToIndex(index);
+                              widget.onTrackSelected?.call();
+                            },
+                            onRemove: () => ref
+                                .read(audioPlayerControllerProvider.notifier)
+                                .removeTrackAt(index),
+                          ),
                         );
                       },
-                    );
-                  },
+                    ),
+                  ),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              widget.horizontalPadding,
+              12,
+              widget.horizontalPadding,
+              16,
+            ),
+            child: const Align(
+              alignment: Alignment.centerLeft,
+              child: PlaylistModePill(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _handleHeaderDragEnd(DragEndDetails details) {
+    if ((details.primaryVelocity ?? 0) > 420) {
+      widget.onDismissRequested?.call();
+    }
+  }
+
+  bool _handleQueueScroll(ScrollNotification notification) {
+    if (widget.onDismissRequested == null) return false;
+    if (notification is OverscrollNotification &&
+        notification.metrics.pixels <= notification.metrics.minScrollExtent &&
+        notification.overscroll < 0) {
+      _topOverscroll += -notification.overscroll;
+      if (_topOverscroll >= 54 && !_dismissTriggered) {
+        _dismissTriggered = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) widget.onDismissRequested?.call();
+        });
+      }
+    } else if (notification is ScrollEndNotification) {
+      _topOverscroll = 0;
+      _dismissTriggered = false;
+    }
+    return false;
+  }
+}
+
+class _NowPlayingQueueHeader extends StatelessWidget {
+  const _NowPlayingQueueHeader({
+    required this.track,
+    required this.coverUrl,
+    required this.horizontalPadding,
+  });
+
+  final AudioTrack track;
+  final String? coverUrl;
+  final double horizontalPadding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      key: const ValueKey('player-queue-now-playing'),
+      padding: EdgeInsets.fromLTRB(horizontalPadding, 16, horizontalPadding, 8),
+      child: Row(
+        children: [
+          _QueueArtwork(url: coverUrl, size: 48),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  track.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontSize: 14,
+                    height: 1.15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (track.artist != null || track.album != null)
+                  Text(
+                    [track.artist, track.album]
+                        .whereType<String>()
+                        .where((part) => part.isNotEmpty)
+                        .join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QueueTrackTile extends StatelessWidget {
+  const _QueueTrackTile({
+    required this.track,
+    required this.coverUrl,
+    required this.isCurrentTrack,
+    required this.horizontalPadding,
+    required this.onTap,
+    required this.onRemove,
+  });
+
+  final AudioTrack track;
+  final String? coverUrl;
+  final bool isCurrentTrack;
+  final double horizontalPadding;
+  final VoidCallback onTap;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+      child: Material(
+        key: ValueKey('player-queue-track-${track.id}'),
+        color: isCurrentTrack
+            ? colorScheme.onSurface.withValues(alpha: 0.10)
+            : Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              children: [
+                _QueueArtwork(url: coverUrl, size: 48),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        track.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              fontSize: 14,
+                              height: 1.15,
+                              fontWeight: isCurrentTrack
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                            ),
+                      ),
+                      if (track.artist != null || track.album != null)
+                        Text(
+                          [track.artist, track.album]
+                              .whereType<String>()
+                              .where((part) => part.isNotEmpty)
+                              .join(' · '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: colorScheme.onSurfaceVariant),
+                        ),
+                    ],
+                  ),
+                ),
+                if (isCurrentTrack)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Icon(Icons.graphic_eq, color: colorScheme.primary),
+                  ),
+                IconButton(
+                  tooltip: S.of(context).remove,
+                  onPressed: onRemove,
+                  icon: const Icon(Icons.remove),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QueueArtwork extends StatelessWidget {
+  const _QueueArtwork({required this.url, required this.size});
+
+  final String? url;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = Icon(Icons.music_note, size: size * 0.5);
+    return SizedBox.square(
+      dimension: size,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        ),
+        child: url == null
+            ? fallback
+            : PrivacyBlurCover(
+                borderRadius: BorderRadius.circular(10),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: LocalFileUrl.isLocalFileUrl(url)
+                      ? Image.file(
+                          File(LocalFileUrl.pathFromUrl(url!)!),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => fallback,
+                        )
+                      : CachedNetworkImage(
+                          imageUrl: url!,
+                          fit: BoxFit.cover,
+                          errorWidget: (_, __, ___) => fallback,
+                          placeholder: (_, __) => fallback,
+                        ),
                 ),
               ),
-            ],
+      ),
+    );
+  }
+}
+
+String? _resolveCoverUrl(
+  AudioTrack track, {
+  required String? host,
+  required String? token,
+}) {
+  if (LocalFileUrl.isLocalFileUrl(track.artworkUrl)) return track.artworkUrl;
+  if (track.workId == null || host == null || host.isEmpty) {
+    return track.artworkUrl;
+  }
+  var normalizedHost = host;
+  if (!normalizedHost.startsWith('http://') &&
+      !normalizedHost.startsWith('https://')) {
+    normalizedHost = 'https://$normalizedHost';
+  }
+  return token != null && token.isNotEmpty
+      ? '$normalizedHost/api/cover/${track.workId}?token=$token'
+      : '$normalizedHost/api/cover/${track.workId}';
+}
+
+/// Legacy dialog wrapper kept for non-player entry points.
+class PlaylistDialog extends ConsumerWidget {
+  const PlaylistDialog({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final borderRadius = BorderRadius.circular(24);
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: borderRadius),
+      child: ClipRRect(
+        borderRadius: borderRadius,
+        child: SizedBox(
+          height: MediaQuery.sizeOf(context).height * 0.76,
+          width: MediaQuery.sizeOf(context).width.clamp(320, 720),
+          child: PlayerQueueSurface(
+            showCloseButton: true,
+            onClose: () => Navigator.of(context).pop(),
+            onTrackSelected: () => Navigator.of(context).pop(),
+            onClear: () async {
+              if (!await confirmClearPlaybackQueue(context)) return;
+              await ref
+                  .read(audioPlayerControllerProvider.notifier)
+                  .clearQueueAndStop();
+              if (context.mounted) Navigator.of(context).pop();
+            },
           ),
         ),
       ),
     );
   }
 
-  /// 显示播放列表对话框
   static void show(BuildContext context) {
-    showDialog(context: context, builder: (context) => const PlaylistDialog());
+    showDialog(context: context, builder: (_) => const PlaylistDialog());
   }
 }
 
-/// Opens the queue update mode menu and shows the currently selected mode.
+class PlaylistModePill extends ConsumerStatefulWidget {
+  const PlaylistModePill({super.key});
+
+  @override
+  ConsumerState<PlaylistModePill> createState() => _PlaylistModePillState();
+}
+
+class _PlaylistModePillState extends ConsumerState<PlaylistModePill> {
+  bool _expanded = false;
+  final GlobalKey _pillKey = GlobalKey();
+  double? _pillWidth;
+
+  void _toggleExpanded() {
+    if (!_expanded) {
+      final box = _pillKey.currentContext?.findRenderObject() as RenderBox?;
+      if (box != null && box.hasSize) _pillWidth = box.size.width;
+    }
+    setState(() => _expanded = !_expanded);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = ref.watch(audioTapPlaylistModeProvider);
+    final colors = Theme.of(context).colorScheme;
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 240);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AnimatedSize(
+          duration: duration,
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.bottomLeft,
+          child: !_expanded
+              ? const SizedBox.shrink()
+              : Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: SizedBox(
+                    width: _pillWidth,
+                    child: PlayerGlassSurface(
+                      key: const ValueKey('playlist-mode-expanded-options'),
+                      borderRadius: BorderRadius.circular(14),
+                      borderColor: Colors.transparent,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (final option in AudioTapPlaylistMode.values)
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                key: ValueKey(
+                                  'playlist-mode-option-${option.name}',
+                                ),
+                                onTap: () {
+                                  ref
+                                      .read(
+                                        audioTapPlaylistModeProvider.notifier,
+                                      )
+                                      .updateMode(option);
+                                  setState(() => _expanded = false);
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 10,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        PlaylistModeToggle.modeIcon(option),
+                                        size: 19,
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          option.localizedName(context),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Icon(
+                                        Icons.check,
+                                        size: 18,
+                                        color: option == mode
+                                            ? colors.primary
+                                            : Colors.transparent,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+        ),
+        Semantics(
+          button: true,
+          expanded: _expanded,
+          label:
+              '${S.of(context).audioTapPlaylistMode}: ${mode.localizedName(context)}',
+          child: SizedBox(
+            key: _pillKey,
+            child: PlayerGlassSurface(
+              key: const ValueKey('playlist-mode-pill'),
+              onTap: _toggleExpanded,
+              borderRadius: BorderRadius.circular(999),
+              borderColor: Colors.transparent,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(PlaylistModeToggle.modeIcon(mode), size: 20),
+                  const SizedBox(width: 8),
+                  Flexible(child: Text(mode.localizedName(context))),
+                  const SizedBox(width: 6),
+                  AnimatedRotation(
+                    turns: _expanded ? 0.5 : 0,
+                    duration: duration,
+                    child: const Icon(Icons.keyboard_arrow_up, size: 18),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class PlaylistModeToggle extends ConsumerWidget {
   const PlaylistModeToggle({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(audioTapPlaylistModeProvider);
-    final colorScheme = Theme.of(context).colorScheme;
-
     return PopupMenuButton<AudioTapPlaylistMode>(
       tooltip:
           '${S.of(context).audioTapPlaylistMode}: ${mode.localizedName(context)}',
       initialValue: mode,
-      icon: Icon(
-        _modeIcon(mode),
-        color: mode == AudioTapPlaylistMode.replaceQueue
-            ? null
-            : colorScheme.primary,
-      ),
+      icon: Icon(modeIcon(mode)),
       onSelected: (nextMode) {
         ref.read(audioTapPlaylistModeProvider.notifier).updateMode(nextMode);
       },
@@ -396,11 +645,11 @@ class PlaylistModeToggle extends ConsumerWidget {
     );
   }
 
-  static IconData _modeIcon(AudioTapPlaylistMode mode) {
+  static IconData modeIcon(AudioTapPlaylistMode mode) {
     return switch (mode) {
       AudioTapPlaylistMode.replaceQueue => Icons.playlist_play,
-      AudioTapPlaylistMode.appendDirectory => Icons.playlist_add,
-      AudioTapPlaylistMode.appendSingle => Icons.queue_music,
+      AudioTapPlaylistMode.addToQueue => Icons.playlist_add,
+      AudioTapPlaylistMode.playNext => Icons.queue_play_next,
     };
   }
 }

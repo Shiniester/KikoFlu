@@ -13,6 +13,8 @@ import '../subtitle_adjustment_dialog.dart';
 import '../volume_control.dart';
 import 'sleep_timer_button.dart';
 import 'sleep_timer_dialog.dart';
+import 'playlist_dialog.dart';
+import 'player_glass_surface.dart';
 import '../../../l10n/app_localizations.dart';
 
 /// 播放器控制组件
@@ -27,6 +29,10 @@ class PlayerControlsWidget extends ConsumerStatefulWidget {
   final String? currentProgress;
   final VoidCallback? onMarkPressed;
   final VoidCallback? onDetailPressed;
+  final VoidCallback? onQueuePressed;
+  final VoidCallback? onMorePressed;
+  final int visibleActionCount;
+  final bool showMoreButton;
   final VoidCallback? debugOnProgressBuild;
   final VoidCallback? debugOnPlayButtonBuild;
 
@@ -42,6 +48,10 @@ class PlayerControlsWidget extends ConsumerStatefulWidget {
     this.currentProgress,
     this.onMarkPressed,
     this.onDetailPressed,
+    this.onQueuePressed,
+    this.onMorePressed,
+    this.visibleActionCount = 5,
+    this.showMoreButton = false,
     this.debugOnProgressBuild,
     this.debugOnPlayButtonBuild,
   });
@@ -61,7 +71,7 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
 
     showDialog(
       context: context,
-      builder: (context) => ResponsiveAlertDialog(
+      builder: (context) => PlayerGlassAlertDialog(
         title: Text(S.of(context).playbackSpeed),
         content: StatefulBuilder(
           builder: (context, setState) {
@@ -103,7 +113,9 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
     final config = isDesktop
         ? ref.read(playerButtonsConfigDesktopProvider)
         : ref.read(playerButtonsConfigMobileProvider);
-    final moreButtons = config.getMoreButtons(isDesktop);
+    final moreButtons = config.getMoreButtons(
+      slotCount: widget.visibleActionCount,
+    );
 
     showResponsiveBottomSheet(
       context: context,
@@ -227,6 +239,19 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
                 .read(audioPlayerControllerProvider.notifier)
                 .setRepeatMode(nextMode);
             Navigator.pop(context);
+          },
+        );
+      case PlayerButtonType.queue:
+        return ListTile(
+          leading: const Icon(Icons.queue_music),
+          title: Text(S.of(context).playlistTitle),
+          onTap: () {
+            Navigator.pop(context);
+            if (widget.onQueuePressed case final callback?) {
+              callback();
+            } else {
+              PlaylistDialog.show(context);
+            }
           },
         );
       case PlayerButtonType.mark:
@@ -503,6 +528,20 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
             if (!isLandscape) const SizedBox(height: 14),
           ],
         );
+      case PlayerButtonType.queue:
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: S.of(context).playlistTitle,
+              onPressed:
+                  widget.onQueuePressed ?? () => PlaylistDialog.show(context),
+              icon: const Icon(Icons.queue_music),
+              iconSize: iconSize,
+            ),
+            if (!isLandscape) const SizedBox(height: 14),
+          ],
+        );
       case PlayerButtonType.mark:
         return Column(
           mainAxisSize: MainAxisSize.min,
@@ -582,9 +621,9 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final iconSize = widget.isLandscape ? 24.0 : 48.0;
-    final playButtonSize = widget.isLandscape ? 64.0 : 72.0;
-    final playIconSize = widget.isLandscape ? 32.0 : 36.0;
+    final iconSize = widget.isLandscape ? 38.0 : 40.0;
+    final playButtonSize = widget.isLandscape ? 62.0 : 60.0;
+    final playIconSize = widget.isLandscape ? 31.0 : 30.0;
     final audioState = ref.watch(
       audioPlayerControllerProvider.select(
         (state) => (
@@ -605,10 +644,10 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
           onSeekEnd: widget.onSeekEnd,
           debugOnBuild: widget.debugOnProgressBuild,
         ),
-        SizedBox(height: widget.isLandscape ? 20 : 16),
+        SizedBox(height: widget.isLandscape ? 18 : 10),
         // Main controls
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             IconButton(
               onPressed: () {
@@ -644,7 +683,7 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
             ),
           ],
         ),
-        SizedBox(height: widget.isLandscape ? 16 : 12),
+        SizedBox(height: widget.isLandscape ? 16 : 10),
         // Additional controls
         Consumer(
           builder: (context, ref, child) {
@@ -652,10 +691,12 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
             final config = isDesktop
                 ? ref.watch(playerButtonsConfigDesktopProvider)
                 : ref.watch(playerButtonsConfigMobileProvider);
-            final visibleButtons = config.getVisibleButtons(isDesktop);
+            final visibleButtons = config.getVisibleButtons(
+              slotCount: widget.visibleActionCount,
+            );
 
             return Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 ...visibleButtons.map(
                   (type) => _buildButton(
@@ -666,61 +707,70 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
                     audioState,
                   ),
                 ),
-                // More menu button (always visible)
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      onPressed: () {
-                        _showMoreMenu(context, ref);
-                      },
-                      icon: Builder(
-                        builder: (context) {
-                          final moreButtons = config.getMoreButtons(isDesktop);
-                          final hasSpeedInMore = moreButtons.contains(
-                            PlayerButtonType.speed,
-                          );
-                          final hasRepeatInMore = moreButtons.contains(
-                            PlayerButtonType.repeat,
-                          );
-                          final hasSleepTimerInMore = moreButtons.contains(
-                            PlayerButtonType.sleepTimer,
-                          );
-                          final hasSubtitleAdjustmentInMore = moreButtons
-                              .contains(PlayerButtonType.subtitleAdjustment);
-                          final hasFloatingLyricInMore = moreButtons.contains(
-                            PlayerButtonType.floatingLyric,
-                          );
-                          final timerState = ref.watch(sleepTimerProvider);
-                          final lyricState = ref.watch(lyricControllerProvider);
-                          final isFloatingLyricEnabled = ref.watch(
-                            floatingLyricEnabledProvider,
-                          );
-
-                          final shouldShowBadge =
-                              (hasSpeedInMore && audioState.speed != 1.0) ||
-                              (hasRepeatInMore &&
-                                  audioState.repeatMode != LoopMode.off) ||
-                              (hasSleepTimerInMore && timerState.isActive) ||
-                              (hasSubtitleAdjustmentInMore &&
-                                  lyricState.timelineOffset != Duration.zero) ||
-                              (hasFloatingLyricInMore &&
-                                  isFloatingLyricEnabled);
-
-                          return Badge(
-                            isLabelVisible: shouldShowBadge,
-                            backgroundColor: Theme.of(
-                              context,
-                            ).colorScheme.primary,
-                            child: const Icon(Icons.more_horiz),
-                          );
+                if (widget.showMoreButton)
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        onPressed: () {
+                          if (widget.onMorePressed != null) {
+                            widget.onMorePressed!();
+                          } else {
+                            _showMoreMenu(context, ref);
+                          }
                         },
+                        icon: Builder(
+                          builder: (context) {
+                            final moreButtons = config.getMoreButtons(
+                              slotCount: widget.visibleActionCount,
+                            );
+                            final hasSpeedInMore = moreButtons.contains(
+                              PlayerButtonType.speed,
+                            );
+                            final hasRepeatInMore = moreButtons.contains(
+                              PlayerButtonType.repeat,
+                            );
+                            final hasSleepTimerInMore = moreButtons.contains(
+                              PlayerButtonType.sleepTimer,
+                            );
+                            final hasSubtitleAdjustmentInMore = moreButtons
+                                .contains(PlayerButtonType.subtitleAdjustment);
+                            final hasFloatingLyricInMore = moreButtons.contains(
+                              PlayerButtonType.floatingLyric,
+                            );
+                            final timerState = ref.watch(sleepTimerProvider);
+                            final lyricState = ref.watch(
+                              lyricControllerProvider,
+                            );
+                            final isFloatingLyricEnabled = ref.watch(
+                              floatingLyricEnabledProvider,
+                            );
+
+                            final shouldShowBadge =
+                                (hasSpeedInMore && audioState.speed != 1.0) ||
+                                (hasRepeatInMore &&
+                                    audioState.repeatMode != LoopMode.off) ||
+                                (hasSleepTimerInMore && timerState.isActive) ||
+                                (hasSubtitleAdjustmentInMore &&
+                                    lyricState.timelineOffset !=
+                                        Duration.zero) ||
+                                (hasFloatingLyricInMore &&
+                                    isFloatingLyricEnabled);
+
+                            return Badge(
+                              isLabelVisible: shouldShowBadge,
+                              backgroundColor: Theme.of(
+                                context,
+                              ).colorScheme.primary,
+                              child: const Icon(Icons.more_horiz),
+                            );
+                          },
+                        ),
+                        iconSize: widget.isLandscape ? 24 : null,
                       ),
-                      iconSize: widget.isLandscape ? 24 : null,
-                    ),
-                    if (!widget.isLandscape) const SizedBox(height: 14),
-                  ],
-                ),
+                      if (!widget.isLandscape) const SizedBox(height: 14),
+                    ],
+                  ),
               ],
             );
           },
@@ -755,44 +805,47 @@ class PlayerProgressSection extends ConsumerWidget {
         ? Duration(milliseconds: (seekValue * dur.inMilliseconds).round())
         : pos;
 
-    return Column(
-      children: [
-        SliderTheme(
-          data: SliderTheme.of(context).copyWith(
-            inactiveTrackColor: Theme.of(
-              context,
-            ).colorScheme.onSurfaceVariant.withValues(alpha: 0.15),
-            trackShape: const RoundedRectSliderTrackShape(),
+    return RepaintBoundary(
+      child: Column(
+        children: [
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              inactiveTrackColor: Theme.of(
+                context,
+              ).colorScheme.onSurfaceVariant.withValues(alpha: 0.15),
+              trackShape: const RoundedRectSliderTrackShape(),
+              padding: EdgeInsets.zero,
+            ),
+            child: Slider(
+              value:
+                  (isSeekingManually
+                          ? seekValue
+                          : dur.inMilliseconds > 0
+                          ? pos.inMilliseconds / dur.inMilliseconds
+                          : 0.0)
+                      .clamp(0.0, 1.0),
+              onChanged: onSeekChanged,
+              onChangeEnd: onSeekEnd,
+            ),
           ),
-          child: Slider(
-            value:
-                (isSeekingManually
-                        ? seekValue
-                        : dur.inMilliseconds > 0
-                        ? pos.inMilliseconds / dur.inMilliseconds
-                        : 0.0)
-                    .clamp(0.0, 1.0),
-            onChanged: onSeekChanged,
-            onChangeEnd: onSeekEnd,
+          Padding(
+            padding: EdgeInsets.zero,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  formatDuration(displayPos, padHours: false),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                Text(
+                  formatDuration(dur, padHours: false),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
           ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                formatDuration(displayPos, padHours: false),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              Text(
-                formatDuration(dur, padHours: false),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -813,27 +866,29 @@ class PlayerPlayPauseButton extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     debugOnBuild?.call();
     final isPlaying = ref.watch(isPlayingProvider);
-    return Container(
-      width: buttonSize,
-      height: buttonSize,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: Theme.of(context).colorScheme.primary,
-      ),
-      child: IconButton(
-        onPressed: () {
-          final controller = ref.read(audioPlayerControllerProvider.notifier);
-          if (isPlaying) {
-            controller.pause();
-          } else {
-            controller.play();
-          }
-        },
-        icon: Icon(
-          isPlaying ? Icons.pause : Icons.play_arrow,
-          color: Theme.of(context).colorScheme.onPrimary,
+    return RepaintBoundary(
+      child: Container(
+        width: buttonSize,
+        height: buttonSize,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Theme.of(context).colorScheme.primary,
         ),
-        iconSize: iconSize,
+        child: IconButton(
+          onPressed: () {
+            final controller = ref.read(audioPlayerControllerProvider.notifier);
+            if (isPlaying) {
+              controller.pause();
+            } else {
+              controller.play();
+            }
+          },
+          icon: Icon(
+            isPlaying ? Icons.pause : Icons.play_arrow,
+            color: Theme.of(context).colorScheme.onPrimary,
+          ),
+          iconSize: iconSize,
+        ),
       ),
     );
   }
