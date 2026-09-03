@@ -14,6 +14,7 @@ import '../../utils/l10n_extensions.dart';
 import '../../utils/local_file_url.dart';
 import '../privacy_blur_cover.dart';
 import 'player_glass_surface.dart';
+import 'player_cover_widget.dart';
 import 'player_vertical_gestures.dart';
 
 const List<AudioTapPlaylistMode> _playlistModeMenuOrder = [
@@ -262,7 +263,11 @@ class _NowPlayingQueueHeader extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(horizontalPadding, 16, horizontalPadding, 8),
       child: Row(
         children: [
-          _QueueArtwork(url: coverUrl, size: 48),
+          _QueueArtwork(
+            key: const ValueKey('player-queue-now-playing-artwork'),
+            url: coverUrl,
+            height: 48,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -334,7 +339,11 @@ class _QueueTrackTile extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             child: Row(
               children: [
-                _QueueArtwork(url: coverUrl, size: 48),
+                _QueueArtwork(
+                  key: ValueKey('player-queue-artwork-${track.id}'),
+                  url: coverUrl,
+                  height: 48,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -391,16 +400,17 @@ class _QueueTrackTile extends StatelessWidget {
 }
 
 class _QueueArtwork extends StatelessWidget {
-  const _QueueArtwork({required this.url, required this.size});
+  const _QueueArtwork({super.key, required this.url, required this.height});
 
   final String? url;
-  final double size;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
-    final fallback = Icon(Icons.music_note, size: size * 0.5);
-    return SizedBox.square(
-      dimension: size,
+    final fallback = Icon(Icons.music_note, size: height * 0.5);
+    return SizedBox(
+      width: height * PlayerCoverWidget.preferredAspectRatio,
+      height: height,
       child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(10),

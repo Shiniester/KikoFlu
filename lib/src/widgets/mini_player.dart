@@ -45,6 +45,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
   static const double _artworkHeight = 48;
   static const double _artworkWidth =
       _artworkHeight * PlayerCoverWidget.preferredAspectRatio;
+  static const double _artworkCornerRadius = 8;
 
   String? _lastTrackId;
   bool _isAdjustingVolume = false;
@@ -397,7 +398,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
     AudioTrack track, {
     String? workCoverUrl,
   }) {
-    final radius = BorderRadius.circular(PlayerCoverWidget.cornerRadius);
+    final radius = BorderRadius.circular(_artworkCornerRadius);
     return Container(
       key: const ValueKey('mini-player-artwork-frame'),
       width: _artworkWidth,

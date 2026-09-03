@@ -207,10 +207,7 @@ void main() {
       expect(tester.getSize(artwork), const Size(64, 48));
       final artworkDecoration =
           tester.widget<Container>(artwork).decoration! as BoxDecoration;
-      expect(
-        artworkDecoration.borderRadius,
-        BorderRadius.circular(PlayerCoverWidget.cornerRadius),
-      );
+      expect(artworkDecoration.borderRadius, BorderRadius.circular(8));
       expect(
         find.descendant(of: mini, matching: find.byIcon(Icons.skip_previous)),
         findsNothing,

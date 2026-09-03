@@ -1038,6 +1038,27 @@ void main() {
         .getSize(find.byKey(const ValueKey('player-queue-width-boundary')))
         .width;
     expect(queueWidth, closeTo(coverWidth, 0.01));
+    final nowPlayingArtwork = find.byKey(
+      const ValueKey('player-queue-now-playing-artwork'),
+    );
+    final queueArtwork = find.byKey(
+      const ValueKey('player-queue-artwork-track-1'),
+    );
+    expect(tester.getSize(nowPlayingArtwork), const Size(64, 48));
+    expect(tester.getSize(queueArtwork), const Size(64, 48));
+    for (final artwork in [nowPlayingArtwork, queueArtwork]) {
+      final decoration =
+          tester
+                  .widget<DecoratedBox>(
+                    find.descendant(
+                      of: artwork,
+                      matching: find.byType(DecoratedBox),
+                    ),
+                  )
+                  .decoration
+              as BoxDecoration;
+      expect(decoration.borderRadius, BorderRadius.circular(10));
+    }
     final queueBoundary = tester.getRect(
       find.byKey(const ValueKey('player-queue-width-boundary')),
     );
