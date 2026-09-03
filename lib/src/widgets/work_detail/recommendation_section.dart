@@ -9,6 +9,7 @@ import '../../providers/work_detail_display_provider.dart';
 import '../../screens/work_detail_screen.dart';
 import '../../utils/work_cover_prefetch.dart';
 import '../../widgets/privacy_blur_cover.dart';
+import 'work_cover_frame.dart';
 import '../../../l10n/app_localizations.dart';
 
 /// 作品详情页底部的"相关推荐"横向滚动区域
@@ -28,8 +29,9 @@ class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
     super.initState();
     // 延迟加载，不阻塞详情页渲染
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final notifier =
-          ref.read(recommendationProvider(widget.work.id).notifier);
+      final notifier = ref.read(
+        recommendationProvider(widget.work.id).notifier,
+      );
       final state = ref.read(recommendationProvider(widget.work.id));
       if (state.recommendations.isEmpty && !state.isLoading) {
         notifier.loadRecommendations(widget.work);
@@ -78,9 +80,7 @@ class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
           itemCount: state.recommendations.length,
           separatorBuilder: (_, __) => const SizedBox(width: 12),
           itemBuilder: (context, index) {
-            return _RecommendationCard(
-              work: state.recommendations[index],
-            );
+            return _RecommendationCard(work: state.recommendations[index]);
           },
         ),
       ),
@@ -105,9 +105,9 @@ class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
               const SizedBox(width: 8),
               Text(
                 S.of(context).relatedRecommendations,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
               ),
             ],
           ),
@@ -170,8 +170,8 @@ class _RecommendationCard extends ConsumerWidget {
     final authState = ref.watch(authProvider);
     final host = authState.host ?? '';
     final token = authState.token ?? '';
-    final coverCacheWidth =
-        (120 * MediaQuery.of(context).devicePixelRatio).round();
+    final coverCacheWidth = (120 * MediaQuery.of(context).devicePixelRatio)
+        .round();
     final initialCoverImageProvider = host.isEmpty
         ? null
         : createWorkCoverImageProvider(
@@ -212,9 +212,9 @@ class _RecommendationCard extends ConsumerWidget {
             Text(
               work.title,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    height: 1.2,
-                  ),
+                fontWeight: FontWeight.w600,
+                height: 1.2,
+              ),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
@@ -232,9 +232,9 @@ class _RecommendationCard extends ConsumerWidget {
                   Text(
                     work.rateAverage!.toStringAsFixed(1),
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontSize: 11,
-                        ),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 11,
+                    ),
                   ),
                 ],
               ),
@@ -251,15 +251,16 @@ class _RecommendationCard extends ConsumerWidget {
 
     final url = work.getCoverImageUrl(host, token: token);
 
-    return Hero(
-      tag: 'rec_work_cover_${work.id}',
+    return WorkCoverHeroFrame(
+      heroTag: 'rec_work_cover_${work.id}',
+      cornerRadius: workCoverCompactRadius,
       child: PrivacyBlurCover(
-        borderRadius: BorderRadius.circular(8),
         child: CachedNetworkImage(
           imageUrl: url,
           cacheKey: 'work_cover_${work.id}',
-          memCacheWidth:
-              (120 * MediaQuery.of(context).devicePixelRatio).round(),
+          useOldImageOnUrlChange: true,
+          memCacheWidth: (120 * MediaQuery.of(context).devicePixelRatio)
+              .round(),
           fadeInDuration: const Duration(milliseconds: 120),
           fit: BoxFit.cover,
           placeholder: (context, _) => _buildPlaceholder(context),

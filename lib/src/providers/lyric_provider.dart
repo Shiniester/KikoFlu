@@ -1131,6 +1131,39 @@ class LyricController extends StateNotifier<LyricState> {
     }
   }
 
+  /// Switches subtitle sources without discarding the currently visible
+  /// subtitle when the requested candidate cannot be loaded or parsed.
+  Future<void> selectLyricManually(dynamic lyricFile, {int? workId}) async {
+    final previousState = state;
+    final previousTrack = ref.read(currentTrackProvider).valueOrNull;
+    final load = loadLyricManually(lyricFile, workId: workId);
+    final requestId = _loadRequestId;
+    try {
+      await load;
+    } catch (_) {
+      if (_isCurrentLoadRequest(requestId) &&
+          _isSameTrack(
+            previousTrack,
+            ref.read(currentTrackProvider).valueOrNull,
+          )) {
+        state = previousState;
+      }
+      rethrow;
+    }
+    if (!_isCurrentLoadRequest(requestId) ||
+        !_isSameTrack(
+          previousTrack,
+          ref.read(currentTrackProvider).valueOrNull,
+        )) {
+      return;
+    }
+    if (state.error == null && state.lyrics.isNotEmpty) return;
+
+    final message = state.error ?? '字幕文件中没有可显示的内容';
+    state = previousState;
+    throw StateError(message);
+  }
+
   String? _localPathOf(dynamic file) {
     if (file is! Map) return null;
     final localPath = file['localPath'];

@@ -6719,6 +6719,54 @@ abstract class S {
   /// In en, this message translates to:
   /// **'List'**
   String get playlistDisplayFormatList;
+
+  /// No description provided for @playerSubtitleSelection.
+  ///
+  /// In en, this message translates to:
+  /// **'Select subtitles'**
+  String get playerSubtitleSelection;
+
+  /// No description provided for @playerSubtitleSourceWork.
+  ///
+  /// In en, this message translates to:
+  /// **'Work files'**
+  String get playerSubtitleSourceWork;
+
+  /// No description provided for @playerSubtitleSourceLibrary.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle library'**
+  String get playerSubtitleSourceLibrary;
+
+  /// No description provided for @playerSubtitleShowAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Show all subtitles for this work'**
+  String get playerSubtitleShowAll;
+
+  /// No description provided for @playerSubtitleShowMatches.
+  ///
+  /// In en, this message translates to:
+  /// **'Show matching subtitles only'**
+  String get playerSubtitleShowMatches;
+
+  /// No description provided for @playerSubtitleNoCandidates.
+  ///
+  /// In en, this message translates to:
+  /// **'No subtitles are available for this work'**
+  String get playerSubtitleNoCandidates;
+
+  /// No description provided for @playerSubtitleMayNotMatch.
+  ///
+  /// In en, this message translates to:
+  /// **'This subtitle may not match the current audio'**
+  String get playerSubtitleMayNotMatch;
+
+  /// No description provided for @playerLyricViewSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle view settings'**
+  String get playerLyricViewSettings;
 }
 
 class _SDelegate extends LocalizationsDelegate<S> {

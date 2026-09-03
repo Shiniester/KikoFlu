@@ -62,8 +62,9 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
   @override
   void initState() {
     super.initState();
-    _cacheUpdateSubscription =
-        SubtitleLibraryService.onCacheUpdated.listen((_) {
+    _cacheUpdateSubscription = SubtitleLibraryService.onCacheUpdated.listen((
+      _,
+    ) {
       if (mounted) {
         _loadFiles();
       }
@@ -122,7 +123,8 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      SnackBarUtil.showFromSnackBar(
+        context,
         SnackBar(
           content: Text(S.of(context).openFolderFailed(e.toString())),
           backgroundColor: Colors.red,
@@ -171,10 +173,12 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       _selectedPaths.clear();
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    SnackBarUtil.showFromSnackBar(
+      context,
       SnackBar(
-        content:
-            Text(S.of(context).deletedNOfTotalItems(successCount, totalCount)),
+        content: Text(
+          S.of(context).deletedNOfTotalItems(successCount, totalCount),
+        ),
         backgroundColor: successCount > 0 ? Colors.green : Colors.red,
       ),
     );
@@ -330,8 +334,9 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
   }
 
   void Function(String)? _showProgressDialog(String initialMessage) {
-    final ValueNotifier<String> progressNotifier =
-        ValueNotifier(initialMessage);
+    final ValueNotifier<String> progressNotifier = ValueNotifier(
+      initialMessage,
+    );
 
     showDialog(
       context: context,
@@ -346,10 +351,7 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
               children: [
                 const CircularProgressIndicator(),
                 const SizedBox(height: 16),
-                Text(
-                  message,
-                  textAlign: TextAlign.center,
-                ),
+                Text(message, textAlign: TextAlign.center),
               ],
             ),
           ),
@@ -457,8 +459,10 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
         ),
         ListTile(
           leading: const Icon(Icons.delete, color: Colors.red),
-          title: Text(S.of(context).delete,
-              style: const TextStyle(color: Colors.red)),
+          title: Text(
+            S.of(context).delete,
+            style: const TextStyle(color: Colors.red),
+          ),
           onTap: () {
             Navigator.pop(context);
             _deleteItem(item);
@@ -485,7 +489,8 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      SnackBarUtil.showFromSnackBar(
+        context,
         SnackBar(
           content: Text(S.of(context).previewFailed(e.toString())),
           backgroundColor: Colors.red,
@@ -499,7 +504,8 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       await OpenFilex.open(path);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      SnackBarUtil.showFromSnackBar(
+        context,
         SnackBar(
           content: Text(S.of(context).openFailed(e.toString())),
           backgroundColor: Colors.red,
@@ -552,7 +558,8 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
+            SnackBarUtil.showFromSnackBar(
+              context,
               SnackBar(
                 content: Text(S.of(context).renameSuccess),
                 backgroundColor: Colors.green,
@@ -563,7 +570,8 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       }
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        SnackBarUtil.showFromSnackBar(
+          context,
           SnackBar(
             content: Text(S.of(context).renameFailed),
             backgroundColor: Colors.red,
@@ -615,7 +623,8 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
+            SnackBarUtil.showFromSnackBar(
+              context,
               SnackBar(
                 content: Text(S.of(context).deleteSuccess),
                 backgroundColor: Colors.green,
@@ -626,7 +635,8 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       }
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        SnackBarUtil.showFromSnackBar(
+          context,
           SnackBar(
             content: Text(S.of(context).deleteFailed),
             backgroundColor: Colors.red,
@@ -690,7 +700,8 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
+            SnackBarUtil.showFromSnackBar(
+              context,
               SnackBar(
                 content: Text(S.of(context).moveSuccess),
                 backgroundColor: Colors.green,
@@ -701,7 +712,8 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       }
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        SnackBarUtil.showFromSnackBar(
+          context,
           SnackBar(
             content: Text(S.of(context).moveFailed),
             backgroundColor: Colors.red,
@@ -712,7 +724,9 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
   }
 
   List<Map<String, dynamic>> _filterFiles(
-      List<Map<String, dynamic>> files, String query) {
+    List<Map<String, dynamic>> files,
+    String query,
+  ) {
     return SubtitleLibraryTree.filterFiles(files, query);
   }
 
@@ -813,16 +827,17 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
                   child: Text(
                     _stats == null
                         ? ''
-                        : S.of(context).nFilesWithSize(
-                              _stats!.totalFiles,
-                              _stats!.sizeFormatted,
-                            ),
+                        : S
+                              .of(context)
+                              .nFilesWithSize(
+                                _stats!.totalFiles,
+                                _stats!.sizeFormatted,
+                              ),
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurfaceVariant
-                              .withValues(alpha: 0.8),
-                        ),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
+                    ),
                   ),
                 ),
               ),
@@ -833,7 +848,10 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
   }
 
   void _toggleItemSelection(
-      String path, bool isFolder, Map<String, dynamic> item) {
+    String path,
+    bool isFolder,
+    Map<String, dynamic> item,
+  ) {
     setState(() {
       if (_selectedPaths.contains(path)) {
         _selectedPaths.remove(path);

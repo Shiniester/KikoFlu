@@ -1,4 +1,57 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+
+import 'global_keys.dart';
+
+/// Central Material 3 transient notice. Its placement depends only on the
+/// viewport and safe area, so Mini Player and navigation rebuilds never move
+/// an already visible notice.
+class AppFloatingNotice {
+  AppFloatingNotice._();
+
+  static ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? show(
+    BuildContext context, {
+    required Widget content,
+    required Duration duration,
+    Color? backgroundColor,
+    SnackBarAction? action,
+    bool showCloseIcon = false,
+    ScaffoldMessengerState? messengerOverride,
+  }) {
+    final messenger =
+        messengerOverride ??
+        ScaffoldMessenger.maybeOf(context) ??
+        rootScaffoldMessengerKey.currentState;
+    if (messenger == null) return null;
+    final mediaQuery = MediaQuery.maybeOf(context);
+    final width = mediaQuery?.size.width ?? 360;
+    final height = mediaQuery?.size.height ?? 800;
+    final safeBottom = mediaQuery?.viewPadding.bottom ?? 0;
+    final horizontal = math.max(16.0, (width - 420) / 2);
+    final viewportOffset = (height * 0.18).clamp(88.0, 144.0);
+    messenger.removeCurrentSnackBar(reason: SnackBarClosedReason.hide);
+    return messenger.showSnackBar(
+      SnackBar(
+        content: content,
+        duration: duration,
+        behavior: SnackBarBehavior.floating,
+        margin: EdgeInsets.fromLTRB(
+          horizontal,
+          0,
+          horizontal,
+          safeBottom + viewportOffset,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        clipBehavior: Clip.antiAlias,
+        elevation: 6,
+        backgroundColor: backgroundColor,
+        action: action,
+        showCloseIcon: showCloseIcon,
+      ),
+    );
+  }
+}
 
 /// SnackBar 工具类，提供统一的提示风格
 class SnackBarUtil {
@@ -14,15 +67,34 @@ class SnackBarUtil {
     try {
       final message = _extractMessage(snackBar.content);
       if (message == null || message.isEmpty) {
-        final messenger =
-            fallbackMessenger ?? ScaffoldMessenger.maybeOf(context);
-        messenger?.showSnackBar(snackBar);
+        AppFloatingNotice.show(
+          context,
+          content: snackBar.content,
+          duration: snackBar.duration,
+          backgroundColor: snackBar.backgroundColor,
+          action: snackBar.action,
+          showCloseIcon: snackBar.showCloseIcon ?? false,
+          messengerOverride: fallbackMessenger,
+        );
         return;
       }
 
       final backgroundColor = snackBar.backgroundColor;
       final duration = snackBar.duration;
       final colorScheme = Theme.of(context).colorScheme;
+
+      if (snackBar.action != null) {
+        AppFloatingNotice.show(
+          context,
+          content: snackBar.content,
+          duration: duration,
+          backgroundColor: backgroundColor,
+          action: snackBar.action,
+          showCloseIcon: snackBar.showCloseIcon ?? false,
+          messengerOverride: fallbackMessenger,
+        );
+        return;
+      }
 
       if (backgroundColor == Colors.red ||
           backgroundColor == colorScheme.error) {
@@ -65,30 +137,26 @@ class SnackBarUtil {
     String message, {
     Duration duration = const Duration(seconds: 2),
   }) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              Icons.check_circle_outline,
-              color: Theme.of(context).colorScheme.onPrimary,
-              size: 20,
+    AppFloatingNotice.show(
+      context,
+      content: Row(
+        children: [
+          Icon(
+            Icons.check_circle_outline,
+            color: Theme.of(context).colorScheme.onPrimary,
+            size: 20,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(color: Theme.of(context).colorScheme.onPrimary),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                message,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onPrimary,
-                ),
-              ),
-            ),
-          ],
-        ),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        duration: duration,
+          ),
+        ],
       ),
+      backgroundColor: Theme.of(context).colorScheme.primary,
+      duration: duration,
     );
   }
 
@@ -98,30 +166,26 @@ class SnackBarUtil {
     String message, {
     Duration duration = const Duration(seconds: 4),
   }) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              Icons.error_outline,
-              color: Theme.of(context).colorScheme.onError,
-              size: 20,
+    AppFloatingNotice.show(
+      context,
+      content: Row(
+        children: [
+          Icon(
+            Icons.error_outline,
+            color: Theme.of(context).colorScheme.onError,
+            size: 20,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(color: Theme.of(context).colorScheme.onError),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                message,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onError,
-                ),
-              ),
-            ),
-          ],
-        ),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: Theme.of(context).colorScheme.error,
-        duration: duration,
+          ),
+        ],
       ),
+      backgroundColor: Theme.of(context).colorScheme.error,
+      duration: duration,
     );
   }
 
@@ -136,30 +200,19 @@ class SnackBarUtil {
     final warningColor = colorScheme.tertiary;
     final onWarningColor = colorScheme.onTertiary;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              Icons.warning_amber_rounded,
-              color: onWarningColor,
-              size: 20,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                message,
-                style: TextStyle(
-                  color: onWarningColor,
-                ),
-              ),
-            ),
-          ],
-        ),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: warningColor,
-        duration: duration,
+    AppFloatingNotice.show(
+      context,
+      content: Row(
+        children: [
+          Icon(Icons.warning_amber_rounded, color: onWarningColor, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(message, style: TextStyle(color: onWarningColor)),
+          ),
+        ],
       ),
+      backgroundColor: warningColor,
+      duration: duration,
     );
   }
 
@@ -169,30 +222,28 @@ class SnackBarUtil {
     String message, {
     Duration duration = const Duration(seconds: 2),
   }) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              Icons.info_outline,
-              color: Theme.of(context).colorScheme.onSecondaryContainer,
-              size: 20,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                message,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSecondaryContainer,
-                ),
+    AppFloatingNotice.show(
+      context,
+      content: Row(
+        children: [
+          Icon(
+            Icons.info_outline,
+            color: Theme.of(context).colorScheme.onSecondaryContainer,
+            size: 20,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSecondaryContainer,
               ),
             ),
-          ],
-        ),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
-        duration: duration,
+          ),
+        ],
       ),
+      backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+      duration: duration,
     );
   }
 
@@ -202,35 +253,33 @@ class SnackBarUtil {
     String message, {
     Duration duration = const Duration(seconds: 30),
   }) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  Theme.of(context).colorScheme.onSecondaryContainer,
-                ),
+    AppFloatingNotice.show(
+      context,
+      content: Row(
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                Theme.of(context).colorScheme.onSecondaryContainer,
               ),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                message,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSecondaryContainer,
-                ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSecondaryContainer,
               ),
             ),
-          ],
-        ),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
-        duration: duration,
+          ),
+        ],
       ),
+      backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+      duration: duration,
     );
   }
 

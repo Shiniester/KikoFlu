@@ -1,11 +1,9 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:real_liquid_glass/real_liquid_glass.dart';
 
 import '../../l10n/app_localizations.dart';
@@ -16,7 +14,7 @@ import '../providers/lyric_provider.dart';
 import '../providers/player_lyric_style_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/local_file_url.dart';
-import 'privacy_blur_cover.dart';
+import '../utils/snackbar_util.dart';
 import 'volume_control.dart';
 import 'liquid_glass_layout.dart';
 import 'player/player_cover_widget.dart';
@@ -42,11 +40,6 @@ class MiniPlayer extends ConsumerStatefulWidget {
 }
 
 class _MiniPlayerState extends ConsumerState<MiniPlayer> {
-  static const double _artworkHeight = 48;
-  static const double _artworkWidth =
-      _artworkHeight * PlayerCoverWidget.preferredAspectRatio;
-  static const double _artworkCornerRadius = 8;
-
   String? _lastTrackId;
   bool _isAdjustingVolume = false;
   double _tempVolume = 1.0;
@@ -54,6 +47,8 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
   final ValueNotifier<bool> _interactiveArtworkHidden = ValueNotifier(false);
   final GlobalKey<_MiniPlayerUpwardLauncherState> _playerLauncherKey =
       GlobalKey<_MiniPlayerUpwardLauncherState>();
+  PlayerArtworkFlightTarget _artworkFlightTarget =
+      PlayerArtworkFlightTarget.main;
 
   @override
   void dispose() {
@@ -154,12 +149,13 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
             );
           },
           artworkRect: _miniArtworkRect,
-          artworkHeroTag: 'audio_player_artwork_${track.id}',
           artworkHeroEnabled:
               widget.enableArtworkHero &&
               !MediaQuery.disableAnimationsOf(context),
           artworkBuilder: (context) =>
               _buildArtworkImage(context, track, workCoverUrl: workCoverUrl),
+          prepareArtworkTarget: _prepareArtworkTarget,
+          restoreArtworkTarget: _restoreArtworkTarget,
           onInteractiveArtworkVisibilityChanged: (hidden) {
             _interactiveArtworkHidden.value = hidden;
           },
@@ -363,15 +359,13 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
       track,
       workCoverUrl: workCoverUrl,
     );
-    final artwork =
-        !widget.enableArtworkHero || MediaQuery.disableAnimationsOf(context)
-        ? image
-        : Hero(
-            tag: 'audio_player_artwork_${track.id}',
-            createRectTween: createPlayerArtworkRectTween,
-            transitionOnUserGestures: true,
-            child: image,
-          );
+    final artwork = PlayerArtworkHero(
+      trackId: track.id,
+      target: _artworkFlightTarget,
+      cornerRadius: PlayerCompactArtwork.cornerRadius,
+      enabled: widget.enableArtworkHero,
+      child: image,
+    );
     return KeyedSubtree(
       key: _miniArtworkKey,
       child: ValueListenableBuilder<bool>(
@@ -398,56 +392,28 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
     AudioTrack track, {
     String? workCoverUrl,
   }) {
-    final radius = BorderRadius.circular(_artworkCornerRadius);
-    return Container(
+    return PlayerCompactArtwork(
       key: const ValueKey('mini-player-artwork-frame'),
-      width: _artworkWidth,
-      height: _artworkHeight,
-      decoration: BoxDecoration(
-        borderRadius: radius,
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      ),
-      child: (workCoverUrl ?? track.artworkUrl) != null
-          ? PrivacyBlurCover(
-              borderRadius: radius,
-              child: ClipRRect(
-                borderRadius: radius,
-                child:
-                    LocalFileUrl.isLocalFileUrl(
-                      workCoverUrl ?? track.artworkUrl,
-                    )
-                    ? Image.file(
-                        File(
-                          LocalFileUrl.pathFromUrl(
-                            workCoverUrl ?? track.artworkUrl,
-                          )!,
-                        ),
-                        fit: BoxFit.cover,
-                        gaplessPlayback: true,
-                        errorBuilder: (context, error, stackTrace) {
-                          return const Icon(Icons.album, size: 32);
-                        },
-                      )
-                    : CachedNetworkImage(
-                        imageUrl: (workCoverUrl ?? track.artworkUrl)!,
-                        cacheKey: track.workId != null
-                            ? 'work_cover_${track.workId}'
-                            : null,
-                        fit: BoxFit.cover,
-                        fadeInDuration: const Duration(milliseconds: 220),
-                        fadeInCurve: Curves.easeOutCubic,
-                        fadeOutDuration: const Duration(milliseconds: 220),
-                        fadeOutCurve: Curves.easeOutCubic,
-                        useOldImageOnUrlChange: true,
-                        errorWidget: (context, url, error) =>
-                            const Icon(Icons.album, size: 32),
-                        placeholder: (context, url) =>
-                            const Center(child: CircularProgressIndicator()),
-                      ),
-              ),
-            )
-          : const Icon(Icons.album, size: 32),
+      track: track,
+      url: workCoverUrl ?? track.artworkUrl,
     );
+  }
+
+  Future<void> _prepareArtworkTarget(PlayerInitialSurface surface) async {
+    final target = surface == PlayerInitialSurface.queue
+        ? PlayerArtworkFlightTarget.queue
+        : PlayerArtworkFlightTarget.main;
+    if (_artworkFlightTarget != target && mounted) {
+      setState(() => _artworkFlightTarget = target);
+      await WidgetsBinding.instance.endOfFrame;
+    }
+  }
+
+  void _restoreArtworkTarget() {
+    if (!mounted || _artworkFlightTarget == PlayerArtworkFlightTarget.main) {
+      return;
+    }
+    setState(() => _artworkFlightTarget = PlayerArtworkFlightTarget.main);
   }
 
   Future<bool> _skipTrack(BuildContext context, {required bool next}) async {
@@ -461,11 +427,10 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
       return true;
     } catch (error) {
       if (!context.mounted) return false;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error.toString().replaceAll('Exception: ', '')),
-          duration: const Duration(seconds: 1),
-        ),
+      SnackBarUtil.showInfo(
+        context,
+        error.toString().replaceAll('Exception: ', ''),
+        duration: const Duration(seconds: 1),
       );
       return false;
     }
@@ -762,8 +727,9 @@ class _MiniPlayerUpwardLauncher extends StatefulWidget {
     required this.createConfiguration,
     required this.artworkRect,
     required this.artworkBuilder,
-    required this.artworkHeroTag,
     required this.artworkHeroEnabled,
+    required this.prepareArtworkTarget,
+    required this.restoreArtworkTarget,
     required this.onInteractiveArtworkVisibilityChanged,
   });
 
@@ -772,8 +738,10 @@ class _MiniPlayerUpwardLauncher extends StatefulWidget {
   final AudioPlayerOpenConfiguration Function() createConfiguration;
   final Rect? Function() artworkRect;
   final WidgetBuilder artworkBuilder;
-  final Object artworkHeroTag;
   final bool artworkHeroEnabled;
+  final Future<void> Function(PlayerInitialSurface surface)
+  prepareArtworkTarget;
+  final VoidCallback restoreArtworkTarget;
   final ValueChanged<bool> onInteractiveArtworkVisibilityChanged;
 
   @override
@@ -813,12 +781,15 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher>
     if (!mounted || _launchInProgress) return;
     _launchInProgress = true;
     try {
+      await widget.prepareArtworkTarget(initialSurface);
+      if (!mounted) return;
       final route = widget.createConfiguration().createRoute(
         initialSurface: initialSurface,
       );
       if (!mounted) return;
       await Navigator.of(context).push<void>(route);
     } finally {
+      widget.restoreArtworkTarget();
       _launchInProgress = false;
     }
   }
@@ -945,7 +916,7 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher>
       configuration: configuration,
       artworkRect: widget.artworkRect(),
       artworkBuilder: widget.artworkBuilder,
-      artworkHeroTag: widget.artworkHeroTag,
+      artworkTrackId: widget.sessionIdentity.toString(),
       artworkHeroEnabled: widget.artworkHeroEnabled,
       onArtworkVisibilityChanged: widget.onInteractiveArtworkVisibilityChanged,
       onRootRouteClosed: () {
@@ -1015,7 +986,7 @@ class _InteractivePlayerOpenSession {
     required this.configuration,
     required this.artworkRect,
     required this.artworkBuilder,
-    required this.artworkHeroTag,
+    required this.artworkTrackId,
     required this.artworkHeroEnabled,
     required this.onArtworkVisibilityChanged,
     required this.onRootRouteClosed,
@@ -1026,7 +997,7 @@ class _InteractivePlayerOpenSession {
   final AudioPlayerOpenConfiguration configuration;
   final Rect? artworkRect;
   final WidgetBuilder artworkBuilder;
-  final Object artworkHeroTag;
+  final String artworkTrackId;
   final bool artworkHeroEnabled;
   final ValueChanged<bool> onArtworkVisibilityChanged;
   final VoidCallback onRootRouteClosed;
@@ -1067,7 +1038,7 @@ class _InteractivePlayerOpenSession {
                     _InteractivePlayerHeroSource(
                       artworkRect: artworkRect,
                       artworkBuilder: artworkBuilder,
-                      artworkHeroTag: artworkHeroTag,
+                      artworkTrackId: artworkTrackId,
                       artworkHeroEnabled: artworkHeroEnabled,
                     ),
               ),
@@ -1171,13 +1142,13 @@ class _InteractivePlayerHeroSource extends StatelessWidget {
   const _InteractivePlayerHeroSource({
     required this.artworkRect,
     required this.artworkBuilder,
-    required this.artworkHeroTag,
+    required this.artworkTrackId,
     required this.artworkHeroEnabled,
   });
 
   final Rect? artworkRect;
   final WidgetBuilder artworkBuilder;
-  final Object artworkHeroTag;
+  final String artworkTrackId;
   final bool artworkHeroEnabled;
 
   @override
@@ -1192,10 +1163,11 @@ class _InteractivePlayerHeroSource extends StatelessWidget {
         children: [
           Positioned.fromRect(
             rect: rect,
-            child: Hero(
-              tag: artworkHeroTag,
-              createRectTween: createPlayerArtworkRectTween,
-              transitionOnUserGestures: true,
+            child: PlayerArtworkHero(
+              trackId: artworkTrackId,
+              target: PlayerArtworkFlightTarget.main,
+              cornerRadius: PlayerCompactArtwork.cornerRadius,
+              enabled: artworkHeroEnabled,
               child: artworkBuilder(context),
             ),
           ),

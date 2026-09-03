@@ -3,10 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../providers/lyric_provider.dart';
 import '../../providers/player_lyric_style_provider.dart';
 import 'lyric_display_widget.dart';
 import 'player_glass_surface.dart';
+import 'player_subtitle_picker_sheet.dart';
 import 'player_vertical_gestures.dart';
 
 class PlayerLyricsSurface extends ConsumerStatefulWidget {
@@ -197,10 +199,18 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             _ActionButton(
-                              key: const ValueKey('lyric-settings-button'),
-                              icon: Icons.text_fields,
-                              label: _label(context, 'settings'),
-                              onPressed: () => _showSettings(context),
+                              key: const ValueKey(
+                                'lyric-subtitle-picker-button',
+                              ),
+                              icon: Icons.subtitles_outlined,
+                              label:
+                                  Localizations.of<S>(
+                                    context,
+                                    S,
+                                  )?.playerSubtitleSelection ??
+                                  _label(context, 'subtitleSelection'),
+                              onPressed: () =>
+                                  showPlayerSubtitlePickerSheet(context),
                             ),
                             _ActionButton(
                               key: const ValueKey('lyric-download-button'),
@@ -520,22 +530,22 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
       );
     });
   }
+}
 
-  Future<void> _showSettings(BuildContext context) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: false,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.transparent,
-      builder: (_) => const PlayerBackdropGroup(
-        child: PlayerTransientGlassSurface(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-          child: _LyricSettingsSheet(),
-        ),
+Future<void> showPlayerLyricSettingsSheet(BuildContext context) {
+  return showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: false,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.transparent,
+    builder: (_) => const PlayerBackdropGroup(
+      child: PlayerTransientGlassSurface(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+        child: _LyricSettingsSheet(),
       ),
-    );
-  }
+    ),
+  );
 }
 
 class _LyricSettingsSheet extends ConsumerWidget {
@@ -553,7 +563,8 @@ class _LyricSettingsSheet extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              _label(context, 'lyricStyle'),
+              Localizations.of<S>(context, S)?.playerLyricViewSettings ??
+                  _label(context, 'lyricViewSettings'),
               style: Theme.of(
                 context,
               ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
@@ -665,8 +676,9 @@ class _ActionButton extends StatelessWidget {
 String _label(BuildContext context, String key) {
   final zh = Localizations.localeOf(context).languageCode == 'zh';
   const zhLabels = <String, String>{
-    'settings': '设置',
     'download': '下载',
+    'subtitleSelection': '字幕选择',
+    'lyricViewSettings': '字幕视图设置',
     'downloadUnavailable': '没有可保存的独立字幕源文件',
     'fullscreen': '全屏',
     'translate': '翻译',
@@ -674,15 +686,15 @@ String _label(BuildContext context, String key) {
     'searchHint': '搜索当前字幕',
     'previous': '上一个',
     'next': '下一个',
-    'lyricStyle': '字幕视图设置',
     'fontSize': '字号',
     'fontWeight': '字重',
     'lineHeight': '行高',
     'reset': '恢复默认',
   };
   const enLabels = <String, String>{
-    'settings': 'Settings',
     'download': 'Download',
+    'subtitleSelection': 'Select subtitles',
+    'lyricViewSettings': 'Subtitle view settings',
     'downloadUnavailable': 'No standalone subtitle source is available',
     'fullscreen': 'Fullscreen',
     'translate': 'Translate',
@@ -690,7 +702,6 @@ String _label(BuildContext context, String key) {
     'searchHint': 'Search current subtitles',
     'previous': 'Previous',
     'next': 'Next',
-    'lyricStyle': 'Lyric view settings',
     'fontSize': 'Size',
     'fontWeight': 'Weight',
     'lineHeight': 'Line height',

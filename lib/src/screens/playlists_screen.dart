@@ -7,14 +7,12 @@ import '../utils/l10n_extensions.dart';
 import '../widgets/playlist_card.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 import '../utils/scroll_optimization.dart';
+import '../utils/snackbar_util.dart';
 import '../models/playlist.dart' show PlaylistPrivacy;
 import 'playlist_detail_screen.dart';
 
 class PlaylistsScreen extends ConsumerStatefulWidget {
-  const PlaylistsScreen({
-    super.key,
-    this.topInset = 0,
-  });
+  const PlaylistsScreen({super.key, this.topInset = 0});
 
   final double topInset;
 
@@ -152,8 +150,9 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
                                   items: PlaylistPrivacy.values.map((privacy) {
                                     return DropdownMenuItem<PlaylistPrivacy>(
                                       value: privacy,
-                                      child:
-                                          Text(privacy.localizedLabel(context)),
+                                      child: Text(
+                                        privacy.localizedLabel(context),
+                                      ),
                                     );
                                   }).toList(),
                                   onChanged: (value) {
@@ -170,8 +169,9 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
                                 TextField(
                                   controller: descriptionController,
                                   decoration: InputDecoration(
-                                    labelText:
-                                        S.of(context).playlistDescription,
+                                    labelText: S
+                                        .of(context)
+                                        .playlistDescription,
                                     hintText: S.of(context).addDescription,
                                     border: const OutlineInputBorder(),
                                     prefixIcon: const Icon(Icons.description),
@@ -214,11 +214,12 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
                             onPressed: () {
                               if (isCreateMode) {
                                 if (nameController.text.trim().isEmpty) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBarUtil.showFromSnackBar(
+                                    context,
                                     SnackBar(
-                                      content: Text(S
-                                          .of(context)
-                                          .enterPlaylistNameWarning),
+                                      content: Text(
+                                        S.of(context).enterPlaylistNameWarning,
+                                      ),
                                       behavior: SnackBarBehavior.floating,
                                     ),
                                   );
@@ -226,10 +227,12 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
                                 }
                               } else {
                                 if (linkController.text.trim().isEmpty) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBarUtil.showFromSnackBar(
+                                    context,
                                     SnackBar(
-                                      content:
-                                          Text(S.of(context).enterPlaylistLink),
+                                      content: Text(
+                                        S.of(context).enterPlaylistLink,
+                                      ),
                                       behavior: SnackBarBehavior.floating,
                                     ),
                                   );
@@ -238,9 +241,11 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
                               }
                               Navigator.pop(context, true);
                             },
-                            child: Text(isCreateMode
-                                ? S.of(context).create
-                                : S.of(context).add),
+                            child: Text(
+                              isCreateMode
+                                  ? S.of(context).create
+                                  : S.of(context).add,
+                            ),
                           ),
                         ],
                       ),
@@ -287,10 +292,14 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
 
       // 支持多种链接格式（不限域名）
       final patterns = [
-        RegExp(r'playlist\?id=([a-f0-9-]+)',
-            caseSensitive: false), // 匹配 ?id= 参数
-        RegExp(r'playlist/([a-f0-9-]+)',
-            caseSensitive: false), // 匹配 /playlist/ 路径
+        RegExp(
+          r'playlist\?id=([a-f0-9-]+)',
+          caseSensitive: false,
+        ), // 匹配 ?id= 参数
+        RegExp(
+          r'playlist/([a-f0-9-]+)',
+          caseSensitive: false,
+        ), // 匹配 /playlist/ 路径
         RegExp(r'^([a-f0-9-]+)$', caseSensitive: false), // 直接输入 ID
       ];
 
@@ -304,7 +313,8 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
 
       if (playlistId == null || playlistId.isEmpty) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        SnackBarUtil.showFromSnackBar(
+          context,
           SnackBar(
             content: Text(S.of(context).unrecognizedPlaylistLink),
             behavior: SnackBarBehavior.floating,
@@ -316,7 +326,8 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
 
       // 显示加载提示
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      SnackBarUtil.showFromSnackBar(
+        context,
         SnackBar(
           content: Row(
             children: [
@@ -339,10 +350,11 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
       if (!mounted) return;
 
       // 隐藏加载提示
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      SnackBarUtil.hide(context);
 
       // 显示成功提示
-      ScaffoldMessenger.of(context).showSnackBar(
+      SnackBarUtil.showFromSnackBar(
+        context,
         SnackBar(
           content: Text(S.of(context).playlistAddedSuccess),
           behavior: SnackBarBehavior.floating,
@@ -356,7 +368,7 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
       if (!mounted) return;
 
       // 隐藏加载提示
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      SnackBarUtil.hide(context);
 
       // 解析错误信息
       String errorMessage = S.of(context).addFailed;
@@ -371,13 +383,18 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
           errorString.contains('connect')) {
         errorMessage = S.of(context).networkConnectionFailed;
       } else {
-        errorMessage = S.of(context).addFailedWithError(errorString.length > 50
-            ? '${errorString.substring(0, 50)}...'
-            : errorString);
+        errorMessage = S
+            .of(context)
+            .addFailedWithError(
+              errorString.length > 50
+                  ? '${errorString.substring(0, 50)}...'
+                  : errorString,
+            );
       }
 
       // 显示错误提示
-      ScaffoldMessenger.of(context).showSnackBar(
+      SnackBarUtil.showFromSnackBar(
+        context,
         SnackBar(
           content: Text(errorMessage),
           behavior: SnackBarBehavior.floating,
@@ -397,7 +414,8 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
     try {
       // 显示加载提示
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      SnackBarUtil.showFromSnackBar(
+        context,
         SnackBar(
           content: Row(
             children: [
@@ -424,10 +442,11 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
       if (!mounted) return;
 
       // 隐藏加载提示
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      SnackBarUtil.hide(context);
 
       // 显示成功提示
-      ScaffoldMessenger.of(context).showSnackBar(
+      SnackBarUtil.showFromSnackBar(
+        context,
         SnackBar(
           content: Text(S.of(context).playlistCreatedSuccess(name)),
           behavior: SnackBarBehavior.floating,
@@ -441,10 +460,11 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
       if (!mounted) return;
 
       // 隐藏加载提示
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      SnackBarUtil.hide(context);
 
       // 显示错误提示
-      ScaffoldMessenger.of(context).showSnackBar(
+      SnackBarUtil.showFromSnackBar(
+        context,
         SnackBar(
           content: Text(S.of(context).createFailedWithError(e.toString())),
           behavior: SnackBarBehavior.floating,
@@ -479,8 +499,8 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
             Text(
               state.error!,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
@@ -523,8 +543,8 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
               Text(
                 S.of(context).noPlaylistsDescription,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -586,16 +606,16 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
                 Text(
                   S.of(context).myPlaylists,
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                      ),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
                 ),
                 const Spacer(),
                 Text(
                   S.of(context).totalNItems(state.totalCount),
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),

@@ -1532,5 +1532,13 @@
   "proxyModeManualDescription": "Use the HTTP proxy configured below",
   "playlistDisplayFormat": "Playlist layout",
   "playlistDisplayFormatMasonry": "Masonry",
-  "playlistDisplayFormatList": "List"
+  "playlistDisplayFormatList": "List",
+  "playerSubtitleSelection": "Select subtitles",
+  "playerSubtitleSourceWork": "Work files",
+  "playerSubtitleSourceLibrary": "Subtitle library",
+  "playerSubtitleShowAll": "Show all subtitles for this work",
+  "playerSubtitleShowMatches": "Show matching subtitles only",
+  "playerSubtitleNoCandidates": "No subtitles are available for this work",
+  "playerSubtitleMayNotMatch": "This subtitle may not match the current audio",
+  "playerLyricViewSettings": "Subtitle view settings"
 }

@@ -8,10 +8,7 @@ Widget _testApp(SnackBar snackBar) {
       body: Builder(
         builder: (context) {
           return TextButton(
-            onPressed: () => SnackBarUtil.showFromSnackBar(
-              context,
-              snackBar,
-            ),
+            onPressed: () => SnackBarUtil.showFromSnackBar(context, snackBar),
             child: const Text('show'),
           );
         },
@@ -22,14 +19,12 @@ Widget _testApp(SnackBar snackBar) {
 
 void main() {
   group('SnackBarUtil.showFromSnackBar', () {
-    testWidgets('converts red text snackbar to unified error style',
-        (tester) async {
+    testWidgets('converts red text snackbar to unified error style', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _testApp(
-          const SnackBar(
-            content: Text('failed'),
-            backgroundColor: Colors.red,
-          ),
+          const SnackBar(content: Text('failed'), backgroundColor: Colors.red),
         ),
       );
 
@@ -62,20 +57,49 @@ void main() {
       expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
     });
 
-    testWidgets('falls back to original snackbar when text cannot be extracted',
-        (tester) async {
+    testWidgets('keeps custom content inside the unified floating notice', (
+      tester,
+    ) async {
       await tester.pumpWidget(
-        _testApp(
-          const SnackBar(
-            content: Icon(Icons.circle),
-          ),
-        ),
+        _testApp(const SnackBar(content: Icon(Icons.circle))),
       );
 
       await tester.tap(find.text('show'));
       await tester.pump();
 
       expect(find.byIcon(Icons.circle), findsOneWidget);
+      final notice = tester.widget<SnackBar>(find.byType(SnackBar));
+      expect(notice.behavior, SnackBarBehavior.floating);
+      expect(notice.margin, isNotNull);
+      final margin = notice.margin! as EdgeInsets;
+      expect(margin.left, greaterThanOrEqualTo(16));
+      expect(margin.right, greaterThanOrEqualTo(16));
+      expect(margin.bottom, inInclusiveRange(88, 144));
+    });
+
+    testWidgets('preserves actions and replaces the currently visible notice', (
+      tester,
+    ) async {
+      var actionInvoked = false;
+      await tester.pumpWidget(
+        _testApp(
+          SnackBar(
+            content: const Text('action message'),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () => actionInvoked = true,
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('show'));
+      await tester.pump();
+      await tester.tap(find.text('show'));
+      await tester.pump(const Duration(milliseconds: 650));
+      expect(find.byType(SnackBar), findsOneWidget);
+      tester.widget<SnackBarAction>(find.byType(SnackBarAction)).onPressed();
+      expect(actionInvoked, isTrue);
     });
   });
 }

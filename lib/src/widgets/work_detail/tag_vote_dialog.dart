@@ -7,6 +7,7 @@ import '../../providers/settings_provider.dart';
 import '../../../l10n/app_localizations.dart';
 import '../responsive_dialog.dart';
 import '../../utils/tag_localizer.dart';
+import '../../utils/snackbar_util.dart';
 
 /// 标签投票对话框组件
 class TagVoteDialog extends ConsumerStatefulWidget {
@@ -92,18 +93,14 @@ class _TagVoteDialogState extends ConsumerState<TagVoteDialog> {
         widget.onVoteChanged(_currentTag);
 
         // 显示提示
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              newStatus == 0
-                  ? S.of(context).voteRemoved
-                  : newStatus == 1
-                      ? S.of(context).votedUp
-                      : S.of(context).votedDown,
-            ),
-            duration: const Duration(seconds: 1),
-            behavior: SnackBarBehavior.floating,
-          ),
+        SnackBarUtil.showInfo(
+          context,
+          newStatus == 0
+              ? S.of(context).voteRemoved
+              : newStatus == 1
+              ? S.of(context).votedUp
+              : S.of(context).votedDown,
+          duration: const Duration(seconds: 1),
         );
       }
     } catch (e) {
@@ -112,13 +109,10 @@ class _TagVoteDialogState extends ConsumerState<TagVoteDialog> {
           _isVoting = false;
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(S.of(context).voteFailedWithError(e.toString())),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-          ),
+        SnackBarUtil.showError(
+          context,
+          S.of(context).voteFailedWithError(e.toString()),
+          duration: const Duration(seconds: 2),
         );
       }
     }
@@ -129,7 +123,10 @@ class _TagVoteDialogState extends ConsumerState<TagVoteDialog> {
     return ResponsiveAlertDialog(
       title: Text(
         TagLocalizer.localize(
-            _currentTag.id, _currentTag.name, Localizations.localeOf(context)),
+          _currentTag.id,
+          _currentTag.name,
+          Localizations.localeOf(context),
+        ),
         style: const TextStyle(fontSize: 16),
       ),
       content: Column(
@@ -201,11 +198,7 @@ class _TagVoteDialogState extends ConsumerState<TagVoteDialog> {
         ),
         child: Row(
           children: [
-            Icon(
-              icon,
-              color: isActive ? activeColor : Colors.grey,
-              size: 22,
-            ),
+            Icon(icon, color: isActive ? activeColor : Colors.grey, size: 22),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
@@ -259,25 +252,23 @@ class _TagVoteDialogState extends ConsumerState<TagVoteDialog> {
         notifier.addTag(tagName);
         Navigator.pop(context);
 
-        messenger.clearSnackBars();
-        final controller = messenger.showSnackBar(
-          SnackBar(
-            content: Text(blockedMessage),
-            duration: const Duration(seconds: 2),
-            behavior: SnackBarBehavior.floating,
-            action: SnackBarAction(
-              label: undoLabel,
-              onPressed: () {
-                notifier.removeTag(tagName);
-              },
-            ),
+        final controller = AppFloatingNotice.show(
+          context,
+          messengerOverride: messenger,
+          content: Text(blockedMessage),
+          duration: const Duration(seconds: 2),
+          action: SnackBarAction(
+            label: undoLabel,
+            onPressed: () {
+              notifier.removeTag(tagName);
+            },
           ),
         );
 
         // 强制在3秒后关闭，解决桌面端鼠标悬停导致不消失的问题
         Future.delayed(const Duration(seconds: 3), () {
           try {
-            controller.close();
+            controller?.close();
           } catch (_) {}
         });
       },
@@ -287,25 +278,16 @@ class _TagVoteDialogState extends ConsumerState<TagVoteDialog> {
         decoration: BoxDecoration(
           color: Colors.grey.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: Colors.grey.withValues(alpha: 0.3),
-          ),
+          border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
         ),
         child: Row(
           children: [
-            const Icon(
-              Icons.block,
-              color: Colors.red,
-              size: 22,
-            ),
+            const Icon(Icons.block, color: Colors.red, size: 22),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
                 S.of(context).blockThisTag,
-                style: const TextStyle(
-                  fontSize: 15,
-                  color: Colors.red,
-                ),
+                style: const TextStyle(fontSize: 15, color: Colors.red),
               ),
             ),
           ],

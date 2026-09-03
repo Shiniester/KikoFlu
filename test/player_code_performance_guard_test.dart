@@ -207,18 +207,21 @@ void main() {
       expect(playerRoute, contains('beginVerticalDismissGesture'));
       expect(playerRoute, contains("ValueKey('player-route-vertical-slide')"));
       expect(playerRoute, isNot(contains('heightFactor:')));
-      expect(playerRoute, contains('mode == PlayerDismissVisualMode.main'));
+      expect(
+        playerRoute,
+        contains('mode != PlayerDismissVisualMode.secondary'),
+      );
       expect(playerCover, contains('transitionOnUserGestures: true'));
       expect(playerCover, contains('createPlayerArtworkRectTween'));
-      expect(miniPlayer, contains('transitionOnUserGestures: true'));
-      expect(miniPlayer, contains('PlayerCoverWidget.preferredAspectRatio'));
+      expect(miniPlayer, contains('PlayerArtworkHero('));
+      expect(miniPlayer, contains('PlayerCompactArtwork('));
       expect(miniPlayer, contains('createPlayerArtworkRectTween'));
       expect(miniPlayer, contains("'mini-player-queue-button'"));
       expect(miniPlayer, contains('class _MiniPlayerTrackSwitcher'));
       expect(miniPlayer, contains('AnimatedSwitcher'));
-      expect(miniPlayer, contains('useOldImageOnUrlChange: true'));
+      expect(playerCover, contains('useOldImageOnUrlChange: true'));
       expect(
-        miniPlayer,
+        playerCover,
         contains('fadeOutDuration: const Duration(milliseconds: 220)'),
       );
       expect(miniPlayer, isNot(contains('Icons.skip_previous')));
@@ -251,6 +254,34 @@ void main() {
       miniPlayer.indexOf('final preparedPalette = ref.watch'),
       lessThan(miniPlayer.indexOf('return _MiniPlayerUpwardLauncher(')),
     );
+  });
+
+  test('artwork flights and transient notices stay centralized', () {
+    final appSources = Directory('lib/src')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((file) => file.path.endsWith('.dart'))
+        .map((file) => file.readAsStringSync())
+        .join('\n');
+    final noticeSource = File(
+      'lib/src/utils/snackbar_util.dart',
+    ).readAsStringSync();
+    final playerCover = File(
+      'lib/src/widgets/player/player_cover_widget.dart',
+    ).readAsStringSync();
+    final workCover = File(
+      'lib/src/widgets/work_detail/work_cover_frame.dart',
+    ).readAsStringSync();
+
+    expect(RegExp(r'\.showSnackBar\(').allMatches(appSources), hasLength(1));
+    expect(noticeSource, contains('SnackBarBehavior.floating'));
+    expect(noticeSource, contains('(width - 420) / 2'));
+    expect(noticeSource, contains('(height * 0.18).clamp(88.0, 144.0)'));
+    expect(playerCover, contains('enum PlayerArtworkFlightTarget'));
+    expect(playerCover, contains('class PlayerCompactArtwork'));
+    expect(playerCover, contains('Tween<double>('));
+    expect(workCover, contains('class WorkCoverHeroFrame'));
+    expect(workCover, contains('Tween<double>('));
   });
 }
 

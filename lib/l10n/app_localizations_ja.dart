@@ -3660,4 +3660,28 @@ class SJa extends S {
 
   @override
   String get playlistDisplayFormatList => 'リスト';
+
+  @override
+  String get playerSubtitleSelection => '字幕を選択';
+
+  @override
+  String get playerSubtitleSourceWork => '作品ファイル';
+
+  @override
+  String get playerSubtitleSourceLibrary => '字幕ライブラリ';
+
+  @override
+  String get playerSubtitleShowAll => 'この作品の字幕をすべて表示';
+
+  @override
+  String get playerSubtitleShowMatches => '一致する字幕のみ表示';
+
+  @override
+  String get playerSubtitleNoCandidates => 'この作品には選択できる字幕がありません';
+
+  @override
+  String get playerSubtitleMayNotMatch => '現在の音声と一致しない可能性があります';
+
+  @override
+  String get playerLyricViewSettings => '字幕表示設定';
 }

@@ -15,7 +15,7 @@ AudioPlayerPageRoute<T> createAudioPlayerRoute<T>({
   return AudioPlayerPageRoute<T>(
     skipInitialTransition: skipInitialTransition,
     initialDismissVisualMode: initialSurface == PlayerInitialSurface.queue
-        ? PlayerDismissVisualMode.secondary
+        ? PlayerDismissVisualMode.queue
         : PlayerDismissVisualMode.main,
     builder: (context) => AudioPlayerScreen(
       initialPalette: initialPalette,
@@ -313,7 +313,7 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
       valueListenable: _dismissVisualMode,
       child: child,
       builder: (context, mode, child) => HeroMode(
-        enabled: !reduceMotion && mode == PlayerDismissVisualMode.main,
+        enabled: !reduceMotion && mode != PlayerDismissVisualMode.secondary,
         child: _buildVerticalSlide(routeAnimation, child!),
       ),
     );

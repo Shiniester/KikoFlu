@@ -3641,6 +3641,30 @@ class SZh extends S {
 
   @override
   String get playlistDisplayFormatList => '列表';
+
+  @override
+  String get playerSubtitleSelection => '字幕选择';
+
+  @override
+  String get playerSubtitleSourceWork => '作品文件';
+
+  @override
+  String get playerSubtitleSourceLibrary => '字幕库';
+
+  @override
+  String get playerSubtitleShowAll => '显示当前作品全部字幕';
+
+  @override
+  String get playerSubtitleShowMatches => '仅显示匹配字幕';
+
+  @override
+  String get playerSubtitleNoCandidates => '当前作品没有可选字幕';
+
+  @override
+  String get playerSubtitleMayNotMatch => '此字幕可能不匹配当前音频';
+
+  @override
+  String get playerLyricViewSettings => '字幕视图设置';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -7280,4 +7304,28 @@ class SZhHant extends SZh {
 
   @override
   String get playlistDisplayFormatList => '列表';
+
+  @override
+  String get playerSubtitleSelection => '字幕選擇';
+
+  @override
+  String get playerSubtitleSourceWork => '作品檔案';
+
+  @override
+  String get playerSubtitleSourceLibrary => '字幕庫';
+
+  @override
+  String get playerSubtitleShowAll => '顯示目前作品全部字幕';
+
+  @override
+  String get playerSubtitleShowMatches => '僅顯示匹配字幕';
+
+  @override
+  String get playerSubtitleNoCandidates => '目前作品沒有可選字幕';
+
+  @override
+  String get playerSubtitleMayNotMatch => '此字幕可能不匹配目前音訊';
+
+  @override
+  String get playerLyricViewSettings => '字幕檢視設定';
 }

@@ -3789,4 +3789,30 @@ class SRu extends S {
 
   @override
   String get playlistDisplayFormatList => 'Список';
+
+  @override
+  String get playerSubtitleSelection => 'Выбрать субтитры';
+
+  @override
+  String get playerSubtitleSourceWork => 'Файлы произведения';
+
+  @override
+  String get playerSubtitleSourceLibrary => 'Библиотека субтитров';
+
+  @override
+  String get playerSubtitleShowAll => 'Показать все субтитры произведения';
+
+  @override
+  String get playerSubtitleShowMatches => 'Показывать только совпадения';
+
+  @override
+  String get playerSubtitleNoCandidates =>
+      'Для этого произведения нет субтитров';
+
+  @override
+  String get playerSubtitleMayNotMatch =>
+      'Субтитры могут не соответствовать текущему аудио';
+
+  @override
+  String get playerLyricViewSettings => 'Настройки отображения субтитров';
 }

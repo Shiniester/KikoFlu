@@ -8,6 +8,7 @@ import 'package:kikoeru_flutter/src/providers/player_work_details_provider.dart'
 import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
 import 'package:kikoeru_flutter/src/widgets/circle_chip.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_audio_details_panel.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_action_icons.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/tag_chip.dart';
 import 'package:kikoeru_flutter/src/widgets/va_chip.dart';
@@ -147,6 +148,18 @@ void main() {
     final secondAudio = find.byKey(
       ValueKey('player-audio-variant-${variants[1].fullPath}'),
     );
+    final playNextButton = find.descendant(
+      of: firstAudio,
+      matching: find.byType(PlayerCompactAction),
+    );
+    expect(
+      find.descendant(
+        of: firstAudio,
+        matching: find.byIcon(Icons.skip_next_rounded),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.getSize(playNextButton), const Size(32, 32));
     expect(
       tester.getTopLeft(secondAudio).dy,
       closeTo(tester.getBottomLeft(firstAudio).dy, 0.1),

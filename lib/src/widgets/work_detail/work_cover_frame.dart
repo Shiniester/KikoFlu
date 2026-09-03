@@ -6,9 +6,79 @@ import '../age_rating_chip.dart';
 import '../privacy_blur_cover.dart';
 
 const double _coverBadgeInset = 12;
-const BorderRadius _workCoverBorderRadius = BorderRadius.all(
-  Radius.circular(12),
-);
+const double workCoverDetailRadius = 12;
+const double workCoverCompactRadius = 8;
+
+class WorkCoverHeroFrame extends StatelessWidget {
+  const WorkCoverHeroFrame({
+    super.key,
+    required this.heroTag,
+    required this.child,
+    this.cornerRadius = workCoverDetailRadius,
+    this.enabled = true,
+  });
+
+  final Object heroTag;
+  final Widget child;
+  final double cornerRadius;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final payload = _WorkCoverHeroPayload(
+      cornerRadius: cornerRadius,
+      child: child,
+    );
+    if (!enabled || MediaQuery.disableAnimationsOf(context)) return payload;
+    return Hero(
+      tag: heroTag,
+      createRectTween: (begin, end) => RectTween(begin: begin, end: end),
+      flightShuttleBuilder: _workCoverFlightShuttle,
+      child: payload,
+    );
+  }
+}
+
+class _WorkCoverHeroPayload extends StatelessWidget {
+  const _WorkCoverHeroPayload({
+    required this.cornerRadius,
+    required this.child,
+  });
+
+  final double cornerRadius;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+    borderRadius: BorderRadius.circular(cornerRadius),
+    child: child,
+  );
+}
+
+Widget _workCoverFlightShuttle(
+  BuildContext flightContext,
+  Animation<double> animation,
+  HeroFlightDirection direction,
+  BuildContext fromHeroContext,
+  BuildContext toHeroContext,
+) {
+  final from =
+      ((fromHeroContext.widget as Hero).child as _WorkCoverHeroPayload);
+  final to = ((toHeroContext.widget as Hero).child as _WorkCoverHeroPayload);
+  return AnimatedBuilder(
+    animation: animation,
+    child: from.child,
+    builder: (context, child) => ClipRRect(
+      borderRadius: BorderRadius.circular(
+        Tween<double>(
+          begin: from.cornerRadius,
+          end: to.cornerRadius,
+        ).evaluate(animation),
+      ),
+      child: child,
+    ),
+  );
+}
 
 class WorkCoverFrame extends StatelessWidget {
   const WorkCoverFrame({
@@ -38,22 +108,11 @@ class WorkCoverFrame extends StatelessWidget {
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        child: Hero(
-          tag: heroTag,
-          // The default shuttle uses the destination child. When a work is
-          // opened before the detail image has loaded, that child is the
-          // loading placeholder and briefly puts a spinner in the flight.
-          // Reuse the already visible source cover for both directions so
-          // the Hero remains stable until the destination is ready.
-          flightShuttleBuilder: (_, __, ___, fromHeroContext, _____) =>
-              ClipRRect(
-                borderRadius: _workCoverBorderRadius,
-                child: (fromHeroContext.widget as Hero).child,
-              ),
+        child: WorkCoverHeroFrame(
+          heroTag: heroTag,
+          cornerRadius: workCoverDetailRadius,
           child: Material(
             color: Colors.transparent,
-            borderRadius: _workCoverBorderRadius,
-            clipBehavior: Clip.antiAlias,
             child: Container(
               width: isLandscape ? null : double.infinity,
               constraints: BoxConstraints(
@@ -63,7 +122,6 @@ class WorkCoverFrame extends StatelessWidget {
                     : double.infinity,
               ),
               child: PrivacyBlurCover(
-                borderRadius: _workCoverBorderRadius,
                 child: Stack(
                   fit: StackFit.passthrough,
                   children: [

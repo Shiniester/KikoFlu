@@ -16,11 +16,13 @@ import '../screens/work_detail_screen.dart';
 import '../services/storage_service.dart';
 import '../utils/string_utils.dart';
 import '../utils/work_cover_prefetch.dart';
+import '../utils/snackbar_util.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/work_card_display_provider.dart';
 import '../utils/age_rating.dart';
 import '../../l10n/app_localizations.dart';
 import 'privacy_blur_cover.dart';
+import 'work_detail/work_cover_frame.dart';
 import 'age_rating_chip.dart';
 
 final _log = LogService.instance;
@@ -29,11 +31,7 @@ class HistoryWorkCard extends ConsumerWidget {
   final HistoryRecord record;
   final VoidCallback? onTap;
 
-  const HistoryWorkCard({
-    super.key,
-    required this.record,
-    this.onTap,
-  });
+  const HistoryWorkCard({super.key, required this.record, this.onTap});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -46,18 +44,12 @@ class HistoryWorkCard extends ConsumerWidget {
     final httpHeaders = StorageService.serverCookieHeaders;
     final initialCoverImageProvider = host.isEmpty
         ? null
-        : createWorkCoverImageProvider(
-            work: work,
-            host: host,
-            token: token,
-          );
+        : createWorkCoverImageProvider(work: work, host: host, token: token);
 
     return Card(
       clipBehavior: Clip.antiAlias,
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         onTap: () {
           Navigator.push(
@@ -100,8 +92,9 @@ class HistoryWorkCard extends ConsumerWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  Hero(
-                    tag: 'work_cover_${work.id}',
+                  WorkCoverHeroFrame(
+                    heroTag: 'work_cover_${work.id}',
+                    cornerRadius: workCoverDetailRadius,
                     child: Material(
                       color: Colors.transparent,
                       child: PrivacyBlurCover(
@@ -109,17 +102,22 @@ class HistoryWorkCard extends ConsumerWidget {
                           imageUrl: work.getCoverImageUrl(host, token: token),
                           httpHeaders: httpHeaders,
                           cacheKey: 'work_cover_${work.id}',
+                          useOldImageOnUrlChange: true,
                           fit: BoxFit.cover,
                           placeholder: (context, url) => Container(
                             color: Colors.grey[200],
                             child: const Center(
-                                child: Icon(Icons.image, color: Colors.grey)),
+                              child: Icon(Icons.image, color: Colors.grey),
+                            ),
                           ),
                           errorWidget: (context, url, error) => Container(
                             color: Colors.grey[200],
                             child: const Center(
-                                child: Icon(Icons.broken_image,
-                                    color: Colors.grey)),
+                              child: Icon(
+                                Icons.broken_image,
+                                color: Colors.grey,
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -201,9 +199,11 @@ class HistoryWorkCard extends ConsumerWidget {
                             lastTrack.duration?.inMilliseconds;
                         final double progressValue =
                             trackDurationMs != null && trackDurationMs > 0
-                                ? (record.lastPositionMs / trackDurationMs)
-                                    .clamp(0.0, 1.0)
-                                : 0.0;
+                            ? (record.lastPositionMs / trackDurationMs).clamp(
+                                0.0,
+                                1.0,
+                              )
+                            : 0.0;
 
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -226,8 +226,9 @@ class HistoryWorkCard extends ConsumerWidget {
                                   style: TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.w500,
-                                    color:
-                                        Theme.of(context).colorScheme.primary,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
                                   ),
                                 ),
                                 if (record.playlistTotal > 0)
@@ -235,8 +236,9 @@ class HistoryWorkCard extends ConsumerWidget {
                                     '${record.playlistIndex + 1} / ${record.playlistTotal}',
                                     style: TextStyle(
                                       fontSize: 10,
-                                      color:
-                                          Theme.of(context).colorScheme.outline,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.outline,
                                     ),
                                   ),
                               ],
@@ -244,9 +246,9 @@ class HistoryWorkCard extends ConsumerWidget {
                             const SizedBox(height: 6),
                             LinearProgressIndicator(
                               value: progressValue,
-                              backgroundColor: Theme.of(context)
-                                  .colorScheme
-                                  .surfaceContainerHighest,
+                              backgroundColor: Theme.of(
+                                context,
+                              ).colorScheme.surfaceContainerHighest,
                               color: Theme.of(context).colorScheme.primary,
                               minHeight: 3,
                               borderRadius: BorderRadius.circular(1.5),
@@ -284,10 +286,9 @@ class HistoryWorkCard extends ConsumerWidget {
     List<dynamic> allFiles = [];
     try {
       allFiles = await apiService.getWorkTracks(work.id);
-      ref.read(fileListControllerProvider.notifier).updateFiles(
-            allFiles,
-            workId: work.id,
-          );
+      ref
+          .read(fileListControllerProvider.notifier)
+          .updateFiles(allFiles, workId: work.id);
     } catch (e) {
       _log.captureOutput('Failed to update file list: $e');
 
@@ -297,20 +298,21 @@ class HistoryWorkCard extends ConsumerWidget {
         if (tasks.isNotEmpty) {
           final downloadedFiles = tasks
               .where((t) => t.status == DownloadStatus.completed)
-              .map((t) => {
-                    'title': t.fileName,
-                    'name': t.fileName,
-                    'hash': t.hash,
-                    'type': 'file',
-                  })
+              .map(
+                (t) => {
+                  'title': t.fileName,
+                  'name': t.fileName,
+                  'hash': t.hash,
+                  'type': 'file',
+                },
+              )
               .toList();
 
           if (downloadedFiles.isNotEmpty) {
             allFiles = downloadedFiles;
-            ref.read(fileListControllerProvider.notifier).updateFiles(
-                  allFiles,
-                  workId: work.id,
-                );
+            ref
+                .read(fileListControllerProvider.notifier)
+                .updateFiles(allFiles, workId: work.id);
           }
         }
       } catch (e2) {
@@ -323,17 +325,16 @@ class HistoryWorkCard extends ConsumerWidget {
       if (record.lastTrack != null) {
         try {
           await AudioPlayerService.instance.updateQueue([record.lastTrack!]);
-          await AudioPlayerService.instance
-              .seek(Duration(milliseconds: record.lastPositionMs));
+          await AudioPlayerService.instance.seek(
+            Duration(milliseconds: record.lastPositionMs),
+          );
           await AudioPlayerService.instance.play();
           ref.read(miniPlayerVisibilityProvider.notifier).show();
           ref.read(historyProvider.notifier).addOrUpdate(work);
         } catch (e) {
           _log.captureOutput('Failed to resume playback: $e');
           if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(l10n.playbackFailed(e.toString()))),
-            );
+            SnackBarUtil.showError(context, l10n.playbackFailed(e.toString()));
           }
         }
       }
@@ -470,19 +471,20 @@ class HistoryWorkCard extends ConsumerWidget {
     // 5. Play
     if (tracks.isNotEmpty) {
       try {
-        await AudioPlayerService.instance
-            .updateQueue(tracks, startIndex: index);
-        await AudioPlayerService.instance
-            .seek(Duration(milliseconds: record.lastPositionMs));
+        await AudioPlayerService.instance.updateQueue(
+          tracks,
+          startIndex: index,
+        );
+        await AudioPlayerService.instance.seek(
+          Duration(milliseconds: record.lastPositionMs),
+        );
         await AudioPlayerService.instance.play();
         ref.read(miniPlayerVisibilityProvider.notifier).show();
         ref.read(historyProvider.notifier).addOrUpdate(work);
       } catch (e) {
         _log.captureOutput('Failed to resume playback: $e');
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(l10n.playbackFailed(e.toString()))),
-          );
+          SnackBarUtil.showError(context, l10n.playbackFailed(e.toString()));
         }
       }
     }

@@ -9,6 +9,7 @@ import 'llm_translator.dart';
 import 'log_service.dart';
 import '../providers/settings_provider.dart';
 import '../utils/global_keys.dart';
+import '../utils/snackbar_util.dart';
 
 final _log = LogService.instance;
 
@@ -45,7 +46,8 @@ class TranslationService {
           TranslationLanguagePreferencesNotifier.keyTargetLanguage,
         ),
       ),
-      customTargetLanguage: prefs.getString(
+      customTargetLanguage:
+          prefs.getString(
             TranslationLanguagePreferencesNotifier.keyCustomTargetLanguage,
           ) ??
           '',
@@ -91,7 +93,8 @@ class TranslationService {
 
   /// 获取 LLM 翻译目标语言名称
   static String llmTargetLanguageName(Locale locale) {
-    final isTraditional = locale.scriptCode == 'Hant' ||
+    final isTraditional =
+        locale.scriptCode == 'Hant' ||
         locale.countryCode == 'TW' ||
         locale.countryCode == 'HK';
     switch (locale.languageCode) {
@@ -117,8 +120,9 @@ class TranslationService {
     String? targetLanguageName,
   }) {
     final langName = targetLanguageName ?? llmTargetLanguageName(locale);
-    final sourceInstruction =
-        sourceLanguageName == null ? '' : ' from $sourceLanguageName';
+    final sourceInstruction = sourceLanguageName == null
+        ? ''
+        : ' from $sourceLanguageName';
     return 'You are a professional translator. Translate the following text$sourceInstruction into $langName. Output ONLY the translated text without any explanations, notes, or markdown code blocks.';
   }
 
@@ -157,8 +161,11 @@ class TranslationService {
     final targetLocale = languageConfig.targetLocale;
 
     // 检查缓存
-    final cachedTranslation =
-        await _getCachedTranslation(text, cacheSourceLang, cacheTargetLang);
+    final cachedTranslation = await _getCachedTranslation(
+      text,
+      cacheSourceLang,
+      cacheTargetLang,
+    );
     if (cachedTranslation != null) {
       return cachedTranslation;
     }
@@ -185,20 +192,27 @@ class TranslationService {
       try {
         String result;
         if (source == 'youdao') {
-          result = await _youdaoTranslator.translate(text,
-              sourceLang: languageConfig.youdaoSourceLang(sourceLang),
-              targetLang: _youdaoTargetLang(targetLocale));
+          result = await _youdaoTranslator.translate(
+            text,
+            sourceLang: languageConfig.youdaoSourceLang(sourceLang),
+            targetLang: _youdaoTargetLang(targetLocale),
+          );
         } else if (source == 'microsoft') {
-          result = await _microsoftTranslator.translate(text,
-              sourceLang: languageConfig.microsoftSourceLang(sourceLang),
-              targetLang: _microsoftTargetLang(targetLocale));
+          result = await _microsoftTranslator.translate(
+            text,
+            sourceLang: languageConfig.microsoftSourceLang(sourceLang),
+            targetLang: _microsoftTargetLang(targetLocale),
+          );
         } else if (source == 'llm') {
-          result = await _llmTranslator.translate(text,
-              sourceLang: languageConfig.llmSourceLanguageName(sourceLang),
-              locale: targetLocale,
-              sourceLanguageName:
-                  languageConfig.llmSourceLanguageName(sourceLang),
-              targetLanguageName: languageConfig.llmTargetLanguageName());
+          result = await _llmTranslator.translate(
+            text,
+            sourceLang: languageConfig.llmSourceLanguageName(sourceLang),
+            locale: targetLocale,
+            sourceLanguageName: languageConfig.llmSourceLanguageName(
+              sourceLang,
+            ),
+            targetLanguageName: languageConfig.llmTargetLanguageName(),
+          );
         } else {
           // Google 翻译
           final translation = await _googleTranslator.translate(
@@ -239,18 +253,21 @@ class TranslationService {
       displayName = 'LLM 翻译';
     }
 
-    rootScaffoldMessengerKey.currentState?.showSnackBar(
-      SnackBar(
-        content: Text('翻译失败，已自动切换至 $displayName'),
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-      ),
+    final context = rootScaffoldMessengerKey.currentContext;
+    if (context == null) return;
+    AppFloatingNotice.show(
+      context,
+      messengerOverride: rootScaffoldMessengerKey.currentState,
+      content: Text('翻译失败，已自动切换至 $displayName'),
+      duration: const Duration(seconds: 2),
     );
   }
 
   /// 批量翻译
-  Future<List<String>> translateBatch(List<String> texts,
-      {String? sourceLang}) async {
+  Future<List<String>> translateBatch(
+    List<String> texts, {
+    String? sourceLang,
+  }) async {
     if (texts.isEmpty) return [];
 
     // 获取并发设置
@@ -273,8 +290,10 @@ class TranslationService {
         index = currentIndex++;
 
         try {
-          final translated =
-              await translate(texts[index], sourceLang: sourceLang);
+          final translated = await translate(
+            texts[index],
+            sourceLang: sourceLang,
+          );
           results[index] = translated;
         } catch (e) {
           _log.captureOutput('Translation batch item $index failed: $e');
@@ -323,8 +342,9 @@ class TranslationService {
         }
 
         for (int i = 0; i < line.length; i += maxChunkSize) {
-          final endIndex =
-              (i + maxChunkSize > line.length) ? line.length : i + maxChunkSize;
+          final endIndex = (i + maxChunkSize > line.length)
+              ? line.length
+              : i + maxChunkSize;
           chunks.add(line.substring(i, endIndex));
         }
       } else {
@@ -361,8 +381,10 @@ class TranslationService {
         index = currentIndex++;
 
         try {
-          final translated =
-              await translate(chunks[index], sourceLang: sourceLang);
+          final translated = await translate(
+            chunks[index],
+            sourceLang: sourceLang,
+          );
           results[index] = translated;
         } catch (e) {
           _log.captureOutput('Translation chunk $index failed: $e');
@@ -382,7 +404,10 @@ class TranslationService {
 
   /// 获取缓存的翻译
   Future<String?> _getCachedTranslation(
-      String text, String sourceLang, String targetLang) async {
+    String text,
+    String sourceLang,
+    String targetLang,
+  ) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final key = _getCacheKey(text, sourceLang, targetLang);
@@ -403,8 +428,12 @@ class TranslationService {
   }
 
   /// 缓存翻译结果
-  Future<void> _cacheTranslation(String text, String translation,
-      String sourceLang, String targetLang) async {
+  Future<void> _cacheTranslation(
+    String text,
+    String translation,
+    String sourceLang,
+    String targetLang,
+  ) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final key = _getCacheKey(text, sourceLang, targetLang);
@@ -510,13 +539,11 @@ class _TranslationLanguageConfig {
       'zh-cn' ||
       'zh-hans' ||
       'zh_chs' ||
-      'zh-chs' =>
-        'Simplified Chinese (zh-CN)',
+      'zh-chs' => 'Simplified Chinese (zh-CN)',
       'zh-tw' ||
       'zh-hant' ||
       'zh_cht' ||
-      'zh-cht' =>
-        'Traditional Chinese (zh-TW)',
+      'zh-cht' => 'Traditional Chinese (zh-TW)',
       'en' => 'English',
       'ja' => 'Japanese',
       'ru' => 'Russian',

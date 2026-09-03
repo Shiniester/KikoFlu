@@ -24,6 +24,7 @@ class PlayerInfoPanel extends ConsumerWidget {
     required this.onDetailPressed,
     required this.onQueuePressed,
     required this.onImmersiveLyrics,
+    required this.onLyricSettings,
     this.visibleActionCount = 5,
   });
 
@@ -33,6 +34,7 @@ class PlayerInfoPanel extends ConsumerWidget {
   final VoidCallback? onDetailPressed;
   final VoidCallback onQueuePressed;
   final VoidCallback onImmersiveLyrics;
+  final VoidCallback onLyricSettings;
   final int visibleActionCount;
 
   @override
@@ -77,6 +79,15 @@ class PlayerInfoPanel extends ConsumerWidget {
                       icon: Icons.fullscreen,
                       label: S.of(context).fullscreenLyrics,
                       onTap: onImmersiveLyrics,
+                    ),
+                  ),
+                  SizedBox(
+                    width: cardWidth,
+                    child: _InfoActionCard(
+                      key: const ValueKey('player-more-lyric-settings-card'),
+                      icon: Icons.text_fields,
+                      label: S.of(context).playerLyricViewSettings,
+                      onTap: onLyricSettings,
                     ),
                   ),
                 ],

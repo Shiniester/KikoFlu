@@ -22,6 +22,7 @@ import 'offline_work_detail_screen.dart';
 import '../widgets/privacy_blur_cover.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 import '../widgets/floating_feed_toolbar.dart';
+import '../widgets/work_detail/work_cover_frame.dart';
 
 final _log = LogService.instance;
 
@@ -174,14 +175,11 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
   Future<void> _refreshMetadata() async {
     if (!mounted) return;
 
-    ScaffoldMessengerState? messenger;
-
     try {
       // 显示加载提示
       if (mounted) {
         try {
-          messenger = ScaffoldMessenger.maybeOf(context);
-          messenger?.showSnackBar(
+          _showSnackBarSafe(
             SnackBar(
               content: Row(
                 children: [
@@ -258,7 +256,8 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
 
   // 删除选中的作品
   Future<void> _deleteSelectedWorks(
-      Map<int, List<DownloadTask>> groupedTasks) async {
+    Map<int, List<DownloadTask>> groupedTasks,
+  ) async {
     if (_selectedWorkIds.isEmpty) return;
 
     final l10n = S.of(context);
@@ -322,17 +321,13 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
             if (errorMessage != null && successCount > 0) {
               _showSnackBarSafe(
                 SnackBar(
-                    content:
-                        Text(l10n.deletedNOfTotal(successCount, totalCount))),
+                  content: Text(l10n.deletedNOfTotal(successCount, totalCount)),
+                ),
               );
             } else if (errorMessage != null) {
-              _showSnackBarSafe(
-                SnackBar(content: Text(errorMessage)),
-              );
+              _showSnackBarSafe(SnackBar(content: Text(errorMessage)));
             } else {
-              _showSnackBarSafe(
-                SnackBar(content: Text(l10n.deleted)),
-              );
+              _showSnackBarSafe(SnackBar(content: Text(l10n.deleted)));
             }
           }
         });
@@ -358,10 +353,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
         title: S.of(context).sortOptions,
         currentOption: _sortOrder,
         currentDirection: _sortDirection,
-        availableOptions: const [
-          SortOrder.downloadDate,
-          SortOrder.workId,
-        ],
+        availableOptions: const [SortOrder.downloadDate, SortOrder.workId],
         onSort: (option, direction) {
           setState(() {
             _sortOrder = option;
@@ -388,7 +380,8 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
 
   // 过滤作品（根据搜索关键词）
   Map<int, List<DownloadTask>> _filterTasks(
-      Map<int, List<DownloadTask>> groupedTasks) {
+    Map<int, List<DownloadTask>> groupedTasks,
+  ) {
     if (_searchQuery.isEmpty) return groupedTasks;
 
     final query = _searchQuery.toLowerCase();
@@ -441,10 +434,12 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
 
   void _openWorkDetail(int workId, DownloadTask task) async {
     _log.captureOutput(
-        '[LocalDownloads] 打开作品详情: workId=$workId, task=${task.id}, '
-        'file=${task.fileName}, hasMetadata=${task.workMetadata != null}');
+      '[LocalDownloads] 打开作品详情: workId=$workId, task=${task.id}, '
+      'file=${task.fileName}, hasMetadata=${task.workMetadata != null}',
+    );
 
-    final loadedMetadata = task.workMetadata ??
+    final loadedMetadata =
+        task.workMetadata ??
         await DownloadService.instance.getWorkMetadata(workId);
 
     if (!mounted) return;
@@ -478,8 +473,10 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
         workId,
         metadata: metadata,
       );
-      final localCoverPath =
-          DownloadService.instance.localCoverPathForMetadata(workDir, metadata);
+      final localCoverPath = DownloadService.instance.localCoverPathForMetadata(
+        workDir,
+        metadata,
+      );
 
       if (mounted) {
         Navigator.of(context).push(
@@ -490,8 +487,9 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
               localCoverPath: localCoverPath,
               localCoverRelativePath: metadata['localCoverPath'] as String?,
               localWorkDirPath: workDir.path,
-              fileTree:
-                  rawChildren is List ? List<dynamic>.from(rawChildren) : null,
+              fileTree: rawChildren is List
+                  ? List<dynamic>.from(rawChildren)
+                  : null,
             ),
           ),
         );
@@ -521,8 +519,9 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
     if (value == null) return null;
 
     if (value is Map) {
-      return value
-          .map((key, val) => MapEntry(key.toString(), _deepSanitize(val)));
+      return value.map(
+        (key, val) => MapEntry(key.toString(), _deepSanitize(val)),
+      );
     }
 
     if (value is List) {
@@ -553,148 +552,150 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
   Widget build(BuildContext context) {
     super.build(context);
 
-        final taskIds = ref.watch(downloadTaskIdsProvider).valueOrNull ??
-            DownloadService.instance.taskIds;
-        final tasks = taskIds
-            .map(DownloadService.instance.taskById)
-            .whereType<DownloadTask>()
-            .toList(growable: false);
-        final completedTasks =
-            tasks.where((t) => t.status == DownloadStatus.completed).toList();
+    final taskIds =
+        ref.watch(downloadTaskIdsProvider).valueOrNull ??
+        DownloadService.instance.taskIds;
+    final tasks = taskIds
+        .map(DownloadService.instance.taskById)
+        .whereType<DownloadTask>()
+        .toList(growable: false);
+    final completedTasks = tasks
+        .where((t) => t.status == DownloadStatus.completed)
+        .toList();
 
-        // 按作品分组
-        final Map<int, List<DownloadTask>> allGroupedTasks = {};
-        for (final task in completedTasks) {
-          allGroupedTasks.putIfAbsent(task.workId, () => []).add(task);
-        }
+    // 按作品分组
+    final Map<int, List<DownloadTask>> allGroupedTasks = {};
+    for (final task in completedTasks) {
+      allGroupedTasks.putIfAbsent(task.workId, () => []).add(task);
+    }
 
-        // 应用搜索过滤
-        final groupedTasks = _filterTasks(allGroupedTasks);
+    // 应用搜索过滤
+    final groupedTasks = _filterTasks(allGroupedTasks);
 
-        // 应用排序
-        final sortedWorkIds = _sortWorkIds(groupedTasks);
-        final totalCount = sortedWorkIds.length;
-        final totalPages = (totalCount / _pageSize).ceil();
-        final currentPage = totalPages == 0 || _currentPage < 1
-            ? 1
-            : _currentPage > totalPages
-                ? totalPages
-                : _currentPage;
-        final startIndex = (currentPage - 1) * _pageSize;
-        final endIndex = (startIndex + _pageSize).clamp(0, totalCount);
-        final currentPageWorkIds = sortedWorkIds.sublist(startIndex, endIndex);
-        final toolbarTop = widget.toolbarTop;
+    // 应用排序
+    final sortedWorkIds = _sortWorkIds(groupedTasks);
+    final totalCount = sortedWorkIds.length;
+    final totalPages = (totalCount / _pageSize).ceil();
+    final currentPage = totalPages == 0 || _currentPage < 1
+        ? 1
+        : _currentPage > totalPages
+        ? totalPages
+        : _currentPage;
+    final startIndex = (currentPage - 1) * _pageSize;
+    final endIndex = (startIndex + _pageSize).clamp(0, totalCount);
+    final currentPageWorkIds = sortedWorkIds.sublist(startIndex, endIndex);
+    final toolbarTop = widget.toolbarTop;
 
-        return Stack(
-          children: [
-            Positioned.fill(
-              child: VirtualizedSliverCollection<int>(
-                collectionController: _collectionController,
-                pageStorageKey: const PageStorageKey('local-downloads-feed'),
-                items: currentPageWorkIds,
-                itemId: (workId) => workId,
-                layout: VirtualizedCollectionLayout.grid,
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 210,
-                  childAspectRatio: 0.72,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                ),
-                padding: EdgeInsets.fromLTRB(16, toolbarTop + 60, 16, 16),
-                physics: ScrollOptimization.physics,
-                pagination: totalCount == 0
-                    ? null
-                    : VirtualizedPagination(
-                        currentPage: currentPage,
-                        pageSize: _pageSize,
-                        totalCount: totalCount,
-                        hasMore: currentPage < totalPages,
-                        isLoading: false,
-                        onPreviousPage: _previousPage,
-                        onNextPage: () => _nextPage(totalPages),
-                        onGoToPage: _goToPage,
-                        nextPageOnOverscroll: true,
-                        scrollToTop: false,
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                      ),
-                showEndIndicator: false,
-                emptyBuilder: (context) => Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        allGroupedTasks.isEmpty
-                            ? Icons.download_outlined
-                            : Icons.search_off,
-                        size: 64,
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        allGroupedTasks.isEmpty
-                            ? S.of(context).noLocalDownloads
-                            : S.of(context).noResults,
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: VirtualizedSliverCollection<int>(
+            collectionController: _collectionController,
+            pageStorageKey: const PageStorageKey('local-downloads-feed'),
+            items: currentPageWorkIds,
+            itemId: (workId) => workId,
+            layout: VirtualizedCollectionLayout.grid,
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 210,
+              childAspectRatio: 0.72,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+            ),
+            padding: EdgeInsets.fromLTRB(16, toolbarTop + 60, 16, 16),
+            physics: ScrollOptimization.physics,
+            pagination: totalCount == 0
+                ? null
+                : VirtualizedPagination(
+                    currentPage: currentPage,
+                    pageSize: _pageSize,
+                    totalCount: totalCount,
+                    hasMore: currentPage < totalPages,
+                    isLoading: false,
+                    onPreviousPage: _previousPage,
+                    onNextPage: () => _nextPage(totalPages),
+                    onGoToPage: _goToPage,
+                    nextPageOnOverscroll: true,
+                    scrollToTop: false,
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                   ),
-                ),
-                itemBuilder: (context, workId, index) {
-                  final workTasks = groupedTasks[workId]!;
-                  return _buildWorkCard(
-                    workId: workId,
-                    workTasks: workTasks,
-                    firstTask: _preferredMetadataTask(workTasks),
-                    isSelected: _selectedWorkIds.contains(workId),
-                  );
-                },
+            showEndIndicator: false,
+            emptyBuilder: (context) => Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    allGroupedTasks.isEmpty
+                        ? Icons.download_outlined
+                        : Icons.search_off,
+                    size: 64,
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    allGroupedTasks.isEmpty
+                        ? S.of(context).noLocalDownloads
+                        : S.of(context).noResults,
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ),
             ),
-            if (widget.primaryToolbarVisible == null)
-              Positioned(
-                top: toolbarTop,
-                left: FloatingToolbarLayout.horizontalPadding(context),
-                right: FloatingToolbarLayout.horizontalPadding(context),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Flexible(
-                      fit: FlexFit.loose,
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: _buildPrimaryToolbar(allGroupedTasks),
-                      ),
-                    ),
-                    _buildSecondaryToolbar(),
-                  ],
+            itemBuilder: (context, workId, index) {
+              final workTasks = groupedTasks[workId]!;
+              return _buildWorkCard(
+                workId: workId,
+                workTasks: workTasks,
+                firstTask: _preferredMetadataTask(workTasks),
+                isSelected: _selectedWorkIds.contains(workId),
+              );
+            },
+          ),
+        ),
+        if (widget.primaryToolbarVisible == null)
+          Positioned(
+            top: toolbarTop,
+            left: FloatingToolbarLayout.horizontalPadding(context),
+            right: FloatingToolbarLayout.horizontalPadding(context),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Flexible(
+                  fit: FlexFit.loose,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: _buildPrimaryToolbar(allGroupedTasks),
+                  ),
                 ),
-              )
-            else
-              FloatingToolbarPositionFollower(
-                primaryToolbarVisible: widget.primaryToolbarVisible!,
-                visibleTop: toolbarTop,
-                hiddenTop: widget.collapsedToolbarTop ?? toolbarTop,
-                left: FloatingToolbarLayout.horizontalPadding(context),
-                right: FloatingToolbarLayout.horizontalPadding(context),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Flexible(
-                      fit: FlexFit.loose,
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: _buildPrimaryToolbar(allGroupedTasks),
-                      ),
-                    ),
-                    _buildSecondaryToolbar(),
-                  ],
+                _buildSecondaryToolbar(),
+              ],
+            ),
+          )
+        else
+          FloatingToolbarPositionFollower(
+            primaryToolbarVisible: widget.primaryToolbarVisible!,
+            visibleTop: toolbarTop,
+            hiddenTop: widget.collapsedToolbarTop ?? toolbarTop,
+            left: FloatingToolbarLayout.horizontalPadding(context),
+            right: FloatingToolbarLayout.horizontalPadding(context),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Flexible(
+                  fit: FlexFit.loose,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: _buildPrimaryToolbar(allGroupedTasks),
+                  ),
                 ),
-              ),
-          ],
-        );
+                _buildSecondaryToolbar(),
+              ],
+            ),
+          ),
+      ],
+    );
   }
 
   Widget _buildPrimaryToolbar(Map<int, List<DownloadTask>> groupedTasks) {
@@ -717,15 +718,18 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
               ),
             ),
             FloatingToolbarIconButton(
-              icon: _selectedWorkIds.length == groupedTasks.length &&
+              icon:
+                  _selectedWorkIds.length == groupedTasks.length &&
                       groupedTasks.isNotEmpty
                   ? Icons.deselect
                   : Icons.select_all,
-              tooltip: _selectedWorkIds.length == groupedTasks.length &&
+              tooltip:
+                  _selectedWorkIds.length == groupedTasks.length &&
                       groupedTasks.isNotEmpty
                   ? S.of(context).deselectAll
                   : S.of(context).selectAll,
-              onPressed: _selectedWorkIds.length == groupedTasks.length &&
+              onPressed:
+                  _selectedWorkIds.length == groupedTasks.length &&
                       groupedTasks.isNotEmpty
                   ? _deselectAll
                   : () => _selectAll(groupedTasks),
@@ -870,10 +874,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: isSelected
-            ? BorderSide(
-                color: Theme.of(context).colorScheme.primary,
-                width: 2,
-              )
+            ? BorderSide(color: Theme.of(context).colorScheme.primary, width: 2)
             : BorderSide.none,
       ),
       child: InkWell(
@@ -949,9 +950,9 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
                               Icon(
                                 Icons.mic,
                                 size: 12,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
                               ),
                               const SizedBox(width: 4),
                               Expanded(
@@ -961,9 +962,9 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     fontSize: 11,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onSurfaceVariant,
                                   ),
                                 ),
                               ),
@@ -993,8 +994,9 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
                           Icon(
                             Icons.storage,
                             size: 12,
-                            color:
-                                Theme.of(context).colorScheme.onSurfaceVariant,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
                           ),
                           const SizedBox(width: 4),
                           Flexible(
@@ -1002,9 +1004,9 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
                               formatBytes(totalSize),
                               style: TextStyle(
                                 fontSize: 11,
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
                               ),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -1072,12 +1074,13 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
               final localCoverPath = DownloadService.instance
                   .localCoverPathForMetadata(snapshot.data!, task.workMetadata);
               if (localCoverPath != null && File(localCoverPath).existsSync()) {
-                return Hero(
-                  tag: 'offline_work_cover_$workId',
+                return WorkCoverHeroFrame(
+                  heroTag: 'offline_work_cover_$workId',
+                  cornerRadius: workCoverCompactRadius,
                   child: PrivacyBlurCover(
-                    borderRadius: BorderRadius.circular(8),
                     child: Image.file(
                       File(localCoverPath),
+                      gaplessPlayback: true,
                       fit: BoxFit.cover,
                       width: double.infinity,
                     ),
@@ -1095,13 +1098,14 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
 
     // 降级使用网络封面
     if (work != null && host.isNotEmpty) {
-      return Hero(
-        tag: 'offline_work_cover_$workId',
+      return WorkCoverHeroFrame(
+        heroTag: 'offline_work_cover_$workId',
+        cornerRadius: workCoverCompactRadius,
         child: PrivacyBlurCover(
-          borderRadius: BorderRadius.circular(8),
           child: CachedNetworkImage(
             imageUrl: work.getCoverImageUrl(host, token: token),
             httpHeaders: httpHeaders,
+            useOldImageOnUrlChange: true,
             fit: BoxFit.cover,
             errorWidget: (context, url, error) => _buildPlaceholder(),
           ),

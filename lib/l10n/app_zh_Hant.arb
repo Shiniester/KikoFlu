@@ -1228,5 +1228,13 @@
   "proxyModeManualDescription": "使用下方設定的 HTTP 代理",
   "playlistDisplayFormat": "播放清單版面",
   "playlistDisplayFormatMasonry": "瀑布流",
-  "playlistDisplayFormatList": "列表"
+  "playlistDisplayFormatList": "列表",
+  "playerSubtitleSelection": "字幕選擇",
+  "playerSubtitleSourceWork": "作品檔案",
+  "playerSubtitleSourceLibrary": "字幕庫",
+  "playerSubtitleShowAll": "顯示目前作品全部字幕",
+  "playerSubtitleShowMatches": "僅顯示匹配字幕",
+  "playerSubtitleNoCandidates": "目前作品沒有可選字幕",
+  "playerSubtitleMayNotMatch": "此字幕可能不匹配目前音訊",
+  "playerLyricViewSettings": "字幕檢視設定"
 }

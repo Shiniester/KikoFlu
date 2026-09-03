@@ -1,6 +1,3 @@
-import 'dart:io' show File;
-
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -12,9 +9,9 @@ import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../utils/l10n_extensions.dart';
 import '../../utils/local_file_url.dart';
-import '../privacy_blur_cover.dart';
 import 'player_glass_surface.dart';
 import 'player_cover_widget.dart';
+import 'player_action_icons.dart';
 import 'player_vertical_gestures.dart';
 
 const List<AudioTapPlaylistMode> _playlistModeMenuOrder = [
@@ -55,6 +52,7 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
     this.dismissDrag,
     this.showCloseButton = false,
     this.horizontalPadding = 8,
+    this.artworkHeroTarget = PlayerArtworkFlightTarget.none,
   });
 
   final VoidCallback? onClose;
@@ -64,6 +62,7 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
   final PlayerVerticalDragCallbacks? dismissDrag;
   final bool showCloseButton;
   final double horizontalPadding;
+  final PlayerArtworkFlightTarget artworkHeroTarget;
 
   @override
   ConsumerState<PlayerQueueSurface> createState() => _PlayerQueueSurfaceState();
@@ -101,6 +100,7 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
                   host: authState.host,
                   token: authState.token,
                 ),
+                artworkHeroTarget: widget.artworkHeroTarget,
               ),
             ),
           PlayerVerticalSwipeRegion(
@@ -250,11 +250,13 @@ class _NowPlayingQueueHeader extends StatelessWidget {
     required this.track,
     required this.coverUrl,
     required this.horizontalPadding,
+    required this.artworkHeroTarget,
   });
 
   final AudioTrack track;
   final String? coverUrl;
   final double horizontalPadding;
+  final PlayerArtworkFlightTarget artworkHeroTarget;
 
   @override
   Widget build(BuildContext context) {
@@ -265,8 +267,9 @@ class _NowPlayingQueueHeader extends StatelessWidget {
         children: [
           _QueueArtwork(
             key: const ValueKey('player-queue-now-playing-artwork'),
+            track: track,
             url: coverUrl,
-            height: 48,
+            heroTarget: artworkHeroTarget,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -341,8 +344,8 @@ class _QueueTrackTile extends StatelessWidget {
               children: [
                 _QueueArtwork(
                   key: ValueKey('player-queue-artwork-${track.id}'),
+                  track: track,
                   url: coverUrl,
-                  height: 48,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -355,8 +358,8 @@ class _QueueTrackTile extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(
-                              fontSize: 14,
-                              height: 1.15,
+                              fontSize: 12.5,
+                              height: 1.12,
                               fontWeight: isCurrentTrack
                                   ? FontWeight.w700
                                   : FontWeight.w500,
@@ -381,14 +384,11 @@ class _QueueTrackTile extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 6),
                     child: Icon(Icons.graphic_eq, color: colorScheme.primary),
                   ),
-                IconButton(
+                PlayerCompactAction(
                   tooltip: S.of(context).remove,
                   onPressed: onRemove,
-                  icon: Icon(
-                    Icons.remove,
-                    size: 20,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
+                  icon: Icons.remove,
+                  color: colorScheme.onSurfaceVariant,
                 ),
               ],
             ),
@@ -400,43 +400,24 @@ class _QueueTrackTile extends StatelessWidget {
 }
 
 class _QueueArtwork extends StatelessWidget {
-  const _QueueArtwork({super.key, required this.url, required this.height});
+  const _QueueArtwork({
+    super.key,
+    required this.track,
+    required this.url,
+    this.heroTarget = PlayerArtworkFlightTarget.none,
+  });
 
+  final AudioTrack track;
   final String? url;
-  final double height;
+  final PlayerArtworkFlightTarget heroTarget;
 
   @override
   Widget build(BuildContext context) {
-    final fallback = Icon(Icons.music_note, size: height * 0.5);
-    return SizedBox(
-      width: height * PlayerCoverWidget.preferredAspectRatio,
-      height: height,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        ),
-        child: url == null
-            ? fallback
-            : PrivacyBlurCover(
-                borderRadius: BorderRadius.circular(10),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: LocalFileUrl.isLocalFileUrl(url)
-                      ? Image.file(
-                          File(LocalFileUrl.pathFromUrl(url!)!),
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => fallback,
-                        )
-                      : CachedNetworkImage(
-                          imageUrl: url!,
-                          fit: BoxFit.cover,
-                          errorWidget: (_, __, ___) => fallback,
-                          placeholder: (_, __) => fallback,
-                        ),
-                ),
-              ),
-      ),
+    return PlayerArtworkHero(
+      trackId: track.id,
+      target: heroTarget,
+      cornerRadius: PlayerCompactArtwork.cornerRadius,
+      child: PlayerCompactArtwork(track: track, url: url),
     );
   }
 }
@@ -660,7 +641,7 @@ class PlaylistModeToggle extends ConsumerWidget {
     return switch (mode) {
       AudioTapPlaylistMode.replaceQueue => Icons.playlist_play,
       AudioTapPlaylistMode.addToQueue => Icons.playlist_add,
-      AudioTapPlaylistMode.playNext => Icons.queue_play_next,
+      AudioTapPlaylistMode.playNext => playerPlayNextIcon,
     };
   }
 }

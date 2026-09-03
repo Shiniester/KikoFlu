@@ -1228,5 +1228,13 @@
   "proxyModeManualDescription": "下で設定した HTTP プロキシを使用",
   "playlistDisplayFormat": "プレイリストの表示形式",
   "playlistDisplayFormatMasonry": "ウォーターフォール",
-  "playlistDisplayFormatList": "リスト"
+  "playlistDisplayFormatList": "リスト",
+  "playerSubtitleSelection": "字幕を選択",
+  "playerSubtitleSourceWork": "作品ファイル",
+  "playerSubtitleSourceLibrary": "字幕ライブラリ",
+  "playerSubtitleShowAll": "この作品の字幕をすべて表示",
+  "playerSubtitleShowMatches": "一致する字幕のみ表示",
+  "playerSubtitleNoCandidates": "この作品には選択できる字幕がありません",
+  "playerSubtitleMayNotMatch": "現在の音声と一致しない可能性があります",
+  "playerLyricViewSettings": "字幕表示設定"
 }

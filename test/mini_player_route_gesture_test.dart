@@ -206,8 +206,18 @@ void main() {
       final artwork = find.byKey(const ValueKey('mini-player-artwork-frame'));
       expect(tester.getSize(artwork), const Size(64, 48));
       final artworkDecoration =
-          tester.widget<Container>(artwork).decoration! as BoxDecoration;
-      expect(artworkDecoration.borderRadius, BorderRadius.circular(8));
+          tester
+                  .widget<DecoratedBox>(
+                    find
+                        .descendant(
+                          of: artwork,
+                          matching: find.byType(DecoratedBox),
+                        )
+                        .first,
+                  )
+                  .decoration
+              as BoxDecoration;
+      expect(artworkDecoration.borderRadius, BorderRadius.circular(10));
       expect(
         find.descendant(of: mini, matching: find.byIcon(Icons.skip_previous)),
         findsNothing,

@@ -4,10 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/work.dart';
 import '../../providers/player_work_details_provider.dart';
 import '../../services/player_audio_variant_classifier.dart';
+import '../../utils/snackbar_util.dart';
 import '../circle_chip.dart';
 import '../tag_chip.dart';
 import '../va_chip.dart';
 import 'player_glass_surface.dart';
+import 'player_action_icons.dart';
 import 'player_vertical_gestures.dart';
 
 class PlayerAudioDetailsPanel extends ConsumerStatefulWidget {
@@ -354,8 +356,10 @@ class _PlayerAudioDetailsPanelState
           'unavailable',
         ),
       };
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+      SnackBarUtil.showInfo(
+        context,
+        message,
+        duration: const Duration(seconds: 2),
       );
     }
   }
@@ -443,33 +447,59 @@ class _AudioVariantTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final secondary = Theme.of(context).colorScheme.onSurfaceVariant;
-    return ListTile(
+    final colorScheme = Theme.of(context).colorScheme;
+    final secondary = colorScheme.onSurfaceVariant;
+    final titleColor = enabled
+        ? colorScheme.onSurface
+        : colorScheme.onSurface.withValues(alpha: 0.38);
+    return Material(
       key: ValueKey('player-audio-variant-${variant.fullPath}'),
-      dense: true,
-      visualDensity: const VisualDensity(horizontal: -2, vertical: -4),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-      enabled: enabled,
-      onTap: onTap,
-      title: Text(
-        variant.title,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          fontSize: 12.5,
-          height: 1.12,
-          fontWeight: FontWeight.w600,
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      variant.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: titleColor,
+                        fontSize: 12.5,
+                        height: 1.12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      _variantSummary(context, variant),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: enabled
+                            ? secondary
+                            : secondary.withValues(alpha: 0.38),
+                        fontSize: 10.5,
+                        height: 1.15,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              PlayerCompactAction(
+                tooltip: _label(context, 'playNext'),
+                onPressed: enabled ? onTap : null,
+                icon: playerPlayNextIcon,
+                color: secondary,
+              ),
+            ],
+          ),
         ),
-      ),
-      subtitle: Text(
-        _variantSummary(context, variant),
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(color: secondary, fontSize: 10.5, height: 1.15),
-      ),
-      trailing: Tooltip(
-        message: _label(context, 'playNext'),
-        child: const Icon(Icons.playlist_add, size: 18),
       ),
     );
   }

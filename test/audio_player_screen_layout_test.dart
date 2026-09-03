@@ -20,6 +20,7 @@ import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_action_icons.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
@@ -146,6 +147,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Keep Screen Awake'), findsOneWidget);
     expect(find.text('Fullscreen lyrics'), findsOneWidget);
+    expect(find.text('Subtitle view settings'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey('player-more-lyric-settings-card')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Subtitle view settings'), findsOneWidget);
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
 
@@ -563,7 +570,7 @@ void main() {
       await closeQueue();
 
       for (final key in const <ValueKey<String>>[
-        ValueKey('lyric-settings-button'),
+        ValueKey('lyric-subtitle-picker-button'),
         ValueKey('lyric-download-button'),
         ValueKey('lyric-fullscreen-button'),
         ValueKey('lyric-translate-button'),
@@ -727,7 +734,7 @@ void main() {
         find.byKey(const ValueKey('lyric-actions-width-boundary')),
       );
       final lyricLeft = tester.getCenter(
-        find.byKey(const ValueKey('lyric-settings-button')),
+        find.byKey(const ValueKey('lyric-subtitle-picker-button')),
       );
       final lyricRight = tester.getCenter(
         find.byKey(const ValueKey('lyric-search-button')),
@@ -1088,7 +1095,15 @@ void main() {
         matching: find.byIcon(Icons.remove),
       ),
     );
-    expect(removeIcon.size, 20);
+    expect(removeIcon.size, 18);
+    final removeButton = find.ancestor(
+      of: find.descendant(
+        of: queueTrackFinder,
+        matching: find.byIcon(Icons.remove),
+      ),
+      matching: find.byType(PlayerCompactAction),
+    );
+    expect(tester.getSize(removeButton), const Size(32, 32));
     expect(
       removeIcon.color,
       Theme.of(tester.element(queueTrackFinder)).colorScheme.onSurfaceVariant,
@@ -1125,10 +1140,14 @@ void main() {
       final fullscreenSize = tester.getSize(
         find.byKey(const ValueKey('player-more-fullscreen-card')),
       );
+      final lyricSettingsSize = tester.getSize(
+        find.byKey(const ValueKey('player-more-lyric-settings-card')),
+      );
       final overflowSize = tester.getSize(
         find.byKey(const ValueKey('player-more-action-floatingLyric')),
       );
       expect(fullscreenSize, keepAwakeSize);
+      expect(lyricSettingsSize, keepAwakeSize);
       expect(overflowSize, keepAwakeSize);
       expect(keepAwakeSize.height, 72);
       final moreGlass = find

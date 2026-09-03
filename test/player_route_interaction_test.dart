@@ -93,6 +93,20 @@ void main() {
     expect(route.debugTransitionValue, closeTo(1, 0.001));
     expect(find.text('interactive-player'), findsOneWidget);
 
+    route.setDismissVisualMode(PlayerDismissVisualMode.queue);
+    await tester.pump();
+    expect(
+      tester
+          .widget<HeroMode>(
+            find.ancestor(
+              of: find.byKey(const ValueKey('player-route-vertical-slide')),
+              matching: find.byType(HeroMode),
+            ),
+          )
+          .enabled,
+      isTrue,
+    );
+
     route.setDismissVisualMode(PlayerDismissVisualMode.main);
     await tester.pump();
     expect(

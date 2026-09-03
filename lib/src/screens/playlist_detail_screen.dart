@@ -16,6 +16,7 @@ import '../utils/snackbar_util.dart';
 import '../screens/work_detail_screen.dart';
 import '../widgets/privacy_blur_cover.dart';
 import '../widgets/enhanced_work_card.dart';
+import '../widgets/work_detail/work_cover_frame.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 import '../utils/responsive_grid_helper.dart';
 import '../utils/work_cover_prefetch.dart';
@@ -74,9 +75,11 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(isOwner
-            ? S.of(context).deletePlaylist
-            : S.of(context).unfavoritePlaylist),
+        title: Text(
+          isOwner
+              ? S.of(context).deletePlaylist
+              : S.of(context).unfavoritePlaylist,
+        ),
         content: Text(
           isOwner
               ? S.of(context).deletePlaylistConfirm
@@ -92,8 +95,9 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(context).colorScheme.error,
             ),
-            child:
-                Text(isOwner ? S.of(context).delete : S.of(context).unfavorite),
+            child: Text(
+              isOwner ? S.of(context).delete : S.of(context).unfavorite,
+            ),
           ),
         ],
       ),
@@ -138,7 +142,9 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
 
       // 显示错误提示
       SnackBarUtil.showError(
-          context, S.of(context).deleteFailedWithError(e.toString()));
+        context,
+        S.of(context).deleteFailedWithError(e.toString()),
+      );
     }
   }
 
@@ -194,7 +200,9 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
       // 显示加载提示
       if (!mounted) return;
       SnackBarUtil.showLoading(
-          context, S.of(context).addingNWorks(workIds.length));
+        context,
+        S.of(context).addingNWorks(workIds.length),
+      );
 
       await ref
           .read(playlistDetailProvider(widget.playlistId).notifier)
@@ -207,7 +215,9 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
 
       // 显示成功提示
       SnackBarUtil.showSuccess(
-          context, S.of(context).addedNWorksSuccess(workIds.length));
+        context,
+        S.of(context).addedNWorksSuccess(workIds.length),
+      );
     } catch (e) {
       if (!mounted) return;
 
@@ -216,7 +226,9 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
 
       // 显示错误提示
       SnackBarUtil.showError(
-          context, S.of(context).addFailedWithError(e.toString()));
+        context,
+        S.of(context).addFailedWithError(e.toString()),
+      );
     }
   }
 
@@ -264,8 +276,11 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
       SnackBarUtil.clearAll(context);
 
       // 显示成功提示，缩短显示时间
-      SnackBarUtil.showSuccess(context, S.of(context).removeSuccess,
-          duration: const Duration(seconds: 1));
+      SnackBarUtil.showSuccess(
+        context,
+        S.of(context).removeSuccess,
+        duration: const Duration(seconds: 1),
+      );
     } catch (e) {
       if (!mounted) return;
 
@@ -274,7 +289,9 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
 
       // 显示错误提示
       SnackBarUtil.showError(
-          context, S.of(context).removeFailedWithError(e.toString()));
+        context,
+        S.of(context).removeFailedWithError(e.toString()),
+      );
     }
   }
 
@@ -312,7 +329,9 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
 
       // 显示错误提示
       SnackBarUtil.showError(
-          context, S.of(context).saveFailedWithError(e.toString()));
+        context,
+        S.of(context).saveFailedWithError(e.toString()),
+      );
     }
   }
 
@@ -339,9 +358,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
         tooltip: S.of(context).addWorks,
         child: const Icon(Icons.add),
       ),
-      body: ScrollNotificationObserver(
-        child: _buildBody(state),
-      ),
+      body: ScrollNotificationObserver(child: _buildBody(state)),
     );
   }
 
@@ -365,8 +382,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
             Text(
               state.error!,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
@@ -386,15 +403,18 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    final auth = ref.watch(authProvider.select(
-      (value) => (
-        host: value.host ?? '',
-        token: value.token ?? '',
-        userName: value.currentUser?.name ?? '',
+    final auth = ref.watch(
+      authProvider.select(
+        (value) => (
+          host: value.host ?? '',
+          token: value.token ?? '',
+          userName: value.currentUser?.name ?? '',
+        ),
       ),
-    ));
-    final notifier =
-        ref.read(playlistDetailProvider(widget.playlistId).notifier);
+    );
+    final notifier = ref.read(
+      playlistDetailProvider(widget.playlistId).notifier,
+    );
     final isOwner = state.metadata?.userName == auth.userName;
     final layoutType = ref.watch(playlistDisplayProvider);
     final isMasonry = layoutType == PlaylistLayoutType.masonry;
@@ -402,111 +422,113 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
         MediaQuery.orientationOf(context) == Orientation.landscape;
     final spacing = isLandscape ? 24.0 : 8.0;
     final crossAxisCount = isMasonry
-        ? ref.watch(workCardDisplayProvider).applyCardSize(
-              ResponsiveGridHelper.getBigGridCrossAxisCount(context),
-            )
+        ? ref
+              .watch(workCardDisplayProvider)
+              .applyCardSize(
+                ResponsiveGridHelper.getBigGridCrossAxisCount(context),
+              )
         : 1;
     final contentPadding = isMasonry ? spacing : 8.0;
 
     return WorkCoverPrefetchScope(
       sourceKey: (auth.host, auth.token, widget.playlistId, state.works),
       builder: (context, coverPrefetch) => VirtualizedSliverCollection(
-      controller: _scrollController,
-      items: state.works,
-      itemId: (work) => work.id,
-      layout: isMasonry
-          ? VirtualizedCollectionLayout.masonry
-          : VirtualizedCollectionLayout.list,
-      masonryCrossAxisCount: isMasonry ? crossAxisCount : null,
-      masonryMainAxisSpacing: spacing,
-      masonryCrossAxisSpacing: spacing,
-      padding: EdgeInsets.all(contentPadding),
-      physics: ScrollOptimization.physics,
-      sliversBefore: [
-        if (state.metadata != null)
-          _buildMetadataSection(
-            state.metadata!,
-            auth.userName,
-            isMasonry: isMasonry,
-          ),
-      ],
-      isInitialLoading:
-          state.isLoading && state.works.isEmpty && state.metadata == null,
-      isRefreshing: false,
-      isLoadingMore: state.isLoadingMore,
-      hasMore: state.hasMore,
-      error: null,
-      loadMoreError: null,
-      onRefresh: notifier.refresh,
-      pagination: VirtualizedPagination(
-        currentPage: state.currentPage,
-        pageSize: state.pageSize,
-        totalCount: state.totalCount,
+        controller: _scrollController,
+        items: state.works,
+        itemId: (work) => work.id,
+        layout: isMasonry
+            ? VirtualizedCollectionLayout.masonry
+            : VirtualizedCollectionLayout.list,
+        masonryCrossAxisCount: isMasonry ? crossAxisCount : null,
+        masonryMainAxisSpacing: spacing,
+        masonryCrossAxisSpacing: spacing,
+        padding: EdgeInsets.all(contentPadding),
+        physics: ScrollOptimization.physics,
+        sliversBefore: [
+          if (state.metadata != null)
+            _buildMetadataSection(
+              state.metadata!,
+              auth.userName,
+              isMasonry: isMasonry,
+            ),
+        ],
+        isInitialLoading:
+            state.isLoading && state.works.isEmpty && state.metadata == null,
+        isRefreshing: false,
+        isLoadingMore: state.isLoadingMore,
         hasMore: state.hasMore,
-        isLoading: state.isLoading || state.isRefreshing,
-        onPreviousPage: notifier.previousPage,
-        onNextPage: notifier.nextPage,
-        onGoToPage: notifier.goToPage,
-        nextPageOnOverscroll: true,
-        scrollDuration: const Duration(milliseconds: 500),
-        scrollCurve: Curves.easeInOut,
-        padding: EdgeInsets.fromLTRB(
-          contentPadding,
-          contentPadding,
-          contentPadding,
-          24,
+        error: null,
+        loadMoreError: null,
+        onRefresh: notifier.refresh,
+        pagination: VirtualizedPagination(
+          currentPage: state.currentPage,
+          pageSize: state.pageSize,
+          totalCount: state.totalCount,
+          hasMore: state.hasMore,
+          isLoading: state.isLoading || state.isRefreshing,
+          onPreviousPage: notifier.previousPage,
+          onNextPage: notifier.nextPage,
+          onGoToPage: notifier.goToPage,
+          nextPageOnOverscroll: true,
+          scrollDuration: const Duration(milliseconds: 500),
+          scrollCurve: Curves.easeInOut,
+          padding: EdgeInsets.fromLTRB(
+            contentPadding,
+            contentPadding,
+            contentPadding,
+            24,
+          ),
         ),
-      ),
-      onRetry: notifier.refresh,
-      onPrefetch: (works) => coverPrefetch.prefetch(
-        context,
-        works,
-        host: auth.host,
-        token: auth.token,
-        crossAxisCount: isMasonry ? crossAxisCount : 1,
-        isListCard: !isMasonry,
-      ),
-      emptyBuilder: (context) => Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.music_note,
-              size: 64,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              S.of(context).noWorks,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              S.of(context).playlistNoWorksDescription,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-              textAlign: TextAlign.center,
-            ),
-          ],
+        onRetry: notifier.refresh,
+        onPrefetch: (works) => coverPrefetch.prefetch(
+          context,
+          works,
+          host: auth.host,
+          token: auth.token,
+          crossAxisCount: isMasonry ? crossAxisCount : 1,
+          isListCard: !isMasonry,
         ),
-      ),
-      itemBuilder: (context, work, index) => isMasonry
-          ? _buildPlaylistWorkCardMasonry(
-              work,
-              isOwner,
-              crossAxisCount: crossAxisCount,
-            )
-          : Padding(
-              key: ValueKey(work.id),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              child: _buildPlaylistWorkCard(
+        emptyBuilder: (context) => Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.music_note,
+                size: 64,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                S.of(context).noWorks,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                S.of(context).playlistNoWorksDescription,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+        itemBuilder: (context, work, index) => isMasonry
+            ? _buildPlaylistWorkCardMasonry(
                 work,
                 isOwner,
-                auth.host,
-                auth.token,
+                crossAxisCount: crossAxisCount,
+              )
+            : Padding(
+                key: ValueKey(work.id),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                child: _buildPlaylistWorkCard(
+                  work,
+                  isOwner,
+                  auth.host,
+                  auth.token,
+                ),
               ),
-            ),
       ),
     );
   }
@@ -577,11 +599,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     final httpHeaders = StorageService.serverCookieHeaders;
     final initialCoverImageProvider = host.isEmpty
         ? null
-        : createWorkCoverImageProvider(
-            work: work,
-            host: host,
-            token: token,
-          );
+        : createWorkCoverImageProvider(work: work, host: host, token: token);
 
     return InkWell(
       onTap: () {
@@ -609,37 +627,35 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             // 封面图 - 使用 Hero 动画和统一的图片源
-            Hero(
-              tag: 'work_cover_${work.id}',
+            WorkCoverHeroFrame(
+              heroTag: 'work_cover_${work.id}',
+              cornerRadius: workCoverCompactRadius,
               child: PrivacyBlurCover(
-                borderRadius: BorderRadius.circular(4),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: CachedNetworkImage(
-                    imageUrl: work.getCoverImageUrl(host, token: token),
-                    httpHeaders: httpHeaders,
-                    cacheKey: 'work_cover_${work.id}',
-                    width: 56,
-                    height: 56,
-                    fit: BoxFit.cover,
-                    placeholder: (context, url) => Container(
-                      color: colorScheme.surfaceContainerHighest,
-                      child: Center(
-                        child: Icon(
-                          Icons.image,
-                          color: colorScheme.onSurfaceVariant,
-                          size: 24,
-                        ),
+                child: CachedNetworkImage(
+                  imageUrl: work.getCoverImageUrl(host, token: token),
+                  httpHeaders: httpHeaders,
+                  cacheKey: 'work_cover_${work.id}',
+                  useOldImageOnUrlChange: true,
+                  width: 56,
+                  height: 56,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(
+                    color: colorScheme.surfaceContainerHighest,
+                    child: Center(
+                      child: Icon(
+                        Icons.image,
+                        color: colorScheme.onSurfaceVariant,
+                        size: 24,
                       ),
                     ),
-                    errorWidget: (context, url, error) => Container(
-                      color: colorScheme.surfaceContainerHighest,
-                      child: Center(
-                        child: Icon(
-                          Icons.broken_image,
-                          color: colorScheme.onSurfaceVariant,
-                          size: 24,
-                        ),
+                  ),
+                  errorWidget: (context, url, error) => Container(
+                    color: colorScheme.surfaceContainerHighest,
+                    child: Center(
+                      child: Icon(
+                        Icons.broken_image,
+                        color: colorScheme.onSurfaceVariant,
+                        size: 24,
                       ),
                     ),
                   ),

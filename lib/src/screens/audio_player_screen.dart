@@ -15,6 +15,7 @@ import '../providers/lyric_provider.dart';
 import '../providers/player_work_details_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/local_file_url.dart';
+import '../utils/snackbar_util.dart';
 import '../utils/system_ui_style.dart';
 import '../widgets/player/player_cover_widget.dart';
 import '../widgets/player/player_controls_widget.dart';
@@ -1061,6 +1062,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                   child: PlayerCoverWidget(
                     track: track,
                     workCoverUrl: coverUrl,
+                    heroEnabled: !_directQueueEntry,
                     onTap: _showLyrics,
                   ),
                 ),
@@ -1143,6 +1145,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                         track: track,
                         workCoverUrl: coverUrl,
                         isLandscape: isWide,
+                        heroEnabled: !_directQueueEntry,
                         onTap: _showLyrics,
                       ),
                     ),
@@ -1353,6 +1356,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                 onDismissRequested: dismissRequested,
                 dismissDrag: dismissDrag,
                 horizontalPadding: 0,
+                artworkHeroTarget: _directQueueEntry
+                    ? PlayerArtworkFlightTarget.queue
+                    : PlayerArtworkFlightTarget.none,
               ),
             ),
           ],
@@ -1369,7 +1375,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
 
   PlayerDismissVisualMode get _currentPlayerDismissVisualMode {
     if (_rightPane == PlayerRightPane.queue) {
-      return PlayerDismissVisualMode.secondary;
+      return _directQueueEntry
+          ? PlayerDismissVisualMode.queue
+          : PlayerDismissVisualMode.secondary;
     }
     final isWide =
         _lastWasWide ?? usesWidePlayerLayout(MediaQuery.sizeOf(context).width);
@@ -1870,9 +1878,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       if (mounted) Navigator.of(context).pop();
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.toString())));
+      SnackBarUtil.showError(context, error.toString());
     }
   }
 
@@ -1937,6 +1943,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                   onImmersiveLyrics: () {
                     Navigator.of(sheetContext).pop();
                     _enterLyricFullscreen();
+                  },
+                  onLyricSettings: () {
+                    Navigator.of(sheetContext).pop();
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) showPlayerLyricSettingsSheet(context);
+                    });
                   },
                   visibleActionCount: 5,
                 ),
@@ -2011,9 +2023,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         ? LocalFileUrl.fromPath(source.localPath!)
         : source.url;
     if (sourceUrl == null || sourceUrl.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(S.of(context).noContentToSave)));
+      SnackBarUtil.showInfo(context, S.of(context).noContentToSave);
       return;
     }
     Navigator.of(context).push(
@@ -2642,24 +2652,18 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                     final savedPath = await controller
                         .translateAndSaveCurrentLyrics();
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            savedPath != null
-                                ? S.of(context).savedToSubtitleLibrary
-                                : S.of(context).translatedLyricsNotSaved,
-                          ),
-                          behavior: SnackBarBehavior.floating,
-                        ),
+                      SnackBarUtil.showInfo(
+                        context,
+                        savedPath != null
+                            ? S.of(context).savedToSubtitleLibrary
+                            : S.of(context).translatedLyricsNotSaved,
                       );
                     }
                   } catch (e) {
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(S.of(context).lyricTranslationFailed),
-                          behavior: SnackBarBehavior.floating,
-                        ),
+                      SnackBarUtil.showError(
+                        context,
+                        S.of(context).lyricTranslationFailed,
                       );
                     }
                   }
@@ -2823,10 +2827,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       if (context.mounted) {
         Navigator.of(context).pop();
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(S.of(context).loadFailedWithError(e.toString())),
-          ),
+        SnackBarUtil.showError(
+          context,
+          S.of(context).loadFailedWithError(e.toString()),
         );
       }
     }

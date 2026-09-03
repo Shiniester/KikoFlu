@@ -17,6 +17,7 @@ import 'va_chip.dart';
 import 'age_rating_chip.dart';
 import 'work_bookmark_manager.dart';
 import 'privacy_blur_cover.dart';
+import 'work_detail/work_cover_frame.dart';
 
 class EnhancedWorkCard extends ConsumerStatefulWidget {
   final Work work;
@@ -37,8 +38,10 @@ class EnhancedWorkCard extends ConsumerStatefulWidget {
 }
 
 class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
-  bool get _isListLayout =>
-      widget.isListLayout ?? widget.crossAxisCount <= 1;
+  bool get _isListLayout => widget.isListLayout ?? widget.crossAxisCount <= 1;
+  double get _coverCornerRadius => _isListLayout || widget.crossAxisCount >= 3
+      ? workCoverCompactRadius
+      : workCoverDetailRadius;
 
   String? _progress; // 当前收藏状态
   int? _rating; // 当前评分
@@ -70,7 +73,9 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
       setState(() => _loadingProgress = false);
       if (mounted) {
         SnackBarUtil.showError(
-            context, S.of(context).getStatusFailed(e.toString()));
+          context,
+          S.of(context).getStatusFailed(e.toString()),
+        );
       }
     }
   }
@@ -125,7 +130,8 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
             cacheWidth: coverCacheWidth,
           );
 
-    final cardOnTap = widget.onTap ??
+    final cardOnTap =
+        widget.onTap ??
         () {
           Navigator.of(context).push(
             MaterialPageRoute(
@@ -144,9 +150,9 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
       builder: (context, constraints) {
         // A very narrow grid cell should use the compact content variant even
         // when a responsive fallback reduced a nominal grid to two columns.
-        final isNarrowGridCell =
-            !_isListLayout && constraints.maxWidth < 160;
-        final isCompact = !_isListLayout &&
+        final isNarrowGridCell = !_isListLayout && constraints.maxWidth < 160;
+        final isCompact =
+            !_isListLayout &&
             (widget.crossAxisCount >= 5 ||
                 (widget.crossAxisCount == 3 && !isLandscape) ||
                 isNarrowGridCell);
@@ -194,13 +200,17 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
   ) {
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
-    final titleFontSize =
-        displaySettings.scaleFontSize(isLandscape ? 13.5 : 11.0);
+    final titleFontSize = displaySettings.scaleFontSize(
+      isLandscape ? 13.5 : 11.0,
+    );
 
     return Card(
       clipBehavior: Clip.antiAlias,
       margin: const EdgeInsets.all(0),
       elevation: 8,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(_coverCornerRadius),
+      ),
       child: InkWell(
         onTap: cardOnTap,
         onLongPress: _onLongPress,
@@ -215,11 +225,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                 children: [
                   _buildCoverImage(context, host, token),
                   // 作品编号标签 (左上角)
-                  Positioned(
-                    top: 4,
-                    left: 4,
-                    child: _buildRjTag(),
-                  ),
+                  Positioned(top: 4, left: 4, child: _buildRjTag()),
                   if (displaySettings.showAgeRating &&
                       AgeRatingFormatter.hasValue(widget.work.age))
                     Positioned(
@@ -241,11 +247,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                   // 日期标签 (右下角)
                   if (displaySettings.showReleaseDate &&
                       widget.work.release != null)
-                    Positioned(
-                      bottom: 4,
-                      right: 4,
-                      child: _buildDateTag(),
-                    ),
+                    Positioned(bottom: 4, right: 4, child: _buildDateTag()),
                 ],
               ),
             ),
@@ -260,10 +262,10 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                   Text(
                     widget.work.title,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          height: 1.1,
-                          fontSize: titleFontSize,
-                        ),
+                      fontWeight: FontWeight.bold,
+                      height: 1.1,
+                      fontSize: titleFontSize,
+                    ),
                   ),
                 ],
               ),
@@ -285,20 +287,27 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
   ) {
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
-    final titleFontSize =
-        displaySettings.scaleFontSize(isLandscape ? 14.5 : 12.0);
-    final bodyFontSize =
-        displaySettings.scaleFontSize(isLandscape ? 13.5 : 10.0);
-    final priceFontSize =
-        displaySettings.scaleFontSize(isLandscape ? 13.5 : 10.0);
-    final ratingFontSize =
-        displaySettings.scaleFontSize(isLandscape ? 13.0 : 9.0);
+    final titleFontSize = displaySettings.scaleFontSize(
+      isLandscape ? 14.5 : 12.0,
+    );
+    final bodyFontSize = displaySettings.scaleFontSize(
+      isLandscape ? 13.5 : 10.0,
+    );
+    final priceFontSize = displaySettings.scaleFontSize(
+      isLandscape ? 13.5 : 10.0,
+    );
+    final ratingFontSize = displaySettings.scaleFontSize(
+      isLandscape ? 13.0 : 9.0,
+    );
     final iconSize = isLandscape ? 14.0 : 12.0;
 
     return Card(
       clipBehavior: Clip.antiAlias,
       margin: const EdgeInsets.all(0),
       elevation: 8,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(_coverCornerRadius),
+      ),
       child: InkWell(
         onTap: cardOnTap,
         onLongPress: _onLongPress,
@@ -312,11 +321,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
               child: Stack(
                 children: [
                   _buildCoverImage(context, host, token),
-                  Positioned(
-                    top: 6,
-                    left: 6,
-                    child: _buildRjTag(),
-                  ),
+                  Positioned(top: 6, left: 6, child: _buildRjTag()),
                   if (displaySettings.showAgeRating &&
                       AgeRatingFormatter.hasValue(widget.work.age))
                     Positioned(
@@ -337,11 +342,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                     ),
                   if (displaySettings.showReleaseDate &&
                       widget.work.release != null)
-                    Positioned(
-                      bottom: 6,
-                      right: 6,
-                      child: _buildDateTag(),
-                    ),
+                    Positioned(bottom: 6, right: 6, child: _buildDateTag()),
                 ],
               ),
             ),
@@ -356,10 +357,10 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                   Text(
                     widget.work.title,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          height: 1.1,
-                          fontSize: titleFontSize,
-                        ),
+                      fontWeight: FontWeight.bold,
+                      height: 1.1,
+                      fontSize: titleFontSize,
+                    ),
                   ),
                   const SizedBox(height: 3),
                   // 社团名称
@@ -367,9 +368,9 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                     Text(
                       widget.work.name ?? '',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.grey[600],
-                            fontSize: bodyFontSize,
-                          ),
+                        color: Colors.grey[600],
+                        fontSize: bodyFontSize,
+                      ),
                     ),
                   if (displaySettings.showCircle) const SizedBox(height: 3),
                   // 价格
@@ -377,10 +378,10 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                     Text(
                       S.of(context).priceInYen(widget.work.price!),
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.red[700],
-                            fontWeight: FontWeight.w600,
-                            fontSize: priceFontSize,
-                          ),
+                        color: Colors.red[700],
+                        fontWeight: FontWeight.w600,
+                        fontSize: priceFontSize,
+                      ),
                     ),
                   // 评分信息
                   if (displaySettings.showRating &&
@@ -399,12 +400,12 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                         const SizedBox(width: 2),
                         Text(
                           '${widget.work.rateAverage!.toStringAsFixed(1)} (${widget.work.rateCount})',
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Colors.amber[700],
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: ratingFontSize,
-                                  ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Colors.amber[700],
+                                fontWeight: FontWeight.w500,
+                                fontSize: ratingFontSize,
+                              ),
                         ),
                       ],
                     ),
@@ -424,13 +425,14 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                         const SizedBox(width: 2),
                         Text(
                           formatDuration(
-                              Duration(seconds: widget.work.duration!)),
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Colors.blue[700],
-                                    fontSize: bodyFontSize,
-                                    fontWeight: FontWeight.w500,
-                                  ),
+                            Duration(seconds: widget.work.duration!),
+                          ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Colors.blue[700],
+                                fontSize: bodyFontSize,
+                                fontWeight: FontWeight.w500,
+                              ),
                         ),
                       ],
                     ),
@@ -463,14 +465,18 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     final rjFontSize = displaySettings.scaleFontSize(isLandscape ? 11.0 : 10.0);
-    final titleFontSize =
-        displaySettings.scaleFontSize(isLandscape ? 16.0 : 14.0);
-    final bodyFontSize =
-        displaySettings.scaleFontSize(isLandscape ? 14.0 : 12.0);
-    final metaFontSize =
-        displaySettings.scaleFontSize(isLandscape ? 13.0 : 11.0);
-    final tagFontSize =
-        displaySettings.scaleFontSize(isLandscape ? 13.0 : 11.0);
+    final titleFontSize = displaySettings.scaleFontSize(
+      isLandscape ? 16.0 : 14.0,
+    );
+    final bodyFontSize = displaySettings.scaleFontSize(
+      isLandscape ? 14.0 : 12.0,
+    );
+    final metaFontSize = displaySettings.scaleFontSize(
+      isLandscape ? 13.0 : 11.0,
+    );
+    final tagFontSize = displaySettings.scaleFontSize(
+      isLandscape ? 13.0 : 11.0,
+    );
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -503,7 +509,9 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                           left: 2,
                           child: Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 4, vertical: 1),
+                              horizontal: 4,
+                              vertical: 1,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.black.withValues(alpha: 0.7),
                               borderRadius: BorderRadius.circular(3),
@@ -550,10 +558,10 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                     child: Text(
                       widget.work.title,
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            height: 1.3,
-                            fontSize: titleFontSize,
-                          ),
+                        fontWeight: FontWeight.bold,
+                        height: 1.3,
+                        fontSize: titleFontSize,
+                      ),
                     ),
                   ),
                 ],
@@ -570,9 +578,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                         Expanded(
                           child: Text(
                             widget.work.name ?? '',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium
+                            style: Theme.of(context).textTheme.bodyMedium
                                 ?.copyWith(
                                   color: Colors.grey[600],
                                   fontSize: bodyFontSize,
@@ -583,12 +589,12 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                           widget.work.price != null)
                         Text(
                           S.of(context).priceInYen(widget.work.price!),
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Colors.red[700],
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: metaFontSize,
-                                  ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Colors.red[700],
+                                fontWeight: FontWeight.w600,
+                                fontSize: metaFontSize,
+                              ),
                         ),
                     ],
                   ),
@@ -600,11 +606,11 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                           widget.work.release != null)
                         Text(
                           widget.work.release!,
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Colors.grey[500],
-                                    fontSize: metaFontSize,
-                                  ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Colors.grey[500],
+                                fontSize: metaFontSize,
+                              ),
                         ),
                       // 评分信息
                       if (displaySettings.showRating &&
@@ -614,20 +620,16 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                         if (displaySettings.showReleaseDate &&
                             widget.work.release != null)
                           const SizedBox(width: 8),
-                        Icon(
-                          Icons.star,
-                          color: Colors.amber[700],
-                          size: 14,
-                        ),
+                        Icon(Icons.star, color: Colors.amber[700], size: 14),
                         const SizedBox(width: 2),
                         Text(
                           '${widget.work.rateAverage!.toStringAsFixed(1)} (${widget.work.rateCount})',
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Colors.amber[700],
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: metaFontSize,
-                                  ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Colors.amber[700],
+                                fontWeight: FontWeight.w500,
+                                fontSize: metaFontSize,
+                              ),
                         ),
                       ],
                       // 时长信息
@@ -643,13 +645,14 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                         const SizedBox(width: 2),
                         Text(
                           formatDuration(
-                              Duration(seconds: widget.work.duration!)),
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Colors.blue[700],
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: metaFontSize,
-                                  ),
+                            Duration(seconds: widget.work.duration!),
+                          ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Colors.blue[700],
+                                fontWeight: FontWeight.w500,
+                                fontSize: metaFontSize,
+                              ),
                         ),
                       ],
                       const Spacer(),
@@ -657,11 +660,11 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                           widget.work.dlCount != null)
                         Text(
                           S.of(context).soldCount('${widget.work.dlCount}'),
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Colors.grey[500],
-                                    fontSize: metaFontSize,
-                                  ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Colors.grey[500],
+                                fontSize: metaFontSize,
+                              ),
                         ),
                     ],
                   ),
@@ -697,15 +700,16 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
 
     final httpHeaders = StorageService.serverCookieHeaders;
 
-    return Hero(
-      tag: 'work_cover_${widget.work.id}',
+    return WorkCoverHeroFrame(
+      heroTag: 'work_cover_${widget.work.id}',
+      cornerRadius: _coverCornerRadius,
       child: PrivacyBlurCover(
-        borderRadius: BorderRadius.circular(4),
         child: RepaintBoundary(
           child: CachedNetworkImage(
             imageUrl: url,
             httpHeaders: httpHeaders,
             cacheKey: 'work_cover_${widget.work.id}',
+            useOldImageOnUrlChange: true,
             memCacheWidth: targetWidth, // 降低解码分辨率，减少 GPU / CPU 压力
             width: double.infinity,
             height: double.infinity,
@@ -726,15 +730,8 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     return Container(
       width: double.infinity,
       height: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.grey[300],
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: const Icon(
-        Icons.audiotrack,
-        color: Colors.grey,
-        size: 32,
-      ),
+      decoration: BoxDecoration(color: Colors.grey[300]),
+      child: const Icon(Icons.audiotrack, color: Colors.grey, size: 32),
     );
   }
 
@@ -798,11 +795,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
             : Colors.black.withValues(alpha: 0.7),
         borderRadius: BorderRadius.circular(4),
       ),
-      child: Icon(
-        Icons.closed_caption,
-        color: Colors.white,
-        size: iconSize,
-      ),
+      child: Icon(Icons.closed_caption, color: Colors.white, size: iconSize),
     );
   }
 
@@ -870,8 +863,10 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     );
   }
 
-  Widget _buildVoiceActorsWrap(BuildContext context,
-      {required double fontSize}) {
+  Widget _buildVoiceActorsWrap(
+    BuildContext context, {
+    required double fontSize,
+  }) {
     return Wrap(
       spacing: 4,
       runSpacing: 4,

@@ -6,6 +6,7 @@ import '../models/download_task.dart';
 import '../providers/download_provider.dart';
 import '../services/download_service.dart';
 import '../utils/string_utils.dart';
+import '../utils/snackbar_util.dart';
 import '../utils/ui_tokens.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 
@@ -376,9 +377,7 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
     if (confirmed == true) {
       await DownloadService.instance.deleteTask(task.id);
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(S.of(context).deleted)));
+        SnackBarUtil.showSuccess(context, S.of(context).deleted);
       }
     }
   }
@@ -418,8 +417,9 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.of(context).deletedNFiles(taskIds.length))),
+        SnackBarUtil.showSuccess(
+          context,
+          S.of(context).deletedNFiles(taskIds.length),
         );
       }
     }

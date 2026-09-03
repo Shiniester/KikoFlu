@@ -1228,5 +1228,13 @@
   "proxyModeManualDescription": "Использовать настроенный ниже HTTP-прокси",
   "playlistDisplayFormat": "Вид плейлиста",
   "playlistDisplayFormatMasonry": "Мозаика",
-  "playlistDisplayFormatList": "Список"
+  "playlistDisplayFormatList": "Список",
+  "playerSubtitleSelection": "Выбрать субтитры",
+  "playerSubtitleSourceWork": "Файлы произведения",
+  "playerSubtitleSourceLibrary": "Библиотека субтитров",
+  "playerSubtitleShowAll": "Показать все субтитры произведения",
+  "playerSubtitleShowMatches": "Показывать только совпадения",
+  "playerSubtitleNoCandidates": "Для этого произведения нет субтитров",
+  "playerSubtitleMayNotMatch": "Субтитры могут не соответствовать текущему аудио",
+  "playerLyricViewSettings": "Настройки отображения субтитров"
 }

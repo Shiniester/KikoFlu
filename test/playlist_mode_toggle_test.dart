@@ -64,7 +64,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.byIcon(Icons.queue_play_next), findsOneWidget);
+    expect(find.byIcon(Icons.skip_next_rounded), findsOneWidget);
     expect(
       container.read(audioTapPlaylistModeProvider),
       AudioTapPlaylistMode.playNext,

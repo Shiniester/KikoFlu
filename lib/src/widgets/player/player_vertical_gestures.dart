@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 enum PlayerInitialSurface { main, queue }
 
-enum PlayerDismissVisualMode { main, secondary }
+enum PlayerDismissVisualMode { main, queue, secondary }
 
 /// Implemented by the player route so in-page drag regions can drive the
 /// route without introducing a circular dependency between the route and the

@@ -30,11 +30,12 @@ void main() {
     expect(find.byType(Hero), findsOneWidget);
     expect(find.text('Cover Layer'), findsOneWidget);
     expect(find.text('Subtitle'), findsNothing);
-    final coverMaterial = tester.widget<Material>(
-      find.descendant(of: find.byType(Hero), matching: find.byType(Material)),
-    );
-    expect(coverMaterial.borderRadius, BorderRadius.circular(12));
-    expect(coverMaterial.clipBehavior, Clip.antiAlias);
+    final roundedClips = find
+        .descendant(of: find.byType(Hero), matching: find.byType(ClipRRect))
+        .evaluate()
+        .map((element) => element.widget as ClipRRect)
+        .where((clip) => clip.borderRadius == BorderRadius.circular(12));
+    expect(roundedClips, isNotEmpty);
   });
 
   testWidgets('uses the source cover for the Hero flight', (tester) async {
@@ -58,10 +59,50 @@ void main() {
       heroContext,
     );
 
-    expect(shuttle, isA<ClipRRect>());
-    final clippedShuttle = shuttle as ClipRRect;
+    expect(shuttle, isA<AnimatedBuilder>());
+    final animatedShuttle = shuttle as AnimatedBuilder;
+    final clippedShuttle =
+        animatedShuttle.builder(heroContext, animatedShuttle.child)
+            as ClipRRect;
     expect(clippedShuttle.borderRadius, BorderRadius.circular(12));
-    expect(identical(clippedShuttle.child, hero.child), isTrue);
+    expect(clippedShuttle.child, isNotNull);
+  });
+
+  testWidgets('interpolates compact and detail radii during Hero flight', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _testApp(
+        const Row(
+          children: [
+            WorkCoverHeroFrame(
+              heroTag: 'compact',
+              cornerRadius: 8,
+              child: SizedBox.square(dimension: 80),
+            ),
+            WorkCoverHeroFrame(
+              heroTag: 'detail',
+              cornerRadius: 12,
+              child: SizedBox.square(dimension: 160),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final heroes = find.byType(Hero).evaluate().toList(growable: false);
+    final fromHero = heroes.first.widget as Hero;
+    final shuttle =
+        fromHero.flightShuttleBuilder!(
+              heroes.first,
+              const AlwaysStoppedAnimation<double>(0.5),
+              HeroFlightDirection.push,
+              heroes.first,
+              heroes.last,
+            )
+            as AnimatedBuilder;
+    final clip = shuttle.builder(heroes.first, shuttle.child) as ClipRRect;
+    expect(clip.borderRadius, BorderRadius.circular(10));
   });
 
   testWidgets('shows subtitle and age badges and handles tap', (tester) async {

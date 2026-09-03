@@ -3767,4 +3767,30 @@ class SEn extends S {
 
   @override
   String get playlistDisplayFormatList => 'List';
+
+  @override
+  String get playerSubtitleSelection => 'Select subtitles';
+
+  @override
+  String get playerSubtitleSourceWork => 'Work files';
+
+  @override
+  String get playerSubtitleSourceLibrary => 'Subtitle library';
+
+  @override
+  String get playerSubtitleShowAll => 'Show all subtitles for this work';
+
+  @override
+  String get playerSubtitleShowMatches => 'Show matching subtitles only';
+
+  @override
+  String get playerSubtitleNoCandidates =>
+      'No subtitles are available for this work';
+
+  @override
+  String get playerSubtitleMayNotMatch =>
+      'This subtitle may not match the current audio';
+
+  @override
+  String get playerLyricViewSettings => 'Subtitle view settings';
 }

@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/update_provider.dart';
 import '../utils/ui_tokens.dart';
+import '../utils/snackbar_util.dart';
 import '../widgets/scrollable_appbar.dart';
 import '../widgets/settings_section.dart';
 import '../../l10n/app_localizations.dart';
@@ -20,10 +21,12 @@ class AboutScreen extends ConsumerStatefulWidget {
 class _AboutScreenState extends ConsumerState<AboutScreen> {
   static const String _author = 'Shiniester';
   static const String _upstreamAuthor = 'pa-jesusf';
-  static final Uri _originRepoUri =
-      Uri.parse('https://github.com/Shiniester/KikoFlu');
-  static final Uri _upstreamRepoUri =
-      Uri.parse('https://github.com/pa-jesusf/KikoFlu');
+  static final Uri _originRepoUri = Uri.parse(
+    'https://github.com/Shiniester/KikoFlu',
+  );
+  static final Uri _upstreamRepoUri = Uri.parse(
+    'https://github.com/pa-jesusf/KikoFlu',
+  );
   late final Future<_AboutData> _aboutFuture;
 
   @override
@@ -130,17 +133,23 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
                     title: Text(
                       S.of(context).newVersionFound,
                       style: TextStyle(
-                        color:
-                            Theme.of(context).colorScheme.onSecondaryContainer,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSecondaryContainer,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     subtitle: Text(
-                      S.of(context).newVersionAvailable(
-                          updateInfo.latestVersion, updateInfo.currentVersion),
+                      S
+                          .of(context)
+                          .newVersionAvailable(
+                            updateInfo.latestVersion,
+                            updateInfo.currentVersion,
+                          ),
                       style: TextStyle(
-                        color:
-                            Theme.of(context).colorScheme.onSecondaryContainer,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSecondaryContainer,
                       ),
                     ),
                     trailing: Icon(
@@ -241,14 +250,13 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
         mode: LaunchMode.externalApplication,
       );
       if (!launched && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.of(context).cannotOpenLink)),
-        );
+        SnackBarUtil.showError(context, S.of(context).cannotOpenLink);
       }
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.of(context).openLinkFailed(error.toString()))),
+      SnackBarUtil.showError(
+        context,
+        S.of(context).openLinkFailed(error.toString()),
       );
     }
   }
@@ -266,10 +274,12 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
 
       if (updateInfo != null && updateInfo.hasNewVersion) {
         ref.read(updateInfoProvider.notifier).state = updateInfo;
-        ScaffoldMessenger.of(context).showSnackBar(
+        SnackBarUtil.showFromSnackBar(
+          context,
           SnackBar(
-            content:
-                Text(S.of(context).foundNewVersion(updateInfo.latestVersion)),
+            content: Text(
+              S.of(context).foundNewVersion(updateInfo.latestVersion),
+            ),
             action: SnackBarAction(
               label: S.of(context).view,
               onPressed: () => _openUrl(updateInfo.releaseUrl),
@@ -277,15 +287,11 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
           ),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.of(context).alreadyLatestVersion)),
-        );
+        SnackBarUtil.showInfo(context, S.of(context).alreadyLatestVersion);
       }
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(S.of(context).checkUpdateFailed)),
-      );
+      SnackBarUtil.showError(context, S.of(context).checkUpdateFailed);
     } finally {
       if (mounted) {
         ref.read(isCheckingUpdateProvider.notifier).state = false;
@@ -301,9 +307,7 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
           title: Text(S.of(context).openSourceLicense),
           content: SizedBox(
             width: double.maxFinite,
-            child: SingleChildScrollView(
-              child: SelectableText(license),
-            ),
+            child: SingleChildScrollView(child: SelectableText(license)),
           ),
           actions: [
             TextButton(
