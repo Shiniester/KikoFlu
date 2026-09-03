@@ -481,8 +481,6 @@
   "@preloadCustomValueLabel": { "placeholders": { "value": { "type": "int" } } },
   "keepScreenAwake": "Keep Screen Awake",
   "keepScreenAwakeDesc": "Keep the screen on during playback",
-  "hideStatusBar": "Hide status bar",
-  "hideStatusBarDesc": "Hide the top system status bar while keeping navigation visible",
   "audioHaptics": "Audio Haptics (Beta)",
   "audioHapticsDesc": "Vibrate with downloaded audio while the app is foregrounded",
   "audioHapticsIntensity": "Intensity",

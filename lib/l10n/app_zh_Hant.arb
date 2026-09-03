@@ -358,8 +358,6 @@
   "@preloadCustomValueLabel": { "placeholders": { "value": { "type": "int" } } },
   "keepScreenAwake": "螢幕常亮",
   "keepScreenAwakeDesc": "播放時保持螢幕常亮",
-  "hideStatusBar": "隱藏狀態列",
-  "hideStatusBarDesc": "隱藏螢幕頂端的系統狀態列，保留導覽列",
   "audioHaptics": "音訊觸感回饋(Beta)",
   "audioHapticsDesc": "隨已下載音訊震動，僅前台生效",
   "audioHapticsIntensity": "強度",

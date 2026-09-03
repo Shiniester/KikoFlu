@@ -11,6 +11,57 @@ import 'player_vertical_gestures.dart';
 Tween<Rect?> createPlayerArtworkRectTween(Rect? begin, Rect? end) =>
     RectTween(begin: begin, end: end);
 
+@visibleForTesting
+double playerArtworkBoundaryProgress({
+  required double progress,
+  required Rect? begin,
+  required Rect? end,
+  required double viewportHeight,
+}) {
+  if (begin == null ||
+      end == null ||
+      viewportHeight <= 0 ||
+      (begin.top - end.top).abs() < 1) {
+    return progress;
+  }
+  final opening = begin.top > end.top;
+  final compactRect = opening ? begin : end;
+  if (compactRect.top / viewportHeight < 0.6) return progress;
+  final boundaryProgress = (1 - compactRect.top / viewportHeight).clamp(
+    0.0,
+    0.92,
+  );
+  final travelProgress = 1 - boundaryProgress;
+  if (travelProgress <= 0.001) return progress;
+  return opening
+      ? ((progress - boundaryProgress) / travelProgress).clamp(0.0, 1.0)
+      : (progress / travelProgress).clamp(0.0, 1.0);
+}
+
+class PlayerArtworkBoundaryRectTween extends RectTween {
+  PlayerArtworkBoundaryRectTween({
+    required super.begin,
+    required super.end,
+    required this.viewportHeight,
+  });
+
+  final double viewportHeight;
+
+  @override
+  Rect? lerp(double t) {
+    return Rect.lerp(
+      begin,
+      end,
+      playerArtworkBoundaryProgress(
+        progress: t,
+        begin: begin,
+        end: end,
+        viewportHeight: viewportHeight,
+      ),
+    );
+  }
+}
+
 enum PlayerArtworkFlightTarget { main, queue, none }
 
 Object playerArtworkHeroTag(String trackId, PlayerArtworkFlightTarget target) =>
@@ -26,6 +77,7 @@ class PlayerArtworkHero extends StatelessWidget {
     this.enabled = true,
     this.flightChild,
     this.keepPlaceholderVisible = false,
+    this.onFlightStarted,
   });
 
   final String trackId;
@@ -35,6 +87,7 @@ class PlayerArtworkHero extends StatelessWidget {
   final bool enabled;
   final Widget? flightChild;
   final bool keepPlaceholderVisible;
+  final VoidCallback? onFlightStarted;
 
   @override
   Widget build(BuildContext context) {
@@ -48,9 +101,14 @@ class PlayerArtworkHero extends StatelessWidget {
         modalRoute is PlayerArtworkMotionRoute
         ? modalRoute as PlayerArtworkMotionRoute
         : null;
+    final viewportHeight = MediaQuery.sizeOf(context).height;
     return Hero(
       tag: playerArtworkHeroTag(trackId, target),
-      createRectTween: createPlayerArtworkRectTween,
+      createRectTween: (begin, end) => PlayerArtworkBoundaryRectTween(
+        begin: begin,
+        end: end,
+        viewportHeight: viewportHeight,
+      ),
       transitionOnUserGestures: true,
       curve: _PlayerArtworkRouteCurve(
         motionRoute: motionRoute,
@@ -69,6 +127,7 @@ class PlayerArtworkHero extends StatelessWidget {
         cornerRadius: cornerRadius,
         flightChild: flightChild ?? child,
         motionRoute: motionRoute,
+        onFlightStarted: onFlightStarted,
         child: child,
       ),
     );
@@ -96,12 +155,14 @@ class _PlayerArtworkHeroPayload extends StatelessWidget {
     required this.cornerRadius,
     required this.flightChild,
     required this.motionRoute,
+    required this.onFlightStarted,
     required this.child,
   });
 
   final double cornerRadius;
   final Widget flightChild;
   final PlayerArtworkMotionRoute? motionRoute;
+  final VoidCallback? onFlightStarted;
   final Widget child;
 
   @override
@@ -120,6 +181,8 @@ Widget _playerArtworkFlightShuttle(
   final from = fromHero.child as _PlayerArtworkHeroPayload;
   final to = toHero.child as _PlayerArtworkHeroPayload;
   final stableChild = from.flightChild;
+  from.onFlightStarted?.call();
+  to.onFlightStarted?.call();
   final motionRoute = direction == HeroFlightDirection.push
       ? to.motionRoute
       : from.motionRoute;
@@ -140,13 +203,19 @@ Widget _playerArtworkFlightShuttle(
       final progress = direction == HeroFlightDirection.push
           ? animation.value
           : 1 - animation.value;
+      final artworkProgress = playerArtworkBoundaryProgress(
+        progress: progress,
+        begin: fromRect,
+        end: toRect,
+        viewportHeight: viewportHeight,
+      );
       final radius = Tween<double>(
         begin: from.cornerRadius,
         end: to.cornerRadius,
-      ).transform(progress);
+      ).transform(artworkProgress);
       final currentRect = fromRect == null || toRect == null
           ? null
-          : Rect.lerp(fromRect, toRect, progress);
+          : Rect.lerp(fromRect, toRect, artworkProgress);
       final routeTop = motionRoute == null
           ? 0.0
           : (1 - motionRoute.playerVisualProgress) * viewportHeight;
@@ -154,8 +223,10 @@ Widget _playerArtworkFlightShuttle(
           ? 0.0
           : (routeTop - currentRect.top).clamp(0.0, currentRect.height);
       return ClipRect(
+        key: const ValueKey('player-artwork-flight-viewport'),
         clipper: _PlayerArtworkViewportClipper(clipTop),
         child: ClipRRect(
+          key: const ValueKey('player-artwork-flight-frame'),
           borderRadius: BorderRadius.circular(radius),
           child: child,
         ),
@@ -269,6 +340,8 @@ class PlayerCoverWidget extends StatelessWidget {
   final VoidCallback? onTap;
   final bool heroEnabled;
   final PlayerArtworkFlightTarget heroTarget;
+  final Key? artworkKey;
+  final bool artworkVisible;
 
   const PlayerCoverWidget({
     super.key,
@@ -278,6 +351,8 @@ class PlayerCoverWidget extends StatelessWidget {
     this.onTap,
     this.heroEnabled = true,
     this.heroTarget = PlayerArtworkFlightTarget.main,
+    this.artworkKey,
+    this.artworkVisible = true,
   });
 
   // 判断是否为本地文件路径
@@ -306,98 +381,111 @@ class PlayerCoverWidget extends StatelessWidget {
             final width = math.min(maxWidth, maxHeight * preferredAspectRatio);
             final height = width / preferredAspectRatio;
             final radius = BorderRadius.circular(cornerRadius);
-            final artwork = SizedBox(
-              key: ValueKey('player-cover-artwork-${track.id}'),
-              width: width,
-              height: height,
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: radius,
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.18),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                foregroundDecoration: BoxDecoration(
-                  borderRadius: radius,
-                  border: Border.all(
+            final artwork = KeyedSubtree(
+              key: artworkKey,
+              child: SizedBox(
+                key: ValueKey('player-cover-artwork-${track.id}'),
+                width: width,
+                height: height,
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: radius,
                     color: Theme.of(
                       context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.18),
-                  ),
-                ),
-                child: (workCoverUrl ?? track.artworkUrl) != null
-                    ? PrivacyBlurCover(
-                        borderRadius: radius,
-                        child: ClipRRect(
-                          borderRadius: radius,
-                          child: _isLocalFile(workCoverUrl ?? track.artworkUrl)
-                              ? Image.file(
-                                  File(
-                                    _getLocalPath(
-                                      (workCoverUrl ?? track.artworkUrl)!,
-                                    ),
-                                  ),
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return Padding(
-                                      padding: const EdgeInsets.all(40),
-                                      child: Icon(
-                                        Icons.album,
-                                        size: isLandscape ? 80 : 120,
-                                      ),
-                                    );
-                                  },
-                                )
-                              : CachedNetworkImage(
-                                  imageUrl: (workCoverUrl ?? track.artworkUrl)!,
-                                  // 使用workId作为cacheKey，与作品详情页保持一致，避免token变化导致重新下载
-                                  cacheKey: track.workId != null
-                                      ? 'work_cover_${track.workId}'
-                                      : null,
-                                  fit: BoxFit.cover,
-                                  errorWidget: (context, url, error) {
-                                    return Padding(
-                                      padding: const EdgeInsets.all(40),
-                                      child: Icon(
-                                        Icons.album,
-                                        size: isLandscape ? 80 : 120,
-                                      ),
-                                    );
-                                  },
-                                  placeholder: (context, url) {
-                                    return Padding(
-                                      padding: const EdgeInsets.all(40),
-                                      child: Icon(
-                                        Icons.album,
-                                        size: isLandscape ? 80 : 120,
-                                      ),
-                                    );
-                                  },
-                                ),
-                        ),
-                      )
-                    : Padding(
-                        padding: const EdgeInsets.all(40),
-                        child: Icon(Icons.album, size: isLandscape ? 80 : 120),
+                    ).colorScheme.surfaceContainerHighest,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.18),
+                        blurRadius: 20,
+                        offset: const Offset(0, 10),
                       ),
+                    ],
+                  ),
+                  foregroundDecoration: BoxDecoration(
+                    borderRadius: radius,
+                    border: Border.all(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.18),
+                    ),
+                  ),
+                  child: (workCoverUrl ?? track.artworkUrl) != null
+                      ? PrivacyBlurCover(
+                          borderRadius: radius,
+                          child: ClipRRect(
+                            borderRadius: radius,
+                            child:
+                                _isLocalFile(workCoverUrl ?? track.artworkUrl)
+                                ? Image.file(
+                                    File(
+                                      _getLocalPath(
+                                        (workCoverUrl ?? track.artworkUrl)!,
+                                      ),
+                                    ),
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return Padding(
+                                        padding: const EdgeInsets.all(40),
+                                        child: Icon(
+                                          Icons.album,
+                                          size: isLandscape ? 80 : 120,
+                                        ),
+                                      );
+                                    },
+                                  )
+                                : CachedNetworkImage(
+                                    imageUrl:
+                                        (workCoverUrl ?? track.artworkUrl)!,
+                                    // 使用workId作为cacheKey，与作品详情页保持一致，避免token变化导致重新下载
+                                    cacheKey: track.workId != null
+                                        ? 'work_cover_${track.workId}'
+                                        : null,
+                                    fit: BoxFit.cover,
+                                    errorWidget: (context, url, error) {
+                                      return Padding(
+                                        padding: const EdgeInsets.all(40),
+                                        child: Icon(
+                                          Icons.album,
+                                          size: isLandscape ? 80 : 120,
+                                        ),
+                                      );
+                                    },
+                                    placeholder: (context, url) {
+                                      return Padding(
+                                        padding: const EdgeInsets.all(40),
+                                        child: Icon(
+                                          Icons.album,
+                                          size: isLandscape ? 80 : 120,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                          ),
+                        )
+                      : Padding(
+                          padding: const EdgeInsets.all(40),
+                          child: Icon(
+                            Icons.album,
+                            size: isLandscape ? 80 : 120,
+                          ),
+                        ),
+                ),
               ),
             );
-            return PlayerArtworkHero(
-              trackId: track.id,
-              target: heroTarget,
-              cornerRadius: cornerRadius,
-              enabled: heroEnabled,
-              flightChild: PlayerCompactArtwork(
-                track: track,
-                url: workCoverUrl ?? track.artworkUrl,
-                forFlight: true,
+            return Opacity(
+              opacity: artworkVisible ? 1 : 0,
+              child: PlayerArtworkHero(
+                trackId: track.id,
+                target: heroTarget,
+                cornerRadius: cornerRadius,
+                enabled: heroEnabled,
+                flightChild: PlayerCompactArtwork(
+                  track: track,
+                  url: workCoverUrl ?? track.artworkUrl,
+                  forFlight: true,
+                ),
+                child: artwork,
               ),
-              child: artwork,
             );
           },
         ),

@@ -46,7 +46,6 @@ import 'src/utils/desktop_window_options.dart';
 import 'src/utils/global_keys.dart';
 import 'src/utils/system_ui_style.dart';
 import 'src/widgets/screen_awake_observer.dart';
-import 'src/widgets/system_ui_preference_observer.dart';
 import 'src/widgets/app_bootstrap_gate.dart';
 import 'src/performance/performance_recorder.dart';
 
@@ -315,25 +314,7 @@ Future<void> _initializeCriticalServices({
     await StorageService.initCritical(preferences: await preferencesFuture);
   });
 
-  final systemUiFuture = _runBootstrapTask('system-ui-preference', () async {
-    if (!Platform.isAndroid && !Platform.isIOS) return;
-    final preferences = await preferencesFuture;
-    await SystemUiModeCoordinator.instance.setPreference(
-      hideStatusBar:
-          preferences.getBool(
-            SystemUiModeCoordinator.hideStatusBarPreferenceKey,
-          ) ??
-          false,
-      useEdgeToEdge: Platform.isAndroid,
-    );
-  });
-
-  await Future.wait<dynamic>([
-    hiveFuture,
-    proxyFuture,
-    storageFuture,
-    systemUiFuture,
-  ]);
+  await Future.wait<dynamic>([hiveFuture, proxyFuture, storageFuture]);
   HttpOverrides.global = KikoFluHttpOverrides();
 
   final appearanceTasks = <Future<void>>[];
@@ -715,9 +696,7 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
             effectiveLocale,
           ),
           themeMode: mode,
-          home: SystemUiPreferenceObserver(
-            child: ScreenAwakeObserver(child: _buildHomeScreen()),
-          ),
+          home: ScreenAwakeObserver(child: _buildHomeScreen()),
         );
       },
     );

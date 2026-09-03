@@ -1063,13 +1063,6 @@ class SRu extends S {
       'Не выключать экран во время воспроизведения';
 
   @override
-  String get hideStatusBar => 'Скрыть строку состояния';
-
-  @override
-  String get hideStatusBarDesc =>
-      'Скрывать верхнюю строку состояния, оставляя навигацию видимой';
-
-  @override
   String get audioHaptics => 'Аудиотактильная отдача (Beta)';
 
   @override

@@ -53,6 +53,8 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
     this.showCloseButton = false,
     this.horizontalPadding = 8,
     this.artworkHeroTarget = PlayerArtworkFlightTarget.none,
+    this.artworkKey,
+    this.artworkVisible = true,
   });
 
   final VoidCallback? onClose;
@@ -63,6 +65,8 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
   final bool showCloseButton;
   final double horizontalPadding;
   final PlayerArtworkFlightTarget artworkHeroTarget;
+  final Key? artworkKey;
+  final bool artworkVisible;
 
   @override
   ConsumerState<PlayerQueueSurface> createState() => _PlayerQueueSurfaceState();
@@ -101,6 +105,8 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
                   token: authState.token,
                 ),
                 artworkHeroTarget: widget.artworkHeroTarget,
+                artworkKey: widget.artworkKey,
+                artworkVisible: widget.artworkVisible,
               ),
             ),
           PlayerVerticalSwipeRegion(
@@ -251,12 +257,16 @@ class _NowPlayingQueueHeader extends StatelessWidget {
     required this.coverUrl,
     required this.horizontalPadding,
     required this.artworkHeroTarget,
+    required this.artworkKey,
+    required this.artworkVisible,
   });
 
   final AudioTrack track;
   final String? coverUrl;
   final double horizontalPadding;
   final PlayerArtworkFlightTarget artworkHeroTarget;
+  final Key? artworkKey;
+  final bool artworkVisible;
 
   @override
   Widget build(BuildContext context) {
@@ -265,11 +275,21 @@ class _NowPlayingQueueHeader extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(horizontalPadding, 16, horizontalPadding, 8),
       child: Row(
         children: [
-          _QueueArtwork(
-            key: const ValueKey('player-queue-now-playing-artwork'),
-            track: track,
-            url: coverUrl,
-            heroTarget: artworkHeroTarget,
+          KeyedSubtree(
+            key: artworkKey,
+            child: SizedBox(
+              key: const ValueKey('player-queue-now-playing-artwork'),
+              width: PlayerCompactArtwork.width,
+              height: PlayerCompactArtwork.height,
+              child: Opacity(
+                opacity: artworkVisible ? 1 : 0,
+                child: _QueueArtwork(
+                  track: track,
+                  url: coverUrl,
+                  heroTarget: artworkHeroTarget,
+                ),
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(

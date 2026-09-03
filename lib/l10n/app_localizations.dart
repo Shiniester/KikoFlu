@@ -2028,18 +2028,6 @@ abstract class S {
   /// **'Keep the screen on during playback'**
   String get keepScreenAwakeDesc;
 
-  /// No description provided for @hideStatusBar.
-  ///
-  /// In en, this message translates to:
-  /// **'Hide status bar'**
-  String get hideStatusBar;
-
-  /// No description provided for @hideStatusBarDesc.
-  ///
-  /// In en, this message translates to:
-  /// **'Hide the top system status bar while keeping navigation visible'**
-  String get hideStatusBarDesc;
-
   /// No description provided for @audioHaptics.
   ///
   /// In en, this message translates to:

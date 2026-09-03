@@ -11,9 +11,11 @@ AudioPlayerPageRoute<T> createAudioPlayerRoute<T>({
   String? initialPaletteTrackId,
   PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
   bool skipInitialTransition = false,
+  bool pauseInitialTransition = false,
 }) {
   return AudioPlayerPageRoute<T>(
     skipInitialTransition: skipInitialTransition,
+    pauseInitialTransition: pauseInitialTransition,
     initialDismissVisualMode: initialSurface == PlayerInitialSurface.queue
         ? PlayerDismissVisualMode.queue
         : PlayerDismissVisualMode.main,
@@ -38,6 +40,7 @@ class AudioPlayerOpenConfiguration {
 
   AudioPlayerPageRoute<void> createRoute({
     bool handoff = false,
+    bool interactiveOpen = false,
     PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
   }) {
     return createAudioPlayerRoute<void>(
@@ -45,6 +48,7 @@ class AudioPlayerOpenConfiguration {
       initialPaletteTrackId: initialPaletteTrackId,
       initialSurface: initialSurface,
       skipInitialTransition: handoff,
+      pauseInitialTransition: interactiveOpen,
     );
   }
 }
@@ -74,12 +78,14 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   AudioPlayerPageRoute({
     required this.builder,
     this.skipInitialTransition = false,
+    this.pauseInitialTransition = false,
     PlayerDismissVisualMode initialDismissVisualMode =
         PlayerDismissVisualMode.main,
   }) : _dismissVisualMode = ValueNotifier(initialDismissVisualMode);
 
   final WidgetBuilder builder;
   final bool skipInitialTransition;
+  final bool pauseInitialTransition;
   bool _verticalGestureInProgress = false;
   bool _verticalGestureOpening = false;
   double _verticalGestureStartValue = 0;
@@ -102,6 +108,18 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
 
   @override
   Duration get reverseTransitionDuration => const Duration(milliseconds: 320);
+
+  @override
+  TickerFuture didPush() {
+    final future = super.didPush();
+    if (!pauseInitialTransition) return future;
+    final animationController = controller!;
+    animationController.stop(canceled: false);
+    animationController.value = 0;
+    animationController.forward();
+    animationController.stop(canceled: false);
+    return future;
+  }
 
   bool get verticalGestureInProgress => _verticalGestureInProgress;
 
@@ -173,7 +191,12 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     _verticalSettleGeneration++;
     animationController.stop();
     if (resetValue != null) animationController.value = resetValue;
-    if (!opening) {
+    if (opening) {
+      // Keep a newly pushed interactive route in the forward direction. Hero
+      // validates this status when it starts its push flight on the next frame.
+      animationController.forward();
+      animationController.stop();
+    } else {
       // Direct value updates preserve the controller's last direction. Mark
       // this session as a reverse transition before notifying HeroController
       // so an interactive dismissal produces a reverse artwork flight.

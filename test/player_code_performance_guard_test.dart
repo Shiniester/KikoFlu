@@ -225,7 +225,10 @@ void main() {
       expect(miniPlayer, isNot(contains('Icons.skip_previous')));
       expect(miniPlayer, isNot(contains('Icons.skip_next')));
       expect(miniPlayer, contains('class _InteractivePlayerOpenSession'));
-      expect(miniPlayer, contains('configuration.createRoute()'));
+      expect(
+        miniPlayer,
+        contains('configuration.createRoute(interactiveOpen: true)'),
+      );
       expect(miniPlayer, contains('configuration.createRoute(handoff: true)'));
       expect(miniPlayer, contains('Navigator('));
       expect(RegExp(r'OverlayEntry\(').allMatches(miniPlayer), hasLength(1));

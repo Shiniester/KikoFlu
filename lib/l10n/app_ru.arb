@@ -358,8 +358,6 @@
   "@preloadCustomValueLabel": { "placeholders": { "value": { "type": "int" } } },
   "keepScreenAwake": "Не выключать экран",
   "keepScreenAwakeDesc": "Не выключать экран во время воспроизведения",
-  "hideStatusBar": "Скрыть строку состояния",
-  "hideStatusBarDesc": "Скрывать верхнюю строку состояния, оставляя навигацию видимой",
   "audioHaptics": "Аудиотактильная отдача (Beta)",
   "audioHapticsDesc": "Вибрация с загруженным аудио только на переднем плане",
   "audioHapticsIntensity": "Интенсивность",

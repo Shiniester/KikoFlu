@@ -358,8 +358,6 @@
   "@preloadCustomValueLabel": { "placeholders": { "value": { "type": "int" } } },
   "keepScreenAwake": "画面を常にオン",
   "keepScreenAwakeDesc": "再生中は画面を点灯",
-  "hideStatusBar": "ステータスバーを非表示",
-  "hideStatusBarDesc": "ナビゲーションバーを残して上部のステータスバーを非表示にします",
   "audioHaptics": "オーディオ触覚フィードバック(Beta)",
   "audioHapticsDesc": "ダウンロード音声に合わせて振動（フォアグラウンドのみ）",
   "audioHapticsIntensity": "強度",

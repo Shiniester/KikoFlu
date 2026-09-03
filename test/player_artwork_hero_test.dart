@@ -10,6 +10,39 @@ const _track = AudioTrack(
 );
 
 void main() {
+  test('boundary mapping holds compact artwork until the route reaches it', () {
+    const mini = Rect.fromLTWH(16, 760, 64, 48);
+    const main = Rect.fromLTWH(35, 120, 320, 240);
+
+    expect(
+      playerArtworkBoundaryProgress(
+        progress: 0.05,
+        begin: mini,
+        end: main,
+        viewportHeight: 844,
+      ),
+      0,
+    );
+    expect(
+      playerArtworkBoundaryProgress(
+        progress: 1,
+        begin: mini,
+        end: main,
+        viewportHeight: 844,
+      ),
+      1,
+    );
+    expect(
+      playerArtworkBoundaryProgress(
+        progress: 0.05,
+        begin: main,
+        end: mini,
+        viewportHeight: 844,
+      ),
+      greaterThan(0),
+    );
+  });
+
   testWidgets('compact artwork and queue target share exact geometry', (
     tester,
   ) async {

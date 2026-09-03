@@ -568,17 +568,6 @@ class PreferencesScreen extends ConsumerWidget {
               ),
               if (Theme.of(context).platform == TargetPlatform.android ||
                   Theme.of(context).platform == TargetPlatform.iOS)
-                SettingsSwitchTile(
-                  icon: Icons.vertical_align_top,
-                  title: S.of(context).hideStatusBar,
-                  subtitle: S.of(context).hideStatusBarDesc,
-                  value: ref.watch(hideStatusBarProvider),
-                  onChanged: (value) => ref
-                      .read(hideStatusBarProvider.notifier)
-                      .setEnabled(value),
-                ),
-              if (Theme.of(context).platform == TargetPlatform.android ||
-                  Theme.of(context).platform == TargetPlatform.iOS)
                 _AudioHapticsSettingsTile(ref: ref),
               // 仅在 Android, Windows 和 macOS 平台上显示音频直通设置
               if (Theme.of(context).platform == TargetPlatform.android ||
