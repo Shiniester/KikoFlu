@@ -118,3 +118,5 @@ logs
 
 # FVM Version Cache
 .fvm/
+
+.agents/
