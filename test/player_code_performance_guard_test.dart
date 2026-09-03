@@ -173,6 +173,17 @@ void main() {
       expect(lyricDisplay, isNot(contains('_paddingCompensationGeneration')));
       expect(lyricDisplay, contains('ClampingScrollPhysics'));
       expect(lyricDisplay, contains('Timer(const Duration(seconds: 2)'));
+      expect(
+        lyricDisplay,
+        contains("ValueKey('compact-lyric-line-\$lyricIndex')"),
+      );
+      expect(
+        lyricDisplay,
+        contains("ValueKey('compact-lyric-edge-fade-mask')"),
+      );
+      expect(lyricDisplay, contains('playerLyricEdgeFadeGradient('));
+      expect(lyricSurface, contains('playerLyricEdgeFadeGradient('));
+      expect(lyricDisplay, contains('widget.onSeekRequested('));
       expect(screen, contains("ValueKey('compact-main-lyric-scroll-surface')"));
       expect(
         screen,
@@ -198,7 +209,20 @@ void main() {
       expect(playerRoute, isNot(contains('heightFactor:')));
       expect(playerRoute, contains('mode == PlayerDismissVisualMode.main'));
       expect(playerCover, contains('transitionOnUserGestures: true'));
+      expect(playerCover, contains('createPlayerArtworkRectTween'));
       expect(miniPlayer, contains('transitionOnUserGestures: true'));
+      expect(miniPlayer, contains('PlayerCoverWidget.preferredAspectRatio'));
+      expect(miniPlayer, contains('createPlayerArtworkRectTween'));
+      expect(miniPlayer, contains("'mini-player-queue-button'"));
+      expect(miniPlayer, contains('class _MiniPlayerTrackSwitcher'));
+      expect(miniPlayer, contains('AnimatedSwitcher'));
+      expect(miniPlayer, contains('useOldImageOnUrlChange: true'));
+      expect(
+        miniPlayer,
+        contains('fadeOutDuration: const Duration(milliseconds: 220)'),
+      );
+      expect(miniPlayer, isNot(contains('Icons.skip_previous')));
+      expect(miniPlayer, isNot(contains('Icons.skip_next')));
       expect(miniPlayer, contains('class _InteractivePlayerOpenSession'));
       expect(miniPlayer, contains('configuration.createRoute()'));
       expect(miniPlayer, contains('configuration.createRoute(handoff: true)'));
@@ -207,6 +231,9 @@ void main() {
       expect(miniPlayer, isNot(contains('_previewController')));
       expect(miniPlayer, isNot(contains('mini-player-route-preview-slide')));
       expect(miniPlayer, contains('openPlayer'));
+      expect(miniPlayer, contains('openQueue'));
+      expect(screen, contains('_directQueueEntry'));
+      expect(screen, contains('PlayerInitialSurface.queue'));
     },
   );
 

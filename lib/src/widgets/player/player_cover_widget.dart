@@ -7,6 +7,9 @@ import '../../models/audio_track.dart';
 import '../../utils/local_file_url.dart';
 import '../privacy_blur_cover.dart';
 
+Tween<Rect?> createPlayerArtworkRectTween(Rect? begin, Rect? end) =>
+    RectTween(begin: begin, end: end);
+
 /// 播放器封面组件
 class PlayerCoverWidget extends StatelessWidget {
   static const double preferredAspectRatio = 4 / 3;
@@ -135,6 +138,7 @@ class PlayerCoverWidget extends StatelessWidget {
             if (MediaQuery.disableAnimationsOf(context)) return artwork;
             return Hero(
               tag: 'audio_player_artwork_${track.id}',
+              createRectTween: createPlayerArtworkRectTween,
               transitionOnUserGestures: true,
               child: artwork,
             );

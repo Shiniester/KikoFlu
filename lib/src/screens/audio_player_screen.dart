@@ -62,10 +62,12 @@ class AudioPlayerScreen extends ConsumerStatefulWidget {
     super.key,
     this.initialPalette,
     this.initialPaletteTrackId,
+    this.initialSurface = PlayerInitialSurface.main,
   });
 
   final PlayerVisualPalette? initialPalette;
   final String? initialPaletteTrackId;
+  final PlayerInitialSurface initialSurface;
 
   @override
   ConsumerState<AudioPlayerScreen> createState() => _AudioPlayerScreenState();
@@ -99,6 +101,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   Timer? _routePaletteTimer;
   Timer? _unlockButtonTimer;
   bool _routePaletteFrozen = false;
+  late final bool _directQueueEntry;
   int _semanticTransitionGeneration = 0;
   late final AnimationController _compactQueueTransitionController;
   int _queueTransitionGeneration = 0;
@@ -111,6 +114,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   bool _routeDismissDragAccepted = false;
   bool _reduceMotionDismissDrag = false;
   PlayerInteractiveDismissRoute? _activeDismissRoute;
+  PlayerInteractiveDismissRoute? _playerRouteForModeSync;
   int _routeDismissModeSyncGeneration = 0;
   final ValueNotifier<int> _semanticPageRevision = ValueNotifier<int>(0);
 
@@ -121,10 +125,13 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   @override
   void initState() {
     super.initState();
+    _directQueueEntry = widget.initialSurface == PlayerInitialSurface.queue;
+    if (_directQueueEntry) _rightPane = PlayerRightPane.queue;
     _compactQueueTransitionController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 260),
       reverseDuration: const Duration(milliseconds: 260),
+      value: _directQueueEntry ? 1 : 0,
     );
     _routePaletteFrozen = widget.initialPalette != null;
     if (_routePaletteFrozen) {
@@ -138,6 +145,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    _playerRouteForModeSync = route is PlayerInteractiveDismissRoute
+        ? route as PlayerInteractiveDismissRoute
+        : null;
     _schedulePlayerDismissModeSync();
   }
 
@@ -477,9 +488,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                   canPop:
                       !_isLyricLocked &&
                       !_queueTransitionActive &&
-                      _rightPane != PlayerRightPane.queue &&
-                      (_lastWasWide == true ||
-                          _compactQueueTransitionController.value <= 0.001),
+                      (_directQueueEntry ||
+                          (_rightPane != PlayerRightPane.queue &&
+                              (_lastWasWide == true ||
+                                  _compactQueueTransitionController.value <=
+                                      0.001))),
                   onPopInvokedWithResult: (didPop, result) {
                     if (!didPop) _handleBack();
                   },
@@ -1055,7 +1068,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
             ),
             ThreeLineLyricDisplay(
               key: const ValueKey('compact-main-lyric-scroll-surface'),
-              onTap: _showLyrics,
+              onSeekRequested: (position) => unawaited(
+                ref
+                    .read(audioPlayerControllerProvider.notifier)
+                    .seekAndPersist(position),
+              ),
               lineCount: 5,
             ),
             const SizedBox(height: 16),
@@ -1315,6 +1332,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   }
 
   Widget _buildQueuePane(BuildContext context, {required bool isWide}) {
+    final dismissRequested = _directQueueEntry ? _dismissPlayer : _closeQueue;
+    final dismissDrag = isWide
+        ? null
+        : _directQueueEntry
+        ? _directQueueDismissDragCallbacks(context)
+        : _queueCloseDragCallbacks;
     return Align(
       key: const ValueKey('player-queue-pane'),
       alignment: Alignment.center,
@@ -1327,8 +1350,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
               child: PlayerQueueSurface(
                 onTrackSelected: () {},
                 onClear: _clearQueueAndClosePlayer,
-                onDismissRequested: _closeQueue,
-                dismissDrag: isWide ? null : _queueCloseDragCallbacks,
+                onDismissRequested: dismissRequested,
+                dismissDrag: dismissDrag,
                 horizontalPadding: 0,
               ),
             ),
@@ -1345,6 +1368,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   }
 
   PlayerDismissVisualMode get _currentPlayerDismissVisualMode {
+    if (_rightPane == PlayerRightPane.queue) {
+      return PlayerDismissVisualMode.secondary;
+    }
     final isWide =
         _lastWasWide ?? usesWidePlayerLayout(MediaQuery.sizeOf(context).width);
     if (isWide) {
@@ -1367,18 +1393,21 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   }
 
   void _syncPlayerDismissMode() {
-    final route = ModalRoute.of(context);
-    if (route == null || route is! PlayerInteractiveDismissRoute) return;
-    final dismissRoute = route as PlayerInteractiveDismissRoute;
-    dismissRoute.setDismissVisualMode(_currentPlayerDismissVisualMode);
+    _playerRouteForModeSync?.setDismissVisualMode(
+      _currentPlayerDismissVisualMode,
+    );
   }
 
   PlayerVerticalDragCallbacks _playerDismissDragCallbacks(
     BuildContext gestureContext, {
     bool mainBodyOnly = false,
+    bool allowDirectQueue = false,
   }) => PlayerVerticalDragCallbacks(
-    onStart: () =>
-        _beginPlayerDismissDrag(gestureContext, mainBodyOnly: mainBodyOnly),
+    onStart: () => _beginPlayerDismissDrag(
+      gestureContext,
+      mainBodyOnly: mainBodyOnly,
+      allowDirectQueue: allowDirectQueue,
+    ),
     onUpdate: _updatePlayerDismissDrag,
     onEnd: _endPlayerDismissDrag,
     onCancel: _cancelPlayerDismissDrag,
@@ -1387,6 +1416,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   void _beginPlayerDismissDrag(
     BuildContext gestureContext, {
     required bool mainBodyOnly,
+    bool allowDirectQueue = false,
   }) {
     _routeDismissDragAccepted = false;
     _reduceMotionDismissDrag = false;
@@ -1394,7 +1424,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     if (!mounted ||
         _isLyricLocked ||
         _queueTransitionActive ||
-        _rightPane == PlayerRightPane.queue ||
+        (_rightPane == PlayerRightPane.queue &&
+            !(allowDirectQueue && _directQueueEntry)) ||
         !ModalRoute.of(context)!.isCurrent) {
       return;
     }
@@ -1415,6 +1446,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       _activeDismissRoute = dismissRoute;
     }
   }
+
+  PlayerVerticalDragCallbacks _directQueueDismissDragCallbacks(
+    BuildContext gestureContext,
+  ) => _playerDismissDragCallbacks(gestureContext, allowDirectQueue: true);
 
   void _updatePlayerDismissDrag(double distance) {
     if (!_routeDismissDragAccepted || _reduceMotionDismissDrag) return;
@@ -1617,6 +1652,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   }
 
   void _closeQueue() {
+    if (_directQueueEntry) {
+      _dismissPlayer();
+      return;
+    }
     if (_lastWasWide == true) {
       if (_rightPane != PlayerRightPane.queue) return;
       _semanticTransitionGeneration++;
@@ -1845,6 +1884,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     if (_rightPane == PlayerRightPane.queue ||
         (_lastWasWide != true &&
             _compactQueueTransitionController.value > 0.001)) {
+      if (_directQueueEntry) {
+        _dismissPlayer();
+        return;
+      }
       _closeQueue();
       return;
     }
@@ -2547,7 +2590,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         final lyricState = ref.watch(lyricControllerProvider);
 
         if (lyricState.lyrics.isEmpty || lyricState.isLoading) {
-          return const SizedBox.shrink();
+          return IconButton(
+            onPressed: null,
+            tooltip: S.of(context).translateLyrics,
+            icon: const Icon(Icons.translate),
+          );
         }
 
         final isTranslating = lyricState.isTranslating;

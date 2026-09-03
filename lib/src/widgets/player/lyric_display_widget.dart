@@ -12,6 +12,43 @@ import '../../providers/lyric_provider.dart';
 import '../../providers/player_lyric_style_provider.dart';
 import '../../../l10n/app_localizations.dart';
 
+/// Shared top/bottom transparency used by both compact and full lyric
+/// viewports. [visibleBottomInset] keeps the lower fade attached to the
+/// actually visible edge when the keyboard clips the full lyric surface.
+LinearGradient playerLyricEdgeFadeGradient(
+  Rect bounds, {
+  double visibleBottomInset = 0,
+  double topFadeExtent = 48,
+  double bottomFadeExtent = 72,
+}) {
+  if (bounds.height <= 0) {
+    return const LinearGradient(colors: [Colors.transparent, Colors.white]);
+  }
+  final visibleEnd = ((bounds.height - visibleBottomInset) / bounds.height)
+      .clamp(0.02, 1.0)
+      .toDouble();
+  final topOpaque = (topFadeExtent / bounds.height)
+      .clamp(0.0, visibleEnd * 0.35)
+      .toDouble();
+  final fadeHeight = (bottomFadeExtent / bounds.height)
+      .clamp(0.0, visibleEnd * 0.4)
+      .toDouble();
+  final bottomOpaque = (visibleEnd - fadeHeight)
+      .clamp(topOpaque, visibleEnd)
+      .toDouble();
+  return LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: const [
+      Colors.transparent,
+      Colors.white,
+      Colors.white,
+      Colors.transparent,
+    ],
+    stops: [0, topOpaque, bottomOpaque, visibleEnd],
+  );
+}
+
 /// Small, single-line lyric display used by the wide cover pane.
 class LyricDisplay extends ConsumerWidget {
   const LyricDisplay({super.key, this.albumName});
@@ -76,12 +113,12 @@ class LyricDisplay extends ConsumerWidget {
 class ThreeLineLyricDisplay extends ConsumerStatefulWidget {
   const ThreeLineLyricDisplay({
     super.key,
-    this.onTap,
+    required this.onSeekRequested,
     this.compact = false,
     this.lineCount = 3,
   }) : assert(lineCount == 3 || lineCount == 5);
 
-  final VoidCallback? onTap;
+  final ValueChanged<Duration> onSeekRequested;
   final bool compact;
   final int lineCount;
 
@@ -162,6 +199,10 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay> {
   void _endUserBrowse() {
     if (!_userScrollInProgress) return;
     _userScrollInProgress = false;
+    _scheduleFollowResume();
+  }
+
+  void _scheduleFollowResume() {
     _resumeFollowTimer?.cancel();
     _resumeFollowTimer = Timer(const Duration(seconds: 2), () {
       _resumeFollowTimer = null;
@@ -177,6 +218,22 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay> {
         deferUntilLayout: false,
       );
     });
+  }
+
+  void _seekToLine(int index, List<LyricLine> lyrics, double itemExtent) {
+    if (index < 0 || index >= lyrics.length) return;
+    _resumeFollowTimer?.cancel();
+    _isUserBrowsing = true;
+    _userScrollInProgress = false;
+    widget.onSeekRequested(lyrics[index].startTime);
+    _positionCurrentLine(
+      index,
+      itemExtent,
+      animate: true,
+      duration: const Duration(milliseconds: 280),
+      deferUntilLayout: false,
+    );
+    _scheduleFollowResume();
   }
 
   bool _handleUserScrollNotification(UserScrollNotification notification) {
@@ -248,16 +305,21 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay> {
     }
 
     return Semantics(
-      button: widget.onTap != null,
+      container: true,
       label: index >= 0 && index < lyrics.length ? lyrics[index].text : null,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: widget.onTap,
-        child: SizedBox(
-          key: ValueKey('compact-lyric-preview-${widget.lineCount}-lines'),
-          height: previewHeight,
-          child: ClipRect(
-            child: RepaintBoundary(
+      child: SizedBox(
+        key: ValueKey('compact-lyric-preview-${widget.lineCount}-lines'),
+        height: previewHeight,
+        child: ClipRect(
+          child: RepaintBoundary(
+            child: ShaderMask(
+              key: const ValueKey('compact-lyric-edge-fade-mask'),
+              blendMode: BlendMode.dstIn,
+              shaderCallback: (bounds) => playerLyricEdgeFadeGradient(
+                bounds,
+                topFadeExtent: 24,
+                bottomFadeExtent: 24,
+              ).createShader(bounds),
               child: NotificationListener<UserScrollNotification>(
                 onNotification: _handleUserScrollNotification,
                 child: ListView.builder(
@@ -273,16 +335,28 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay> {
                   itemBuilder: (context, lyricIndex) {
                     final distance = (lyricIndex - index).abs();
                     final active = distance == 0;
-                    return Center(
-                      child: _PreviewLine(
-                        text: lyrics[lyricIndex].text,
-                        fontSize: active
-                            ? settings.smallFontSize + (widget.compact ? 0 : 1)
-                            : settings.smallFontSize - 1,
-                        lineHeight: settings.smallLineHeight,
-                        opacity: active ? 1 : (distance == 1 ? 0.56 : 0.36),
-                        fontWeight: active ? FontWeight.w800 : FontWeight.w600,
-                        maxLines: 1,
+                    return Semantics(
+                      button: true,
+                      selected: active,
+                      child: InkWell(
+                        key: ValueKey('compact-lyric-line-$lyricIndex'),
+                        onTap: () =>
+                            _seekToLine(lyricIndex, lyrics, itemExtent),
+                        child: Center(
+                          child: _PreviewLine(
+                            text: lyrics[lyricIndex].text,
+                            fontSize: active
+                                ? settings.smallFontSize +
+                                      (widget.compact ? 0 : 1)
+                                : settings.smallFontSize - 1,
+                            lineHeight: settings.smallLineHeight,
+                            opacity: active ? 1 : (distance == 1 ? 0.56 : 0.36),
+                            fontWeight: active
+                                ? FontWeight.w800
+                                : FontWeight.w600,
+                            maxLines: 1,
+                          ),
+                        ),
                       ),
                     );
                   },

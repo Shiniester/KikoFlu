@@ -82,9 +82,6 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(lyricControllerProvider);
-    if (state.isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
     final query = _searchController.text.trim();
     if (_searchHighlightsVisible && query.isNotEmpty) {
       final signature = _lyricTextSignature(state);
@@ -122,28 +119,37 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
       child: LayoutBuilder(
         builder: (context, constraints) {
           final lyricList = RepaintBoundary(
-            child: FullLyricDisplay(
-              controller: _displayController,
-              seekingPosition: widget.seekingPosition,
-              isPortrait: !widget.isWide,
-              onLongPress: widget.onLongPress,
-              suspendAutoScroll: _searchSessionActive || !widget.isActive,
-              searchMode: _searchHighlightsVisible,
-              searchQuery: _searchHighlightsVisible
-                  ? _searchController.text
-                  : '',
-              layoutSearchQuery: _searchSessionActive
-                  ? _searchController.text
-                  : null,
-              selectedSearchMatch: _searchHighlightsVisible
-                  ? selectedMatch
-                  : null,
-              topPadding: 86,
-              bottomPadding: widget.isWide ? 136 : 164,
-              visibleBottomInset: baseVisibleBottomInset,
-              reserveSearchCenteringSpace: true,
-              snapOnAutoScrollResume: !_skipNextAutoScrollResume,
-              snapToCurrentOnFirstLayout: true,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                FullLyricDisplay(
+                  controller: _displayController,
+                  seekingPosition: widget.seekingPosition,
+                  isPortrait: !widget.isWide,
+                  onLongPress: widget.onLongPress,
+                  suspendAutoScroll: _searchSessionActive || !widget.isActive,
+                  searchMode: _searchHighlightsVisible,
+                  searchQuery: _searchHighlightsVisible
+                      ? _searchController.text
+                      : '',
+                  layoutSearchQuery: _searchSessionActive
+                      ? _searchController.text
+                      : null,
+                  selectedSearchMatch: _searchHighlightsVisible
+                      ? selectedMatch
+                      : null,
+                  topPadding: 86,
+                  bottomPadding: widget.isWide ? 136 : 164,
+                  visibleBottomInset: baseVisibleBottomInset,
+                  reserveSearchCenteringSpace: true,
+                  snapOnAutoScrollResume: !_skipNextAutoScrollResume,
+                  snapToCurrentOnFirstLayout: true,
+                ),
+                if (state.isLoading)
+                  const IgnorePointer(
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+              ],
             ),
           );
           return AnimatedBuilder(
@@ -260,10 +266,11 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                             child: ShaderMask(
                               key: const ValueKey('lyric-edge-fade-mask'),
                               blendMode: BlendMode.dstIn,
-                              shaderCallback: (bounds) => _lyricFadeGradient(
-                                bounds,
-                                lyricViewportBottom,
-                              ).createShader(bounds),
+                              shaderCallback: (bounds) =>
+                                  playerLyricEdgeFadeGradient(
+                                    bounds,
+                                    visibleBottomInset: lyricViewportBottom,
+                                  ).createShader(bounds),
                               child: lyricList,
                             ),
                           ),
@@ -298,35 +305,6 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
           );
         },
       ),
-    );
-  }
-
-  LinearGradient _lyricFadeGradient(Rect bounds, double bottomInset) {
-    if (bounds.height <= 0) {
-      return const LinearGradient(colors: [Colors.transparent, Colors.white]);
-    }
-    final visibleEnd = ((bounds.height - bottomInset) / bounds.height)
-        .clamp(0.02, 1.0)
-        .toDouble();
-    final topOpaque = (48 / bounds.height)
-        .clamp(0.0, visibleEnd * 0.35)
-        .toDouble();
-    final fadeHeight = (72 / bounds.height)
-        .clamp(0.0, visibleEnd * 0.4)
-        .toDouble();
-    final bottomOpaque = (visibleEnd - fadeHeight)
-        .clamp(topOpaque, visibleEnd)
-        .toDouble();
-    return LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: const [
-        Colors.transparent,
-        Colors.white,
-        Colors.white,
-        Colors.transparent,
-      ],
-      stops: [0, topOpaque, bottomOpaque, visibleEnd],
     );
   }
 

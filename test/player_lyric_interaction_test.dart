@@ -79,6 +79,72 @@ void main() {
     expect((center.dy - 350).abs(), lessThan(120));
   });
 
+  testWidgets('compact lyric rows seek, fade edges, and resume following', (
+    tester,
+  ) async {
+    Duration? requested;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith(
+            (ref) => Stream.value(const Duration(seconds: 2)),
+          ),
+          lyricControllerProvider.overrideWith(
+            (ref) =>
+                LyricController(ref, initialState: LyricState(lyrics: lyrics)),
+          ),
+        ],
+        child: MaterialApp(
+          theme: ThemeData.dark(useMaterial3: true),
+          home: Scaffold(
+            body: Center(
+              child: ThreeLineLyricDisplay(
+                lineCount: 5,
+                onSeekRequested: (position) => requested = position,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('compact-lyric-edge-fade-mask')),
+      findsOneWidget,
+    );
+    final scrollable = tester.state<ScrollableState>(
+      find.descendant(
+        of: find.byKey(const ValueKey('compact-lyric-scroll-list')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    final followedOffset = scrollable.position.pixels;
+
+    await tester.tap(find.byKey(const ValueKey('compact-lyric-line-3')));
+    await tester.pump(const Duration(milliseconds: 320));
+    expect(requested, const Duration(seconds: 3));
+
+    requested = null;
+    await tester.drag(
+      find.byKey(const ValueKey('compact-lyric-scroll-list')),
+      const Offset(0, -190),
+    );
+    await tester.pump();
+    expect(requested, isNull);
+    expect(scrollable.position.pixels, greaterThan(followedOffset));
+
+    await tester.tap(find.byKey(const ValueKey('compact-lyric-line-11')));
+    await tester.pump(const Duration(milliseconds: 320));
+    expect(requested, const Duration(seconds: 11));
+    expect(scrollable.position.pixels, greaterThan(followedOffset));
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump(const Duration(milliseconds: 320));
+    expect(scrollable.position.pixels, closeTo(followedOffset, 1));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'activating lyric page snaps to playback line without animation',
     (tester) async {

@@ -2,10 +2,13 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:real_liquid_glass/real_liquid_glass.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../models/audio_track.dart';
 import '../providers/audio_provider.dart';
 import '../providers/auth_provider.dart';
@@ -16,7 +19,9 @@ import '../utils/local_file_url.dart';
 import 'privacy_blur_cover.dart';
 import 'volume_control.dart';
 import 'liquid_glass_layout.dart';
+import 'player/player_cover_widget.dart';
 import 'player/player_route.dart';
+import 'player/player_vertical_gestures.dart';
 import 'player/player_visual_palette.dart';
 
 class MiniPlayer extends ConsumerStatefulWidget {
@@ -37,6 +42,10 @@ class MiniPlayer extends ConsumerStatefulWidget {
 }
 
 class _MiniPlayerState extends ConsumerState<MiniPlayer> {
+  static const double _artworkHeight = 48;
+  static const double _artworkWidth =
+      _artworkHeight * PlayerCoverWidget.preferredAspectRatio;
+
   String? _lastTrackId;
   bool _isAdjustingVolume = false;
   double _tempVolume = 1.0;
@@ -154,7 +163,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
             _interactiveArtworkHidden.value = hidden;
           },
           child: Dismissible(
-            key: Key('miniplayer_${track.id}'),
+            key: const ValueKey('mini-player-dismissible'),
             direction: DismissDirection.down,
             background: Container(color: Colors.transparent),
             confirmDismiss: (_) async =>
@@ -212,130 +221,46 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                           ),
                           child: Row(
                             children: [
-                              // Left tap area: artwork + info opens full player
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () async {
+                                  await _playerLauncherKey.currentState
+                                      ?.openPlayer();
+                                },
+                                child: _buildArtwork(
+                                  context,
+                                  track,
+                                  workCoverUrl: workCoverUrl,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
                               Expanded(
-                                child: GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
+                                child: _MiniPlayerTrackSwitcher(
+                                  track: track,
                                   onTap: () async {
                                     await _playerLauncherKey.currentState
                                         ?.openPlayer();
                                   },
-                                  child: Row(
-                                    children: [
-                                      // Album art (use work cover) with optional Hero animation
-                                      _buildArtwork(
-                                        context,
-                                        track,
-                                        workCoverUrl: workCoverUrl,
-                                      ),
-                                      const SizedBox(width: 12),
-                                      // Track info
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                            Text(
-                                              track.title,
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .bodyMedium
-                                                  ?.copyWith(
-                                                    fontWeight: FontWeight.w500,
-                                                  ),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                            if (track.artist != null) ...[
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                track.artist!,
-                                                style: Theme.of(context)
-                                                    .textTheme
-                                                    .bodySmall
-                                                    ?.copyWith(
-                                                      color: Theme.of(context)
-                                                          .colorScheme
-                                                          .onSurfaceVariant,
-                                                    ),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                  onPrevious: () =>
+                                      _skipTrack(context, next: false),
+                                  onNext: () => _skipTrack(context, next: true),
                                 ),
                               ),
                               // Controls (do not trigger navigation)
                               Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  IconButton(
-                                    onPressed: () async {
-                                      try {
-                                        await ref
-                                            .read(
-                                              audioPlayerControllerProvider
-                                                  .notifier,
-                                            )
-                                            .skipToPrevious();
-                                      } catch (e) {
-                                        if (!context.mounted) return;
-                                        ScaffoldMessenger.of(
-                                          context,
-                                        ).showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              e.toString().replaceAll(
-                                                'Exception: ',
-                                                '',
-                                              ),
-                                            ),
-                                            duration: const Duration(
-                                              seconds: 1,
-                                            ),
-                                          ),
-                                        );
-                                      }
-                                    },
-                                    icon: const Icon(Icons.skip_previous),
-                                    iconSize: 24,
-                                  ),
                                   const _MiniPlayerPlayButton(),
                                   IconButton(
+                                    key: const ValueKey(
+                                      'mini-player-queue-button',
+                                    ),
+                                    tooltip: S.of(context).playlistTitle,
                                     onPressed: () async {
-                                      try {
-                                        await ref
-                                            .read(
-                                              audioPlayerControllerProvider
-                                                  .notifier,
-                                            )
-                                            .skipToNext();
-                                      } catch (e) {
-                                        if (!context.mounted) return;
-                                        ScaffoldMessenger.of(
-                                          context,
-                                        ).showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              e.toString().replaceAll(
-                                                'Exception: ',
-                                                '',
-                                              ),
-                                            ),
-                                            duration: const Duration(
-                                              seconds: 1,
-                                            ),
-                                          ),
-                                        );
-                                      }
+                                      await _playerLauncherKey.currentState
+                                          ?.openQueue();
                                     },
-                                    icon: const Icon(Icons.skip_next),
+                                    icon: const Icon(Icons.queue_music),
                                     iconSize: 24,
                                   ),
                                   // Volume control (desktop platforms only)
@@ -442,6 +367,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
         ? image
         : Hero(
             tag: 'audio_player_artwork_${track.id}',
+            createRectTween: createPlayerArtworkRectTween,
             transitionOnUserGestures: true,
             child: image,
           );
@@ -449,7 +375,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
       key: _miniArtworkKey,
       child: ValueListenableBuilder<bool>(
         valueListenable: _interactiveArtworkHidden,
-        child: artwork,
+        child: RepaintBoundary(child: artwork),
         builder: (context, hidden, child) =>
             Opacity(opacity: hidden ? 0 : 1, child: child),
       ),
@@ -471,18 +397,20 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
     AudioTrack track, {
     String? workCoverUrl,
   }) {
+    final radius = BorderRadius.circular(PlayerCoverWidget.cornerRadius);
     return Container(
-      width: 48,
-      height: 48,
+      key: const ValueKey('mini-player-artwork-frame'),
+      width: _artworkWidth,
+      height: _artworkHeight,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: radius,
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
       ),
       child: (workCoverUrl ?? track.artworkUrl) != null
           ? PrivacyBlurCover(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: radius,
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: radius,
                 child:
                     LocalFileUrl.isLocalFileUrl(
                       workCoverUrl ?? track.artworkUrl,
@@ -494,6 +422,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                           )!,
                         ),
                         fit: BoxFit.cover,
+                        gaplessPlayback: true,
                         errorBuilder: (context, error, stackTrace) {
                           return const Icon(Icons.album, size: 32);
                         },
@@ -504,6 +433,11 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                             ? 'work_cover_${track.workId}'
                             : null,
                         fit: BoxFit.cover,
+                        fadeInDuration: const Duration(milliseconds: 220),
+                        fadeInCurve: Curves.easeOutCubic,
+                        fadeOutDuration: const Duration(milliseconds: 220),
+                        fadeOutCurve: Curves.easeOutCubic,
+                        useOldImageOnUrlChange: true,
                         errorWidget: (context, url, error) =>
                             const Icon(Icons.album, size: 32),
                         placeholder: (context, url) =>
@@ -512,6 +446,218 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
               ),
             )
           : const Icon(Icons.album, size: 32),
+    );
+  }
+
+  Future<bool> _skipTrack(BuildContext context, {required bool next}) async {
+    try {
+      final controller = ref.read(audioPlayerControllerProvider.notifier);
+      if (next) {
+        await controller.skipToNext();
+      } else {
+        await controller.skipToPrevious();
+      }
+      return true;
+    } catch (error) {
+      if (!context.mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString().replaceAll('Exception: ', '')),
+          duration: const Duration(seconds: 1),
+        ),
+      );
+      return false;
+    }
+  }
+}
+
+class _MiniPlayerTrackSwitcher extends StatefulWidget {
+  const _MiniPlayerTrackSwitcher({
+    required this.track,
+    required this.onTap,
+    required this.onPrevious,
+    required this.onNext,
+  });
+
+  final AudioTrack track;
+  final VoidCallback onTap;
+  final Future<bool> Function() onPrevious;
+  final Future<bool> Function() onNext;
+
+  @override
+  State<_MiniPlayerTrackSwitcher> createState() =>
+      _MiniPlayerTrackSwitcherState();
+}
+
+class _MiniPlayerTrackSwitcherState extends State<_MiniPlayerTrackSwitcher>
+    with SingleTickerProviderStateMixin {
+  static const double _switchDistance = 36;
+  static const double _switchVelocity = 500;
+  static const double _maximumDrag = 72;
+
+  late final AnimationController _settleController;
+  double _dragOffset = 0;
+  double _settleStart = 0;
+  bool _switchInProgress = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _settleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 180),
+    )..addListener(_updateSettlingOffset);
+  }
+
+  @override
+  void didUpdateWidget(covariant _MiniPlayerTrackSwitcher oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.track.id == widget.track.id) return;
+    _switchInProgress = false;
+    _settleToOrigin();
+  }
+
+  @override
+  void dispose() {
+    _settleController
+      ..removeListener(_updateSettlingOffset)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _updateSettlingOffset() {
+    if (!mounted) return;
+    final eased = Curves.easeOutCubic.transform(_settleController.value);
+    setState(() => _dragOffset = _settleStart * (1 - eased));
+  }
+
+  void _settleToOrigin() {
+    _settleController.stop();
+    _settleStart = _dragOffset;
+    if (_settleStart.abs() < 0.5) {
+      _dragOffset = 0;
+      return;
+    }
+    final milliseconds = (180 * (_settleStart.abs() / _maximumDrag))
+        .round()
+        .clamp(90, 180);
+    _settleController.duration = Duration(milliseconds: milliseconds);
+    _settleController.forward(from: 0);
+  }
+
+  void _handleDragStart(DragStartDetails details) {
+    if (_switchInProgress) return;
+    _settleController.stop();
+  }
+
+  void _handleDragUpdate(DragUpdateDetails details) {
+    if (_switchInProgress) return;
+    setState(() {
+      _dragOffset = (_dragOffset + details.delta.dx).clamp(
+        -_maximumDrag,
+        _maximumDrag,
+      );
+    });
+  }
+
+  void _handleDragEnd(DragEndDetails details) {
+    if (_switchInProgress) return;
+    final velocity = details.primaryVelocity ?? 0;
+    final goNext =
+        _dragOffset <= -_switchDistance || velocity <= -_switchVelocity;
+    final goPrevious =
+        _dragOffset >= _switchDistance || velocity >= _switchVelocity;
+    if (goNext) {
+      unawaited(_requestSwitch(next: true));
+    } else if (goPrevious) {
+      unawaited(_requestSwitch(next: false));
+    } else {
+      _settleToOrigin();
+    }
+  }
+
+  Future<void> _requestSwitch({required bool next}) async {
+    if (_switchInProgress) return;
+    setState(() => _switchInProgress = true);
+    _settleToOrigin();
+    await (next ? widget.onNext() : widget.onPrevious());
+    if (mounted) setState(() => _switchInProgress = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final previousAction = CustomSemanticsAction(
+      label: S.of(context).previousPage,
+    );
+    final nextAction = CustomSemanticsAction(label: S.of(context).nextPage);
+    final trackContent = Column(
+      key: ValueKey('mini-player-track-info-${widget.track.id}'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          widget.track.title,
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        if (widget.track.artist case final artist?) ...[
+          const SizedBox(height: 2),
+          Text(
+            artist,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ],
+    );
+
+    return Semantics(
+      button: true,
+      label: widget.track.artist == null
+          ? widget.track.title
+          : '${widget.track.title}, ${widget.track.artist}',
+      onTap: widget.onTap,
+      customSemanticsActions: {
+        previousAction: () => unawaited(_requestSwitch(next: false)),
+        nextAction: () => unawaited(_requestSwitch(next: true)),
+      },
+      child: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
+              unawaited(_requestSwitch(next: false)),
+          const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
+              unawaited(_requestSwitch(next: true)),
+        },
+        child: Focus(
+          child: GestureDetector(
+            key: const ValueKey('mini-player-track-swipe-region'),
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onTap,
+            onHorizontalDragStart: _handleDragStart,
+            onHorizontalDragUpdate: _handleDragUpdate,
+            onHorizontalDragEnd: _handleDragEnd,
+            onHorizontalDragCancel: _settleToOrigin,
+            child: ClipRect(
+              child: Transform.translate(
+                key: const ValueKey('mini-player-track-swipe-transform'),
+                offset: Offset(_dragOffset, 0),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 180),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeOutCubic,
+                  child: trackContent,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -655,10 +801,20 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher>
   }
 
   Future<void> openPlayer() async {
+    await _openSurface(PlayerInitialSurface.main);
+  }
+
+  Future<void> openQueue() async {
+    await _openSurface(PlayerInitialSurface.queue);
+  }
+
+  Future<void> _openSurface(PlayerInitialSurface initialSurface) async {
     if (!mounted || _launchInProgress) return;
     _launchInProgress = true;
     try {
-      final route = widget.createConfiguration().createRoute();
+      final route = widget.createConfiguration().createRoute(
+        initialSurface: initialSurface,
+      );
       if (!mounted) return;
       await Navigator.of(context).push<void>(route);
     } finally {
@@ -877,8 +1033,7 @@ class _InteractivePlayerOpenSession {
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   final Completer<void> _routeReady = Completer<void>();
   late final HeroController _heroController = HeroController(
-    createRectTween: (begin, end) =>
-        MaterialRectArcTween(begin: begin, end: end),
+    createRectTween: createPlayerArtworkRectTween,
   );
   OverlayEntry? _entry;
   AudioPlayerPageRoute<void>? _route;
@@ -1038,6 +1193,7 @@ class _InteractivePlayerHeroSource extends StatelessWidget {
             rect: rect,
             child: Hero(
               tag: artworkHeroTag,
+              createRectTween: createPlayerArtworkRectTween,
               transitionOnUserGestures: true,
               child: artworkBuilder(context),
             ),

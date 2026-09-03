@@ -22,6 +22,7 @@ import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _track = AudioTrack(
@@ -175,6 +176,125 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('compact-main-page')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('direct queue entry starts on queue and pops to mini player', (
+    tester,
+  ) async {
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      pushedRoute: true,
+      initialSurface: PlayerInitialSurface.queue,
+    );
+
+    expect(find.byKey(const ValueKey('player-queue-pane')), findsOneWidget);
+    expect(_compactQueueProgress(tester), closeTo(1, 0.001));
+    expect(
+      tester
+          .widget<AudioPlayerScreen>(find.byType(AudioPlayerScreen))
+          .initialSurface,
+      PlayerInitialSurface.queue,
+    );
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('mini-player-host'), findsOneWidget);
+    expect(find.byType(AudioPlayerScreen), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('direct compact queue drag exits the player route', (
+    tester,
+  ) async {
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      pushedRoute: true,
+      initialSurface: PlayerInitialSurface.queue,
+    );
+
+    await tester.fling(
+      find.byKey(const ValueKey('player-queue-title-dismiss-surface')),
+      const Offset(0, 300),
+      1000,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('mini-player-host'), findsOneWidget);
+    expect(find.byType(AudioPlayerScreen), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('direct wide queue escape exits without showing main first', (
+    tester,
+  ) async {
+    await _pumpPlayer(
+      tester,
+      const Size(1280, 720),
+      pushedRoute: true,
+      initialSurface: PlayerInitialSurface.queue,
+    );
+
+    expect(find.byKey(const ValueKey('wide-player-layout')), findsOneWidget);
+    expect(find.byKey(const ValueKey('player-queue-pane')), findsOneWidget);
+    expect(find.byKey(const ValueKey('wide-right-pages')), findsNothing);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.text('mini-player-host'), findsOneWidget);
+    expect(find.byType(AudioPlayerScreen), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('translate action stays visible and disabled without lyrics', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(390, 844));
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(-320, 0),
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+
+    final translate = find.byKey(const ValueKey('lyric-translate-button'));
+    expect(translate, findsOneWidget);
+    expect(tester.getSize(translate).width, 48);
+    expect(
+      tester
+          .widget<IconButton>(
+            find.descendant(of: translate, matching: find.byType(IconButton)),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('translate action remains visible while lyrics are loading', (
+    tester,
+  ) async {
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      lyricState: LyricState(isLoading: true),
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(-320, 0),
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+
+    final translate = find.byKey(const ValueKey('lyric-translate-button'));
+    expect(translate, findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(
+      tester
+          .widget<IconButton>(
+            find.descendant(of: translate, matching: find.byType(IconButton)),
+          )
+          .onPressed,
+      isNull,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -1377,8 +1497,10 @@ Future<void> _pumpPlayer(
   List<LyricLine>? lyrics,
   Stream<AudioTrack?>? trackStream,
   bool pushedRoute = false,
+  PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
   AudioTrack track = _track,
   PlayerWorkDetailsData? workDetails,
+  LyricState? lyricState,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -1405,10 +1527,12 @@ Future<void> _pumpPlayer(
         lyricAutoLoaderProvider.overrideWith((ref) {}),
         if (workDetails != null)
           playerWorkDetailsProvider.overrideWith((ref) async => workDetails),
-        if (lyrics != null)
+        if (lyrics != null || lyricState != null)
           lyricControllerProvider.overrideWith(
-            (ref) =>
-                LyricController(ref, initialState: LyricState(lyrics: lyrics)),
+            (ref) => LyricController(
+              ref,
+              initialState: lyricState ?? LyricState(lyrics: lyrics!),
+            ),
           ),
       ],
       child: MaterialApp(
@@ -1426,7 +1550,7 @@ Future<void> _pumpPlayer(
         ),
         home: pushedRoute
             ? const Scaffold(body: Text('mini-player-host'))
-            : const AudioPlayerScreen(),
+            : AudioPlayerScreen(initialSurface: initialSurface),
       ),
     ),
   );
@@ -1434,7 +1558,7 @@ Future<void> _pumpPlayer(
   if (pushedRoute) {
     unawaited(
       navigatorKey.currentState!.push<void>(
-        AudioPlayerPageRoute<void>(builder: (_) => const AudioPlayerScreen()),
+        createAudioPlayerRoute<void>(initialSurface: initialSurface),
       ),
     );
     await tester.pumpAndSettle();

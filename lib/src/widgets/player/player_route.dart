@@ -9,13 +9,18 @@ import 'player_visual_palette.dart';
 AudioPlayerPageRoute<T> createAudioPlayerRoute<T>({
   PlayerVisualPalette? initialPalette,
   String? initialPaletteTrackId,
+  PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
   bool skipInitialTransition = false,
 }) {
   return AudioPlayerPageRoute<T>(
     skipInitialTransition: skipInitialTransition,
+    initialDismissVisualMode: initialSurface == PlayerInitialSurface.queue
+        ? PlayerDismissVisualMode.secondary
+        : PlayerDismissVisualMode.main,
     builder: (context) => AudioPlayerScreen(
       initialPalette: initialPalette,
       initialPaletteTrackId: initialPaletteTrackId,
+      initialSurface: initialSurface,
     ),
   );
 }
@@ -31,10 +36,14 @@ class AudioPlayerOpenConfiguration {
   final PlayerVisualPalette initialPalette;
   final String initialPaletteTrackId;
 
-  AudioPlayerPageRoute<void> createRoute({bool handoff = false}) {
+  AudioPlayerPageRoute<void> createRoute({
+    bool handoff = false,
+    PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
+  }) {
     return createAudioPlayerRoute<void>(
       initialPalette: initialPalette,
       initialPaletteTrackId: initialPaletteTrackId,
+      initialSurface: initialSurface,
       skipInitialTransition: handoff,
     );
   }
@@ -44,11 +53,13 @@ Future<T?> openAudioPlayer<T>(
   BuildContext context, {
   PlayerVisualPalette? initialPalette,
   String? initialPaletteTrackId,
+  PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
 }) {
   return Navigator.of(context).push<T>(
     createAudioPlayerRoute<T>(
       initialPalette: initialPalette,
       initialPaletteTrackId: initialPaletteTrackId,
+      initialSurface: initialSurface,
     ),
   );
 }
@@ -63,7 +74,9 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   AudioPlayerPageRoute({
     required this.builder,
     this.skipInitialTransition = false,
-  });
+    PlayerDismissVisualMode initialDismissVisualMode =
+        PlayerDismissVisualMode.main,
+  }) : _dismissVisualMode = ValueNotifier(initialDismissVisualMode);
 
   final WidgetBuilder builder;
   final bool skipInitialTransition;
@@ -72,8 +85,7 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   double _verticalGestureStartValue = 0;
   int _verticalSettleGeneration = 0;
   NavigatorState? _gestureNavigator;
-  final ValueNotifier<PlayerDismissVisualMode> _dismissVisualMode =
-      ValueNotifier(PlayerDismissVisualMode.main);
+  final ValueNotifier<PlayerDismissVisualMode> _dismissVisualMode;
 
   @override
   Widget buildContent(BuildContext context) => builder(context);
