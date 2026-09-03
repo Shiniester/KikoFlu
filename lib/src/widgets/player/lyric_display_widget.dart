@@ -3,7 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart'
-    show RenderBox, RenderParagraph, ScrollCacheExtent;
+    show RenderBox, RenderParagraph, ScrollCacheExtent, ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/lyric.dart';
@@ -92,6 +92,10 @@ class ThreeLineLyricDisplay extends ConsumerStatefulWidget {
 
 class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay> {
   final ScrollController _scrollController = ScrollController();
+  Timer? _resumeFollowTimer;
+  bool _isUserBrowsing = false;
+  bool _userScrollInProgress = false;
+  int _latestIndex = -1;
   int? _lastIndex;
   int? _lyricsSignature;
   int _scrollGeneration = 0;
@@ -99,6 +103,7 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay> {
 
   @override
   void dispose() {
+    _resumeFollowTimer?.cancel();
     _scrollGeneration++;
     _scrollController.dispose();
     super.dispose();
@@ -108,9 +113,11 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay> {
     int index,
     double itemExtent, {
     required bool animate,
+    Duration duration = const Duration(milliseconds: 460),
+    bool deferUntilLayout = true,
   }) {
     final generation = ++_scrollGeneration;
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
+    Future<void> position() async {
       if (!mounted ||
           generation != _scrollGeneration ||
           !_scrollController.hasClients) {
@@ -127,13 +134,66 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay> {
       try {
         await _scrollController.animateTo(
           target,
-          duration: const Duration(milliseconds: 460),
+          duration: duration,
           curve: Curves.easeOutCubic,
         );
       } catch (_) {
         // A horizontal page or queue transition may detach the preview.
       }
+    }
+
+    if (deferUntilLayout) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(position());
+      });
+    } else {
+      unawaited(position());
+    }
+  }
+
+  void _beginUserBrowse() {
+    _resumeFollowTimer?.cancel();
+    _resumeFollowTimer = null;
+    _isUserBrowsing = true;
+    _userScrollInProgress = true;
+    _scrollGeneration++;
+  }
+
+  void _endUserBrowse() {
+    if (!_userScrollInProgress) return;
+    _userScrollInProgress = false;
+    _resumeFollowTimer?.cancel();
+    _resumeFollowTimer = Timer(const Duration(seconds: 2), () {
+      _resumeFollowTimer = null;
+      if (!mounted) return;
+      _isUserBrowsing = false;
+      final itemExtent = _lastItemExtent;
+      if (_latestIndex < 0 || itemExtent == null) return;
+      _positionCurrentLine(
+        _latestIndex,
+        itemExtent,
+        animate: true,
+        duration: const Duration(milliseconds: 300),
+        deferUntilLayout: false,
+      );
     });
+  }
+
+  bool _handleUserScrollNotification(UserScrollNotification notification) {
+    if (notification.direction != ScrollDirection.idle) {
+      _beginUserBrowse();
+    } else {
+      _endUserBrowse();
+    }
+    return false;
+  }
+
+  void _resetUserBrowse() {
+    _resumeFollowTimer?.cancel();
+    _resumeFollowTimer = null;
+    _isUserBrowsing = false;
+    _userScrollInProgress = false;
+    _scrollGeneration++;
   }
 
   @override
@@ -144,6 +204,13 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay> {
     final index = ref.watch(currentLyricIndexProvider);
     final settings = ref.watch(playerLyricSettingsProvider);
     if (lyrics.isEmpty) {
+      _latestIndex = -1;
+      _lastIndex = null;
+      _lyricsSignature = null;
+      _lastItemExtent = null;
+      if (_isUserBrowsing || _resumeFollowTimer != null) {
+        _resetUserBrowse();
+      }
       return SizedBox(
         key: ValueKey('compact-lyric-preview-${widget.lineCount}-lines'),
         height: widget.compact ? 70 : (widget.lineCount == 5 ? 144 : 100),
@@ -164,16 +231,20 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay> {
     );
     final sourceChanged = signature != _lyricsSignature;
     if (sourceChanged) {
+      _resetUserBrowse();
       _lyricsSignature = signature;
       _lastIndex = null;
     }
+    _latestIndex = index;
     final itemExtentChanged = _lastItemExtent != itemExtent;
     _lastItemExtent = itemExtent;
     if (index >= 0 &&
         (index != _lastIndex || sourceChanged || itemExtentChanged)) {
       final animate = _lastIndex != null && !sourceChanged;
       _lastIndex = index;
-      _positionCurrentLine(index, itemExtent, animate: animate);
+      if (!_isUserBrowsing) {
+        _positionCurrentLine(index, itemExtent, animate: animate);
+      }
     }
 
     return Semantics(
@@ -187,32 +258,35 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay> {
           height: previewHeight,
           child: ClipRect(
             child: RepaintBoundary(
-              child: ListView.builder(
-                key: const ValueKey('compact-lyric-scroll-list'),
-                controller: _scrollController,
-                physics: const NeverScrollableScrollPhysics(),
-                itemExtent: itemExtent,
-                scrollCacheExtent: ScrollCacheExtent.pixels(previewHeight),
-                padding: EdgeInsets.symmetric(
-                  vertical: (previewHeight - itemExtent) / 2,
+              child: NotificationListener<UserScrollNotification>(
+                onNotification: _handleUserScrollNotification,
+                child: ListView.builder(
+                  key: const ValueKey('compact-lyric-scroll-list'),
+                  controller: _scrollController,
+                  physics: const ClampingScrollPhysics(),
+                  itemExtent: itemExtent,
+                  scrollCacheExtent: ScrollCacheExtent.pixels(previewHeight),
+                  padding: EdgeInsets.symmetric(
+                    vertical: (previewHeight - itemExtent) / 2,
+                  ),
+                  itemCount: lyrics.length,
+                  itemBuilder: (context, lyricIndex) {
+                    final distance = (lyricIndex - index).abs();
+                    final active = distance == 0;
+                    return Center(
+                      child: _PreviewLine(
+                        text: lyrics[lyricIndex].text,
+                        fontSize: active
+                            ? settings.smallFontSize + (widget.compact ? 0 : 1)
+                            : settings.smallFontSize - 1,
+                        lineHeight: settings.smallLineHeight,
+                        opacity: active ? 1 : (distance == 1 ? 0.56 : 0.36),
+                        fontWeight: active ? FontWeight.w800 : FontWeight.w600,
+                        maxLines: 1,
+                      ),
+                    );
+                  },
                 ),
-                itemCount: lyrics.length,
-                itemBuilder: (context, lyricIndex) {
-                  final distance = (lyricIndex - index).abs();
-                  final active = distance == 0;
-                  return Center(
-                    child: _PreviewLine(
-                      text: lyrics[lyricIndex].text,
-                      fontSize: active
-                          ? settings.smallFontSize + (widget.compact ? 0 : 1)
-                          : settings.smallFontSize - 1,
-                      lineHeight: settings.smallLineHeight,
-                      opacity: active ? 1 : (distance == 1 ? 0.56 : 0.36),
-                      fontWeight: active ? FontWeight.w800 : FontWeight.w600,
-                      maxLines: 1,
-                    ),
-                  );
-                },
               ),
             ),
           ),

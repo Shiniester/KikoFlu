@@ -654,38 +654,79 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('main lyric preview ignores down while cover dismisses', (
-    tester,
-  ) async {
-    await _pumpPlayer(tester, const Size(390, 844), pushedRoute: true);
-    expect(find.byKey(const ValueKey('compact-main-page')), findsOneWidget);
+  testWidgets(
+    'main lyric preview scrolls without opening queue or dismissing',
+    (tester) async {
+      final lyrics = List.generate(
+        40,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text: 'scrollable preview lyric $index',
+        ),
+      );
+      await _pumpPlayer(
+        tester,
+        const Size(390, 844),
+        pushedRoute: true,
+        lyrics: lyrics,
+      );
+      expect(find.byKey(const ValueKey('compact-main-page')), findsOneWidget);
 
-    final previewRect = tester.getRect(
-      find.byKey(const ValueKey('compact-main-lyric-queue-surface')),
-    );
-    final previewGesture = await tester.startGesture(previewRect.center);
-    for (var index = 0; index < 12; index++) {
-      await previewGesture.moveBy(const Offset(0, 20));
-      await tester.pump();
-    }
-    await previewGesture.up();
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('compact-main-page')), findsOneWidget);
-    expect(find.text('mini-player-host'), findsNothing);
+      final preview = find.byKey(
+        const ValueKey('compact-main-lyric-scroll-surface'),
+      );
+      expect(
+        ProviderScope.containerOf(
+          tester.element(preview),
+        ).read(currentLyricIndexProvider),
+        0,
+      );
+      final previewRect = tester.getRect(preview);
+      final scrollable = tester.state<ScrollableState>(
+        find.descendant(of: preview, matching: find.byType(Scrollable)),
+      );
+      final initialOffset = scrollable.position.pixels;
 
-    final coverRect = tester.getRect(
-      find.byKey(const ValueKey('compact-main-cover-dismiss-surface')),
-    );
-    final coverGesture = await tester.startGesture(coverRect.center);
-    for (var index = 0; index < 12; index++) {
-      await coverGesture.moveBy(const Offset(0, 20));
+      await tester.drag(preview, const Offset(0, -96));
+      await tester.pumpAndSettle();
+      final browsedOffset = scrollable.position.pixels;
+      expect(browsedOffset, greaterThan(initialOffset));
+      expect(_compactQueueProgress(tester), closeTo(0, 0.001));
+      expect(find.byType(AudioPlayerScreen), findsOneWidget);
+
+      await tester.pump(const Duration(milliseconds: 1900));
+      expect(scrollable.position.pixels, closeTo(browsedOffset, 0.01));
+      await tester.pump(const Duration(milliseconds: 101));
       await tester.pump();
-    }
-    await coverGesture.up();
-    await tester.pumpAndSettle();
-    expect(find.text('mini-player-host'), findsOneWidget);
-    expect(find.byType(AudioPlayerScreen), findsNothing);
-  });
+      await tester.pump(const Duration(milliseconds: 320));
+      expect(scrollable.position.pixels, closeTo(initialOffset, 0.01));
+
+      final previewGesture = await tester.startGesture(previewRect.center);
+      for (var index = 0; index < 12; index++) {
+        await previewGesture.moveBy(const Offset(0, 20));
+        await tester.pump();
+      }
+      await previewGesture.up();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('compact-main-page')), findsOneWidget);
+      expect(find.text('mini-player-host'), findsNothing);
+      expect(_compactQueueProgress(tester), closeTo(0, 0.001));
+
+      final coverRect = tester.getRect(
+        find.byKey(const ValueKey('compact-main-cover-dismiss-surface')),
+      );
+      final coverGesture = await tester.startGesture(coverRect.center);
+      for (var index = 0; index < 12; index++) {
+        await coverGesture.moveBy(const Offset(0, 20));
+        await tester.pump();
+      }
+      await coverGesture.up();
+      await tester.pumpAndSettle();
+      expect(find.text('mini-player-host'), findsOneWidget);
+      expect(find.byType(AudioPlayerScreen), findsNothing);
+    },
+  );
 
   testWidgets('main controls dismissal follows and can reverse', (
     tester,

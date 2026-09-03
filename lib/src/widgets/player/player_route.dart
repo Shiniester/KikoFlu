@@ -59,10 +59,10 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   bool get maintainState => true;
 
   @override
-  Duration get transitionDuration => const Duration(milliseconds: 280);
+  Duration get transitionDuration => const Duration(milliseconds: 320);
 
   @override
-  Duration get reverseTransitionDuration => const Duration(milliseconds: 260);
+  Duration get reverseTransitionDuration => const Duration(milliseconds: 320);
 
   bool get verticalGestureInProgress => _verticalGestureInProgress;
 
@@ -210,7 +210,7 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     final remaining = (animationController.value - target).abs();
     final duration = remaining <= 0.001
         ? Duration.zero
-        : Duration(milliseconds: (260 * remaining).round().clamp(90, 260));
+        : Duration(milliseconds: (320 * remaining).round().clamp(90, 320));
     animationController.stop();
     unawaited(() async {
       try {
@@ -220,13 +220,13 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
           await animationController.animateBack(
             target,
             duration: duration,
-            curve: Curves.fastEaseInToSlowEaseOut,
+            curve: Curves.easeOutCubic,
           );
         } else {
           await animationController.animateTo(
             target,
             duration: duration,
-            curve: Curves.fastEaseInToSlowEaseOut,
+            curve: Curves.easeOutCubic,
           );
         }
       } catch (_) {

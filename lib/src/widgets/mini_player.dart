@@ -40,6 +40,8 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
   String? _lastTrackId;
   bool _isAdjustingVolume = false;
   double _tempVolume = 1.0;
+  final GlobalKey<_MiniPlayerUpwardLauncherState> _playerLauncherKey =
+      GlobalKey<_MiniPlayerUpwardLauncherState>();
 
   @override
   Widget build(BuildContext context) {
@@ -119,16 +121,26 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
         );
 
         return _MiniPlayerUpwardLauncher(
-          reduceMotion: MediaQuery.disableAnimationsOf(context),
-          createRoute: () => createAudioPlayerRoute<void>(
-            initialPalette:
-                preparedPalette.valueOrNull ??
-                PlayerVisualPalette.fallback(
-                  seed: playerTheme.colorScheme.primary,
-                  brightness: playerTheme.brightness,
-                ),
-            initialPaletteTrackId: track.id,
-          ),
+          key: _playerLauncherKey,
+          createRoute: () async {
+            PlayerVisualPalette initialPalette;
+            try {
+              initialPalette =
+                  preparedPalette.valueOrNull ??
+                  await ref.read(
+                    playerVisualPaletteProvider(paletteRequest).future,
+                  );
+            } catch (_) {
+              initialPalette = PlayerVisualPalette.fallback(
+                seed: playerTheme.colorScheme.primary,
+                brightness: playerTheme.brightness,
+              );
+            }
+            return createAudioPlayerRoute<void>(
+              initialPalette: initialPalette,
+              initialPaletteTrackId: track.id,
+            );
+          },
           child: Dismissible(
             key: Key('miniplayer_${track.id}'),
             direction: DismissDirection.down,
@@ -189,29 +201,8 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.opaque,
                                   onTap: () async {
-                                    PlayerVisualPalette initialPalette;
-                                    try {
-                                      initialPalette =
-                                          preparedPalette.valueOrNull ??
-                                          await ref.read(
-                                            playerVisualPaletteProvider(
-                                              paletteRequest,
-                                            ).future,
-                                          );
-                                    } catch (_) {
-                                      initialPalette =
-                                          PlayerVisualPalette.fallback(
-                                            seed:
-                                                playerTheme.colorScheme.primary,
-                                            brightness: playerTheme.brightness,
-                                          );
-                                    }
-                                    if (!context.mounted) return;
-                                    openAudioPlayer<void>(
-                                      context,
-                                      initialPalette: initialPalette,
-                                      initialPaletteTrackId: track.id,
-                                    );
+                                    await _playerLauncherKey.currentState
+                                        ?.openPlayer();
                                   },
                                   child: Row(
                                     children: [
@@ -573,38 +564,37 @@ class _MiniPlayerProgressAreaState
 
 class _MiniPlayerUpwardLauncher extends StatefulWidget {
   const _MiniPlayerUpwardLauncher({
+    super.key,
     required this.child,
     required this.createRoute,
-    required this.reduceMotion,
   });
 
   final Widget child;
-  final AudioPlayerPageRoute<void> Function() createRoute;
-  final bool reduceMotion;
+  final Future<AudioPlayerPageRoute<void>> Function() createRoute;
 
   @override
   State<_MiniPlayerUpwardLauncher> createState() =>
       _MiniPlayerUpwardLauncherState();
 }
 
-class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher>
-    with SingleTickerProviderStateMixin {
+class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher> {
   int? _pointer;
   Offset? _startPosition;
   VelocityTracker? _velocityTracker;
   bool _directionLocked = false;
   bool _directionRejected = false;
-  AudioPlayerPageRoute<void>? _pendingRoute;
-  OverlayEntry? _previewEntry;
-  late final AnimationController _previewController;
+  bool _launchInProgress = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _previewController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 260),
-    );
+  Future<void> openPlayer() async {
+    if (!mounted || _launchInProgress) return;
+    _launchInProgress = true;
+    try {
+      final route = await widget.createRoute();
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(route);
+    } finally {
+      _launchInProgress = false;
+    }
   }
 
   @override
@@ -621,15 +611,13 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher>
   }
 
   void _handlePointerDown(PointerDownEvent event) {
-    if (_pointer != null) return;
-    _removePreview();
+    if (_pointer != null || _launchInProgress) return;
     _pointer = event.pointer;
     _startPosition = event.position;
     _velocityTracker = VelocityTracker.withKind(event.kind)
       ..addPosition(event.timeStamp, event.position);
     _directionLocked = false;
     _directionRejected = false;
-    _pendingRoute = null;
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
@@ -645,14 +633,7 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher>
         return;
       }
       _directionLocked = true;
-      if (!widget.reduceMotion) {
-        _pendingRoute = widget.createRoute();
-        _showPreview();
-      }
     }
-    if (_pendingRoute == null) return;
-    _previewController.value =
-        ((-offset.dy) / MediaQuery.sizeOf(context).height).clamp(0.0, 1.0);
   }
 
   void _handlePointerUp(PointerUpEvent event) {
@@ -660,114 +641,37 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher>
     _velocityTracker?.addPosition(event.timeStamp, event.position);
     final start = _startPosition;
     final distance = start == null ? 0.0 : start.dy - event.position.dy;
-    if (widget.reduceMotion && _directionLocked && distance >= 36) {
-      unawaited(Navigator.of(context).push<void>(widget.createRoute()));
+    final velocity = _velocityTracker?.getVelocity().pixelsPerSecond.dy ?? 0;
+    if (_directionLocked) {
+      final extent = MediaQuery.sizeOf(
+        context,
+      ).height.clamp(1, double.infinity);
+      final shouldOpen = distance / extent >= 0.22 || velocity < -650;
+      if (shouldOpen) {
+        unawaited(openPlayer());
+      }
       _clearPointer();
       return;
     }
-    final route = _pendingRoute;
-    final velocity = _velocityTracker?.getVelocity().pixelsPerSecond.dy ?? 0;
-    final shouldOpen = _previewController.value >= 0.22 || velocity < -650;
-    if (route != null && shouldOpen) {
-      final progress = _previewController.value;
-      unawaited(Navigator.of(context).push<void>(route));
-      if (route.beginVerticalOpenGesture(initialValue: progress)) {
-        route.endVerticalOpenGesture(
-          velocity: velocity,
-          extent: MediaQuery.sizeOf(context).height,
-        );
-      }
-      WidgetsBinding.instance.addPostFrameCallback((_) => _removePreview());
-    } else {
-      _settlePreviewClosed();
-    }
-    _clearPointer(keepPreview: true);
+    _clearPointer();
   }
 
   void _handlePointerCancel(PointerCancelEvent event) {
     if (event.pointer != _pointer) return;
-    _settlePreviewClosed();
-    _clearPointer(keepPreview: true);
+    _clearPointer();
   }
 
-  void _showPreview() {
-    final route = _pendingRoute;
-    if (route == null || _previewEntry != null) return;
-    _previewController.value = 0;
-    _previewEntry = OverlayEntry(
-      builder: (overlayContext) {
-        final preview = HeroMode(
-          enabled: false,
-          child: route.builder(overlayContext),
-        );
-        return Positioned.fill(
-          child: IgnorePointer(
-            child: AnimatedBuilder(
-              animation: _previewController,
-              child: preview,
-              builder: (context, child) => Align(
-                alignment: Alignment.bottomCenter,
-                child: ClipRect(
-                  child: FractionalTranslation(
-                    key: const ValueKey('mini-player-route-preview-slide'),
-                    translation: Offset(0, 1 - _previewController.value),
-                    transformHitTests: false,
-                    child: child,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-    Overlay.of(context, rootOverlay: true).insert(_previewEntry!);
-  }
-
-  void _settlePreviewClosed() {
-    if (_previewEntry == null) return;
-    final remaining = _previewController.value;
-    if (remaining <= 0.001) {
-      _removePreview();
-      return;
-    }
-    final duration = Duration(
-      milliseconds: (260 * remaining).round().clamp(90, 260),
-    );
-    unawaited(() async {
-      try {
-        await _previewController.animateTo(
-          0,
-          duration: duration,
-          curve: Curves.fastEaseInToSlowEaseOut,
-        );
-      } catch (_) {
-        return;
-      }
-      if (mounted) _removePreview();
-    }());
-  }
-
-  void _removePreview() {
-    _previewController.stop();
-    _previewEntry?.remove();
-    _previewEntry = null;
-    _pendingRoute = null;
-  }
-
-  void _clearPointer({bool keepPreview = false}) {
+  void _clearPointer() {
     _pointer = null;
     _startPosition = null;
     _velocityTracker = null;
     _directionLocked = false;
     _directionRejected = false;
-    if (!keepPreview) _removePreview();
   }
 
   @override
   void dispose() {
-    _removePreview();
-    _previewController.dispose();
+    _clearPointer();
     super.dispose();
   }
 }

@@ -1053,11 +1053,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                 ),
               ),
             ),
-            PlayerVerticalSwipeRegion(
-              key: const ValueKey('compact-main-lyric-queue-surface'),
-              onSwipeUp: () => _showQueue(compactOriginPage: 1),
-              swipeUpDrag: queueDrag,
-              child: ThreeLineLyricDisplay(onTap: _showLyrics, lineCount: 5),
+            ThreeLineLyricDisplay(
+              key: const ValueKey('compact-main-lyric-scroll-surface'),
+              onTap: _showLyrics,
+              lineCount: 5,
             ),
             const SizedBox(height: 16),
             PlayerVerticalSwipeRegion(

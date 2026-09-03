@@ -170,6 +170,13 @@ void main() {
       expect(lyricDisplay, contains('itemExtentBuilder:'));
       expect(lyricDisplay, contains('RenderParagraph'));
       expect(lyricDisplay, contains('centerOnMatch('));
+      expect(lyricDisplay, contains('ClampingScrollPhysics'));
+      expect(lyricDisplay, contains('Timer(const Duration(seconds: 2)'));
+      expect(screen, contains("ValueKey('compact-main-lyric-scroll-surface')"));
+      expect(
+        screen,
+        isNot(contains("ValueKey('compact-main-lyric-queue-surface')")),
+      );
       expect(lyricSurface, isNot(contains('AnimatedPositioned')));
       expect(lyricSurface, contains('Transform.translate'));
       expect(lyricSurface, contains('Alignment.bottomCenter'));
@@ -189,8 +196,10 @@ void main() {
       expect(playerRoute, contains('mode == PlayerDismissVisualMode.main'));
       expect(playerCover, contains('transitionOnUserGestures: true'));
       expect(miniPlayer, contains('transitionOnUserGestures: true'));
-      expect(miniPlayer, contains('mini-player-route-preview-slide'));
-      expect(miniPlayer, isNot(contains('heightFactor: _previewController')));
+      expect(miniPlayer, isNot(contains('OverlayEntry')));
+      expect(miniPlayer, isNot(contains('_previewController')));
+      expect(miniPlayer, isNot(contains('mini-player-route-preview-slide')));
+      expect(miniPlayer, contains('openPlayer'));
     },
   );
 

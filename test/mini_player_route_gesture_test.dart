@@ -11,7 +11,7 @@ import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  testWidgets('mini player upward drag opens the interruptible player route', (
+  testWidgets('mini player upward drag opens the canonical player route', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({'lyric_hint_has_shown': true});
@@ -54,6 +54,15 @@ void main() {
     await tester.pumpAndSettle();
 
     final launcher = find.byKey(const ValueKey('mini-player-upward-launcher'));
+    final cancelledGesture = await tester.startGesture(
+      tester.getCenter(launcher),
+    );
+    await cancelledGesture.moveBy(const Offset(0, -120));
+    await tester.pump();
+    await cancelledGesture.cancel();
+    await tester.pumpAndSettle();
+    expect(find.byType(AudioPlayerScreen), findsNothing);
+
     final gesture = await tester.startGesture(tester.getCenter(launcher));
     for (var index = 0; index < 14; index++) {
       await gesture.moveBy(const Offset(0, -16));
@@ -61,7 +70,7 @@ void main() {
       if (index == 1) {
         expect(
           find.byType(AudioPlayerScreen, skipOffstage: false),
-          findsOneWidget,
+          findsNothing,
         );
       }
     }
@@ -70,6 +79,14 @@ void main() {
 
     expect(find.byType(AudioPlayerScreen), findsOneWidget);
     expect(find.byKey(const ValueKey('compact-player-layout')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('player-route-vertical-slide')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('mini-player-route-preview-slide')),
+      findsNothing,
+    );
 
     await tester.drag(
       find.byKey(const ValueKey('compact-header-dismiss-surface')),

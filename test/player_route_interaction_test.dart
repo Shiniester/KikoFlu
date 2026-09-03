@@ -25,6 +25,14 @@ void main() {
     final cancelledRoute = AudioPlayerPageRoute<void>(
       builder: (_) => const Scaffold(body: Text('cancelled-player')),
     );
+    expect(
+      cancelledRoute.transitionDuration,
+      const Duration(milliseconds: 320),
+    );
+    expect(
+      cancelledRoute.reverseTransitionDuration,
+      const Duration(milliseconds: 320),
+    );
     unawaited(navigatorKey.currentState!.push<void>(cancelledRoute));
     expect(cancelledRoute.beginVerticalOpenGesture(), isTrue);
     cancelledRoute.updateVerticalOpenGesture(distance: 160, extent: 800);
@@ -98,5 +106,58 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('route-host'), findsOneWidget);
     expect(find.text('interactive-player'), findsNothing);
+  });
+
+  testWidgets('standard player route decelerates while opening and closing', (
+    tester,
+  ) async {
+    final navigatorKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        home: const Scaffold(body: Text('curve-host')),
+      ),
+    );
+
+    final route = AudioPlayerPageRoute<void>(
+      builder: (_) => const Scaffold(body: Text('curve-player')),
+    );
+    unawaited(navigatorKey.currentState!.push<void>(route));
+    await tester.pump();
+    final slideFinder = find.byKey(
+      const ValueKey('player-route-vertical-slide'),
+    );
+    await tester.pump(const Duration(milliseconds: 80));
+    final firstOpeningDistance =
+        1 - tester.widget<SlideTransition>(slideFinder).position.value.dy;
+    await tester.pump(const Duration(milliseconds: 80));
+    final halfwayOpeningDistance =
+        1 - tester.widget<SlideTransition>(slideFinder).position.value.dy;
+    expect(
+      firstOpeningDistance,
+      greaterThan(halfwayOpeningDistance - firstOpeningDistance),
+    );
+
+    await tester.pumpAndSettle();
+    navigatorKey.currentState!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    final firstClosingDistance = tester
+        .widget<SlideTransition>(slideFinder)
+        .position
+        .value
+        .dy;
+    await tester.pump(const Duration(milliseconds: 80));
+    final halfwayClosingDistance = tester
+        .widget<SlideTransition>(slideFinder)
+        .position
+        .value
+        .dy;
+    expect(
+      firstClosingDistance,
+      greaterThan(halfwayClosingDistance - firstClosingDistance),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('curve-player'), findsNothing);
   });
 }
