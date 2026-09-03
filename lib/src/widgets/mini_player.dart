@@ -472,7 +472,11 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
       return image;
     }
 
-    return Hero(tag: 'audio_player_artwork_${track.id}', child: image);
+    return Hero(
+      tag: 'audio_player_artwork_${track.id}',
+      transitionOnUserGestures: true,
+      child: image,
+    );
   }
 }
 
@@ -704,9 +708,10 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher>
               builder: (context, child) => Align(
                 alignment: Alignment.bottomCenter,
                 child: ClipRect(
-                  child: Align(
-                    alignment: Alignment.bottomCenter,
-                    heightFactor: _previewController.value,
+                  child: FractionalTranslation(
+                    key: const ValueKey('mini-player-route-preview-slide'),
+                    translation: Offset(0, 1 - _previewController.value),
+                    transformHitTests: false,
                     child: child,
                   ),
                 ),

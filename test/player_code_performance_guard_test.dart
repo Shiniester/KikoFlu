@@ -130,6 +130,12 @@ void main() {
       final playerRoute = File(
         'lib/src/widgets/player/player_route.dart',
       ).readAsStringSync();
+      final playerCover = File(
+        'lib/src/widgets/player/player_cover_widget.dart',
+      ).readAsStringSync();
+      final miniPlayer = File(
+        'lib/src/widgets/mini_player.dart',
+      ).readAsStringSync();
       final infoPanel = File(
         'lib/src/widgets/player/player_info_panel.dart',
       ).readAsStringSync();
@@ -175,8 +181,16 @@ void main() {
       );
       expect(semanticPageHandlers, contains('_commitSemanticPage'));
       expect(semanticPageHandlers, isNot(contains('setState(')));
-      expect(screen, isNot(contains('PlayerInteractiveDismissRoute')));
-      expect(playerRoute, isNot(contains('beginVerticalDismissGesture')));
+      expect(screen, contains('PlayerInteractiveDismissRoute'));
+      expect(screen, contains('_currentPlayerDismissVisualMode'));
+      expect(playerRoute, contains('beginVerticalDismissGesture'));
+      expect(playerRoute, contains("ValueKey('player-route-vertical-slide')"));
+      expect(playerRoute, isNot(contains('heightFactor:')));
+      expect(playerRoute, contains('mode == PlayerDismissVisualMode.main'));
+      expect(playerCover, contains('transitionOnUserGestures: true'));
+      expect(miniPlayer, contains('transitionOnUserGestures: true'));
+      expect(miniPlayer, contains('mini-player-route-preview-slide'));
+      expect(miniPlayer, isNot(contains('heightFactor: _previewController')));
     },
   );
 

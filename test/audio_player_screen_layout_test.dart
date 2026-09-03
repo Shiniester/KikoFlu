@@ -304,7 +304,7 @@ void main() {
     expect(horizontal.controller!.page, 0);
 
     await tester.drag(
-      find.byKey(const ValueKey('compact-header-queue-swipe-surface')),
+      find.byKey(const ValueKey('compact-header-dismiss-surface')),
       const Offset(0, -240),
     );
     await tester.pumpAndSettle();
@@ -654,22 +654,78 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('downward main-page swipe does not dismiss the player route', (
+  testWidgets('main lyric preview ignores down while cover dismisses', (
     tester,
   ) async {
     await _pumpPlayer(tester, const Size(390, 844), pushedRoute: true);
     expect(find.byKey(const ValueKey('compact-main-page')), findsOneWidget);
 
-    await tester.drag(
-      find.byKey(const ValueKey('compact-player-vertical-pages')),
-      const Offset(0, 240),
+    final previewRect = tester.getRect(
+      find.byKey(const ValueKey('compact-main-lyric-queue-surface')),
     );
+    final previewGesture = await tester.startGesture(previewRect.center);
+    for (var index = 0; index < 12; index++) {
+      await previewGesture.moveBy(const Offset(0, 20));
+      await tester.pump();
+    }
+    await previewGesture.up();
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('compact-main-page')), findsOneWidget);
     expect(find.text('mini-player-host'), findsNothing);
+
+    final coverRect = tester.getRect(
+      find.byKey(const ValueKey('compact-main-cover-dismiss-surface')),
+    );
+    final coverGesture = await tester.startGesture(coverRect.center);
+    for (var index = 0; index < 12; index++) {
+      await coverGesture.moveBy(const Offset(0, 20));
+      await tester.pump();
+    }
+    await coverGesture.up();
+    await tester.pumpAndSettle();
+    expect(find.text('mini-player-host'), findsOneWidget);
+    expect(find.byType(AudioPlayerScreen), findsNothing);
   });
 
-  testWidgets('fixed header downward swipe stays on the lyric page', (
+  testWidgets('main controls dismissal follows and can reverse', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(390, 844), pushedRoute: true);
+    final controlsRect = tester.getRect(
+      find.byKey(const ValueKey('compact-main-controls-dismiss-surface')),
+    );
+    final gesture = await tester.startGesture(controlsRect.center);
+    for (var index = 0; index < 8; index++) {
+      await gesture.moveBy(const Offset(0, 15));
+      await tester.pump();
+    }
+    final slide = tester.widget<SlideTransition>(
+      find.byKey(const ValueKey('player-route-vertical-slide')),
+    );
+    final outward = slide.position.value.dy;
+    expect(outward, greaterThan(0.1));
+
+    for (var index = 0; index < 7; index++) {
+      await gesture.moveBy(const Offset(0, -16));
+      await tester.pump();
+    }
+    expect(slide.position.value.dy, lessThan(outward));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(find.byType(AudioPlayerScreen), findsOneWidget);
+    expect(find.text('mini-player-host'), findsNothing);
+
+    final finishGesture = await tester.startGesture(controlsRect.center);
+    for (var index = 0; index < 12; index++) {
+      await finishGesture.moveBy(const Offset(0, 20));
+      await tester.pump();
+    }
+    await finishGesture.up();
+    await tester.pumpAndSettle();
+    expect(find.text('mini-player-host'), findsOneWidget);
+  });
+
+  testWidgets('fixed header dismisses directly from the lyric page', (
     tester,
   ) async {
     await _pumpPlayer(tester, const Size(390, 844), pushedRoute: true);
@@ -680,18 +736,15 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.drag(
-      find.byKey(const ValueKey('compact-header-queue-swipe-surface')),
+      find.byKey(const ValueKey('compact-header-dismiss-surface')),
       const Offset(0, 240),
     );
     await tester.pumpAndSettle();
-    final horizontal = tester.widget<PageView>(
-      find.byKey(const ValueKey('compact-player-pages')),
-    );
-    expect(horizontal.controller!.page, 2);
-    expect(find.text('mini-player-host'), findsNothing);
+    expect(find.text('mini-player-host'), findsOneWidget);
+    expect(find.byType(AudioPlayerScreen), findsNothing);
   });
 
-  testWidgets('fixed header downward swipe stays on the details page', (
+  testWidgets('system back dismisses directly from the details page', (
     tester,
   ) async {
     await _pumpPlayer(tester, const Size(390, 844), pushedRoute: true);
@@ -701,16 +754,24 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('mini-player-host'), findsOneWidget);
+    expect(find.byType(AudioPlayerScreen), findsNothing);
+  });
+
+  testWidgets('escape dismisses directly from the lyric page', (tester) async {
+    await _pumpPlayer(tester, const Size(390, 844), pushedRoute: true);
     await tester.drag(
-      find.byKey(const ValueKey('compact-header-queue-swipe-surface')),
-      const Offset(0, 240),
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(-320, 0),
     );
     await tester.pumpAndSettle();
-    final horizontal = tester.widget<PageView>(
-      find.byKey(const ValueKey('compact-player-pages')),
-    );
-    expect(horizontal.controller!.page, 0);
-    expect(find.text('mini-player-host'), findsNothing);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.text('mini-player-host'), findsOneWidget);
+    expect(find.byType(AudioPlayerScreen), findsNothing);
   });
 
   testWidgets('details and lyric top overscroll do not dismiss the player', (
@@ -762,6 +823,39 @@ void main() {
     await tester.pumpAndSettle();
     expect(horizontal.controller!.page, 2);
     expect(find.text('mini-player-host'), findsNothing);
+  });
+
+  testWidgets('wide secondary body ignores down but its header dismisses', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(840, 720), pushedRoute: true);
+    await tester.fling(
+      find.byKey(const ValueKey('controls-queue-swipe-surface-wide')),
+      const Offset(520, 0),
+      1200,
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('lyrics-pane-wide')), findsOneWidget);
+
+    final coverRect = tester.getRect(
+      find.byKey(const ValueKey('wide-cover-dismiss-surface')),
+    );
+    final coverGesture = await tester.startGesture(coverRect.center);
+    await coverGesture.moveBy(const Offset(0, 240));
+    await coverGesture.up();
+    await tester.pumpAndSettle();
+    expect(find.byType(AudioPlayerScreen), findsOneWidget);
+    expect(find.text('mini-player-host'), findsNothing);
+
+    final headerRect = tester.getRect(
+      find.byKey(const ValueKey('wide-header-dismiss-surface')),
+    );
+    final headerGesture = await tester.startGesture(headerRect.center);
+    await headerGesture.moveBy(const Offset(0, 240));
+    await headerGesture.up();
+    await tester.pumpAndSettle();
+    expect(find.text('mini-player-host'), findsOneWidget);
+    expect(find.byType(AudioPlayerScreen), findsNothing);
   });
 
   testWidgets('short compact stage keeps controls and queue at cover width', (

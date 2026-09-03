@@ -1,5 +1,28 @@
 import 'package:flutter/material.dart';
 
+enum PlayerDismissVisualMode { main, secondary }
+
+/// Implemented by the player route so in-page drag regions can drive the
+/// route without introducing a circular dependency between the route and the
+/// player screen.
+abstract interface class PlayerInteractiveDismissRoute {
+  void setDismissVisualMode(PlayerDismissVisualMode mode);
+
+  bool beginVerticalDismissGesture(PlayerDismissVisualMode mode);
+
+  void updateVerticalDismissGesture({
+    required double distance,
+    required double extent,
+  });
+
+  void endVerticalDismissGesture({
+    required double velocity,
+    required double extent,
+  });
+
+  void cancelVerticalDismissGesture();
+}
+
 class PlayerVerticalDragCallbacks {
   const PlayerVerticalDragCallbacks({
     required this.onStart,

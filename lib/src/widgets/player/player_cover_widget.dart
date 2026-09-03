@@ -135,6 +135,7 @@ class PlayerCoverWidget extends StatelessWidget {
             if (MediaQuery.disableAnimationsOf(context)) return artwork;
             return Hero(
               tag: 'audio_player_artwork_${track.id}',
+              transitionOnUserGestures: true,
               child: artwork,
             );
           },

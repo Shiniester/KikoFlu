@@ -72,13 +72,9 @@ void main() {
     expect(find.byKey(const ValueKey('compact-player-layout')), findsOneWidget);
 
     await tester.drag(
-      find.byKey(const ValueKey('compact-header-queue-swipe-surface')),
+      find.byKey(const ValueKey('compact-header-dismiss-surface')),
       const Offset(0, 240),
     );
-    await tester.pumpAndSettle();
-    expect(find.byType(AudioPlayerScreen), findsOneWidget);
-
-    await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     expect(find.text('mini-route-host'), findsOneWidget);
     expect(find.byType(AudioPlayerScreen), findsNothing);
