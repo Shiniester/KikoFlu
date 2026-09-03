@@ -20,6 +20,7 @@ import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -618,6 +619,41 @@ void main() {
     },
   );
 
+  testWidgets('wide lyric search shares the action row center and width', (
+    tester,
+  ) async {
+    final lyrics = List.generate(
+      12,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'wide aligned lyric $index',
+      ),
+    );
+    await _pumpPlayer(
+      tester,
+      const Size(1000, 720),
+      textScale: 1.4,
+      lyrics: lyrics,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('player-cover-artwork-track-1')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('lyric-search-button')));
+    await tester.pumpAndSettle();
+
+    final actions = tester.getRect(
+      find.byKey(const ValueKey('lyric-actions-width-boundary')),
+    );
+    final search = tester.getRect(
+      find.byKey(const ValueKey('lyric-search-width-boundary')),
+    );
+    expect(search.width, closeTo(actions.width, 0.01));
+    expect(search.center.dx, closeTo(actions.center.dx, 0.01));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('downward main-page swipe does not dismiss the player route', (
     tester,
   ) async {
@@ -857,6 +893,24 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('lyric-search-button')));
       await tester.pumpAndSettle();
 
+      final actionWidthRect = tester.getRect(
+        find.byKey(const ValueKey('lyric-actions-width-boundary')),
+      );
+      final searchWidthRect = tester.getRect(
+        find.byKey(const ValueKey('lyric-search-width-boundary')),
+      );
+      expect(searchWidthRect.width, closeTo(actionWidthRect.width, 0.01));
+      expect(
+        searchWidthRect.center.dx,
+        closeTo(actionWidthRect.center.dx, 0.01),
+      );
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('lyric-search-field')))
+            .textAlign,
+        TextAlign.start,
+      );
+
       final stageBefore = tester.getRect(
         find.byKey(const ValueKey('compact-player-vertical-pages')),
       );
@@ -898,6 +952,15 @@ void main() {
         expect(
           lyricScrollable.position.pixels,
           closeTo(scrollOffsetBefore, 0.01),
+        );
+        expect(
+          tester
+              .getRect(
+                find.byKey(const ValueKey('lyric-search-width-boundary')),
+              )
+              .center
+              .dx,
+          closeTo(searchWidthRect.center.dx, 0.01),
         );
         previousBottom = controls.bottom;
       }
@@ -1124,6 +1187,49 @@ void main() {
     await tester.tap(find.text('switch lyric 4'));
     await tester.pump(const Duration(milliseconds: 700));
     expect(horizontal.controller!.page, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('compact semantic pages stay alive across repeated swipes', (
+    tester,
+  ) async {
+    final lyrics = List.generate(
+      20,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'retained lyric $index',
+      ),
+    );
+    await _pumpPlayer(tester, const Size(390, 844), lyrics: lyrics);
+    final details = find.byKey(
+      const ValueKey('compact-audio-details-pane'),
+      skipOffstage: false,
+    );
+    final lyricSurface = find.byType(PlayerLyricsSurface, skipOffstage: false);
+    final detailsState = tester.state(details);
+    final lyricState = tester.state(lyricSurface);
+
+    for (var cycle = 0; cycle < 3; cycle++) {
+      await tester.drag(
+        find.byKey(const ValueKey('compact-player-pages')),
+        const Offset(-320, 0),
+      );
+      await tester.pumpAndSettle();
+      await tester.drag(
+        find.byKey(const ValueKey('compact-player-pages')),
+        const Offset(640, 0),
+      );
+      await tester.pumpAndSettle();
+      await tester.drag(
+        find.byKey(const ValueKey('compact-player-pages')),
+        const Offset(-320, 0),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    expect(tester.state(details), same(detailsState));
+    expect(tester.state(lyricSurface), same(lyricState));
     expect(tester.takeException(), isNull);
   });
 }

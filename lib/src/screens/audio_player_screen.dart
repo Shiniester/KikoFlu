@@ -108,6 +108,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   double _compactQueueExtent = 1;
   bool _queueTransitionActive = false;
   bool _openingWorkDetail = false;
+  final ValueNotifier<int> _semanticPageRevision = ValueNotifier<int>(0);
 
   // 全屏锁定状态
   bool _isLyricLocked = false;
@@ -170,6 +171,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     _keyboardFocusNode.dispose();
     _routePaletteTimer?.cancel();
     _unlockButtonTimer?.cancel();
+    _semanticPageRevision.dispose();
     _semanticTransitionGeneration++;
     _queueTransitionGeneration++;
     super.dispose();
@@ -457,17 +459,21 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
             child: Focus(
               autofocus: true,
               focusNode: _keyboardFocusNode,
-              child: PopScope(
-                canPop:
-                    !_isLyricLocked &&
-                    !_queueTransitionActive &&
-                    _rightPane == PlayerRightPane.controls &&
-                    (_lastWasWide == true
-                        ? _leftPane == PlayerLeftPane.cover
-                        : _compactPage == 1),
-                onPopInvokedWithResult: (didPop, result) {
-                  if (!didPop) _handleBack();
-                },
+              child: ValueListenableBuilder<int>(
+                valueListenable: _semanticPageRevision,
+                builder: (context, _, child) => PopScope(
+                  canPop:
+                      !_isLyricLocked &&
+                      !_queueTransitionActive &&
+                      _rightPane == PlayerRightPane.controls &&
+                      (_lastWasWide == true
+                          ? _leftPane == PlayerLeftPane.cover
+                          : _compactPage == 1),
+                  onPopInvokedWithResult: (didPop, result) {
+                    if (!didPop) _handleBack();
+                  },
+                  child: child!,
+                ),
                 child: PlayerBackdropGroup(
                   child: Stack(
                     children: [
@@ -647,26 +653,38 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                           allowImplicitScrolling: true,
                           onPageChanged: _onWideLeftPageChanged,
                           children: [
-                            _buildCoverPane(
-                              context,
-                              track: track,
-                              coverUrl: coverUrl,
-                              isWide: true,
+                            _PlayerPageBoundary(
+                              key: const ValueKey('wide-cover-page-boundary'),
+                              child: _buildCoverPane(
+                                context,
+                                track: track,
+                                coverUrl: coverUrl,
+                                isWide: true,
+                              ),
                             ),
-                            Center(
-                              child: SizedBox(
-                                width: detailsWidth,
-                                height: double.infinity,
-                                child: PlayerAudioDetailsPanel(
-                                  key: const ValueKey(
-                                    'wide-audio-details-pane',
+                            _PlayerPageBoundary(
+                              key: const ValueKey('wide-details-page-boundary'),
+                              child: Center(
+                                child: SizedBox(
+                                  width: detailsWidth,
+                                  height: double.infinity,
+                                  child: ValueListenableBuilder<int>(
+                                    valueListenable: _semanticPageRevision,
+                                    builder: (context, _, __) =>
+                                        PlayerAudioDetailsPanel(
+                                          key: const ValueKey(
+                                            'wide-audio-details-pane',
+                                          ),
+                                          onOpenWork: _openKnownWork,
+                                          isActive:
+                                              !_isLyricLocked &&
+                                              _leftPane ==
+                                                  PlayerLeftPane.information &&
+                                              _rightPane !=
+                                                  PlayerRightPane.queue,
+                                          onShowQueue: () => _showQueue(),
+                                        ),
                                   ),
-                                  onOpenWork: _openKnownWork,
-                                  isActive:
-                                      !_isLyricLocked &&
-                                      _leftPane == PlayerLeftPane.information &&
-                                      _rightPane != PlayerRightPane.queue,
-                                  onShowQueue: () => _showQueue(),
                                 ),
                               ),
                             ),
@@ -695,12 +713,25 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                               physics: const NeverScrollableScrollPhysics(),
                               onPageChanged: _onWideRightPageChanged,
                               children: [
-                                _buildLyricsPane(context, isWide: true),
-                                _buildControlsPane(
-                                  context,
-                                  track: track,
-                                  isWide: true,
-                                  showTrackHeader: false,
+                                _PlayerPageBoundary(
+                                  key: const ValueKey(
+                                    'wide-lyrics-page-boundary',
+                                  ),
+                                  child: _buildLyricsPane(
+                                    context,
+                                    isWide: true,
+                                  ),
+                                ),
+                                _PlayerPageBoundary(
+                                  key: const ValueKey(
+                                    'wide-controls-page-boundary',
+                                  ),
+                                  child: _buildControlsPane(
+                                    context,
+                                    track: track,
+                                    isWide: true,
+                                    showTrackHeader: false,
+                                  ),
                                 ),
                               ],
                             ),
@@ -773,30 +804,46 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                     allowImplicitScrolling: true,
                     onPageChanged: _onCompactPageChanged,
                     children: [
-                      Center(
-                        child: SizedBox(
-                          width: sharedWidth,
-                          height: double.infinity,
-                          child: PlayerAudioDetailsPanel(
-                            key: const ValueKey('compact-audio-details-pane'),
-                            onOpenWork: _openKnownWork,
-                            isActive:
-                                !_isLyricLocked &&
-                                !_queueTransitionActive &&
-                                _compactPage == 0 &&
-                                _rightPane != PlayerRightPane.queue,
-                            onShowQueue: () => _showQueue(compactOriginPage: 0),
-                            showQueueDrag: _queueOpenDragCallbacks(0),
+                      _PlayerPageBoundary(
+                        key: const ValueKey('compact-details-page-boundary'),
+                        child: Center(
+                          child: SizedBox(
+                            width: sharedWidth,
+                            height: double.infinity,
+                            child: ValueListenableBuilder<int>(
+                              valueListenable: _semanticPageRevision,
+                              builder: (context, _, __) =>
+                                  PlayerAudioDetailsPanel(
+                                    key: const ValueKey(
+                                      'compact-audio-details-pane',
+                                    ),
+                                    onOpenWork: _openKnownWork,
+                                    isActive:
+                                        !_isLyricLocked &&
+                                        !_queueTransitionActive &&
+                                        _compactPage == 0 &&
+                                        _rightPane != PlayerRightPane.queue,
+                                    onShowQueue: () =>
+                                        _showQueue(compactOriginPage: 0),
+                                    showQueueDrag: _queueOpenDragCallbacks(0),
+                                  ),
+                            ),
                           ),
                         ),
                       ),
-                      _buildCompactMain(
-                        context,
-                        track: track,
-                        coverUrl: coverUrl,
-                        sharedWidth: sharedWidth,
+                      _PlayerPageBoundary(
+                        key: const ValueKey('compact-main-page-boundary'),
+                        child: _buildCompactMain(
+                          context,
+                          track: track,
+                          coverUrl: coverUrl,
+                          sharedWidth: sharedWidth,
+                        ),
                       ),
-                      _buildLyricsPane(context, isWide: false),
+                      _PlayerPageBoundary(
+                        key: const ValueKey('compact-lyrics-page-boundary'),
+                        child: _buildLyricsPane(context, isWide: false),
+                      ),
                     ],
                   ),
                 ),
@@ -852,7 +899,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     return PlayerVerticalSwipeRegion(
       key: const ValueKey('compact-header-queue-swipe-surface'),
       onSwipeUp: () => _showQueue(compactOriginPage: _compactPage),
-      swipeUpDrag: _queueOpenDragCallbacks(_compactPage),
+      swipeUpDrag: _currentCompactPageQueueOpenDragCallbacks,
       child: Center(
         child: SizedBox(
           width: sharedWidth,
@@ -1167,24 +1214,28 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                   if ((details.primaryVelocity ?? 0) < -550) _showControls();
                 }
               : null,
-          child: PlayerLyricsSurface(
-            isWide: isWide,
-            isActive: isWide
-                ? !_isLyricLocked && _rightPane == PlayerRightPane.lyrics
-                : !_isLyricLocked &&
-                      !_queueTransitionActive &&
-                      _compactPage == 2 &&
-                      _rightPane != PlayerRightPane.queue,
-            seekingPosition: _seekingPosition,
-            onFullscreen: _enterLyricFullscreen,
-            onLongPress: _enterLyricFullscreen,
-            onShowQueue: () => _showQueue(compactOriginPage: isWide ? null : 2),
-            showQueueDrag: isWide ? null : _queueOpenDragCallbacks(2),
-            actionWidth: isWide ? null : _compactSharedWidth,
-            translateButton: _buildLyricTranslateAppBarButton(context),
-            onDownload: lyricState.source?.canSaveOriginal == true
-                ? () => _openCurrentLyricSource(context, lyricState.source!)
-                : null,
+          child: ValueListenableBuilder<int>(
+            valueListenable: _semanticPageRevision,
+            builder: (context, _, __) => PlayerLyricsSurface(
+              isWide: isWide,
+              isActive: isWide
+                  ? !_isLyricLocked && _rightPane == PlayerRightPane.lyrics
+                  : !_isLyricLocked &&
+                        !_queueTransitionActive &&
+                        _compactPage == 2 &&
+                        _rightPane != PlayerRightPane.queue,
+              seekingPosition: _seekingPosition,
+              onFullscreen: _enterLyricFullscreen,
+              onLongPress: _enterLyricFullscreen,
+              onShowQueue: () =>
+                  _showQueue(compactOriginPage: isWide ? null : 2),
+              showQueueDrag: isWide ? null : _queueOpenDragCallbacks(2),
+              actionWidth: isWide ? null : _compactSharedWidth,
+              translateButton: _buildLyricTranslateAppBarButton(context),
+              onDownload: lyricState.source?.canSaveOriginal == true
+                  ? () => _openCurrentLyricSource(context, lyricState.source!)
+                  : null,
+            ),
           ),
         );
       },
@@ -1221,6 +1272,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         : const Duration(milliseconds: 260);
   }
 
+  void _commitSemanticPage(VoidCallback update) {
+    update();
+    _semanticPageRevision.value++;
+  }
+
   void _onCompactPageChanged(int index) {
     if (_rightPane == PlayerRightPane.queue ||
         _queueTransitionActive ||
@@ -1228,7 +1284,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       return;
     }
     final previous = _compactPage;
-    setState(() {
+    _commitSemanticPage(() {
       _compactPage = index;
       if (index == 0) {
         _leftPane = PlayerLeftPane.information;
@@ -1249,7 +1305,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   void _onWideLeftPageChanged(int index) {
     final pane = index == 0 ? PlayerLeftPane.cover : PlayerLeftPane.information;
     if (_leftPane == pane) return;
-    setState(() {
+    _commitSemanticPage(() {
       _leftPane = pane;
       _lastOperatedRegion = PlayerOperatedRegion.left;
     });
@@ -1258,14 +1314,14 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   void _onWideRightPageChanged(int index) {
     final pane = index == 0 ? PlayerRightPane.lyrics : PlayerRightPane.controls;
     if (_rightPane == PlayerRightPane.queue || _rightPane == pane) return;
-    setState(() {
+    _commitSemanticPage(() {
       _rightPane = pane;
       _lastOperatedRegion = PlayerOperatedRegion.right;
     });
   }
 
   void _showLyrics() {
-    setState(() {
+    _commitSemanticPage(() {
       _rightPane = PlayerRightPane.lyrics;
       _lastOperatedRegion = PlayerOperatedRegion.right;
       if (_lastWasWide != true) _compactPage = 2;
@@ -1278,7 +1334,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   }
 
   void _showControls() {
-    setState(() {
+    _commitSemanticPage(() {
       _rightPane = PlayerRightPane.controls;
       _lastOperatedRegion = PlayerOperatedRegion.right;
       if (_lastWasWide != true) _compactPage = 1;
@@ -1291,7 +1347,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   }
 
   void _showCover() {
-    setState(() {
+    _commitSemanticPage(() {
       _leftPane = PlayerLeftPane.cover;
       _lastOperatedRegion = PlayerOperatedRegion.left;
       if (_lastWasWide != true) _compactPage = 1;
@@ -1484,6 +1540,14 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   PlayerVerticalDragCallbacks _queueOpenDragCallbacks(int compactOriginPage) =>
       PlayerVerticalDragCallbacks(
         onStart: () => _beginQueueOpenDrag(compactOriginPage),
+        onUpdate: (distance) => _updateQueueEdgeDrag(distance, opening: true),
+        onEnd: _endQueueOpenDrag,
+        onCancel: _cancelQueueOpenDrag,
+      );
+
+  PlayerVerticalDragCallbacks get _currentCompactPageQueueOpenDragCallbacks =>
+      PlayerVerticalDragCallbacks(
+        onStart: () => _beginQueueOpenDrag(_compactPage),
         onUpdate: (distance) => _updateQueueEdgeDrag(distance, opening: true),
         onEnd: _endQueueOpenDrag,
         onCancel: _cancelQueueOpenDrag,
@@ -2569,5 +2633,26 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         );
       }
     }
+  }
+}
+
+class _PlayerPageBoundary extends StatefulWidget {
+  const _PlayerPageBoundary({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<_PlayerPageBoundary> createState() => _PlayerPageBoundaryState();
+}
+
+class _PlayerPageBoundaryState extends State<_PlayerPageBoundary>
+    with AutomaticKeepAliveClientMixin<_PlayerPageBoundary> {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return RepaintBoundary(child: widget.child);
   }
 }

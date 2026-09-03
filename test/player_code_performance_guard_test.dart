@@ -160,8 +160,21 @@ void main() {
       expect(detailsPanel, isNot(contains('for (final variant in variants)')));
       expect(lyricDisplay, isNot(contains('ensureVisible')));
       expect(lyricDisplay, contains('_centerInsideVisibleViewport'));
+      expect(lyricDisplay, contains('class _LyricLayoutIndex'));
+      expect(lyricDisplay, contains('itemExtentBuilder:'));
+      expect(lyricDisplay, contains('RenderParagraph'));
+      expect(lyricDisplay, contains('centerOnMatch('));
       expect(lyricSurface, isNot(contains('AnimatedPositioned')));
       expect(lyricSurface, contains('Transform.translate'));
+      expect(lyricSurface, contains('Alignment.bottomCenter'));
+      expect(screen, contains('AutomaticKeepAliveClientMixin'));
+      expect(screen, contains('_semanticPageRevision'));
+      final semanticPageHandlers = screen.substring(
+        screen.indexOf('void _onCompactPageChanged'),
+        screen.indexOf('void _animateSemanticPage'),
+      );
+      expect(semanticPageHandlers, contains('_commitSemanticPage'));
+      expect(semanticPageHandlers, isNot(contains('setState(')));
       expect(screen, isNot(contains('PlayerInteractiveDismissRoute')));
       expect(playerRoute, isNot(contains('beginVerticalDismissGesture')));
     },

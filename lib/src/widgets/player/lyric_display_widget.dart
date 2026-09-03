@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show RenderBox, ScrollCacheExtent;
+import 'package:flutter/rendering.dart'
+    show RenderBox, RenderParagraph, ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/lyric.dart';
@@ -295,6 +297,149 @@ List<LyricSearchMatch> findLyricSearchMatches(
   return matches;
 }
 
+class _LyricLineLayout {
+  const _LyricLineLayout({required this.extent, required this.matchCenterY});
+
+  final double extent;
+  final double matchCenterY;
+}
+
+class _LyricLineLayoutEntry {
+  const _LyricLineLayoutEntry({
+    required this.active,
+    required this.selectedStart,
+    required this.selectedEnd,
+    required this.layout,
+  });
+
+  final bool active;
+  final int? selectedStart;
+  final int? selectedEnd;
+  final _LyricLineLayout layout;
+
+  bool matches(bool isActive, LyricSearchMatch? selectedMatch) {
+    return active == isActive &&
+        selectedStart == selectedMatch?.start &&
+        selectedEnd == selectedMatch?.end;
+  }
+}
+
+/// Measures the same spans rendered by the lyric list and retains one current
+/// layout per line. This makes a distant offset deterministic without eagerly
+/// building every intervening widget.
+class _LyricLayoutIndex {
+  _LyricLayoutIndex({
+    required this.lyrics,
+    required this.query,
+    required this.activeStyle,
+    required this.inactiveStyle,
+    required this.colors,
+    required this.textWidth,
+    required this.textScaler,
+    required this.textDirection,
+    required this.locale,
+  });
+
+  static const double itemVerticalPadding = 24;
+
+  final List<LyricLine> lyrics;
+  final String query;
+  final TextStyle activeStyle;
+  final TextStyle inactiveStyle;
+  final ColorScheme colors;
+  final double textWidth;
+  final TextScaler textScaler;
+  final TextDirection textDirection;
+  final Locale? locale;
+  final Map<int, _LyricLineLayoutEntry> _entries = {};
+
+  _LyricLineLayout layoutFor(
+    int index, {
+    required bool active,
+    LyricSearchMatch? selectedMatch,
+  }) {
+    final cached = _entries[index];
+    if (cached != null && cached.matches(active, selectedMatch)) {
+      return cached.layout;
+    }
+    final text = lyrics[index].text;
+    final painter = TextPainter(
+      text: _highlightedLyricSpan(
+        text: text,
+        query: query,
+        selectedMatch: selectedMatch,
+        style: active ? activeStyle : inactiveStyle,
+        colors: colors,
+      ),
+      textAlign: TextAlign.center,
+      textDirection: textDirection,
+      textScaler: textScaler,
+      locale: locale,
+    )..layout(maxWidth: textWidth);
+    var matchCenterY = painter.height / 2;
+    if (selectedMatch != null &&
+        selectedMatch.start >= 0 &&
+        selectedMatch.end <= text.length &&
+        selectedMatch.start < selectedMatch.end) {
+      final boxes = painter.getBoxesForSelection(
+        TextSelection(
+          baseOffset: selectedMatch.start,
+          extentOffset: selectedMatch.end,
+        ),
+      );
+      if (boxes.isNotEmpty) {
+        var top = boxes.first.top;
+        var bottom = boxes.first.bottom;
+        for (final box in boxes.skip(1)) {
+          top = math.min(top, box.top);
+          bottom = math.max(bottom, box.bottom);
+        }
+        matchCenterY = (top + bottom) / 2;
+      }
+    }
+    final layout = _LyricLineLayout(
+      extent: painter.height + itemVerticalPadding,
+      matchCenterY: 12 + matchCenterY,
+    );
+    _entries[index] = _LyricLineLayoutEntry(
+      active: active,
+      selectedStart: selectedMatch?.start,
+      selectedEnd: selectedMatch?.end,
+      layout: layout,
+    );
+    return layout;
+  }
+
+  double extentFor(
+    int index, {
+    required int currentIndex,
+    required LyricSearchMatch? selectedMatch,
+  }) {
+    return layoutFor(
+      index,
+      active: index == currentIndex,
+      selectedMatch: selectedMatch?.lineIndex == index ? selectedMatch : null,
+    ).extent;
+  }
+
+  double offsetBefore(
+    int targetIndex, {
+    required int currentIndex,
+    required LyricSearchMatch? selectedMatch,
+  }) {
+    var offset = 0.0;
+    final end = targetIndex.clamp(0, lyrics.length);
+    for (var index = 0; index < end; index++) {
+      offset += extentFor(
+        index,
+        currentIndex: currentIndex,
+        selectedMatch: selectedMatch,
+      );
+    }
+    return offset;
+  }
+}
+
 class FullLyricDisplayController {
   _FullLyricDisplayState? _state;
 
@@ -304,18 +449,15 @@ class FullLyricDisplayController {
     if (identical(_state, state)) _state = null;
   }
 
-  void centerOnIndex(
-    int index, {
+  void centerOnMatch(
+    LyricSearchMatch match, {
     bool animate = true,
-    double visibleBottomInset = 0,
+    required double Function() visibleBottomInset,
   }) {
-    _state?._scrollToLyric(
-      index,
+    _state?._scrollToMatch(
+      match,
       animate: animate,
-      force: true,
-      ignoreAutoScroll: true,
       visibleBottomInset: visibleBottomInset,
-      animationDuration: const Duration(milliseconds: 280),
     );
   }
 }
@@ -329,6 +471,7 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
     this.onLongPress,
     this.controller,
     this.suspendAutoScroll = false,
+    this.searchMode = false,
     this.searchQuery = '',
     this.selectedSearchMatch,
     this.topPadding = 72,
@@ -344,6 +487,7 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
   final VoidCallback? onLongPress;
   final FullLyricDisplayController? controller;
   final bool suspendAutoScroll;
+  final bool searchMode;
   final String searchQuery;
   final LyricSearchMatch? selectedSearchMatch;
   final double topPadding;
@@ -360,11 +504,19 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _viewportKey = GlobalKey();
   final Map<int, GlobalKey> _itemKeys = {};
+  final Map<int, GlobalKey> _textKeys = {};
   int? _currentLyricIndex;
   bool _autoScroll = true;
   Timer? _resumeAutoScrollTimer;
   int _scrollRequestGeneration = 0;
   int? _lyricsSignature;
+  int? _layoutFingerprint;
+  _LyricLayoutIndex? _layoutIndex;
+  double _effectiveTopPadding = 0;
+  int _layoutCurrentIndex = -1;
+  LyricSearchMatch? _layoutSelectedMatch;
+  bool _hasLayoutMetrics = false;
+  int _paddingCompensationGeneration = 0;
 
   @override
   void initState() {
@@ -403,15 +555,48 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
   @override
   void dispose() {
     _scrollRequestGeneration++;
+    _paddingCompensationGeneration++;
     widget.controller?._detach(this);
     _resumeAutoScrollTimer?.cancel();
     _scrollController.dispose();
     _itemKeys.clear();
+    _textKeys.clear();
     super.dispose();
   }
 
   GlobalKey _getKeyForIndex(int index) {
     return _itemKeys.putIfAbsent(index, GlobalKey.new);
+  }
+
+  GlobalKey _getTextKeyForIndex(int index) {
+    return _textKeys.putIfAbsent(index, GlobalKey.new);
+  }
+
+  void _updateEffectiveTopPadding(double nextPadding) {
+    final previousPadding = _effectiveTopPadding;
+    _effectiveTopPadding = nextPadding;
+    if (!_hasLayoutMetrics) {
+      _hasLayoutMetrics = true;
+      return;
+    }
+    final delta = nextPadding - previousPadding;
+    if (delta.abs() <= 0.01) return;
+    final request = ++_paddingCompensationGeneration;
+    if (delta <= 0.01 || !_scrollController.hasClients) return;
+    final startingOffset = _scrollController.position.pixels;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          request != _paddingCompensationGeneration ||
+          !_scrollController.hasClients) {
+        return;
+      }
+      _scrollController.jumpTo(
+        (startingOffset + delta).clamp(
+          _scrollController.position.minScrollExtent,
+          _scrollController.position.maxScrollExtent,
+        ),
+      );
+    });
   }
 
   int _indexForPosition(Duration position, List<LyricLine> lyrics) {
@@ -430,32 +615,104 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
     return result;
   }
 
-  double _estimateItemHeight(String text, bool active) {
-    final settings = ref.read(playerLyricSettingsProvider);
-    final width = MediaQuery.sizeOf(context).width;
-    final areaWidth = widget.isPortrait ? width - 64 : width * 0.48 - 48;
-    final painter = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: TextStyle(
-          fontSize: active
-              ? settings.fullActiveFontSize
-              : settings.fullInactiveFontSize,
-          fontWeight: _fontWeight(settings.fullFontWeight),
-          height: settings.fullLineHeight,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout(maxWidth: areaWidth.clamp(120, double.infinity));
-    return painter.height + 32;
+  _LyricLayoutIndex _ensureLayoutIndex({
+    required List<LyricLine> lyrics,
+    required String query,
+    required TextStyle activeStyle,
+    required TextStyle inactiveStyle,
+    required ColorScheme colors,
+    required double textWidth,
+    required TextScaler textScaler,
+    required TextDirection textDirection,
+    required Locale? locale,
+  }) {
+    final fingerprint = Object.hash(
+      identityHashCode(lyrics),
+      lyrics.length,
+      query,
+      activeStyle,
+      inactiveStyle,
+      colors.primary,
+      colors.onPrimary,
+      textWidth,
+      textScaler.scale(16),
+      textDirection,
+      locale,
+    );
+    if (_layoutIndex == null || _layoutFingerprint != fingerprint) {
+      _layoutFingerprint = fingerprint;
+      _layoutIndex = _LyricLayoutIndex(
+        lyrics: lyrics,
+        query: query,
+        activeStyle: activeStyle,
+        inactiveStyle: inactiveStyle,
+        colors: colors,
+        textWidth: textWidth,
+        textScaler: textScaler,
+        textDirection: textDirection,
+        locale: locale,
+      );
+    }
+    return _layoutIndex!;
   }
 
-  double _estimatedOffset(int targetIndex, List<LyricLine> lyrics) {
-    var offset = widget.topPadding;
-    for (var index = 0; index < targetIndex && index < lyrics.length; index++) {
-      offset += _estimateItemHeight(lyrics[index].text, false);
+  double? _layoutTargetForLine(int index, double visibleBottomInset) {
+    final layoutIndex = _layoutIndex;
+    if (layoutIndex == null ||
+        index < 0 ||
+        index >= layoutIndex.lyrics.length ||
+        !_scrollController.hasClients) {
+      return null;
     }
-    return offset;
+    final layout = layoutIndex.layoutFor(
+      index,
+      active: index == _layoutCurrentIndex,
+      selectedMatch: _layoutSelectedMatch?.lineIndex == index
+          ? _layoutSelectedMatch
+          : null,
+    );
+    final center =
+        _effectiveTopPadding +
+        layoutIndex.offsetBefore(
+          index,
+          currentIndex: _layoutCurrentIndex,
+          selectedMatch: _layoutSelectedMatch,
+        ) +
+        layout.extent / 2;
+    return (center - _visibleViewportHeight(visibleBottomInset) / 2).clamp(
+      _scrollController.position.minScrollExtent,
+      _scrollController.position.maxScrollExtent,
+    );
+  }
+
+  double? _layoutTargetForMatch(
+    LyricSearchMatch match,
+    double visibleBottomInset,
+  ) {
+    final layoutIndex = _layoutIndex;
+    if (layoutIndex == null ||
+        match.lineIndex < 0 ||
+        match.lineIndex >= layoutIndex.lyrics.length ||
+        !_scrollController.hasClients) {
+      return null;
+    }
+    final lineLayout = layoutIndex.layoutFor(
+      match.lineIndex,
+      active: match.lineIndex == _layoutCurrentIndex,
+      selectedMatch: match,
+    );
+    final matchCenter =
+        _effectiveTopPadding +
+        layoutIndex.offsetBefore(
+          match.lineIndex,
+          currentIndex: _layoutCurrentIndex,
+          selectedMatch: match,
+        ) +
+        lineLayout.matchCenterY;
+    return (matchCenter - _visibleViewportHeight(visibleBottomInset) / 2).clamp(
+      _scrollController.position.minScrollExtent,
+      _scrollController.position.maxScrollExtent,
+    );
   }
 
   void _scrollToLyric(
@@ -507,14 +764,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
     }
     if (!force) return;
 
-    final lyrics = ref.read(lyricControllerProvider).displayLyrics;
-    if (index >= lyrics.length) return;
-    final visibleHeight = _visibleViewportHeight(visibleBottomInset);
-    final target =
-        (_estimatedOffset(index, lyrics) +
-                _estimateItemHeight(lyrics[index].text, false) / 2 -
-                visibleHeight / 2)
-            .clamp(0.0, _scrollController.position.maxScrollExtent);
+    final target = _layoutTargetForLine(index, visibleBottomInset);
+    if (target == null) return;
     if (duration == Duration.zero) {
       _scrollController.jumpTo(target);
     } else {
@@ -548,6 +799,151 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
         visibleBottomInset,
       );
     }
+  }
+
+  void _scrollToMatch(
+    LyricSearchMatch match, {
+    required bool animate,
+    required double Function() visibleBottomInset,
+  }) {
+    if (!_scrollController.hasClients || match.lineIndex < 0) return;
+    final request = ++_scrollRequestGeneration;
+    unawaited(
+      _performMatchScroll(
+        match: match,
+        animate: animate,
+        request: request,
+        visibleBottomInset: visibleBottomInset,
+      ),
+    );
+  }
+
+  Future<void> _performMatchScroll({
+    required LyricSearchMatch match,
+    required bool animate,
+    required int request,
+    required double Function() visibleBottomInset,
+  }) async {
+    if (!mounted ||
+        request != _scrollRequestGeneration ||
+        !_scrollController.hasClients) {
+      return;
+    }
+    var inset = visibleBottomInset();
+    var target = _layoutTargetForMatch(match, inset);
+    if (target == null) return;
+    final reducedMotion = MediaQuery.disableAnimationsOf(context) || !animate;
+    final visibleHeight = _visibleViewportHeight(inset);
+    final far =
+        (target - _scrollController.position.pixels).abs() >
+        visibleHeight * 1.5;
+
+    if (reducedMotion || far) {
+      _scrollController.jumpTo(target);
+    } else {
+      if (!await _animateToTarget(
+        target,
+        duration: const Duration(milliseconds: 280),
+        request: request,
+      )) {
+        return;
+      }
+    }
+
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted ||
+        request != _scrollRequestGeneration ||
+        !_scrollController.hasClients) {
+      return;
+    }
+    inset = visibleBottomInset();
+    target =
+        _preciseTargetForMatch(match, inset) ??
+        _layoutTargetForMatch(match, inset);
+    if (target == null ||
+        (target - _scrollController.position.pixels).abs() < 0.5) {
+      return;
+    }
+    if (reducedMotion) {
+      _scrollController.jumpTo(target);
+      return;
+    }
+    await _animateToTarget(
+      target,
+      duration: far
+          ? const Duration(milliseconds: 160)
+          : const Duration(milliseconds: 120),
+      request: request,
+    );
+  }
+
+  Future<bool> _animateToTarget(
+    double target, {
+    required Duration duration,
+    required int request,
+  }) async {
+    if (!mounted ||
+        request != _scrollRequestGeneration ||
+        !_scrollController.hasClients) {
+      return false;
+    }
+    try {
+      await _scrollController.animateTo(
+        target,
+        duration: duration,
+        curve: Curves.easeOutCubic,
+      );
+    } catch (_) {
+      return false;
+    }
+    return mounted &&
+        request == _scrollRequestGeneration &&
+        _scrollController.hasClients;
+  }
+
+  double? _preciseTargetForMatch(
+    LyricSearchMatch match,
+    double visibleBottomInset,
+  ) {
+    if (!_scrollController.hasClients) return null;
+    final viewport = _viewportKey.currentContext?.findRenderObject();
+    final paragraph = _getTextKeyForIndex(
+      match.lineIndex,
+    ).currentContext?.findRenderObject();
+    if (viewport is! RenderBox ||
+        paragraph is! RenderParagraph ||
+        !viewport.attached ||
+        !paragraph.attached ||
+        match.start < 0 ||
+        match.end <= match.start ||
+        match.end > paragraph.text.toPlainText().length) {
+      return null;
+    }
+    final boxes = paragraph.getBoxesForSelection(
+      TextSelection(baseOffset: match.start, extentOffset: match.end),
+    );
+    if (boxes.isEmpty) return null;
+    var top = boxes.first.top;
+    var bottom = boxes.first.bottom;
+    var left = boxes.first.left;
+    var right = boxes.first.right;
+    for (final box in boxes.skip(1)) {
+      top = math.min(top, box.top);
+      bottom = math.max(bottom, box.bottom);
+      left = math.min(left, box.left);
+      right = math.max(right, box.right);
+    }
+    final matchCenter = paragraph.localToGlobal(
+      Offset((left + right) / 2, (top + bottom) / 2),
+      ancestor: viewport,
+    );
+    return (_scrollController.position.pixels +
+            matchCenter.dy -
+            _visibleViewportHeight(visibleBottomInset) / 2)
+        .clamp(
+          _scrollController.position.minScrollExtent,
+          _scrollController.position.maxScrollExtent,
+        );
   }
 
   double _visibleViewportHeight(double visibleBottomInset) {
@@ -635,6 +1031,9 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
       _scrollRequestGeneration++;
       _currentLyricIndex = null;
       _itemKeys.clear();
+      _textKeys.clear();
+      _layoutFingerprint = null;
+      _layoutIndex = null;
     }
     final currentIndex = widget.seekingPosition == null
         ? playbackIndex
@@ -657,63 +1056,112 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
 
     return GestureDetector(
       onLongPress: widget.onLongPress,
-      child: SizedBox.expand(
-        key: _viewportKey,
-        child: ListView.builder(
-          key: const ValueKey('full-lyric-list'),
-          controller: _scrollController,
-          physics: const AlwaysScrollableScrollPhysics(
-            parent: ClampingScrollPhysics(),
-          ),
-          padding: EdgeInsets.fromLTRB(
-            24,
-            widget.topPadding,
-            24,
-            widget.bottomPadding,
-          ),
-          itemCount: lyrics.length,
-          itemBuilder: (context, index) {
-            final lyric = lyrics[index];
-            final active = index == currentIndex;
-            final past = index < currentIndex;
-            return Semantics(
-              selected: active,
-              button: !widget.isLocked,
-              child: InkWell(
-                key: _getKeyForIndex(index),
-                borderRadius: BorderRadius.circular(12),
-                onTap: widget.isLocked
-                    ? null
-                    : () => _onLyricTap(index, lyrics),
-                onLongPress: widget.onLongPress,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 12,
-                    horizontal: 16,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final theme = Theme.of(context);
+          final colors = theme.colorScheme;
+          final baseStyle = theme.textTheme.bodyLarge ?? const TextStyle();
+          final weight = _fontWeight(settings.fullFontWeight);
+          final activeStyle = baseStyle.copyWith(
+            color: colors.onSurface,
+            fontWeight: weight,
+            fontSize: settings.fullActiveFontSize,
+            height: settings.fullLineHeight,
+          );
+          final inactiveStyle = baseStyle.copyWith(
+            color: colors.onSurface.withValues(alpha: 0.34),
+            fontWeight: weight,
+            fontSize: settings.fullInactiveFontSize,
+            height: settings.fullLineHeight,
+          );
+          final textScaler = MediaQuery.textScalerOf(context);
+          final textDirection = Directionality.of(context);
+          final locale = Localizations.maybeLocaleOf(context);
+          final textWidth = math.max(1.0, constraints.maxWidth - 80);
+          final normalizedQuery = widget.searchQuery.trim();
+          final layoutIndex = _ensureLayoutIndex(
+            lyrics: lyrics,
+            query: normalizedQuery,
+            activeStyle: activeStyle,
+            inactiveStyle: inactiveStyle,
+            colors: colors,
+            textWidth: textWidth,
+            textScaler: textScaler,
+            textDirection: textDirection,
+            locale: locale,
+          );
+          final hasSearchAllowance = widget.searchMode;
+          final effectiveTopPadding = hasSearchAllowance
+              ? math.max(widget.topPadding, constraints.maxHeight / 2)
+              : widget.topPadding;
+          final effectiveBottomPadding = hasSearchAllowance
+              ? math.max(widget.bottomPadding, constraints.maxHeight)
+              : widget.bottomPadding;
+          _updateEffectiveTopPadding(effectiveTopPadding);
+          _layoutCurrentIndex = currentIndex;
+          _layoutSelectedMatch = widget.selectedSearchMatch;
+
+          return SizedBox.expand(
+            key: _viewportKey,
+            child: ListView.builder(
+              key: const ValueKey('full-lyric-list'),
+              controller: _scrollController,
+              physics: const AlwaysScrollableScrollPhysics(
+                parent: ClampingScrollPhysics(),
+              ),
+              padding: EdgeInsets.fromLTRB(
+                24,
+                effectiveTopPadding,
+                24,
+                effectiveBottomPadding,
+              ),
+              itemCount: lyrics.length,
+              itemExtentBuilder: (index, dimensions) => layoutIndex.extentFor(
+                index,
+                currentIndex: currentIndex,
+                selectedMatch: widget.selectedSearchMatch,
+              ),
+              itemBuilder: (context, index) {
+                final lyric = lyrics[index];
+                final active = index == currentIndex;
+                final past = index < currentIndex;
+                final style = (active ? activeStyle : inactiveStyle).copyWith(
+                  color: colors.onSurface.withValues(
+                    alpha: active ? 1 : (past ? 0.24 : 0.34),
                   ),
-                  child: _HighlightedLyricText(
-                    text: lyric.text,
-                    query: widget.searchQuery,
-                    selectedMatch:
-                        widget.selectedSearchMatch?.lineIndex == index
-                        ? widget.selectedSearchMatch
-                        : null,
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface.withValues(
-                        alpha: active ? 1 : (past ? 0.24 : 0.34),
+                );
+                return Semantics(
+                  selected: active,
+                  button: !widget.isLocked,
+                  child: InkWell(
+                    key: _getKeyForIndex(index),
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: widget.isLocked
+                        ? null
+                        : () => _onLyricTap(index, lyrics),
+                    onLongPress: widget.onLongPress,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 12,
+                        horizontal: 16,
                       ),
-                      fontWeight: _fontWeight(settings.fullFontWeight),
-                      fontSize: active
-                          ? settings.fullActiveFontSize
-                          : settings.fullInactiveFontSize,
-                      height: settings.fullLineHeight,
+                      child: _HighlightedLyricText(
+                        key: _getTextKeyForIndex(index),
+                        text: lyric.text,
+                        query: normalizedQuery,
+                        selectedMatch:
+                            widget.selectedSearchMatch?.lineIndex == index
+                            ? widget.selectedSearchMatch
+                            : null,
+                        style: style,
+                      ),
                     ),
                   ),
-                ),
-              ),
-            );
-          },
-        ),
+                );
+              },
+            ),
+          );
+        },
       ),
     );
   }
@@ -721,6 +1169,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
 
 class _HighlightedLyricText extends StatelessWidget {
   const _HighlightedLyricText({
+    super.key,
     required this.text,
     required this.query,
     required this.selectedMatch,
@@ -735,48 +1184,67 @@ class _HighlightedLyricText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final normalizedQuery = query.trim();
-    if (normalizedQuery.isEmpty) {
+    if (normalizedQuery.isEmpty ||
+        !RegExp(
+          RegExp.escape(normalizedQuery),
+          caseSensitive: false,
+          unicode: true,
+        ).hasMatch(text)) {
       return Text(text, style: style, textAlign: TextAlign.center);
-    }
-    final expression = RegExp(
-      RegExp.escape(normalizedQuery),
-      caseSensitive: false,
-      unicode: true,
-    );
-    final matches = expression.allMatches(text).toList(growable: false);
-    if (matches.isEmpty) {
-      return Text(text, style: style, textAlign: TextAlign.center);
-    }
-    final spans = <InlineSpan>[];
-    var cursor = 0;
-    final colors = Theme.of(context).colorScheme;
-    for (final match in matches) {
-      if (match.start > cursor) {
-        spans.add(TextSpan(text: text.substring(cursor, match.start)));
-      }
-      final selected =
-          selectedMatch?.start == match.start &&
-          selectedMatch?.end == match.end;
-      spans.add(
-        TextSpan(
-          text: text.substring(match.start, match.end),
-          style: TextStyle(
-            color: selected ? colors.onPrimary : colors.primary,
-            backgroundColor: selected ? colors.primary : null,
-            fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
-          ),
-        ),
-      );
-      cursor = match.end;
-    }
-    if (cursor < text.length) {
-      spans.add(TextSpan(text: text.substring(cursor)));
     }
     return Text.rich(
-      TextSpan(style: style, children: spans),
+      _highlightedLyricSpan(
+        text: text,
+        query: query,
+        selectedMatch: selectedMatch,
+        style: style ?? const TextStyle(),
+        colors: Theme.of(context).colorScheme,
+      ),
       textAlign: TextAlign.center,
     );
   }
+}
+
+TextSpan _highlightedLyricSpan({
+  required String text,
+  required String query,
+  required LyricSearchMatch? selectedMatch,
+  required TextStyle style,
+  required ColorScheme colors,
+}) {
+  final normalizedQuery = query.trim();
+  if (normalizedQuery.isEmpty) return TextSpan(text: text, style: style);
+  final expression = RegExp(
+    RegExp.escape(normalizedQuery),
+    caseSensitive: false,
+    unicode: true,
+  );
+  final matches = expression.allMatches(text).toList(growable: false);
+  if (matches.isEmpty) return TextSpan(text: text, style: style);
+  final spans = <InlineSpan>[];
+  var cursor = 0;
+  for (final match in matches) {
+    if (match.start > cursor) {
+      spans.add(TextSpan(text: text.substring(cursor, match.start)));
+    }
+    final selected =
+        selectedMatch?.start == match.start && selectedMatch?.end == match.end;
+    spans.add(
+      TextSpan(
+        text: text.substring(match.start, match.end),
+        style: TextStyle(
+          color: selected ? colors.onPrimary : colors.primary,
+          backgroundColor: selected ? colors.primary : null,
+          fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
+        ),
+      ),
+    );
+    cursor = match.end;
+  }
+  if (cursor < text.length) {
+    spans.add(TextSpan(text: text.substring(cursor)));
+  }
+  return TextSpan(style: style, children: spans);
 }
 
 FontWeight _fontWeight(int weight) {

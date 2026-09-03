@@ -144,8 +144,11 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                       if (_searching)
                         SizeTransition(
                           sizeFactor: _searchRevealController,
-                          alignment: AlignmentDirectional.bottomStart,
-                          child: _buildSearchBar(context, state),
+                          alignment: Alignment.bottomCenter,
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: _buildSearchBar(context, state),
+                          ),
                         ),
                       SizedBox(
                         key: const ValueKey('lyric-actions-width-boundary'),
@@ -232,6 +235,7 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                                 onLongPress: widget.onLongPress,
                                 suspendAutoScroll:
                                     _searching || !widget.isActive,
+                                searchMode: _searching,
                                 searchQuery: _searchController.text,
                                 selectedSearchMatch: selectedMatch,
                                 topPadding: 86,
@@ -336,43 +340,52 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
     final countLabel = _matches.isEmpty
         ? '0/0'
         : '${_matchCursor + 1}/${_matches.length}';
-    return SizedBox(
-      width: widget.actionWidth ?? double.infinity,
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: PlayerTransientGlassSurface(
-          borderRadius: BorderRadius.circular(14),
-          child: Row(
-            children: [
-              const SizedBox(width: 12),
-              const Icon(Icons.search, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextField(
-                  key: const ValueKey('lyric-search-field'),
-                  controller: _searchController,
-                  focusNode: _searchFocusNode,
-                  textInputAction: TextInputAction.search,
-                  decoration: InputDecoration(
-                    hintText: _label(context, 'searchHint'),
-                    border: InputBorder.none,
-                    isDense: true,
+    return Align(
+      key: const ValueKey('lyric-search-center-boundary'),
+      alignment: Alignment.center,
+      child: SizedBox(
+        key: const ValueKey('lyric-search-width-boundary'),
+        width: widget.actionWidth ?? double.infinity,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: PlayerTransientGlassSurface(
+            borderRadius: BorderRadius.circular(14),
+            child: Row(
+              children: [
+                const SizedBox(width: 12),
+                const Icon(Icons.search, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextField(
+                    key: const ValueKey('lyric-search-field'),
+                    controller: _searchController,
+                    focusNode: _searchFocusNode,
+                    textAlign: TextAlign.start,
+                    textInputAction: TextInputAction.search,
+                    decoration: InputDecoration(
+                      hintText: _label(context, 'searchHint'),
+                      border: InputBorder.none,
+                      isDense: true,
+                    ),
+                    onChanged: (_) => _updateMatches(state),
                   ),
-                  onChanged: (_) => _updateMatches(state),
                 ),
-              ),
-              Text(countLabel, style: Theme.of(context).textTheme.labelMedium),
-              IconButton(
-                tooltip: _label(context, 'previous'),
-                onPressed: _matches.isEmpty ? null : () => _moveMatch(-1),
-                icon: const Icon(Icons.keyboard_arrow_up),
-              ),
-              IconButton(
-                tooltip: _label(context, 'next'),
-                onPressed: _matches.isEmpty ? null : () => _moveMatch(1),
-                icon: const Icon(Icons.keyboard_arrow_down),
-              ),
-            ],
+                Text(
+                  countLabel,
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+                IconButton(
+                  tooltip: _label(context, 'previous'),
+                  onPressed: _matches.isEmpty ? null : () => _moveMatch(-1),
+                  icon: const Icon(Icons.keyboard_arrow_up),
+                ),
+                IconButton(
+                  tooltip: _label(context, 'next'),
+                  onPressed: _matches.isEmpty ? null : () => _moveMatch(1),
+                  icon: const Icon(Icons.keyboard_arrow_down),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -461,9 +474,9 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
     final match = _matches[_matchCursor];
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || request != _matchCenterGeneration) return;
-      _displayController.centerOnIndex(
-        match.lineIndex,
-        visibleBottomInset: _currentVisibleBottomInset,
+      _displayController.centerOnMatch(
+        match,
+        visibleBottomInset: () => _currentVisibleBottomInset,
       );
     });
   }
