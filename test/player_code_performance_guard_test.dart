@@ -170,6 +170,7 @@ void main() {
       expect(lyricDisplay, contains('itemExtentBuilder:'));
       expect(lyricDisplay, contains('RenderParagraph'));
       expect(lyricDisplay, contains('centerOnMatch('));
+      expect(lyricDisplay, isNot(contains('_paddingCompensationGeneration')));
       expect(lyricDisplay, contains('ClampingScrollPhysics'));
       expect(lyricDisplay, contains('Timer(const Duration(seconds: 2)'));
       expect(screen, contains("ValueKey('compact-main-lyric-scroll-surface')"));
@@ -180,6 +181,8 @@ void main() {
       expect(lyricSurface, isNot(contains('AnimatedPositioned')));
       expect(lyricSurface, contains('Transform.translate'));
       expect(lyricSurface, contains('Alignment.bottomCenter'));
+      expect(lyricSurface, contains('reserveSearchCenteringSpace: true'));
+      expect(lyricSurface, contains('child: lyricList'));
       expect(screen, contains('AutomaticKeepAliveClientMixin'));
       expect(screen, contains('_semanticPageRevision'));
       final semanticPageHandlers = screen.substring(
@@ -196,7 +199,11 @@ void main() {
       expect(playerRoute, contains('mode == PlayerDismissVisualMode.main'));
       expect(playerCover, contains('transitionOnUserGestures: true'));
       expect(miniPlayer, contains('transitionOnUserGestures: true'));
-      expect(miniPlayer, isNot(contains('OverlayEntry')));
+      expect(miniPlayer, contains('class _InteractivePlayerOpenSession'));
+      expect(miniPlayer, contains('configuration.createRoute()'));
+      expect(miniPlayer, contains('configuration.createRoute(handoff: true)'));
+      expect(miniPlayer, contains('Navigator('));
+      expect(RegExp(r'OverlayEntry\(').allMatches(miniPlayer), hasLength(1));
       expect(miniPlayer, isNot(contains('_previewController')));
       expect(miniPlayer, isNot(contains('mini-player-route-preview-slide')));
       expect(miniPlayer, contains('openPlayer'));
@@ -211,7 +218,8 @@ void main() {
     expect(miniPlayer, contains('final preparedPalette = ref.watch'));
     expect(miniPlayer, contains('preparedPalette.valueOrNull ??'));
     expect(miniPlayer, contains('playerVisualPaletteProvider('));
-    expect(miniPlayer, contains(').future'));
+    expect(miniPlayer, contains('AudioPlayerOpenConfiguration('));
+    expect(miniPlayer, isNot(contains('await ref.read(')));
     expect(
       miniPlayer.indexOf('final preparedPalette = ref.watch'),
       lessThan(miniPlayer.indexOf('return _MiniPlayerUpwardLauncher(')),

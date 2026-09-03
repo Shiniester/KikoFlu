@@ -59,9 +59,45 @@ void main() {
     );
     await cancelledGesture.moveBy(const Offset(0, -120));
     await tester.pump();
+    await tester.pump();
+    expect(find.byType(AudioPlayerScreen, skipOffstage: false), findsOneWidget);
+    final openingOffset = tester
+        .widget<SlideTransition>(
+          find.byKey(
+            const ValueKey('player-route-vertical-slide'),
+            skipOffstage: false,
+          ),
+        )
+        .position
+        .value
+        .dy;
+    await cancelledGesture.moveBy(const Offset(0, 60));
+    await tester.pump();
+    expect(
+      tester
+          .widget<SlideTransition>(
+            find.byKey(
+              const ValueKey('player-route-vertical-slide'),
+              skipOffstage: false,
+            ),
+          )
+          .position
+          .value
+          .dy,
+      greaterThan(openingOffset),
+    );
     await cancelledGesture.cancel();
     await tester.pumpAndSettle();
     expect(find.byType(AudioPlayerScreen), findsNothing);
+    expect(find.text('mini-route-host'), findsOneWidget);
+    expect(find.byType(MiniPlayer, skipOffstage: false), findsOneWidget);
+    expect(
+      find.byKey(
+        const ValueKey('mini-player-upward-launcher'),
+        skipOffstage: false,
+      ),
+      findsOneWidget,
+    );
 
     final gesture = await tester.startGesture(tester.getCenter(launcher));
     for (var index = 0; index < 14; index++) {
@@ -70,8 +106,15 @@ void main() {
       if (index == 1) {
         expect(
           find.byType(AudioPlayerScreen, skipOffstage: false),
-          findsNothing,
+          findsOneWidget,
         );
+        final interactiveSlide = tester.widget<SlideTransition>(
+          find.byKey(
+            const ValueKey('player-route-vertical-slide'),
+            skipOffstage: false,
+          ),
+        );
+        expect(interactiveSlide.position.value.dy, closeTo(1 - 32 / 844, 0.02));
       }
     }
     await gesture.up();

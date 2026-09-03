@@ -40,8 +40,16 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
   String? _lastTrackId;
   bool _isAdjustingVolume = false;
   double _tempVolume = 1.0;
+  final GlobalKey _miniArtworkKey = GlobalKey();
+  final ValueNotifier<bool> _interactiveArtworkHidden = ValueNotifier(false);
   final GlobalKey<_MiniPlayerUpwardLauncherState> _playerLauncherKey =
       GlobalKey<_MiniPlayerUpwardLauncherState>();
+
+  @override
+  void dispose() {
+    _interactiveArtworkHidden.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -122,29 +130,37 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
 
         return _MiniPlayerUpwardLauncher(
           key: _playerLauncherKey,
-          createRoute: () async {
-            PlayerVisualPalette initialPalette;
-            try {
-              initialPalette =
-                  preparedPalette.valueOrNull ??
-                  await ref.read(
-                    playerVisualPaletteProvider(paletteRequest).future,
-                  );
-            } catch (_) {
-              initialPalette = PlayerVisualPalette.fallback(
-                seed: playerTheme.colorScheme.primary,
-                brightness: playerTheme.brightness,
-              );
-            }
-            return createAudioPlayerRoute<void>(
+          sessionIdentity: track.id,
+          createConfiguration: () {
+            final initialPalette =
+                preparedPalette.valueOrNull ??
+                PlayerVisualPalette.fallback(
+                  seed: playerTheme.colorScheme.primary,
+                  brightness: playerTheme.brightness,
+                );
+            return AudioPlayerOpenConfiguration(
               initialPalette: initialPalette,
               initialPaletteTrackId: track.id,
             );
+          },
+          artworkRect: _miniArtworkRect,
+          artworkHeroTag: 'audio_player_artwork_${track.id}',
+          artworkHeroEnabled:
+              widget.enableArtworkHero &&
+              !MediaQuery.disableAnimationsOf(context),
+          artworkBuilder: (context) =>
+              _buildArtworkImage(context, track, workCoverUrl: workCoverUrl),
+          onInteractiveArtworkVisibilityChanged: (hidden) {
+            _interactiveArtworkHidden.value = hidden;
           },
           child: Dismissible(
             key: Key('miniplayer_${track.id}'),
             direction: DismissDirection.down,
             background: Container(color: Colors.transparent),
+            confirmDismiss: (_) async =>
+                _playerLauncherKey.currentState
+                    ?.allowPendingMiniPlayerDismiss() ??
+                true,
             onDismissed: (direction) {
               unawaited(
                 ref
@@ -416,7 +432,46 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
     AudioTrack track, {
     String? workCoverUrl,
   }) {
-    final image = Container(
+    final image = _buildArtworkImage(
+      context,
+      track,
+      workCoverUrl: workCoverUrl,
+    );
+    final artwork =
+        !widget.enableArtworkHero || MediaQuery.disableAnimationsOf(context)
+        ? image
+        : Hero(
+            tag: 'audio_player_artwork_${track.id}',
+            transitionOnUserGestures: true,
+            child: image,
+          );
+    return KeyedSubtree(
+      key: _miniArtworkKey,
+      child: ValueListenableBuilder<bool>(
+        valueListenable: _interactiveArtworkHidden,
+        child: artwork,
+        builder: (context, hidden, child) =>
+            Opacity(opacity: hidden ? 0 : 1, child: child),
+      ),
+    );
+  }
+
+  Rect? _miniArtworkRect() {
+    final renderObject = _miniArtworkKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox ||
+        !renderObject.attached ||
+        !renderObject.hasSize) {
+      return null;
+    }
+    return renderObject.localToGlobal(Offset.zero) & renderObject.size;
+  }
+
+  Widget _buildArtworkImage(
+    BuildContext context,
+    AudioTrack track, {
+    String? workCoverUrl,
+  }) {
+    return Container(
       width: 48,
       height: 48,
       decoration: BoxDecoration(
@@ -457,16 +512,6 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
               ),
             )
           : const Icon(Icons.album, size: 32),
-    );
-
-    if (!widget.enableArtworkHero || MediaQuery.disableAnimationsOf(context)) {
-      return image;
-    }
-
-    return Hero(
-      tag: 'audio_player_artwork_${track.id}',
-      transitionOnUserGestures: true,
-      child: image,
     );
   }
 }
@@ -566,35 +611,81 @@ class _MiniPlayerUpwardLauncher extends StatefulWidget {
   const _MiniPlayerUpwardLauncher({
     super.key,
     required this.child,
-    required this.createRoute,
+    required this.sessionIdentity,
+    required this.createConfiguration,
+    required this.artworkRect,
+    required this.artworkBuilder,
+    required this.artworkHeroTag,
+    required this.artworkHeroEnabled,
+    required this.onInteractiveArtworkVisibilityChanged,
   });
 
   final Widget child;
-  final Future<AudioPlayerPageRoute<void>> Function() createRoute;
+  final Object sessionIdentity;
+  final AudioPlayerOpenConfiguration Function() createConfiguration;
+  final Rect? Function() artworkRect;
+  final WidgetBuilder artworkBuilder;
+  final Object artworkHeroTag;
+  final bool artworkHeroEnabled;
+  final ValueChanged<bool> onInteractiveArtworkVisibilityChanged;
 
   @override
   State<_MiniPlayerUpwardLauncher> createState() =>
       _MiniPlayerUpwardLauncherState();
 }
 
-class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher> {
+class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher>
+    with WidgetsBindingObserver {
   int? _pointer;
   Offset? _startPosition;
   VelocityTracker? _velocityTracker;
   bool _directionLocked = false;
   bool _directionRejected = false;
   bool _launchInProgress = false;
+  bool _rejectPendingMiniDismiss = false;
+  double _latestOpenDistance = 0;
+  double _latestExtent = 1;
+  _InteractivePlayerOpenSession? _interactiveSession;
+  int _sessionGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
 
   Future<void> openPlayer() async {
     if (!mounted || _launchInProgress) return;
     _launchInProgress = true;
     try {
-      final route = await widget.createRoute();
+      final route = widget.createConfiguration().createRoute();
       if (!mounted) return;
       await Navigator.of(context).push<void>(route);
     } finally {
       _launchInProgress = false;
     }
+  }
+
+  bool allowPendingMiniPlayerDismiss() {
+    if (!_rejectPendingMiniDismiss) return true;
+    _rejectPendingMiniDismiss = false;
+    return false;
+  }
+
+  @override
+  void didUpdateWidget(covariant _MiniPlayerUpwardLauncher oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.sessionIdentity != widget.sessionIdentity) {
+      _abortInteractiveSession();
+      _clearPointer();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) return;
+    _abortInteractiveSession();
+    _clearPointer();
   }
 
   @override
@@ -618,6 +709,9 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher> {
       ..addPosition(event.timeStamp, event.position);
     _directionLocked = false;
     _directionRejected = false;
+    _rejectPendingMiniDismiss = false;
+    _latestOpenDistance = 0;
+    _latestExtent = MediaQuery.sizeOf(context).height.clamp(1, double.infinity);
   }
 
   void _handlePointerMove(PointerMoveEvent event) {
@@ -633,7 +727,16 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher> {
         return;
       }
       _directionLocked = true;
+      _rejectPendingMiniDismiss = true;
+      if (!MediaQuery.disableAnimationsOf(context)) {
+        _startInteractiveSession();
+      }
     }
+    _latestOpenDistance = (-offset.dy).clamp(0.0, _latestExtent);
+    _interactiveSession?.update(
+      distance: _latestOpenDistance,
+      extent: _latestExtent,
+    );
   }
 
   void _handlePointerUp(PointerUpEvent event) {
@@ -643,11 +746,18 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher> {
     final distance = start == null ? 0.0 : start.dy - event.position.dy;
     final velocity = _velocityTracker?.getVelocity().pixelsPerSecond.dy ?? 0;
     if (_directionLocked) {
-      final extent = MediaQuery.sizeOf(
-        context,
-      ).height.clamp(1, double.infinity);
+      final extent = _latestExtent;
       final shouldOpen = distance / extent >= 0.22 || velocity < -650;
-      if (shouldOpen) {
+      final session = _interactiveSession;
+      if (session != null) {
+        unawaited(
+          _finishInteractiveSession(
+            session,
+            velocity: velocity,
+            extent: extent,
+          ),
+        );
+      } else if (shouldOpen) {
         unawaited(openPlayer());
       }
       _clearPointer();
@@ -658,7 +768,64 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher> {
 
   void _handlePointerCancel(PointerCancelEvent event) {
     if (event.pointer != _pointer) return;
+    final session = _interactiveSession;
+    if (session != null) {
+      unawaited(_cancelInteractiveSession(session));
+    }
     _clearPointer();
+  }
+
+  void _startInteractiveSession() {
+    if (!mounted || _interactiveSession != null || _launchInProgress) return;
+    final overlay = Overlay.of(context, rootOverlay: true);
+    final rootNavigator = Navigator.of(context);
+    final configuration = widget.createConfiguration();
+    final generation = ++_sessionGeneration;
+    _launchInProgress = true;
+    final session = _InteractivePlayerOpenSession(
+      overlay: overlay,
+      rootNavigator: rootNavigator,
+      configuration: configuration,
+      artworkRect: widget.artworkRect(),
+      artworkBuilder: widget.artworkBuilder,
+      artworkHeroTag: widget.artworkHeroTag,
+      artworkHeroEnabled: widget.artworkHeroEnabled,
+      onArtworkVisibilityChanged: widget.onInteractiveArtworkVisibilityChanged,
+      onRootRouteClosed: () {
+        if (!mounted || generation != _sessionGeneration) return;
+        _launchInProgress = false;
+      },
+    );
+    _interactiveSession = session;
+    session.update(distance: _latestOpenDistance, extent: _latestExtent);
+    unawaited(session.start());
+  }
+
+  Future<void> _finishInteractiveSession(
+    _InteractivePlayerOpenSession session, {
+    required double velocity,
+    required double extent,
+  }) async {
+    final completed = await session.finish(velocity: velocity, extent: extent);
+    if (!mounted || !identical(_interactiveSession, session)) return;
+    _interactiveSession = null;
+    if (!completed) _launchInProgress = false;
+  }
+
+  Future<void> _cancelInteractiveSession(
+    _InteractivePlayerOpenSession session,
+  ) async {
+    await session.cancel();
+    if (!mounted || !identical(_interactiveSession, session)) return;
+    _interactiveSession = null;
+    _launchInProgress = false;
+  }
+
+  void _abortInteractiveSession() {
+    _sessionGeneration++;
+    _interactiveSession?.abort();
+    _interactiveSession = null;
+    _launchInProgress = false;
   }
 
   void _clearPointer() {
@@ -667,12 +834,217 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher> {
     _velocityTracker = null;
     _directionLocked = false;
     _directionRejected = false;
+    _latestOpenDistance = 0;
+    _latestExtent = 1;
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _abortInteractiveSession();
     _clearPointer();
     super.dispose();
+  }
+}
+
+/// A short-lived route host used only while an upward Mini Player pointer is
+/// still active. Pushing into this nested Navigator avoids the root
+/// Navigator's pointer cancellation, while still rendering the canonical
+/// [AudioPlayerPageRoute] and its Hero flight.
+class _InteractivePlayerOpenSession {
+  _InteractivePlayerOpenSession({
+    required this.overlay,
+    required this.rootNavigator,
+    required this.configuration,
+    required this.artworkRect,
+    required this.artworkBuilder,
+    required this.artworkHeroTag,
+    required this.artworkHeroEnabled,
+    required this.onArtworkVisibilityChanged,
+    required this.onRootRouteClosed,
+  });
+
+  final OverlayState overlay;
+  final NavigatorState rootNavigator;
+  final AudioPlayerOpenConfiguration configuration;
+  final Rect? artworkRect;
+  final WidgetBuilder artworkBuilder;
+  final Object artworkHeroTag;
+  final bool artworkHeroEnabled;
+  final ValueChanged<bool> onArtworkVisibilityChanged;
+  final VoidCallback onRootRouteClosed;
+
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  final Completer<void> _routeReady = Completer<void>();
+  late final HeroController _heroController = HeroController(
+    createRectTween: (begin, end) =>
+        MaterialRectArcTween(begin: begin, end: end),
+  );
+  OverlayEntry? _entry;
+  AudioPlayerPageRoute<void>? _route;
+  double _distance = 0;
+  double _extent = 1;
+  bool _started = false;
+  bool _disposed = false;
+  bool _settling = false;
+
+  Future<void> start() async {
+    if (_started || _disposed) return;
+    _started = true;
+    _entry = OverlayEntry(
+      builder: (context) => Positioned.fill(
+        child: IgnorePointer(
+          child: Navigator(
+            key: _navigatorKey,
+            observers: [_heroController],
+            requestFocus: false,
+            onGenerateInitialRoutes: (navigator, initialRoute) => [
+              PageRouteBuilder<void>(
+                settings: const RouteSettings(
+                  name: '_interactive_player_source',
+                ),
+                opaque: false,
+                barrierColor: Colors.transparent,
+                transitionDuration: Duration.zero,
+                reverseTransitionDuration: Duration.zero,
+                pageBuilder: (context, animation, secondaryAnimation) =>
+                    _InteractivePlayerHeroSource(
+                      artworkRect: artworkRect,
+                      artworkBuilder: artworkBuilder,
+                      artworkHeroTag: artworkHeroTag,
+                      artworkHeroEnabled: artworkHeroEnabled,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    overlay.insert(_entry!);
+    await WidgetsBinding.instance.endOfFrame;
+    if (_disposed) return;
+    final navigator = _navigatorKey.currentState;
+    if (navigator == null) {
+      abort();
+      return;
+    }
+    final route = configuration.createRoute();
+    _route = route;
+    if (artworkHeroEnabled) onArtworkVisibilityChanged(true);
+    unawaited(navigator.push<void>(route));
+    if (!route.beginVerticalOpenGesture()) {
+      abort();
+      return;
+    }
+    route.updateVerticalOpenGesture(distance: _distance, extent: _extent);
+    if (!_routeReady.isCompleted) _routeReady.complete();
+  }
+
+  void update({required double distance, required double extent}) {
+    if (_disposed || _settling) return;
+    _distance = distance.clamp(0.0, extent);
+    _extent = extent.clamp(1, double.infinity);
+    _route?.updateVerticalOpenGesture(distance: _distance, extent: _extent);
+  }
+
+  Future<bool> finish({required double velocity, required double extent}) {
+    return _settle(complete: true, velocity: velocity, extent: extent);
+  }
+
+  Future<bool> cancel() {
+    return _settle(complete: false, velocity: 0, extent: _extent);
+  }
+
+  Future<bool> _settle({
+    required bool complete,
+    required double velocity,
+    required double extent,
+  }) async {
+    if (_disposed || _settling) return false;
+    _settling = true;
+    if (!_routeReady.isCompleted) {
+      try {
+        await _routeReady.future;
+      } catch (_) {
+        abort();
+        return false;
+      }
+    }
+    if (_disposed) return false;
+    final route = _route;
+    if (route == null) {
+      abort();
+      return false;
+    }
+    final opened = complete
+        ? await route.endVerticalOpenGesture(velocity: velocity, extent: extent)
+        : await route.cancelVerticalOpenGesture();
+    if (_disposed) return false;
+    if (!opened) {
+      _removeOverlay();
+      return false;
+    }
+
+    final rootRoute = configuration.createRoute(handoff: true);
+    final rootRouteClosed = rootNavigator.push<void>(rootRoute);
+    unawaited(rootRouteClosed.whenComplete(onRootRouteClosed));
+    await WidgetsBinding.instance.endOfFrame;
+    if (!_disposed) _removeOverlay();
+    return true;
+  }
+
+  void abort() {
+    if (_disposed) return;
+    _disposed = true;
+    if (!_routeReady.isCompleted) _routeReady.complete();
+    _entry?.remove();
+    _entry = null;
+    onArtworkVisibilityChanged(false);
+  }
+
+  void _removeOverlay() {
+    if (_disposed) return;
+    _disposed = true;
+    _entry?.remove();
+    _entry = null;
+    onArtworkVisibilityChanged(false);
+  }
+}
+
+class _InteractivePlayerHeroSource extends StatelessWidget {
+  const _InteractivePlayerHeroSource({
+    required this.artworkRect,
+    required this.artworkBuilder,
+    required this.artworkHeroTag,
+    required this.artworkHeroEnabled,
+  });
+
+  final Rect? artworkRect;
+  final WidgetBuilder artworkBuilder;
+  final Object artworkHeroTag;
+  final bool artworkHeroEnabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final rect = artworkRect;
+    if (!artworkHeroEnabled || rect == null) {
+      return const SizedBox.expand();
+    }
+    return Material(
+      type: MaterialType.transparency,
+      child: Stack(
+        children: [
+          Positioned.fromRect(
+            rect: rect,
+            child: Hero(
+              tag: artworkHeroTag,
+              transitionOnUserGestures: true,
+              child: artworkBuilder(context),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

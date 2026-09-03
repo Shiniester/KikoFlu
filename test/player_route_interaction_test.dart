@@ -33,6 +33,15 @@ void main() {
       cancelledRoute.reverseTransitionDuration,
       const Duration(milliseconds: 320),
     );
+    final handoffRoute = AudioPlayerPageRoute<void>(
+      skipInitialTransition: true,
+      builder: (_) => const SizedBox.shrink(),
+    );
+    expect(handoffRoute.transitionDuration, Duration.zero);
+    expect(
+      handoffRoute.reverseTransitionDuration,
+      const Duration(milliseconds: 320),
+    );
     unawaited(navigatorKey.currentState!.push<void>(cancelledRoute));
     expect(cancelledRoute.beginVerticalOpenGesture(), isTrue);
     cancelledRoute.updateVerticalOpenGesture(distance: 160, extent: 800);

@@ -9,13 +9,35 @@ import 'player_visual_palette.dart';
 AudioPlayerPageRoute<T> createAudioPlayerRoute<T>({
   PlayerVisualPalette? initialPalette,
   String? initialPaletteTrackId,
+  bool skipInitialTransition = false,
 }) {
   return AudioPlayerPageRoute<T>(
+    skipInitialTransition: skipInitialTransition,
     builder: (context) => AudioPlayerScreen(
       initialPalette: initialPalette,
       initialPaletteTrackId: initialPaletteTrackId,
     ),
   );
+}
+
+/// Frozen inputs shared by a Mini Player tap, an interactive drag preview,
+/// and the final Navigator handoff.
+class AudioPlayerOpenConfiguration {
+  const AudioPlayerOpenConfiguration({
+    required this.initialPalette,
+    required this.initialPaletteTrackId,
+  });
+
+  final PlayerVisualPalette initialPalette;
+  final String initialPaletteTrackId;
+
+  AudioPlayerPageRoute<void> createRoute({bool handoff = false}) {
+    return createAudioPlayerRoute<void>(
+      initialPalette: initialPalette,
+      initialPaletteTrackId: initialPaletteTrackId,
+      skipInitialTransition: handoff,
+    );
+  }
 }
 
 Future<T?> openAudioPlayer<T>(
@@ -38,9 +60,13 @@ Future<T?> openAudioPlayer<T>(
 class AudioPlayerPageRoute<T> extends PageRoute<T>
     with CupertinoRouteTransitionMixin<T>
     implements PlayerInteractiveDismissRoute {
-  AudioPlayerPageRoute({required this.builder});
+  AudioPlayerPageRoute({
+    required this.builder,
+    this.skipInitialTransition = false,
+  });
 
   final WidgetBuilder builder;
+  final bool skipInitialTransition;
   bool _verticalGestureInProgress = false;
   bool _verticalGestureOpening = false;
   double _verticalGestureStartValue = 0;
@@ -59,7 +85,8 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   bool get maintainState => true;
 
   @override
-  Duration get transitionDuration => const Duration(milliseconds: 320);
+  Duration get transitionDuration =>
+      skipInitialTransition ? Duration.zero : const Duration(milliseconds: 320);
 
   @override
   Duration get reverseTransitionDuration => const Duration(milliseconds: 320);
@@ -171,13 +198,15 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
             .clamp(0.0, 1.0);
   }
 
-  void endVerticalOpenGesture({
+  Future<bool> endVerticalOpenGesture({
     required double velocity,
     required double extent,
   }) {
-    if (!_verticalGestureInProgress || !_verticalGestureOpening) return;
+    if (!_verticalGestureInProgress || !_verticalGestureOpening) {
+      return Future<bool>.value(false);
+    }
     final showRoute = controller!.value >= 0.22 || velocity < -650;
-    _settleVerticalGesture(showRoute: showRoute);
+    return _settleVerticalGesture(showRoute: showRoute);
   }
 
   @override
@@ -187,24 +216,26 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   }) {
     if (!_verticalGestureInProgress || _verticalGestureOpening) return;
     final dismissRoute = controller!.value <= 0.78 || velocity > 650;
-    _settleVerticalGesture(showRoute: !dismissRoute);
+    unawaited(_settleVerticalGesture(showRoute: !dismissRoute));
   }
 
-  void cancelVerticalOpenGesture() {
-    if (!_verticalGestureInProgress || !_verticalGestureOpening) return;
-    _settleVerticalGesture(showRoute: false);
+  Future<bool> cancelVerticalOpenGesture() {
+    if (!_verticalGestureInProgress || !_verticalGestureOpening) {
+      return Future<bool>.value(false);
+    }
+    return _settleVerticalGesture(showRoute: false);
   }
 
   @override
   void cancelVerticalDismissGesture() {
     if (!_verticalGestureInProgress || _verticalGestureOpening) return;
-    _settleVerticalGesture(showRoute: true);
+    unawaited(_settleVerticalGesture(showRoute: true));
   }
 
-  void _settleVerticalGesture({required bool showRoute}) {
+  Future<bool> _settleVerticalGesture({required bool showRoute}) async {
     final animationController = controller;
     final routeNavigator = _gestureNavigator;
-    if (animationController == null || routeNavigator == null) return;
+    if (animationController == null || routeNavigator == null) return false;
     final request = ++_verticalSettleGeneration;
     final target = showRoute ? 1.0 : 0.0;
     final remaining = (animationController.value - target).abs();
@@ -212,34 +243,33 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
         ? Duration.zero
         : Duration(milliseconds: (320 * remaining).round().clamp(90, 320));
     animationController.stop();
-    unawaited(() async {
-      try {
-        if (duration == Duration.zero) {
-          animationController.value = target;
-        } else if (target < animationController.value) {
-          await animationController.animateBack(
-            target,
-            duration: duration,
-            curve: Curves.easeOutCubic,
-          );
-        } else {
-          await animationController.animateTo(
-            target,
-            duration: duration,
-            curve: Curves.easeOutCubic,
-          );
-        }
-      } catch (_) {
-        return;
+    try {
+      if (duration == Duration.zero) {
+        animationController.value = target;
+      } else if (target < animationController.value) {
+        await animationController.animateBack(
+          target,
+          duration: duration,
+          curve: Curves.easeOutCubic,
+        );
+      } else {
+        await animationController.animateTo(
+          target,
+          duration: duration,
+          curve: Curves.easeOutCubic,
+        );
       }
-      if (request != _verticalSettleGeneration || !_verticalGestureInProgress) {
-        return;
-      }
-      if (!showRoute && isCurrent) {
-        routeNavigator.pop<T>();
-      }
-      _stopVerticalGesture();
-    }());
+    } catch (_) {
+      return false;
+    }
+    if (request != _verticalSettleGeneration || !_verticalGestureInProgress) {
+      return false;
+    }
+    if (!showRoute && isCurrent) {
+      routeNavigator.pop<T>();
+    }
+    _stopVerticalGesture();
+    return showRoute;
   }
 
   void _stopVerticalGesture() {

@@ -47,8 +47,12 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   late final AnimationController _searchRevealController;
-  bool _searching = false;
+  bool _searchControlsVisible = false;
+  bool _searchSessionActive = false;
+  bool _searchHighlightsVisible = false;
   bool _searchClosing = false;
+  bool _skipNextAutoScrollResume = false;
+  int _searchTransitionGeneration = 0;
   List<LyricSearchMatch> _matches = const [];
   int _matchCursor = -1;
   int _matchCenterGeneration = 0;
@@ -68,6 +72,7 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
   @override
   void dispose() {
     _matchCenterGeneration++;
+    _searchTransitionGeneration++;
     _searchRevealController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
@@ -81,13 +86,13 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
       return const Center(child: CircularProgressIndicator());
     }
     final query = _searchController.text.trim();
-    if (_searching && query.isNotEmpty) {
+    if (_searchHighlightsVisible && query.isNotEmpty) {
       final signature = _lyricTextSignature(state);
       if (_matchedLyricsSignature != signature) {
         _matchedLyricsSignature = signature;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted &&
-              _searching &&
+              _searchHighlightsVisible &&
               _searchController.text.trim().isNotEmpty) {
             _updateMatches(ref.read(lyricControllerProvider));
           }
@@ -98,7 +103,9 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
     const actionRowHeight = 48.0;
     const searchRowHeight = 56.0;
     const viewportClearance = 4.0;
-    final keyboardInset = _searching ? mediaQuery.viewInsets.bottom : 0.0;
+    final keyboardInset = _searchSessionActive
+        ? mediaQuery.viewInsets.bottom
+        : 0.0;
     final keyboardLift = keyboardInset > mediaQuery.padding.bottom
         ? keyboardInset - mediaQuery.padding.bottom
         : 0.0;
@@ -109,13 +116,40 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
     final queueDrag = _queueDragCallbacks;
     final baseVisibleBottomInset =
         controlsBottom + actionRowHeight + viewportClearance;
+    _completeSearchCloseWhenSettled(keyboardInset);
     return RepaintBoundary(
       key: ValueKey('player-lyrics-surface-${widget.isWide}'),
       child: LayoutBuilder(
         builder: (context, constraints) {
+          final lyricList = RepaintBoundary(
+            child: FullLyricDisplay(
+              controller: _displayController,
+              seekingPosition: widget.seekingPosition,
+              isPortrait: !widget.isWide,
+              onLongPress: widget.onLongPress,
+              suspendAutoScroll: _searchSessionActive || !widget.isActive,
+              searchMode: _searchHighlightsVisible,
+              searchQuery: _searchHighlightsVisible
+                  ? _searchController.text
+                  : '',
+              layoutSearchQuery: _searchSessionActive
+                  ? _searchController.text
+                  : null,
+              selectedSearchMatch: _searchHighlightsVisible
+                  ? selectedMatch
+                  : null,
+              topPadding: 86,
+              bottomPadding: widget.isWide ? 136 : 164,
+              visibleBottomInset: baseVisibleBottomInset,
+              reserveSearchCenteringSpace: true,
+              snapOnAutoScrollResume: !_skipNextAutoScrollResume,
+              snapToCurrentOnFirstLayout: true,
+            ),
+          );
           return AnimatedBuilder(
             animation: _searchRevealController,
-            builder: (context, _) {
+            child: lyricList,
+            builder: (context, lyricList) {
               final revealedSearchHeight =
                   searchRowHeight * _searchRevealController.value;
               final requestedViewportBottom =
@@ -141,7 +175,7 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                     key: const ValueKey('lyric-controls-keyboard-lift'),
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (_searching)
+                      if (_searchControlsVisible)
                         SizeTransition(
                           sizeFactor: _searchRevealController,
                           alignment: Alignment.bottomCenter,
@@ -189,7 +223,9 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                             ),
                             _ActionButton(
                               key: const ValueKey('lyric-search-button'),
-                              icon: _searching ? Icons.close : Icons.search,
+                              icon: _searchControlsVisible
+                                  ? Icons.close
+                                  : Icons.search,
                               label: _label(context, 'search'),
                               onPressed: state.lyrics.isEmpty
                                   ? null
@@ -228,21 +264,7 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                                 bounds,
                                 lyricViewportBottom,
                               ).createShader(bounds),
-                              child: FullLyricDisplay(
-                                controller: _displayController,
-                                seekingPosition: widget.seekingPosition,
-                                isPortrait: !widget.isWide,
-                                onLongPress: widget.onLongPress,
-                                suspendAutoScroll:
-                                    _searching || !widget.isActive,
-                                searchMode: _searching,
-                                searchQuery: _searchController.text,
-                                selectedSearchMatch: selectedMatch,
-                                topPadding: 86,
-                                bottomPadding: widget.isWide ? 136 : 164,
-                                visibleBottomInset: baseVisibleBottomInset,
-                                snapToCurrentOnFirstLayout: true,
-                              ),
+                              child: lyricList,
                             ),
                           ),
                         ),
@@ -393,9 +415,12 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
   }
 
   Future<void> _toggleSearch() async {
-    if (!_searching) {
+    if (!_searchControlsVisible && !_searchSessionActive) {
+      final generation = ++_searchTransitionGeneration;
       setState(() {
-        _searching = true;
+        _searchControlsVisible = true;
+        _searchSessionActive = true;
+        _searchHighlightsVisible = true;
         _searchClosing = false;
       });
       _searchRevealController.stop();
@@ -411,19 +436,22 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
         );
       }
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _searchFocusNode.requestFocus();
+        if (mounted && generation == _searchTransitionGeneration) {
+          _searchFocusNode.requestFocus();
+        }
       });
       return;
     }
     if (_searchClosing) return;
+    final generation = ++_searchTransitionGeneration;
     _searchClosing = true;
     _searchFocusNode.unfocus();
     _matchCenterGeneration++;
     setState(() {
-      _searchController.clear();
-      _matches = const [];
-      _matchCursor = -1;
-      _matchedLyricsSignature = null;
+      // Hide paint-only highlights immediately, but retain the search query,
+      // measured line heights, and scroll anchor until both the search row and
+      // keyboard have completely left the screen.
+      _searchHighlightsVisible = false;
     });
     _searchRevealController.stop();
     if (MediaQuery.disableAnimationsOf(context)) {
@@ -439,10 +467,44 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
         return;
       }
     }
-    if (!mounted) return;
+    if (!mounted || generation != _searchTransitionGeneration) return;
     setState(() {
-      _searching = false;
-      _searchClosing = false;
+      _searchControlsVisible = false;
+    });
+    _completeSearchCloseWhenSettled(MediaQuery.viewInsetsOf(context).bottom);
+  }
+
+  void _completeSearchCloseWhenSettled(double keyboardInset) {
+    if (!_searchClosing ||
+        _searchRevealController.value > 0.001 ||
+        keyboardInset > 0.5) {
+      return;
+    }
+    final generation = _searchTransitionGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          generation != _searchTransitionGeneration ||
+          !_searchClosing ||
+          _searchRevealController.value > 0.001 ||
+          MediaQuery.viewInsetsOf(context).bottom > 0.5) {
+        return;
+      }
+      setState(() {
+        _skipNextAutoScrollResume = true;
+        _searchSessionActive = false;
+        _searchClosing = false;
+        _searchController.clear();
+        _matches = const [];
+        _matchCursor = -1;
+        _matchedLyricsSignature = null;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || generation != _searchTransitionGeneration) return;
+        _skipNextAutoScrollResume = false;
+        _displayController.centerCurrentIfOutside(
+          visibleBottomInset: _currentVisibleBottomInset,
+        );
+      });
     });
   }
 

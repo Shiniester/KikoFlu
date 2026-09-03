@@ -534,6 +534,16 @@ class FullLyricDisplayController {
       visibleBottomInset: visibleBottomInset,
     );
   }
+
+  void centerCurrentIfOutside({
+    bool animate = true,
+    required double visibleBottomInset,
+  }) {
+    _state?._centerCurrentIfOutside(
+      animate: animate,
+      visibleBottomInset: visibleBottomInset,
+    );
+  }
 }
 
 class FullLyricDisplay extends ConsumerStatefulWidget {
@@ -547,10 +557,13 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
     this.suspendAutoScroll = false,
     this.searchMode = false,
     this.searchQuery = '',
+    this.layoutSearchQuery,
     this.selectedSearchMatch,
     this.topPadding = 72,
     this.bottomPadding = 148,
     this.visibleBottomInset = 0,
+    this.reserveSearchCenteringSpace = false,
+    this.snapOnAutoScrollResume = true,
     this.snapToCurrentOnFirstLayout = false,
     this.onSeekRequested,
   });
@@ -563,10 +576,13 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
   final bool suspendAutoScroll;
   final bool searchMode;
   final String searchQuery;
+  final String? layoutSearchQuery;
   final LyricSearchMatch? selectedSearchMatch;
   final double topPadding;
   final double bottomPadding;
   final double visibleBottomInset;
+  final bool reserveSearchCenteringSpace;
+  final bool snapOnAutoScrollResume;
   final bool snapToCurrentOnFirstLayout;
   final ValueChanged<Duration>? onSeekRequested;
 
@@ -589,8 +605,6 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
   double _effectiveTopPadding = 0;
   int _layoutCurrentIndex = -1;
   LyricSearchMatch? _layoutSelectedMatch;
-  bool _hasLayoutMetrics = false;
-  int _paddingCompensationGeneration = 0;
 
   @override
   void initState() {
@@ -613,7 +627,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
     }
     if (oldWidget.suspendAutoScroll && !widget.suspendAutoScroll) {
       final index = _currentLyricIndex;
-      if (index != null && index >= 0) {
+      if (widget.snapOnAutoScrollResume && index != null && index >= 0) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _scrollToLyric(
             index,
@@ -629,7 +643,6 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
   @override
   void dispose() {
     _scrollRequestGeneration++;
-    _paddingCompensationGeneration++;
     widget.controller?._detach(this);
     _resumeAutoScrollTimer?.cancel();
     _scrollController.dispose();
@@ -644,33 +657,6 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
 
   GlobalKey _getTextKeyForIndex(int index) {
     return _textKeys.putIfAbsent(index, GlobalKey.new);
-  }
-
-  void _updateEffectiveTopPadding(double nextPadding) {
-    final previousPadding = _effectiveTopPadding;
-    _effectiveTopPadding = nextPadding;
-    if (!_hasLayoutMetrics) {
-      _hasLayoutMetrics = true;
-      return;
-    }
-    final delta = nextPadding - previousPadding;
-    if (delta.abs() <= 0.01) return;
-    final request = ++_paddingCompensationGeneration;
-    if (delta <= 0.01 || !_scrollController.hasClients) return;
-    final startingOffset = _scrollController.position.pixels;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted ||
-          request != _paddingCompensationGeneration ||
-          !_scrollController.hasClients) {
-        return;
-      }
-      _scrollController.jumpTo(
-        (startingOffset + delta).clamp(
-          _scrollController.position.minScrollExtent,
-          _scrollController.position.maxScrollExtent,
-        ),
-      );
-    });
   }
 
   int _indexForPosition(Duration position, List<LyricLine> lyrics) {
@@ -889,6 +875,38 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
         request: request,
         visibleBottomInset: visibleBottomInset,
       ),
+    );
+  }
+
+  void _centerCurrentIfOutside({
+    required bool animate,
+    required double visibleBottomInset,
+  }) {
+    final index = _currentLyricIndex;
+    if (!mounted ||
+        index == null ||
+        index < 0 ||
+        !_scrollController.hasClients) {
+      return;
+    }
+    final viewport = _viewportKey.currentContext?.findRenderObject();
+    final item = _getKeyForIndex(index).currentContext?.findRenderObject();
+    if (viewport is RenderBox &&
+        item is RenderBox &&
+        viewport.attached &&
+        item.attached) {
+      final top = item.localToGlobal(Offset.zero, ancestor: viewport).dy;
+      final bottom = top + item.size.height;
+      final visibleHeight = _visibleViewportHeight(visibleBottomInset);
+      if (bottom >= 0 && top <= visibleHeight) return;
+    }
+    _scrollToLyric(
+      index,
+      animate: animate,
+      force: true,
+      ignoreAutoScroll: true,
+      visibleBottomInset: visibleBottomInset,
+      animationDuration: const Duration(milliseconds: 280),
     );
   }
 
@@ -1153,9 +1171,11 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
           final locale = Localizations.maybeLocaleOf(context);
           final textWidth = math.max(1.0, constraints.maxWidth - 80);
           final normalizedQuery = widget.searchQuery.trim();
+          final normalizedLayoutQuery =
+              (widget.layoutSearchQuery ?? widget.searchQuery).trim();
           final layoutIndex = _ensureLayoutIndex(
             lyrics: lyrics,
-            query: normalizedQuery,
+            query: normalizedLayoutQuery,
             activeStyle: activeStyle,
             inactiveStyle: inactiveStyle,
             colors: colors,
@@ -1164,14 +1184,15 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
             textDirection: textDirection,
             locale: locale,
           );
-          final hasSearchAllowance = widget.searchMode;
+          final hasSearchAllowance =
+              widget.reserveSearchCenteringSpace || widget.searchMode;
           final effectiveTopPadding = hasSearchAllowance
               ? math.max(widget.topPadding, constraints.maxHeight / 2)
               : widget.topPadding;
           final effectiveBottomPadding = hasSearchAllowance
               ? math.max(widget.bottomPadding, constraints.maxHeight)
               : widget.bottomPadding;
-          _updateEffectiveTopPadding(effectiveTopPadding);
+          _effectiveTopPadding = effectiveTopPadding;
           _layoutCurrentIndex = currentIndex;
           _layoutSelectedMatch = widget.selectedSearchMatch;
 
@@ -1309,7 +1330,13 @@ TextSpan _highlightedLyricSpan({
         style: TextStyle(
           color: selected ? colors.onPrimary : colors.primary,
           backgroundColor: selected ? colors.primary : null,
-          fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
+          // Search decoration must remain layout-neutral. A weight change can
+          // reflow wrapped lyrics and make the scroll offset jump while the
+          // search UI is opening or closing.
+          fontWeight: style.fontWeight,
+          shadows: selected
+              ? [Shadow(color: colors.onPrimary, blurRadius: 0.45)]
+              : null,
         ),
       ),
     );

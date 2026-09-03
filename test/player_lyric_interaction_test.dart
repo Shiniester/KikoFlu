@@ -171,6 +171,7 @@ void main() {
         child: MaterialApp(
           theme: ThemeData.dark(useMaterial3: true),
           home: Scaffold(
+            resizeToAvoidBottomInset: false,
             body: PlayerLyricsSurface(
               isWide: false,
               onFullscreen: () {},
@@ -420,6 +421,101 @@ void main() {
       wrapped.lastIndexOf('needle'),
       wrapped.length,
     );
+  });
+
+  testWidgets('opening and closing search preserves the lyric scroll anchor', (
+    tester,
+  ) async {
+    final stableLyrics = List.generate(
+      80,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'stable lyric line $index',
+      ),
+    );
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith(
+            (ref) => Stream.value(const Duration(seconds: 30)),
+          ),
+          lyricControllerProvider.overrideWith(
+            (ref) => LyricController(
+              ref,
+              initialState: LyricState(lyrics: stableLyrics),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          theme: ThemeData.dark(useMaterial3: true),
+          home: Scaffold(
+            resizeToAvoidBottomInset: false,
+            body: PlayerLyricsSurface(
+              isWide: false,
+              actionWidth: 306,
+              onFullscreen: () {},
+              translateButton: const IconButton(
+                onPressed: null,
+                icon: Icon(Icons.translate),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final list = tester.state<ScrollableState>(
+      find.descendant(
+        of: find.byKey(const ValueKey('full-lyric-list')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    final anchor = find.text('stable lyric line 30');
+    final initialOffset = list.position.pixels;
+    final initialTop = tester.getTopLeft(anchor).dy;
+
+    await tester.tap(find.byKey(const ValueKey('lyric-search-button')));
+    for (final elapsed in const [
+      Duration(milliseconds: 1),
+      Duration(milliseconds: 60),
+      Duration(milliseconds: 100),
+    ]) {
+      await tester.pump(elapsed);
+      expect(list.position.pixels, closeTo(initialOffset, 0.01));
+      expect(tester.getTopLeft(anchor).dy, closeTo(initialTop, 1));
+    }
+    await tester.pumpAndSettle();
+    expect(list.position.pixels, closeTo(initialOffset, 0.01));
+
+    addTearDown(tester.view.resetViewInsets);
+    tester.view.viewInsets = const FakeViewPadding(bottom: 220);
+    await tester.pump();
+    expect(list.position.pixels, closeTo(initialOffset, 0.01));
+    expect(tester.getTopLeft(anchor).dy, closeTo(initialTop, 1));
+
+    await tester.tap(find.byKey(const ValueKey('lyric-search-button')));
+    for (final elapsed in const [
+      Duration(milliseconds: 1),
+      Duration(milliseconds: 50),
+      Duration(milliseconds: 100),
+    ]) {
+      await tester.pump(elapsed);
+      expect(list.position.pixels, closeTo(initialOffset, 0.01));
+      expect(tester.getTopLeft(anchor).dy, closeTo(initialTop, 1));
+    }
+    for (final inset in const [160.0, 80.0, 0.0]) {
+      tester.view.viewInsets = FakeViewPadding(bottom: inset);
+      await tester.pump(const Duration(milliseconds: 30));
+      expect(list.position.pixels, closeTo(initialOffset, 0.01));
+      expect(tester.getTopLeft(anchor).dy, closeTo(initialTop, 1));
+    }
+    await tester.pumpAndSettle();
+    expect(list.position.pixels, closeTo(initialOffset, 0.01));
+    expect(tester.getTopLeft(anchor).dy, closeTo(initialTop, 1));
   });
 }
 
