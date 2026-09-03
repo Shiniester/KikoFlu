@@ -66,7 +66,7 @@ void main() {
           supportedLocales: S.supportedLocales,
           home: Scaffold(
             body: Center(child: Text('mini-route-host')),
-            bottomNavigationBar: MiniPlayer(),
+            bottomNavigationBar: MiniPlayer(enableArtworkHero: false),
           ),
         ),
       ),
@@ -78,7 +78,6 @@ void main() {
       tester.getCenter(launcher),
     );
     await cancelledGesture.moveBy(const Offset(0, -120));
-    await tester.pump();
     await tester.pump();
     await tester.pump();
     expect(find.byType(AudioPlayerScreen, skipOffstage: false), findsOneWidget);
@@ -129,22 +128,13 @@ void main() {
           find.byType(AudioPlayerScreen, skipOffstage: false),
           findsOneWidget,
         );
-      }
-      if (index == 3) {
-        expect(
-          find.byKey(
-            const ValueKey('player-artwork-flight-frame'),
-            skipOffstage: false,
-          ),
-          findsOneWidget,
-        );
         final interactiveSlide = tester.widget<SlideTransition>(
           find.byKey(
             const ValueKey('player-route-vertical-slide'),
             skipOffstage: false,
           ),
         );
-        expect(interactiveSlide.position.value.dy, closeTo(1 - 64 / 844, 0.02));
+        expect(interactiveSlide.position.value.dy, closeTo(1 - 32 / 844, 0.02));
       }
     }
     await gesture.up();
@@ -168,19 +158,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('mini-route-host'), findsOneWidget);
     expect(find.byType(AudioPlayerScreen), findsNothing);
-
-    await tester.tap(find.byKey(const ValueKey('mini-player-artwork-frame')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 80));
-    expect(
-      find.byKey(
-        const ValueKey('player-artwork-flight-frame'),
-        skipOffstage: false,
-      ),
-      findsOneWidget,
-    );
-    await tester.pumpAndSettle();
-    expect(find.byType(AudioPlayerScreen), findsOneWidget);
   });
 
   testWidgets(
@@ -218,7 +195,7 @@ void main() {
             supportedLocales: S.supportedLocales,
             home: Scaffold(
               body: Center(child: Text('mini-layout-host')),
-              bottomNavigationBar: MiniPlayer(),
+              bottomNavigationBar: MiniPlayer(enableArtworkHero: false),
             ),
           ),
         ),
@@ -315,16 +292,6 @@ void main() {
       await tester.pump(const Duration(seconds: 2));
 
       await tester.tap(queueButton);
-      await tester.pump();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 80));
-      expect(
-        find.byKey(
-          const ValueKey('player-artwork-flight-frame'),
-          skipOffstage: false,
-        ),
-        findsOneWidget,
-      );
       await tester.pumpAndSettle();
       expect(find.byType(AudioPlayerScreen), findsOneWidget);
       expect(find.byKey(const ValueKey('player-queue-pane')), findsOneWidget);

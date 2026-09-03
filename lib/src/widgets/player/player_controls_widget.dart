@@ -814,7 +814,7 @@ class PlayerProgressSection extends ConsumerWidget {
                 context,
               ).colorScheme.onSurfaceVariant.withValues(alpha: 0.15),
               trackHeight: 2,
-              trackShape: const PlayerAsymmetricSliderTrackShape(),
+              trackShape: const RoundedRectSliderTrackShape(),
               thumbShape: const RoundSliderThumbShape(
                 enabledThumbRadius: 4,
                 disabledThumbRadius: 4,
@@ -852,78 +852,6 @@ class PlayerProgressSection extends ConsumerWidget {
         ],
       ),
     );
-  }
-}
-
-class PlayerAsymmetricSliderTrackShape extends SliderTrackShape
-    with BaseSliderTrackShape {
-  const PlayerAsymmetricSliderTrackShape({
-    this.activeTrackHeight = 2,
-    this.inactiveTrackHeight = 1,
-  });
-
-  final double activeTrackHeight;
-  final double inactiveTrackHeight;
-
-  @override
-  bool get isRounded => true;
-
-  @override
-  void paint(
-    PaintingContext context,
-    Offset offset, {
-    required RenderBox parentBox,
-    required SliderThemeData sliderTheme,
-    required Animation<double> enableAnimation,
-    required TextDirection textDirection,
-    required Offset thumbCenter,
-    Offset? secondaryOffset,
-    bool isDiscrete = false,
-    bool isEnabled = false,
-  }) {
-    if (sliderTheme.trackHeight == null || sliderTheme.trackHeight! <= 0) {
-      return;
-    }
-    final trackRect = getPreferredRect(
-      parentBox: parentBox,
-      offset: offset,
-      sliderTheme: sliderTheme,
-      isEnabled: isEnabled,
-      isDiscrete: isDiscrete,
-    );
-    final activeColor = ColorTween(
-      begin: sliderTheme.disabledActiveTrackColor,
-      end: sliderTheme.activeTrackColor,
-    ).evaluate(enableAnimation)!;
-    final inactiveColor = ColorTween(
-      begin: sliderTheme.disabledInactiveTrackColor,
-      end: sliderTheme.inactiveTrackColor,
-    ).evaluate(enableAnimation)!;
-    final isLeftToRight = textDirection == TextDirection.ltr;
-    final activeLeft = isLeftToRight ? trackRect.left : thumbCenter.dx;
-    final activeRight = isLeftToRight ? thumbCenter.dx : trackRect.right;
-    final inactiveLeft = isLeftToRight ? thumbCenter.dx : trackRect.left;
-    final inactiveRight = isLeftToRight ? trackRect.right : thumbCenter.dx;
-
-    void paintSegment(double left, double right, double height, Color color) {
-      if (right <= left || height <= 0) return;
-      final top = trackRect.center.dy - height / 2;
-      context.canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTRB(left, top, right, top + height),
-          Radius.circular(height / 2),
-        ),
-        Paint()..color = color,
-      );
-    }
-
-    paintSegment(
-      inactiveLeft,
-      inactiveRight,
-      inactiveTrackHeight,
-      inactiveColor,
-    );
-    paintSegment(activeLeft, activeRight, activeTrackHeight, activeColor);
   }
 }
 

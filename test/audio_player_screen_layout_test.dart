@@ -21,8 +21,6 @@ import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_action_icons.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_controls_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
@@ -118,37 +116,6 @@ void main() {
     expect(find.byKey(const ValueKey('wide-player-layout')), findsOneWidget);
     expect(find.byKey(const ValueKey('wide-right-pages')), findsOneWidget);
     expect(find.text(_track.title), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('wide main and queue share an interruptible artwork transition', (
-    tester,
-  ) async {
-    await _pumpPlayer(tester, const Size(1280, 720));
-
-    await tester.tap(find.byIcon(Icons.queue_music));
-    await tester.pump();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 32));
-    expect(
-      find.byKey(const ValueKey('player-queue-artwork-transition')),
-      findsOneWidget,
-    );
-
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('player-queue-artwork-transition')),
-      findsNothing,
-    );
-    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 32));
-    expect(
-      find.byKey(const ValueKey('player-queue-artwork-transition')),
-      findsOneWidget,
-    );
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('wide-player-layout')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -429,10 +396,6 @@ void main() {
     }
     expect(_compactQueueProgress(tester), greaterThan(0));
     expect(_compactQueueProgress(tester), lessThan(1));
-    expect(
-      find.byKey(const ValueKey('player-queue-artwork-transition')),
-      findsOneWidget,
-    );
     final closingProgress = <double>[];
     for (var index = 0; index < 16; index++) {
       await gesture.moveBy(const Offset(0, 14));
@@ -667,33 +630,6 @@ void main() {
     expect(find.byKey(const ValueKey('lyrics-pane-compact')), findsOneWidget);
   });
 
-  testWidgets('only the visible main page exposes an artwork Hero', (
-    tester,
-  ) async {
-    await _pumpPlayer(tester, const Size(390, 844));
-    final artworkHero = find.byWidgetPredicate(
-      (widget) =>
-          widget is Hero &&
-          widget.tag ==
-              playerArtworkHeroTag(_track.id, PlayerArtworkFlightTarget.main),
-    );
-    expect(artworkHero, findsOneWidget);
-
-    await tester.drag(
-      find.byKey(const ValueKey('compact-player-pages')),
-      const Offset(320, 0),
-    );
-    await tester.pumpAndSettle();
-    expect(artworkHero, findsNothing);
-
-    await tester.drag(
-      find.byKey(const ValueKey('compact-player-pages')),
-      const Offset(-640, 0),
-    );
-    await tester.pumpAndSettle();
-    expect(artworkHero, findsNothing);
-  });
-
   testWidgets('compact artwork uses the denser rectangular frame', (
     tester,
   ) async {
@@ -722,10 +658,7 @@ void main() {
     );
     expect(progressTheme.data.padding, EdgeInsets.zero);
     expect(progressTheme.data.trackHeight, 2);
-    expect(
-      progressTheme.data.trackShape,
-      isA<PlayerAsymmetricSliderTrackShape>(),
-    );
+    expect(progressTheme.data.trackShape, isA<RoundedRectSliderTrackShape>());
     final thumbShape = progressTheme.data.thumbShape as RoundSliderThumbShape;
     expect(thumbShape.enabledThumbRadius, 4);
 

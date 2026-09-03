@@ -111,19 +111,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   double _queueDragStartValue = 0;
   double _compactQueueExtent = 1;
   bool _queueTransitionActive = false;
-  final GlobalKey _compactArtworkTransitionRootKey = GlobalKey();
-  final GlobalKey _compactMainArtworkKey = GlobalKey();
-  final GlobalKey _compactQueueArtworkKey = GlobalKey();
-  final GlobalKey _wideArtworkTransitionRootKey = GlobalKey();
-  final GlobalKey _wideMainArtworkKey = GlobalKey();
-  final GlobalKey _wideQueueArtworkKey = GlobalKey();
-  Rect? _queueArtworkSourceRect;
-  Rect? _queueArtworkTargetRect;
-  String? _queueArtworkTrackId;
-  bool _queueArtworkFlightEnabled = false;
-  bool _queueArtworkFlightReady = false;
-  bool _queueArtworkFlightWide = false;
-  int _queueArtworkFlightGeneration = 0;
   bool _openingWorkDetail = false;
   bool _routeDismissDragAccepted = false;
   bool _reduceMotionDismissDrag = false;
@@ -174,6 +161,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       _isLyricLocked = true;
       _showUnlockButton = false;
     });
+    // 隐藏状态栏和导航栏
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
@@ -185,6 +173,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       _isLyricLocked = false;
       _showUnlockButton = false;
     });
+    // 恢复系统UI，并在 Android 上重新启用 edge-to-edge。
     unawaited(
       restoreSystemUiAfterImmersiveMode(useEdgeToEdge: Platform.isAndroid),
     );
@@ -207,7 +196,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     _semanticPageRevision.dispose();
     _semanticTransitionGeneration++;
     _queueTransitionGeneration++;
-    _queueArtworkFlightGeneration++;
     _routeDismissModeSyncGeneration++;
     _activeDismissRoute?.cancelVerticalDismissGesture();
     super.dispose();
@@ -621,7 +609,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         _queueTransitionGeneration++;
         _queueDragActive = false;
         _queueTransitionActive = false;
-        _resetQueueArtworkFlight();
         _compactQueueTransitionController.value = 0;
         if (_wideLeftPageController.hasClients) {
           _wideLeftPageController.jumpToPage(
@@ -672,147 +659,128 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     final gap = width >= 1200 ? 40.0 : 20.0;
     return SafeArea(
       minimum: EdgeInsets.fromLTRB(outerPadding, 18, outerPadding, 18),
-      child: Stack(
-        key: _wideArtworkTransitionRootKey,
-        fit: StackFit.expand,
+      child: Row(
+        key: const ValueKey('wide-player-layout'),
         children: [
-          Row(
-            key: const ValueKey('wide-player-layout'),
-            children: [
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final detailsWidth = math.max(
-                      0.0,
-                      (constraints.maxWidth - 24) * 0.90,
-                    );
-                    return _rightPane == PlayerRightPane.queue
-                        ? _buildCoverPane(
-                            context,
-                            track: track,
-                            coverUrl: coverUrl,
-                            isWide: true,
-                          )
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final detailsWidth = math.max(
+                  0.0,
+                  (constraints.maxWidth - 24) * 0.90,
+                );
+                return _rightPane == PlayerRightPane.queue
+                    ? _buildCoverPane(
+                        context,
+                        track: track,
+                        coverUrl: coverUrl,
+                        isWide: true,
+                      )
+                    : Directionality(
+                        textDirection: TextDirection.ltr,
+                        child: PageView(
+                          key: const ValueKey('wide-left-pages'),
+                          controller: _wideLeftPageController,
+                          allowImplicitScrolling: true,
+                          onPageChanged: _onWideLeftPageChanged,
+                          children: [
+                            _PlayerPageBoundary(
+                              key: const ValueKey('wide-cover-page-boundary'),
+                              child: PlayerVerticalSwipeRegion(
+                                key: const ValueKey(
+                                  'wide-cover-dismiss-surface',
+                                ),
+                                swipeDownDrag: mainBodyDismissDrag,
+                                child: _buildCoverPane(
+                                  context,
+                                  track: track,
+                                  coverUrl: coverUrl,
+                                  isWide: true,
+                                ),
+                              ),
+                            ),
+                            _PlayerPageBoundary(
+                              key: const ValueKey('wide-details-page-boundary'),
+                              child: Center(
+                                child: SizedBox(
+                                  width: detailsWidth,
+                                  height: double.infinity,
+                                  child: ValueListenableBuilder<int>(
+                                    valueListenable: _semanticPageRevision,
+                                    builder: (context, _, __) =>
+                                        PlayerAudioDetailsPanel(
+                                          key: const ValueKey(
+                                            'wide-audio-details-pane',
+                                          ),
+                                          onOpenWork: _openKnownWork,
+                                          isActive:
+                                              !_isLyricLocked &&
+                                              _leftPane ==
+                                                  PlayerLeftPane.information &&
+                                              _rightPane !=
+                                                  PlayerRightPane.queue,
+                                          onShowQueue: () => _showQueue(),
+                                        ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+              },
+            ),
+          ),
+          SizedBox(width: gap),
+          Expanded(
+            child: Column(
+              children: [
+                if (_rightPane != PlayerRightPane.queue)
+                  _buildWideHeader(
+                    context,
+                    track,
+                    dismissDrag: titleDismissDrag,
+                  ),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: _motionDuration(context),
+                    child: _rightPane == PlayerRightPane.queue
+                        ? _buildQueuePane(context, isWide: true)
                         : Directionality(
                             textDirection: TextDirection.ltr,
                             child: PageView(
-                              key: const ValueKey('wide-left-pages'),
-                              controller: _wideLeftPageController,
-                              allowImplicitScrolling: true,
-                              onPageChanged: _onWideLeftPageChanged,
+                              key: const ValueKey('wide-right-pages'),
+                              controller: _wideRightPageController,
+                              physics: const NeverScrollableScrollPhysics(),
+                              onPageChanged: _onWideRightPageChanged,
                               children: [
                                 _PlayerPageBoundary(
                                   key: const ValueKey(
-                                    'wide-cover-page-boundary',
+                                    'wide-lyrics-page-boundary',
                                   ),
-                                  child: PlayerVerticalSwipeRegion(
-                                    key: const ValueKey(
-                                      'wide-cover-dismiss-surface',
-                                    ),
-                                    swipeDownDrag: mainBodyDismissDrag,
-                                    child: _buildCoverPane(
-                                      context,
-                                      track: track,
-                                      coverUrl: coverUrl,
-                                      isWide: true,
-                                    ),
+                                  child: _buildLyricsPane(
+                                    context,
+                                    isWide: true,
                                   ),
                                 ),
                                 _PlayerPageBoundary(
                                   key: const ValueKey(
-                                    'wide-details-page-boundary',
+                                    'wide-controls-page-boundary',
                                   ),
-                                  child: Center(
-                                    child: SizedBox(
-                                      width: detailsWidth,
-                                      height: double.infinity,
-                                      child: ValueListenableBuilder<int>(
-                                        valueListenable: _semanticPageRevision,
-                                        builder: (context, _, __) =>
-                                            PlayerAudioDetailsPanel(
-                                              key: const ValueKey(
-                                                'wide-audio-details-pane',
-                                              ),
-                                              onOpenWork: _openKnownWork,
-                                              isActive:
-                                                  !_isLyricLocked &&
-                                                  _leftPane ==
-                                                      PlayerLeftPane
-                                                          .information &&
-                                                  _rightPane !=
-                                                      PlayerRightPane.queue,
-                                              onShowQueue: () => _showQueue(),
-                                            ),
-                                      ),
-                                    ),
+                                  child: _buildControlsPane(
+                                    context,
+                                    track: track,
+                                    isWide: true,
+                                    showTrackHeader: false,
+                                    dismissDrag: mainBodyDismissDrag,
                                   ),
                                 ),
                               ],
                             ),
-                          );
-                  },
+                          ),
+                  ),
                 ),
-              ),
-              SizedBox(width: gap),
-              Expanded(
-                child: Column(
-                  children: [
-                    if (_rightPane != PlayerRightPane.queue)
-                      _buildWideHeader(
-                        context,
-                        track,
-                        dismissDrag: titleDismissDrag,
-                      ),
-                    Expanded(
-                      child: AnimatedSwitcher(
-                        duration: _motionDuration(context),
-                        child: _rightPane == PlayerRightPane.queue
-                            ? _buildQueuePane(context, isWide: true)
-                            : Directionality(
-                                textDirection: TextDirection.ltr,
-                                child: PageView(
-                                  key: const ValueKey('wide-right-pages'),
-                                  controller: _wideRightPageController,
-                                  physics: const NeverScrollableScrollPhysics(),
-                                  onPageChanged: _onWideRightPageChanged,
-                                  children: [
-                                    _PlayerPageBoundary(
-                                      key: const ValueKey(
-                                        'wide-lyrics-page-boundary',
-                                      ),
-                                      child: _buildLyricsPane(
-                                        context,
-                                        isWide: true,
-                                      ),
-                                    ),
-                                    _PlayerPageBoundary(
-                                      key: const ValueKey(
-                                        'wide-controls-page-boundary',
-                                      ),
-                                      child: _buildControlsPane(
-                                        context,
-                                        track: track,
-                                        isWide: true,
-                                        showTrackHeader: false,
-                                        dismissDrag: mainBodyDismissDrag,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          AnimatedBuilder(
-            animation: _compactQueueTransitionController,
-            builder: (context, _) => _buildQueueArtworkTransitionOverlay(
-              track: track,
-              coverUrl: coverUrl,
-              isWide: true,
+              ],
             ),
           ),
         ],
@@ -944,47 +912,39 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
             ],
           );
           final queueStage = _buildQueuePane(context, isWide: false);
-          return KeyedSubtree(
+          return ClipRect(
             key: const ValueKey('compact-player-vertical-pages'),
-            child: ClipRect(
-              key: _compactArtworkTransitionRootKey,
-              child: AnimatedBuilder(
-                animation: _compactQueueTransitionController,
-                builder: (context, _) {
-                  final progress = _compactQueueTransitionController.value;
-                  final height = constraints.maxHeight;
-                  final playerOffstage =
-                      !_queueTransitionActive && progress >= 0.999;
-                  final queueOffstage =
-                      !_queueTransitionActive && progress <= 0.001;
-                  return Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Transform.translate(
-                        key: const ValueKey('compact-player-stage-transform'),
-                        offset: Offset(0, -height * progress),
-                        child: Offstage(
-                          offstage: playerOffstage,
-                          child: RepaintBoundary(child: playerStage),
-                        ),
+            child: AnimatedBuilder(
+              animation: _compactQueueTransitionController,
+              builder: (context, _) {
+                final progress = _compactQueueTransitionController.value;
+                final height = constraints.maxHeight;
+                final playerOffstage =
+                    !_queueTransitionActive && progress >= 0.999;
+                final queueOffstage =
+                    !_queueTransitionActive && progress <= 0.001;
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Transform.translate(
+                      key: const ValueKey('compact-player-stage-transform'),
+                      offset: Offset(0, -height * progress),
+                      child: Offstage(
+                        offstage: playerOffstage,
+                        child: RepaintBoundary(child: playerStage),
                       ),
-                      Transform.translate(
-                        key: const ValueKey('compact-queue-stage-transform'),
-                        offset: Offset(0, height * (1 - progress)),
-                        child: Offstage(
-                          offstage: queueOffstage,
-                          child: RepaintBoundary(child: queueStage),
-                        ),
+                    ),
+                    Transform.translate(
+                      key: const ValueKey('compact-queue-stage-transform'),
+                      offset: Offset(0, height * (1 - progress)),
+                      child: Offstage(
+                        offstage: queueOffstage,
+                        child: RepaintBoundary(child: queueStage),
                       ),
-                      _buildQueueArtworkTransitionOverlay(
-                        track: track,
-                        coverUrl: coverUrl,
-                        isWide: false,
-                      ),
-                    ],
-                  );
-                },
-              ),
+                    ),
+                  ],
+                );
+              },
             ),
           );
         },
@@ -1105,28 +1065,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                 onSwipeUp: () => _showQueue(compactOriginPage: 1),
                 swipeUpDrag: queueDrag,
                 child: RepaintBoundary(
-                  child: ValueListenableBuilder<int>(
-                    valueListenable: _semanticPageRevision,
-                    builder: (context, _, __) {
-                      final heroEnabled = _shouldEnableMainArtworkHero(
-                        isWide: false,
-                      );
-                      return PlayerCoverWidget(
-                        track: track,
-                        workCoverUrl: coverUrl,
-                        artworkKey: _compactMainArtworkKey,
-                        artworkVisible: !_shouldHideQueueTransitionArtwork(
-                          track.id,
-                          isWide: false,
-                          isQueueTarget: false,
-                        ),
-                        heroEnabled: heroEnabled,
-                        heroTarget: heroEnabled
-                            ? PlayerArtworkFlightTarget.main
-                            : PlayerArtworkFlightTarget.none,
-                        onTap: _showLyrics,
-                      );
-                    },
+                  child: PlayerCoverWidget(
+                    track: track,
+                    workCoverUrl: coverUrl,
+                    heroEnabled: !_directQueueEntry,
+                    onTap: _showLyrics,
                   ),
                 ),
               ),
@@ -1204,31 +1147,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                     width: width,
                     height: height,
                     child: RepaintBoundary(
-                      child: ValueListenableBuilder<int>(
-                        valueListenable: _semanticPageRevision,
-                        builder: (context, _, __) {
-                          final heroEnabled = _shouldEnableMainArtworkHero(
-                            isWide: isWide,
-                          );
-                          return PlayerCoverWidget(
-                            track: track,
-                            workCoverUrl: coverUrl,
-                            isLandscape: isWide,
-                            artworkKey: isWide
-                                ? _wideMainArtworkKey
-                                : _compactMainArtworkKey,
-                            artworkVisible: !_shouldHideQueueTransitionArtwork(
-                              track.id,
-                              isWide: isWide,
-                              isQueueTarget: false,
-                            ),
-                            heroEnabled: heroEnabled,
-                            heroTarget: heroEnabled
-                                ? PlayerArtworkFlightTarget.main
-                                : PlayerArtworkFlightTarget.none,
-                            onTap: _showLyrics,
-                          );
-                        },
+                      child: PlayerCoverWidget(
+                        track: track,
+                        workCoverUrl: coverUrl,
+                        isLandscape: isWide,
+                        heroEnabled: !_directQueueEntry,
+                        onTap: _showLyrics,
                       ),
                     ),
                   ),
@@ -1441,14 +1365,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                 artworkHeroTarget: _directQueueEntry
                     ? PlayerArtworkFlightTarget.queue
                     : PlayerArtworkFlightTarget.none,
-                artworkKey: isWide
-                    ? _wideQueueArtworkKey
-                    : _compactQueueArtworkKey,
-                artworkVisible: !_shouldHideQueueTransitionArtwork(
-                  ref.read(currentTrackProvider).valueOrNull?.id,
-                  isWide: isWide,
-                  isQueueTarget: true,
-                ),
               ),
             ),
           ],
@@ -1457,179 +1373,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     );
   }
 
-  bool _shouldHideQueueTransitionArtwork(
-    String? trackId, {
-    required bool isWide,
-    required bool isQueueTarget,
-  }) {
-    if (!_queueArtworkFlightEnabled ||
-        !_queueArtworkFlightReady ||
-        _queueArtworkFlightWide != isWide ||
-        _queueArtworkTrackId != trackId) {
-      return false;
-    }
-    return isQueueTarget || !isWide;
-  }
-
-  Widget _buildQueueArtworkTransitionOverlay({
-    required AudioTrack track,
-    required String? coverUrl,
-    required bool isWide,
-  }) {
-    if (!_queueArtworkFlightEnabled ||
-        !_queueArtworkFlightReady ||
-        _queueArtworkFlightWide != isWide ||
-        _queueArtworkTrackId != track.id ||
-        _queueArtworkSourceRect == null ||
-        _queueArtworkTargetRect == null) {
-      return const SizedBox.shrink();
-    }
-    final progress = _compactQueueTransitionController.value;
-    final rect = Rect.lerp(
-      _queueArtworkSourceRect,
-      _queueArtworkTargetRect,
-      progress,
-    )!;
-    final radius = Tween<double>(
-      begin: PlayerCoverWidget.cornerRadius,
-      end: PlayerCompactArtwork.cornerRadius,
-    ).transform(progress);
-    return Positioned.fromRect(
-      key: const ValueKey('player-queue-artwork-transition'),
-      rect: rect,
-      child: IgnorePointer(
-        child: RepaintBoundary(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(radius),
-            child: FittedBox(
-              fit: BoxFit.fill,
-              child: PlayerCompactArtwork(
-                track: track,
-                url: coverUrl,
-                forFlight: true,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _configureQueueArtworkFlight({
-    required bool isWide,
-    int? compactOriginPage,
-  }) {
-    final returnState = _queueReturnState;
-    final originIsMain = isWide
-        ? (returnState?.leftPane ?? _leftPane) == PlayerLeftPane.cover &&
-              (returnState?.rightPane ?? _rightPane) == PlayerRightPane.controls
-        : (compactOriginPage ?? returnState?.compactPage ?? _compactPage) == 1;
-    final track = ref.read(currentTrackProvider).valueOrNull;
-    final enabled =
-        !_directQueueEntry &&
-        originIsMain &&
-        track != null &&
-        !MediaQuery.disableAnimationsOf(context);
-    if (_queueArtworkFlightEnabled &&
-        _queueArtworkFlightWide == isWide &&
-        _queueArtworkTrackId == track?.id &&
-        enabled) {
-      return;
-    }
-    _queueArtworkFlightGeneration++;
-    _queueArtworkFlightEnabled = enabled;
-    _queueArtworkFlightReady = false;
-    _queueArtworkFlightWide = isWide;
-    _queueArtworkTrackId = enabled ? track.id : null;
-    _queueArtworkSourceRect = null;
-    _queueArtworkTargetRect = null;
-  }
-
-  void _resetQueueArtworkFlight() {
-    _queueArtworkFlightGeneration++;
-    _queueArtworkFlightEnabled = false;
-    _queueArtworkFlightReady = false;
-    _queueArtworkTrackId = null;
-    _queueArtworkSourceRect = null;
-    _queueArtworkTargetRect = null;
-  }
-
-  Rect? _rectInsideTransitionRoot(GlobalKey rootKey, GlobalKey childKey) {
-    final root = rootKey.currentContext?.findRenderObject();
-    final child = childKey.currentContext?.findRenderObject();
-    if (root is! RenderBox ||
-        child is! RenderBox ||
-        !root.attached ||
-        !child.attached ||
-        !root.hasSize ||
-        !child.hasSize) {
-      return null;
-    }
-    final rootOrigin = root.localToGlobal(Offset.zero);
-    final childOrigin = child.localToGlobal(Offset.zero);
-    return (childOrigin - rootOrigin) & child.size;
-  }
-
-  bool _captureQueueArtworkFlightGeometry() {
-    if (!_queueArtworkFlightEnabled || !mounted) return false;
-    final isWide = _queueArtworkFlightWide;
-    final rootKey = isWide
-        ? _wideArtworkTransitionRootKey
-        : _compactArtworkTransitionRootKey;
-    final sourceKey = isWide ? _wideMainArtworkKey : _compactMainArtworkKey;
-    final targetKey = isWide ? _wideQueueArtworkKey : _compactQueueArtworkKey;
-    var source = _rectInsideTransitionRoot(rootKey, sourceKey);
-    var target = _rectInsideTransitionRoot(rootKey, targetKey);
-    if (source == null || target == null) return false;
-    if (!isWide) {
-      final rootBox = rootKey.currentContext?.findRenderObject() as RenderBox?;
-      if (rootBox == null || !rootBox.hasSize) return false;
-      final extent = rootBox.size.height;
-      final progress = _compactQueueTransitionController.value;
-      source = source.translate(0, extent * progress);
-      target = target.translate(0, -extent * (1 - progress));
-    }
-    _queueArtworkSourceRect = source;
-    _queueArtworkTargetRect = target;
-    return true;
-  }
-
-  Future<void> _prepareQueueArtworkFlightGeometry() async {
-    if (!_queueArtworkFlightEnabled || _queueArtworkFlightReady) return;
-    final request = _queueArtworkFlightGeneration;
-    await WidgetsBinding.instance.endOfFrame;
-    if (!mounted || request != _queueArtworkFlightGeneration) return;
-    if (!_captureQueueArtworkFlightGeometry()) {
-      await WidgetsBinding.instance.endOfFrame;
-      if (!mounted ||
-          request != _queueArtworkFlightGeneration ||
-          !_captureQueueArtworkFlightGeometry()) {
-        _resetQueueArtworkFlight();
-        return;
-      }
-    }
-    if (mounted && request == _queueArtworkFlightGeneration) {
-      setState(() => _queueArtworkFlightReady = true);
-    }
-  }
-
   Duration _motionDuration(BuildContext context) {
     return MediaQuery.of(context).disableAnimations
         ? Duration.zero
         : const Duration(milliseconds: 260);
-  }
-
-  bool _shouldEnableMainArtworkHero({required bool isWide}) {
-    if (_directQueueEntry ||
-        _queueTransitionActive ||
-        _rightPane == PlayerRightPane.queue) {
-      return false;
-    }
-    if (isWide) {
-      return _leftPane == PlayerLeftPane.cover &&
-          _rightPane == PlayerRightPane.controls;
-    }
-    return _compactPage == 1;
   }
 
   PlayerDismissVisualMode get _currentPlayerDismissVisualMode {
@@ -1879,8 +1626,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     if (_lastWasWide == true) {
       if (_rightPane == PlayerRightPane.queue) return;
       _semanticTransitionGeneration++;
-      _captureQueueOrigin(compactOriginPage: compactOriginPage);
-      unawaited(_settleWideQueue(open: true));
+      _activateQueueState(compactOriginPage: compactOriginPage);
       return;
     }
     if (_rightPane == PlayerRightPane.queue &&
@@ -1927,7 +1673,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     if (_lastWasWide == true) {
       if (_rightPane != PlayerRightPane.queue) return;
       _semanticTransitionGeneration++;
-      unawaited(_settleWideQueue(open: false));
+      _restoreQueueState();
       return;
     }
     if (_compactQueueTransitionController.value <= 0 &&
@@ -1939,41 +1685,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       open: false,
       restoreOnClose: _rightPane == PlayerRightPane.queue,
     );
-  }
-
-  Future<void> _settleWideQueue({required bool open}) async {
-    if (!mounted || _lastWasWide != true || _directQueueEntry) return;
-    final request = ++_queueTransitionGeneration;
-    _compactQueueTransitionController.stop();
-    _compactQueueTransitionController.value = open ? 0 : 1;
-    _configureQueueArtworkFlight(isWide: true);
-    setState(() {
-      _queueTransitionActive = true;
-      if (open) _rightPane = PlayerRightPane.queue;
-    });
-    _schedulePlayerDismissModeSync();
-    await _prepareQueueArtworkFlightGeometry();
-    if (!mounted || request != _queueTransitionGeneration) return;
-    final hasFlight = _queueArtworkFlightEnabled && _queueArtworkFlightReady;
-    if (hasFlight) {
-      try {
-        await _compactQueueTransitionController.animateTo(
-          open ? 1 : 0,
-          duration: const Duration(milliseconds: 260),
-          curve: Curves.easeOutCubic,
-        );
-      } catch (_) {
-        return;
-      }
-    }
-    if (!mounted || request != _queueTransitionGeneration) return;
-    _resetQueueArtworkFlight();
-    if (open) {
-      setState(() => _queueTransitionActive = false);
-    } else {
-      _restoreQueueState();
-      if (mounted) setState(() => _queueTransitionActive = false);
-    }
   }
 
   void _restoreQueueState() {
@@ -2022,10 +1733,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     final request = ++_queueTransitionGeneration;
     _queueDragActive = false;
     _compactQueueTransitionController.stop();
-    _configureQueueArtworkFlight(
-      isWide: false,
-      compactOriginPage: _queueReturnState?.compactPage ?? _compactPage,
-    );
     if (!_queueTransitionActive) {
       setState(() => _queueTransitionActive = true);
     }
@@ -2038,8 +1745,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
 
     unawaited(() async {
       try {
-        await _prepareQueueArtworkFlightGeometry();
-        if (!mounted || request != _queueTransitionGeneration) return;
         if (duration == Duration.zero) {
           _compactQueueTransitionController.value = target;
         } else {
@@ -2053,7 +1758,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         return;
       }
       if (!mounted || request != _queueTransitionGeneration) return;
-      _resetQueueArtworkFlight();
       if (open) {
         _activateQueueState();
       } else if (restoreOnClose || _rightPane == PlayerRightPane.queue) {
@@ -2100,17 +1804,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     _semanticTransitionGeneration++;
     _queueTransitionGeneration++;
     _compactQueueTransitionController.stop();
-    _configureQueueArtworkFlight(
-      isWide: false,
-      compactOriginPage: compactOriginPage,
-    );
     _queueDragActive = true;
     _queueDragOpening = true;
     _queueDragStartValue = _compactQueueTransitionController.value;
     if (!_queueTransitionActive) {
       setState(() => _queueTransitionActive = true);
     }
-    unawaited(_prepareQueueArtworkFlightGeometry());
   }
 
   void _beginQueueCloseDrag() {
@@ -2123,17 +1822,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     _semanticTransitionGeneration++;
     _queueTransitionGeneration++;
     _compactQueueTransitionController.stop();
-    _configureQueueArtworkFlight(
-      isWide: false,
-      compactOriginPage: _queueReturnState?.compactPage ?? _compactPage,
-    );
     _queueDragActive = true;
     _queueDragOpening = false;
     _queueDragStartValue = _compactQueueTransitionController.value;
     if (!_queueTransitionActive) {
       setState(() => _queueTransitionActive = true);
     }
-    unawaited(_prepareQueueArtworkFlightGeometry());
   }
 
   void _updateQueueEdgeDrag(double distance, {required bool opening}) {

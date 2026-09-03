@@ -154,11 +154,6 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
               !MediaQuery.disableAnimationsOf(context),
           artworkBuilder: (context) =>
               _buildArtworkImage(context, track, workCoverUrl: workCoverUrl),
-          artworkFlightBuilder: (context) => PlayerCompactArtwork(
-            track: track,
-            url: workCoverUrl ?? track.artworkUrl,
-            forFlight: true,
-          ),
           prepareArtworkTarget: _prepareArtworkTarget,
           restoreArtworkTarget: _restoreArtworkTarget,
           onInteractiveArtworkVisibilityChanged: (hidden) {
@@ -369,12 +364,6 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
       target: _artworkFlightTarget,
       cornerRadius: PlayerCompactArtwork.cornerRadius,
       enabled: widget.enableArtworkHero,
-      keepPlaceholderVisible: true,
-      flightChild: PlayerCompactArtwork(
-        track: track,
-        url: workCoverUrl ?? track.artworkUrl,
-        forFlight: true,
-      ),
       child: image,
     );
     return KeyedSubtree(
@@ -738,7 +727,6 @@ class _MiniPlayerUpwardLauncher extends StatefulWidget {
     required this.createConfiguration,
     required this.artworkRect,
     required this.artworkBuilder,
-    required this.artworkFlightBuilder,
     required this.artworkHeroEnabled,
     required this.prepareArtworkTarget,
     required this.restoreArtworkTarget,
@@ -750,7 +738,6 @@ class _MiniPlayerUpwardLauncher extends StatefulWidget {
   final AudioPlayerOpenConfiguration Function() createConfiguration;
   final Rect? Function() artworkRect;
   final WidgetBuilder artworkBuilder;
-  final WidgetBuilder artworkFlightBuilder;
   final bool artworkHeroEnabled;
   final Future<void> Function(PlayerInitialSurface surface)
   prepareArtworkTarget;
@@ -929,7 +916,6 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher>
       configuration: configuration,
       artworkRect: widget.artworkRect(),
       artworkBuilder: widget.artworkBuilder,
-      artworkFlightBuilder: widget.artworkFlightBuilder,
       artworkTrackId: widget.sessionIdentity.toString(),
       artworkHeroEnabled: widget.artworkHeroEnabled,
       onArtworkVisibilityChanged: widget.onInteractiveArtworkVisibilityChanged,
@@ -1000,7 +986,6 @@ class _InteractivePlayerOpenSession {
     required this.configuration,
     required this.artworkRect,
     required this.artworkBuilder,
-    required this.artworkFlightBuilder,
     required this.artworkTrackId,
     required this.artworkHeroEnabled,
     required this.onArtworkVisibilityChanged,
@@ -1012,7 +997,6 @@ class _InteractivePlayerOpenSession {
   final AudioPlayerOpenConfiguration configuration;
   final Rect? artworkRect;
   final WidgetBuilder artworkBuilder;
-  final WidgetBuilder artworkFlightBuilder;
   final String artworkTrackId;
   final bool artworkHeroEnabled;
   final ValueChanged<bool> onArtworkVisibilityChanged;
@@ -1020,7 +1004,6 @@ class _InteractivePlayerOpenSession {
 
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   final Completer<void> _routeReady = Completer<void>();
-  final Completer<void> _heroFlightReady = Completer<void>();
   late final HeroController _heroController = HeroController(
     createRectTween: createPlayerArtworkRectTween,
   );
@@ -1055,14 +1038,8 @@ class _InteractivePlayerOpenSession {
                     _InteractivePlayerHeroSource(
                       artworkRect: artworkRect,
                       artworkBuilder: artworkBuilder,
-                      artworkFlightBuilder: artworkFlightBuilder,
                       artworkTrackId: artworkTrackId,
                       artworkHeroEnabled: artworkHeroEnabled,
-                      onArtworkFlightStarted: () {
-                        if (!_heroFlightReady.isCompleted) {
-                          _heroFlightReady.complete();
-                        }
-                      },
                     ),
               ),
             ],
@@ -1078,7 +1055,7 @@ class _InteractivePlayerOpenSession {
       abort();
       return;
     }
-    final route = configuration.createRoute(interactiveOpen: true);
+    final route = configuration.createRoute();
     _route = route;
     if (artworkHeroEnabled) onArtworkVisibilityChanged(true);
     unawaited(navigator.push<void>(route));
@@ -1086,11 +1063,6 @@ class _InteractivePlayerOpenSession {
       abort();
       return;
     }
-    // HeroController must pair source and target at value zero before the
-    // pointer takes over the route controller. The shuttle callback is the
-    // deterministic hand-off point; fixed frame delays race on slower devices.
-    if (artworkHeroEnabled) await _heroFlightReady.future;
-    if (_disposed) return;
     route.updateVerticalOpenGesture(distance: _distance, extent: _extent);
     if (!_routeReady.isCompleted) _routeReady.complete();
   }
@@ -1099,9 +1071,7 @@ class _InteractivePlayerOpenSession {
     if (_disposed || _settling) return;
     _distance = distance.clamp(0.0, extent);
     _extent = extent.clamp(1, double.infinity);
-    if (!artworkHeroEnabled || _heroFlightReady.isCompleted) {
-      _route?.updateVerticalOpenGesture(distance: _distance, extent: _extent);
-    }
+    _route?.updateVerticalOpenGesture(distance: _distance, extent: _extent);
   }
 
   Future<bool> finish({required double velocity, required double extent}) {
@@ -1154,7 +1124,6 @@ class _InteractivePlayerOpenSession {
     if (_disposed) return;
     _disposed = true;
     if (!_routeReady.isCompleted) _routeReady.complete();
-    if (!_heroFlightReady.isCompleted) _heroFlightReady.complete();
     _entry?.remove();
     _entry = null;
     onArtworkVisibilityChanged(false);
@@ -1173,18 +1142,14 @@ class _InteractivePlayerHeroSource extends StatelessWidget {
   const _InteractivePlayerHeroSource({
     required this.artworkRect,
     required this.artworkBuilder,
-    required this.artworkFlightBuilder,
     required this.artworkTrackId,
     required this.artworkHeroEnabled,
-    required this.onArtworkFlightStarted,
   });
 
   final Rect? artworkRect;
   final WidgetBuilder artworkBuilder;
-  final WidgetBuilder artworkFlightBuilder;
   final String artworkTrackId;
   final bool artworkHeroEnabled;
-  final VoidCallback onArtworkFlightStarted;
 
   @override
   Widget build(BuildContext context) {
@@ -1203,9 +1168,6 @@ class _InteractivePlayerHeroSource extends StatelessWidget {
               target: PlayerArtworkFlightTarget.main,
               cornerRadius: PlayerCompactArtwork.cornerRadius,
               enabled: artworkHeroEnabled,
-              keepPlaceholderVisible: true,
-              onFlightStarted: onArtworkFlightStarted,
-              flightChild: artworkFlightBuilder(context),
               child: artworkBuilder(context),
             ),
           ),

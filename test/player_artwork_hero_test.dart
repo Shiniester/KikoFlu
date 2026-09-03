@@ -10,39 +10,6 @@ const _track = AudioTrack(
 );
 
 void main() {
-  test('boundary mapping holds compact artwork until the route reaches it', () {
-    const mini = Rect.fromLTWH(16, 760, 64, 48);
-    const main = Rect.fromLTWH(35, 120, 320, 240);
-
-    expect(
-      playerArtworkBoundaryProgress(
-        progress: 0.05,
-        begin: mini,
-        end: main,
-        viewportHeight: 844,
-      ),
-      0,
-    );
-    expect(
-      playerArtworkBoundaryProgress(
-        progress: 1,
-        begin: mini,
-        end: main,
-        viewportHeight: 844,
-      ),
-      1,
-    );
-    expect(
-      playerArtworkBoundaryProgress(
-        progress: 0.05,
-        begin: main,
-        end: mini,
-        viewportHeight: 844,
-      ),
-      greaterThan(0),
-    );
-  });
-
   testWidgets('compact artwork and queue target share exact geometry', (
     tester,
   ) async {
@@ -98,40 +65,17 @@ void main() {
 
     final heroes = find.byType(Hero).evaluate().toList(growable: false);
     final from = heroes.first.widget as Hero;
-    BorderRadius pushRadius(double progress) {
-      final shuttle =
-          from.flightShuttleBuilder!(
-                heroes.first,
-                AlwaysStoppedAnimation<double>(progress),
-                HeroFlightDirection.push,
-                heroes.first,
-                heroes.last,
-              )
-              as AnimatedBuilder;
-      final viewport = shuttle.builder(heroes.first, shuttle.child) as ClipRect;
-      return (viewport.child! as ClipRRect).borderRadius as BorderRadius;
-    }
-
-    BorderRadius popRadius(double routeProgress) {
-      final shuttle =
-          from.flightShuttleBuilder!(
-                heroes.first,
-                AlwaysStoppedAnimation<double>(routeProgress),
-                HeroFlightDirection.pop,
-                heroes.last,
-                heroes.first,
-              )
-              as AnimatedBuilder;
-      final viewport = shuttle.builder(heroes.first, shuttle.child) as ClipRect;
-      return (viewport.child! as ClipRRect).borderRadius as BorderRadius;
-    }
-
-    expect(pushRadius(0), BorderRadius.circular(10));
-    expect(pushRadius(0.5), BorderRadius.circular(12));
-    expect(pushRadius(1), BorderRadius.circular(14));
-    expect(popRadius(1), BorderRadius.circular(14));
-    expect(popRadius(0.5), BorderRadius.circular(12));
-    expect(popRadius(0), BorderRadius.circular(10));
+    final shuttle =
+        from.flightShuttleBuilder!(
+              heroes.first,
+              const AlwaysStoppedAnimation<double>(0.5),
+              HeroFlightDirection.push,
+              heroes.first,
+              heroes.last,
+            )
+            as AnimatedBuilder;
+    final clip = shuttle.builder(heroes.first, shuttle.child) as ClipRRect;
+    expect(clip.borderRadius, BorderRadius.circular(12));
   });
 
   testWidgets('none target does not create an offscreen Hero', (tester) async {

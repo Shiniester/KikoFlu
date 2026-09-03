@@ -4,14 +4,6 @@ enum PlayerInitialSurface { main, queue }
 
 enum PlayerDismissVisualMode { main, queue, secondary }
 
-/// Exposes the exact visual progress used by the player route so artwork
-/// flights never run on a separate easing curve.
-abstract interface class PlayerArtworkMotionRoute {
-  double get playerVisualProgress;
-
-  bool get playerArtworkUsesRawProgress;
-}
-
 /// Implemented by the player route so in-page drag regions can drive the
 /// route without introducing a circular dependency between the route and the
 /// player screen.
