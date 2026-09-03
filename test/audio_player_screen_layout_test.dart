@@ -21,6 +21,7 @@ import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_action_icons.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_controls_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
@@ -658,7 +659,7 @@ void main() {
     );
     expect(progressTheme.data.padding, EdgeInsets.zero);
     expect(progressTheme.data.trackHeight, 2);
-    expect(progressTheme.data.trackShape, isA<RoundedRectSliderTrackShape>());
+    expect(progressTheme.data.trackShape, isA<PlayerUniformSliderTrackShape>());
     final thumbShape = progressTheme.data.thumbShape as RoundSliderThumbShape;
     expect(thumbShape.enabledThumbRadius, 4);
 
@@ -671,6 +672,48 @@ void main() {
         .getSize(find.byKey(const ValueKey('compact-audio-details-pane')))
         .width;
     expect(detailsWidth, closeTo(size.width, 0.01));
+  });
+
+  testWidgets('progress drag claims a larger target before horizontal paging', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(390, 844));
+
+    final gestureTarget = find.byKey(
+      const ValueKey('player-progress-gesture-target'),
+    );
+    final targetRect = tester.getRect(gestureTarget);
+    expect(targetRect.height, 32);
+
+    final pageView = tester.widget<PageView>(
+      find.byKey(const ValueKey('compact-player-pages')),
+    );
+    final gesture = await tester.startGesture(
+      Offset(targetRect.left + targetRect.width * 0.2, targetRect.top + 2),
+    );
+    await tester.pump();
+    await gesture.moveBy(Offset(targetRect.width * 0.55, 0));
+    await tester.pump();
+
+    expect(pageView.controller!.page, closeTo(1, 0.001));
+    expect(
+      tester
+          .widget<Slider>(find.byKey(const ValueKey('player-progress-slider')))
+          .value,
+      greaterThan(0.6),
+    );
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(pageView.controller!.page, closeTo(1, 0.001));
+
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(320, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(pageView.controller!.page, closeTo(0, 0.001));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('compact header and five bottom actions align to artwork', (

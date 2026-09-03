@@ -24,6 +24,7 @@ class PlayerControlsWidget extends ConsumerStatefulWidget {
   final double seekValue;
   final ValueChanged<double> onSeekChanged;
   final ValueChanged<double> onSeekEnd;
+  final ValueChanged<bool>? onSeekInteractionChanged;
   final Duration? seekingPosition;
   final int? workId;
   final String? currentProgress;
@@ -43,6 +44,7 @@ class PlayerControlsWidget extends ConsumerStatefulWidget {
     required this.seekValue,
     required this.onSeekChanged,
     required this.onSeekEnd,
+    this.onSeekInteractionChanged,
     this.seekingPosition,
     this.workId,
     this.currentProgress,
@@ -642,6 +644,7 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
           seekValue: widget.seekValue,
           onSeekChanged: widget.onSeekChanged,
           onSeekEnd: widget.onSeekEnd,
+          onInteractionChanged: widget.onSeekInteractionChanged,
           debugOnBuild: widget.debugOnProgressBuild,
         ),
         SizedBox(height: widget.isLandscape ? 18 : 10),
@@ -787,6 +790,7 @@ class PlayerProgressSection extends ConsumerWidget {
     required this.seekValue,
     required this.onSeekChanged,
     required this.onSeekEnd,
+    this.onInteractionChanged,
     this.debugOnBuild,
   });
 
@@ -794,6 +798,7 @@ class PlayerProgressSection extends ConsumerWidget {
   final double seekValue;
   final ValueChanged<double> onSeekChanged;
   final ValueChanged<double> onSeekEnd;
+  final ValueChanged<bool>? onInteractionChanged;
   final VoidCallback? debugOnBuild;
 
   @override
@@ -808,29 +813,40 @@ class PlayerProgressSection extends ConsumerWidget {
     return RepaintBoundary(
       child: Column(
         children: [
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              inactiveTrackColor: Theme.of(
-                context,
-              ).colorScheme.onSurfaceVariant.withValues(alpha: 0.15),
-              trackHeight: 2,
-              trackShape: const RoundedRectSliderTrackShape(),
-              thumbShape: const RoundSliderThumbShape(
-                enabledThumbRadius: 4,
-                disabledThumbRadius: 4,
+          Listener(
+            key: const ValueKey('player-progress-gesture-target'),
+            behavior: HitTestBehavior.opaque,
+            onPointerDown: (_) => onInteractionChanged?.call(true),
+            onPointerUp: (_) => onInteractionChanged?.call(false),
+            onPointerCancel: (_) => onInteractionChanged?.call(false),
+            child: SizedBox(
+              height: 32,
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  inactiveTrackColor: Theme.of(
+                    context,
+                  ).colorScheme.onSurfaceVariant.withValues(alpha: 0.15),
+                  trackHeight: 2,
+                  trackShape: const PlayerUniformSliderTrackShape(),
+                  thumbShape: const RoundSliderThumbShape(
+                    enabledThumbRadius: 4,
+                    disabledThumbRadius: 4,
+                  ),
+                  padding: EdgeInsets.zero,
+                ),
+                child: Slider(
+                  key: const ValueKey('player-progress-slider'),
+                  value:
+                      (isSeekingManually
+                              ? seekValue
+                              : dur.inMilliseconds > 0
+                              ? pos.inMilliseconds / dur.inMilliseconds
+                              : 0.0)
+                          .clamp(0.0, 1.0),
+                  onChanged: onSeekChanged,
+                  onChangeEnd: onSeekEnd,
+                ),
               ),
-              padding: EdgeInsets.zero,
-            ),
-            child: Slider(
-              value:
-                  (isSeekingManually
-                          ? seekValue
-                          : dur.inMilliseconds > 0
-                          ? pos.inMilliseconds / dur.inMilliseconds
-                          : 0.0)
-                      .clamp(0.0, 1.0),
-              onChanged: onSeekChanged,
-              onChangeEnd: onSeekEnd,
             ),
           ),
           Padding(
@@ -851,6 +867,66 @@ class PlayerProgressSection extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Keeps both slider track segments at [SliderThemeData.trackHeight].
+///
+/// Flutter's stock rounded track adds two logical pixels to the active
+/// segment. Delegating with a zero adjustment preserves the same rounded
+/// geometry while making the active and inactive segments equally thick.
+class PlayerUniformSliderTrackShape extends SliderTrackShape {
+  const PlayerUniformSliderTrackShape();
+
+  static const RoundedRectSliderTrackShape _delegate =
+      RoundedRectSliderTrackShape();
+
+  @override
+  bool get isRounded => true;
+
+  @override
+  Rect getPreferredRect({
+    required RenderBox parentBox,
+    Offset offset = Offset.zero,
+    required SliderThemeData sliderTheme,
+    bool isEnabled = false,
+    bool isDiscrete = false,
+  }) {
+    return _delegate.getPreferredRect(
+      parentBox: parentBox,
+      offset: offset,
+      sliderTheme: sliderTheme,
+      isEnabled: isEnabled,
+      isDiscrete: isDiscrete,
+    );
+  }
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset offset, {
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required Animation<double> enableAnimation,
+    required Offset thumbCenter,
+    Offset? secondaryOffset,
+    bool isEnabled = false,
+    bool isDiscrete = false,
+    required TextDirection textDirection,
+  }) {
+    _delegate.paint(
+      context,
+      offset,
+      parentBox: parentBox,
+      sliderTheme: sliderTheme,
+      enableAnimation: enableAnimation,
+      thumbCenter: thumbCenter,
+      secondaryOffset: secondaryOffset,
+      isEnabled: isEnabled,
+      isDiscrete: isDiscrete,
+      textDirection: textDirection,
+      additionalActiveTrackHeight: 0,
     );
   }
 }

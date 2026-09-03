@@ -118,6 +118,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   PlayerInteractiveDismissRoute? _playerRouteForModeSync;
   int _routeDismissModeSyncGeneration = 0;
   final ValueNotifier<int> _semanticPageRevision = ValueNotifier<int>(0);
+  final ValueNotifier<bool> _progressGestureActive = ValueNotifier<bool>(false);
 
   // 全屏锁定状态
   bool _isLyricLocked = false;
@@ -194,6 +195,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     _routePaletteTimer?.cancel();
     _unlockButtonTimer?.cancel();
     _semanticPageRevision.dispose();
+    _progressGestureActive.dispose();
     _semanticTransitionGeneration++;
     _queueTransitionGeneration++;
     _routeDismissModeSyncGeneration++;
@@ -858,54 +860,60 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
               Expanded(
                 child: Directionality(
                   textDirection: TextDirection.ltr,
-                  child: PageView(
-                    key: const ValueKey('compact-player-pages'),
-                    controller: _compactPageController,
-                    allowImplicitScrolling: true,
-                    onPageChanged: _onCompactPageChanged,
-                    children: [
-                      _PlayerPageBoundary(
-                        key: const ValueKey('compact-details-page-boundary'),
-                        child: Center(
-                          child: SizedBox(
-                            width: sharedWidth,
-                            height: double.infinity,
-                            child: ValueListenableBuilder<int>(
-                              valueListenable: _semanticPageRevision,
-                              builder: (context, _, __) =>
-                                  PlayerAudioDetailsPanel(
-                                    key: const ValueKey(
-                                      'compact-audio-details-pane',
+                  child: ValueListenableBuilder<bool>(
+                    valueListenable: _progressGestureActive,
+                    builder: (context, progressGestureActive, _) => PageView(
+                      key: const ValueKey('compact-player-pages'),
+                      controller: _compactPageController,
+                      physics: progressGestureActive
+                          ? const NeverScrollableScrollPhysics()
+                          : null,
+                      allowImplicitScrolling: true,
+                      onPageChanged: _onCompactPageChanged,
+                      children: [
+                        _PlayerPageBoundary(
+                          key: const ValueKey('compact-details-page-boundary'),
+                          child: Center(
+                            child: SizedBox(
+                              width: sharedWidth,
+                              height: double.infinity,
+                              child: ValueListenableBuilder<int>(
+                                valueListenable: _semanticPageRevision,
+                                builder: (context, _, __) =>
+                                    PlayerAudioDetailsPanel(
+                                      key: const ValueKey(
+                                        'compact-audio-details-pane',
+                                      ),
+                                      onOpenWork: _openKnownWork,
+                                      isActive:
+                                          !_isLyricLocked &&
+                                          !_queueTransitionActive &&
+                                          _compactPage == 0 &&
+                                          _rightPane != PlayerRightPane.queue,
+                                      onShowQueue: () =>
+                                          _showQueue(compactOriginPage: 0),
+                                      showQueueDrag: _queueOpenDragCallbacks(0),
                                     ),
-                                    onOpenWork: _openKnownWork,
-                                    isActive:
-                                        !_isLyricLocked &&
-                                        !_queueTransitionActive &&
-                                        _compactPage == 0 &&
-                                        _rightPane != PlayerRightPane.queue,
-                                    onShowQueue: () =>
-                                        _showQueue(compactOriginPage: 0),
-                                    showQueueDrag: _queueOpenDragCallbacks(0),
-                                  ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      _PlayerPageBoundary(
-                        key: const ValueKey('compact-main-page-boundary'),
-                        child: _buildCompactMain(
-                          context,
-                          track: track,
-                          coverUrl: coverUrl,
-                          sharedWidth: sharedWidth,
-                          dismissDrag: mainBodyDismissDrag,
+                        _PlayerPageBoundary(
+                          key: const ValueKey('compact-main-page-boundary'),
+                          child: _buildCompactMain(
+                            context,
+                            track: track,
+                            coverUrl: coverUrl,
+                            sharedWidth: sharedWidth,
+                            dismissDrag: mainBodyDismissDrag,
+                          ),
                         ),
-                      ),
-                      _PlayerPageBoundary(
-                        key: const ValueKey('compact-lyrics-page-boundary'),
-                        child: _buildLyricsPane(context, isWide: false),
-                      ),
-                    ],
+                        _PlayerPageBoundary(
+                          key: const ValueKey('compact-lyrics-page-boundary'),
+                          child: _buildLyricsPane(context, isWide: false),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1188,6 +1196,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       seekValue: _seekValue,
       onSeekChanged: _handleSeekChanged,
       onSeekEnd: _handleSeekEnd,
+      onSeekInteractionChanged: _setProgressGestureActive,
       seekingPosition: _seekingPosition,
       workId: track.workId,
       currentProgress: _currentProgress,
@@ -1297,6 +1306,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         ),
       ],
     );
+  }
+
+  void _setProgressGestureActive(bool active) {
+    if (_progressGestureActive.value == active) return;
+    _progressGestureActive.value = active;
   }
 
   Widget _buildLyricsPane(BuildContext context, {required bool isWide}) {
