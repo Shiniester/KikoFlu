@@ -43,67 +43,54 @@ class PlayerInfoPanel extends ConsumerWidget {
     final config = isDesktop
         ? ref.watch(playerButtonsConfigDesktopProvider)
         : ref.watch(playerButtonsConfigMobileProvider);
-    final overflow = config.getMoreButtons(slotCount: visibleActionCount);
+    final overflow = config
+        .getMoreButtons(slotCount: visibleActionCount)
+        .where((action) => action != PlayerButtonType.detail)
+        .toList(growable: false);
     final keepAwake = ref.watch(keepScreenAwakeProvider);
     return RepaintBoundary(
       child: ListView(
         key: const PageStorageKey('player-info-panel'),
         padding: const EdgeInsets.all(12),
         children: [
-          LayoutBuilder(
-            builder: (context, constraints) {
-              const spacing = 8.0;
-              final cardWidth = (constraints.maxWidth - spacing) / 2;
-              return Wrap(
-                spacing: spacing,
-                runSpacing: spacing,
-                children: [
-                  SizedBox(
-                    width: cardWidth,
-                    child: _InfoToggleCard(
-                      key: const ValueKey('player-more-keep-awake-card'),
-                      icon: keepAwake
-                          ? Icons.light_mode
-                          : Icons.light_mode_outlined,
-                      label: S.of(context).keepScreenAwake,
-                      value: keepAwake,
-                      onChanged: (value) => ref
-                          .read(keepScreenAwakeProvider.notifier)
-                          .setEnabled(value),
-                    ),
-                  ),
-                  SizedBox(
-                    width: cardWidth,
-                    child: _InfoActionCard(
-                      key: const ValueKey('player-more-fullscreen-card'),
-                      icon: Icons.fullscreen,
-                      label: S.of(context).fullscreenLyrics,
-                      onTap: onImmersiveLyrics,
-                    ),
-                  ),
-                  SizedBox(
-                    width: cardWidth,
-                    child: _InfoActionCard(
-                      key: const ValueKey('player-more-lyric-settings-card'),
-                      icon: Icons.text_fields,
-                      label: S.of(context).playerLyricViewSettings,
-                      onTap: onLyricSettings,
-                    ),
-                  ),
-                ],
-              );
-            },
+          PlayerOverflowActionsGrid(
+            actions: overflow,
+            leadingCards: [
+              _InfoToggleCard(
+                key: const ValueKey('player-more-keep-awake-card'),
+                icon: keepAwake ? Icons.light_mode : Icons.light_mode_outlined,
+                label: S.of(context).keepScreenAwake,
+                value: keepAwake,
+                onChanged: (value) => ref
+                    .read(keepScreenAwakeProvider.notifier)
+                    .setEnabled(value),
+              ),
+              _InfoActionCard(
+                key: const ValueKey('player-more-fullscreen-card'),
+                icon: Icons.fullscreen,
+                label: S.of(context).fullscreenLyrics,
+                onTap: onImmersiveLyrics,
+              ),
+            ],
+            trailingCards: [
+              _InfoActionCard(
+                key: const ValueKey('player-more-lyric-settings-card'),
+                icon: Icons.text_fields,
+                label: S.of(context).playerLyricViewSettings,
+                onTap: onLyricSettings,
+              ),
+              _InfoActionCard(
+                key: const ValueKey('player-more-action-detail'),
+                icon: Icons.info_outline,
+                label: S.of(context).viewDetail,
+                onTap: onDetailPressed,
+              ),
+            ],
+            currentProgress: currentProgress,
+            onMarkPressed: onMarkPressed,
+            onDetailPressed: onDetailPressed,
+            onQueuePressed: onQueuePressed,
           ),
-          if (overflow.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            PlayerOverflowActionsGrid(
-              actions: overflow,
-              currentProgress: currentProgress,
-              onMarkPressed: onMarkPressed,
-              onDetailPressed: onDetailPressed,
-              onQueuePressed: onQueuePressed,
-            ),
-          ],
         ],
       ),
     );
@@ -114,6 +101,8 @@ class PlayerOverflowActionsGrid extends ConsumerWidget {
   const PlayerOverflowActionsGrid({
     super.key,
     required this.actions,
+    this.leadingCards = const [],
+    this.trailingCards = const [],
     required this.currentProgress,
     required this.onMarkPressed,
     required this.onDetailPressed,
@@ -121,6 +110,8 @@ class PlayerOverflowActionsGrid extends ConsumerWidget {
   });
 
   final List<PlayerButtonType> actions;
+  final List<Widget> leadingCards;
+  final List<Widget> trailingCards;
   final String? currentProgress;
   final VoidCallback? onMarkPressed;
   final VoidCallback? onDetailPressed;
@@ -139,28 +130,38 @@ class PlayerOverflowActionsGrid extends ConsumerWidget {
         const spacing = 8.0;
         final width =
             (constraints.maxWidth - (columns - 1) * spacing) / columns;
+        final cardsBeforePinned = <Widget>[
+          ...leadingCards,
+          for (final action in actions)
+            _PlayerOverflowAction(
+              action: action,
+              audioState: audioState,
+              timelineOffset: lyricState.timelineOffset,
+              timerActive: timerState.isActive,
+              timerLabel: timerState.isActive ? timerState.formattedTime : null,
+              floatingLyric: floatingLyric,
+              currentProgress: currentProgress,
+              onMarkPressed: onMarkPressed,
+              onDetailPressed: onDetailPressed,
+              onQueuePressed: onQueuePressed,
+            ),
+        ];
+        final spanningCardIndex = cardsBeforePinned.length.isOdd
+            ? cardsBeforePinned.length - 1
+            : -1;
         return Wrap(
           spacing: spacing,
           runSpacing: spacing,
           children: [
-            for (final action in actions)
+            for (var index = 0; index < cardsBeforePinned.length; index++)
               SizedBox(
-                width: width,
-                child: _PlayerOverflowAction(
-                  action: action,
-                  audioState: audioState,
-                  timelineOffset: lyricState.timelineOffset,
-                  timerActive: timerState.isActive,
-                  timerLabel: timerState.isActive
-                      ? timerState.formattedTime
-                      : null,
-                  floatingLyric: floatingLyric,
-                  currentProgress: currentProgress,
-                  onMarkPressed: onMarkPressed,
-                  onDetailPressed: onDetailPressed,
-                  onQueuePressed: onQueuePressed,
-                ),
+                width: index == spanningCardIndex
+                    ? constraints.maxWidth
+                    : width,
+                child: cardsBeforePinned[index],
               ),
+            for (final card in trailingCards)
+              SizedBox(width: width, child: card),
           ],
         );
       },
@@ -457,21 +458,26 @@ class _InfoActionCard extends StatelessWidget {
 
   final IconData icon;
   final String label;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    final disabledColor = Theme.of(
+      context,
+    ).colorScheme.onSurface.withValues(alpha: 0.38);
     return SizedBox(
       height: 72,
       child: Semantics(
         button: true,
+        enabled: enabled,
         child: PlayerGlassMaterial(
           borderRadius: BorderRadius.circular(12),
           onTap: onTap,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           child: Row(
             children: [
-              Icon(icon, size: 22),
+              Icon(icon, size: 22, color: enabled ? null : disabledColor),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -482,6 +488,7 @@ class _InfoActionCard extends StatelessWidget {
                     fontSize: 13,
                     height: 1.08,
                     fontWeight: FontWeight.w600,
+                    color: enabled ? null : disabledColor,
                   ),
                 ),
               ),

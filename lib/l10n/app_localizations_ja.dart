@@ -1032,6 +1032,12 @@ class SJa extends S {
   String get keepScreenAwakeDesc => '再生中は画面を点灯';
 
   @override
+  String get hideStatusBar => 'ステータスバーを非表示';
+
+  @override
+  String get hideStatusBarDesc => 'ナビゲーションバーを残して上部のステータスバーを非表示にします';
+
+  @override
   String get audioHaptics => 'オーディオ触覚フィードバック(Beta)';
 
   @override

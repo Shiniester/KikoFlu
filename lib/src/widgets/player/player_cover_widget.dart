@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/audio_track.dart';
 import '../../utils/local_file_url.dart';
 import '../privacy_blur_cover.dart';
+import 'player_vertical_gestures.dart';
 
 Tween<Rect?> createPlayerArtworkRectTween(Rect? begin, Rect? end) =>
     RectTween(begin: begin, end: end);
@@ -23,6 +24,8 @@ class PlayerArtworkHero extends StatelessWidget {
     required this.cornerRadius,
     required this.child,
     this.enabled = true,
+    this.flightChild,
+    this.keepPlaceholderVisible = false,
   });
 
   final String trackId;
@@ -30,6 +33,8 @@ class PlayerArtworkHero extends StatelessWidget {
   final double cornerRadius;
   final Widget child;
   final bool enabled;
+  final Widget? flightChild;
+  final bool keepPlaceholderVisible;
 
   @override
   Widget build(BuildContext context) {
@@ -38,26 +43,65 @@ class PlayerArtworkHero extends StatelessWidget {
         MediaQuery.disableAnimationsOf(context)) {
       return child;
     }
+    final modalRoute = ModalRoute.of(context);
+    final PlayerArtworkMotionRoute? motionRoute =
+        modalRoute is PlayerArtworkMotionRoute
+        ? modalRoute as PlayerArtworkMotionRoute
+        : null;
     return Hero(
       tag: playerArtworkHeroTag(trackId, target),
       createRectTween: createPlayerArtworkRectTween,
       transitionOnUserGestures: true,
+      curve: _PlayerArtworkRouteCurve(
+        motionRoute: motionRoute,
+        settledCurve: Curves.easeOutCubic,
+      ),
+      reverseCurve: _PlayerArtworkRouteCurve(
+        motionRoute: motionRoute,
+        settledCurve: Curves.easeInCubic,
+      ),
       flightShuttleBuilder: _playerArtworkFlightShuttle,
+      placeholderBuilder: keepPlaceholderVisible
+          ? (context, size, heroChild) =>
+                SizedBox.fromSize(size: size, child: heroChild)
+          : null,
       child: _PlayerArtworkHeroPayload(
         cornerRadius: cornerRadius,
+        flightChild: flightChild ?? child,
+        motionRoute: motionRoute,
         child: child,
       ),
     );
   }
 }
 
+class _PlayerArtworkRouteCurve extends Curve {
+  const _PlayerArtworkRouteCurve({
+    required this.motionRoute,
+    required this.settledCurve,
+  });
+
+  final PlayerArtworkMotionRoute? motionRoute;
+  final Curve settledCurve;
+
+  @override
+  double transformInternal(double t) {
+    if (motionRoute?.playerArtworkUsesRawProgress == true) return t;
+    return settledCurve.transform(t);
+  }
+}
+
 class _PlayerArtworkHeroPayload extends StatelessWidget {
   const _PlayerArtworkHeroPayload({
     required this.cornerRadius,
+    required this.flightChild,
+    required this.motionRoute,
     required this.child,
   });
 
   final double cornerRadius;
+  final Widget flightChild;
+  final PlayerArtworkMotionRoute? motionRoute;
   final Widget child;
 
   @override
@@ -75,23 +119,73 @@ Widget _playerArtworkFlightShuttle(
   final toHero = toHeroContext.widget as Hero;
   final from = fromHero.child as _PlayerArtworkHeroPayload;
   final to = toHero.child as _PlayerArtworkHeroPayload;
-  final stableChild = direction == HeroFlightDirection.push
-      ? to.child
-      : from.child;
+  final stableChild = from.flightChild;
+  final motionRoute = direction == HeroFlightDirection.push
+      ? to.motionRoute
+      : from.motionRoute;
+  final viewportHeight = MediaQuery.sizeOf(flightContext).height;
+  final initialRouteTop = motionRoute == null
+      ? 0.0
+      : (1 - motionRoute.playerVisualProgress) * viewportHeight;
+  final fromRect = _playerArtworkGlobalRect(
+    fromHeroContext,
+  )?.translate(0, from.motionRoute == null ? 0 : -initialRouteTop);
+  final toRect = _playerArtworkGlobalRect(
+    toHeroContext,
+  )?.translate(0, to.motionRoute == null ? 0 : -initialRouteTop);
   return AnimatedBuilder(
     animation: animation,
     child: stableChild,
     builder: (context, child) {
+      final progress = direction == HeroFlightDirection.push
+          ? animation.value
+          : 1 - animation.value;
       final radius = Tween<double>(
         begin: from.cornerRadius,
         end: to.cornerRadius,
-      ).evaluate(animation);
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(radius),
-        child: child,
+      ).transform(progress);
+      final currentRect = fromRect == null || toRect == null
+          ? null
+          : Rect.lerp(fromRect, toRect, progress);
+      final routeTop = motionRoute == null
+          ? 0.0
+          : (1 - motionRoute.playerVisualProgress) * viewportHeight;
+      final clipTop = currentRect == null
+          ? 0.0
+          : (routeTop - currentRect.top).clamp(0.0, currentRect.height);
+      return ClipRect(
+        clipper: _PlayerArtworkViewportClipper(clipTop),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(radius),
+          child: child,
+        ),
       );
     },
   );
+}
+
+Rect? _playerArtworkGlobalRect(BuildContext context) {
+  final renderObject = context.findRenderObject();
+  if (renderObject is! RenderBox ||
+      !renderObject.attached ||
+      !renderObject.hasSize) {
+    return null;
+  }
+  return renderObject.localToGlobal(Offset.zero) & renderObject.size;
+}
+
+class _PlayerArtworkViewportClipper extends CustomClipper<Rect> {
+  const _PlayerArtworkViewportClipper(this.top);
+
+  final double top;
+
+  @override
+  Rect getClip(Size size) =>
+      Rect.fromLTRB(0, top.clamp(0.0, size.height), size.width, size.height);
+
+  @override
+  bool shouldReclip(_PlayerArtworkViewportClipper oldClipper) =>
+      oldClipper.top != top;
 }
 
 class PlayerCompactArtwork extends StatelessWidget {
@@ -99,6 +193,7 @@ class PlayerCompactArtwork extends StatelessWidget {
     super.key,
     required this.track,
     required this.url,
+    this.forFlight = false,
   });
 
   static const double height = 48;
@@ -107,11 +202,48 @@ class PlayerCompactArtwork extends StatelessWidget {
 
   final AudioTrack track;
   final String? url;
+  final bool forFlight;
 
   @override
   Widget build(BuildContext context) {
-    final radius = BorderRadius.circular(cornerRadius);
+    final radius = BorderRadius.circular(forFlight ? 0 : cornerRadius);
     const fallback = Center(child: Icon(Icons.album, size: 30));
+    final Widget artwork;
+    if (url == null) {
+      artwork = fallback;
+    } else {
+      final image = LocalFileUrl.isLocalFileUrl(url)
+          ? Image.file(
+              File(LocalFileUrl.pathFromUrl(url!)!),
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+              errorBuilder: (_, __, ___) => fallback,
+            )
+          : CachedNetworkImage(
+              imageUrl: url!,
+              cacheKey: track.workId == null
+                  ? null
+                  : 'work_cover_${track.workId}',
+              fit: BoxFit.cover,
+              fadeInDuration: forFlight
+                  ? Duration.zero
+                  : const Duration(milliseconds: 220),
+              fadeInCurve: Curves.easeOutCubic,
+              fadeOutDuration: forFlight
+                  ? Duration.zero
+                  : const Duration(milliseconds: 220),
+              fadeOutCurve: Curves.easeOutCubic,
+              useOldImageOnUrlChange: true,
+              errorWidget: (_, __, ___) => fallback,
+              placeholder: (_, __) => fallback,
+            );
+      artwork = PrivacyBlurCover(
+        borderRadius: forFlight ? null : radius,
+        child: forFlight
+            ? image
+            : ClipRRect(borderRadius: radius, child: image),
+      );
+    }
     return SizedBox(
       width: width,
       height: height,
@@ -120,35 +252,7 @@ class PlayerCompactArtwork extends StatelessWidget {
           borderRadius: radius,
           color: Theme.of(context).colorScheme.surfaceContainerHighest,
         ),
-        child: url == null
-            ? fallback
-            : PrivacyBlurCover(
-                borderRadius: radius,
-                child: ClipRRect(
-                  borderRadius: radius,
-                  child: LocalFileUrl.isLocalFileUrl(url)
-                      ? Image.file(
-                          File(LocalFileUrl.pathFromUrl(url!)!),
-                          fit: BoxFit.cover,
-                          gaplessPlayback: true,
-                          errorBuilder: (_, __, ___) => fallback,
-                        )
-                      : CachedNetworkImage(
-                          imageUrl: url!,
-                          cacheKey: track.workId == null
-                              ? null
-                              : 'work_cover_${track.workId}',
-                          fit: BoxFit.cover,
-                          fadeInDuration: const Duration(milliseconds: 220),
-                          fadeInCurve: Curves.easeOutCubic,
-                          fadeOutDuration: const Duration(milliseconds: 220),
-                          fadeOutCurve: Curves.easeOutCubic,
-                          useOldImageOnUrlChange: true,
-                          errorWidget: (_, __, ___) => fallback,
-                          placeholder: (_, __) => fallback,
-                        ),
-                ),
-              ),
+        child: artwork,
       ),
     );
   }
@@ -288,6 +392,11 @@ class PlayerCoverWidget extends StatelessWidget {
               target: heroTarget,
               cornerRadius: cornerRadius,
               enabled: heroEnabled,
+              flightChild: PlayerCompactArtwork(
+                track: track,
+                url: workCoverUrl ?? track.artworkUrl,
+                forFlight: true,
+              ),
               child: artwork,
             );
           },

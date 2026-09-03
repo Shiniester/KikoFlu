@@ -17,6 +17,19 @@ Widget _testApp(SnackBar snackBar) {
   );
 }
 
+Widget _noticeTestApp(void Function(BuildContext context) showNotice) {
+  return MaterialApp(
+    home: Scaffold(
+      body: Builder(
+        builder: (context) => TextButton(
+          onPressed: () => showNotice(context),
+          child: const Text('show'),
+        ),
+      ),
+    ),
+  );
+}
+
 void main() {
   group('SnackBarUtil.showFromSnackBar', () {
     testWidgets('converts red text snackbar to unified error style', (
@@ -101,5 +114,37 @@ void main() {
       tester.widget<SnackBarAction>(find.byType(SnackBarAction)).onPressed();
       expect(actionInvoked, isTrue);
     });
+  });
+
+  testWidgets('uses compact default durations by notice severity', (
+    tester,
+  ) async {
+    Future<Duration> durationFor(
+      void Function(BuildContext context) showNotice,
+    ) async {
+      await tester.pumpWidget(_noticeTestApp(showNotice));
+      await tester.tap(find.text('show'));
+      await tester.pump();
+      return tester.widget<SnackBar>(find.byType(SnackBar)).duration;
+    }
+
+    expect(
+      await durationFor((context) => SnackBarUtil.showSuccess(context, 'ok')),
+      const Duration(milliseconds: 1200),
+    );
+    expect(
+      await durationFor((context) => SnackBarUtil.showInfo(context, 'info')),
+      const Duration(milliseconds: 1200),
+    );
+    expect(
+      await durationFor(
+        (context) => SnackBarUtil.showWarning(context, 'warning'),
+      ),
+      const Duration(seconds: 2),
+    );
+    expect(
+      await durationFor((context) => SnackBarUtil.showError(context, 'error')),
+      const Duration(seconds: 3),
+    );
   });
 }

@@ -356,11 +356,7 @@ class _PlayerAudioDetailsPanelState
           'unavailable',
         ),
       };
-      SnackBarUtil.showInfo(
-        context,
-        message,
-        duration: const Duration(seconds: 2),
-      );
+      SnackBarUtil.showInfo(context, message);
     }
   }
 

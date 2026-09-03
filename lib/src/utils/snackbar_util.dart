@@ -135,7 +135,7 @@ class SnackBarUtil {
   static void showSuccess(
     BuildContext context,
     String message, {
-    Duration duration = const Duration(seconds: 2),
+    Duration duration = const Duration(milliseconds: 1200),
   }) {
     AppFloatingNotice.show(
       context,
@@ -164,7 +164,7 @@ class SnackBarUtil {
   static void showError(
     BuildContext context,
     String message, {
-    Duration duration = const Duration(seconds: 4),
+    Duration duration = const Duration(seconds: 3),
   }) {
     AppFloatingNotice.show(
       context,
@@ -193,7 +193,7 @@ class SnackBarUtil {
   static void showWarning(
     BuildContext context,
     String message, {
-    Duration duration = const Duration(seconds: 3),
+    Duration duration = const Duration(seconds: 2),
   }) {
     final colorScheme = Theme.of(context).colorScheme;
     // 使用 tertiary 或 secondary 作为警告色
@@ -220,7 +220,7 @@ class SnackBarUtil {
   static void showInfo(
     BuildContext context,
     String message, {
-    Duration duration = const Duration(seconds: 2),
+    Duration duration = const Duration(milliseconds: 1200),
   }) {
     AppFloatingNotice.show(
       context,

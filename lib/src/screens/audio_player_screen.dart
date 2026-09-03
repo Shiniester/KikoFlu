@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -161,8 +160,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       _isLyricLocked = true;
       _showUnlockButton = false;
     });
-    // 隐藏状态栏和导航栏
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    // Temporarily hide both system bars while lyrics are locked fullscreen.
+    unawaited(SystemUiModeCoordinator.instance.enterImmersiveMode());
   }
 
   /// 退出全屏锁定模式
@@ -173,18 +172,14 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       _isLyricLocked = false;
       _showUnlockButton = false;
     });
-    // 恢复系统UI，并在 Android 上重新启用 edge-to-edge。
-    unawaited(
-      restoreSystemUiAfterImmersiveMode(useEdgeToEdge: Platform.isAndroid),
-    );
+    // Restore the persistent status-bar preference.
+    unawaited(SystemUiModeCoordinator.instance.exitImmersiveMode());
   }
 
   @override
   void dispose() {
     if (_isLyricLocked) {
-      unawaited(
-        restoreSystemUiAfterImmersiveMode(useEdgeToEdge: Platform.isAndroid),
-      );
+      unawaited(SystemUiModeCoordinator.instance.exitImmersiveMode());
     }
     _compactPageController.dispose();
     _compactQueueTransitionController.dispose();
@@ -977,6 +972,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                   key: const ValueKey('player-more-button'),
                   tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
                   onPressed: () => _showMoreSheet(context, track),
+                  padding: EdgeInsets.zero,
+                  alignment: Alignment.centerRight,
+                  constraints: const BoxConstraints(
+                    minWidth: 48,
+                    minHeight: 48,
+                  ),
                   icon: const Icon(Icons.more_horiz),
                 ),
               ],
@@ -1059,11 +1060,22 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                 onSwipeUp: () => _showQueue(compactOriginPage: 1),
                 swipeUpDrag: queueDrag,
                 child: RepaintBoundary(
-                  child: PlayerCoverWidget(
-                    track: track,
-                    workCoverUrl: coverUrl,
-                    heroEnabled: !_directQueueEntry,
-                    onTap: _showLyrics,
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: _semanticPageRevision,
+                    builder: (context, _, __) {
+                      final heroEnabled = _shouldEnableMainArtworkHero(
+                        isWide: false,
+                      );
+                      return PlayerCoverWidget(
+                        track: track,
+                        workCoverUrl: coverUrl,
+                        heroEnabled: heroEnabled,
+                        heroTarget: heroEnabled
+                            ? PlayerArtworkFlightTarget.main
+                            : PlayerArtworkFlightTarget.none,
+                        onTap: _showLyrics,
+                      );
+                    },
                   ),
                 ),
               ),
@@ -1141,12 +1153,23 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                     width: width,
                     height: height,
                     child: RepaintBoundary(
-                      child: PlayerCoverWidget(
-                        track: track,
-                        workCoverUrl: coverUrl,
-                        isLandscape: isWide,
-                        heroEnabled: !_directQueueEntry,
-                        onTap: _showLyrics,
+                      child: ValueListenableBuilder<int>(
+                        valueListenable: _semanticPageRevision,
+                        builder: (context, _, __) {
+                          final heroEnabled = _shouldEnableMainArtworkHero(
+                            isWide: isWide,
+                          );
+                          return PlayerCoverWidget(
+                            track: track,
+                            workCoverUrl: coverUrl,
+                            isLandscape: isWide,
+                            heroEnabled: heroEnabled,
+                            heroTarget: heroEnabled
+                                ? PlayerArtworkFlightTarget.main
+                                : PlayerArtworkFlightTarget.none,
+                            onTap: _showLyrics,
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -1371,6 +1394,19 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     return MediaQuery.of(context).disableAnimations
         ? Duration.zero
         : const Duration(milliseconds: 260);
+  }
+
+  bool _shouldEnableMainArtworkHero({required bool isWide}) {
+    if (_directQueueEntry ||
+        _queueTransitionActive ||
+        _rightPane == PlayerRightPane.queue) {
+      return false;
+    }
+    if (isWide) {
+      return _leftPane == PlayerLeftPane.cover &&
+          _rightPane == PlayerRightPane.controls;
+    }
+    return _compactPage == 1;
   }
 
   PlayerDismissVisualMode get _currentPlayerDismissVisualMode {

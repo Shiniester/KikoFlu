@@ -1030,6 +1030,12 @@ class SZh extends S {
   String get keepScreenAwakeDesc => '播放时保持屏幕常亮';
 
   @override
+  String get hideStatusBar => '隐藏状态栏';
+
+  @override
+  String get hideStatusBarDesc => '隐藏屏幕顶部的系统状态栏，保留导航栏';
+
+  @override
   String get audioHaptics => '音频触感反馈(Beta)';
 
   @override
@@ -4691,6 +4697,12 @@ class SZhHant extends SZh {
 
   @override
   String get keepScreenAwakeDesc => '播放時保持螢幕常亮';
+
+  @override
+  String get hideStatusBar => '隱藏狀態列';
+
+  @override
+  String get hideStatusBarDesc => '隱藏螢幕頂端的系統狀態列，保留導覽列';
 
   @override
   String get audioHaptics => '音訊觸感回饋(Beta)';

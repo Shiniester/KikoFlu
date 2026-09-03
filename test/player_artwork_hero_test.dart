@@ -65,17 +65,40 @@ void main() {
 
     final heroes = find.byType(Hero).evaluate().toList(growable: false);
     final from = heroes.first.widget as Hero;
-    final shuttle =
-        from.flightShuttleBuilder!(
-              heroes.first,
-              const AlwaysStoppedAnimation<double>(0.5),
-              HeroFlightDirection.push,
-              heroes.first,
-              heroes.last,
-            )
-            as AnimatedBuilder;
-    final clip = shuttle.builder(heroes.first, shuttle.child) as ClipRRect;
-    expect(clip.borderRadius, BorderRadius.circular(12));
+    BorderRadius pushRadius(double progress) {
+      final shuttle =
+          from.flightShuttleBuilder!(
+                heroes.first,
+                AlwaysStoppedAnimation<double>(progress),
+                HeroFlightDirection.push,
+                heroes.first,
+                heroes.last,
+              )
+              as AnimatedBuilder;
+      final viewport = shuttle.builder(heroes.first, shuttle.child) as ClipRect;
+      return (viewport.child! as ClipRRect).borderRadius as BorderRadius;
+    }
+
+    BorderRadius popRadius(double routeProgress) {
+      final shuttle =
+          from.flightShuttleBuilder!(
+                heroes.first,
+                AlwaysStoppedAnimation<double>(routeProgress),
+                HeroFlightDirection.pop,
+                heroes.last,
+                heroes.first,
+              )
+              as AnimatedBuilder;
+      final viewport = shuttle.builder(heroes.first, shuttle.child) as ClipRect;
+      return (viewport.child! as ClipRRect).borderRadius as BorderRadius;
+    }
+
+    expect(pushRadius(0), BorderRadius.circular(10));
+    expect(pushRadius(0.5), BorderRadius.circular(12));
+    expect(pushRadius(1), BorderRadius.circular(14));
+    expect(popRadius(1), BorderRadius.circular(14));
+    expect(popRadius(0.5), BorderRadius.circular(12));
+    expect(popRadius(0), BorderRadius.circular(10));
   });
 
   testWidgets('none target does not create an offscreen Hero', (tester) async {

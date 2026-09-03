@@ -21,6 +21,7 @@ import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_action_icons.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
@@ -630,6 +631,33 @@ void main() {
     expect(find.byKey(const ValueKey('lyrics-pane-compact')), findsOneWidget);
   });
 
+  testWidgets('only the visible main page exposes an artwork Hero', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(390, 844));
+    final artworkHero = find.byWidgetPredicate(
+      (widget) =>
+          widget is Hero &&
+          widget.tag ==
+              playerArtworkHeroTag(_track.id, PlayerArtworkFlightTarget.main),
+    );
+    expect(artworkHero, findsOneWidget);
+
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(320, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(artworkHero, findsNothing);
+
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(-640, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(artworkHero, findsNothing);
+  });
+
   testWidgets('compact artwork uses the denser rectangular frame', (
     tester,
   ) async {
@@ -657,6 +685,7 @@ void main() {
       ),
     );
     expect(progressTheme.data.padding, EdgeInsets.zero);
+    expect(progressTheme.data.trackHeight, 2);
 
     await tester.drag(
       find.byKey(const ValueKey('compact-player-pages')),
@@ -697,7 +726,14 @@ void main() {
     final moreRect = tester.getRect(
       find.byKey(const ValueKey('player-more-button')),
     );
+    final moreIconRect = tester.getRect(
+      find.descendant(
+        of: find.byKey(const ValueKey('player-more-button')),
+        matching: find.byIcon(Icons.more_horiz),
+      ),
+    );
     expect(moreRect.right, closeTo(coverRect.right, 0.01));
+    expect(moreIconRect.right, closeTo(coverRect.right, 0.01));
     expect(tester.getTopLeft(find.text(_track.title)).dx, coverRect.left);
   });
 
@@ -1085,6 +1121,29 @@ void main() {
     expect(titleBar.right, closeTo(queueBoundary.right, 0.01));
     expect(queueTrack.left, closeTo(queueBoundary.left, 0.01));
     expect(queueTrack.right, closeTo(queueBoundary.right, 0.01));
+    expect(
+      find.descendant(of: queueTrackFinder, matching: find.text('Artist')),
+      findsOneWidget,
+    );
+    expect(find.text('Artist · Album'), findsNothing);
+    final queueTitle = tester.widget<Text>(
+      find.descendant(of: queueTrackFinder, matching: find.text(_track.title)),
+    );
+    expect(queueTitle.style?.fontSize, 12.5);
+    expect(queueTitle.style?.height, 1.12);
+    final shiftedTextColumn = tester.widget<Transform>(
+      find
+          .descendant(
+            of: queueTrackFinder,
+            matching: find.byWidgetPredicate(
+              (widget) =>
+                  widget is Transform &&
+                  (widget.transform.storage[13] - 1).abs() < 0.001,
+            ),
+          )
+          .first,
+    );
+    expect(shiftedTextColumn.transform.storage[13], closeTo(1, 0.001));
     final countText = tester.widget<Text>(find.text('1 / 1'));
     final clearText = tester.widget<Text>(find.text('Clear'));
     expect(clearText.style?.fontSize, countText.style?.fontSize);
@@ -1150,6 +1209,25 @@ void main() {
       expect(lyricSettingsSize, keepAwakeSize);
       expect(overflowSize, keepAwakeSize);
       expect(keepAwakeSize.height, 72);
+      final lyricSettingsRect = tester.getRect(
+        find.byKey(const ValueKey('player-more-lyric-settings-card')),
+      );
+      final detailsRect = tester.getRect(
+        find.byKey(const ValueKey('player-more-action-detail')),
+      );
+      expect(lyricSettingsRect.top, closeTo(detailsRect.top, 0.01));
+      expect(lyricSettingsRect.left, lessThan(detailsRect.left));
+      for (final key in const [
+        'player-more-action-floatingLyric',
+        'player-more-action-sleepTimer',
+        'player-more-action-speed',
+        'player-more-action-subtitleAdjustment',
+      ]) {
+        expect(
+          tester.getRect(find.byKey(ValueKey(key))).bottom,
+          lessThan(lyricSettingsRect.top),
+        );
+      }
       final moreGlass = find
           .ancestor(
             of: find.byKey(const ValueKey('player-more-keep-awake-card')),

@@ -273,32 +273,33 @@ class _NowPlayingQueueHeader extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  track.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontSize: 14,
-                    height: 1.15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                if (track.artist != null || track.album != null)
+            child: Transform.translate(
+              offset: const Offset(0, 1),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    [track.artist, track.album]
-                        .whereType<String>()
-                        .where((part) => part.isNotEmpty)
-                        .join(' · '),
-                    maxLines: 1,
+                    track.title,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontSize: 14,
+                      height: 1.15,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-              ],
+                  if (track.artist?.trim().isNotEmpty == true)
+                    Text(
+                      track.artist!.trim(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ],
@@ -349,34 +350,35 @@ class _QueueTrackTile extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        track.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(
-                              fontSize: 12.5,
-                              height: 1.12,
-                              fontWeight: isCurrentTrack
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                            ),
-                      ),
-                      if (track.artist != null || track.album != null)
+                  child: Transform.translate(
+                    offset: const Offset(0, 1),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          [track.artist, track.album]
-                              .whereType<String>()
-                              .where((part) => part.isNotEmpty)
-                              .join(' · '),
-                          maxLines: 1,
+                          track.title,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(color: colorScheme.onSurfaceVariant),
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
+                                fontSize: 12.5,
+                                height: 1.12,
+                                fontWeight: isCurrentTrack
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                              ),
                         ),
-                    ],
+                        if (track.artist?.trim().isNotEmpty == true)
+                          Text(
+                            track.artist!.trim(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: colorScheme.onSurfaceVariant),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
                 if (isCurrentTrack)
@@ -417,6 +419,11 @@ class _QueueArtwork extends StatelessWidget {
       trackId: track.id,
       target: heroTarget,
       cornerRadius: PlayerCompactArtwork.cornerRadius,
+      flightChild: PlayerCompactArtwork(
+        track: track,
+        url: url,
+        forFlight: true,
+      ),
       child: PlayerCompactArtwork(track: track, url: url),
     );
   }

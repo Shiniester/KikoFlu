@@ -207,6 +207,47 @@ void main() {
     );
   });
 
+  testWidgets('mobile preferences expose the persistent status-bar switch', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: ThemeData(platform: TargetPlatform.android),
+          locale: const Locale('en'),
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: const PreferencesScreen(),
+        ),
+      ),
+    );
+    await tester.runAsync(_pumpPreferences);
+    await tester.pump();
+
+    final label = find.text('Hide status bar');
+    await tester.drag(find.byType(ListView), const Offset(0, -1000));
+    await tester.pumpAndSettle();
+    expect(label, findsOneWidget);
+    expect(tester.getCenter(label).dy, inInclusiveRange(0, 844));
+    await tester.tap(
+      find.ancestor(of: label, matching: find.byType(SettingsSwitchTile)),
+    );
+    await tester.pump();
+    await tester.runAsync(_pumpPreferences);
+
+    expect(container.read(hideStatusBarProvider), true);
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getBool('hide_status_bar_enabled'), true);
+  });
+
   test('audio tap playlist mode restores the persisted selection', () async {
     SharedPreferences.setMockInitialValues({
       AudioTapPlaylistModeNotifier.preferenceKey:

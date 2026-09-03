@@ -526,7 +526,9 @@ class PreferencesScreen extends ConsumerWidget {
               SettingsNavigationTile(
                 icon: Icons.playlist_play,
                 title: S.of(context).audioTapPlaylistMode,
-                subtitle: S.of(context).currentSettingLabel(
+                subtitle: S
+                    .of(context)
+                    .currentSettingLabel(
                       audioTapPlaylistMode.localizedName(context),
                     ),
                 onTap: () => _showAudioTapPlaylistModeDialog(context, ref),
@@ -564,6 +566,17 @@ class PreferencesScreen extends ConsumerWidget {
                   ref.read(keepScreenAwakeProvider.notifier).setEnabled(value);
                 },
               ),
+              if (Theme.of(context).platform == TargetPlatform.android ||
+                  Theme.of(context).platform == TargetPlatform.iOS)
+                SettingsSwitchTile(
+                  icon: Icons.vertical_align_top,
+                  title: S.of(context).hideStatusBar,
+                  subtitle: S.of(context).hideStatusBarDesc,
+                  value: ref.watch(hideStatusBarProvider),
+                  onChanged: (value) => ref
+                      .read(hideStatusBarProvider.notifier)
+                      .setEnabled(value),
+                ),
               if (Theme.of(context).platform == TargetPlatform.android ||
                   Theme.of(context).platform == TargetPlatform.iOS)
                 _AudioHapticsSettingsTile(ref: ref),

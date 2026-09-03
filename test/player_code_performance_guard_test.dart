@@ -220,10 +220,8 @@ void main() {
       expect(miniPlayer, contains('class _MiniPlayerTrackSwitcher'));
       expect(miniPlayer, contains('AnimatedSwitcher'));
       expect(playerCover, contains('useOldImageOnUrlChange: true'));
-      expect(
-        playerCover,
-        contains('fadeOutDuration: const Duration(milliseconds: 220)'),
-      );
+      expect(playerCover, contains('fadeOutDuration: forFlight'));
+      expect(playerCover, contains('? Duration.zero'));
       expect(miniPlayer, isNot(contains('Icons.skip_previous')));
       expect(miniPlayer, isNot(contains('Icons.skip_next')));
       expect(miniPlayer, contains('class _InteractivePlayerOpenSession'));
@@ -279,6 +277,9 @@ void main() {
     expect(noticeSource, contains('(height * 0.18).clamp(88.0, 144.0)'));
     expect(playerCover, contains('enum PlayerArtworkFlightTarget'));
     expect(playerCover, contains('class PlayerCompactArtwork'));
+    expect(playerCover, contains('PlayerArtworkMotionRoute'));
+    expect(playerCover, contains('keepPlaceholderVisible'));
+    expect(playerCover, contains('_PlayerArtworkViewportClipper'));
     expect(playerCover, contains('Tween<double>('));
     expect(workCover, contains('class WorkCoverHeroFrame'));
     expect(workCover, contains('Tween<double>('));

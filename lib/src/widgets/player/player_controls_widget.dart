@@ -813,6 +813,7 @@ class PlayerProgressSection extends ConsumerWidget {
               inactiveTrackColor: Theme.of(
                 context,
               ).colorScheme.onSurfaceVariant.withValues(alpha: 0.15),
+              trackHeight: 2,
               trackShape: const RoundedRectSliderTrackShape(),
               padding: EdgeInsets.zero,
             ),

@@ -1058,6 +1058,13 @@ class SEn extends S {
   String get keepScreenAwakeDesc => 'Keep the screen on during playback';
 
   @override
+  String get hideStatusBar => 'Hide status bar';
+
+  @override
+  String get hideStatusBarDesc =>
+      'Hide the top system status bar while keeping navigation visible';
+
+  @override
   String get audioHaptics => 'Audio Haptics (Beta)';
 
   @override

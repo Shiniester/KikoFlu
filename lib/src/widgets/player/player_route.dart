@@ -70,7 +70,7 @@ Future<T?> openAudioPlayer<T>(
 /// an independent Hero only while the semantic main page is active.
 class AudioPlayerPageRoute<T> extends PageRoute<T>
     with CupertinoRouteTransitionMixin<T>
-    implements PlayerInteractiveDismissRoute {
+    implements PlayerInteractiveDismissRoute, PlayerArtworkMotionRoute {
   AudioPlayerPageRoute({
     required this.builder,
     this.skipInitialTransition = false,
@@ -104,6 +104,19 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   Duration get reverseTransitionDuration => const Duration(milliseconds: 320);
 
   bool get verticalGestureInProgress => _verticalGestureInProgress;
+
+  @override
+  bool get playerArtworkUsesRawProgress =>
+      _verticalGestureInProgress || popGestureInProgress;
+
+  @override
+  double get playerVisualProgress {
+    final value = (controller?.value ?? 0).clamp(0.0, 1.0);
+    if (playerArtworkUsesRawProgress) return value;
+    return animation?.status == AnimationStatus.reverse
+        ? Curves.easeInCubic.transform(value)
+        : Curves.easeOutCubic.transform(value);
+  }
 
   @visibleForTesting
   double get debugTransitionValue => controller?.value ?? 0;

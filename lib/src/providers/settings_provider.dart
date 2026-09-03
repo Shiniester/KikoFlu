@@ -9,6 +9,7 @@ import '../models/audio_gain_settings.dart';
 import '../models/audio_tap_playlist_mode.dart';
 import '../models/sort_options.dart';
 import '../utils/persistent_enum_preference.dart';
+import '../utils/system_ui_style.dart';
 
 /// Triggers when Settings screen should refresh cache-related information.
 final settingsCacheRefreshTriggerProvider = StateProvider<int>((ref) => 0);
@@ -1129,6 +1130,48 @@ class KeepScreenAwakeNotifier extends StateNotifier<bool> {
 final keepScreenAwakeProvider =
     StateNotifierProvider<KeepScreenAwakeNotifier, bool>((ref) {
       return KeepScreenAwakeNotifier();
+    });
+
+/// Whether the mobile application should hide only the top status bar.
+class HideStatusBarNotifier extends StateNotifier<bool> {
+  HideStatusBarNotifier()
+    : super(SystemUiModeCoordinator.instance.hideStatusBar) {
+    _loadPreference();
+  }
+
+  bool _changedLocally = false;
+
+  Future<void> _loadPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted || _changedLocally) return;
+      state =
+          prefs.getBool(SystemUiModeCoordinator.hideStatusBarPreferenceKey) ??
+          false;
+    } catch (_) {
+      if (!mounted || _changedLocally) return;
+      state = false;
+    }
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    _changedLocally = true;
+    state = enabled;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(
+        SystemUiModeCoordinator.hideStatusBarPreferenceKey,
+        enabled,
+      );
+    } catch (_) {
+      // Keep the in-memory value when persistence is unavailable.
+    }
+  }
+}
+
+final hideStatusBarProvider =
+    StateNotifierProvider<HideStatusBarNotifier, bool>((ref) {
+      return HideStatusBarNotifier();
     });
 
 /// 默认排序设置状态
