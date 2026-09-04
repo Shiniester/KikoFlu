@@ -1105,6 +1105,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
           child: CachedNetworkImage(
             imageUrl: work.getCoverImageUrl(host, token: token),
             httpHeaders: httpHeaders,
+            cacheKey: 'work_cover_$workId',
             useOldImageOnUrlChange: true,
             fit: BoxFit.cover,
             errorWidget: (context, url, error) => _buildPlaceholder(),

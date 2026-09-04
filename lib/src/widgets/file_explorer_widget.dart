@@ -618,7 +618,6 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
             builder: (context) => ImageGalleryScreen(
               images: target.toGalleryMaps(),
               initialIndex: target.initialIndex,
-              workId: widget.work.id, // 传递作品ID用于缓存
             ),
           ),
         );

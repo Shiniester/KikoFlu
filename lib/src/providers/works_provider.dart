@@ -31,7 +31,7 @@ enum DisplayMode {
 enum LayoutType {
   list, // 列表布局
   smallGrid, // 小网格布局 (3列)
-  bigGrid // 大网格布局 (2列)
+  bigGrid, // 大网格布局 (2列)
 }
 
 class WorksModeSnapshot extends Equatable {
@@ -95,18 +95,18 @@ class WorksModeSnapshot extends Equatable {
 
   @override
   List<Object?> get props => [
-        works,
-        rawWorks,
-        isLoading,
-        isRefreshing,
-        isLoadingMore,
-        error,
-        loadMoreError,
-        currentPage,
-        totalCount,
-        hasMore,
-        isLastPage,
-      ];
+    works,
+    rawWorks,
+    isLoading,
+    isRefreshing,
+    isLoadingMore,
+    error,
+    loadMoreError,
+    currentPage,
+    totalCount,
+    hasMore,
+    isLastPage,
+  ];
 }
 
 // Works state
@@ -177,14 +177,14 @@ class WorksState extends Equatable {
 
   @override
   List<Object?> get props => [
-        layoutType,
-        sortOption,
-        sortDirection,
-        displayMode,
-        subtitleFilter,
-        basePageSize,
-        modeStates,
-      ];
+    layoutType,
+    sortOption,
+    sortDirection,
+    displayMode,
+    subtitleFilter,
+    basePageSize,
+    modeStates,
+  ];
 }
 
 // Works notifier
@@ -208,11 +208,13 @@ class WorksNotifier extends StateNotifier<WorksState> {
     int initialPageSize = 40,
     SortOrder initialSortOption = SortOrder.release,
     SortDirection initialSortDirection = SortDirection.desc,
-  }) : super(WorksState(
-          basePageSize: initialPageSize,
-          sortOption: initialSortOption,
-          sortDirection: initialSortDirection,
-        )) {
+  }) : super(
+         WorksState(
+           basePageSize: initialPageSize,
+           sortOption: initialSortOption,
+           sortDirection: initialSortDirection,
+         ),
+       ) {
     _loadLayoutPreference();
   }
 
@@ -232,8 +234,9 @@ class WorksNotifier extends StateNotifier<WorksState> {
     DisplayMode mode,
     WorksModeSnapshot Function(WorksModeSnapshot current) updater,
   ) {
-    final updatedStates =
-        Map<DisplayMode, WorksModeSnapshot>.from(state.modeStates);
+    final updatedStates = Map<DisplayMode, WorksModeSnapshot>.from(
+      state.modeStates,
+    );
     final currentSnapshot = _getModeState(mode);
     updatedStates[mode] = updater(currentSnapshot);
     state = state.copyWith(modeStates: updatedStates);
@@ -269,12 +272,14 @@ class WorksNotifier extends StateNotifier<WorksState> {
 
     final previousPage = modeState.currentPage;
     final isAllMode = mode == DisplayMode.all;
-    final page = targetPage ??
+    final page =
+        targetPage ??
         (isAllMode ? previousPage : (refresh ? 1 : previousPage + 1));
     final shouldAppend = !isAllMode && page > 1;
 
     _log.captureOutput(
-        '[WorksProvider] Loading works - mode: $mode, page: $page, refresh: $refresh, currentPage: $previousPage, targetPage: $targetPage');
+      '[WorksProvider] Loading works - mode: $mode, page: $page, refresh: $refresh, currentPage: $previousPage, targetPage: $targetPage',
+    );
 
     _updateModeState(
       mode,
@@ -303,10 +308,12 @@ class WorksNotifier extends StateNotifier<WorksState> {
           page: page,
           pageSize: pageSize,
           subtitle: serverSubtitleParam,
+          cancelToken: requestToken.cancelToken,
         );
       } else if (mode == DisplayMode.recommended) {
         final currentUser = _ref.read(authProvider).currentUser;
-        final recommenderUuid = currentUser?.recommenderUuid ??
+        final recommenderUuid =
+            currentUser?.recommenderUuid ??
             '766cc58d-7f1e-4958-9a93-913400f378dc';
 
         response = await _apiService.getRecommendedWorks(
@@ -314,6 +321,7 @@ class WorksNotifier extends StateNotifier<WorksState> {
           page: page,
           pageSize: pageSize,
           subtitle: serverSubtitleParam,
+          cancelToken: requestToken.cancelToken,
         );
       } else {
         response = await _apiService.getWorks(
@@ -322,6 +330,7 @@ class WorksNotifier extends StateNotifier<WorksState> {
           sort: sortOption == SortOrder.nsfw ? 'asc' : sortDirection.value,
           subtitle: serverSubtitleParam,
           pageSize: pageSize,
+          cancelToken: requestToken.cancelToken,
         );
       }
 
@@ -357,7 +366,8 @@ class WorksNotifier extends StateNotifier<WorksState> {
 
       if (mode == DisplayMode.popular || mode == DisplayMode.recommended) {
         final currentTotal = filteredWorks.length;
-        hasMore = works.length >= pageSize &&
+        hasMore =
+            works.length >= pageSize &&
             currentTotal < 100 &&
             currentTotal < totalCount;
         isLastPage = !hasMore && filteredWorks.isNotEmpty;
@@ -367,7 +377,8 @@ class WorksNotifier extends StateNotifier<WorksState> {
       }
 
       _log.captureOutput(
-          '[WorksProvider] Loaded ${filteredWorks.length} works (filtered from ${newRawWorks.length}), total: ${filteredWorks.length}, hasMore: $hasMore, currentPage: $currentPage');
+        '[WorksProvider] Loaded ${filteredWorks.length} works (filtered from ${newRawWorks.length}), total: ${filteredWorks.length}, hasMore: $hasMore, currentPage: $currentPage',
+      );
 
       _updateModeState(
         mode,
@@ -415,10 +426,7 @@ class WorksNotifier extends StateNotifier<WorksState> {
   Future<void> loadMore() async {
     final modeState = _getModeState(state.displayMode);
     if (modeState.isLoading || !modeState.hasMore) return;
-    await loadWorks(
-      targetPage: modeState.currentPage + 1,
-      append: true,
-    );
+    await loadWorks(targetPage: modeState.currentPage + 1, append: true);
   }
 
   // 跳转到指定页(仅全部模式)
@@ -573,6 +581,14 @@ class WorksNotifier extends StateNotifier<WorksState> {
       }
       return true;
     }).toList();
+  }
+
+  @override
+  void dispose() {
+    for (final gate in _requestGates.values) {
+      gate.invalidate();
+    }
+    super.dispose();
   }
 }
 

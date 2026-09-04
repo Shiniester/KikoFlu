@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'package:just_audio/just_audio.dart';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
-import 'package:dio/dio.dart';
 import 'package:path/path.dart' as p;
 import 'package:smtc_windows/smtc_windows.dart';
 
@@ -13,6 +12,7 @@ import '../models/audio_gain_settings.dart';
 import '../models/playback_diagnostic_event.dart';
 import '../performance/performance_build_guard.dart';
 import 'cache_service.dart';
+import 'audio_stream_cache.dart';
 import 'caching_stream_audio_source.dart';
 import 'audio_haptics_service.dart';
 import 'log_service.dart';
@@ -122,11 +122,18 @@ class AudioPlayerService {
   LoopMode _appLoopMode = LoopMode.off; // Track loop mode at app level
   String? _tempPlaybackFilePath; // 临时音频副本路径，用于规避字幕冲突
   Directory? _tempAudioDirectory;
+  AudioCacheFileLease? _cachedPlaybackLease;
   bool _isSwitchingTrack = false; // Flag to indicate track switching state
 
   static const Duration _sessionCheckpointInterval = Duration(seconds: 5);
   final PlaybackSessionStore _playbackSessionStore =
       const SharedPreferencesPlaybackSessionStore();
+  late final AudioStreamCache _audioStreamCache = AudioStreamCache(
+    files: CacheService.audioCacheFiles,
+    resolveExistingFile: CacheService.getCachedAudioFile,
+    headersProvider: () => StorageService.serverCookieHeaders,
+    onCacheCompleted: () => CacheService.checkAndCleanCache(),
+  );
   Future<void> _sessionWrite = Future.value();
   int _lastSessionPositionMs = 0;
   bool _isRestoringSession = false;
@@ -138,6 +145,7 @@ class AudioPlayerService {
   // null 表示关闭预加载。默认 10 秒，可由设置更新。
   Duration? _preloadThreshold = const Duration(seconds: 10);
   String? _prefetchedNextHash; // 已为哪个 hash 触发过预取，避免重复
+  StreamSubscription<bool>? _speculativePauseSubscription;
 
   static const List<String> _lyricExtensions = [
     '.lrc',
@@ -320,6 +328,17 @@ class AudioPlayerService {
   }
 
   void _setupPlayerListeners() {
+    _speculativePauseSubscription = SpeculativeTransferCoordinator
+        .instance
+        .pauseChanges
+        .listen((paused) {
+          if (paused) {
+            unawaited(_cancelNextTrackPreload());
+          } else if (_player.playing) {
+            _maybePreloadNextTrack(_player.position, _player.duration);
+          }
+        });
+
     // 预加载下一首：当前剩余时长低于阈值时，后台提前缓存队列中下一首
     _player.positionStream.listen((position) {
       _maybePreloadNextTrack(position, _player.duration);
@@ -459,6 +478,7 @@ class AudioPlayerService {
       return;
     }
 
+    await _cancelNextTrackPreload();
     _sessionCompleted = false;
     _sessionOwnerKey = _currentSessionOwnerKey();
     _queue.clear();
@@ -484,6 +504,7 @@ class AudioPlayerService {
     _queueController.add(const []);
     _currentTrackController.add(null);
     await stop();
+    _releaseCachedPlaybackLease();
     if (_audioHandler case final _AudioPlayerHandler handler) {
       handler.mediaItem.add(null);
     }
@@ -510,8 +531,8 @@ class AudioPlayerService {
       'source=$sourceKind',
     );
 
-    // 换曲目后清空预加载标记，让新的"下一首"可重新触发预取
-    _prefetchedNextHash = null;
+    // The active preload is handed off below when this is its target. Local or
+    // uncached sources cancel it before touching the player.
     _sessionCompleted = false;
     _lastSessionPositionMs = 0;
 
@@ -527,6 +548,10 @@ class AudioPlayerService {
     }
 
     try {
+      if (localPath != null || track.hash == null || track.hash!.isEmpty) {
+        await _cancelNextTrackPreload();
+      }
+
       // Cleanup and haptics teardown are independent. Neither should add a
       // second serial wait to every user-initiated track switch.
       await Future.wait<void>([
@@ -534,7 +559,6 @@ class AudioPlayerService {
         _hapticsService.stop(),
       ]);
 
-      String? audioFilePath;
       String? fallbackStreamUrl;
       bool loaded = false;
 
@@ -561,6 +585,7 @@ class AudioPlayerService {
             final playbackPath =
                 await _prepareLocalPlaybackPath(localPath) ?? localPath;
             await _player.setFilePath(playbackPath);
+            _releaseCachedPlaybackLease();
             await _prepareHapticsForDownloadedFile(
               track,
               downloadPath: localPath,
@@ -577,39 +602,41 @@ class AudioPlayerService {
       // 如果不是本地文件，且有 hash，尝试使用缓存
       if (!loaded && track.hash != null && track.hash!.isNotEmpty) {
         final streamUrl = fallbackStreamUrl ?? track.url;
-        audioFilePath = await CacheService.settleAudioCacheDownload(
-          track.hash!,
+        _prefetchedNextHash = null;
+        final transfer = AudioTransferRequest(
+          uri: Uri.parse(streamUrl),
+          hash: track.hash!,
         );
-
-        if (audioFilePath != null) {
-          loaded = await _tryPlayCachedAudio(audioFilePath, track);
-        }
-
-        if (!loaded) {
-          try {
-            await CacheService.resetAudioCachePartial(track.hash!);
+        try {
+          final target = await _audioStreamCache.preparePlayback(transfer);
+          if (target case AudioFilePlaybackTarget(:final path)) {
+            loaded = await _tryPlayCachedAudio(path, track);
+          }
+          if (!loaded) {
             final source = CachingStreamAudioSource(
-              uri: Uri.parse(streamUrl),
-              hash: track.hash!,
+              cache: _audioStreamCache,
+              transfer: transfer,
             );
             await _player.setAudioSource(source);
+            _releaseCachedPlaybackLease();
             unawaited(_hapticsService.prepareForTrack(track));
             _log.captureOutput('[Audio] 流式播放并写入缓存: ${track.title}');
             loaded = true;
-          } catch (error) {
-            _emitPlaybackDiagnostic(
-              PlaybackDiagnosticEventType.cacheError,
-              track,
-              error: error,
-            );
-            _log.captureOutput('[Audio] 构建缓存流失败，回退到直接流式: $error');
           }
+        } catch (error) {
+          _emitPlaybackDiagnostic(
+            PlaybackDiagnosticEventType.cacheError,
+            track,
+            error: error,
+          );
+          _log.captureOutput('[Audio] 构建缓存流失败，回退到直接流式: $error');
         }
       }
 
       if (!loaded) {
         final streamUrl = fallbackStreamUrl ?? track.url;
         await _player.setUrl(streamUrl);
+        _releaseCachedPlaybackLease();
         unawaited(_hapticsService.prepareForTrack(track));
         _log.captureOutput('[Audio] 流式播放: $streamUrl');
       }
@@ -678,6 +705,9 @@ class AudioPlayerService {
           // 生成模糊后的封面并保存到临时文件
           final blurredFilePath = await ImageBlurUtil.blurNetworkImageToFile(
             displayArtworkUrl,
+            cacheKey: track.workId == null
+                ? null
+                : 'work_cover_${track.workId}',
           );
           if (blurredFilePath != null) {
             displayArtworkUrl = blurredFilePath;
@@ -758,28 +788,43 @@ class AudioPlayerService {
     if (SpeculativeTransferCoordinator
         .instance
         .shouldPauseSpeculativeTransfers) {
+      unawaited(_cancelNextTrackPreload());
       return;
     }
     final threshold = _preloadThreshold;
-    if (threshold == null || threshold <= Duration.zero) return;
-    if (_appLoopMode == LoopMode.one) return;
-    if (duration == null || duration <= Duration.zero) return;
+    if (!_player.playing ||
+        threshold == null ||
+        threshold <= Duration.zero ||
+        _appLoopMode == LoopMode.one ||
+        duration == null ||
+        duration <= Duration.zero) {
+      unawaited(_cancelNextTrackPreload());
+      return;
+    }
 
     final remaining = duration - position;
-    if (remaining > threshold) return;
+    if (remaining > threshold || !hasNext) {
+      unawaited(_cancelNextTrackPreload());
+      return;
+    }
 
-    if (!hasNext) return;
     final nextTrack = _queue[_currentIndex + 1];
 
     final hash = nextTrack.hash;
     final url = nextTrack.url;
-    if (hash == null || hash.isEmpty) return;
+    if (hash == null || hash.isEmpty) {
+      unawaited(_cancelNextTrackPreload());
+      return;
+    }
 
     // 本地文件 / 已预取过 / 已缓存：无需再次预取
     if (_prefetchedNextHash == hash) return;
 
     final localPath = LocalFileUrl.pathFromUrl(url);
-    if (localPath != null) return; // 本地文件，秒加载，无需预取
+    if (localPath != null) {
+      unawaited(_cancelNextTrackPreload());
+      return; // 本地文件，秒加载，无需预取
+    }
 
     _prefetchedNextHash = hash;
     unawaited(_preloadNextTrackToCache(nextTrack));
@@ -796,33 +841,15 @@ class AudioPlayerService {
     if (hash == null || hash.isEmpty) return;
     final url = track.url;
 
-    var succeeded = false;
     try {
-      // 若已命中缓存（含已下载文件），直接跳过
-      final cached = await CacheService.getCachedAudioFile(hash);
-      if (cached != null) {
-        _log.captureOutput('[Audio] 下一首已缓存，无需预加载: ${track.title}');
-        succeeded = true;
-        return;
-      }
-
-      // 复用 CacheService 的下载 + finalize 流程，把整首流式音频写到本地缓存
-      final dio = Dio();
-      dio.options.headers.addAll(StorageService.serverCookieHeaders);
-      dio.options.connectTimeout = const Duration(seconds: 15);
-      dio.options.receiveTimeout = const Duration(seconds: 60);
-
       _log.captureOutput('[Audio] 开始预加载下一首: ${track.title}');
-      final cachedPath = await CacheService.cacheAudioFile(
-        hash: hash,
-        url: url,
-        dio: dio,
+      final succeeded = await _audioStreamCache.setPreloadTarget(
+        AudioTransferRequest(uri: Uri.parse(url), hash: hash),
       );
-      if (cachedPath == null) {
+      if (!succeeded) {
         _log.captureOutput('[Audio] 预加载下一首未完成: ${track.title}');
         return;
       }
-      succeeded = true;
       _log.captureOutput('[Audio] 预加载下一首完成: ${track.title}');
     } catch (e) {
       _emitPlaybackDiagnostic(
@@ -832,10 +859,22 @@ class AudioPlayerService {
       );
       _log.captureOutput('[Audio] 预加载下一首失败: ${track.title} - $e');
     } finally {
-      if (!succeeded && _prefetchedNextHash == hash) {
+      final cached = await CacheService.getCachedAudioFile(hash);
+      if (cached == null && _prefetchedNextHash == hash) {
         _prefetchedNextHash = null;
       }
     }
+  }
+
+  Future<void> _cancelNextTrackPreload() async {
+    if (_prefetchedNextHash == null) return;
+    _prefetchedNextHash = null;
+    await _audioStreamCache.setPreloadTarget(null);
+  }
+
+  void _restartEligiblePreload() {
+    if (!_player.playing) return;
+    _maybePreloadNextTrack(_player.position, _player.duration);
   }
 
   // macOS specific: Start periodic timer to check for track completion
@@ -879,6 +918,7 @@ class AudioPlayerService {
 
     final playback = _player.play();
     _updatePlaybackState();
+    _restartEligiblePreload();
     if (_hapticsEnabled) {
       _hapticsService.start();
     }
@@ -913,14 +953,14 @@ class AudioPlayerService {
   }
 
   Future<void> pause() async {
-    await _player.pause();
+    await Future.wait<void>([_player.pause(), _cancelNextTrackPreload()]);
     _updatePlaybackState();
     await _hapticsService.pause();
     await persistPlaybackPosition();
   }
 
   Future<void> stop() async {
-    await _player.stop();
+    await Future.wait<void>([_player.stop(), _cancelNextTrackPreload()]);
     _updatePlaybackState();
     await _hapticsService.stop();
     await persistPlaybackPosition();
@@ -998,6 +1038,7 @@ class AudioPlayerService {
 
   Future<void> removeTrackAt(int index) async {
     if (index < 0 || index >= _queue.length) return;
+    await _cancelNextTrackPreload();
 
     final wasCurrent = index == _currentIndex;
     final currentTrackId = (_queue.isNotEmpty && _currentIndex < _queue.length)
@@ -1033,9 +1074,11 @@ class AudioPlayerService {
       }
     }
     await persistPlaybackSession();
+    _restartEligiblePreload();
   }
 
   Future<void> moveTrack(int oldIndex, int newIndex) async {
+    await _cancelNextTrackPreload();
     final currentTrackId = (_queue.isNotEmpty && _currentIndex < _queue.length)
         ? _queue[_currentIndex].id
         : null;
@@ -1052,6 +1095,7 @@ class AudioPlayerService {
 
     _queueController.add(List.from(_queue));
     await persistPlaybackSession();
+    _restartEligiblePreload();
   }
 
   /// Inserts [track] immediately after the currently playing item without
@@ -1074,10 +1118,11 @@ class AudioPlayerService {
     _currentIndex = mutation.currentIndex;
 
     // The previously prefetched item may no longer be next in the queue.
-    _prefetchedNextHash = null;
+    await _cancelNextTrackPreload();
     _sessionCompleted = false;
     _queueController.add(List<AudioTrack>.from(_queue));
     await persistPlaybackSession();
+    _restartEligiblePreload();
     return mutation.result;
   }
 
@@ -1116,6 +1161,7 @@ class AudioPlayerService {
     if (appended) {
       _queueController.add(List.from(_queue));
       await persistPlaybackSession();
+      _restartEligiblePreload();
     }
 
     // Ensure we still report indexes for tracks that already existed
@@ -1337,6 +1383,11 @@ class AudioPlayerService {
     // Always keep the player's loop mode off to prevent single-track looping
     // We handle all repeat logic in the app layer via playerStateStream listener
     await _player.setLoopMode(LoopMode.off);
+    if (mode == LoopMode.one) {
+      await _cancelNextTrackPreload();
+    } else {
+      _restartEligiblePreload();
+    }
   }
 
   Future<void> setShuffleMode(bool enabled) async {
@@ -1433,10 +1484,12 @@ class AudioPlayerService {
       threshold = Duration.zero;
     }
     _preloadThreshold = threshold;
-    if (threshold == null) {
+    if (threshold == null || threshold <= Duration.zero) {
+      unawaited(_cancelNextTrackPreload());
       _log.captureOutput('[Audio] 预加载下一首已关闭');
     } else {
       _log.captureOutput('[Audio] 预加载阈值已更新: ${threshold.inSeconds} 秒');
+      _maybePreloadNextTrack(_player.position, _player.duration);
     }
   }
 
@@ -1444,12 +1497,16 @@ class AudioPlayerService {
   Future<void> dispose() async {
     await persistPlaybackPosition();
     _completionCheckTimer?.cancel();
+    await _speculativePauseSubscription?.cancel();
+    await _cancelNextTrackPreload();
     await _hapticsService.stop();
     await _cleanupTempPlaybackFile();
     await _queueController.close();
     await _currentTrackController.close();
     await _playbackDiagnosticController.close();
     await _player.dispose();
+    _releaseCachedPlaybackLease();
+    await _audioStreamCache.dispose();
   }
 
   Future<void> _prepareHapticsForDownloadedFile(
@@ -1602,22 +1659,31 @@ class AudioPlayerService {
   }
 
   Future<bool> _tryPlayCachedAudio(String cachePath, AudioTrack track) async {
+    final candidateLease = AudioStreamCache.holdCacheFile(cachePath);
     try {
       final playbackPath = await _prepareCachedPlaybackPath(cachePath, track);
       await _player.setFilePath(playbackPath ?? cachePath);
-      await _prepareHapticsForDownloadedFile(
-        track,
-        downloadPath: cachePath,
-        analysisPath: playbackPath,
-      );
+      final previousLease = _cachedPlaybackLease;
+      _cachedPlaybackLease = candidateLease;
+      previousLease?.release();
+      try {
+        await _prepareHapticsForDownloadedFile(
+          track,
+          downloadPath: cachePath,
+          analysisPath: playbackPath,
+        );
+      } catch (error) {
+        _log.captureOutput('[Audio] 缓存播放的触感准备失败: $error');
+      }
       _log.captureOutput('[Audio] 使用缓存文件播放: ${track.title}');
       return true;
     } catch (error) {
+      candidateLease.release();
       _log.captureOutput('[Audio] 缓存文件无法播放，清除后回退到远程流: $error');
       try {
         final hash = track.hash;
         if (hash != null && hash.isNotEmpty) {
-          await CacheService.invalidateAudioCache(hash);
+          await _audioStreamCache.invalidate(hash);
         }
       } catch (invalidateError) {
         _log.captureOutput('[Audio] 清除失效音频缓存失败: $invalidateError');
@@ -1625,6 +1691,12 @@ class AudioPlayerService {
       await _cleanupTempPlaybackFile();
       return false;
     }
+  }
+
+  void _releaseCachedPlaybackLease() {
+    final lease = _cachedPlaybackLease;
+    _cachedPlaybackLease = null;
+    lease?.release();
   }
 
   String _audioExtensionForTrack(AudioTrack track) {

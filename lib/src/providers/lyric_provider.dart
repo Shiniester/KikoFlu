@@ -1,8 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show Locale;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
 import 'package:path/path.dart' as path;
 
 import '../models/lyric.dart';
@@ -17,6 +17,8 @@ import '../services/log_service.dart';
 import '../utils/encoding_utils.dart';
 import '../services/translation_service.dart';
 import '../services/storage_service.dart';
+import '../services/remote_asset_cache.dart';
+import '../services/remote_text_loader.dart';
 import 'auth_provider.dart';
 import 'audio_provider.dart';
 import 'settings_provider.dart';
@@ -177,13 +179,49 @@ class LyricController extends StateNotifier<LyricState> {
   final Ref ref;
   int _loadRequestId = 0;
   int _translationRequestId = 0;
+  RemoteTextLease? _remoteTextLease;
 
   LyricController(this.ref, {LyricState? initialState})
     : super(initialState ?? LyricState());
 
-  int _beginLoadRequest() {
+  int _beginLoadRequest({RemoteAssetKey? remoteHandoffKey}) {
+    if (_remoteTextLease?.key != remoteHandoffKey) {
+      _releaseRemoteTextLease();
+    }
     _translationRequestId++;
     return ++_loadRequestId;
+  }
+
+  void _releaseRemoteTextLease() {
+    final lease = _remoteTextLease;
+    _remoteTextLease = null;
+    if (lease != null) unawaited(lease.release());
+  }
+
+  Future<RemoteTextContent> _loadRemoteText({
+    required String url,
+    required String hash,
+  }) async {
+    final key = CacheService.remoteAssetKey(
+      kind: RemoteAssetKind.subtitle,
+      identity: hash,
+    );
+    final lease = CacheService.remoteTextLoader.acquire(
+      uri: Uri.parse(url),
+      key: key,
+      headers: StorageService.serverCookieHeaders,
+    );
+    final previousLease = _remoteTextLease;
+    _remoteTextLease = lease;
+    if (previousLease != null && !identical(previousLease, lease)) {
+      unawaited(previousLease.release());
+    }
+    try {
+      return await lease.content;
+    } finally {
+      if (identical(_remoteTextLease, lease)) _remoteTextLease = null;
+      await lease.release();
+    }
   }
 
   bool _isCurrentLoadRequest(int requestId) {
@@ -227,7 +265,10 @@ class LyricController extends StateNotifier<LyricState> {
     AudioTrack track,
     List<dynamic> allFiles,
   ) async {
-    final requestId = _beginLoadRequest();
+    final lyricFile = _findLyricFile(track, allFiles);
+    final requestId = _beginLoadRequest(
+      remoteHandoffKey: _remoteTextKeyFor(lyricFile),
+    );
     _log.captureOutput(
       '[Lyric] 尝试加载: track="${track.title}", workId=${track.workId}, 文件数=${allFiles.length}',
     );
@@ -262,8 +303,6 @@ class LyricController extends StateNotifier<LyricState> {
       }
 
       // 从完整文件树查找字幕文件
-      final lyricFile = _findLyricFile(track, allFiles);
-
       if (lyricFile == null) {
         // 如果文件树未找到且优先级为最后，尝试字幕库
         if (!isLibraryFirst) {
@@ -287,6 +326,7 @@ class LyricController extends StateNotifier<LyricState> {
         }
 
         _log.captureOutput('[Lyric] 未找到匹配字幕: track="${track.title}"');
+        _releaseRemoteTextLease();
         _setStateForLoadRequest(
           requestId,
           LyricState(lyrics: [], isLoading: false),
@@ -323,6 +363,7 @@ class LyricController extends StateNotifier<LyricState> {
       final workId = track.workId;
 
       if (hash == null || host.isEmpty || workId == null) {
+        _releaseRemoteTextLease();
         _setStateForLoadRequest(
           requestId,
           LyricState(lyrics: [], isLoading: false),
@@ -348,48 +389,18 @@ class LyricController extends StateNotifier<LyricState> {
       if (!_isCurrentLoadRequest(requestId)) return;
 
       if (cachedContent != null) {
+        _releaseRemoteTextLease();
         _log.captureOutput('[Lyric] 从缓存加载字幕: $hash');
         content = cachedContent;
       } else {
-        // 2. 缓存未命中，从网络下载
         _log.captureOutput('[Lyric] 从网络下载字幕: $hash');
-        final dio = Dio();
-        final response = await dio.get<List<int>>(
-          lyricUrl,
-          options: Options(
-            responseType: ResponseType.bytes,
-            receiveTimeout: const Duration(seconds: 30),
-            headers: StorageService.serverCookieHeaders,
-          ),
+        final remote = await _loadRemoteText(
+          url: lyricUrl,
+          hash: hash.toString(),
         );
         if (!_isCurrentLoadRequest(requestId)) return;
-
-        if (response.statusCode == 200) {
-          // 使用智能编码检测解码字节
-          final (decodedContent, encoding) = EncodingUtils.decodeBytes(
-            response.data!,
-          );
-          _log.captureOutput('[Lyric] 网络字幕编码: $encoding');
-          content = decodedContent;
-
-          // 3. 缓存字幕内容
-          await CacheService.cacheTextContent(
-            workId: workId,
-            hash: hash,
-            content: content,
-          );
-          if (!_isCurrentLoadRequest(requestId)) return;
-        } else {
-          _setStateForLoadRequest(
-            requestId,
-            LyricState(
-              lyrics: [],
-              isLoading: false,
-              error: 'HTTP ${response.statusCode}',
-            ),
-          );
-          return;
-        }
+        _log.captureOutput('[Lyric] 网络字幕编码: ${remote.encoding}');
+        content = remote.text;
       }
 
       // 4. 解析字幕
@@ -411,6 +422,7 @@ class LyricController extends StateNotifier<LyricState> {
         ),
       );
     } catch (e) {
+      if (_isCurrentLoadRequest(requestId)) _releaseRemoteTextLease();
       _log.captureOutput('[Lyric] 加载失败: $e');
       _setStateForLoadRequest(
         requestId,
@@ -935,6 +947,7 @@ class LyricController extends StateNotifier<LyricState> {
     int requestId, {
     LyricSourceDescriptor? source,
   }) async {
+    _releaseRemoteTextLease();
     _setStateForLoadRequest(requestId, _loadingStatePreservingCurrentLyrics());
 
     try {
@@ -989,7 +1002,9 @@ class LyricController extends StateNotifier<LyricState> {
   }
 
   Future<void> loadLyricManually(dynamic lyricFile, {int? workId}) async {
-    final requestId = _beginLoadRequest();
+    final requestId = _beginLoadRequest(
+      remoteHandoffKey: _remoteTextKeyFor(lyricFile),
+    );
     _setStateForLoadRequest(requestId, _loadingStatePreservingCurrentLyrics());
 
     try {
@@ -1016,6 +1031,7 @@ class LyricController extends StateNotifier<LyricState> {
       final hash = lyricFile['hash'];
 
       if (hash == null || host.isEmpty) {
+        _releaseRemoteTextLease();
         _setStateForLoadRequest(
           requestId,
           LyricState(lyrics: [], isLoading: false, error: '缺少必要信息'),
@@ -1058,50 +1074,18 @@ class LyricController extends StateNotifier<LyricState> {
       if (!_isCurrentLoadRequest(requestId)) return;
 
       if (cachedContent != null) {
+        _releaseRemoteTextLease();
         _log.captureOutput('[Lyric] 手动加载 - 从缓存加载字幕: $hash');
         content = cachedContent;
       } else {
-        // 2. 缓存未命中，从网络下载
         _log.captureOutput('[Lyric] 手动加载 - 从网络下载字幕: $hash');
-        final dio = Dio();
-        final response = await dio.get<List<int>>(
-          lyricUrl,
-          options: Options(
-            responseType: ResponseType.bytes,
-            receiveTimeout: const Duration(seconds: 30),
-            headers: StorageService.serverCookieHeaders,
-          ),
+        final remote = await _loadRemoteText(
+          url: lyricUrl,
+          hash: hash.toString(),
         );
         if (!_isCurrentLoadRequest(requestId)) return;
-
-        if (response.statusCode == 200) {
-          // 使用智能编码检测解码字节
-          final (decodedContent, encoding) = EncodingUtils.decodeBytes(
-            response.data!,
-          );
-          _log.captureOutput('[Lyric] 手动加载 - 网络字幕编码: $encoding');
-          content = decodedContent;
-
-          // 3. 缓存字幕内容
-          if (effectiveWorkId != null) {
-            await CacheService.cacheTextContent(
-              workId: effectiveWorkId,
-              hash: hash,
-              content: content,
-            );
-            if (!_isCurrentLoadRequest(requestId)) return;
-          }
-        } else {
-          _setStateForLoadRequest(
-            requestId,
-            LyricState(
-              lyrics: [],
-              isLoading: false,
-              error: 'HTTP ${response.statusCode}',
-            ),
-          );
-          return;
-        }
+        _log.captureOutput('[Lyric] 手动加载 - 网络字幕编码: ${remote.encoding}');
+        content = remote.text;
       }
 
       // 4. 解析字幕
@@ -1122,6 +1106,7 @@ class LyricController extends StateNotifier<LyricState> {
         ),
       );
     } catch (e) {
+      if (_isCurrentLoadRequest(requestId)) _releaseRemoteTextLease();
       if (!_isCurrentLoadRequest(requestId)) return;
       _setStateForLoadRequest(
         requestId,
@@ -1171,6 +1156,24 @@ class LyricController extends StateNotifier<LyricState> {
       return localPath;
     }
     return null;
+  }
+
+  RemoteAssetKey? _remoteTextKeyFor(dynamic file) {
+    if (file is! Map || _localPathOf(file) != null) return null;
+    final hash = file['hash']?.toString().trim();
+    if (hash == null || hash.isEmpty) return null;
+    return CacheService.remoteAssetKey(
+      kind: RemoteAssetKind.subtitle,
+      identity: hash,
+    );
+  }
+
+  @override
+  void dispose() {
+    final remoteLoad = _remoteTextLease;
+    _remoteTextLease = null;
+    if (remoteLoad != null) unawaited(remoteLoad.release());
+    super.dispose();
   }
 }
 

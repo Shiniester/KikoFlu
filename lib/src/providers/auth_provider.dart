@@ -88,7 +88,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
       _log.captureOutput('[Auth] Stored host: $host');
 
       if (token != null && host != null) {
-        _apiService.init(token, host);
+        _apiService.init(
+          token,
+          host,
+          accountScope: userJson?['name'] as String?,
+        );
 
         User? user;
         if (userJson != null) {
@@ -128,7 +132,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
         );
         _log.captureOutput('[Auth] Re-logging in with saved account...');
 
-        _apiService.init('', activeAccount.host);
+        _apiService.init(
+          '',
+          activeAccount.host,
+          accountScope: activeAccount.username,
+        );
 
         final success = await login(
           activeAccount.username,
@@ -152,7 +160,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
           );
 
           // 使用缓存的账户信息设置基本状态
-          _apiService.init('', activeAccount.host);
+          _apiService.init(
+            '',
+            activeAccount.host,
+            accountScope: activeAccount.username,
+          );
 
           state = state.copyWith(
             currentUser: User(
@@ -191,7 +203,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
             '[Auth] Exception occurred but found cached account, entering offline mode',
           );
 
-          _apiService.init('', activeAccount.host);
+          _apiService.init(
+            '',
+            activeAccount.host,
+            accountScope: activeAccount.username,
+          );
 
           state = state.copyWith(
             currentUser: User(
@@ -247,7 +263,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
 
       // Initialize API service with empty token first
-      _apiService.init('', host);
+      _apiService.init('', host, accountScope: username);
 
       // Attempt login
       final response = await _apiService.login(username, password, host);
@@ -277,7 +293,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       _log.captureOutput('[Auth] Normalized host: $normalizedHost');
 
       // Update API service with real token and normalized host
-      _apiService.init(token, normalizedHost);
+      _apiService.init(token, normalizedHost, accountScope: username);
 
       // Get user info from login response or fetch it separately
       Map<String, dynamic> userInfo;
@@ -395,7 +411,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
     try {
       // Initialize API service
-      _apiService.init('', host);
+      _apiService.init('', host, accountScope: username);
 
       // Attempt registration
       final response = await _apiService.register(username, password, host);
@@ -421,7 +437,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       }
 
       // Update API service with token and normalized host
-      _apiService.init(token, normalizedHost);
+      _apiService.init(token, normalizedHost, accountScope: username);
 
       // Get user info from registration response or fetch it separately
       Map<String, dynamic> userInfo;
@@ -557,7 +573,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
         await StorageService.remove('server_cookie');
       }
 
-      _apiService.init(state.token!, normalizedHost);
+      _apiService.init(
+        state.token!,
+        normalizedHost,
+        accountScope: state.currentUser?.name,
+      );
       await StorageService.setString('server_host', normalizedHost);
       state = state.copyWith(host: normalizedHost);
     }
@@ -592,7 +612,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         await StorageService.remove('server_cookie');
       }
 
-      _apiService.init(token, host);
+      _apiService.init(token, host, accountScope: user.name);
       await StorageService.setString('auth_token', token);
       await StorageService.setString('server_host', host);
       await StorageService.setMap('current_user', user.toJson());

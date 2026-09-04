@@ -316,6 +316,7 @@ Future<void> _initializeCriticalServices({
 
   await Future.wait<dynamic>([hiveFuture, proxyFuture, storageFuture]);
   HttpOverrides.global = KikoFluHttpOverrides();
+  CacheService.installImageCacheManager();
 
   final appearanceTasks = <Future<void>>[];
   if (Platform.isMacOS) {

@@ -1,6 +1,6 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
@@ -11,6 +11,8 @@ import '../services/log_service.dart';
 import '../services/translation_service.dart';
 import '../services/subtitle_library_service.dart';
 import '../services/storage_service.dart';
+import '../services/remote_asset_cache.dart';
+import '../services/remote_text_loader.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/encoding_utils.dart';
 import '../utils/local_file_url.dart';
@@ -70,6 +72,7 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
   late TextEditingController _textController;
   late TextEditingController _translatedTextController;
   String _detectedEncoding = 'UTF-8'; // 记录检测到的原始编码
+  RemoteTextLease? _remoteTextLease;
 
   @override
   void initState() {
@@ -90,6 +93,11 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
 
   @override
   void dispose() {
+    final remoteTextLease = _remoteTextLease;
+    _remoteTextLease = null;
+    if (remoteTextLease != null) {
+      unawaited(remoteTextLease.release());
+    }
     _scrollController.removeListener(_updateScrollProgress);
     _scrollController.dispose();
     _scrollThrottler.dispose();
@@ -126,15 +134,6 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
       LogService.instance.error('读取文件失败: $e', tag: 'TextPreview');
       rethrow;
     }
-  }
-
-  /// 智能解码字节数组
-  /// 尝试多种编码格式：UTF-16LE/BE -> UTF-8 -> GBK -> Shift-JIS -> Latin1
-  String _decodeBytes(List<int> bytes) {
-    final (content, encoding) = EncodingUtils.decodeBytes(bytes);
-    _detectedEncoding = encoding;
-    LogService.instance.debug('检测到编码: $encoding', tag: 'TextPreview');
-    return content;
   }
 
   /// 将字符串编码为字节数组
@@ -595,43 +594,36 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
         }
       }
 
-      final dio = Dio();
-      final response = await dio.get(
-        widget.textUrl,
-        options: Options(
-          responseType: ResponseType.bytes, // 改为获取字节数据
-          receiveTimeout: const Duration(seconds: 30),
-          headers: StorageService.serverCookieHeaders,
+      final uri = Uri.parse(widget.textUrl);
+      final remoteLease = CacheService.remoteTextLoader.acquire(
+        uri: uri,
+        key: CacheService.remoteAssetKey(
+          kind: RemoteAssetKind.subtitle,
+          identity: widget.hash == null || widget.hash!.isEmpty
+              ? RemoteAssetKey.canonicalUri(uri)
+              : widget.hash!,
         ),
+        headers: StorageService.serverCookieHeaders,
       );
-
-      if (response.statusCode == 200) {
-        // 使用智能编码检测解码
-        final bytes = response.data as List<int>;
-        final content = _decodeBytes(bytes);
-
-        if (widget.workId != null &&
-            widget.hash != null &&
-            widget.hash!.isNotEmpty) {
-          await CacheService.cacheTextContent(
-            workId: widget.workId!,
-            hash: widget.hash!,
-            content: content,
-          );
+      _remoteTextLease = remoteLease;
+      late final RemoteTextContent remote;
+      try {
+        remote = await remoteLease.content;
+      } finally {
+        if (identical(_remoteTextLease, remoteLease)) {
+          _remoteTextLease = null;
         }
-
-        if (!mounted) return;
-        setState(() {
-          _content = content;
-          _textController.text = content;
-          _isLoading = false;
-        });
-        _showInitialSaveOptionsIfNeeded();
-      } else {
-        throw Exception(
-          'HTTP ${response.statusCode}: ${response.statusMessage}',
-        );
+        await remoteLease.release();
       }
+      _detectedEncoding = remote.encoding;
+
+      if (!mounted) return;
+      setState(() {
+        _content = remote.text;
+        _textController.text = remote.text;
+        _isLoading = false;
+      });
+      _showInitialSaveOptionsIfNeeded();
     } catch (e) {
       if (!mounted) return;
       setState(() {

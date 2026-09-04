@@ -21,9 +21,11 @@ class PlaylistCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final auth = ref.watch(authProvider.select(
-      (value) => (host: value.host ?? '', token: value.token ?? ''),
-    ));
+    final auth = ref.watch(
+      authProvider.select(
+        (value) => (host: value.host ?? '', token: value.token ?? ''),
+      ),
+    );
     final theme = Theme.of(context);
 
     final httpHeaders = StorageService.serverCookieHeaders;
@@ -50,9 +52,13 @@ class PlaylistCard extends ConsumerWidget {
                 child: PrivacyBlurCover(
                   borderRadius: BorderRadius.circular(8),
                   child: CachedNetworkImage(
-                    imageUrl:
-                        playlist.getFullCoverUrl(auth.host, token: auth.token),
+                    imageUrl: playlist.getFullCoverUrl(
+                      auth.host,
+                      token: auth.token,
+                    ),
                     httpHeaders: httpHeaders,
+                    cacheKey:
+                        'playlist_cover_${playlist.id}|${playlist.updatedAt}',
                     fit: BoxFit.cover,
                     placeholder: (context, url) => Container(
                       color: theme.colorScheme.surfaceContainerHighest,
@@ -79,8 +85,10 @@ class PlaylistCard extends ConsumerWidget {
               // 播放列表信息
               Expanded(
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -187,8 +195,9 @@ class PlaylistCard extends ConsumerWidget {
                         child: Icon(
                           Icons.chevron_right,
                           size: 20,
-                          color: theme.colorScheme.onSurfaceVariant
-                              .withValues(alpha: 0.4),
+                          color: theme.colorScheme.onSurfaceVariant.withValues(
+                            alpha: 0.4,
+                          ),
                         ),
                       ),
               ),

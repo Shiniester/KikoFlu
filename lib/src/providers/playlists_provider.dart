@@ -61,17 +61,17 @@ class PlaylistsState extends Equatable {
 
   @override
   List<Object?> get props => [
-        playlists,
-        isLoading,
-        error,
-        loadMoreError,
-        currentPage,
-        totalCount,
-        hasMore,
-        pageSize,
-        isRefreshing,
-        isLoadingMore,
-      ];
+    playlists,
+    isLoading,
+    error,
+    loadMoreError,
+    currentPage,
+    totalCount,
+    hasMore,
+    pageSize,
+    isRefreshing,
+    isLoadingMore,
+  ];
 }
 
 class PlaylistsNotifier extends StateNotifier<PlaylistsState> {
@@ -79,7 +79,7 @@ class PlaylistsNotifier extends StateNotifier<PlaylistsState> {
   final PagedRequestGate _requestGate = PagedRequestGate();
 
   PlaylistsNotifier(this._apiService, {int initialPageSize = 20})
-      : super(PlaylistsState(pageSize: initialPageSize));
+    : super(PlaylistsState(pageSize: initialPageSize));
 
   void updatePageSize(int newSize) {
     if (state.pageSize == newSize) return;
@@ -111,6 +111,7 @@ class PlaylistsNotifier extends StateNotifier<PlaylistsState> {
         page: page,
         pageSize: state.pageSize,
         filterBy: 'all',
+        cancelToken: token.cancelToken,
       );
 
       // 解析播放列表
@@ -189,10 +190,7 @@ class PlaylistsNotifier extends StateNotifier<PlaylistsState> {
 
   /// 删除播放列表
   /// 根据播放列表的所有者和类型自动选择合适的删除API
-  Future<void> deletePlaylist(
-    Playlist playlist,
-    String currentUserName,
-  ) async {
+  Future<void> deletePlaylist(Playlist playlist, String currentUserName) async {
     try {
       // 判断是否为当前用户创建的播放列表
       final isOwner = playlist.userName == currentUserName;
@@ -216,33 +214,38 @@ class PlaylistsNotifier extends StateNotifier<PlaylistsState> {
     }
   }
 
-  Future<void> refresh() => load(
-        targetPage: state.currentPage,
-        supersede: true,
-      );
+  Future<void> refresh() =>
+      load(targetPage: state.currentPage, supersede: true);
+
+  @override
+  void dispose() {
+    _requestGate.invalidate();
+    super.dispose();
+  }
 }
 
 final playlistsProvider =
     StateNotifierProvider<PlaylistsNotifier, PlaylistsState>((ref) {
-  final apiService = ref.watch(kikoeruApiServiceProvider);
-  final pageSize = ref.read(pageSizeProvider);
-  final notifier = PlaylistsNotifier(apiService, initialPageSize: pageSize);
+      final apiService = ref.watch(kikoeruApiServiceProvider);
+      final pageSize = ref.read(pageSizeProvider);
+      final notifier = PlaylistsNotifier(apiService, initialPageSize: pageSize);
 
-  ref.listen(pageSizeProvider, (previous, next) {
-    if (previous != next) {
-      notifier.updatePageSize(next);
-    }
-  });
+      ref.listen(pageSizeProvider, (previous, next) {
+        if (previous != next) {
+          notifier.updatePageSize(next);
+        }
+      });
 
-  // 监听用户切换，自动刷新播放列表
-  ref.listen(currentUserProvider, (previous, next) {
-    final prevUser = previous;
-    final nextUser = next;
-    if (prevUser?.name != nextUser?.name || prevUser?.host != nextUser?.host) {
-      logOutput('[PlaylistsProvider] User changed, refreshing playlists');
-      notifier.refresh();
-    }
-  });
+      // 监听用户切换，自动刷新播放列表
+      ref.listen(currentUserProvider, (previous, next) {
+        final prevUser = previous;
+        final nextUser = next;
+        if (prevUser?.name != nextUser?.name ||
+            prevUser?.host != nextUser?.host) {
+          logOutput('[PlaylistsProvider] User changed, refreshing playlists');
+          notifier.refresh();
+        }
+      });
 
-  return notifier;
-});
+      return notifier;
+    });

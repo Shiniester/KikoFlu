@@ -1,25 +1,40 @@
+import 'package:dio/dio.dart';
+
+class PagedRequestHandle {
+  PagedRequestHandle(this.id);
+
+  final int id;
+  final CancelToken cancelToken = CancelToken();
+
+  void cancel([String reason = 'Superseded by a newer page request']) {
+    if (!cancelToken.isCancelled) cancelToken.cancel(reason);
+  }
+}
+
 /// Tracks the newest request so stale responses cannot overwrite a newer query.
 class PagedRequestGate {
   int _serial = 0;
-  int? _activeToken;
+  PagedRequestHandle? _activeToken;
 
   bool get isInFlight => _activeToken != null;
 
-  int? begin({bool supersede = false}) {
+  PagedRequestHandle? begin({bool supersede = false}) {
     if (_activeToken != null && !supersede) return null;
-    final token = ++_serial;
+    if (supersede) _activeToken?.cancel();
+    final token = PagedRequestHandle(++_serial);
     _activeToken = token;
     return token;
   }
 
-  bool isCurrent(int token) => _activeToken == token;
+  bool isCurrent(PagedRequestHandle token) => identical(_activeToken, token);
 
-  void complete(int token) {
-    if (_activeToken == token) _activeToken = null;
+  void complete(PagedRequestHandle token) {
+    if (identical(_activeToken, token)) _activeToken = null;
   }
 
   void invalidate() {
     _serial++;
+    _activeToken?.cancel('Request gate invalidated');
     _activeToken = null;
   }
 }

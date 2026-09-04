@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import 'package:saver_gallery/saver_gallery.dart';
@@ -11,6 +10,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/local_file_url.dart';
 import '../services/storage_service.dart';
+import '../services/cache_service.dart';
 import '../../l10n/app_localizations.dart';
 import 'cached_image_widget.dart';
 
@@ -18,13 +18,11 @@ import 'cached_image_widget.dart';
 class ImageGalleryScreen extends StatefulWidget {
   final List<Map<String, String>> images;
   final int initialIndex;
-  final int? workId;
 
   const ImageGalleryScreen({
     super.key,
     required this.images,
     this.initialIndex = 0,
-    this.workId,
   });
 
   @override
@@ -119,15 +117,21 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
         final localFile = File(localPath);
         imageBytes = await localFile.readAsBytes();
       } else {
-        // 网络图片，使用 Dio 下载
-        final response = await Dio().get(
+        final lease = CacheService.imageCacheManager.acquireFile(
           imageUrl,
-          options: Options(
-            responseType: ResponseType.bytes,
-            headers: StorageService.serverCookieHeaders,
-          ),
+          key:
+              currentImage['cacheKey'] ??
+              CacheService.imageCacheKey(
+                imageUrl: imageUrl,
+                hash: currentImage['hash'],
+              ),
+          headers: StorageService.serverCookieHeaders,
         );
-        imageBytes = response.data as List<int>;
+        try {
+          imageBytes = await (await lease.file).readAsBytes();
+        } finally {
+          await lease.release();
+        }
       }
 
       if (Platform.isAndroid) {
@@ -147,7 +151,10 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
   }
 
   Future<void> _saveToGallery(
-      List<int> imageBytes, String imageName, S l10n) async {
+    List<int> imageBytes,
+    String imageName,
+    S l10n,
+  ) async {
     PermissionStatus status = await Permission.photos.request();
 
     if (status.isPermanentlyDenied || status == PermissionStatus.restricted) {
@@ -181,7 +188,9 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
         }
       } else {
         SnackBarUtil.showWarning(
-            context, l10n.storagePermissionRequiredForImage);
+          context,
+          l10n.storagePermissionRequiredForImage,
+        );
       }
       return;
     }
@@ -199,14 +208,17 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
       SnackBarUtil.showSuccess(context, l10n.imageSavedToGallery);
     } else {
       SnackBarUtil.showError(
-          context,
-          l10n.saveFailedWithError(
-              result.errorMessage ?? l10n.saveImageFailed));
+        context,
+        l10n.saveFailedWithError(result.errorMessage ?? l10n.saveImageFailed),
+      );
     }
   }
 
   Future<void> _saveToFile(
-      List<int> imageBytes, String imageName, S l10n) async {
+    List<int> imageBytes,
+    String imageName,
+    S l10n,
+  ) async {
     String fileName = imageName;
     if (!fileName.toLowerCase().endsWith('.jpg') &&
         !fileName.toLowerCase().endsWith('.jpeg') &&
@@ -244,7 +256,9 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
       } catch (e) {
         if (mounted) {
           SnackBarUtil.showError(
-              context, l10n.saveFailedWithError(e.toString()));
+            context,
+            l10n.saveFailedWithError(e.toString()),
+          );
         }
       }
     } else {
@@ -341,8 +355,8 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
         titleSpacing: 16,
         title: isSingleImage
             ? (title.isNotEmpty
-                ? Text(title, style: const TextStyle(fontSize: 16))
-                : null)
+                  ? Text(title, style: const TextStyle(fontSize: 16))
+                  : null)
             : Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -441,7 +455,7 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
                 child: CachedImageWidget(
                   imageUrl: image['url'] ?? '',
                   hash: image['hash'] ?? '',
-                  workId: widget.workId,
+                  cacheKey: image['cacheKey'],
                   fit: BoxFit.contain,
                 ),
               ),
@@ -493,7 +507,7 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
                 child: CachedImageWidget(
                   imageUrl: widget.images[index]['url'] ?? '',
                   hash: widget.images[index]['hash'] ?? '',
-                  workId: widget.workId,
+                  cacheKey: widget.images[index]['cacheKey'],
                   fit: BoxFit.cover,
                 ),
               ),
@@ -514,10 +528,7 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
       child: Text(
         title,
         textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 13,
-        ),
+        style: const TextStyle(color: Colors.white, fontSize: 13),
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
       ),

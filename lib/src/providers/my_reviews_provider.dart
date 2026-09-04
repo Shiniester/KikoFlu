@@ -55,8 +55,8 @@ class MyReviewsState extends Equatable {
 
   int get effectivePageSize =>
       SubtitleFilterMode.fromValue(subtitleFilter).isActive
-          ? pageSize * 2
-          : pageSize;
+      ? pageSize * 2
+      : pageSize;
 
   const MyReviewsState({
     this.works = const [],
@@ -117,23 +117,23 @@ class MyReviewsState extends Equatable {
 
   @override
   List<Object?> get props => [
-        works,
-        rawWorks,
-        isLoading,
-        isRefreshing,
-        isLoadingMore,
-        error,
-        loadMoreError,
-        currentPage,
-        totalCount,
-        hasMore,
-        filter,
-        pageSize,
-        layoutType,
-        sortType,
-        sortOrder,
-        subtitleFilter,
-      ];
+    works,
+    rawWorks,
+    isLoading,
+    isRefreshing,
+    isLoadingMore,
+    error,
+    loadMoreError,
+    currentPage,
+    totalCount,
+    hasMore,
+    filter,
+    pageSize,
+    layoutType,
+    sortType,
+    sortOrder,
+    subtitleFilter,
+  ];
 }
 
 class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
@@ -156,15 +156,12 @@ class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
   late final Future<void> preferencesReady;
 
   MyReviewsNotifier(this._apiService, this._ref, {int initialPageSize = 20})
-      : super(MyReviewsState(pageSize: initialPageSize)) {
+    : super(MyReviewsState(pageSize: initialPageSize)) {
     preferencesReady = _loadPreferences();
   }
 
   Future<void> _loadPreferences() async {
-    await Future.wait([
-      _loadLayoutPreference(),
-      _loadFilterPreference(),
-    ]);
+    await Future.wait([_loadLayoutPreference(), _loadFilterPreference()]);
   }
 
   Future<void> _loadLayoutPreference() async {
@@ -223,14 +220,15 @@ class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
         filter: state.filter.value,
         order: state.sortType.value,
         sort: state.sortOrder.value,
+        cancelToken: requestToken.cancelToken,
       );
 
       // 服务器返回结构未知，尝试多种字段名
       final List<dynamic> rawList =
           (result['works'] as List?) ?? // 与 searchWorks 保持一致
-              (result['reviews'] as List?) ??
-              (result['data'] as List?) ??
-              [];
+          (result['reviews'] as List?) ??
+          (result['data'] as List?) ??
+          [];
 
       // 每个条目可能直接是 Work 或包含 work 字段
       final works = rawList.map((item) {
@@ -260,8 +258,9 @@ class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
       final totalCount = pagination?['totalCount'] ?? 0;
 
       // 计算是否有更多页
-      final totalPages =
-          totalCount > 0 ? (totalCount / state.effectivePageSize).ceil() : 1;
+      final totalPages = totalCount > 0
+          ? (totalCount / state.effectivePageSize).ceil()
+          : 1;
       final hasMore = page < totalPages;
 
       state = state.copyWith(
@@ -313,18 +312,12 @@ class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
 
   Future<void> loadMore() async {
     if (state.isLoading || !state.hasMore) return;
-    await load(
-      targetPage: state.currentPage + 1,
-    );
+    await load(targetPage: state.currentPage + 1);
   }
 
   void changeFilter(MyReviewFilter filter) {
     if (state.filter == filter) return;
-    state = state.copyWith(
-      filter: filter,
-      currentPage: 1,
-      totalCount: 0,
-    );
+    state = state.copyWith(filter: filter, currentPage: 1, totalCount: 0);
     unawaited(_filterPreference.save(filter));
     load(targetPage: 1, supersede: true);
   }
@@ -378,10 +371,8 @@ class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
     unawaited(_layoutPreference.save(nextLayout));
   }
 
-  Future<void> refresh() => load(
-        targetPage: state.currentPage,
-        supersede: true,
-      );
+  Future<void> refresh() =>
+      load(targetPage: state.currentPage, supersede: true);
 
   void reapplyFilters() {
     state = state.copyWith(works: _filterWorks(state.rawWorks));
@@ -392,36 +383,46 @@ class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
     final subtitleFilter = state.subtitleFilter;
     return filterWorksBySubtitleMode(works, localSubtitleIds, subtitleFilter);
   }
+
+  @override
+  void dispose() {
+    _requestGate.invalidate();
+    super.dispose();
+  }
 }
 
 final myReviewsProvider =
     StateNotifierProvider<MyReviewsNotifier, MyReviewsState>((ref) {
-  final apiService = ref.watch(kikoeruApiServiceProvider);
-  final pageSize = ref.read(pageSizeProvider);
-  final notifier =
-      MyReviewsNotifier(apiService, ref, initialPageSize: pageSize);
+      final apiService = ref.watch(kikoeruApiServiceProvider);
+      final pageSize = ref.read(pageSizeProvider);
+      final notifier = MyReviewsNotifier(
+        apiService,
+        ref,
+        initialPageSize: pageSize,
+      );
 
-  ref.listen(pageSizeProvider, (previous, next) {
-    if (previous != next) {
-      notifier.updatePageSize(next);
-    }
-  });
+      ref.listen(pageSizeProvider, (previous, next) {
+        if (previous != next) {
+          notifier.updatePageSize(next);
+        }
+      });
 
-  // 监听用户切换，自动刷新我的评价/收藏列表
-  ref.listen(currentUserProvider, (previous, next) {
-    final prevUser = previous;
-    final nextUser = next;
-    if (prevUser?.name != nextUser?.name || prevUser?.host != nextUser?.host) {
-      logOutput('[MyReviewsProvider] User changed, refreshing my reviews');
-      notifier.refresh();
-    }
-  });
+      // 监听用户切换，自动刷新我的评价/收藏列表
+      ref.listen(currentUserProvider, (previous, next) {
+        final prevUser = previous;
+        final nextUser = next;
+        if (prevUser?.name != nextUser?.name ||
+            prevUser?.host != nextUser?.host) {
+          logOutput('[MyReviewsProvider] User changed, refreshing my reviews');
+          notifier.refresh();
+        }
+      });
 
-  ref.listen(subtitleLibraryProvider, (previous, next) {
-    if (previous != next && notifier.isSubtitleFilterActive) {
-      notifier.reapplyFilters();
-    }
-  });
+      ref.listen(subtitleLibraryProvider, (previous, next) {
+        if (previous != next && notifier.isSubtitleFilterActive) {
+          notifier.reapplyFilters();
+        }
+      });
 
-  return notifier;
-});
+      return notifier;
+    });

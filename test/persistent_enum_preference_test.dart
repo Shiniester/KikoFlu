@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
@@ -27,6 +28,7 @@ class _TestApiService extends KikoeruApiService {
     String? filter,
     String order = 'updated_at',
     String sort = 'desc',
+    CancelToken? cancelToken,
   }) async {
     lastReviewFilter = filter;
     return {
@@ -98,75 +100,81 @@ void main() {
     expect(await pendingLoad, isNull);
   });
 
-  test('feed providers restore and persist their independent layouts',
-      () async {
-    SharedPreferences.setMockInitialValues({
-      WorksNotifier.layoutPreferenceKey: LayoutType.smallGrid.name,
-      SearchResultNotifier.layoutPreferenceKey: SearchLayoutType.list.name,
-      MyReviewsNotifier.layoutPreferenceKey: MyReviewLayoutType.smallGrid.name,
-      MyReviewsNotifier.filterPreferenceKey: MyReviewFilter.listening.name,
-    });
-    final apiService = _TestApiService();
-    final container = ProviderContainer(
-      overrides: [
-        currentUserProvider.overrideWithValue(null),
-        kikoeruApiServiceProvider.overrideWithValue(apiService),
-        subtitleLibraryProvider.overrideWith(
-          (ref) => _TestSubtitleLibraryNotifier(),
-        ),
-      ],
-    );
-    addTearDown(container.dispose);
+  test(
+    'feed providers restore and persist their independent layouts',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        WorksNotifier.layoutPreferenceKey: LayoutType.smallGrid.name,
+        SearchResultNotifier.layoutPreferenceKey: SearchLayoutType.list.name,
+        MyReviewsNotifier.layoutPreferenceKey:
+            MyReviewLayoutType.smallGrid.name,
+        MyReviewsNotifier.filterPreferenceKey: MyReviewFilter.listening.name,
+      });
+      final apiService = _TestApiService();
+      final container = ProviderContainer(
+        overrides: [
+          currentUserProvider.overrideWithValue(null),
+          kikoeruApiServiceProvider.overrideWithValue(apiService),
+          subtitleLibraryProvider.overrideWith(
+            (ref) => _TestSubtitleLibraryNotifier(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
 
-    expect(container.read(worksProvider).layoutType, LayoutType.bigGrid);
-    expect(
-      container.read(searchResultProvider).layoutType,
-      SearchLayoutType.bigGrid,
-    );
-    expect(
-      container.read(myReviewsProvider).layoutType,
-      MyReviewLayoutType.bigGrid,
-    );
+      expect(container.read(worksProvider).layoutType, LayoutType.bigGrid);
+      expect(
+        container.read(searchResultProvider).layoutType,
+        SearchLayoutType.bigGrid,
+      );
+      expect(
+        container.read(myReviewsProvider).layoutType,
+        MyReviewLayoutType.bigGrid,
+      );
 
-    await _pumpAsyncPreferenceLoad();
+      await _pumpAsyncPreferenceLoad();
 
-    expect(container.read(worksProvider).layoutType, LayoutType.smallGrid);
-    expect(
-      container.read(searchResultProvider).layoutType,
-      SearchLayoutType.list,
-    );
-    expect(
-      container.read(myReviewsProvider).layoutType,
-      MyReviewLayoutType.smallGrid,
-    );
-    expect(container.read(myReviewsProvider).filter, MyReviewFilter.listening);
-    await container.read(myReviewsProvider.notifier).load();
-    expect(apiService.lastReviewFilter, MyReviewFilter.listening.value);
+      expect(container.read(worksProvider).layoutType, LayoutType.smallGrid);
+      expect(
+        container.read(searchResultProvider).layoutType,
+        SearchLayoutType.list,
+      );
+      expect(
+        container.read(myReviewsProvider).layoutType,
+        MyReviewLayoutType.smallGrid,
+      );
+      expect(
+        container.read(myReviewsProvider).filter,
+        MyReviewFilter.listening,
+      );
+      await container.read(myReviewsProvider.notifier).load();
+      expect(apiService.lastReviewFilter, MyReviewFilter.listening.value);
 
-    container.read(worksProvider.notifier).toggleLayoutType();
-    container.read(searchResultProvider.notifier).toggleLayoutType();
-    container.read(myReviewsProvider.notifier).toggleLayoutType();
-    container
-        .read(myReviewsProvider.notifier)
-        .changeFilter(MyReviewFilter.listened);
-    await _pumpAsyncPreferenceLoad();
+      container.read(worksProvider.notifier).toggleLayoutType();
+      container.read(searchResultProvider.notifier).toggleLayoutType();
+      container.read(myReviewsProvider.notifier).toggleLayoutType();
+      container
+          .read(myReviewsProvider.notifier)
+          .changeFilter(MyReviewFilter.listened);
+      await _pumpAsyncPreferenceLoad();
 
-    final prefs = await SharedPreferences.getInstance();
-    expect(
-      prefs.getString(WorksNotifier.layoutPreferenceKey),
-      LayoutType.list.name,
-    );
-    expect(
-      prefs.getString(SearchResultNotifier.layoutPreferenceKey),
-      SearchLayoutType.bigGrid.name,
-    );
-    expect(
-      prefs.getString(MyReviewsNotifier.layoutPreferenceKey),
-      MyReviewLayoutType.list.name,
-    );
-    expect(
-      prefs.getString(MyReviewsNotifier.filterPreferenceKey),
-      MyReviewFilter.listened.name,
-    );
-  });
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getString(WorksNotifier.layoutPreferenceKey),
+        LayoutType.list.name,
+      );
+      expect(
+        prefs.getString(SearchResultNotifier.layoutPreferenceKey),
+        SearchLayoutType.bigGrid.name,
+      );
+      expect(
+        prefs.getString(MyReviewsNotifier.layoutPreferenceKey),
+        MyReviewLayoutType.list.name,
+      );
+      expect(
+        prefs.getString(MyReviewsNotifier.filterPreferenceKey),
+        MyReviewFilter.listened.name,
+      );
+    },
+  );
 }

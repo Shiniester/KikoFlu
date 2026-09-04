@@ -272,6 +272,7 @@ class _OfflineWorkDetailScreenState
     return CachedNetworkImage(
       imageUrl: '$host/api/cover/${work.id}',
       httpHeaders: {'Authorization': 'Bearer $token'},
+      cacheKey: 'work_cover_${work.id}',
       useOldImageOnUrlChange: true,
       fit: BoxFit.contain,
       placeholder: (context, url) => Container(
@@ -439,7 +440,12 @@ class _OfflineWorkDetailScreenState
               MaterialPageRoute(
                 builder: (context) => ImageGalleryScreen(
                   images: [
-                    {'url': coverUrl, 'title': work.title, 'hash': ''},
+                    {
+                      'url': coverUrl,
+                      'title': work.title,
+                      'hash': '',
+                      'cacheKey': 'work_cover_${widget.work.id}',
+                    },
                   ],
                   initialIndex: 0,
                 ),

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:dio/dio.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/download_task.dart';
@@ -20,6 +19,9 @@ import 'download_disk_inventory_scanner.dart';
 import 'download_task_persistence.dart';
 import 'local_work_metadata_service.dart';
 import 'log_service.dart';
+import 'audio_stream_cache.dart';
+import 'remote_asset_cache.dart';
+import 'resumable_file_transfer.dart';
 
 final _log = LogService.instance;
 
@@ -29,7 +31,7 @@ class DownloadService implements DownloadTaskRepository {
 
   DownloadService._();
 
-  final Map<String, CancelToken> _cancelTokens = {};
+  final Map<String, RemoteAssetCancellation> _cancelTokens = {};
   final Map<String, Future<void>> _runningDownloads = {};
   // Prevent two rapid addTask calls for the same file from both passing the
   // duplicate check while either call is waiting on the cache/filesystem.
@@ -46,7 +48,7 @@ class DownloadService implements DownloadTaskRepository {
   bool _performanceHadPendingSave = false;
   int _performanceTaskRowBuilds = 0;
   int _performanceTemporaryListAllocations = 0;
-  final Dio _dio = Dio();
+  final ResumableFileTransfer _resumableFileTransfer = ResumableFileTransfer();
   final LocalWorkMetadataService _localMetadataService =
       const LocalWorkMetadataService();
   final DownloadDiskInventoryScanner _diskInventoryScanner =
@@ -325,9 +327,16 @@ class DownloadService implements DownloadTaskRepository {
         return coverFile.path;
       }
 
-      // 下载图片
-      _dio.options.headers.addAll(StorageService.serverCookieHeaders);
-      await _dio.download(coverUrl, coverFile.path);
+      final coverLease = CacheService.imageCacheManager.acquireFile(
+        coverUrl,
+        key: 'work_cover_$workId',
+        headers: StorageService.serverCookieHeaders,
+      );
+      try {
+        await (await coverLease.file).copy(coverFile.path);
+      } finally {
+        await coverLease.release();
+      }
       return coverFile.path;
     } catch (e) {
       _log.error('下载封面图片失败: $e', tag: 'Download');
@@ -834,25 +843,43 @@ class DownloadService implements DownloadTaskRepository {
       return;
     }
 
-    final cancelToken = CancelToken();
+    final cancelToken = RemoteAssetCancellation();
     _cancelTokens[task.id] = cancelToken;
 
     try {
       // 先检查缓存中是否已有此文件
       if (task.hash != null && task.hash!.isNotEmpty) {
         final fileType = task.fileName.split('.').last.toLowerCase();
-        final cachedPath = await CacheService.getCachedFileResource(
-          workId: task.workId,
-          hash: task.hash!,
-          fileType: fileType,
-        );
+        final isAudio = FileIconUtils.inferFileType(task.fileName) == 'audio';
+        final cachedPath = isAudio
+            ? await CacheService.getCachedAudioFile(task.hash!)
+            : await CacheService.getCachedFileResource(
+                workId: task.workId,
+                hash: task.hash!,
+                fileType: fileType,
+              );
 
         if (cachedPath != null) {
           // 缓存存在,直接复制文件
           _log.info('从缓存复制文件: $cachedPath -> $filePath', tag: 'Download');
           final cachedFile = File(cachedPath);
           if (await cachedFile.exists()) {
-            await cachedFile.copy(filePath);
+            if (isAudio) {
+              AudioStreamCache.markCachePathActive(cachedPath);
+            } else {
+              FileRemoteAssetCache.markCachePathActive(cachedPath);
+            }
+            try {
+              if (!p.equals(p.normalize(cachedPath), p.normalize(filePath))) {
+                await cachedFile.copy(filePath);
+              }
+            } finally {
+              if (isAudio) {
+                AudioStreamCache.unmarkCachePathActive(cachedPath);
+              } else {
+                FileRemoteAssetCache.unmarkCachePathActive(cachedPath);
+              }
+            }
 
             final completedTask = task.copyWith(
               status: DownloadStatus.completed,
@@ -875,20 +902,46 @@ class DownloadService implements DownloadTaskRepository {
       const updateInterval = 500; // 500ms 更新一次
       int? firstReportedTotal; // 记录首次收到的total，用于诊断进度跳变
 
-      _dio.options.headers.addAll(StorageService.serverCookieHeaders);
-
       _log.info(
         '开始网络下载: ${task.fileName}, url=${task.downloadUrl}',
         tag: 'Download',
       );
 
-      // 下载到临时文件，完成后再重命名
-      await _dio.download(
-        task.downloadUrl,
-        tempFilePath,
-        cancelToken: cancelToken,
-        onReceiveProgress: (received, total) {
-          if (total != -1) {
+      if ((!await tempFile.exists() || await tempFile.length() == 0) &&
+          task.hash != null &&
+          task.hash!.isNotEmpty &&
+          FileIconUtils.inferFileType(task.fileName) == 'audio') {
+        final audioPrefix = await CacheService.audioCacheFiles.partialFile(
+          task.hash!,
+        );
+        if (await audioPrefix.exists() &&
+            !AudioStreamCache.isCachePathActive(audioPrefix.path)) {
+          final sourceLength = await audioPrefix.length();
+          final sourceModified = await audioPrefix.lastModified();
+          await audioPrefix.copy(tempFilePath);
+          final sourceStayedInactive =
+              await audioPrefix.exists() &&
+              !AudioStreamCache.isCachePathActive(audioPrefix.path) &&
+              await audioPrefix.length() == sourceLength &&
+              await audioPrefix.lastModified() == sourceModified;
+          if (sourceStayedInactive) {
+            _log.info(
+              '复用在线播放音频前缀: ${await tempFile.length()} bytes',
+              tag: 'Download',
+            );
+          } else if (await tempFile.exists()) {
+            await tempFile.delete();
+          }
+        }
+      }
+
+      final transferResult = await _resumableFileTransfer.download(
+        uri: Uri.parse(task.downloadUrl),
+        partialFile: tempFile,
+        cancellation: cancelToken,
+        headers: StorageService.serverCookieHeaders,
+        onProgress: (received, total) {
+          if (total != null) {
             // 诊断：检测服务器报告的总大小是否变化（可能导致进度条跳变）
             if (firstReportedTotal == null) {
               firstReportedTotal = total;
@@ -936,13 +989,15 @@ class DownloadService implements DownloadTaskRepository {
       final completedTask = currentTask.copyWith(
         status: DownloadStatus.completed,
         completedAt: DateTime.now(),
+        downloadedBytes: transferResult.totalBytes,
+        totalBytes: transferResult.totalBytes,
       );
       _updateTask(completedTask, immediate: true); // 完成时立即保存
       if (identical(_cancelTokens[task.id], cancelToken)) {
         _cancelTokens.remove(task.id);
       }
     } catch (e) {
-      if (e is DioException && e.type == DioExceptionType.cancel) {
+      if (cancelToken.isCancelled) {
         _log.info('下载已取消: ${task.fileName}', tag: 'Download');
         final currentTask = taskById(task.id);
         // A pause/resume or delete may have changed the state while Dio was
@@ -965,9 +1020,9 @@ class DownloadService implements DownloadTaskRepository {
           tag: 'Download',
         );
         _markTaskFailedIfCurrent(task.id, e);
-      } else if (e is DioException) {
+      } else if (e is HttpException) {
         _log.error(
-          '网络错误: ${task.fileName}, type=${e.type}, message=${e.message}, url=${task.downloadUrl}',
+          '网络错误: ${task.fileName}, message=${e.message}, url=${task.downloadUrl}',
           tag: 'Download',
         );
         _markTaskFailedIfCurrent(task.id, e);

@@ -84,8 +84,9 @@ void main() {
     );
   });
 
-  testWidgets('bounds concurrency, queue size, and duplicate work',
-      (tester) async {
+  testWidgets('bounds concurrency, queue size, and duplicate work', (
+    tester,
+  ) async {
     final completions = <Completer<void>>[];
     var active = 0;
     var maxActive = 0;
@@ -106,27 +107,31 @@ void main() {
       (index) => Work(id: index, title: 'Work $index'),
     );
 
-    await tester.pumpWidget(MaterialApp(
-      home: Builder(builder: (context) {
-        controller.prefetch(
-          context,
-          works,
-          host: 'https://example.com',
-          token: 'token',
-          crossAxisCount: 2,
-          headers: const {},
-        );
-        controller.prefetch(
-          context,
-          works.take(12),
-          host: 'https://example.com',
-          token: 'token',
-          crossAxisCount: 2,
-          headers: const {},
-        );
-        return const SizedBox.shrink();
-      }),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            controller.prefetch(
+              context,
+              works,
+              host: 'https://example.com',
+              token: 'token',
+              crossAxisCount: 2,
+              headers: const {},
+            );
+            controller.prefetch(
+              context,
+              works.take(12),
+              host: 'https://example.com',
+              token: 'token',
+              crossAxisCount: 2,
+              headers: const {},
+            );
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
     await tester.pump();
 
     expect(starts, 2);
@@ -134,7 +139,9 @@ void main() {
     expect(controller.pendingCount, lessThanOrEqualTo(12));
 
     while (completions.any((completion) => !completion.isCompleted)) {
-      completions.firstWhere((completion) => !completion.isCompleted).complete();
+      completions
+          .firstWhere((completion) => !completion.isCompleted)
+          .complete();
       await tester.pump();
     }
     await controller.whenIdle();
@@ -142,8 +149,9 @@ void main() {
     expect(maxActive, 2);
   });
 
-  testWidgets('cancels queued work when the page source changes',
-      (tester) async {
+  testWidgets('cancels queued work when the page source changes', (
+    tester,
+  ) async {
     final first = Completer<void>();
     var starts = 0;
     final controller = WorkCoverPrefetchController(
@@ -155,19 +163,23 @@ void main() {
     );
     addTearDown(controller.dispose);
 
-    await tester.pumpWidget(MaterialApp(
-      home: Builder(builder: (context) {
-        controller.prefetch(
-          context,
-          List.generate(5, (index) => Work(id: index, title: '$index')),
-          host: 'https://old.example.com',
-          token: 'token',
-          crossAxisCount: 2,
-          headers: const {},
-        );
-        return const SizedBox.shrink();
-      }),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            controller.prefetch(
+              context,
+              List.generate(5, (index) => Work(id: index, title: '$index')),
+              host: 'https://old.example.com',
+              token: 'token',
+              crossAxisCount: 2,
+              headers: const {},
+            );
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
     await tester.pump();
     expect(starts, 1);
 
@@ -177,6 +189,110 @@ void main() {
     await controller.whenIdle();
 
     expect(starts, 1);
+    expect(controller.pendingCount, 0);
+  });
+
+  testWidgets('cancels an obsolete active cover transfer', (tester) async {
+    var cancellations = 0;
+    final controller = WorkCoverPrefetchController(
+      maxConcurrent: 1,
+      precacheOperation: (provider, context) {
+        final completion = Completer<void>();
+        return WorkCoverPrecacheOperation(
+          future: completion.future,
+          cancel: () {
+            cancellations++;
+            if (!completion.isCompleted) completion.complete();
+          },
+        );
+      },
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            controller.prefetch(
+              context,
+              const [Work(id: 1, title: 'obsolete')],
+              host: 'https://old.example.com',
+              token: 'token',
+              crossAxisCount: 2,
+              headers: const {},
+            );
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+
+    controller.cancelPending();
+    await tester.pump();
+    await controller.whenIdle();
+
+    expect(cancellations, 1);
+    expect(controller.activeCount, 0);
+  });
+
+  testWidgets('pausing cancels and requeues an active cover transfer', (
+    tester,
+  ) async {
+    var starts = 0;
+    var cancellations = 0;
+    final completions = <Completer<void>>[];
+    final controller = WorkCoverPrefetchController(
+      maxConcurrent: 1,
+      precacheOperation: (provider, context) {
+        starts++;
+        final completion = Completer<void>();
+        completions.add(completion);
+        return WorkCoverPrecacheOperation(
+          future: completion.future,
+          cancel: () {
+            cancellations++;
+            if (!completion.isCompleted) completion.complete();
+          },
+        );
+      },
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            controller.prefetch(
+              context,
+              const [Work(id: 1, title: 'paused')],
+              host: 'https://example.com',
+              token: 'token',
+              crossAxisCount: 2,
+              headers: const {},
+            );
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(starts, 1);
+
+    controller.setPaused(true);
+    await tester.pump();
+    expect(cancellations, 1);
+    expect(controller.activeCount, 0);
+    expect(controller.pendingCount, 1);
+
+    controller.setPaused(false);
+    await tester.pump();
+    expect(starts, 2);
+    completions.last.complete();
+    await tester.pump();
+    await controller.whenIdle();
+
+    expect(controller.activeCount, 0);
     expect(controller.pendingCount, 0);
   });
 }

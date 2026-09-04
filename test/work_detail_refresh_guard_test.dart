@@ -13,6 +13,9 @@ void main() {
       source,
       contains('_fileExplorerController.refresh(forceRefresh: true)'),
     );
+    expect(source, contains('forceRevalidate: true'));
+    expect(source, contains('speculative: false'));
+    expect(source, contains('reportFailure: true'));
     expect(source, contains('controller: _fileExplorerController'));
   });
 }

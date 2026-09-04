@@ -1,17 +1,33 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../models/work.dart';
+import '../services/cache_service.dart';
 import '../services/storage_service.dart';
 import '../services/speculative_transfer_coordinator.dart';
 
-typedef WorkCoverPrecache = Future<void> Function(
-  ImageProvider<Object> provider,
-  BuildContext context,
-);
+typedef WorkCoverPrecache =
+    Future<void> Function(ImageProvider<Object> provider, BuildContext context);
+
+typedef WorkCoverPrecacheStarter =
+    WorkCoverPrecacheOperation Function(
+      ImageProvider<Object> provider,
+      BuildContext context,
+    );
+
+class WorkCoverPrecacheOperation {
+  const WorkCoverPrecacheOperation({
+    required this.future,
+    required this.cancel,
+  });
+
+  final Future<void> future;
+  final void Function() cancel;
+}
 
 int calculateWorkCoverCacheWidth({
   required double viewportWidth,
@@ -71,21 +87,27 @@ ImageProvider<Object> createWorkCoverImageProvider({
 ///
 /// Work is deduplicated by server, work id and target decode width. Resetting
 /// the controller invalidates queued work when an account or data source
-/// changes. Active image decodes are allowed to finish, but their completion is
-/// ignored and never starts work from the invalidated generation.
+/// changes. Production image listeners are detached immediately so an
+/// unshared transfer is cancelled; a visible consumer of the same key keeps
+/// the shared transfer alive.
 class WorkCoverPrefetchController {
   WorkCoverPrefetchController({
     this.maxConcurrent = 2,
     this.maxPending = 12,
     WorkCoverPrecache? precache,
-  })  : assert(maxConcurrent > 0),
-        assert(maxPending >= 0),
-        _precache = precache ?? _defaultPrecache;
+    WorkCoverPrecacheStarter? precacheOperation,
+  }) : assert(maxConcurrent > 0),
+       assert(maxPending >= 0),
+       assert(precache == null || precacheOperation == null),
+       _precache = precache,
+       _precacheOperation = precacheOperation;
 
   final int maxConcurrent;
   final int maxPending;
-  final WorkCoverPrecache _precache;
+  final WorkCoverPrecache? _precache;
+  final WorkCoverPrecacheStarter? _precacheOperation;
   final Queue<_CoverPrefetchTask> _queue = Queue();
+  final Set<_CoverPrefetchTask> _activeTasks = {};
   final Map<_CoverPrefetchKey, int> _scheduledKeys = {};
   final List<Completer<void>> _idleWaiters = [];
 
@@ -132,6 +154,10 @@ class WorkCoverPrefetchController {
           provider: provider,
           key: key,
           generation: _generation,
+          url: work.getCoverImageUrl(host, token: token),
+          cacheKey: 'work_cover_${work.id}',
+          headers: headers ?? StorageService.serverCookieHeaders,
+          targetWidth: targetWidth,
         ),
       );
     }
@@ -142,7 +168,17 @@ class WorkCoverPrefetchController {
   void setPaused(bool paused) {
     if (_disposed || _paused == paused) return;
     _paused = paused;
-    if (!paused) _pump();
+    if (paused) {
+      for (final task in List<_CoverPrefetchTask>.of(_activeTasks)) {
+        final cancel = task.cancel;
+        if (task.generation == _generation && cancel != null) {
+          task.restartAfterPause = true;
+          cancel();
+        }
+      }
+    } else {
+      _pump();
+    }
   }
 
   /// Invalidates work from the previous page/account/data-source generation.
@@ -151,6 +187,9 @@ class WorkCoverPrefetchController {
     _generation++;
     _queue.clear();
     _scheduledKeys.clear();
+    for (final task in List<_CoverPrefetchTask>.of(_activeTasks)) {
+      if (task.generation != _generation) task.cancel?.call();
+    }
     _completeIdleWaitersIfNeeded();
   }
 
@@ -176,6 +215,7 @@ class WorkCoverPrefetchController {
         continue;
       }
       _activeCount++;
+      _activeTasks.add(task);
       unawaited(_run(task));
     }
     _completeIdleWaitersIfNeeded();
@@ -183,12 +223,32 @@ class WorkCoverPrefetchController {
 
   Future<void> _run(_CoverPrefetchTask task) async {
     try {
-      await _precache(task.provider, task.context);
+      final starter = _precacheOperation;
+      if (starter != null) {
+        final operation = starter(task.provider, task.context);
+        task.cancel = operation.cancel;
+        await operation.future;
+      } else if (_precache != null) {
+        await _precache(task.provider, task.context);
+      } else {
+        final operation = _remoteFilePrecacheOperation(task);
+        task.cancel = operation.cancel;
+        await operation.future;
+      }
     } catch (_) {
       // A failed speculative request must not affect normal image loading.
     } finally {
+      task.cancel = null;
+      _activeTasks.remove(task);
       _activeCount--;
-      _removeScheduledKey(task);
+      if (task.restartAfterPause &&
+          !_disposed &&
+          task.generation == _generation) {
+        task.restartAfterPause = false;
+        _queue.addFirst(task);
+      } else {
+        _removeScheduledKey(task);
+      }
       _pump();
     }
   }
@@ -208,11 +268,80 @@ class WorkCoverPrefetchController {
     }
   }
 
-  static Future<void> _defaultPrecache(
-    ImageProvider<Object> provider,
-    BuildContext context,
+  static WorkCoverPrecacheOperation _remoteFilePrecacheOperation(
+    _CoverPrefetchTask task,
   ) {
-    return precacheImage(provider, context);
+    final lease = CacheService.imageCacheManager.acquireFile(
+      task.url,
+      key: task.cacheKey,
+      headers: task.headers,
+      speculative: true,
+    );
+    WorkCoverPrecacheOperation? decode;
+    var cancelled = false;
+    final configuration = createLocalImageConfiguration(task.context);
+    final future = () async {
+      try {
+        final file = await lease.file;
+        if (cancelled) return;
+        final provider = ResizeImage.resizeIfNeeded(
+          task.targetWidth,
+          null,
+          FileImage(File(file.path)),
+        );
+        decode = _imageListenerPrecacheOperation(provider, configuration);
+        if (cancelled) decode!.cancel();
+        await decode!.future;
+      } finally {
+        await lease.release();
+      }
+    }();
+    return WorkCoverPrecacheOperation(
+      future: future,
+      cancel: () {
+        cancelled = true;
+        decode?.cancel();
+        unawaited(lease.release());
+      },
+    );
+  }
+
+  static WorkCoverPrecacheOperation _imageListenerPrecacheOperation(
+    ImageProvider<Object> provider,
+    ImageConfiguration configuration,
+  ) {
+    final completer = Completer<void>();
+    final stream = provider.resolve(configuration);
+    late final ImageStreamListener listener;
+    var removed = false;
+
+    void removeListener() {
+      if (removed) return;
+      removed = true;
+      stream.removeListener(listener);
+    }
+
+    listener = ImageStreamListener(
+      (image, synchronousCall) {
+        if (!completer.isCompleted) completer.complete();
+        WidgetsBinding.instance.addPostFrameCallback((_) => removeListener());
+      },
+      onError: (Object error, StackTrace? stackTrace) {
+        removeListener();
+        if (!completer.isCompleted) {
+          completer.completeError(error, stackTrace ?? StackTrace.current);
+        }
+      },
+    );
+    stream.addListener(listener);
+
+    return WorkCoverPrecacheOperation(
+      future: completer.future,
+      cancel: () {
+        removeListener();
+        if (!completer.isCompleted) completer.complete();
+      },
+    );
   }
 }
 
@@ -230,16 +359,15 @@ class WorkCoverPrefetchScope extends StatefulWidget {
   final Widget Function(
     BuildContext context,
     WorkCoverPrefetchController controller,
-  ) builder;
+  )
+  builder;
 
   @override
-  State<WorkCoverPrefetchScope> createState() =>
-      _WorkCoverPrefetchScopeState();
+  State<WorkCoverPrefetchScope> createState() => _WorkCoverPrefetchScopeState();
 }
 
 class _WorkCoverPrefetchScopeState extends State<WorkCoverPrefetchScope> {
-  final WorkCoverPrefetchController _controller =
-      WorkCoverPrefetchController();
+  final WorkCoverPrefetchController _controller = WorkCoverPrefetchController();
   late final StreamSubscription<bool> _pauseSubscription;
   bool _globallyPaused = false;
 
@@ -298,15 +426,25 @@ class _CoverPrefetchKey {
 }
 
 class _CoverPrefetchTask {
-  const _CoverPrefetchTask({
+  _CoverPrefetchTask({
     required this.context,
     required this.provider,
     required this.key,
     required this.generation,
+    required this.url,
+    required this.cacheKey,
+    required this.headers,
+    required this.targetWidth,
   });
 
   final BuildContext context;
   final ImageProvider<Object> provider;
   final _CoverPrefetchKey key;
   final int generation;
+  final String url;
+  final String cacheKey;
+  final Map<String, String> headers;
+  final int targetWidth;
+  void Function()? cancel;
+  bool restartAfterPause = false;
 }

@@ -15,11 +15,7 @@ import '../utils/paged_collection.dart';
 import '../utils/persistent_enum_preference.dart';
 
 // Layout types for search results
-enum SearchLayoutType {
-  list,
-  smallGrid,
-  bigGrid,
-}
+enum SearchLayoutType { list, smallGrid, bigGrid }
 
 // Extension to convert SearchLayoutType to LayoutType
 extension SearchLayoutTypeExtension on SearchLayoutType {
@@ -122,24 +118,24 @@ class SearchResultState extends Equatable {
 
   @override
   List<Object?> get props => [
-        works,
-        rawWorks,
-        isLoading,
-        isRefreshing,
-        isLoadingMore,
-        error,
-        loadMoreError,
-        currentPage,
-        totalCount,
-        hasMore,
-        layoutType,
-        sortOption,
-        sortDirection,
-        subtitleFilter,
-        basePageSize,
-        keyword,
-        searchParams,
-      ];
+    works,
+    rawWorks,
+    isLoading,
+    isRefreshing,
+    isLoadingMore,
+    error,
+    loadMoreError,
+    currentPage,
+    totalCount,
+    hasMore,
+    layoutType,
+    sortOption,
+    sortDirection,
+    subtitleFilter,
+    basePageSize,
+    keyword,
+    searchParams,
+  ];
 }
 
 // Search result notifier
@@ -156,7 +152,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
   );
 
   SearchResultNotifier(this._apiService, this._ref, {int initialPageSize = 20})
-      : super(SearchResultState(basePageSize: initialPageSize)) {
+    : super(SearchResultState(basePageSize: initialPageSize)) {
     _loadLayoutPreference();
   }
 
@@ -224,6 +220,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
           order: state.sortOption.value,
           sort: state.sortDirection.value,
           subtitle: serverSubtitleParam,
+          cancelToken: requestToken.cancelToken,
         );
       } else if (state.searchParams?.containsKey('tagId') == true) {
         result = await _apiService.getWorksByTag(
@@ -233,6 +230,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
           order: state.sortOption.value,
           sort: state.sortDirection.value,
           subtitle: serverSubtitleParam,
+          cancelToken: requestToken.cancelToken,
         );
       } else {
         result = await _apiService.searchWorks(
@@ -242,13 +240,15 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
           order: state.sortOption.value,
           sort: state.sortDirection.value,
           subtitle: serverSubtitleParam,
+          cancelToken: requestToken.cancelToken,
         );
       }
 
       if (!_requestGate.isCurrent(requestToken)) return;
 
-      final pageWorks =
-          (result['works'] as List).map((json) => Work.fromJson(json)).toList();
+      final pageWorks = (result['works'] as List)
+          .map((json) => Work.fromJson(json))
+          .toList();
       final rawWorks = mergePagedItems<Work, int>(
         existing: const [],
         incoming: pageWorks,
@@ -259,8 +259,9 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
       final filteredWorks = _filterWorks(rawWorks, blockedItems);
       final pagination = result['pagination'] as Map<String, dynamic>?;
       final totalCount = pagination?['totalCount'] ?? pageWorks.length;
-      final totalPages =
-          totalCount > 0 ? (totalCount / state.pageSize).ceil() : 1;
+      final totalPages = totalCount > 0
+          ? (totalCount / state.pageSize).ceil()
+          : 1;
 
       state = state.copyWith(
         works: filteredWorks,
@@ -353,6 +354,9 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
   bool get isSubtitleFilterActive =>
       SubtitleFilterMode.fromValue(state.subtitleFilter).isActive;
 
+  bool get hasActiveQuery =>
+      state.keyword.isNotEmpty || state.searchParams != null;
+
   void toggleSubtitleFilter() {
     final currentPage = state.currentPage;
     final oldFilterMode = SubtitleFilterMode.fromValue(state.subtitleFilter);
@@ -389,35 +393,50 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
     );
     refresh();
   }
+
+  @override
+  void dispose() {
+    _requestGate.invalidate();
+    super.dispose();
+  }
 }
 
 // Provider
 final searchResultProvider =
     StateNotifierProvider<SearchResultNotifier, SearchResultState>((ref) {
-  final apiService = ref.watch(kikoeruApiServiceProvider);
-  final pageSize = ref.read(pageSizeProvider);
-  final notifier =
-      SearchResultNotifier(apiService, ref, initialPageSize: pageSize);
+      final apiService = ref.watch(kikoeruApiServiceProvider);
+      final pageSize = ref.read(pageSizeProvider);
+      final notifier = SearchResultNotifier(
+        apiService,
+        ref,
+        initialPageSize: pageSize,
+      );
 
-  ref.listen(pageSizeProvider, (previous, next) {
-    if (previous != next) {
-      notifier.updatePageSize(next);
-    }
-  });
+      ref.listen(pageSizeProvider, (previous, next) {
+        if (previous != next) {
+          notifier.updatePageSize(next);
+        }
+      });
 
-  // 监听屏蔽列表变化，重新过滤
-  ref.listen(blockedItemsProvider, (previous, next) {
-    if (previous != next) {
-      notifier.reapplyFilters();
-    }
-  });
+      ref.listen(currentUserProvider, (previous, next) {
+        if (previous?.name != next?.name || previous?.host != next?.host) {
+          if (notifier.hasActiveQuery) notifier.refresh();
+        }
+      });
 
-  // 监听本地字幕库变化，当字幕筛选开启时重新过滤
-  ref.listen(subtitleLibraryProvider, (previous, next) {
-    if (previous != next && notifier.isSubtitleFilterActive) {
-      notifier.reapplyFilters();
-    }
-  });
+      // 监听屏蔽列表变化，重新过滤
+      ref.listen(blockedItemsProvider, (previous, next) {
+        if (previous != next) {
+          notifier.reapplyFilters();
+        }
+      });
 
-  return notifier;
-});
+      // 监听本地字幕库变化，当字幕筛选开启时重新过滤
+      ref.listen(subtitleLibraryProvider, (previous, next) {
+        if (previous != next && notifier.isSubtitleFilterActive) {
+          notifier.reapplyFilters();
+        }
+      });
+
+      return notifier;
+    });

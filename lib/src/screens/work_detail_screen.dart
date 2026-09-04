@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +13,9 @@ import '../models/work.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/scrollable_appbar.dart';
 import '../services/work_track_file_builder.dart';
+import '../services/storage_service.dart';
+import '../services/cache_service.dart';
+import '../services/remote_asset_cache.dart';
 import '../utils/system_ui_style.dart';
 import '../widgets/file_explorer_widget.dart';
 import '../widgets/file_selection_dialog.dart';
@@ -62,6 +68,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   bool _isOpeningProgressDialog = false; // 防止标记状态对话框重复快速打开
   final FileExplorerController _fileExplorerController =
       FileExplorerController();
+  RemoteAssetLease? _hdPreloadLease;
 
   // 翻译相关状态
   String? _translatedTitle; // 翻译后的标题
@@ -94,8 +101,20 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     });
   }
 
+  @override
+  void dispose() {
+    final lease = _hdPreloadLease;
+    _hdPreloadLease = null;
+    if (lease != null) unawaited(lease.release());
+    super.dispose();
+  }
+
   // 预加载高清图片，完全加载后再切换
-  Future<void> _preloadHDImage() async {
+  Future<void> _preloadHDImage({
+    bool forceRevalidate = false,
+    bool speculative = true,
+    bool reportFailure = false,
+  }) async {
     final authState = ref.read(authProvider);
     final host = authState.host ?? '';
     final token = authState.token ?? '';
@@ -103,10 +122,28 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     if (host.isEmpty) return;
 
     final imageUrl = widget.work.getCoverImageUrl(host, token: token);
-    final imageProvider = NetworkImage(imageUrl);
+    final previousLease = _hdPreloadLease;
+    if (forceRevalidate && previousLease != null) {
+      _hdPreloadLease = null;
+      await previousLease.release();
+    }
+    final lease = CacheService.imageCacheManager.acquireFile(
+      imageUrl,
+      key: 'work_cover_${widget.work.id}',
+      headers: StorageService.serverCookieHeaders,
+      speculative: speculative,
+      forceRevalidate: forceRevalidate,
+    );
+    _hdPreloadLease = lease;
+    if (!forceRevalidate && previousLease != null) {
+      await previousLease.release();
+    }
 
     try {
-      // 预加载图片到内存
+      final imageProvider = FileImage(File((await lease.file).path));
+      if (!mounted) return;
+      if (forceRevalidate) await imageProvider.evict();
+      if (!mounted) return;
       await precacheImage(imageProvider, context);
       // 图片完全加载后才切换显示
       if (mounted) {
@@ -118,6 +155,10 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     } catch (e) {
       // 预加载失败，保持使用缓存图片
       debugPrint('HD image preload failed: $e');
+      if (reportFailure) rethrow;
+    } finally {
+      if (identical(_hdPreloadLease, lease)) _hdPreloadLease = null;
+      await lease.release();
     }
   }
 
@@ -373,10 +414,15 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
       final apiService = ref.read(kikoeruApiServiceProvider);
 
-      // 元数据和文件树都必须绕过缓存，并等待两者完成后再报告刷新成功。
+      // 元数据、文件树和封面都必须完成验证后再报告刷新成功。
       final refreshResults = await Future.wait<dynamic>([
         apiService.getWork(widget.work.id, forceRefresh: true),
         _fileExplorerController.refresh(forceRefresh: true),
+        _preloadHDImage(
+          forceRevalidate: true,
+          speculative: false,
+          reportFailure: true,
+        ),
       ]);
       final response = refreshResults.first as Map<String, dynamic>;
       final detailedWork = Work.fromJson(response);
@@ -630,7 +676,12 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
               MaterialPageRoute(
                 builder: (context) => ImageGalleryScreen(
                   images: [
-                    {'url': coverUrl, 'title': work.title, 'hash': ''},
+                    {
+                      'url': coverUrl,
+                      'title': work.title,
+                      'hash': '',
+                      'cacheKey': 'work_cover_${widget.work.id}',
+                    },
                   ],
                   initialIndex: 0,
                 ),

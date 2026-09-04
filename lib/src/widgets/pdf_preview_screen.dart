@@ -1,12 +1,12 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter_pdfview/flutter_pdfview.dart';
 import 'package:path/path.dart' as path;
-import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../services/cache_service.dart';
+import '../services/remote_asset_cache.dart';
 import '../services/storage_service.dart';
 import '../utils/local_file_url.dart';
 import '../../l10n/app_localizations.dart';
@@ -38,6 +38,8 @@ class _PdfPreviewScreenState extends State<PdfPreviewScreen> {
   int _currentPage = 0;
   int _totalPages = 0;
   PDFViewController? _pdfViewController;
+  RemoteAssetLease? _remoteAssetLease;
+  String? _markedCachePath;
 
   @override
   void initState() {
@@ -47,7 +49,14 @@ class _PdfPreviewScreenState extends State<PdfPreviewScreen> {
 
   @override
   void dispose() {
-    // 不删除任何文件,让临时文件作为缓存使用
+    final lease = _remoteAssetLease;
+    _remoteAssetLease = null;
+    if (lease != null) unawaited(lease.release());
+    final markedPath = _markedCachePath;
+    _markedCachePath = null;
+    if (markedPath != null) {
+      FileRemoteAssetCache.unmarkCachePathActive(markedPath);
+    }
     super.dispose();
   }
 
@@ -94,6 +103,7 @@ class _PdfPreviewScreenState extends State<PdfPreviewScreen> {
         if (!mounted) return;
 
         if (cachedPath != null) {
+          _markCachePathActive(cachedPath);
           if (await _openDesktopPdf(cachedPath)) return;
 
           setState(() {
@@ -102,49 +112,29 @@ class _PdfPreviewScreenState extends State<PdfPreviewScreen> {
           });
           return;
         }
-
-        final dio = Dio();
-        dio.options.headers.addAll(StorageService.serverCookieHeaders);
-
-        final newCachedPath = await CacheService.cacheFileResource(
-          workId: widget.workId!,
-          hash: widget.hash!,
-          fileType: 'pdf',
-          url: widget.pdfUrl,
-          dio: dio,
-        );
-        if (!mounted) return;
-
-        if (newCachedPath != null) {
-          if (await _openDesktopPdf(newCachedPath)) return;
-
-          setState(() {
-            _localFilePath = newCachedPath;
-            _isLoading = false;
-          });
-          return;
-        }
       }
 
-      final dio = Dio();
-      final tempDir = await getTemporaryDirectory();
-      if (!mounted) return;
-      final fileName = 'temp_pdf_${DateTime.now().millisecondsSinceEpoch}.pdf';
-      final filePath = path.join(tempDir.path, fileName);
-
-      await dio.download(
-        widget.pdfUrl,
-        filePath,
-        options: Options(
-          receiveTimeout: const Duration(seconds: 60),
+      final uri = Uri.parse(widget.pdfUrl);
+      final previousLease = _remoteAssetLease;
+      final lease = CacheService.remoteAssetCache.acquire(
+        RemoteAssetRequest(
+          uri: uri,
+          key: CacheService.remoteAssetKey(
+            kind: RemoteAssetKind.document,
+            identity: widget.hash == null || widget.hash!.isEmpty
+                ? RemoteAssetKey.canonicalUri(uri)
+                : widget.hash!,
+          ),
+          fileExtension: path.extension(uri.path).replaceFirst('.', '').isEmpty
+              ? 'pdf'
+              : path.extension(uri.path).replaceFirst('.', ''),
           headers: StorageService.serverCookieHeaders,
+          maxAge: CacheService.fileCacheDuration,
         ),
-        onReceiveProgress: (received, total) {
-          if (total != -1) {
-            debugPrint('下载进度: ${(received / total * 100).toStringAsFixed(0)}%');
-          }
-        },
       );
+      _remoteAssetLease = lease;
+      if (previousLease != null) await previousLease.release();
+      final filePath = (await lease.file).path;
       if (!mounted) return;
 
       if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
@@ -163,6 +153,16 @@ class _PdfPreviewScreenState extends State<PdfPreviewScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  void _markCachePathActive(String path) {
+    if (_markedCachePath == path) return;
+    final previous = _markedCachePath;
+    if (previous != null) {
+      FileRemoteAssetCache.unmarkCachePathActive(previous);
+    }
+    _markedCachePath = path;
+    FileRemoteAssetCache.markCachePathActive(path);
   }
 
   Future<bool> _openDesktopPdf(String filePath) async {
@@ -189,10 +189,7 @@ class _PdfPreviewScreenState extends State<PdfPreviewScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              widget.title,
-              style: const TextStyle(fontSize: 16),
-            ),
+            Text(widget.title, style: const TextStyle(fontSize: 16)),
             if (_totalPages > 0)
               Text(
                 S.of(context).pdfPageOfTotal(_currentPage + 1, _totalPages),
@@ -245,11 +242,7 @@ class _PdfPreviewScreenState extends State<PdfPreviewScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
-                Icons.error_outline,
-                size: 64,
-                color: Colors.red,
-              ),
+              const Icon(Icons.error_outline, size: 64, color: Colors.red),
               const SizedBox(height: 16),
               Text(
                 _errorMessage!,
@@ -276,8 +269,11 @@ class _PdfPreviewScreenState extends State<PdfPreviewScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.desktop_access_disabled,
-                size: 64, color: Colors.grey),
+            const Icon(
+              Icons.desktop_access_disabled,
+              size: 64,
+              color: Colors.grey,
+            ),
             const SizedBox(height: 16),
             Text(S.of(context).desktopPdfPreviewNotSupported),
             const SizedBox(height: 16),
@@ -324,8 +320,9 @@ class _PdfPreviewScreenState extends State<PdfPreviewScreen> {
         });
       },
       onError: (error) {
-        setState(() =>
-            _errorMessage = S.of(context).renderPdfFailed(error.toString()));
+        setState(
+          () => _errorMessage = S.of(context).renderPdfFailed(error.toString()),
+        );
       },
     );
   }

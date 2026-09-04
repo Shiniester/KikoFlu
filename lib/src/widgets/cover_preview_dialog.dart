@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
 import 'package:saver_gallery/saver_gallery.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -9,6 +8,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 import '../utils/snackbar_util.dart';
 import '../services/storage_service.dart';
+import '../services/cache_service.dart';
 import '../../l10n/app_localizations.dart';
 
 /// 封面预览对话框，支持放大查看和保存图片
@@ -25,14 +25,20 @@ class CoverPreviewDialog extends StatefulWidget {
   /// Hero标签（用于动画过渡）
   final String? heroTag;
 
+  /// 与列表、详情和保存操作共享的稳定原图缓存键。
+  final String? cacheKey;
+
   const CoverPreviewDialog({
     super.key,
     this.imageUrl,
     this.localPath,
     this.identifier,
     this.heroTag,
-  }) : assert(imageUrl != null || localPath != null,
-            'Either imageUrl or localPath must be provided');
+    this.cacheKey,
+  }) : assert(
+         imageUrl != null || localPath != null,
+         'Either imageUrl or localPath must be provided',
+       );
 
   /// 显示封面预览对话框
   static Future<void> show(
@@ -41,6 +47,7 @@ class CoverPreviewDialog extends StatefulWidget {
     String? localPath,
     String? identifier,
     String? heroTag,
+    String? cacheKey,
   }) {
     return Navigator.of(context).push(
       PageRouteBuilder(
@@ -53,13 +60,11 @@ class CoverPreviewDialog extends StatefulWidget {
             localPath: localPath,
             identifier: identifier,
             heroTag: heroTag,
+            cacheKey: cacheKey,
           );
         },
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(
-            opacity: animation,
-            child: child,
-          );
+          return FadeTransition(opacity: animation, child: child);
         },
       ),
     );
@@ -74,6 +79,14 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
       TransformationController();
   bool _isSaving = false;
   bool _showControls = true;
+
+  String? get _cacheKey {
+    if (widget.cacheKey != null) return widget.cacheKey;
+    final identifier = widget.identifier;
+    return identifier != null && int.tryParse(identifier) != null
+        ? 'work_cover_$identifier'
+        : null;
+  }
 
   @override
   void dispose() {
@@ -108,15 +121,16 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
         fileName =
             'cover_${widget.identifier ?? DateTime.now().millisecondsSinceEpoch}.jpg';
       } else if (widget.imageUrl != null) {
-        // 网络图片
-        final response = await Dio().get<List<int>>(
+        final lease = CacheService.imageCacheManager.acquireFile(
           widget.imageUrl!,
-          options: Options(
-            responseType: ResponseType.bytes,
-            headers: StorageService.serverCookieHeaders,
-          ),
+          key: _cacheKey,
+          headers: StorageService.serverCookieHeaders,
         );
-        imageBytes = Uint8List.fromList(response.data!);
+        try {
+          imageBytes = await (await lease.file).readAsBytes();
+        } finally {
+          await lease.release();
+        }
         fileName =
             'cover_${widget.identifier ?? DateTime.now().millisecondsSinceEpoch}.jpg';
       } else {
@@ -132,7 +146,9 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
     } catch (e) {
       if (mounted) {
         SnackBarUtil.showError(
-            context, S.of(context).saveFailedWithError(e.toString()));
+          context,
+          S.of(context).saveFailedWithError(e.toString()),
+        );
       }
     } finally {
       if (mounted) {
@@ -150,7 +166,9 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
         if (!storageStatus.isGranted) {
           if (mounted) {
             SnackBarUtil.showError(
-                context, S.of(context).storagePermissionRequiredForImage);
+              context,
+              S.of(context).storagePermissionRequiredForImage,
+            );
           }
           return;
         }
@@ -202,36 +220,30 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
           if (widget.imageUrl != null) {
             return CachedNetworkImage(
               imageUrl: widget.imageUrl!,
+              cacheKey: _cacheKey,
+              cacheManager: CacheService.imageCacheManager,
+              httpHeaders: StorageService.serverCookieHeaders,
               fit: BoxFit.contain,
-              placeholder: (context, url) => const Center(
-                child: CircularProgressIndicator(),
-              ),
-              errorWidget: (context, url, error) => const Icon(
-                Icons.error,
-                color: Colors.white,
-                size: 48,
-              ),
+              placeholder: (context, url) =>
+                  const Center(child: CircularProgressIndicator()),
+              errorWidget: (context, url, error) =>
+                  const Icon(Icons.error, color: Colors.white, size: 48),
             );
           }
-          return const Icon(
-            Icons.error,
-            color: Colors.white,
-            size: 48,
-          );
+          return const Icon(Icons.error, color: Colors.white, size: 48);
         },
       );
     } else if (widget.imageUrl != null) {
       imageWidget = CachedNetworkImage(
         imageUrl: widget.imageUrl!,
+        cacheKey: _cacheKey,
+        cacheManager: CacheService.imageCacheManager,
+        httpHeaders: StorageService.serverCookieHeaders,
         fit: BoxFit.contain,
-        placeholder: (context, url) => const Center(
-          child: CircularProgressIndicator(),
-        ),
-        errorWidget: (context, url, error) => const Icon(
-          Icons.error,
-          color: Colors.white,
-          size: 48,
-        ),
+        placeholder: (context, url) =>
+            const Center(child: CircularProgressIndicator()),
+        errorWidget: (context, url, error) =>
+            const Icon(Icons.error, color: Colors.white, size: 48),
       );
     } else {
       imageWidget = const Icon(
@@ -242,10 +254,7 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
     }
 
     if (widget.heroTag != null) {
-      imageWidget = Hero(
-        tag: widget.heroTag!,
-        child: imageWidget,
-      );
+      imageWidget = Hero(tag: widget.heroTag!, child: imageWidget);
     }
 
     return imageWidget;
@@ -283,8 +292,10 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
                 right: 0,
                 child: SafeArea(
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [

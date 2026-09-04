@@ -70,7 +70,7 @@ class PlaylistDetailNotifier extends StateNotifier<PlaylistDetailState> {
   final PagedRequestGate _requestGate = PagedRequestGate();
 
   PlaylistDetailNotifier(this._apiService, this.playlistId, int pageSize)
-      : super(PlaylistDetailState(pageSize: pageSize)) {
+    : super(PlaylistDetailState(pageSize: pageSize)) {
     load();
   }
 
@@ -102,7 +102,10 @@ class PlaylistDetailNotifier extends StateNotifier<PlaylistDetailState> {
 
     try {
       final metadataFuture = includeMetadata
-          ? _apiService.getPlaylistMetadata(playlistId)
+          ? _apiService.getPlaylistMetadata(
+              playlistId,
+              cancelToken: token.cancelToken,
+            )
           : Future.value(null);
       final results = await Future.wait([
         metadataFuture,
@@ -110,6 +113,7 @@ class PlaylistDetailNotifier extends StateNotifier<PlaylistDetailState> {
           playlistId: playlistId,
           page: page,
           pageSize: state.pageSize,
+          cancelToken: token.cancelToken,
         ),
       ]);
       if (!_requestGate.isCurrent(token)) return;
@@ -125,7 +129,8 @@ class PlaylistDetailNotifier extends StateNotifier<PlaylistDetailState> {
 
       final pagination = worksResponse['pagination'] as Map<String, dynamic>;
       final totalCount = pagination['totalCount'] as int;
-      final hasMore = worksList.length >= state.pageSize &&
+      final hasMore =
+          worksList.length >= state.pageSize &&
           page * state.pageSize < totalCount;
       final merged = mergePagedItems<Work, int>(
         existing: const [],
@@ -164,11 +169,7 @@ class PlaylistDetailNotifier extends StateNotifier<PlaylistDetailState> {
   /// 跳转到指定页
   Future<void> goToPage(int page) async {
     if (page < 1) return;
-    await _loadPage(
-      page: page,
-      includeMetadata: false,
-      supersede: true,
-    );
+    await _loadPage(page: page, includeMetadata: false, supersede: true);
   }
 
   /// 上一页
@@ -186,19 +187,12 @@ class PlaylistDetailNotifier extends StateNotifier<PlaylistDetailState> {
 
   Future<void> loadMore() async {
     if (state.isLoading || !state.hasMore || state.isRefreshing) return;
-    await _loadPage(
-      page: state.currentPage + 1,
-      includeMetadata: false,
-    );
+    await _loadPage(page: state.currentPage + 1, includeMetadata: false);
   }
 
   /// 刷新
   Future<void> refresh() async {
-    await _loadPage(
-      page: 1,
-      includeMetadata: true,
-      supersede: true,
-    );
+    await _loadPage(page: 1, includeMetadata: true, supersede: true);
   }
 
   /// 删除当前播放列表
@@ -248,10 +242,7 @@ class PlaylistDetailNotifier extends StateNotifier<PlaylistDetailState> {
 
       // 更新元数据
       final updatedMetadata = Playlist.fromJson(response);
-      state = state.copyWith(
-        metadata: updatedMetadata,
-        isLoading: false,
-      );
+      state = state.copyWith(metadata: updatedMetadata, isLoading: false);
     } catch (e) {
       state = state.copyWith(
         isLoading: false,
@@ -313,14 +304,22 @@ class PlaylistDetailNotifier extends StateNotifier<PlaylistDetailState> {
       rethrow;
     }
   }
+
+  @override
+  void dispose() {
+    _requestGate.invalidate();
+    super.dispose();
+  }
 }
 
 /// 播放列表详情 Provider Family
-final playlistDetailProvider = StateNotifierProvider.family<
-    PlaylistDetailNotifier, PlaylistDetailState, String>(
-  (ref, playlistId) {
-    final apiService = ref.watch(kikoeruApiServiceProvider);
-    final pageSize = ref.watch(pageSizeProvider);
-    return PlaylistDetailNotifier(apiService, playlistId, pageSize);
-  },
-);
+final playlistDetailProvider =
+    StateNotifierProvider.family<
+      PlaylistDetailNotifier,
+      PlaylistDetailState,
+      String
+    >((ref, playlistId) {
+      final apiService = ref.watch(kikoeruApiServiceProvider);
+      final pageSize = ref.watch(pageSizeProvider);
+      return PlaylistDetailNotifier(apiService, playlistId, pageSize);
+    });
