@@ -22,6 +22,7 @@ import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_action_icons.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_controls_widget.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
@@ -631,6 +632,92 @@ void main() {
     expect(find.byKey(const ValueKey('lyrics-pane-compact')), findsOneWidget);
   });
 
+  testWidgets('only the visible compact cover page exposes artwork Hero', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(390, 844), pushedRoute: true);
+    _expectMainArtworkHeroState(tester, enabled: true);
+
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(320, 0),
+    );
+    await tester.pumpAndSettle();
+    _expectMainArtworkHeroState(tester, enabled: false);
+
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(-320, 0),
+    );
+    await tester.pumpAndSettle();
+    _expectMainArtworkHeroState(tester, enabled: true);
+
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(-320, 0),
+    );
+    await tester.pumpAndSettle();
+    _expectMainArtworkHeroState(tester, enabled: false);
+
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(320, 0),
+    );
+    await tester.pumpAndSettle();
+    _expectMainArtworkHeroState(tester, enabled: true);
+  });
+
+  testWidgets('programmatic paging waits for compact page confirmation', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(390, 844), pushedRoute: true);
+    final horizontal = tester.widget<PageView>(
+      find.byKey(const ValueKey('compact-player-pages')),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('player-cover-artwork-track-1')),
+    );
+    await tester.pump();
+
+    expect(horizontal.controller!.page, 1);
+    _expectMainArtworkHeroState(tester, enabled: true);
+
+    await tester.pumpAndSettle();
+    expect(horizontal.controller!.page, 2);
+    _expectMainArtworkHeroState(tester, enabled: false);
+  });
+
+  testWidgets('wide artwork Hero follows visible left pane', (tester) async {
+    await _pumpPlayer(tester, const Size(1280, 720), pushedRoute: true);
+    _expectMainArtworkHeroState(tester, enabled: true);
+
+    await tester.tap(
+      find.byKey(const ValueKey('player-cover-artwork-track-1')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('lyrics-pane-wide')), findsOneWidget);
+    _expectMainArtworkHeroState(tester, enabled: true);
+
+    await tester.drag(
+      find.byKey(const ValueKey('wide-left-pages')),
+      const Offset(-600, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('wide-audio-details-pane')),
+      findsOneWidget,
+    );
+    _expectMainArtworkHeroState(tester, enabled: false);
+
+    await tester.drag(
+      find.byKey(const ValueKey('wide-left-pages')),
+      const Offset(600, 0),
+    );
+    await tester.pumpAndSettle();
+    _expectMainArtworkHeroState(tester, enabled: true);
+  });
+
   testWidgets('compact artwork uses the denser rectangular frame', (
     tester,
   ) async {
@@ -959,6 +1046,7 @@ void main() {
       const Offset(-320, 0),
     );
     await tester.pumpAndSettle();
+    _expectMainArtworkHeroState(tester, enabled: false);
 
     await tester.drag(
       find.byKey(const ValueKey('compact-header-dismiss-surface')),
@@ -978,6 +1066,7 @@ void main() {
       const Offset(320, 0),
     );
     await tester.pumpAndSettle();
+    _expectMainArtworkHeroState(tester, enabled: false);
 
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
@@ -992,6 +1081,7 @@ void main() {
       const Offset(-320, 0),
     );
     await tester.pumpAndSettle();
+    _expectMainArtworkHeroState(tester, enabled: false);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
@@ -1626,6 +1716,25 @@ void main() {
     expect(tester.state(lyricSurface), same(lyricState));
     expect(tester.takeException(), isNull);
   });
+}
+
+Finder _mainArtworkHero() => find.byWidgetPredicate(
+  (widget) =>
+      widget is Hero &&
+      widget.tag ==
+          playerArtworkHeroTag(_track.id, PlayerArtworkFlightTarget.main),
+);
+
+HeroMode _playerRouteHeroMode(WidgetTester tester) => tester.widget<HeroMode>(
+  find.ancestor(
+    of: find.byKey(const ValueKey('player-route-vertical-slide')),
+    matching: find.byType(HeroMode),
+  ),
+);
+
+void _expectMainArtworkHeroState(WidgetTester tester, {required bool enabled}) {
+  expect(_mainArtworkHero(), enabled ? findsOneWidget : findsNothing);
+  expect(_playerRouteHeroMode(tester).enabled, enabled);
 }
 
 Future<void> _pumpPlayer(

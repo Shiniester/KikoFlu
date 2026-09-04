@@ -1073,11 +1073,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                 onSwipeUp: () => _showQueue(compactOriginPage: 1),
                 swipeUpDrag: queueDrag,
                 child: RepaintBoundary(
-                  child: PlayerCoverWidget(
+                  child: _buildPlayerCoverArtwork(
                     track: track,
-                    workCoverUrl: coverUrl,
-                    heroEnabled: !_directQueueEntry,
-                    onTap: _showLyrics,
+                    coverUrl: coverUrl,
+                    isWide: false,
                   ),
                 ),
               ),
@@ -1113,6 +1112,29 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     return KeyedSubtree(
       key: const ValueKey('compact-main-page'),
       child: content,
+    );
+  }
+
+  Widget _buildPlayerCoverArtwork({
+    required AudioTrack track,
+    required String? coverUrl,
+    required bool isWide,
+  }) {
+    return ValueListenableBuilder<int>(
+      valueListenable: _semanticPageRevision,
+      builder: (context, _, __) {
+        final heroEnabled = _shouldEnableMainArtworkHero(isWide: isWide);
+        return PlayerCoverWidget(
+          track: track,
+          workCoverUrl: coverUrl,
+          isLandscape: isWide,
+          heroEnabled: heroEnabled,
+          heroTarget: heroEnabled
+              ? PlayerArtworkFlightTarget.main
+              : PlayerArtworkFlightTarget.none,
+          onTap: _showLyrics,
+        );
+      },
     );
   }
 
@@ -1155,12 +1177,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                     width: width,
                     height: height,
                     child: RepaintBoundary(
-                      child: PlayerCoverWidget(
+                      child: _buildPlayerCoverArtwork(
                         track: track,
-                        workCoverUrl: coverUrl,
-                        isLandscape: isWide,
-                        heroEnabled: !_directQueueEntry,
-                        onTap: _showLyrics,
+                        coverUrl: coverUrl,
+                        isWide: isWide,
                       ),
                     ),
                   ),
@@ -1393,6 +1413,15 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         : const Duration(milliseconds: 260);
   }
 
+  bool _shouldEnableMainArtworkHero({required bool isWide}) {
+    if (_directQueueEntry ||
+        _queueTransitionActive ||
+        _rightPane == PlayerRightPane.queue) {
+      return false;
+    }
+    return isWide ? _leftPane == PlayerLeftPane.cover : _compactPage == 1;
+  }
+
   PlayerDismissVisualMode get _currentPlayerDismissVisualMode {
     if (_rightPane == PlayerRightPane.queue) {
       return _directQueueEntry
@@ -1401,13 +1430,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     }
     final isWide =
         _lastWasWide ?? usesWidePlayerLayout(MediaQuery.sizeOf(context).width);
-    if (isWide) {
-      return _leftPane == PlayerLeftPane.cover &&
-              _rightPane == PlayerRightPane.controls
-          ? PlayerDismissVisualMode.main
-          : PlayerDismissVisualMode.secondary;
-    }
-    return _compactPage == 1
+    return _shouldEnableMainArtworkHero(isWide: isWide)
         ? PlayerDismissVisualMode.main
         : PlayerDismissVisualMode.secondary;
   }
@@ -1578,7 +1601,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     _commitSemanticPage(() {
       _rightPane = PlayerRightPane.lyrics;
       _lastOperatedRegion = PlayerOperatedRegion.right;
-      if (_lastWasWide != true) _compactPage = 2;
     });
     _animateSemanticPage(
       wideController: _wideRightPageController,
@@ -1591,7 +1613,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     _commitSemanticPage(() {
       _rightPane = PlayerRightPane.controls;
       _lastOperatedRegion = PlayerOperatedRegion.right;
-      if (_lastWasWide != true) _compactPage = 1;
     });
     _animateSemanticPage(
       wideController: _wideRightPageController,
