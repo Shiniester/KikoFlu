@@ -53,7 +53,7 @@ class HistoryWorkCard extends ConsumerWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         onTap: () {
-          pushWorkDetailRoute<void>(
+          pushWorkDetailRoute(
             context,
             builder: (context) => WorkDetailScreen(
               work: work,

@@ -15,7 +15,7 @@ import '../services/log_service.dart';
 import '../widgets/scrollable_appbar.dart';
 import '../widgets/download_fab.dart';
 import '../widgets/floating_feed_toolbar.dart';
-import '../widgets/material_dropdown.dart';
+import '../widgets/material_popup_surface.dart';
 import '../widgets/search_condition_chip.dart';
 import 'search_result_screen.dart';
 
@@ -1027,7 +1027,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           Expanded(
             child: FloatingToolbarSurface(
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: MaterialDropdownButtonFormField<AgeRating>(
+              child: DropdownButtonFormField<AgeRating>(
                 initialValue: _ageRating,
                 decoration: _filterInputDecoration(
                   theme,
@@ -1049,6 +1049,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                     })
                     .toList(),
                 style: filterValueStyle,
+                menuMaxHeight: 300,
                 onChanged: (value) =>
                     setState(() => _ageRating = value ?? AgeRating.all),
               ),
@@ -1059,7 +1060,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
             Expanded(
               child: FloatingToolbarSurface(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: MaterialDropdownButtonFormField<SalesRange>(
+                child: DropdownButtonFormField<SalesRange>(
                   initialValue: _salesRange,
                   decoration: _filterInputDecoration(
                     theme,
@@ -1078,6 +1079,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                     );
                   }).toList(),
                   style: filterValueStyle,
+                  menuMaxHeight: 300,
                   onChanged: (value) =>
                       setState(() => _salesRange = value ?? SalesRange.all),
                 ),

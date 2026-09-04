@@ -186,7 +186,7 @@ class _RecommendationCard extends ConsumerWidget {
       width: 120,
       child: GestureDetector(
         onTap: () {
-          pushWorkDetailRoute<void>(
+          pushWorkDetailRoute(
             context,
             builder: (context) => WorkDetailScreen(
               work: work,

@@ -2048,7 +2048,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   }
 
   Future<void> _openKnownWork(Work work) {
-    return pushWorkDetailRoute<void>(
+    return pushWorkDetailRoute(
       context,
       builder: (context) => WorkDetailScreen(work: work),
     );
@@ -2858,7 +2858,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       if (context.mounted) {
         Navigator.of(context).pop();
 
-        pushWorkDetailRoute<void>(
+        pushWorkDetailRoute(
           context,
           builder: (context) => WorkDetailScreen(work: work),
         );

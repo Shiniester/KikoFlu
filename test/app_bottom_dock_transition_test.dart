@@ -9,22 +9,43 @@ import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
+import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/global_audio_player_wrapper.dart';
-import 'package:kikoeru_flutter/src/widgets/main_bottom_navigation_bar.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+void _configurePhoneViewport(
+  WidgetTester tester, {
+  TargetPlatform platform = TargetPlatform.android,
+}) {
+  debugDefaultTargetPlatformOverride = platform;
+  tester.view.devicePixelRatio = 1;
+  tester.view.physicalSize = const Size(390, 844);
+  addTearDown(() => debugDefaultTargetPlatformOverride = null);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  addTearDown(tester.view.resetPhysicalSize);
+}
+
+List<Override> _playerOverrides(AudioTrack track) => [
+  currentTrackProvider.overrideWith((ref) => Stream.value(track)),
+  isTrackLoadingProvider.overrideWith((ref) => Stream.value(false)),
+  positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
+  durationProvider.overrideWith(
+    (ref) => Stream.value(const Duration(minutes: 4)),
+  ),
+  playerStateProvider.overrideWith(
+    (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
+  ),
+  queueProvider.overrideWith((ref) => Stream.value([track])),
+  lyricAutoLoaderProvider.overrideWith((ref) {}),
+];
 
 void main() {
   testWidgets('main bottom dock moves together into work details', (
     tester,
   ) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(390, 844);
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetPhysicalSize);
+    _configurePhoneViewport(tester);
 
     final navigatorKey = GlobalKey<NavigatorState>();
     const sourceMiniKey = ValueKey('source-mini-player');
@@ -41,7 +62,7 @@ void main() {
                 child: FilledButton(
                   onPressed: () {
                     unawaited(
-                      pushWorkDetailRoute<void>(
+                      pushWorkDetailRoute(
                         context,
                         builder: (_) => const _WorkDetailsTarget(
                           miniPlayerKey: targetMiniKey,
@@ -108,12 +129,7 @@ void main() {
   testWidgets('main screen exposes the Bottom Dock as the source', (
     tester,
   ) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(390, 844);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    _configurePhoneViewport(tester);
 
     const sourceMiniKey = ValueKey('real-source-mini-player');
     const targetMiniKey = ValueKey('real-target-mini-player');
@@ -129,7 +145,7 @@ void main() {
                 child: FilledButton(
                   onPressed: () {
                     unawaited(
-                      pushWorkDetailRoute<void>(
+                      pushWorkDetailRoute(
                         context,
                         builder: (_) => const _WorkDetailsTarget(
                           miniPlayerKey: targetMiniKey,
@@ -141,7 +157,7 @@ void main() {
                 ),
               ),
             ),
-            bottomNavigationBar: MainBottomNavigationBar(
+            bottomNavigationBar: AppBottomDock(
               selectedIndex: 0,
               onDestinationSelected: (_) {},
               destinations: const [
@@ -179,12 +195,7 @@ void main() {
     tester,
   ) async {
     SharedPreferences.setMockInitialValues(const {});
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(390, 844);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    _configurePhoneViewport(tester);
     final navigatorKey = GlobalKey<NavigatorState>();
     const track = AudioTrack(
       id: 'dock-track',
@@ -194,19 +205,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          currentTrackProvider.overrideWith((ref) => Stream.value(track)),
-          isTrackLoadingProvider.overrideWith((ref) => Stream.value(false)),
-          positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
-          durationProvider.overrideWith(
-            (ref) => Stream.value(const Duration(minutes: 4)),
-          ),
-          playerStateProvider.overrideWith(
-            (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
-          ),
-          queueProvider.overrideWith((ref) => Stream.value(const [track])),
-          lyricAutoLoaderProvider.overrideWith((ref) {}),
-        ],
+        overrides: _playerOverrides(track),
         child: MaterialApp(
           navigatorKey: navigatorKey,
           localizationsDelegates: S.localizationsDelegates,
@@ -218,12 +217,12 @@ void main() {
                   child: FilledButton(
                     onPressed: () {
                       unawaited(
-                        pushWorkDetailRoute<void>(
+                        pushWorkDetailRoute(
                           context,
-                          builder: (_) => const GlobalAudioPlayerWrapper(
-                            workDetailTransitionTarget: true,
-                            child: Scaffold(body: Text('Work details')),
-                          ),
+                          builder: (_) =>
+                              const GlobalAudioPlayerWrapper.workDetails(
+                                child: Scaffold(body: Text('Work details')),
+                              ),
                         ),
                       );
                     },
@@ -261,12 +260,7 @@ void main() {
   testWidgets('without playback only the App Tab Bar joins the handoff', (
     tester,
   ) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(390, 844);
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetPhysicalSize);
+    _configurePhoneViewport(tester);
 
     await tester.pumpWidget(
       MaterialApp(
@@ -277,7 +271,7 @@ void main() {
                 child: FilledButton(
                   onPressed: () {
                     unawaited(
-                      pushWorkDetailRoute<void>(
+                      pushWorkDetailRoute(
                         context,
                         builder: (_) =>
                             const _WorkDetailsTarget(miniPlayerKey: null),
@@ -288,7 +282,7 @@ void main() {
                 ),
               ),
             ),
-            bottomNavigationBar: MainBottomNavigationBar(
+            bottomNavigationBar: AppBottomDock(
               selectedIndex: 0,
               onDestinationSelected: (_) {},
               destinations: const [
@@ -320,12 +314,7 @@ void main() {
   testWidgets('iOS back swipe reverses continuously and can cancel', (
     tester,
   ) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(390, 844);
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetPhysicalSize);
+    _configurePhoneViewport(tester, platform: TargetPlatform.iOS);
     const sourceMiniKey = ValueKey('interactive-source-mini');
     const targetMiniKey = ValueKey('interactive-target-mini');
 
@@ -338,7 +327,7 @@ void main() {
                 child: FilledButton(
                   onPressed: () {
                     unawaited(
-                      pushWorkDetailRoute<void>(
+                      pushWorkDetailRoute(
                         context,
                         builder: (_) => const _WorkDetailsTarget(
                           miniPlayerKey: targetMiniKey,
@@ -396,10 +385,7 @@ void main() {
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({'lyric_hint_has_shown': true});
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(390, 844);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetPhysicalSize);
+    _configurePhoneViewport(tester);
     const track = AudioTrack(
       id: 'work-details-player-track',
       title: 'Work details player track',
@@ -408,24 +394,11 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          currentTrackProvider.overrideWith((ref) => Stream.value(track)),
-          isTrackLoadingProvider.overrideWith((ref) => Stream.value(false)),
-          positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
-          durationProvider.overrideWith(
-            (ref) => Stream.value(const Duration(minutes: 4)),
-          ),
-          playerStateProvider.overrideWith(
-            (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
-          ),
-          queueProvider.overrideWith((ref) => Stream.value(const [track])),
-          lyricAutoLoaderProvider.overrideWith((ref) {}),
-        ],
+        overrides: _playerOverrides(track),
         child: const MaterialApp(
           localizationsDelegates: S.localizationsDelegates,
           supportedLocales: S.supportedLocales,
-          home: GlobalAudioPlayerWrapper(
-            workDetailTransitionTarget: true,
+          home: GlobalAudioPlayerWrapper.workDetails(
             child: Scaffold(body: Text('Landed work details')),
           ),
         ),
@@ -477,6 +450,7 @@ void main() {
     );
     expect(find.text('Landed work details'), findsOneWidget);
     expect(tester.takeException(), isNull);
+    debugDefaultTargetPlatformOverride = null;
   });
 }
 

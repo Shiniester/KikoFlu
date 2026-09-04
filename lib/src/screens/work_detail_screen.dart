@@ -497,8 +497,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     final brightness = Theme.of(context).brightness;
     final systemOverlayStyle = transparentSystemBarsForBrightness(brightness);
 
-    return GlobalAudioPlayerWrapper(
-      workDetailTransitionTarget: true,
+    return GlobalAudioPlayerWrapper.workDetails(
       child: Scaffold(
         floatingActionButton: const DownloadFab(),
         appBar: ScrollableAppBar(
@@ -628,7 +627,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
           OtherLanguageEditionsSection(
             editions: work.otherLanguageEditions,
             onEditionSelected: (edition) {
-              pushWorkDetailRoute<void>(
+              pushWorkDetailRoute(
                 context,
                 builder: (context) => WorkDetailScreen(
                   work: Work(id: edition.id, title: edition.title),

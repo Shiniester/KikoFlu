@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'app_bottom_dock_transition.dart';
 
-class MainBottomNavigationBar extends StatelessWidget {
-  const MainBottomNavigationBar({
+class AppBottomDock extends StatelessWidget {
+  const AppBottomDock({
     super.key,
     required this.selectedIndex,
     required this.onDestinationSelected,

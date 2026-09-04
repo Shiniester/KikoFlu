@@ -134,7 +134,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     final cardOnTap =
         widget.onTap ??
         () {
-          pushWorkDetailRoute<void>(
+          pushWorkDetailRoute(
             context,
             builder: (context) => WorkDetailScreen(
               work: widget.work,

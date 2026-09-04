@@ -6,7 +6,7 @@ import '../providers/audio_provider.dart';
 import '../providers/update_provider.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/app_bottom_dock_transition.dart';
-import '../widgets/main_bottom_navigation_bar.dart';
+import '../widgets/app_bottom_dock.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/lazy_indexed_stack.dart';
 import 'works_screen.dart';
@@ -258,7 +258,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
           loading: () => null,
           error: (_, __) => null,
         );
-    final bottomNavigation = MainBottomNavigationBar(
+    final bottomDock = AppBottomDock(
       selectedIndex: _currentIndex,
       onDestinationSelected: _handleDestinationSelected,
       destinations: destinations,
@@ -364,7 +364,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: bottomNavigation,
+      bottomNavigationBar: bottomDock,
     );
     return AppBottomDockTransitionScope(child: portraitScaffold);
   }

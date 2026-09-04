@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/main_bottom_navigation_bar.dart';
+import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
 
 const _destinations = [
   NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Home'),
@@ -20,7 +20,7 @@ void main() {
         ),
         child: MaterialApp(
           home: Scaffold(
-            bottomNavigationBar: MainBottomNavigationBar(
+            bottomNavigationBar: AppBottomDock(
               selectedIndex: 0,
               onDestinationSelected: (_) {},
               destinations: _destinations,
@@ -31,14 +31,12 @@ void main() {
     );
 
     expect(
-      tester.getSize(find.byType(MainBottomNavigationBar)).height,
-      MainBottomNavigationBar.navigationBarHeight + 34,
+      tester.getSize(find.byType(AppBottomDock)).height,
+      AppBottomDock.navigationBarHeight + 34,
     );
     expect(
-      MainBottomNavigationBar.layoutExtent(
-        tester.element(find.byType(MainBottomNavigationBar)),
-      ),
-      MainBottomNavigationBar.navigationBarHeight + 34,
+      AppBottomDock.layoutExtent(tester.element(find.byType(AppBottomDock))),
+      AppBottomDock.navigationBarHeight + 34,
     );
   });
 
@@ -49,7 +47,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            bottomNavigationBar: MainBottomNavigationBar(
+            bottomNavigationBar: AppBottomDock(
               selectedIndex: 0,
               onDestinationSelected: (value) => selected = value,
               destinations: _destinations,

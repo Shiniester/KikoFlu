@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 const _miniPlayerHeroTag = 'app-bottom-dock-mini-player';
 const _appTabBarHeroTag = 'app-bottom-dock-tab-bar';
 
+enum AppBottomDockRole { source, workDetailsTarget }
+
 /// Keeps the source-side Bottom Dock heroes available for the complete
 /// lifetime of a pushed Work Details Screen route.
 class AppBottomDockTransitionScope extends StatefulWidget {
@@ -83,10 +85,9 @@ class _AppBottomDockTransitionHost extends InheritedWidget {
 
 /// Pushes a Work Details Screen while preserving the source Bottom Dock until
 /// the route has completely left the Navigator again.
-Future<T?> pushWorkDetailRoute<T>(
+Future<void> pushWorkDetailRoute(
   BuildContext context, {
   required WidgetBuilder builder,
-  RouteSettings? settings,
 }) async {
   final sourceScope = AppBottomDockTransitionScope._maybeStateOf(context);
   final lease = sourceScope?.arm();
@@ -95,14 +96,13 @@ Future<T?> pushWorkDetailRoute<T>(
   }
   if (!context.mounted) {
     lease?.release();
-    return null;
+    return;
   }
 
-  final route = MaterialPageRoute<T>(builder: builder, settings: settings);
+  final route = MaterialPageRoute<void>(builder: builder);
   try {
-    final result = await Navigator.of(context).push<T>(route);
+    await Navigator.of(context).push<void>(route);
     await route.completed;
-    return result;
   } finally {
     lease?.release();
   }
@@ -110,13 +110,13 @@ Future<T?> pushWorkDetailRoute<T>(
 
 class AppBottomDockMiniPlayerHero extends StatelessWidget {
   const AppBottomDockMiniPlayerHero.source({super.key, required this.child})
-    : _target = false;
+    : _role = AppBottomDockRole.source;
 
   const AppBottomDockMiniPlayerHero.target({super.key, required this.child})
-    : _target = true;
+    : _role = AppBottomDockRole.workDetailsTarget;
 
   final Widget child;
-  final bool _target;
+  final AppBottomDockRole _role;
 
   static bool artworkHeroEnabledOf(BuildContext context) {
     return context
@@ -128,7 +128,8 @@ class AppBottomDockMiniPlayerHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled =
-        _target || AppBottomDockTransitionScope._sourceHeroesEnabledOf(context);
+        _role == AppBottomDockRole.workDetailsTarget ||
+        AppBottomDockTransitionScope._sourceHeroesEnabledOf(context);
     return _AppBottomDockHero(
       tag: _miniPlayerHeroTag,
       enabled: enabled,

@@ -480,7 +480,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
       );
 
       if (mounted) {
-        pushWorkDetailRoute<void>(
+        pushWorkDetailRoute(
           context,
           builder: (context) => OfflineWorkDetailScreen(
             work: work,

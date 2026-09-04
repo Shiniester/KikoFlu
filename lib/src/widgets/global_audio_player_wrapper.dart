@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/audio_provider.dart';
+import 'app_bottom_dock.dart';
 import 'app_bottom_dock_transition.dart';
-import 'main_bottom_navigation_bar.dart';
 import 'mini_player.dart';
 import 'player/player_cover_widget.dart';
 
@@ -11,14 +11,19 @@ import 'player/player_cover_widget.dart';
 class GlobalAudioPlayerWrapper extends ConsumerStatefulWidget {
   final Widget child;
   final bool showMiniPlayer;
-  final bool workDetailTransitionTarget;
+  final AppBottomDockRole bottomDockRole;
 
   const GlobalAudioPlayerWrapper({
     super.key,
     required this.child,
     this.showMiniPlayer = true,
-    this.workDetailTransitionTarget = false,
-  });
+  }) : bottomDockRole = AppBottomDockRole.source;
+
+  const GlobalAudioPlayerWrapper.workDetails({
+    super.key,
+    required this.child,
+    this.showMiniPlayer = true,
+  }) : bottomDockRole = AppBottomDockRole.workDetailsTarget;
 
   @override
   ConsumerState<GlobalAudioPlayerWrapper> createState() =>
@@ -33,16 +38,18 @@ class _GlobalAudioPlayerWrapperState
   @override
   Widget build(BuildContext context) {
     final currentTrack = ref.watch(currentTrackProvider);
+    final isWorkDetailsTarget =
+        widget.bottomDockRole == AppBottomDockRole.workDetailsTarget;
 
     final rawMiniPlayer = currentTrack.when(
       data: (track) => track != null
           ? MiniPlayer(
               key: _miniPlayerKey,
               enableArtworkHero: true,
-              initialArtworkFlightTarget: widget.workDetailTransitionTarget
+              initialArtworkFlightTarget: isWorkDetailsTarget
                   ? PlayerArtworkFlightTarget.none
                   : PlayerArtworkFlightTarget.main,
-              onArtworkHeroActivationChanged: widget.workDetailTransitionTarget
+              onArtworkHeroActivationChanged: isWorkDetailsTarget
                   ? (active) {
                       if (mounted && _suspendWorkDetailDockHero != active) {
                         setState(() => _suspendWorkDetailDockHero = active);
@@ -57,9 +64,9 @@ class _GlobalAudioPlayerWrapperState
     final hasMiniPlayer = currentTrack.asData?.value != null;
     final miniPlayer = !hasMiniPlayer
         ? rawMiniPlayer
-        : widget.workDetailTransitionTarget && !_suspendWorkDetailDockHero
+        : isWorkDetailsTarget && !_suspendWorkDetailDockHero
         ? AppBottomDockMiniPlayerHero.target(child: rawMiniPlayer)
-        : widget.workDetailTransitionTarget
+        : isWorkDetailsTarget
         ? rawMiniPlayer
         : AppBottomDockMiniPlayerHero.source(child: rawMiniPlayer);
 
@@ -70,7 +77,7 @@ class _GlobalAudioPlayerWrapperState
       ],
     );
     final body =
-        widget.workDetailTransitionTarget &&
+        isWorkDetailsTarget &&
             MediaQuery.orientationOf(context) == Orientation.portrait
         ? Stack(
             fit: StackFit.expand,
@@ -80,7 +87,7 @@ class _GlobalAudioPlayerWrapperState
               Align(
                 alignment: Alignment.bottomCenter,
                 child: AppBottomDockTabBarHero.offstageTarget(
-                  height: MainBottomNavigationBar.layoutExtent(context),
+                  height: AppBottomDock.layoutExtent(context),
                 ),
               ),
             ],

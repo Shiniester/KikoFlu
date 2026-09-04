@@ -604,7 +604,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
 
     return InkWell(
       onTap: () {
-        pushWorkDetailRoute<void>(
+        pushWorkDetailRoute(
           context,
           builder: (context) => WorkDetailScreen(
             work: work,

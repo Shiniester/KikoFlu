@@ -293,8 +293,7 @@ class _OfflineWorkDetailScreenState
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: systemOverlayStyle,
-      child: GlobalAudioPlayerWrapper(
-        workDetailTransitionTarget: true,
+      child: GlobalAudioPlayerWrapper.workDetails(
         child: Scaffold(
           floatingActionButton: const DownloadFab(),
           appBar: ScrollableAppBar(
