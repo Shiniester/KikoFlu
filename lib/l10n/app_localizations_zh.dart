@@ -1691,7 +1691,7 @@ class SZh extends S {
   String get colorSchemeForestGreenDesc => '艹艹艹';
 
   @override
-  String get colorSchemeDynamicDesc => '使用系统壁纸的颜色 (Android 12+)';
+  String get colorSchemeDynamicDesc => '跟随当前播放封面；封面不可用时使用系统颜色';
 
   @override
   String get primaryContainer => '主色容器';
@@ -5354,7 +5354,7 @@ class SZhHant extends SZh {
   String get colorSchemeForestGreenDesc => '草草草';
 
   @override
-  String get colorSchemeDynamicDesc => '使用系統桌布的顏色 (Android 12+)';
+  String get colorSchemeDynamicDesc => '跟隨目前播放封面；封面無法使用時採用系統顏色';
 
   @override
   String get primaryContainer => '主色容器';

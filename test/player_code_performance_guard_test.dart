@@ -245,13 +245,13 @@ void main() {
       'lib/src/widgets/mini_player.dart',
     ).readAsStringSync();
 
-    expect(miniPlayer, contains('final preparedPalette = ref.watch'));
-    expect(miniPlayer, contains('preparedPalette.valueOrNull ??'));
-    expect(miniPlayer, contains('playerVisualPaletteProvider('));
+    expect(miniPlayer, contains('ref.watch(artworkThemeSeedProvider).seed'));
+    expect(miniPlayer, contains('final preparedPalette ='));
+    expect(miniPlayer, contains('PlayerVisualPalette.fromDominant('));
     expect(miniPlayer, contains('AudioPlayerOpenConfiguration('));
     expect(miniPlayer, isNot(contains('await ref.read(')));
     expect(
-      miniPlayer.indexOf('final preparedPalette = ref.watch'),
+      miniPlayer.indexOf('final preparedPalette ='),
       lessThan(miniPlayer.indexOf('return _MiniPlayerUpwardLauncher(')),
     );
   });

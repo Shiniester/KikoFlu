@@ -8,12 +8,11 @@ import 'package:real_liquid_glass/real_liquid_glass.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../models/audio_track.dart';
+import '../providers/artwork_theme_provider.dart';
 import '../providers/audio_provider.dart';
-import '../providers/auth_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/player_lyric_style_provider.dart';
 import '../providers/settings_provider.dart';
-import '../utils/local_file_url.dart';
 import '../utils/snackbar_util.dart';
 import 'volume_control.dart';
 import 'liquid_glass_layout.dart';
@@ -59,11 +58,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
   @override
   Widget build(BuildContext context) {
     final currentTrack = ref.watch(currentTrackProvider);
-    final auth = ref.watch(
-      authProvider.select(
-        (state) => (host: state.host ?? '', token: state.token ?? ''),
-      ),
-    );
+    final currentArtwork = ref.watch(currentArtworkDescriptorProvider);
     final isMiniPlayerVisible = ref.watch(miniPlayerVisibilityProvider);
     final useLiquidGlass = ref.watch(liquidGlassNavigationProvider);
     final fallbackGlassTransparency = ref.watch(
@@ -95,56 +90,29 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
           return const SizedBox.shrink();
         }
 
-        // Build work cover URL（优先使用本地文件）
-        String? workCoverUrl;
-        // 优先使用 track.artworkUrl（可能是本地文件 file://）
-        if (LocalFileUrl.isLocalFileUrl(track.artworkUrl)) {
-          workCoverUrl = track.artworkUrl;
-        } else if (track.workId != null) {
-          final host = auth.host;
-          final token = auth.token;
-          if (host.isNotEmpty) {
-            var normalizedHost = host;
-            if (!normalizedHost.startsWith('http://') &&
-                !normalizedHost.startsWith('https://')) {
-              normalizedHost = 'https://$normalizedHost';
-            }
-            workCoverUrl = token.isNotEmpty
-                ? '$normalizedHost/api/cover/${track.workId}?token=$token'
-                : '$normalizedHost/api/cover/${track.workId}';
-          }
-        }
+        final artwork = currentArtwork?.trackIdentity == track.id
+            ? currentArtwork
+            : null;
+        final workCoverUrl = artwork?.source;
 
-        // Start the low-resolution palette extraction while the Mini Player is
-        // visible. Opening the full player can then use the artwork palette on
-        // its very first frame instead of briefly revealing the theme seed.
+        // Start the low-resolution seed extraction while the Mini Player is
+        // visible. The same stable seed is shared with the application theme
+        // and the full player during track changes.
         final playerTheme = Theme.of(context);
-        final privacy = ref.watch(privacyModeSettingsProvider);
-        final paletteRequest = PlayerPaletteRequest(
-          source: workCoverUrl ?? track.artworkUrl,
-          cacheKey: track.workId != null
-              ? 'work_cover_${track.workId}'
-              : track.hash ?? track.id,
+        final artworkThemeSeed = ref.watch(artworkThemeSeedProvider).seed;
+        final preparedPalette = PlayerVisualPalette.fromDominant(
+          artworkThemeSeed ?? playerTheme.colorScheme.primary,
           brightness: playerTheme.brightness,
-          fallbackSeed: playerTheme.colorScheme.primary,
-          suppressArtwork: privacy.enabled && privacy.blurCoverInApp,
-        );
-        final preparedPalette = ref.watch(
-          playerVisualPaletteProvider(paletteRequest),
+          accent: playerTheme.colorScheme.primary,
+          onAccent: playerTheme.colorScheme.onPrimary,
         );
 
         return _MiniPlayerUpwardLauncher(
           key: _playerLauncherKey,
           sessionIdentity: track.id,
           createConfiguration: () {
-            final initialPalette =
-                preparedPalette.valueOrNull ??
-                PlayerVisualPalette.fallback(
-                  seed: playerTheme.colorScheme.primary,
-                  brightness: playerTheme.brightness,
-                );
             return AudioPlayerOpenConfiguration(
-              initialPalette: initialPalette,
+              initialPalette: preparedPalette,
               initialPaletteTrackId: track.id,
             );
           },

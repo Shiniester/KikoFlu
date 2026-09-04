@@ -612,7 +612,7 @@
   "colorSchemeSunsetOrangeDesc": "テーマ変更は必須✍🏻✍🏻✍🏻",
   "colorSchemeLavenderPurpleDesc": "ブラザー、ブラザー...",
   "colorSchemeForestGreenDesc": "グリーン、グリーン、グリーン",
-  "colorSchemeDynamicDesc": "システム壁紙の色を使用 (Android 12+)",
+  "colorSchemeDynamicDesc": "再生中のカバーに合わせ、利用できない場合はシステムカラーを使用します",
   "primaryContainer": "プライマリコンテナ",
   "secondaryContainer": "セカンダリコンテナ",
   "tertiaryContainer": "ターシャリコンテナ",

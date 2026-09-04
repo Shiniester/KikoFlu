@@ -1694,7 +1694,7 @@ class SJa extends S {
   String get colorSchemeForestGreenDesc => 'グリーン、グリーン、グリーン';
 
   @override
-  String get colorSchemeDynamicDesc => 'システム壁紙の色を使用 (Android 12+)';
+  String get colorSchemeDynamicDesc => '再生中のカバーに合わせ、利用できない場合はシステムカラーを使用します';
 
   @override
   String get primaryContainer => 'プライマリコンテナ';

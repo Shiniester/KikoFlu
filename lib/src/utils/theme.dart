@@ -13,7 +13,8 @@ class AppTheme {
   @visibleForTesting
   static List<String> iosFontFamilyFallback(Locale locale) {
     if (locale.languageCode == 'zh') {
-      final isTraditional = locale.scriptCode == 'Hant' ||
+      final isTraditional =
+          locale.scriptCode == 'Hant' ||
           locale.countryCode == 'TW' ||
           locale.countryCode == 'HK' ||
           locale.countryCode == 'MO';
@@ -34,36 +35,66 @@ class AppTheme {
       // 使用 Microsoft YaHei 作为主字体，确保中文显示一致
       const fontFamily = 'Microsoft YaHei';
       return const TextTheme(
-        displayLarge:
-            TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w400),
-        displayMedium:
-            TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w400),
-        displaySmall:
-            TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w400),
-        headlineLarge:
-            TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w400),
-        headlineMedium:
-            TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w400),
-        headlineSmall:
-            TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w400),
-        titleLarge:
-            TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w500),
-        titleMedium:
-            TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w500),
-        titleSmall:
-            TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w500),
-        bodyLarge:
-            TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w400),
-        bodyMedium:
-            TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w400),
-        bodySmall:
-            TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w400),
-        labelLarge:
-            TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w500),
-        labelMedium:
-            TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w500),
-        labelSmall:
-            TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w500),
+        displayLarge: TextStyle(
+          fontFamily: fontFamily,
+          fontWeight: FontWeight.w400,
+        ),
+        displayMedium: TextStyle(
+          fontFamily: fontFamily,
+          fontWeight: FontWeight.w400,
+        ),
+        displaySmall: TextStyle(
+          fontFamily: fontFamily,
+          fontWeight: FontWeight.w400,
+        ),
+        headlineLarge: TextStyle(
+          fontFamily: fontFamily,
+          fontWeight: FontWeight.w400,
+        ),
+        headlineMedium: TextStyle(
+          fontFamily: fontFamily,
+          fontWeight: FontWeight.w400,
+        ),
+        headlineSmall: TextStyle(
+          fontFamily: fontFamily,
+          fontWeight: FontWeight.w400,
+        ),
+        titleLarge: TextStyle(
+          fontFamily: fontFamily,
+          fontWeight: FontWeight.w500,
+        ),
+        titleMedium: TextStyle(
+          fontFamily: fontFamily,
+          fontWeight: FontWeight.w500,
+        ),
+        titleSmall: TextStyle(
+          fontFamily: fontFamily,
+          fontWeight: FontWeight.w500,
+        ),
+        bodyLarge: TextStyle(
+          fontFamily: fontFamily,
+          fontWeight: FontWeight.w400,
+        ),
+        bodyMedium: TextStyle(
+          fontFamily: fontFamily,
+          fontWeight: FontWeight.w400,
+        ),
+        bodySmall: TextStyle(
+          fontFamily: fontFamily,
+          fontWeight: FontWeight.w400,
+        ),
+        labelLarge: TextStyle(
+          fontFamily: fontFamily,
+          fontWeight: FontWeight.w500,
+        ),
+        labelMedium: TextStyle(
+          fontFamily: fontFamily,
+          fontWeight: FontWeight.w500,
+        ),
+        labelSmall: TextStyle(
+          fontFamily: fontFamily,
+          fontWeight: FontWeight.w500,
+        ),
       );
     }
     if (Platform.isLinux) {
@@ -79,48 +110,83 @@ class AppTheme {
       ];
       return const TextTheme(
         displayLarge: TextStyle(
-            fontFamilyFallback: fallback, fontWeight: FontWeight.w400),
+          fontFamilyFallback: fallback,
+          fontWeight: FontWeight.w400,
+        ),
         displayMedium: TextStyle(
-            fontFamilyFallback: fallback, fontWeight: FontWeight.w400),
+          fontFamilyFallback: fallback,
+          fontWeight: FontWeight.w400,
+        ),
         displaySmall: TextStyle(
-            fontFamilyFallback: fallback, fontWeight: FontWeight.w400),
+          fontFamilyFallback: fallback,
+          fontWeight: FontWeight.w400,
+        ),
         headlineLarge: TextStyle(
-            fontFamilyFallback: fallback, fontWeight: FontWeight.w400),
+          fontFamilyFallback: fallback,
+          fontWeight: FontWeight.w400,
+        ),
         headlineMedium: TextStyle(
-            fontFamilyFallback: fallback, fontWeight: FontWeight.w400),
+          fontFamilyFallback: fallback,
+          fontWeight: FontWeight.w400,
+        ),
         headlineSmall: TextStyle(
-            fontFamilyFallback: fallback, fontWeight: FontWeight.w400),
+          fontFamilyFallback: fallback,
+          fontWeight: FontWeight.w400,
+        ),
         titleLarge: TextStyle(
-            fontFamilyFallback: fallback, fontWeight: FontWeight.w500),
+          fontFamilyFallback: fallback,
+          fontWeight: FontWeight.w500,
+        ),
         titleMedium: TextStyle(
-            fontFamilyFallback: fallback, fontWeight: FontWeight.w500),
+          fontFamilyFallback: fallback,
+          fontWeight: FontWeight.w500,
+        ),
         titleSmall: TextStyle(
-            fontFamilyFallback: fallback, fontWeight: FontWeight.w500),
+          fontFamilyFallback: fallback,
+          fontWeight: FontWeight.w500,
+        ),
         bodyLarge: TextStyle(
-            fontFamilyFallback: fallback, fontWeight: FontWeight.w400),
+          fontFamilyFallback: fallback,
+          fontWeight: FontWeight.w400,
+        ),
         bodyMedium: TextStyle(
-            fontFamilyFallback: fallback, fontWeight: FontWeight.w400),
+          fontFamilyFallback: fallback,
+          fontWeight: FontWeight.w400,
+        ),
         bodySmall: TextStyle(
-            fontFamilyFallback: fallback, fontWeight: FontWeight.w400),
+          fontFamilyFallback: fallback,
+          fontWeight: FontWeight.w400,
+        ),
         labelLarge: TextStyle(
-            fontFamilyFallback: fallback, fontWeight: FontWeight.w500),
+          fontFamilyFallback: fallback,
+          fontWeight: FontWeight.w500,
+        ),
         labelMedium: TextStyle(
-            fontFamilyFallback: fallback, fontWeight: FontWeight.w500),
+          fontFamilyFallback: fallback,
+          fontWeight: FontWeight.w500,
+        ),
         labelSmall: TextStyle(
-            fontFamilyFallback: fallback, fontWeight: FontWeight.w500),
+          fontFamilyFallback: fallback,
+          fontWeight: FontWeight.w500,
+        ),
       );
     }
     return null;
   }
 
-  static ThemeData lightTheme(ColorScheme? lightDynamic,
-      [ColorSchemeType? themeType, Locale? locale]) {
+  static ThemeData lightTheme(
+    ColorScheme? lightDynamic, [
+    ColorSchemeType? themeType,
+    Locale? locale,
+  ]) {
     final ColorScheme colorScheme;
     if (lightDynamic != null) {
       colorScheme = lightDynamic;
     } else {
-      colorScheme =
-          _getColorScheme(themeType ?? ColorSchemeType.oceanBlue, false);
+      colorScheme = _getColorScheme(
+        themeType ?? ColorSchemeType.oceanBlue,
+        false,
+      );
     }
 
     return ThemeData(
@@ -166,14 +232,19 @@ class AppTheme {
     );
   }
 
-  static ThemeData darkTheme(ColorScheme? darkDynamic,
-      [ColorSchemeType? themeType, Locale? locale]) {
+  static ThemeData darkTheme(
+    ColorScheme? darkDynamic, [
+    ColorSchemeType? themeType,
+    Locale? locale,
+  ]) {
     final ColorScheme colorScheme;
     if (darkDynamic != null) {
       colorScheme = darkDynamic;
     } else {
-      colorScheme =
-          _getColorScheme(themeType ?? ColorSchemeType.oceanBlue, true);
+      colorScheme = _getColorScheme(
+        themeType ?? ColorSchemeType.oceanBlue,
+        true,
+      );
     }
 
     return ThemeData(
@@ -232,9 +303,23 @@ class AppTheme {
         return isDark ? _lavenderPurpleDark : _lavenderPurpleLight;
       case ColorSchemeType.sakuraPink:
         return isDark ? _sakuraPinkDark : _sakuraPinkLight;
-      case ColorSchemeType.dynamic:
-        return isDark ? _oceanBlueDark : _oceanBlueLight; // 动态主题的后备方案
     }
+  }
+
+  static ColorScheme colorSchemeFromSeed(Color seed, Brightness brightness) {
+    return ColorScheme.fromSeed(seedColor: seed, brightness: brightness);
+  }
+
+  static ColorScheme? resolveDynamicColorScheme({
+    required bool enabled,
+    required Color? artworkSeed,
+    required ColorScheme? systemScheme,
+    required Brightness brightness,
+  }) {
+    if (!enabled) return null;
+    return artworkSeed == null
+        ? systemScheme
+        : colorSchemeFromSeed(artworkSeed, brightness);
   }
 
   // 根据主题类型获取对应的颜色方案

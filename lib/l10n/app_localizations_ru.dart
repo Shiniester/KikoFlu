@@ -1737,7 +1737,7 @@ class SRu extends S {
 
   @override
   String get colorSchemeDynamicDesc =>
-      'Использовать цвета обоев системы (Android 12+)';
+      'Использовать цвета текущей обложки, а при её отсутствии — системные цвета';
 
   @override
   String get primaryContainer => 'Основной контейнер';

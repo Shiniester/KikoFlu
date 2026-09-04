@@ -38,6 +38,7 @@ import 'src/services/background_work_scheduler.dart';
 import 'src/models/work.dart';
 import 'l10n/app_localizations.dart';
 import 'src/providers/audio_provider.dart';
+import 'src/providers/artwork_theme_provider.dart';
 import 'src/providers/auth_provider.dart';
 import 'src/providers/locale_provider.dart';
 import 'src/providers/theme_provider.dart';
@@ -602,6 +603,11 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
   }
 
   @override
+  void didChangeAccessibilityFeatures() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void onWindowClose() async {
     // 桌面端关闭窗口时 flush 播放历史
     await PlaybackHistoryService.instance.flushNow(reason: FlushReason.dispose);
@@ -636,6 +642,9 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
   @override
   Widget build(BuildContext context) {
     final themeSettings = ref.watch(themeSettingsProvider);
+    final artworkThemeSeed = themeSettings.dynamicColorEnabled
+        ? ref.watch(artworkThemeSeedProvider).seed
+        : null;
     if (Platform.isMacOS) {
       ref.listen<AppThemeMode>(
         themeSettingsProvider.select((settings) => settings.themeMode),
@@ -656,15 +665,18 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
 
     return DynamicColorBuilder(
       builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
-        // 根据用户设置决定是否使用动态颜�?
-        final ColorScheme? lightScheme =
-            themeSettings.colorSchemeType == ColorSchemeType.dynamic
-            ? lightDynamic
-            : null;
-        final ColorScheme? darkScheme =
-            themeSettings.colorSchemeType == ColorSchemeType.dynamic
-            ? darkDynamic
-            : null;
+        final lightScheme = AppTheme.resolveDynamicColorScheme(
+          enabled: themeSettings.dynamicColorEnabled,
+          artworkSeed: artworkThemeSeed,
+          systemScheme: lightDynamic,
+          brightness: Brightness.light,
+        );
+        final darkScheme = AppTheme.resolveDynamicColorScheme(
+          enabled: themeSettings.dynamicColorEnabled,
+          artworkSeed: artworkThemeSeed,
+          systemScheme: darkDynamic,
+          brightness: Brightness.dark,
+        );
 
         // 根据用户设置决定主题模式
         final requestedMode = switch (themeSettings.themeMode) {
@@ -697,6 +709,15 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
             effectiveLocale,
           ),
           themeMode: mode,
+          themeAnimationDuration:
+              WidgetsBinding
+                  .instance
+                  .platformDispatcher
+                  .accessibilityFeatures
+                  .disableAnimations
+              ? Duration.zero
+              : const Duration(milliseconds: 300),
+          themeAnimationCurve: Curves.easeInOutCubic,
           home: ScreenAwakeObserver(child: _buildHomeScreen()),
         );
       },

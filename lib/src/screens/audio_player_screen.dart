@@ -9,11 +9,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/work.dart';
 import '../models/audio_track.dart';
+import '../providers/artwork_theme_provider.dart';
 import '../providers/audio_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/player_work_details_provider.dart';
-import '../providers/settings_provider.dart';
 import '../utils/local_file_url.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/system_ui_style.dart';
@@ -260,28 +260,13 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   }
 
   String? _buildWorkCoverUrl(int? workId, String? artworkUrl) {
-    // 优先使用 track.artworkUrl（可能是本地文件 file://）
-    if (LocalFileUrl.isLocalFileUrl(artworkUrl)) {
-      return artworkUrl;
-    }
-
-    if (workId == null) return null;
-
     final authState = ref.read(authProvider);
-    final host = authState.host ?? '';
-    final token = authState.token ?? '';
-
-    if (host.isEmpty) return null;
-
-    var normalizedHost = host;
-    if (!normalizedHost.startsWith('http://') &&
-        !normalizedHost.startsWith('https://')) {
-      normalizedHost = 'https://$normalizedHost';
-    }
-
-    return token.isNotEmpty
-        ? '$normalizedHost/api/cover/$workId?token=$token'
-        : '$normalizedHost/api/cover/$workId';
+    return resolveArtworkSource(
+      workId: workId,
+      artworkUrl: artworkUrl,
+      host: authState.host ?? '',
+      token: authState.token ?? '',
+    );
   }
 
   void _handleSeekChanged(double value) {
@@ -372,27 +357,14 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         }
         _scheduleProgressLoad(track);
         final coverUrl = _buildWorkCoverUrl(track.workId, track.artworkUrl);
-        final privacyHidesArtwork = ref.watch(
-          privacyModeSettingsProvider.select(
-            (settings) => settings.enabled && settings.blurCoverInApp,
-          ),
-        );
         final baseTheme = Theme.of(context);
-        final request = PlayerPaletteRequest(
-          source: coverUrl ?? track.artworkUrl,
-          cacheKey: track.workId != null
-              ? 'work_cover_${track.workId}'
-              : track.hash ?? track.id,
+        final artworkThemeSeed = ref.watch(artworkThemeSeedProvider).seed;
+        final resolvedPalette = PlayerVisualPalette.fromDominant(
+          artworkThemeSeed ?? baseTheme.colorScheme.primary,
           brightness: baseTheme.brightness,
-          fallbackSeed: baseTheme.colorScheme.primary,
-          suppressArtwork: privacyHidesArtwork,
+          accent: baseTheme.colorScheme.primary,
+          onAccent: baseTheme.colorScheme.onPrimary,
         );
-        final resolvedPalette =
-            ref.watch(playerVisualPaletteProvider(request)).value ??
-            PlayerVisualPalette.fallback(
-              seed: baseTheme.colorScheme.primary,
-              brightness: baseTheme.brightness,
-            );
         final palette =
             _routePaletteFrozen &&
                 widget.initialPaletteTrackId == track.id &&
@@ -505,44 +477,34 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                   child: Stack(
                     children: [
                       Positioned.fill(
-                        child: AnimatedSwitcher(
-                          duration: motionDuration,
-                          layoutBuilder: (currentChild, previousChildren) =>
-                              Stack(
-                                fit: StackFit.expand,
-                                children: [
-                                  ...previousChildren,
-                                  if (currentChild != null) currentChild,
+                        child: RepaintBoundary(
+                          key: const ValueKey('player-palette-background'),
+                          child: AnimatedContainer(
+                            duration: motionDuration,
+                            curve: Curves.easeInOutCubic,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  palette.backgroundStart,
+                                  palette.backgroundMiddle,
+                                  palette.backgroundEnd,
                                 ],
+                                stops: const [0, 0.56, 1],
                               ),
-                          child: RepaintBoundary(
-                            key: ValueKey(
-                              '${palette.backgroundStart.toARGB32()}:'
-                              '${palette.backgroundEnd.toARGB32()}',
                             ),
-                            child: DecoratedBox(
+                            child: AnimatedContainer(
+                              duration: motionDuration,
+                              curve: Curves.easeInOutCubic,
                               decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
+                                gradient: RadialGradient(
+                                  center: const Alignment(-0.72, 0.62),
+                                  radius: 1.15,
                                   colors: [
-                                    palette.backgroundStart,
-                                    palette.backgroundMiddle,
-                                    palette.backgroundEnd,
+                                    palette.accent.withValues(alpha: 0.18),
+                                    Colors.transparent,
                                   ],
-                                  stops: const [0, 0.56, 1],
-                                ),
-                              ),
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  gradient: RadialGradient(
-                                    center: const Alignment(-0.72, 0.62),
-                                    radius: 1.15,
-                                    colors: [
-                                      palette.accent.withValues(alpha: 0.18),
-                                      Colors.transparent,
-                                    ],
-                                  ),
                                 ),
                               ),
                             ),
