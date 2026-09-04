@@ -18,6 +18,7 @@ import '../widgets/privacy_blur_cover.dart';
 import '../widgets/enhanced_work_card.dart';
 import '../widgets/work_detail/work_cover_frame.dart';
 import '../widgets/virtualized_sliver_collection.dart';
+import '../widgets/app_bottom_dock_transition.dart';
 import '../utils/responsive_grid_helper.dart';
 import '../utils/work_cover_prefetch.dart';
 import '../utils/scroll_optimization.dart';
@@ -603,12 +604,11 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
 
     return InkWell(
       onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => WorkDetailScreen(
-              work: work,
-              initialCoverImageProvider: initialCoverImageProvider,
-            ),
+        pushWorkDetailRoute<void>(
+          context,
+          builder: (context) => WorkDetailScreen(
+            work: work,
+            initialCoverImageProvider: initialCoverImageProvider,
           ),
         );
       },

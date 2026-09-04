@@ -23,6 +23,7 @@ import '../utils/age_rating.dart';
 import '../../l10n/app_localizations.dart';
 import 'privacy_blur_cover.dart';
 import 'work_detail/work_cover_frame.dart';
+import 'app_bottom_dock_transition.dart';
 import 'age_rating_chip.dart';
 
 final _log = LogService.instance;
@@ -52,13 +53,11 @@ class HistoryWorkCard extends ConsumerWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
         onTap: () {
-          Navigator.push(
+          pushWorkDetailRoute<void>(
             context,
-            MaterialPageRoute(
-              builder: (context) => WorkDetailScreen(
-                work: work,
-                initialCoverImageProvider: initialCoverImageProvider,
-              ),
+            builder: (context) => WorkDetailScreen(
+              work: work,
+              initialCoverImageProvider: initialCoverImageProvider,
             ),
           );
         },

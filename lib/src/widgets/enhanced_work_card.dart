@@ -18,6 +18,7 @@ import 'age_rating_chip.dart';
 import 'work_bookmark_manager.dart';
 import 'privacy_blur_cover.dart';
 import 'work_detail/work_cover_frame.dart';
+import 'app_bottom_dock_transition.dart';
 
 class EnhancedWorkCard extends ConsumerStatefulWidget {
   final Work work;
@@ -133,12 +134,11 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     final cardOnTap =
         widget.onTap ??
         () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => WorkDetailScreen(
-                work: widget.work,
-                initialCoverImageProvider: initialCoverImageProvider,
-              ),
+          pushWorkDetailRoute<void>(
+            context,
+            builder: (context) => WorkDetailScreen(
+              work: widget.work,
+              initialCoverImageProvider: initialCoverImageProvider,
             ),
           );
         };

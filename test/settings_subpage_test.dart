@@ -16,7 +16,6 @@ import 'package:kikoeru_flutter/src/screens/player_lyric_style_screen.dart';
 import 'package:kikoeru_flutter/src/screens/ui_settings_screen.dart';
 import 'package:kikoeru_flutter/src/screens/theme_settings_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/settings_section.dart';
-import 'package:real_liquid_glass/real_liquid_glass.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Widget _testApp(Widget home, {ProviderContainer? container}) {
@@ -275,13 +274,11 @@ void main() {
   testWidgets('theme settings restores defaults from the app bar', (
     tester,
   ) async {
-    LiquidGlass.debugOverrideCapabilities(LiquidGlassCapabilities.none);
-    addTearDown(() => LiquidGlass.debugOverrideCapabilities(null));
     SharedPreferences.setMockInitialValues({
       'theme_mode': AppThemeMode.dark.index,
       'color_scheme_type': ThemeSettingsNotifier.legacyDynamicColorSchemeIndex,
-      LiquidGlassNavigationNotifier.preferenceKey: true,
-      FallbackGlassTransparencyNotifier.preferenceKey: 0.25,
+      'liquid_glass_navigation_enabled': true,
+      'fallback_glass_transparency': 0.25,
     });
     final container = ProviderContainer();
     addTearDown(container.dispose);
@@ -310,11 +307,7 @@ void main() {
       ColorSchemeType.oceanBlue,
     );
     expect(container.read(themeSettingsProvider).dynamicColorEnabled, isTrue);
-    expect(container.read(liquidGlassNavigationProvider), isFalse);
-    expect(
-      container.read(fallbackGlassTransparencyProvider),
-      FallbackGlassTransparencyNotifier.defaultValue,
-    );
+    expect(find.textContaining('Liquid Glass'), findsNothing);
   });
 
   testWidgets('page settings group player and content options separately', (

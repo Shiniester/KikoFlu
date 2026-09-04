@@ -11,7 +11,6 @@ import '../utils/l10n_extensions.dart';
 import '../widgets/works_grid_view.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 import '../widgets/floating_feed_toolbar.dart';
-import '../widgets/liquid_glass_layout.dart';
 import '../widgets/download_fab.dart';
 import '../providers/download_provider.dart';
 import 'downloads_screen.dart';
@@ -315,8 +314,7 @@ class _MyScreenState extends ConsumerState<MyScreen>
             return const SizedBox.shrink();
           },
         ),
-        body: LiquidGlassDockMediaQuery(
-          child: Stack(
+        body: Stack(
             children: [
               Positioned.fill(
                 child: NotificationListener<ScrollNotification>(
@@ -391,7 +389,6 @@ class _MyScreenState extends ConsumerState<MyScreen>
               ),
             ],
           ),
-        ),
       ),
     );
   }

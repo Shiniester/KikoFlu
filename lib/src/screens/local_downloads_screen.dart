@@ -23,6 +23,7 @@ import '../widgets/privacy_blur_cover.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 import '../widgets/floating_feed_toolbar.dart';
 import '../widgets/work_detail/work_cover_frame.dart';
+import '../widgets/app_bottom_dock_transition.dart';
 
 final _log = LogService.instance;
 
@@ -479,18 +480,17 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
       );
 
       if (mounted) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => OfflineWorkDetailScreen(
-              work: work,
-              isOffline: true,
-              localCoverPath: localCoverPath,
-              localCoverRelativePath: metadata['localCoverPath'] as String?,
-              localWorkDirPath: workDir.path,
-              fileTree: rawChildren is List
-                  ? List<dynamic>.from(rawChildren)
-                  : null,
-            ),
+        pushWorkDetailRoute<void>(
+          context,
+          builder: (context) => OfflineWorkDetailScreen(
+            work: work,
+            isOffline: true,
+            localCoverPath: localCoverPath,
+            localCoverRelativePath: metadata['localCoverPath'] as String?,
+            localWorkDirPath: workDir.path,
+            fileTree: rawChildren is List
+                ? List<dynamic>.from(rawChildren)
+                : null,
           ),
         );
       }

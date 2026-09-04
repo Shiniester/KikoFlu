@@ -19,6 +19,7 @@ import '../services/remote_asset_cache.dart';
 import '../utils/system_ui_style.dart';
 import '../widgets/file_explorer_widget.dart';
 import '../widgets/file_selection_dialog.dart';
+import '../widgets/app_bottom_dock_transition.dart';
 import '../widgets/global_audio_player_wrapper.dart';
 import '../widgets/responsive_dialog.dart';
 import '../widgets/work_bookmark_manager.dart';
@@ -74,17 +75,6 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   String? _translatedTitle; // 翻译后的标题
   bool _showTranslation = false; // 是否显示翻译
   bool _isTranslating = false; // 是否正在翻译
-
-  Future<void> _restoreMiniPlayerAfterModalExit(VoidCallback clearFlag) async {
-    // A pushed route's Future completes when pop starts, before its reverse
-    // transition leaves the overlay. Keep native glass suppressed until then.
-    await Future<void>.delayed(kThemeAnimationDuration);
-    if (mounted) {
-      setState(clearFlag);
-    } else {
-      clearFlag();
-    }
-  }
 
   @override
   void initState() {
@@ -360,9 +350,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         },
       );
     } finally {
-      await _restoreMiniPlayerAfterModalExit(
-        () => _isOpeningFileSelection = false,
-      );
+      if (mounted) setState(() => _isOpeningFileSelection = false);
     }
   }
 
@@ -481,9 +469,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         },
       );
     } finally {
-      await _restoreMiniPlayerAfterModalExit(
-        () => _isOpeningProgressDialog = false,
-      );
+      if (mounted) setState(() => _isOpeningProgressDialog = false);
     }
   }
 
@@ -512,8 +498,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     final systemOverlayStyle = transparentSystemBarsForBrightness(brightness);
 
     return GlobalAudioPlayerWrapper(
-      suppressLiquidGlassMiniPlayer:
-          _isOpeningFileSelection || _isOpeningProgressDialog,
+      workDetailTransitionTarget: true,
       child: Scaffold(
         floatingActionButton: const DownloadFab(),
         appBar: ScrollableAppBar(
@@ -643,11 +628,10 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
           OtherLanguageEditionsSection(
             editions: work.otherLanguageEditions,
             onEditionSelected: (edition) {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => WorkDetailScreen(
-                    work: Work(id: edition.id, title: edition.title),
-                  ),
+              pushWorkDetailRoute<void>(
+                context,
+                builder: (context) => WorkDetailScreen(
+                  work: Work(id: edition.id, title: edition.title),
                 ),
               );
             },

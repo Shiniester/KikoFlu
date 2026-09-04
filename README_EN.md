@@ -45,7 +45,6 @@
 ### 🎨 Interface
 - Full platform support (Android / iOS / Windows / macOS / Linux)
 - Material Design 3
-- Liquid Glass navigation and Mini Player, enabled by default on Apple 26+ platforms with a compatible fallback elsewhere
 - Landscape mode support
 - Light and dark theme
 - Title, file directory, and text file translation

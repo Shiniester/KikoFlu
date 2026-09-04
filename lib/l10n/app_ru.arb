@@ -163,10 +163,6 @@
   "themeSettingsSubtitle": "Тёмный режим, цвет темы и т.д.",
   "uiSettings": "Настройки интерфейса",
   "uiSettingsSubtitle": "Плеер, страница деталей, карточки и т.д.",
-  "liquidGlassNavigation": "Навигация Liquid Glass",
-  "liquidGlassNavigationDesc": "Стеклянная навигация и мини-плеер; включено по умолчанию на платформах Apple с ОС 26+.",
-  "fallbackGlassTransparency": "Прозрачность Liquid Glass",
-  "fallbackGlassTransparencyDesc": "Прозрачность стекла, отрисованного приложением.",
   "preferenceSettings": "Предпочтения",
   "preferenceSettingsSubtitle": "Перевод, воспроизведение и сеть",
 

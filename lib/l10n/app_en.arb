@@ -193,10 +193,6 @@
   "themeSettingsSubtitle": "Dark mode, theme color, etc.",
   "uiSettings": "UI Settings",
   "uiSettingsSubtitle": "Player, detail page, cards, etc.",
-  "liquidGlassNavigation": "Liquid Glass Navigation",
-  "liquidGlassNavigationDesc": "Glass navigation and mini player; enabled by default on Apple OS 26+.",
-  "fallbackGlassTransparency": "Liquid Glass Transparency",
-  "fallbackGlassTransparencyDesc": "Adjust app-rendered glass transparency.",
   "preferenceSettings": "Preference Settings",
   "preferenceSettingsSubtitle": "Translation, playback, and network",
 

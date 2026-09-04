@@ -15,8 +15,7 @@ import '../services/log_service.dart';
 import '../widgets/scrollable_appbar.dart';
 import '../widgets/download_fab.dart';
 import '../widgets/floating_feed_toolbar.dart';
-import '../widgets/liquid_glass_dropdown.dart';
-import '../widgets/liquid_glass_layout.dart';
+import '../widgets/material_dropdown.dart';
 import '../widgets/search_condition_chip.dart';
 import 'search_result_screen.dart';
 
@@ -309,8 +308,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     final theme = Theme.of(context);
     final isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
-    final dockExtent = LiquidGlassDockScope.extentOf(context);
-    final contentBottomPadding = 16 + dockExtent;
+    const contentBottomPadding = 16.0;
     return GestureDetector(
       // 点击任何地方（包括 AppBar）都取消焦点，关闭下拉框
       onTap: () {
@@ -352,8 +350,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           ],
         ),
         resizeToAvoidBottomInset: true, // 自动调整以避免键盘遮挡
-        body: LiquidGlassDockMediaQuery(
-          child: isLandscape
+        body: isLandscape
               ? Container(
                   color: theme.colorScheme.surface,
                   child: Row(
@@ -384,7 +381,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                 )
               : SingleChildScrollView(
                   child: Container(
-                    padding: EdgeInsets.fromLTRB(
+                    padding: const EdgeInsets.fromLTRB(
                       16,
                       16,
                       16,
@@ -397,7 +394,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                     ),
                   ),
                 ),
-        ),
       ), // Scaffold 的闭合
     ); // GestureDetector 的闭合
   }
@@ -629,7 +625,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                             AutocompleteHighlightedOption.of(context);
                         return Align(
                           alignment: Alignment.topLeft,
-                          child: LiquidGlassPopupSurface(
+                          child: MaterialPopupSurface(
                             maxHeight: 300,
                             child: ListView.builder(
                               padding: const EdgeInsets.symmetric(vertical: 4),
@@ -1031,7 +1027,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           Expanded(
             child: FloatingToolbarSurface(
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: LiquidGlassDropdownButtonFormField<AgeRating>(
+              child: MaterialDropdownButtonFormField<AgeRating>(
                 initialValue: _ageRating,
                 decoration: _filterInputDecoration(
                   theme,
@@ -1063,7 +1059,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
             Expanded(
               child: FloatingToolbarSurface(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: LiquidGlassDropdownButtonFormField<SalesRange>(
+                child: MaterialDropdownButtonFormField<SalesRange>(
                   initialValue: _salesRange,
                   decoration: _filterInputDecoration(
                     theme,

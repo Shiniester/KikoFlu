@@ -163,10 +163,6 @@
   "themeSettingsSubtitle": "ダークモード、テーマカラーなど",
   "uiSettings": "UI設定",
   "uiSettingsSubtitle": "プレーヤー、詳細ページ、カードなど",
-  "liquidGlassNavigation": "リキッドグラスナビゲーション",
-  "liquidGlassNavigationDesc": "ガラス素材のナビゲーションとミニプレーヤー。Apple 系 OS 26 以降ではデフォルトで有効",
-  "fallbackGlassTransparency": "リキッドグラスの透明度",
-  "fallbackGlassTransparencyDesc": "アプリ描画のガラス透明度を調整",
   "preferenceSettings": "環境設定",
   "preferenceSettingsSubtitle": "翻訳、再生、ネットワーク",
 

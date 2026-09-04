@@ -163,10 +163,6 @@
   "themeSettingsSubtitle": "深色模式、主題色等",
   "uiSettings": "介面設定",
   "uiSettingsSubtitle": "播放器、詳情頁、卡片等",
-  "liquidGlassNavigation": "液態玻璃導覽",
-  "liquidGlassNavigationDesc": "玻璃導覽列與迷你播放器；Apple 系 26+ 平台預設開啟",
-  "fallbackGlassTransparency": "液態玻璃透明度",
-  "fallbackGlassTransparencyDesc": "調整應用程式繪製玻璃的透明度",
   "preferenceSettings": "偏好設定",
   "preferenceSettingsSubtitle": "翻譯、播放與網路",
 

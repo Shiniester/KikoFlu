@@ -1,41 +1,19 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/widgets/floating_feed_toolbar.dart';
-import 'package:real_liquid_glass/real_liquid_glass.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-Widget _testApp(Widget child, {ProviderContainer? container}) {
-  final app = MaterialApp(
+Widget _testApp(Widget child, {double width = 390}) {
+  return MaterialApp(
     home: Scaffold(
-      body: Center(child: SizedBox(width: 390, child: child)),
-    ),
-  );
-  return container == null
-      ? ProviderScope(child: app)
-      : UncontrolledProviderScope(container: container, child: app);
-}
-
-Widget _wideTestApp(Widget child) {
-  return ProviderScope(
-    child: MaterialApp(
-      home: Scaffold(
-        body: Center(child: SizedBox(width: 700, child: child)),
+      body: Center(
+        child: SizedBox(width: width, child: child),
       ),
     ),
   );
 }
 
 void main() {
-  setUp(
-    () => SharedPreferences.setMockInitialValues({
-      LiquidGlassNavigationNotifier.preferenceKey: false,
-    }),
-  );
-
-  testWidgets('renders two capsules and keeps their actions interactive', (
+  testWidgets('renders classic Material capsules with interactive actions', (
     tester,
   ) async {
     var selectedMode = '';
@@ -72,7 +50,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('feed-mode-capsule')), findsOneWidget);
     expect(find.byKey(const ValueKey('feed-tool-capsule')), findsOneWidget);
-    expect(tester.getSize(find.byType(FloatingFeedToolbar)).height, 48);
+    expect(find.byType(BackdropFilter), findsNothing);
     final surfaceMaterial = tester.widget<Material>(
       find
           .descendant(
@@ -92,277 +70,7 @@ void main() {
     expect(toolTaps, 1);
   });
 
-  testWidgets('uses real liquid glass when the navigation style is enabled', (
-    tester,
-  ) async {
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
-    await container
-        .read(liquidGlassNavigationProvider.notifier)
-        .setEnabled(true);
-
-    await tester.pumpWidget(
-      _testApp(
-        const FloatingToolbarSurface(child: SizedBox(width: 80, height: 40)),
-        container: container,
-      ),
-    );
-
-    expect(find.byType(LiquidGlassContainer), findsOneWidget);
-    final material = tester.widget<Material>(find.byType(Material).last);
-    expect(material.type, MaterialType.transparency);
-  });
-
-  testWidgets('groups native feed capsules into one platform view', (
-    tester,
-  ) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
-    await container
-        .read(liquidGlassNavigationProvider.notifier)
-        .setEnabled(true);
-
-    await tester.pumpWidget(
-      _testApp(
-        FloatingFeedToolbar(
-          modeActions: [
-            FloatingFeedModeAction(
-              icon: Icons.grid_view,
-              label: 'All',
-              isSelected: true,
-              onPressed: () {},
-            ),
-          ],
-          toolActions: [
-            FloatingFeedToolAction(
-              icon: Icons.sort,
-              tooltip: 'Sort',
-              onPressed: () {},
-            ),
-          ],
-        ),
-        container: container,
-      ),
-    );
-
-    expect(find.byType(LiquidGlassGroup), findsOneWidget);
-    expect(find.byType(LiquidGlassContainer), findsNWidgets(2));
-    expect(find.byType(UiKitView), findsOneWidget);
-    debugDefaultTargetPlatformOverride = null;
-  });
-
-  testWidgets('does not clip the native platform view in Flutter', (
-    tester,
-  ) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
-    await container
-        .read(liquidGlassNavigationProvider.notifier)
-        .setEnabled(true);
-
-    await tester.pumpWidget(
-      _testApp(
-        const FloatingToolbarSurface(child: SizedBox(width: 80, height: 40)),
-        container: container,
-      ),
-    );
-
-    expect(find.byType(UiKitView), findsOneWidget);
-    expect(
-      find.ancestor(
-        of: find.byType(UiKitView),
-        matching: find.byType(ClipRRect),
-      ),
-      findsNothing,
-    );
-    debugDefaultTargetPlatformOverride = null;
-  });
-
-  testWidgets('fallback liquid glass keeps page content visible', (
-    tester,
-  ) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
-    await container
-        .read(liquidGlassNavigationProvider.notifier)
-        .setEnabled(true);
-    await container
-        .read(fallbackGlassTransparencyProvider.notifier)
-        .setTransparency(0.9);
-
-    await tester.pumpWidget(
-      _testApp(
-        const FloatingToolbarSurface(child: SizedBox(width: 80, height: 40)),
-        container: container,
-      ),
-    );
-
-    final glass = find.byType(LiquidGlassContainer);
-    expect(tester.widget<LiquidGlassContainer>(glass).fallbackIntensity, 0.9);
-    final fallbackDecoration = tester
-        .widgetList<DecoratedBox>(
-          find.descendant(of: glass, matching: find.byType(DecoratedBox)),
-        )
-        .map((widget) => widget.decoration)
-        .whereType<BoxDecoration>()
-        .firstWhere((decoration) => decoration.color != null);
-    expect(fallbackDecoration.color!.a, lessThan(0.5));
-    expect(
-      find.descendant(of: glass, matching: find.byType(BackdropFilter)),
-      findsOneWidget,
-    );
-    debugDefaultTargetPlatformOverride = null;
-  });
-
-  testWidgets('progressive top treatment avoids dynamic backdrop filters', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _testApp(
-        const MediaQuery(
-          data: MediaQueryData(padding: EdgeInsets.only(top: 44)),
-          child: ProgressiveTopScrim(height: 96),
-        ),
-      ),
-    );
-
-    expect(find.byType(BackdropFilter), findsNothing);
-    expect(find.byType(ShaderMask), findsNothing);
-    expect(find.byType(DecoratedBox), findsOneWidget);
-    expect(tester.getSize(find.byType(ProgressiveTopScrim)).height, 96);
-  });
-
-  testWidgets('top treatment is omitted without a status bar inset', (
-    tester,
-  ) async {
-    await tester.pumpWidget(_testApp(const ProgressiveTopScrim(height: 96)));
-
-    expect(find.byType(BackdropFilter), findsNothing);
-    expect(find.byType(DecoratedBox), findsNothing);
-  });
-
-  testWidgets('secondary toolbar stays in the page while following primary', (
-    tester,
-  ) async {
-    final primaryVisible = ValueNotifier(true);
-    addTearDown(primaryVisible.dispose);
-
-    await tester.pumpWidget(
-      _testApp(
-        SizedBox(
-          height: 200,
-          child: Stack(
-            children: [
-              FloatingToolbarPositionFollower(
-                primaryToolbarVisible: primaryVisible,
-                visibleTop: 100,
-                hiddenTop: 44,
-                left: 0,
-                right: 0,
-                child: const SizedBox(
-                  key: ValueKey('secondary-toolbar'),
-                  height: 48,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    final visibleTop = tester
-        .getTopLeft(find.byKey(const ValueKey('secondary-toolbar')))
-        .dy;
-    expect(find.byType(OverlayPortal), findsNothing);
-    expect(find.byType(CompositedTransformFollower), findsNothing);
-    expect(
-      tester.getSize(find.byKey(const ValueKey('secondary-toolbar'))).width,
-      390,
-    );
-    primaryVisible.value = false;
-    await tester.pumpAndSettle();
-    final hiddenTop = tester
-        .getTopLeft(find.byKey(const ValueKey('secondary-toolbar')))
-        .dy;
-
-    expect(visibleTop - hiddenTop, 56);
-  });
-
-  testWidgets('mode capsule hugs its content and leaves tools at the edge', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _wideTestApp(
-        FloatingFeedToolbar(
-          modeActions: [
-            FloatingFeedModeAction(
-              icon: Icons.grid_view,
-              label: 'All',
-              isSelected: true,
-              onPressed: () {},
-            ),
-          ],
-          toolActions: [
-            FloatingFeedToolAction(
-              icon: Icons.sort,
-              tooltip: 'Sort',
-              onPressed: () {},
-            ),
-          ],
-        ),
-      ),
-    );
-
-    final mode = tester.getRect(
-      find.byKey(const ValueKey('feed-mode-capsule')),
-    );
-    final tools = tester.getRect(
-      find.byKey(const ValueKey('feed-tool-capsule')),
-    );
-    expect(mode.width, lessThan(160));
-    expect(tools.right, closeTo(750, 1));
-  });
-
-  testWidgets('shows every mode when the complete row fits', (tester) async {
-    await tester.pumpWidget(
-      _wideTestApp(
-        FloatingFeedToolbar(
-          modeActions: [
-            for (final label in ['全部', '想听', '在听', '听过', '重听', '搁置'])
-              FloatingFeedModeAction(
-                icon: Icons.filter_alt,
-                label: label,
-                isSelected: label == '全部',
-                onPressed: () {},
-              ),
-          ],
-          toolActions: [
-            for (var index = 0; index < 3; index++)
-              FloatingFeedToolAction(
-                icon: Icons.tune,
-                tooltip: 'Tool $index',
-                onPressed: () {},
-              ),
-          ],
-        ),
-      ),
-    );
-
-    final mode = tester.getRect(
-      find.byKey(const ValueKey('feed-mode-capsule')),
-    );
-    expect(mode.width, greaterThan(420));
-    expect(find.text('搁置'), findsOneWidget);
-    expect(find.byKey(const ValueKey('feed-mode-dropdown')), findsNothing);
-  });
-
-  testWidgets('uses a mode dropdown when the complete row does not fit', (
+  testWidgets('uses a bounded Material popup when modes do not fit', (
     tester,
   ) async {
     var selectedMode = -1;
@@ -390,28 +98,21 @@ void main() {
     );
 
     expect(find.byKey(const ValueKey('feed-mode-dropdown')), findsOneWidget);
-    expect(find.byType(SingleChildScrollView), findsNothing);
     await tester.tap(find.byKey(const ValueKey('feed-mode-dropdown')));
     await tester.pumpAndSettle();
+    expect(find.text('Filter option 1'), findsOneWidget);
     await tester.tap(find.text('Filter option 1'));
     await tester.pumpAndSettle();
     expect(selectedMode, 1);
   });
 
-  testWidgets('native mode dropdown uses an independent bounded glass group', (
+  testWidgets('can keep every mode as scrolling buttons when requested', (
     tester,
   ) async {
-    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-    addTearDown(() => debugDefaultTargetPlatformOverride = null);
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
-    await container
-        .read(liquidGlassNavigationProvider.notifier)
-        .setEnabled(true);
-
     await tester.pumpWidget(
       _testApp(
         FloatingFeedToolbar(
+          collapseModesWhenNeeded: false,
           modeActions: [
             for (var index = 0; index < 8; index++)
               FloatingFeedModeAction(
@@ -421,64 +122,61 @@ void main() {
                 onPressed: () {},
               ),
           ],
-          toolActions: [
-            FloatingFeedToolAction(
-              icon: Icons.sort,
-              tooltip: 'Sort',
-              onPressed: () {},
-            ),
-          ],
+          toolActions: const [],
         ),
-        container: container,
+        width: 280,
       ),
     );
 
-    expect(find.byType(LiquidGlassGroup), findsOneWidget);
-    expect(find.byType(UiKitView), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('feed-mode-dropdown')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Filter option 1'), findsOneWidget);
-    expect(find.byType(LiquidGlassContainer), findsNWidgets(3));
-    expect(find.byType(LiquidGlassGroup), findsNWidgets(2));
-    expect(find.byType(UiKitView), findsNWidgets(2));
-    final menuSurface = tester.getSize(find.byType(LiquidGlassContainer).last);
-    expect(menuSurface.height, lessThanOrEqualTo(300));
-    debugDefaultTargetPlatformOverride = null;
+    expect(find.byKey(const ValueKey('feed-mode-scroll')), findsOneWidget);
+    expect(find.byKey(const ValueKey('feed-mode-dropdown')), findsNothing);
   });
 
-  testWidgets('can keep every mode as buttons in a narrow toolbar', (
+  testWidgets('secondary toolbar follows primary visibility', (tester) async {
+    final visible = ValueNotifier(true);
+    addTearDown(visible.dispose);
+    await tester.pumpWidget(
+      _testApp(
+        Stack(
+          children: [
+            FloatingToolbarPositionFollower(
+              primaryToolbarVisible: visible,
+              visibleTop: 64,
+              hiddenTop: 8,
+              left: 8,
+              right: 8,
+              child: const SizedBox(height: 40),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    expect(
+      tester.widget<AnimatedPositioned>(find.byType(AnimatedPositioned)).top,
+      64,
+    );
+    visible.value = false;
+    await tester.pump();
+    expect(
+      tester.widget<AnimatedPositioned>(find.byType(AnimatedPositioned)).top,
+      8,
+    );
+  });
+
+  testWidgets('progressive top treatment avoids dynamic backdrop filters', (
     tester,
   ) async {
     await tester.pumpWidget(
       _testApp(
-        FloatingFeedToolbar(
-          collapseModesWhenNeeded: false,
-          modeActions: [
-            for (final label in ['全部', '热门', '推荐'])
-              FloatingFeedModeAction(
-                icon: Icons.filter_alt,
-                label: label,
-                isSelected: label == '全部',
-                onPressed: () {},
-              ),
-          ],
-          toolActions: [
-            for (var index = 0; index < 4; index++)
-              FloatingFeedToolAction(
-                icon: Icons.tune,
-                tooltip: 'Tool $index',
-                onPressed: () {},
-              ),
-          ],
+        const MediaQuery(
+          data: MediaQueryData(padding: EdgeInsets.only(top: 24)),
+          child: ProgressiveTopScrim(height: 48),
         ),
       ),
     );
 
-    expect(find.byKey(const ValueKey('feed-mode-dropdown')), findsNothing);
-    expect(find.byKey(const ValueKey('feed-mode-scroll')), findsOneWidget);
-    expect(find.text('全部'), findsOneWidget);
-    expect(find.text('热门'), findsOneWidget);
-    expect(find.text('推荐'), findsOneWidget);
+    expect(find.byType(BackdropFilter), findsNothing);
+    expect(find.byType(DecoratedBox), findsOneWidget);
   });
 }

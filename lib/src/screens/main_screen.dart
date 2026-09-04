@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:real_liquid_glass/real_liquid_glass.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../providers/audio_provider.dart';
 import '../providers/update_provider.dart';
 import '../providers/auth_provider.dart';
+import '../widgets/app_bottom_dock_transition.dart';
 import '../widgets/main_bottom_navigation_bar.dart';
 import '../widgets/mini_player.dart';
-import '../widgets/liquid_glass_layout.dart';
 import '../widgets/lazy_indexed_stack.dart';
 import 'works_screen.dart';
 import 'search_screen.dart';
@@ -29,7 +28,6 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
   // 使用 PageStorageBucket 来保存页面状态
   final PageStorageBucket _bucket = PageStorageBucket();
-  final ValueNotifier<double> _liquidDockExtent = ValueNotifier(0);
 
   late final List<Widget> _screens;
   final Set<int> _visitedTabs = {0};
@@ -45,14 +43,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     ];
   }
 
-  @override
-  void dispose() {
-    _liquidDockExtent.dispose();
-    super.dispose();
-  }
-
   List<NavigationDestination> _buildDestinations(
-      BuildContext context, bool showUpdateBadge) {
+    BuildContext context,
+    bool showUpdateBadge,
+  ) {
     final s = S.of(context);
     return [
       NavigationDestination(
@@ -104,7 +98,6 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     final isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
     final showUpdateBadge = ref.watch(showUpdateRedDotProvider);
-    final useLiquidGlass = ref.watch(liquidGlassNavigationProvider);
     final destinations = _buildDestinations(context, showUpdateBadge);
 
     if (isLandscape) {
@@ -120,34 +113,13 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                   child: SingleChildScrollView(
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
-                        minHeight: MediaQuery.of(context).size.height -
+                        minHeight:
+                            MediaQuery.of(context).size.height -
                             MediaQuery.of(context).padding.top -
                             MediaQuery.of(context).padding.bottom,
                       ),
                       child: IntrinsicHeight(
-                        child: Padding(
-                          padding: useLiquidGlass
-                              ? const EdgeInsets.all(8)
-                              : EdgeInsets.zero,
-                          child: useLiquidGlass
-                              ? Consumer(
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(28),
-                                    child: _buildNavigationRail(destinations),
-                                  ),
-                                  builder: (context, ref, child) {
-                                    return LiquidGlassContainer(
-                                      shape: const LiquidGlassShape
-                                          .roundedRectangle(28),
-                                      fallbackIntensity: ref.watch(
-                                        fallbackGlassTransparencyProvider,
-                                      ),
-                                      child: child,
-                                    );
-                                  },
-                                )
-                              : _buildNavigationRail(destinations),
-                        ),
+                        child: _buildNavigationRail(destinations),
                       ),
                     ),
                   ),
@@ -158,7 +130,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                   child: Consumer(
                     builder: (context, ref, child) {
                       final authState = ref.watch(authProvider);
-                      final isOfflineMode = authState.currentUser != null &&
+                      final isOfflineMode =
+                          authState.currentUser != null &&
                           !authState.isLoggedIn &&
                           authState.error != null;
 
@@ -183,33 +156,18 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                         },
                       );
 
-                      final content = useLiquidGlass
-                          ? LiquidGlassDockOverlay(
-                              onExtentChanged: (extent) {
-                                if (_liquidDockExtent.value != extent) {
-                                  _liquidDockExtent.value = extent;
-                                }
-                              },
-                              dock: AnimatedSize(
-                                duration: const Duration(milliseconds: 180),
-                                curve: Curves.easeOutCubic,
-                                alignment: Alignment.bottomCenter,
-                                child: miniPlayer,
-                              ),
-                              child: pages,
-                            )
-                          : Column(
-                              children: [
-                                Expanded(child: pages),
-                                miniPlayer,
-                              ],
-                            );
+                      final content = Column(
+                        children: [
+                          Expanded(child: pages),
+                          miniPlayer,
+                        ],
+                      );
 
                       return Padding(
                         padding: EdgeInsets.only(top: isOfflineMode ? 30 : 0),
                         child: SafeArea(
                           top: false,
-                          bottom: !useLiquidGlass,
+                          bottom: true,
                           child: content,
                         ),
                       );
@@ -226,7 +184,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
               child: Consumer(
                 builder: (context, ref, child) {
                   final authState = ref.watch(authProvider);
-                  final isOfflineMode = authState.currentUser != null &&
+                  final isOfflineMode =
+                      authState.currentUser != null &&
                       !authState.isLoggedIn &&
                       authState.error != null;
 
@@ -264,7 +223,9 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                           },
                           style: TextButton.styleFrom(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
                             minimumSize: Size.zero,
                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           ),
@@ -286,46 +247,22 @@ class _MainScreenState extends ConsumerState<MainScreen> {
           ],
         ),
       );
-      return useLiquidGlass
-          ? LiquidGlassDockScope(
-              notifier: _liquidDockExtent,
-              child: landscapeScaffold,
-            )
-          : landscapeScaffold;
+      return landscapeScaffold;
     }
 
-    // 竖屏布局：液态玻璃模式把导航栏悬浮在页面内容上方，经典模式
-    // 继续使用 Scaffold 的 bottomNavigationBar 插槽。
-    final miniPlayer = Consumer(
-      builder: (context, ref, child) {
-        final currentTrack = ref.watch(currentTrackProvider);
-        return currentTrack.when(
-          data: (track) =>
-              track != null ? const MiniPlayer() : const SizedBox.shrink(),
-          loading: () => const SizedBox.shrink(),
-          error: (_, __) => const SizedBox.shrink(),
+    // 竖屏布局：播放条和应用标签栏共同组成底部 Dock。
+    final miniPlayer = ref
+        .watch(currentTrackProvider)
+        .when<Widget?>(
+          data: (track) => track != null ? const MiniPlayer() : null,
+          loading: () => null,
+          error: (_, __) => null,
         );
-      },
-    );
-    final bottomNavigation = Consumer(
-      child: miniPlayer,
-      builder: (context, ref, child) {
-        return MainBottomNavigationBar(
-          selectedIndex: _currentIndex,
-          onDestinationSelected: _handleDestinationSelected,
-          destinations: destinations,
-          liquidGlass: useLiquidGlass,
-          fallbackGlassTransparency:
-              ref.watch(fallbackGlassTransparencyProvider),
-          showUpdateBadge: showUpdateBadge,
-          onLayoutExtentChanged: (extent) {
-            if (_liquidDockExtent.value != extent) {
-              _liquidDockExtent.value = extent;
-            }
-          },
-          miniPlayer: child!,
-        );
-      },
+    final bottomNavigation = MainBottomNavigationBar(
+      selectedIndex: _currentIndex,
+      onDestinationSelected: _handleDestinationSelected,
+      destinations: destinations,
+      miniPlayer: miniPlayer,
     );
 
     final portraitScaffold = Scaffold(
@@ -335,7 +272,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
           Consumer(
             builder: (context, ref, child) {
               final authState = ref.watch(authProvider);
-              final isOfflineMode = authState.currentUser != null &&
+              final isOfflineMode =
+                  authState.currentUser != null &&
                   !authState.isLoggedIn &&
                   authState.error != null;
 
@@ -344,14 +282,12 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                 child: SafeArea(
                   top: false,
                   bottom: false,
-                  child: LiquidGlassDockMediaQuery(
-                    child: PageStorage(
-                      bucket: _bucket,
-                      child: LazyIndexedStack(
-                        index: _currentIndex,
-                        visitedIndices: _visitedTabs,
-                        children: _screens,
-                      ),
+                  child: PageStorage(
+                    bucket: _bucket,
+                    child: LazyIndexedStack(
+                      index: _currentIndex,
+                      visitedIndices: _visitedTabs,
+                      children: _screens,
                     ),
                   ),
                 ),
@@ -366,7 +302,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
             child: Consumer(
               builder: (context, ref, child) {
                 final authState = ref.watch(authProvider);
-                final isOfflineMode = authState.currentUser != null &&
+                final isOfflineMode =
+                    authState.currentUser != null &&
                     !authState.isLoggedIn &&
                     authState.error != null;
 
@@ -404,7 +341,9 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                         },
                         style: TextButton.styleFrom(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           minimumSize: Size.zero,
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
@@ -423,23 +362,11 @@ class _MainScreenState extends ConsumerState<MainScreen> {
               },
             ),
           ),
-          if (useLiquidGlass)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: bottomNavigation,
-            ),
         ],
       ),
-      bottomNavigationBar: useLiquidGlass ? null : bottomNavigation,
+      bottomNavigationBar: bottomNavigation,
     );
-    return useLiquidGlass
-        ? LiquidGlassDockScope(
-            notifier: _liquidDockExtent,
-            child: portraitScaffold,
-          )
-        : portraitScaffold;
+    return AppBottomDockTransitionScope(child: portraitScaffold);
   }
 
   Widget _buildNavigationRail(List<NavigationDestination> destinations) {
@@ -448,11 +375,13 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       onDestinationSelected: _handleDestinationSelected,
       labelType: NavigationRailLabelType.selected,
       destinations: destinations
-          .map((dest) => NavigationRailDestination(
-                icon: dest.icon,
-                selectedIcon: dest.selectedIcon,
-                label: Text(dest.label),
-              ))
+          .map(
+            (dest) => NavigationRailDestination(
+              icon: dest.icon,
+              selectedIcon: dest.selectedIcon,
+              label: Text(dest.label),
+            ),
+          )
           .toList(),
     );
   }

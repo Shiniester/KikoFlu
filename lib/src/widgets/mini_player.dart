@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:real_liquid_glass/real_liquid_glass.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../models/audio_track.dart';
@@ -12,10 +11,9 @@ import '../providers/artwork_theme_provider.dart';
 import '../providers/audio_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/player_lyric_style_provider.dart';
-import '../providers/settings_provider.dart';
 import '../utils/snackbar_util.dart';
 import 'volume_control.dart';
-import 'liquid_glass_layout.dart';
+import 'app_bottom_dock_transition.dart';
 import 'player/player_cover_widget.dart';
 import 'player/player_route.dart';
 import 'player/player_vertical_gestures.dart';
@@ -23,15 +21,14 @@ import 'player/player_visual_palette.dart';
 
 class MiniPlayer extends ConsumerStatefulWidget {
   final bool enableArtworkHero;
-
-  /// Replaces only the liquid-glass surface with an equal-height placeholder.
-  /// Playback and the Mini Player state remain active behind the modal route.
-  final bool suppressLiquidGlassSurface;
+  final PlayerArtworkFlightTarget initialArtworkFlightTarget;
+  final ValueChanged<bool>? onArtworkHeroActivationChanged;
 
   const MiniPlayer({
     super.key,
     this.enableArtworkHero = true,
-    this.suppressLiquidGlassSurface = false,
+    this.initialArtworkFlightTarget = PlayerArtworkFlightTarget.main,
+    this.onArtworkHeroActivationChanged,
   });
 
   @override
@@ -46,8 +43,13 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
   final ValueNotifier<bool> _interactiveArtworkHidden = ValueNotifier(false);
   final GlobalKey<_MiniPlayerUpwardLauncherState> _playerLauncherKey =
       GlobalKey<_MiniPlayerUpwardLauncherState>();
-  PlayerArtworkFlightTarget _artworkFlightTarget =
-      PlayerArtworkFlightTarget.main;
+  late PlayerArtworkFlightTarget _artworkFlightTarget;
+
+  @override
+  void initState() {
+    super.initState();
+    _artworkFlightTarget = widget.initialArtworkFlightTarget;
+  }
 
   @override
   void dispose() {
@@ -56,14 +58,21 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
   }
 
   @override
+  void didUpdateWidget(covariant MiniPlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialArtworkFlightTarget !=
+            widget.initialArtworkFlightTarget &&
+        _artworkFlightTarget == oldWidget.initialArtworkFlightTarget) {
+      _artworkFlightTarget = widget.initialArtworkFlightTarget;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final currentTrack = ref.watch(currentTrackProvider);
     final currentArtwork = ref.watch(currentArtworkDescriptorProvider);
     final isMiniPlayerVisible = ref.watch(miniPlayerVisibilityProvider);
-    final useLiquidGlass = ref.watch(liquidGlassNavigationProvider);
-    final fallbackGlassTransparency = ref.watch(
-      fallbackGlassTransparencyProvider,
-    );
+    final artworkHeroEnabled = widget.enableArtworkHero;
 
     // 启用自动字幕加载器
     ref.watch(lyricAutoLoaderProvider);
@@ -118,8 +127,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
           },
           artworkRect: _miniArtworkRect,
           artworkHeroEnabled:
-              widget.enableArtworkHero &&
-              !MediaQuery.disableAnimationsOf(context),
+              artworkHeroEnabled && !MediaQuery.disableAnimationsOf(context),
           artworkBuilder: (context) =>
               _buildArtworkImage(context, track, workCoverUrl: workCoverUrl),
           prepareArtworkTarget: _prepareArtworkTarget,
@@ -160,19 +168,15 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                 final playerContent = Container(
                   height: playerHeight,
                   decoration: BoxDecoration(
-                    color: useLiquidGlass
-                        ? Colors.transparent
-                        : Theme.of(context).colorScheme.surface,
-                    border: useLiquidGlass
-                        ? null
-                        : Border(
-                            top: BorderSide(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.outline.withValues(alpha: 0.2),
-                              width: 1,
-                            ),
-                          ),
+                    color: Theme.of(context).colorScheme.surface,
+                    border: Border(
+                      top: BorderSide(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.outline.withValues(alpha: 0.2),
+                        width: 1,
+                      ),
+                    ),
                   ),
                   child: Column(
                     children: [
@@ -273,38 +277,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                   ),
                 );
 
-                if (!useLiquidGlass) return playerContent;
-                if (widget.suppressLiquidGlassSurface) {
-                  return SizedBox(
-                    height:
-                        playerHeight + LiquidGlassLayout.verticalPadding * 2,
-                  );
-                }
-
-                return Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: LiquidGlassLayout.horizontalPadding,
-                    vertical: LiquidGlassLayout.verticalPadding,
-                  ),
-                  child: AnimatedSize(
-                    duration: const Duration(milliseconds: 180),
-                    curve: Curves.easeOutCubic,
-                    alignment: Alignment.bottomCenter,
-                    child: LiquidGlassContainer(
-                      shape: const LiquidGlassShape.roundedRectangle(
-                        LiquidGlassLayout.cornerRadius,
-                      ),
-                      style: LiquidGlassStyle.regular,
-                      fallbackIntensity: fallbackGlassTransparency,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(
-                          LiquidGlassLayout.cornerRadius,
-                        ),
-                        child: playerContent,
-                      ),
-                    ),
-                  ),
-                );
+                return playerContent;
               },
             ),
           ),
@@ -331,7 +304,9 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
       trackId: track.id,
       target: _artworkFlightTarget,
       cornerRadius: PlayerCompactArtwork.cornerRadius,
-      enabled: widget.enableArtworkHero,
+      enabled:
+          widget.enableArtworkHero &&
+          AppBottomDockMiniPlayerHero.artworkHeroEnabledOf(context),
       child: image,
     );
     return KeyedSubtree(
@@ -372,16 +347,20 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
         ? PlayerArtworkFlightTarget.none
         : PlayerArtworkFlightTarget.main;
     if (_artworkFlightTarget != target && mounted) {
+      if (target == PlayerArtworkFlightTarget.main) {
+        widget.onArtworkHeroActivationChanged?.call(true);
+      }
       setState(() => _artworkFlightTarget = target);
       await WidgetsBinding.instance.endOfFrame;
     }
   }
 
   void _restoreArtworkTarget() {
-    if (!mounted || _artworkFlightTarget == PlayerArtworkFlightTarget.main) {
+    if (!mounted || _artworkFlightTarget == widget.initialArtworkFlightTarget) {
       return;
     }
-    setState(() => _artworkFlightTarget = PlayerArtworkFlightTarget.main);
+    setState(() => _artworkFlightTarget = widget.initialArtworkFlightTarget);
+    widget.onArtworkHeroActivationChanged?.call(false);
   }
 
   Future<bool> _skipTrack(BuildContext context, {required bool next}) async {
@@ -756,6 +735,7 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher>
       );
       if (!mounted) return;
       await Navigator.of(context).push<void>(route);
+      await route.completed;
     } finally {
       widget.restoreArtworkTarget();
       _launchInProgress = false;

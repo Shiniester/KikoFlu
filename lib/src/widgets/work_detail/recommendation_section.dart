@@ -9,6 +9,7 @@ import '../../providers/work_detail_display_provider.dart';
 import '../../screens/work_detail_screen.dart';
 import '../../utils/work_cover_prefetch.dart';
 import '../../widgets/privacy_blur_cover.dart';
+import '../../widgets/app_bottom_dock_transition.dart';
 import 'work_cover_frame.dart';
 import '../../../l10n/app_localizations.dart';
 
@@ -185,13 +186,12 @@ class _RecommendationCard extends ConsumerWidget {
       width: 120,
       child: GestureDetector(
         onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => WorkDetailScreen(
-                work: work,
-                heroTag: 'rec_work_cover_${work.id}',
-                initialCoverImageProvider: initialCoverImageProvider,
-              ),
+          pushWorkDetailRoute<void>(
+            context,
+            builder: (context) => WorkDetailScreen(
+              work: work,
+              heroTag: 'rec_work_cover_${work.id}',
+              initialCoverImageProvider: initialCoverImageProvider,
             ),
           );
         },

@@ -960,30 +960,6 @@ abstract class S {
   /// **'Player, detail page, cards, etc.'**
   String get uiSettingsSubtitle;
 
-  /// No description provided for @liquidGlassNavigation.
-  ///
-  /// In en, this message translates to:
-  /// **'Liquid Glass Navigation'**
-  String get liquidGlassNavigation;
-
-  /// No description provided for @liquidGlassNavigationDesc.
-  ///
-  /// In en, this message translates to:
-  /// **'Glass navigation and mini player; enabled by default on Apple OS 26+.'**
-  String get liquidGlassNavigationDesc;
-
-  /// No description provided for @fallbackGlassTransparency.
-  ///
-  /// In en, this message translates to:
-  /// **'Liquid Glass Transparency'**
-  String get fallbackGlassTransparency;
-
-  /// No description provided for @fallbackGlassTransparencyDesc.
-  ///
-  /// In en, this message translates to:
-  /// **'Adjust app-rendered glass transparency.'**
-  String get fallbackGlassTransparencyDesc;
-
   /// No description provided for @preferenceSettings.
   ///
   /// In en, this message translates to:
