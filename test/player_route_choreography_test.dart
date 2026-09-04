@@ -237,6 +237,19 @@ void _expectCoverArtworkAtProgress(WidgetTester tester, double progress) {
     artworkRect.bottom,
     lessThanOrEqualTo(pageTranslation + _viewportSize.height + 1),
   );
+
+  final flightFrame = tester.widget<ClipRRect>(
+    find.byKey(
+      const ValueKey('player-artwork-flight-frame'),
+      skipOffstage: false,
+    ),
+  );
+  final radius = flightFrame.borderRadius as BorderRadius;
+  final expectedRadius = 10 + (4 * progress);
+  expect(radius.topLeft.x, closeTo(expectedRadius, 0.01));
+  expect(radius.topRight.x, closeTo(expectedRadius, 0.01));
+  expect(radius.bottomLeft.x, closeTo(expectedRadius, 0.01));
+  expect(radius.bottomRight.x, closeTo(expectedRadius, 0.01));
 }
 
 void _expectQueueArtworkAttachedToPage(WidgetTester tester, double progress) {

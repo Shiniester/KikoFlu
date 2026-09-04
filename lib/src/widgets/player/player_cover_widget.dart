@@ -89,6 +89,7 @@ class PlayerArtworkHero extends StatelessWidget {
     required this.child,
     this.enabled = true,
     this.isPlayerPageTarget = false,
+    this.flightChild,
   });
 
   final String trackId;
@@ -97,6 +98,7 @@ class PlayerArtworkHero extends StatelessWidget {
   final Widget child;
   final bool enabled;
   final bool isPlayerPageTarget;
+  final Widget? flightChild;
 
   @override
   Widget build(BuildContext context) {
@@ -120,6 +122,7 @@ class PlayerArtworkHero extends StatelessWidget {
         flightShuttleBuilder: _playerArtworkFlightShuttle,
         child: _PlayerArtworkHeroPayload(
           cornerRadius: cornerRadius,
+          flightChild: flightChild ?? child,
           child: child,
         ),
       );
@@ -131,10 +134,12 @@ class PlayerArtworkHero extends StatelessWidget {
 class _PlayerArtworkHeroPayload extends StatelessWidget {
   const _PlayerArtworkHeroPayload({
     required this.cornerRadius,
+    required this.flightChild,
     required this.child,
   });
 
   final double cornerRadius;
+  final Widget flightChild;
   final Widget child;
 
   @override
@@ -153,17 +158,21 @@ Widget _playerArtworkFlightShuttle(
   final from = fromHero.child as _PlayerArtworkHeroPayload;
   final to = toHero.child as _PlayerArtworkHeroPayload;
   final stableChild = direction == HeroFlightDirection.push
-      ? to.child
-      : from.child;
+      ? to.flightChild
+      : from.flightChild;
   return AnimatedBuilder(
     animation: animation,
     child: stableChild,
     builder: (context, child) {
+      final progress = direction == HeroFlightDirection.push
+          ? animation.value
+          : 1 - animation.value;
       final radius = Tween<double>(
         begin: from.cornerRadius,
         end: to.cornerRadius,
-      ).evaluate(animation);
+      ).transform(progress);
       return ClipRRect(
+        key: const ValueKey('player-artwork-flight-frame'),
         borderRadius: BorderRadius.circular(radius),
         child: child,
       );
@@ -176,6 +185,7 @@ class PlayerCompactArtwork extends StatelessWidget {
     super.key,
     required this.track,
     required this.url,
+    this.forFlight = false,
   });
 
   static const double height = 48;
@@ -184,11 +194,46 @@ class PlayerCompactArtwork extends StatelessWidget {
 
   final AudioTrack track;
   final String? url;
+  final bool forFlight;
 
   @override
   Widget build(BuildContext context) {
-    final radius = BorderRadius.circular(cornerRadius);
+    final radius = forFlight
+        ? BorderRadius.zero
+        : BorderRadius.circular(cornerRadius);
     const fallback = Center(child: Icon(Icons.album, size: 30));
+    final Widget artwork;
+    if (url == null) {
+      artwork = fallback;
+    } else {
+      final image = LocalFileUrl.isLocalFileUrl(url)
+          ? Image.file(
+              File(LocalFileUrl.pathFromUrl(url!)!),
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+              errorBuilder: (_, __, ___) => fallback,
+            )
+          : CachedNetworkImage(
+              imageUrl: url!,
+              cacheKey: track.workId == null
+                  ? null
+                  : 'work_cover_${track.workId}',
+              fit: BoxFit.cover,
+              fadeInDuration: const Duration(milliseconds: 220),
+              fadeInCurve: Curves.easeOutCubic,
+              fadeOutDuration: const Duration(milliseconds: 220),
+              fadeOutCurve: Curves.easeOutCubic,
+              useOldImageOnUrlChange: true,
+              errorWidget: (_, __, ___) => fallback,
+              placeholder: (_, __) => fallback,
+            );
+      artwork = PrivacyBlurCover(
+        borderRadius: forFlight ? null : radius,
+        child: forFlight
+            ? image
+            : ClipRRect(borderRadius: radius, child: image),
+      );
+    }
     return SizedBox(
       width: width,
       height: height,
@@ -197,35 +242,7 @@ class PlayerCompactArtwork extends StatelessWidget {
           borderRadius: radius,
           color: Theme.of(context).colorScheme.surfaceContainerHighest,
         ),
-        child: url == null
-            ? fallback
-            : PrivacyBlurCover(
-                borderRadius: radius,
-                child: ClipRRect(
-                  borderRadius: radius,
-                  child: LocalFileUrl.isLocalFileUrl(url)
-                      ? Image.file(
-                          File(LocalFileUrl.pathFromUrl(url!)!),
-                          fit: BoxFit.cover,
-                          gaplessPlayback: true,
-                          errorBuilder: (_, __, ___) => fallback,
-                        )
-                      : CachedNetworkImage(
-                          imageUrl: url!,
-                          cacheKey: track.workId == null
-                              ? null
-                              : 'work_cover_${track.workId}',
-                          fit: BoxFit.cover,
-                          fadeInDuration: const Duration(milliseconds: 220),
-                          fadeInCurve: Curves.easeOutCubic,
-                          fadeOutDuration: const Duration(milliseconds: 220),
-                          fadeOutCurve: Curves.easeOutCubic,
-                          useOldImageOnUrlChange: true,
-                          errorWidget: (_, __, ___) => fallback,
-                          placeholder: (_, __) => fallback,
-                        ),
-                ),
-              ),
+        child: artwork,
       ),
     );
   }
@@ -366,6 +383,11 @@ class PlayerCoverWidget extends StatelessWidget {
               cornerRadius: cornerRadius,
               enabled: heroEnabled,
               isPlayerPageTarget: true,
+              flightChild: PlayerCompactArtwork(
+                track: track,
+                url: workCoverUrl ?? track.artworkUrl,
+                forFlight: true,
+              ),
               child: artwork,
             );
           },
