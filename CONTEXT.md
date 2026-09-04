@@ -14,6 +14,11 @@ The full-screen player page containing the large artwork and primary playback
 controls.
 _Avoid_: Player home page, main page
 
+**Player Queue Page (播放器队列页)**:
+The full-screen player page containing the current playback queue. It is
+distinct from the app-level playlist and playlist details screens.
+_Avoid_: Player playlist page, playlist screen
+
 **Player Audio Details Page (播放器音频详情页)**:
 The full-screen player page containing details for the current audio track. It
 is distinct from the Work Details Screen for the containing work.

@@ -6,6 +6,8 @@ import '../../screens/audio_player_screen.dart';
 import 'player_vertical_gestures.dart';
 import 'player_visual_palette.dart';
 
+const Duration playerRouteTransitionDuration = Duration(milliseconds: 500);
+
 AudioPlayerPageRoute<T> createAudioPlayerRoute<T>({
   PlayerVisualPalette? initialPalette,
   String? initialPaletteTrackId,
@@ -15,7 +17,7 @@ AudioPlayerPageRoute<T> createAudioPlayerRoute<T>({
   return AudioPlayerPageRoute<T>(
     skipInitialTransition: skipInitialTransition,
     initialDismissVisualMode: initialSurface == PlayerInitialSurface.queue
-        ? PlayerDismissVisualMode.queue
+        ? PlayerDismissVisualMode.secondary
         : PlayerDismissVisualMode.main,
     builder: (context) => AudioPlayerScreen(
       initialPalette: initialPalette,
@@ -66,8 +68,9 @@ Future<T?> openAudioPlayer<T>(
 
 /// Shared route used by every global Mini Player entry point.
 ///
-/// The full page travels vertically to and from the Mini Player. Artwork uses
-/// an independent Hero only while the semantic main page is active.
+/// The full page always travels one viewport height. The Player Cover Page's
+/// artwork consumes this route's visual progress through a staged Hero path;
+/// the Player Queue Page has no artwork Hero and moves as one page.
 class AudioPlayerPageRoute<T> extends PageRoute<T>
     with CupertinoRouteTransitionMixin<T>
     implements PlayerInteractiveDismissRoute {
@@ -83,9 +86,13 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   bool _verticalGestureInProgress = false;
   bool _verticalGestureOpening = false;
   double _verticalGestureStartValue = 0;
+  Size _viewportSize = Size.zero;
   int _verticalSettleGeneration = 0;
   NavigatorState? _gestureNavigator;
   final ValueNotifier<PlayerDismissVisualMode> _dismissVisualMode;
+  late final Animation<double> _controllerAnimation;
+  late final CurvedAnimation _automaticVisualAnimation;
+  late final ProxyAnimation _visualAnimation;
 
   @override
   Widget buildContent(BuildContext context) => builder(context);
@@ -98,10 +105,22 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
 
   @override
   Duration get transitionDuration =>
-      skipInitialTransition ? Duration.zero : const Duration(milliseconds: 320);
+      skipInitialTransition ? Duration.zero : playerRouteTransitionDuration;
 
   @override
-  Duration get reverseTransitionDuration => const Duration(milliseconds: 320);
+  Duration get reverseTransitionDuration => playerRouteTransitionDuration;
+
+  @override
+  Animation<double> createAnimation() {
+    _controllerAnimation = super.createAnimation();
+    _automaticVisualAnimation = CurvedAnimation(
+      parent: _controllerAnimation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+    _visualAnimation = ProxyAnimation(_automaticVisualAnimation);
+    return _visualAnimation;
+  }
 
   bool get verticalGestureInProgress => _verticalGestureInProgress;
 
@@ -112,8 +131,46 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   AnimationStatus? get debugTransitionStatus => animation?.status;
 
   @visibleForTesting
+  double get debugVisualValue => _visualAnimation.value;
+
+  @visibleForTesting
+  Duration? get debugConfiguredDuration => controller?.duration;
+
+  @visibleForTesting
+  void debugSetControllerValue(double value) {
+    controller!.value = value.clamp(0.0, 1.0);
+  }
+
+  @visibleForTesting
+  void debugContinueForward() {
+    unawaited(controller!.forward());
+  }
+
+  @visibleForTesting
+  void debugContinueReverse() {
+    unawaited(controller!.reverse());
+  }
+
+  @visibleForTesting
   PlayerDismissVisualMode get debugDismissVisualMode =>
       _dismissVisualMode.value;
+
+  @visibleForTesting
+  double get debugRouteTravelDistance =>
+      _viewportSize.height > 0 ? _viewportSize.height : 1;
+
+  @visibleForTesting
+  double get debugRouteTranslation => debugRouteTravelDistance;
+
+  @visibleForTesting
+  Duration get debugFullTravelDuration => playerRouteTransitionDuration;
+
+  @visibleForTesting
+  Duration debugSettleDuration({required bool showRoute}) {
+    final target = showRoute ? 1.0 : 0.0;
+    final remaining = ((controller?.value ?? 0) - target).abs();
+    return _durationForFraction(remaining);
+  }
 
   @override
   void setDismissVisualMode(PlayerDismissVisualMode mode) {
@@ -159,8 +216,19 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     final animationController = controller!;
     _verticalSettleGeneration++;
     animationController.stop();
-    if (resetValue != null) animationController.value = resetValue;
-    if (!opening) {
+    if (resetValue != null &&
+        resetValue > 0 &&
+        (animationController.value - resetValue).abs() > 0.0001) {
+      animationController.value = resetValue;
+    }
+    if (opening) {
+      if (animationController.status != AnimationStatus.forward) {
+        // Starting without a `from` value restores forward status without
+        // briefly announcing dismissed at zero and ending an active flight.
+        unawaited(animationController.forward());
+        animationController.stop();
+      }
+    } else {
       // Direct value updates preserve the controller's last direction. Mark
       // this session as a reverse transition before notifying HeroController
       // so an interactive dismissal produces a reverse artwork flight.
@@ -179,6 +247,7 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     }
     _verticalGestureOpening = opening;
     _verticalGestureStartValue = animationController.value;
+    _visualAnimation.parent = _controllerAnimation;
   }
 
   void updateVerticalOpenGesture({
@@ -250,26 +319,21 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     if (animationController == null || routeNavigator == null) return false;
     final request = ++_verticalSettleGeneration;
     final target = showRoute ? 1.0 : 0.0;
-    final remaining = (animationController.value - target).abs();
-    final duration = remaining <= 0.001
-        ? Duration.zero
-        : Duration(milliseconds: (320 * remaining).round().clamp(90, 320));
+    final duration = _durationForFraction(
+      (animationController.value - target).abs(),
+    );
     animationController.stop();
     try {
       if (duration == Duration.zero) {
         animationController.value = target;
       } else if (target < animationController.value) {
-        await animationController.animateBack(
-          target,
-          duration: duration,
-          curve: Curves.easeOutCubic,
-        );
+        await animationController
+            .animateBack(target, duration: duration, curve: Curves.easeOutCubic)
+            .orCancel;
       } else {
-        await animationController.animateTo(
-          target,
-          duration: duration,
-          curve: Curves.easeOutCubic,
-        );
+        await animationController
+            .animateTo(target, duration: duration, curve: Curves.easeOutCubic)
+            .orCancel;
       }
     } catch (_) {
       return false;
@@ -277,16 +341,27 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     if (request != _verticalSettleGeneration || !_verticalGestureInProgress) {
       return false;
     }
-    if (!showRoute && isCurrent) {
-      routeNavigator.pop<T>();
+    if (!showRoute) {
+      if (isCurrent) {
+        routeNavigator.pop<T>();
+      } else if (isActive) {
+        routeNavigator.removeRoute(this);
+      }
     }
     _stopVerticalGesture();
     return showRoute;
   }
 
+  Duration _durationForFraction(double fraction) {
+    final microseconds =
+        (playerRouteTransitionDuration.inMicroseconds * fraction).round();
+    return Duration(microseconds: microseconds);
+  }
+
   void _stopVerticalGesture() {
     if (!_verticalGestureInProgress) return;
     _verticalGestureInProgress = false;
+    _visualAnimation.parent = _automaticVisualAnimation;
     final routeNavigator = _gestureNavigator;
     _gestureNavigator = null;
     routeNavigator?.didStopUserGesture();
@@ -299,36 +374,39 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     Animation<double> secondaryAnimation,
     Widget child,
   ) {
+    _viewportSize = MediaQuery.sizeOf(context);
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final routeAnimation = reduceMotion
         ? const AlwaysStoppedAnimation<double>(1)
-        : _verticalGestureInProgress || popGestureInProgress
-        ? animation
-        : CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutCubic,
-            reverseCurve: Curves.easeInCubic,
-          );
+        : animation;
     return ValueListenableBuilder<PlayerDismissVisualMode>(
       valueListenable: _dismissVisualMode,
       child: child,
       builder: (context, mode, child) => HeroMode(
-        enabled: !reduceMotion && mode != PlayerDismissVisualMode.secondary,
-        child: _buildVerticalSlide(routeAnimation, child!),
+        enabled: !reduceMotion && mode == PlayerDismissVisualMode.main,
+        child: _buildVerticalSlide(context, routeAnimation, child!),
       ),
     );
   }
 
-  Widget _buildVerticalSlide(Animation<double> animation, Widget child) {
+  Widget _buildVerticalSlide(
+    BuildContext context,
+    Animation<double> animation,
+    Widget child,
+  ) {
     return ClipRect(
-      child: SlideTransition(
-        key: const ValueKey('player-route-vertical-slide'),
-        position: Tween<Offset>(
-          begin: const Offset(0, 1),
-          end: Offset.zero,
-        ).animate(animation),
-        transformHitTests: false,
+      child: AnimatedBuilder(
+        animation: animation,
         child: RepaintBoundary(child: child),
+        builder: (context, child) {
+          final height = MediaQuery.sizeOf(context).height;
+          return Transform.translate(
+            key: const ValueKey('player-route-vertical-translation'),
+            offset: Offset(0, height * (1 - animation.value)),
+            transformHitTests: false,
+            child: child,
+          );
+        },
       ),
     );
   }
@@ -337,6 +415,8 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   void dispose() {
     _verticalSettleGeneration++;
     _stopVerticalGesture();
+    _visualAnimation.parent = null;
+    _automaticVisualAnimation.dispose();
     _dismissVisualMode.dispose();
     super.dispose();
   }

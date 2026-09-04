@@ -7,10 +7,75 @@ import '../../models/audio_track.dart';
 import '../../utils/local_file_url.dart';
 import '../privacy_blur_cover.dart';
 
-Tween<Rect?> createPlayerArtworkRectTween(Rect? begin, Rect? end) =>
-    RectTween(begin: begin, end: end);
+const double playerArtworkAttachmentStart = 0.20;
+const double playerArtworkAttachmentEnd = 0.85;
+const double playerCoverHeaderFadeStart = 0.55;
+const double playerCoverHeaderFadeEnd = 0.85;
 
-enum PlayerArtworkFlightTarget { main, queue, none }
+double _smoothStep(double value) => value * value * (3 - 2 * value);
+
+@visibleForTesting
+double playerArtworkAttachment(double visualProgress) {
+  final progress = visualProgress.clamp(0.0, 1.0);
+  if (progress <= playerArtworkAttachmentStart) return 0;
+  if (progress >= playerArtworkAttachmentEnd) return 1;
+  final intervalProgress =
+      (progress - playerArtworkAttachmentStart) /
+      (playerArtworkAttachmentEnd - playerArtworkAttachmentStart);
+  return _smoothStep(intervalProgress);
+}
+
+double playerCoverHeaderOpacity(double visualProgress) {
+  final progress = visualProgress.clamp(0.0, 1.0);
+  if (progress <= playerCoverHeaderFadeStart) return 0;
+  if (progress >= playerCoverHeaderFadeEnd) return 1;
+  final intervalProgress =
+      (progress - playerCoverHeaderFadeStart) /
+      (playerCoverHeaderFadeEnd - playerCoverHeaderFadeStart);
+  return _smoothStep(intervalProgress);
+}
+
+Tween<Rect?> createPlayerArtworkRectTween(
+  Rect? begin,
+  Rect? end, {
+  double viewportHeight = 0,
+  bool reverse = false,
+}) => _PlayerArtworkRectTween(
+  begin: begin,
+  end: end,
+  viewportHeight: viewportHeight,
+  reverse: reverse,
+);
+
+class _PlayerArtworkRectTween extends RectTween {
+  _PlayerArtworkRectTween({
+    required super.begin,
+    required super.end,
+    required this.viewportHeight,
+    required this.reverse,
+  });
+
+  final double viewportHeight;
+  final bool reverse;
+
+  @override
+  Rect? lerp(double t) {
+    final source = reverse ? end : begin;
+    final target = reverse ? begin : end;
+    if (source == null || target == null) return super.lerp(t);
+    final visualProgress = reverse ? 1 - t : t;
+    final movingTarget = target.shift(
+      Offset(0, viewportHeight * (1 - visualProgress)),
+    );
+    return Rect.lerp(
+      source,
+      movingTarget,
+      playerArtworkAttachment(visualProgress),
+    );
+  }
+}
+
+enum PlayerArtworkFlightTarget { main, none }
 
 Object playerArtworkHeroTag(String trackId, PlayerArtworkFlightTarget target) =>
     'audio_player_artwork_${target.name}_$trackId';
@@ -23,6 +88,7 @@ class PlayerArtworkHero extends StatelessWidget {
     required this.cornerRadius,
     required this.child,
     this.enabled = true,
+    this.isPlayerPageTarget = false,
   });
 
   final String trackId;
@@ -30,24 +96,35 @@ class PlayerArtworkHero extends StatelessWidget {
   final double cornerRadius;
   final Widget child;
   final bool enabled;
+  final bool isPlayerPageTarget;
 
   @override
   Widget build(BuildContext context) {
+    Widget result;
     if (!enabled ||
         target == PlayerArtworkFlightTarget.none ||
         MediaQuery.disableAnimationsOf(context)) {
-      return child;
+      result = child;
+    } else {
+      result = Hero(
+        tag: playerArtworkHeroTag(trackId, target),
+        createRectTween: (begin, end) => createPlayerArtworkRectTween(
+          begin,
+          end,
+          viewportHeight: MediaQuery.sizeOf(context).height,
+          reverse: !isPlayerPageTarget,
+        ),
+        transitionOnUserGestures: true,
+        curve: Curves.linear,
+        reverseCurve: Curves.linear,
+        flightShuttleBuilder: _playerArtworkFlightShuttle,
+        child: _PlayerArtworkHeroPayload(
+          cornerRadius: cornerRadius,
+          child: child,
+        ),
+      );
     }
-    return Hero(
-      tag: playerArtworkHeroTag(trackId, target),
-      createRectTween: createPlayerArtworkRectTween,
-      transitionOnUserGestures: true,
-      flightShuttleBuilder: _playerArtworkFlightShuttle,
-      child: _PlayerArtworkHeroPayload(
-        cornerRadius: cornerRadius,
-        child: child,
-      ),
-    );
+    return result;
   }
 }
 
@@ -288,6 +365,7 @@ class PlayerCoverWidget extends StatelessWidget {
               target: heroTarget,
               cornerRadius: cornerRadius,
               enabled: heroEnabled,
+              isPlayerPageTarget: true,
               child: artwork,
             );
           },
