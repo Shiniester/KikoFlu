@@ -451,18 +451,6 @@ class SZh extends S {
   String get uiSettingsSubtitle => '播放器、详情页、卡片等';
 
   @override
-  String get liquidGlassNavigation => '液态玻璃导航';
-
-  @override
-  String get liquidGlassNavigationDesc => '玻璃导航栏与迷你播放器；Apple系26+平台默认开启';
-
-  @override
-  String get fallbackGlassTransparency => '液态玻璃透明度';
-
-  @override
-  String get fallbackGlassTransparencyDesc => '调整应用绘制玻璃的透明度';
-
-  @override
   String get preferenceSettings => '偏好设置';
 
   @override
@@ -4112,18 +4100,6 @@ class SZhHant extends SZh {
 
   @override
   String get uiSettingsSubtitle => '播放器、詳情頁、卡片等';
-
-  @override
-  String get liquidGlassNavigation => '液態玻璃導覽';
-
-  @override
-  String get liquidGlassNavigationDesc => '玻璃導覽列與迷你播放器；Apple 系 26+ 平台預設開啟';
-
-  @override
-  String get fallbackGlassTransparency => '液態玻璃透明度';
-
-  @override
-  String get fallbackGlassTransparencyDesc => '調整應用程式繪製玻璃的透明度';
 
   @override
   String get preferenceSettings => '偏好設定';

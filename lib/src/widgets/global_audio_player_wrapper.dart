@@ -2,24 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/audio_provider.dart';
-import '../providers/settings_provider.dart';
-import 'liquid_glass_layout.dart';
+import 'app_bottom_dock_transition.dart';
+import 'main_bottom_navigation_bar.dart';
 import 'mini_player.dart';
+import 'player/player_cover_widget.dart';
 
 /// Global wrapper that shows the mini player on all screens except login
 class GlobalAudioPlayerWrapper extends ConsumerStatefulWidget {
   final Widget child;
   final bool showMiniPlayer;
-
-  /// Keeps the dock's geometry but omits its native glass while a modal is
-  /// covering it, preventing the platform-view shadow from crossing routes.
-  final bool suppressLiquidGlassMiniPlayer;
+  final bool workDetailTransitionTarget;
 
   const GlobalAudioPlayerWrapper({
     super.key,
     required this.child,
     this.showMiniPlayer = true,
-    this.suppressLiquidGlassMiniPlayer = false,
+    this.workDetailTransitionTarget = false,
   });
 
   @override
@@ -29,66 +27,65 @@ class GlobalAudioPlayerWrapper extends ConsumerStatefulWidget {
 
 class _GlobalAudioPlayerWrapperState
     extends ConsumerState<GlobalAudioPlayerWrapper> {
-  final ValueNotifier<double> _liquidDockExtent = ValueNotifier(0);
-
-  @override
-  void dispose() {
-    _liquidDockExtent.dispose();
-    super.dispose();
-  }
+  final GlobalKey _miniPlayerKey = GlobalKey();
+  bool _suspendWorkDetailDockHero = false;
 
   @override
   Widget build(BuildContext context) {
     final currentTrack = ref.watch(currentTrackProvider);
-    final useLiquidGlass = ref.watch(liquidGlassNavigationProvider);
 
-    final miniPlayer = currentTrack.when(
+    final rawMiniPlayer = currentTrack.when(
       data: (track) => track != null
           ? MiniPlayer(
+              key: _miniPlayerKey,
               enableArtworkHero: true,
-              suppressLiquidGlassSurface: widget.suppressLiquidGlassMiniPlayer,
+              initialArtworkFlightTarget: widget.workDetailTransitionTarget
+                  ? PlayerArtworkFlightTarget.none
+                  : PlayerArtworkFlightTarget.main,
+              onArtworkHeroActivationChanged: widget.workDetailTransitionTarget
+                  ? (active) {
+                      if (mounted && _suspendWorkDetailDockHero != active) {
+                        setState(() => _suspendWorkDetailDockHero = active);
+                      }
+                    }
+                  : null,
             )
           : const SizedBox.shrink(),
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
     );
+    final hasMiniPlayer = currentTrack.asData?.value != null;
+    final miniPlayer = !hasMiniPlayer
+        ? rawMiniPlayer
+        : widget.workDetailTransitionTarget && !_suspendWorkDetailDockHero
+        ? AppBottomDockMiniPlayerHero.target(child: rawMiniPlayer)
+        : widget.workDetailTransitionTarget
+        ? rawMiniPlayer
+        : AppBottomDockMiniPlayerHero.source(child: rawMiniPlayer);
 
-    if (useLiquidGlass) {
-      return LiquidGlassDockScope(
-        notifier: _liquidDockExtent,
-        child: Scaffold(
-          body: LiquidGlassDockOverlay(
-            onExtentChanged: (extent) {
-              if (_liquidDockExtent.value != extent) {
-                _liquidDockExtent.value = extent;
-              }
-            },
-            dock: widget.showMiniPlayer
-                ? AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 180),
-                    switchInCurve: Curves.easeOutCubic,
-                    switchOutCurve: Curves.easeInCubic,
-                    child: AnimatedSize(
-                      duration: const Duration(milliseconds: 180),
-                      curve: Curves.easeOutCubic,
-                      alignment: Alignment.bottomCenter,
-                      child: miniPlayer,
-                    ),
-                  )
-                : const SizedBox.shrink(),
-            child: widget.child,
-          ),
-        ),
-      );
-    }
-
-    return Scaffold(
-      body: Column(
-        children: [
-          Expanded(child: widget.child),
-          if (widget.showMiniPlayer) miniPlayer,
-        ],
-      ),
+    final content = Column(
+      children: [
+        Expanded(child: widget.child),
+        if (widget.showMiniPlayer) miniPlayer,
+      ],
     );
+    final body =
+        widget.workDetailTransitionTarget &&
+            MediaQuery.orientationOf(context) == Orientation.portrait
+        ? Stack(
+            fit: StackFit.expand,
+            clipBehavior: Clip.none,
+            children: [
+              content,
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: AppBottomDockTabBarHero.offstageTarget(
+                  height: MainBottomNavigationBar.layoutExtent(context),
+                ),
+              ),
+            ],
+          )
+        : content;
+    return AppBottomDockTransitionScope(child: Scaffold(body: body));
   }
 }

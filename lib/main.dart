@@ -13,7 +13,6 @@ import 'package:window_manager/window_manager.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as p;
-import 'package:real_liquid_glass/real_liquid_glass.dart';
 import 'dart:ffi' as ffi;
 import 'package:ffi/ffi.dart';
 import 'package:sqlite3/open.dart' as sqlite3_open;
@@ -322,9 +321,6 @@ Future<void> _initializeCriticalServices({
   final appearanceTasks = <Future<void>>[];
   if (Platform.isMacOS) {
     appearanceTasks.add(PlatformAppearanceService.instance.initialize());
-  }
-  if (Platform.isIOS || Platform.isMacOS) {
-    appearanceTasks.add(LiquidGlass.capabilities().then((_) {}));
   }
   await Future.wait(appearanceTasks);
 }

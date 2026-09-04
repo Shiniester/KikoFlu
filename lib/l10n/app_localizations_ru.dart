@@ -466,20 +466,6 @@ class SRu extends S {
   String get uiSettingsSubtitle => 'Плеер, страница деталей, карточки и т.д.';
 
   @override
-  String get liquidGlassNavigation => 'Навигация Liquid Glass';
-
-  @override
-  String get liquidGlassNavigationDesc =>
-      'Стеклянная навигация и мини-плеер; включено по умолчанию на платформах Apple с ОС 26+.';
-
-  @override
-  String get fallbackGlassTransparency => 'Прозрачность Liquid Glass';
-
-  @override
-  String get fallbackGlassTransparencyDesc =>
-      'Прозрачность стекла, отрисованного приложением.';
-
-  @override
   String get preferenceSettings => 'Предпочтения';
 
   @override

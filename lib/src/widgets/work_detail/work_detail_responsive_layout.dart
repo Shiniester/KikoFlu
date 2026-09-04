@@ -1,11 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../liquid_glass_layout.dart';
-
-typedef WorkDetailCoverBuilder = Widget Function(
-  BuildContext context,
-  bool isLandscape,
-);
+typedef WorkDetailCoverBuilder =
+    Widget Function(BuildContext context, bool isLandscape);
 
 class WorkDetailResponsiveLayout extends StatelessWidget {
   const WorkDetailResponsiveLayout({
@@ -29,14 +25,8 @@ class WorkDetailResponsiveLayout extends StatelessWidget {
       return Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            flex: 2,
-            child: Center(child: cover),
-          ),
-          Expanded(
-            flex: 3,
-            child: _buildScrollable(context, info),
-          ),
+          Expanded(flex: 2, child: Center(child: cover)),
+          Expanded(flex: 3, child: _buildScrollable(context, info)),
         ],
       );
     }
@@ -45,33 +35,20 @@ class WorkDetailResponsiveLayout extends StatelessWidget {
       context,
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          cover,
-          info,
-        ],
+        children: [cover, info],
       ),
     );
   }
 
   Widget _buildScrollable(BuildContext context, Widget child) {
-    final dockExtent = LiquidGlassDockScope.extentOf(context);
-    final scrollContent = dockExtent > 0
-        ? Padding(
-            padding: EdgeInsets.only(bottom: dockExtent),
-            child: child,
-          )
-        : child;
     final scrollable = SingleChildScrollView(
       padding: EdgeInsets.zero,
       physics: const AlwaysScrollableScrollPhysics(),
-      child: scrollContent,
+      child: child,
     );
 
     if (onRefresh == null) return scrollable;
 
-    return RefreshIndicator(
-      onRefresh: onRefresh!,
-      child: scrollable,
-    );
+    return RefreshIndicator(onRefresh: onRefresh!, child: scrollable);
   }
 }

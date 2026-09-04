@@ -9,6 +9,19 @@ full-screen player with several focused pages.
 The persistent compact playback surface shown below the app's main content.
 _Avoid_: Player bar
 
+**App Tab Bar (应用标签栏)**:
+The primary app navigation containing Home, Search, My, and Settings.
+_Avoid_: Player navigation, bottom menu
+
+**Work Details Screen (作品详情页)**:
+The online or offline screen describing a work and its available audio files.
+It is distinct from the Player Audio Details Page for the current track.
+_Avoid_: Player details page, audio details page
+
+**Bottom Dock (底部 Dock)**:
+The portrait Main Screen region formed by the Mini Player and App Tab Bar.
+_Avoid_: Mini Player, App Tab Bar
+
 **Player Cover Page (播放器封面页)**:
 The full-screen player page containing the large artwork and primary playback
 controls.

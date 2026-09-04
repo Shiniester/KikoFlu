@@ -29,6 +29,7 @@ import '../widgets/player/player_visual_palette.dart';
 import '../widgets/player/player_vertical_gestures.dart';
 import '../widgets/text_preview_screen.dart';
 import '../widgets/work_bookmark_manager.dart';
+import '../widgets/app_bottom_dock_transition.dart';
 import 'work_detail_screen.dart';
 import '../../l10n/app_localizations.dart';
 
@@ -2047,10 +2048,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   }
 
   Future<void> _openKnownWork(Work work) {
-    return Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (context) => WorkDetailScreen(work: work),
-      ),
+    return pushWorkDetailRoute<void>(
+      context,
+      builder: (context) => WorkDetailScreen(work: work),
     );
   }
 
@@ -2858,8 +2858,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       if (context.mounted) {
         Navigator.of(context).pop();
 
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (context) => WorkDetailScreen(work: work)),
+        pushWorkDetailRoute<void>(
+          context,
+          builder: (context) => WorkDetailScreen(work: work),
         );
       }
     } catch (e) {

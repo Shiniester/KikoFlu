@@ -1,9 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:real_liquid_glass/real_liquid_glass.dart';
-
-import '../providers/settings_provider.dart';
 
 class FloatingFeedModeAction {
   const FloatingFeedModeAction({
@@ -139,7 +135,7 @@ class FloatingFeedToolbar extends StatelessWidget {
         },
       ),
     );
-    return FloatingToolbarGlassGroup(child: toolbar);
+    return toolbar;
   }
 
   double _modeActionWidth(BuildContext context, String label) {
@@ -158,58 +154,32 @@ class FloatingFeedToolbar extends StatelessWidget {
   }
 }
 
-/// Shares one native sampling surface across nearby floating glass controls.
-class FloatingToolbarGlassGroup extends ConsumerWidget {
-  const FloatingToolbarGlassGroup({
-    super.key,
-    required this.child,
-    this.spacing = 7,
-  });
-
-  final Widget child;
-  final double spacing;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final useLiquidGlass = ref.watch(liquidGlassNavigationProvider);
-    if (!useLiquidGlass || !LiquidGlass.isNativePlatform) return child;
-    return LiquidGlassGroup(spacing: spacing, child: child);
-  }
-}
-
-/// Places separated toolbar capsules in one native glass sampling group.
-class FloatingToolbarGlassRow extends StatelessWidget {
-  const FloatingToolbarGlassRow({super.key, required this.children});
+/// Places separated toolbar capsules in one row.
+class FloatingToolbarRow extends StatelessWidget {
+  const FloatingToolbarRow({super.key, required this.children});
 
   final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
-    return FloatingToolbarGlassGroup(
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: children,
-      ),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: children,
     );
   }
 }
 
-class _ModeDropdown extends ConsumerWidget {
+class _ModeDropdown extends StatelessWidget {
   const _ModeDropdown({required this.actions, required this.maxWidth});
 
   final List<FloatingFeedModeAction> actions;
   final double maxWidth;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final selectedIndex = actions.indexWhere((action) => action.isSelected);
     final effectiveIndex = selectedIndex < 0 ? 0 : selectedIndex;
     final selected = actions[effectiveIndex];
-    final useLiquidGlass = ref.watch(liquidGlassNavigationProvider);
-    if (useLiquidGlass) {
-      return _buildLiquidGlassMenu(context, ref, selected);
-    }
-
     return SizedBox(
       key: const ValueKey('feed-mode-dropdown'),
       height: 40,
@@ -263,116 +233,6 @@ class _ModeDropdown extends ConsumerWidget {
       ),
     );
   }
-
-  Widget _buildLiquidGlassMenu(
-    BuildContext context,
-    WidgetRef ref,
-    FloatingFeedModeAction selected,
-  ) {
-    final fallbackIntensity = ref.watch(fallbackGlassTransparencyProvider);
-    final controller = MenuController();
-    return SizedBox(
-      key: const ValueKey('feed-mode-dropdown'),
-      height: 40,
-      width: maxWidth,
-      child: MenuAnchor(
-        controller: controller,
-        consumeOutsideTap: true,
-        alignmentOffset: const Offset(0, 4),
-        style: MenuStyle(
-          backgroundColor: const WidgetStatePropertyAll(Colors.transparent),
-          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
-          shadowColor: const WidgetStatePropertyAll(Colors.transparent),
-          elevation: const WidgetStatePropertyAll(0),
-          padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-          shape: WidgetStatePropertyAll(
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          ),
-        ),
-        menuChildren: [
-          LiquidGlassGroup(
-            spacing: 0,
-            child: LiquidGlassContainer(
-              shape: const LiquidGlassShape.roundedRectangle(18),
-              style: LiquidGlassStyle.regular,
-              fallbackIntensity: fallbackIntensity,
-              child: Material(
-                type: MaterialType.transparency,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    minWidth: maxWidth,
-                    maxHeight: 300,
-                  ),
-                  child: SingleChildScrollView(
-                    primary: false,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        for (final action in actions)
-                          MenuItemButton(
-                            onPressed: () {
-                              controller.close();
-                              action.onPressed();
-                            },
-                            style: const ButtonStyle(
-                              padding: WidgetStatePropertyAll(
-                                EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 4,
-                                ),
-                              ),
-                            ),
-                            leadingIcon: Icon(action.icon, size: 18),
-                            trailingIcon: action.isSelected
-                                ? Icon(
-                                    Icons.check,
-                                    size: 18,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                  )
-                                : null,
-                            child: Text(action.label),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-        builder: (context, controller, child) {
-          return InkWell(
-            borderRadius: BorderRadius.circular(20),
-            onTap: () =>
-                controller.isOpen ? controller.close() : controller.open(),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
-                children: [
-                  Icon(selected.icon, size: 18),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      selected.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  const Icon(Icons.arrow_drop_down, size: 20),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
 }
 
 /// Shared horizontal inset for all floating controls in feed-like screens.
@@ -389,7 +249,7 @@ class FloatingToolbarLayout {
 }
 
 /// Shared translucent capsule surface for toolbars that need custom content.
-class FloatingToolbarSurface extends ConsumerWidget {
+class FloatingToolbarSurface extends StatelessWidget {
   static const double backgroundOpacity = 0.94;
   static const double _radius = 24;
 
@@ -403,36 +263,8 @@ class FloatingToolbarSurface extends ConsumerWidget {
   final EdgeInsetsGeometry padding;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final useLiquidGlass = ref.watch(liquidGlassNavigationProvider);
-    final fallbackGlassTransparency = ref.watch(
-      fallbackGlassTransparencyProvider,
-    );
-    final content = Material(
-      type: MaterialType.transparency,
-      child: Padding(padding: padding, child: child),
-    );
-
-    if (useLiquidGlass) {
-      final glass = LiquidGlassContainer(
-        shape: const LiquidGlassShape.capsule(),
-        style: LiquidGlassStyle.regular,
-        fallbackIntensity: fallbackGlassTransparency,
-        child: LiquidGlass.isNativePlatform
-            ? ClipRRect(
-                borderRadius: BorderRadius.circular(_radius),
-                child: content,
-              )
-            : content,
-      );
-      if (LiquidGlass.isNativePlatform) return glass;
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(_radius),
-        child: glass,
-      );
-    }
-
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(_radius),

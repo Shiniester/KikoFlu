@@ -1004,13 +1004,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.16.0"
-  real_liquid_glass:
-    dependency: "direct main"
-    description:
-      path: "third_party/real_liquid_glass"
-      relative: true
-    source: path
-    version: "0.3.0"
   riverpod:
     dependency: transitive
     description:

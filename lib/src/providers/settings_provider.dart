@@ -1,9 +1,6 @@
 import 'dart:ui';
 
-import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:real_liquid_glass/real_liquid_glass.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/audio_gain_settings.dart';
 import '../models/audio_tap_playlist_mode.dart';
@@ -15,125 +12,6 @@ final settingsCacheRefreshTriggerProvider = StateProvider<int>((ref) => 0);
 
 /// Triggers when Subtitle Library screen should refresh (e.g., after path change).
 final subtitleLibraryRefreshTriggerProvider = StateProvider<int>((ref) => 0);
-
-/// Controls the optional liquid-glass treatment for the main navigation and
-/// the mini player. Only Apple OS versions with native Liquid Glass support
-/// enable it by default; fallback remains available as an explicit choice.
-class LiquidGlassNavigationNotifier extends StateNotifier<bool> {
-  static const String preferenceKey = 'liquid_glass_navigation_enabled';
-
-  LiquidGlassNavigationNotifier() : super(defaultValue) {
-    _loadPreference();
-  }
-
-  static bool get _isApplePlatform =>
-      defaultTargetPlatform == TargetPlatform.iOS ||
-      defaultTargetPlatform == TargetPlatform.macOS;
-
-  static bool defaultForCapabilities(LiquidGlassCapabilities? capabilities) {
-    return _isApplePlatform && capabilities?.nativeGlass == true;
-  }
-
-  static bool get defaultValue =>
-      defaultForCapabilities(LiquidGlass.cachedCapabilities);
-
-  bool _changedLocally = false;
-
-  Future<void> _loadPreference() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (!mounted || _changedLocally) return;
-      final savedValue = prefs.getBool(preferenceKey);
-      if (savedValue != null) {
-        state = savedValue;
-        return;
-      }
-
-      if (!_isApplePlatform) {
-        state = false;
-        return;
-      }
-
-      final capabilities =
-          LiquidGlass.cachedCapabilities ?? await LiquidGlass.capabilities();
-      if (!mounted || _changedLocally) return;
-      state = defaultForCapabilities(capabilities);
-    } catch (_) {
-      if (!mounted || _changedLocally) return;
-      state = defaultValue;
-    }
-  }
-
-  Future<void> setEnabled(bool enabled) async {
-    _changedLocally = true;
-    state = enabled;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(preferenceKey, enabled);
-    } catch (_) {
-      // Keep the in-memory value when persistence is unavailable.
-    }
-  }
-
-  Future<void> resetToDefault() async {
-    final capabilities =
-        LiquidGlass.cachedCapabilities ?? await LiquidGlass.capabilities();
-    await setEnabled(defaultForCapabilities(capabilities));
-  }
-}
-
-final liquidGlassNavigationProvider =
-    StateNotifierProvider<LiquidGlassNavigationNotifier, bool>((ref) {
-      return LiquidGlassNavigationNotifier();
-    });
-
-/// Controls the transparency of Flutter-drawn glass on non-Apple platforms.
-/// Native iOS and macOS materials continue to follow the system appearance.
-class FallbackGlassTransparencyNotifier extends StateNotifier<double> {
-  static const String preferenceKey = 'fallback_glass_transparency';
-  static const double defaultValue = 0.4;
-
-  FallbackGlassTransparencyNotifier() : super(defaultValue) {
-    _loadPreference();
-  }
-
-  bool _changedLocally = false;
-
-  static double normalize(double value) => value.clamp(0.0, 1.0).toDouble();
-
-  Future<void> _loadPreference() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (!mounted || _changedLocally) return;
-      state = normalize(prefs.getDouble(preferenceKey) ?? defaultValue);
-    } catch (_) {
-      if (!mounted || _changedLocally) return;
-      state = defaultValue;
-    }
-  }
-
-  void previewTransparency(double value) {
-    _changedLocally = true;
-    state = normalize(value);
-  }
-
-  Future<void> setTransparency(double value) async {
-    previewTransparency(value);
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setDouble(preferenceKey, state);
-    } catch (_) {
-      // Keep the in-memory value when persistence is unavailable.
-    }
-  }
-
-  Future<void> resetToDefault() => setTransparency(defaultValue);
-}
-
-final fallbackGlassTransparencyProvider =
-    StateNotifierProvider<FallbackGlassTransparencyNotifier, double>((ref) {
-      return FallbackGlassTransparencyNotifier();
-    });
 
 /// 字幕库匹配优先级
 enum SubtitleLibraryPriority {

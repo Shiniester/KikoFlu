@@ -177,7 +177,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
                 top: topPadding + 8,
                 left: horizontalPadding,
                 right: horizontalPadding,
-                child: FloatingToolbarGlassRow(
+                child: FloatingToolbarRow(
                   children: [
                     FloatingToolbarSurface(
                       child: FloatingToolbarIconButton(

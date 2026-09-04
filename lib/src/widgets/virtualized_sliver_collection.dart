@@ -7,7 +7,6 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import '../../l10n/app_localizations.dart';
 import '../utils/scroll_optimization.dart';
 import '../utils/ui_tokens.dart';
-import 'liquid_glass_layout.dart';
 import 'overscroll_next_page_detector.dart';
 import 'pagination_bar.dart';
 import 'async_state_view.dart';
@@ -670,8 +669,6 @@ class _VirtualizedSliverCollectionState<T>
   @override
   Widget build(BuildContext context) {
     final delegate = _buildDelegate(_indexById);
-    final liquidGlassDockExtent = LiquidGlassDockScope.extentOf(context);
-    final trailingSafeExtent = liquidGlassDockExtent;
     final viewportHeight = MediaQuery.sizeOf(context).height;
     final resolvedCacheExtent =
         widget.scrollCacheExtent ??
@@ -719,8 +716,6 @@ class _VirtualizedSliverCollectionState<T>
             widget.pagination!.showWhenEmpty)
           SliverToBoxAdapter(child: _buildFooter()),
         ...widget.sliversAfter,
-        if (trailingSafeExtent > 0)
-          SliverToBoxAdapter(child: SizedBox(height: trailingSafeExtent)),
       ],
     );
 

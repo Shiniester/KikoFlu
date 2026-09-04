@@ -464,20 +464,6 @@ class SEn extends S {
   String get uiSettingsSubtitle => 'Player, detail page, cards, etc.';
 
   @override
-  String get liquidGlassNavigation => 'Liquid Glass Navigation';
-
-  @override
-  String get liquidGlassNavigationDesc =>
-      'Glass navigation and mini player; enabled by default on Apple OS 26+.';
-
-  @override
-  String get fallbackGlassTransparency => 'Liquid Glass Transparency';
-
-  @override
-  String get fallbackGlassTransparencyDesc =>
-      'Adjust app-rendered glass transparency.';
-
-  @override
   String get preferenceSettings => 'Preference Settings';
 
   @override
