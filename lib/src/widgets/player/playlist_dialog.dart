@@ -52,7 +52,6 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
     this.dismissDrag,
     this.showCloseButton = false,
     this.horizontalPadding = 8,
-    this.artworkHeroTarget = PlayerArtworkFlightTarget.none,
   });
 
   final VoidCallback? onClose;
@@ -62,7 +61,6 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
   final PlayerVerticalDragCallbacks? dismissDrag;
   final bool showCloseButton;
   final double horizontalPadding;
-  final PlayerArtworkFlightTarget artworkHeroTarget;
 
   @override
   ConsumerState<PlayerQueueSurface> createState() => _PlayerQueueSurfaceState();
@@ -100,7 +98,6 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
                   host: authState.host,
                   token: authState.token,
                 ),
-                artworkHeroTarget: widget.artworkHeroTarget,
               ),
             ),
           PlayerVerticalSwipeRegion(
@@ -250,13 +247,11 @@ class _NowPlayingQueueHeader extends StatelessWidget {
     required this.track,
     required this.coverUrl,
     required this.horizontalPadding,
-    required this.artworkHeroTarget,
   });
 
   final AudioTrack track;
   final String? coverUrl;
   final double horizontalPadding;
-  final PlayerArtworkFlightTarget artworkHeroTarget;
 
   @override
   Widget build(BuildContext context) {
@@ -269,7 +264,6 @@ class _NowPlayingQueueHeader extends StatelessWidget {
             key: const ValueKey('player-queue-now-playing-artwork'),
             track: track,
             url: coverUrl,
-            heroTarget: artworkHeroTarget,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -402,25 +396,14 @@ class _QueueTrackTile extends StatelessWidget {
 }
 
 class _QueueArtwork extends StatelessWidget {
-  const _QueueArtwork({
-    super.key,
-    required this.track,
-    required this.url,
-    this.heroTarget = PlayerArtworkFlightTarget.none,
-  });
+  const _QueueArtwork({super.key, required this.track, required this.url});
 
   final AudioTrack track;
   final String? url;
-  final PlayerArtworkFlightTarget heroTarget;
 
   @override
   Widget build(BuildContext context) {
-    return PlayerArtworkHero(
-      trackId: track.id,
-      target: heroTarget,
-      cornerRadius: PlayerCompactArtwork.cornerRadius,
-      child: PlayerCompactArtwork(track: track, url: url),
-    );
+    return PlayerCompactArtwork(track: track, url: url);
   }
 }
 

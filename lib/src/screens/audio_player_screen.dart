@@ -760,23 +760,29 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     return PlayerVerticalSwipeRegion(
       key: const ValueKey('wide-header-dismiss-surface'),
       swipeDownDrag: dismissDrag,
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 704),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 8, 12, 4),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(child: _buildTrackTitleBlock(context, track, true)),
-                const SizedBox(width: 20),
-                IconButton(
-                  key: const ValueKey('player-more-button-wide'),
-                  tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
-                  onPressed: () => _showMoreSheet(context, track),
-                  icon: const Icon(Icons.more_horiz),
-                ),
-              ],
+      child: _buildPlayerCoverHeaderTransition(
+        context,
+        key: const ValueKey('wide-player-cover-header-opacity'),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 704),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 8, 12, 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _buildTrackTitleBlock(context, track, true)),
+                  const SizedBox(width: 20),
+                  IconButton(
+                    key: const ValueKey('player-more-button-wide'),
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).moreButtonTooltip,
+                    onPressed: () => _showMoreSheet(context, track),
+                    icon: const Icon(Icons.more_horiz),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -933,33 +939,68 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       swipeDownDrag: dismissDrag,
       onSwipeUp: () => _showQueue(compactOriginPage: _compactPage),
       swipeUpDrag: _currentCompactPageQueueOpenDragCallbacks,
-      child: Center(
-        child: SizedBox(
-          width: sharedWidth + 24,
-          child: Padding(
-            padding: const EdgeInsets.only(left: 12, top: 12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(child: _buildTrackTitleBlock(context, track, false)),
-                const SizedBox(width: 20),
-                IconButton(
-                  key: const ValueKey('player-more-button'),
-                  tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
-                  onPressed: () => _showMoreSheet(context, track),
-                  padding: EdgeInsets.zero,
-                  alignment: Alignment.center,
-                  constraints: const BoxConstraints(
-                    minWidth: 48,
-                    minHeight: 48,
+      child: _buildPlayerCoverHeaderTransition(
+        context,
+        key: const ValueKey('compact-player-cover-header-opacity'),
+        child: Center(
+          child: SizedBox(
+            width: sharedWidth + 24,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 12, top: 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _buildTrackTitleBlock(context, track, false)),
+                  const SizedBox(width: 20),
+                  IconButton(
+                    key: const ValueKey('player-more-button'),
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).moreButtonTooltip,
+                    onPressed: () => _showMoreSheet(context, track),
+                    padding: EdgeInsets.zero,
+                    alignment: Alignment.center,
+                    constraints: const BoxConstraints(
+                      minWidth: 48,
+                      minHeight: 48,
+                    ),
+                    icon: const Icon(Icons.more_horiz),
                   ),
-                  icon: const Icon(Icons.more_horiz),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildPlayerCoverHeaderTransition(
+    BuildContext context, {
+    required Key key,
+    required Widget child,
+  }) {
+    return ValueListenableBuilder<int>(
+      valueListenable: _semanticPageRevision,
+      child: child,
+      builder: (context, _, child) {
+        final routeAnimation = ModalRoute.of(context)?.animation;
+        final reduceMotion = MediaQuery.disableAnimationsOf(context);
+        if (routeAnimation == null ||
+            reduceMotion ||
+            _currentPlayerDismissVisualMode != PlayerDismissVisualMode.main) {
+          return Opacity(key: key, opacity: 1, child: child);
+        }
+        return AnimatedBuilder(
+          animation: routeAnimation,
+          child: child,
+          builder: (context, child) => Opacity(
+            key: key,
+            opacity: playerCoverHeaderOpacity(routeAnimation.value),
+            child: child,
+          ),
+        );
+      },
     );
   }
 
@@ -1358,9 +1399,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                 onDismissRequested: dismissRequested,
                 dismissDrag: dismissDrag,
                 horizontalPadding: 0,
-                artworkHeroTarget: _directQueueEntry
-                    ? PlayerArtworkFlightTarget.queue
-                    : PlayerArtworkFlightTarget.none,
               ),
             ),
           ],
@@ -1386,9 +1424,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
 
   PlayerDismissVisualMode get _currentPlayerDismissVisualMode {
     if (_rightPane == PlayerRightPane.queue) {
-      return _directQueueEntry
-          ? PlayerDismissVisualMode.queue
-          : PlayerDismissVisualMode.secondary;
+      return PlayerDismissVisualMode.secondary;
     }
     final isWide =
         _lastWasWide ?? usesWidePlayerLayout(MediaQuery.sizeOf(context).width);

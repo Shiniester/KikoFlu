@@ -369,7 +369,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
 
   Future<void> _prepareArtworkTarget(PlayerInitialSurface surface) async {
     final target = surface == PlayerInitialSurface.queue
-        ? PlayerArtworkFlightTarget.queue
+        ? PlayerArtworkFlightTarget.none
         : PlayerArtworkFlightTarget.main;
     if (_artworkFlightTarget != target && mounted) {
       setState(() => _artworkFlightTarget = target);
@@ -973,7 +973,11 @@ class _InteractivePlayerOpenSession {
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   final Completer<void> _routeReady = Completer<void>();
   late final HeroController _heroController = HeroController(
-    createRectTween: createPlayerArtworkRectTween,
+    createRectTween: (begin, end) => createPlayerArtworkRectTween(
+      begin,
+      end,
+      viewportHeight: MediaQuery.sizeOf(overlay.context).height,
+    ),
   );
   OverlayEntry? _entry;
   AudioPlayerPageRoute<void>? _route;
@@ -1027,6 +1031,8 @@ class _InteractivePlayerOpenSession {
     _route = route;
     if (artworkHeroEnabled) onArtworkVisibilityChanged(true);
     unawaited(navigator.push<void>(route));
+    await WidgetsBinding.instance.endOfFrame;
+    if (_disposed) return;
     if (!route.beginVerticalOpenGesture()) {
       abort();
       return;

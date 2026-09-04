@@ -20,6 +20,7 @@ void main() {
     final tween = createPlayerArtworkRectTween(
       const Rect.fromLTWH(16, 16, 64, 48),
       const Rect.fromLTWH(40, 80, 320, 240),
+      viewportHeight: 844,
     );
 
     for (final progress in [0.0, 0.25, 0.5, 0.75, 1.0]) {
@@ -81,29 +82,18 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(find.byType(AudioPlayerScreen, skipOffstage: false), findsOneWidget);
+    final routeTranslationFinder = find.byKey(
+      const ValueKey('player-route-vertical-translation'),
+      skipOffstage: false,
+    );
     final openingOffset = tester
-        .widget<SlideTransition>(
-          find.byKey(
-            const ValueKey('player-route-vertical-slide'),
-            skipOffstage: false,
-          ),
-        )
-        .position
-        .value
-        .dy;
+        .widget<Transform>(routeTranslationFinder)
+        .transform
+        .entry(1, 3);
     await cancelledGesture.moveBy(const Offset(0, 60));
     await tester.pump();
     expect(
-      tester
-          .widget<SlideTransition>(
-            find.byKey(
-              const ValueKey('player-route-vertical-slide'),
-              skipOffstage: false,
-            ),
-          )
-          .position
-          .value
-          .dy,
+      tester.widget<Transform>(routeTranslationFinder).transform.entry(1, 3),
       greaterThan(openingOffset),
     );
     await cancelledGesture.cancel();
@@ -123,18 +113,19 @@ void main() {
     for (var index = 0; index < 14; index++) {
       await gesture.moveBy(const Offset(0, -16));
       await tester.pump();
-      if (index == 1) {
+      if (index == 2) {
         expect(
           find.byType(AudioPlayerScreen, skipOffstage: false),
           findsOneWidget,
         );
-        final interactiveSlide = tester.widget<SlideTransition>(
+        final interactiveTranslation = tester.widget<Transform>(
           find.byKey(
-            const ValueKey('player-route-vertical-slide'),
+            const ValueKey('player-route-vertical-translation'),
             skipOffstage: false,
           ),
         );
-        expect(interactiveSlide.position.value.dy, closeTo(1 - 32 / 844, 0.02));
+        expect(interactiveTranslation.transform.entry(1, 3), greaterThan(0));
+        expect(interactiveTranslation.transform.entry(1, 3), lessThan(844));
       }
     }
     await gesture.up();
@@ -143,7 +134,7 @@ void main() {
     expect(find.byType(AudioPlayerScreen), findsOneWidget);
     expect(find.byKey(const ValueKey('compact-player-layout')), findsOneWidget);
     expect(
-      find.byKey(const ValueKey('player-route-vertical-slide')),
+      find.byKey(const ValueKey('player-route-vertical-translation')),
       findsOneWidget,
     );
     expect(
@@ -300,6 +291,18 @@ void main() {
             .widget<AudioPlayerScreen>(find.byType(AudioPlayerScreen))
             .initialSurface,
         PlayerInitialSurface.queue,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Hero &&
+              widget.tag ==
+                  playerArtworkHeroTag(
+                    track.id,
+                    PlayerArtworkFlightTarget.main,
+                  ),
+        ),
+        findsNothing,
       );
 
       await tester.binding.handlePopRoute();

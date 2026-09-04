@@ -25,13 +25,10 @@ void main() {
     final cancelledRoute = AudioPlayerPageRoute<void>(
       builder: (_) => const Scaffold(body: Text('cancelled-player')),
     );
-    expect(
-      cancelledRoute.transitionDuration,
-      const Duration(milliseconds: 320),
-    );
+    expect(cancelledRoute.transitionDuration, playerRouteTransitionDuration);
     expect(
       cancelledRoute.reverseTransitionDuration,
-      const Duration(milliseconds: 320),
+      playerRouteTransitionDuration,
     );
     final handoffRoute = AudioPlayerPageRoute<void>(
       skipInitialTransition: true,
@@ -40,7 +37,7 @@ void main() {
     expect(handoffRoute.transitionDuration, Duration.zero);
     expect(
       handoffRoute.reverseTransitionDuration,
-      const Duration(milliseconds: 320),
+      playerRouteTransitionDuration,
     );
     unawaited(navigatorKey.currentState!.push<void>(cancelledRoute));
     expect(cancelledRoute.beginVerticalOpenGesture(), isTrue);
@@ -48,7 +45,9 @@ void main() {
     expect(cancelledRoute.debugTransitionValue, closeTo(0.2, 0.001));
     cancelledRoute.updateVerticalOpenGesture(distance: 80, extent: 800);
     expect(cancelledRoute.debugTransitionValue, closeTo(0.1, 0.001));
-    cancelledRoute.cancelVerticalOpenGesture();
+    final cancelled = cancelledRoute.cancelVerticalOpenGesture();
+    await tester.pumpAndSettle();
+    await cancelled;
     await tester.pumpAndSettle();
     expect(find.text('route-host'), findsOneWidget);
     expect(find.text('cancelled-player'), findsNothing);
@@ -74,13 +73,13 @@ void main() {
     await tester.pump();
     expect(route.debugTransitionValue, closeTo(0.8, 0.001));
     expect(route.debugTransitionStatus, AnimationStatus.reverse);
-    final slide = tester.widget<SlideTransition>(
-      find.byKey(const ValueKey('player-route-vertical-slide')),
+    final translation = tester.widget<Transform>(
+      find.byKey(const ValueKey('player-route-vertical-translation')),
     );
-    expect(slide.position.value.dy, closeTo(0.2, 0.001));
+    expect(translation.transform.entry(1, 3), closeTo(160, 0.001));
     final heroMode = tester.widget<HeroMode>(
       find.ancestor(
-        of: find.byKey(const ValueKey('player-route-vertical-slide')),
+        of: find.byKey(const ValueKey('player-route-vertical-translation')),
         matching: find.byType(HeroMode),
       ),
     );
@@ -93,27 +92,15 @@ void main() {
     expect(route.debugTransitionValue, closeTo(1, 0.001));
     expect(find.text('interactive-player'), findsOneWidget);
 
-    route.setDismissVisualMode(PlayerDismissVisualMode.queue);
-    await tester.pump();
-    expect(
-      tester
-          .widget<HeroMode>(
-            find.ancestor(
-              of: find.byKey(const ValueKey('player-route-vertical-slide')),
-              matching: find.byType(HeroMode),
-            ),
-          )
-          .enabled,
-      isTrue,
-    );
-
     route.setDismissVisualMode(PlayerDismissVisualMode.main);
     await tester.pump();
     expect(
       tester
           .widget<HeroMode>(
             find.ancestor(
-              of: find.byKey(const ValueKey('player-route-vertical-slide')),
+              of: find.byKey(
+                const ValueKey('player-route-vertical-translation'),
+              ),
               matching: find.byType(HeroMode),
             ),
           )
@@ -147,15 +134,31 @@ void main() {
     );
     unawaited(navigatorKey.currentState!.push<void>(route));
     await tester.pump();
-    final slideFinder = find.byKey(
-      const ValueKey('player-route-vertical-slide'),
+    final translationFinder = find.byKey(
+      const ValueKey('player-route-vertical-translation'),
     );
     await tester.pump(const Duration(milliseconds: 80));
+    expect(
+      1 -
+          tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
+              route.debugRouteTranslation,
+      closeTo(route.animation!.value, 0.001),
+    );
     final firstOpeningDistance =
-        1 - tester.widget<SlideTransition>(slideFinder).position.value.dy;
+        1 -
+        tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
+            route.debugRouteTranslation;
     await tester.pump(const Duration(milliseconds: 80));
+    expect(
+      1 -
+          tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
+              route.debugRouteTranslation,
+      closeTo(route.animation!.value, 0.001),
+    );
     final halfwayOpeningDistance =
-        1 - tester.widget<SlideTransition>(slideFinder).position.value.dy;
+        1 -
+        tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
+            route.debugRouteTranslation;
     expect(
       firstOpeningDistance,
       greaterThan(halfwayOpeningDistance - firstOpeningDistance),
@@ -165,22 +168,141 @@ void main() {
     navigatorKey.currentState!.pop();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
-    final firstClosingDistance = tester
-        .widget<SlideTransition>(slideFinder)
-        .position
-        .value
-        .dy;
+    expect(
+      1 -
+          tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
+              route.debugRouteTranslation,
+      closeTo(route.animation!.value, 0.001),
+    );
+    final firstClosingDistance =
+        tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
+        route.debugRouteTranslation;
     await tester.pump(const Duration(milliseconds: 80));
-    final halfwayClosingDistance = tester
-        .widget<SlideTransition>(slideFinder)
-        .position
-        .value
-        .dy;
+    expect(
+      1 -
+          tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
+              route.debugRouteTranslation,
+      closeTo(route.animation!.value, 0.001),
+    );
+    final halfwayClosingDistance =
+        tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
+        route.debugRouteTranslation;
     expect(
       firstClosingDistance,
       greaterThan(halfwayClosingDistance - firstClosingDistance),
     );
     await tester.pumpAndSettle();
     expect(find.text('curve-player'), findsNothing);
+  });
+
+  testWidgets('interactive player route exposes one-to-one visual progress', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(400, 800);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    final navigatorKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        home: const Scaffold(body: Text('progress-host')),
+      ),
+    );
+
+    final route = AudioPlayerPageRoute<void>(
+      builder: (_) => const Scaffold(body: Text('progress-player')),
+    );
+    unawaited(navigatorKey.currentState!.push<void>(route));
+    await tester.pumpAndSettle();
+    expect(
+      route.beginVerticalDismissGesture(PlayerDismissVisualMode.main),
+      isTrue,
+    );
+
+    route.updateVerticalDismissGesture(distance: 8, extent: 800);
+    expect(route.debugTransitionValue, closeTo(0.99, 0.001));
+    expect(
+      route.debugSettleDuration(showRoute: true),
+      const Duration(milliseconds: 5),
+    );
+    route.cancelVerticalDismissGesture();
+    await tester.pump(const Duration(milliseconds: 4));
+    expect(route.debugTransitionValue, lessThan(1));
+    await tester.pump(const Duration(milliseconds: 4));
+    expect(route.debugTransitionValue, lessThan(1));
+    await tester.pump(const Duration(milliseconds: 2));
+    expect(route.debugTransitionValue, closeTo(1, 0.001));
+    expect(
+      route.beginVerticalDismissGesture(PlayerDismissVisualMode.main),
+      isTrue,
+    );
+
+    final translationFinder = find.byKey(
+      const ValueKey('player-route-vertical-translation'),
+    );
+    for (final progress in [0.8, 0.5, 0.2]) {
+      route.updateVerticalDismissGesture(
+        distance: 800 * (1 - progress),
+        extent: 800,
+      );
+      await tester.pump();
+      expect(route.debugTransitionValue, closeTo(progress, 0.001));
+      expect(route.animation!.value, closeTo(progress, 0.001));
+      expect(
+        tester.widget<Transform>(translationFinder).transform.entry(1, 3),
+        closeTo(800 * (1 - progress), 0.001),
+      );
+    }
+
+    route.cancelVerticalDismissGesture();
+    await tester.pumpAndSettle();
+    expect(route.animation!.value, closeTo(1, 0.001));
+    expect(find.text('progress-player'), findsOneWidget);
+  });
+
+  test('Player Cover Page and Player Queue Page routes both use 500ms', () {
+    for (final mode in PlayerDismissVisualMode.values) {
+      final route = AudioPlayerPageRoute<void>(
+        initialDismissVisualMode: mode,
+        builder: (_) => const SizedBox.shrink(),
+      );
+      expect(route.transitionDuration, playerRouteTransitionDuration);
+      expect(route.reverseTransitionDuration, playerRouteTransitionDuration);
+    }
+  });
+
+  testWidgets('reduced motion shows the route without translation or Hero', (
+    tester,
+  ) async {
+    final navigatorKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(disableAnimations: true),
+          child: child!,
+        ),
+        home: const Scaffold(body: Text('reduced-host')),
+      ),
+    );
+    final route = AudioPlayerPageRoute<void>(
+      builder: (_) => const Scaffold(body: Text('reduced-player')),
+    );
+    unawaited(navigatorKey.currentState!.push<void>(route));
+    await tester.pumpAndSettle();
+
+    final translation = tester.widget<Transform>(
+      find.byKey(const ValueKey('player-route-vertical-translation')),
+    );
+    expect(translation.transform.entry(1, 3), 0);
+    final heroMode = tester.widget<HeroMode>(
+      find.ancestor(
+        of: find.byKey(const ValueKey('player-route-vertical-translation')),
+        matching: find.byType(HeroMode),
+      ),
+    );
+    expect(heroMode.enabled, isFalse);
   });
 }

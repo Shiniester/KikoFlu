@@ -205,14 +205,23 @@ void main() {
       expect(screen, contains('PlayerInteractiveDismissRoute'));
       expect(screen, contains('_currentPlayerDismissVisualMode'));
       expect(playerRoute, contains('beginVerticalDismissGesture'));
-      expect(playerRoute, contains("ValueKey('player-route-vertical-slide')"));
-      expect(playerRoute, isNot(contains('heightFactor:')));
       expect(
         playerRoute,
-        contains('mode != PlayerDismissVisualMode.secondary'),
+        contains("ValueKey('player-route-vertical-translation')"),
+      );
+      expect(playerRoute, isNot(contains('heightFactor:')));
+      expect(playerRoute, contains('mode == PlayerDismissVisualMode.main'));
+      expect(
+        playerRoute,
+        contains(
+          'Duration playerRouteTransitionDuration = Duration(milliseconds: 500)',
+        ),
       );
       expect(playerCover, contains('transitionOnUserGestures: true'));
       expect(playerCover, contains('createPlayerArtworkRectTween'));
+      expect(playerCover, contains('playerArtworkAttachmentStart = 0.20'));
+      expect(playerCover, contains('playerArtworkAttachmentEnd = 0.85'));
+      expect(screen, isNot(contains('PlayerArtworkFlightTarget.queue')));
       expect(miniPlayer, contains('PlayerArtworkHero('));
       expect(miniPlayer, contains('PlayerCompactArtwork('));
       expect(miniPlayer, contains('createPlayerArtworkRectTween'));
