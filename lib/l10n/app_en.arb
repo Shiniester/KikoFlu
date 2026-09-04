@@ -780,7 +780,7 @@
   "colorSchemeSunsetOrangeDesc": "Themes are a must ✍🏻✍🏻✍🏻",
   "colorSchemeLavenderPurpleDesc": "Bro, bro...",
   "colorSchemeForestGreenDesc": "Green, green, green",
-  "colorSchemeDynamicDesc": "Use wallpaper colors from system (Android 12+)",
+  "colorSchemeDynamicDesc": "Follow the current track artwork, using system colors when unavailable",
   "primaryContainer": "Primary Container",
   "secondaryContainer": "Secondary Container",
   "tertiaryContainer": "Tertiary Container",

@@ -279,7 +279,7 @@ void main() {
     addTearDown(() => LiquidGlass.debugOverrideCapabilities(null));
     SharedPreferences.setMockInitialValues({
       'theme_mode': AppThemeMode.dark.index,
-      'color_scheme_type': ColorSchemeType.dynamic.index,
+      'color_scheme_type': ThemeSettingsNotifier.legacyDynamicColorSchemeIndex,
       LiquidGlassNavigationNotifier.preferenceKey: true,
       FallbackGlassTransparencyNotifier.preferenceKey: 0.25,
     });
@@ -309,6 +309,7 @@ void main() {
       container.read(themeSettingsProvider).colorSchemeType,
       ColorSchemeType.oceanBlue,
     );
+    expect(container.read(themeSettingsProvider).dynamicColorEnabled, isTrue);
     expect(container.read(liquidGlassNavigationProvider), isFalse);
     expect(
       container.read(fallbackGlassTransparencyProvider),
@@ -386,7 +387,7 @@ void main() {
   test('theme and audio haptics reset to persisted defaults', () async {
     SharedPreferences.setMockInitialValues({
       'theme_mode': AppThemeMode.dark.index,
-      'color_scheme_type': ColorSchemeType.dynamic.index,
+      'color_scheme_type': ThemeSettingsNotifier.legacyDynamicColorSchemeIndex,
       'audio_haptics_enabled': true,
       'audio_haptics_intensity': 0.4,
     });
@@ -406,12 +407,14 @@ void main() {
     final haptics = container.read(audioHapticsSettingsProvider);
     expect(theme.themeMode, AppThemeMode.system);
     expect(theme.colorSchemeType, ColorSchemeType.oceanBlue);
+    expect(theme.dynamicColorEnabled, isTrue);
     expect(haptics.enabled, isFalse);
     expect(haptics.intensity, AudioHapticsSettings.defaultIntensity);
 
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getInt('theme_mode'), AppThemeMode.system.index);
     expect(prefs.getInt('color_scheme_type'), ColorSchemeType.oceanBlue.index);
+    expect(prefs.getBool(ThemeSettingsNotifier.dynamicColorEnabledKey), isTrue);
     expect(prefs.getBool('audio_haptics_enabled'), isFalse);
     expect(
       prefs.getDouble('audio_haptics_intensity'),
@@ -424,7 +427,8 @@ void main() {
     () async {
       SharedPreferences.setMockInitialValues({
         'theme_mode': AppThemeMode.dark.index,
-        'color_scheme_type': ColorSchemeType.dynamic.index,
+        'color_scheme_type':
+            ThemeSettingsNotifier.legacyDynamicColorSchemeIndex,
         'audio_haptics_enabled': true,
         'audio_haptics_intensity': 0.4,
       });
@@ -444,4 +448,58 @@ void main() {
       expect(container.read(audioHapticsSettingsProvider).enabled, isFalse);
     },
   );
+
+  test('legacy fixed color remains opted out of dynamic color', () async {
+    SharedPreferences.setMockInitialValues({
+      'color_scheme_type': ColorSchemeType.sakuraPink.index,
+    });
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    container.read(themeSettingsProvider);
+    await _pumpPreferences();
+
+    final settings = container.read(themeSettingsProvider);
+    expect(settings.dynamicColorEnabled, isFalse);
+    expect(settings.colorSchemeType, ColorSchemeType.sakuraPink);
+  });
+
+  test('legacy dynamic color migrates to cover-first dynamic color', () async {
+    SharedPreferences.setMockInitialValues({
+      'color_scheme_type': ThemeSettingsNotifier.legacyDynamicColorSchemeIndex,
+    });
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    container.read(themeSettingsProvider);
+    await _pumpPreferences();
+
+    final settings = container.read(themeSettingsProvider);
+    expect(settings.dynamicColorEnabled, isTrue);
+    expect(settings.colorSchemeType, ColorSchemeType.oceanBlue);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getInt('color_scheme_type'), ColorSchemeType.oceanBlue.index);
+  });
+
+  testWidgets('dynamic color hides fixed colors until it is disabled', (
+    tester,
+  ) async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      _testApp(const ThemeSettingsScreen(), container: container),
+    );
+    await tester.runAsync(_pumpPreferences);
+    await tester.pump();
+
+    expect(find.text('Dynamic Color'), findsOneWidget);
+    expect(find.text('Ocean Blue'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('dynamic-color-switch')));
+    await tester.pump();
+
+    expect(container.read(themeSettingsProvider).dynamicColorEnabled, isFalse);
+    expect(find.text('Ocean Blue'), findsOneWidget);
+  });
 }

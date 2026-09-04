@@ -1735,7 +1735,7 @@ class SEn extends S {
 
   @override
   String get colorSchemeDynamicDesc =>
-      'Use wallpaper colors from system (Android 12+)';
+      'Follow the current track artwork, using system colors when unavailable';
 
   @override
   String get primaryContainer => 'Primary Container';

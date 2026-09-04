@@ -612,7 +612,7 @@
   "colorSchemeSunsetOrangeDesc": "軟體一定要能換主題✍🏻✍🏻✍🏻",
   "colorSchemeLavenderPurpleDesc": "兄弟，兄弟...",
   "colorSchemeForestGreenDesc": "草草草",
-  "colorSchemeDynamicDesc": "使用系統桌布的顏色 (Android 12+)",
+  "colorSchemeDynamicDesc": "跟隨目前播放封面；封面無法使用時採用系統顏色",
   "primaryContainer": "主色容器",
   "secondaryContainer": "輔色容器",
   "tertiaryContainer": "第三色容器",

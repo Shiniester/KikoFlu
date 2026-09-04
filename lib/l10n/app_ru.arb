@@ -612,7 +612,7 @@
   "colorSchemeSunsetOrangeDesc": "Смена тем — обязательно ✍🏻✍🏻✍🏻",
   "colorSchemeLavenderPurpleDesc": "Братан, братан...",
   "colorSchemeForestGreenDesc": "Зелень, зелень, зелень",
-  "colorSchemeDynamicDesc": "Использовать цвета обоев системы (Android 12+)",
+  "colorSchemeDynamicDesc": "Использовать цвета текущей обложки, а при её отсутствии — системные цвета",
   "primaryContainer": "Основной контейнер",
   "secondaryContainer": "Вторичный контейнер",
   "tertiaryContainer": "Третичный контейнер",

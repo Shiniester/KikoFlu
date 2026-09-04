@@ -16,26 +16,29 @@ enum ColorSchemeType {
   sunsetOrange, // 日落橙
   lavenderPurple, // 薰衣草紫
   sakuraPink, // 樱花粉
-  dynamic, // 系统动态取色
 }
 
 // 主题设置状态
 class ThemeSettings {
   final AppThemeMode themeMode;
   final ColorSchemeType colorSchemeType;
+  final bool dynamicColorEnabled;
 
   const ThemeSettings({
     this.themeMode = AppThemeMode.system,
     this.colorSchemeType = ColorSchemeType.oceanBlue,
+    this.dynamicColorEnabled = true,
   });
 
   ThemeSettings copyWith({
     AppThemeMode? themeMode,
     ColorSchemeType? colorSchemeType,
+    bool? dynamicColorEnabled,
   }) {
     return ThemeSettings(
       themeMode: themeMode ?? this.themeMode,
       colorSchemeType: colorSchemeType ?? this.colorSchemeType,
+      dynamicColorEnabled: dynamicColorEnabled ?? this.dynamicColorEnabled,
     );
   }
 
@@ -55,6 +58,12 @@ class ThemeSettings {
 class ThemeSettingsNotifier extends StateNotifier<ThemeSettings> {
   static const String _themeModeKey = 'theme_mode';
   static const String _colorSchemeTypeKey = 'color_scheme_type';
+  static const String dynamicColorEnabledKey = 'dynamic_color_enabled';
+
+  /// `ColorSchemeType.dynamic` occupied index 5 before dynamic color became
+  /// an independent setting.
+  static const int legacyDynamicColorSchemeIndex = 5;
+
   bool _changedLocally = false;
 
   ThemeSettingsNotifier() : super(const ThemeSettings()) {
@@ -64,14 +73,40 @@ class ThemeSettingsNotifier extends StateNotifier<ThemeSettings> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
 
-    final themeModeIndex = prefs.getInt(_themeModeKey) ?? 0;
-    final colorSchemeTypeIndex = prefs.getInt(_colorSchemeTypeKey) ?? 0;
+    final storedThemeModeIndex = prefs.getInt(_themeModeKey);
+    final storedColorSchemeTypeIndex = prefs.getInt(_colorSchemeTypeKey);
+    final storedDynamicColorEnabled = prefs.getBool(dynamicColorEnabledKey);
     if (!mounted || _changedLocally) return;
 
+    final themeMode =
+        storedThemeModeIndex != null &&
+            storedThemeModeIndex >= 0 &&
+            storedThemeModeIndex < AppThemeMode.values.length
+        ? AppThemeMode.values[storedThemeModeIndex]
+        : AppThemeMode.system;
+    final colorSchemeType =
+        storedColorSchemeTypeIndex != null &&
+            storedColorSchemeTypeIndex >= 0 &&
+            storedColorSchemeTypeIndex < ColorSchemeType.values.length
+        ? ColorSchemeType.values[storedColorSchemeTypeIndex]
+        : ColorSchemeType.oceanBlue;
+    final dynamicColorEnabled =
+        storedDynamicColorEnabled ??
+        (storedColorSchemeTypeIndex == null ||
+            storedColorSchemeTypeIndex == legacyDynamicColorSchemeIndex);
+
     state = ThemeSettings(
-      themeMode: AppThemeMode.values[themeModeIndex],
-      colorSchemeType: ColorSchemeType.values[colorSchemeTypeIndex],
+      themeMode: themeMode,
+      colorSchemeType: colorSchemeType,
+      dynamicColorEnabled: dynamicColorEnabled,
     );
+
+    if (storedDynamicColorEnabled == null) {
+      await prefs.setBool(dynamicColorEnabledKey, dynamicColorEnabled);
+    }
+    if (storedColorSchemeTypeIndex == legacyDynamicColorSchemeIndex) {
+      await prefs.setInt(_colorSchemeTypeKey, colorSchemeType.index);
+    }
   }
 
   Future<void> setThemeMode(AppThemeMode mode) async {
@@ -88,17 +123,25 @@ class ThemeSettingsNotifier extends StateNotifier<ThemeSettings> {
     await prefs.setInt(_colorSchemeTypeKey, type.index);
   }
 
+  Future<void> setDynamicColorEnabled(bool enabled) async {
+    _changedLocally = true;
+    state = state.copyWith(dynamicColorEnabled: enabled);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(dynamicColorEnabledKey, enabled);
+  }
+
   Future<void> resetToDefault() async {
     _changedLocally = true;
     state = const ThemeSettings();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_themeModeKey, AppThemeMode.system.index);
     await prefs.setInt(_colorSchemeTypeKey, ColorSchemeType.oceanBlue.index);
+    await prefs.setBool(dynamicColorEnabledKey, true);
   }
 }
 
 // 主题设置提供者
 final themeSettingsProvider =
     StateNotifierProvider<ThemeSettingsNotifier, ThemeSettings>((ref) {
-  return ThemeSettingsNotifier();
-});
+      return ThemeSettingsNotifier();
+    });

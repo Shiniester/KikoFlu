@@ -3297,7 +3297,7 @@ abstract class S {
   /// No description provided for @colorSchemeDynamicDesc.
   ///
   /// In en, this message translates to:
-  /// **'Use wallpaper colors from system (Android 12+)'**
+  /// **'Follow the current track artwork, using system colors when unavailable'**
   String get colorSchemeDynamicDesc;
 
   /// No description provided for @primaryContainer.
