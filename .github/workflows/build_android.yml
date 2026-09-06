@@ -77,12 +77,24 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
-            echo "ANDROID_KEYSTORE_BASE64 secret missing; skipping signing setup."
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          set -euo pipefail
+
+          for secret_name in \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD; do
+            if [ -z "${!secret_name}" ]; then
+              echo "::error::Required Android signing secret $secret_name is missing."
+              exit 1
+            fi
+          done
+
           printf "%s" "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release-key.jks
+          if [ ! -s android/app/release-key.jks ]; then
+            echo "::error::Decoded Android release keystore is empty."
+            exit 1
+          fi
           cat <<EOF > android/key.properties
           storeFile=app/release-key.jks
           storePassword=$ANDROID_KEYSTORE_PASSWORD
@@ -162,30 +174,33 @@ jobs:
             exit 1
           fi
 
-          if [ "$SIGNING_CONFIGURED" = "true" ]; then
-            for apk in "$universal_apk" "$arm64_apk"; do
-              cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
-              actual_cert="$(
-                printf '%s\n' "$cert_output" |
-                  sed -nE '/certificate SHA-256 digest:/I {
-                    s/.*certificate SHA-256 digest:[[:space:]]*//I
-                    p
-                    q
-                  }' |
-                  tr -d '[:space:]:' |
-                  tr '[:upper:]' '[:lower:]'
-              )"
-              if [ -z "$actual_cert" ]; then
-                echo "::error::Unable to read the Android signing certificate for $apk."
-                printf '%s\n' "$cert_output" >&2
-                exit 1
-              fi
-              if [ "$actual_cert" != "$EXPECTED_CERT_SHA256" ]; then
-                echo "::error::Unexpected Android signing certificate for $apk: $actual_cert"
-                exit 1
-              fi
-            done
+          if [ "$SIGNING_CONFIGURED" != "true" ]; then
+            echo "::error::Android release signing was not configured."
+            exit 1
           fi
+
+          for apk in "$universal_apk" "$arm64_apk"; do
+            cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+            actual_cert="$(
+              printf '%s\n' "$cert_output" |
+                sed -nE '/certificate SHA-256 digest:/I {
+                  s/.*certificate SHA-256 digest:[[:space:]]*//I
+                  p
+                  q
+                }' |
+                tr -d '[:space:]:' |
+                tr '[:upper:]' '[:lower:]'
+            )"
+            if [ -z "$actual_cert" ]; then
+              echo "::error::Unable to read the Android signing certificate for $apk."
+              printf '%s\n' "$cert_output" >&2
+              exit 1
+            fi
+            if [ "$actual_cert" != "$EXPECTED_CERT_SHA256" ]; then
+              echo "::error::Unexpected Android signing certificate for $apk: $actual_cert"
+              exit 1
+            fi
+          done
 
       - name: Upload Android Artifacts
         uses: actions/upload-artifact@v6

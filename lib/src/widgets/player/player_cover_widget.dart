@@ -370,8 +370,8 @@ class PlayerCoverWidget extends StatefulWidget {
 
 class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
     with SingleTickerProviderStateMixin {
-  static const _transitionDuration = Duration(milliseconds: 180);
-  static const _transitionScale = 1.08;
+  static const _transitionDuration = Duration(milliseconds: 240);
+  static const _transitionScale = 1.12;
 
   late final AnimationController _transitionController;
   late _PlayerCoverSnapshot _displayed;
@@ -695,7 +695,15 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
                     ).colorScheme.onSurface.withValues(alpha: 0.18),
                   ),
                 ),
-                child: _buildTransitionContent(radius),
+                // Keep the stable artwork frame's shadow and border outside
+                // the clip. Only the image/transition layers are clipped so
+                // their fixed 14dp corners remain stable while scaling.
+                child: ClipRRect(
+                  key: const ValueKey('player-cover-transition-clip'),
+                  clipBehavior: Clip.antiAlias,
+                  borderRadius: radius,
+                  child: _buildTransitionContent(radius),
+                ),
               ),
             );
             final previewArtwork = widget.previewHeroTag == null
