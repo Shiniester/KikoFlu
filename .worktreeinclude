@@ -1,0 +1,44 @@
+# 在新建 git worktree 时需要手工复制的文件清单
+# 说明：
+# - 下列文件中包含工具链配置、签名/平台配置或本地密钥信息，
+#   这些文件通常不会完整随分支变动自动同步，建议按需复制。
+
+# 1) 必须同步（新 worktree 直接可复现开发链）
+.fvmrc
+.metadata
+pubspec.yaml
+pubspec.lock
+analysis_options.yaml
+devtools_options.yaml
+dart_test.yaml
+l10n.yaml
+altstore-source.json
+.flutter-plugins-dependencies
+README.md
+README_EN.md
+README_JA.md
+
+# VS Code 与 Flutter 工具链映射
+.vscode/settings.json
+# AI Agents
+.agents/
+.codex/
+
+# 2) Android 相关本地配置（按你的机器存在则同步）
+android/local.properties
+android/gradle.properties
+android/key.properties
+android/.gradle/ # 如有本地缓存/配置需求（可选）
+tool/performance/setup_android_toolchain.ps1
+
+# 3) 平台签名与密钥（如存在请按需复制）
+KikoFlu_Key.pfx
+*.jks
+*.keystore
+*key*.properties
+*service-*.json
+*secrets*.json
+
+# 4) FVM / SDK 相关（如未全局预置可同步）
+.fvm/flutter_sdk
+fvm_cache_path.txt
