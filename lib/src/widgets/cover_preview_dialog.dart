@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:saver_gallery/saver_gallery.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -14,6 +16,7 @@ import '../services/storage_service.dart';
 import '../services/cache_service.dart';
 import 'privacy_blur_cover.dart';
 import 'player/player_visual_palette.dart';
+import 'player/player_cover_widget.dart';
 import '../../l10n/app_localizations.dart';
 
 const _coverImageExtensions = {'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'};
@@ -56,6 +59,9 @@ String resolveCoverImageExtension({String? source, required Uint8List bytes}) {
 
 /// 封面预览对话框，支持放大查看和保存图片
 class CoverPreviewDialog extends StatefulWidget {
+  static const double fallbackAspectRatio = 4 / 3;
+  static const double cornerRadius = 12;
+
   /// 网络图片URL
   final String? imageUrl;
 
@@ -77,6 +83,12 @@ class CoverPreviewDialog extends StatefulWidget {
   /// 当前播放器封面页使用的完整渐变调色板。
   final PlayerVisualPalette? backgroundPalette;
 
+  /// Decoded aspect ratio used to size the Hero destination.
+  final double imageAspectRatio;
+
+  /// Route animation used only for the preview background.
+  final Animation<double>? routeAnimation;
+
   const CoverPreviewDialog({
     super.key,
     this.imageUrl,
@@ -86,6 +98,8 @@ class CoverPreviewDialog extends StatefulWidget {
     this.cacheKey,
     this.backgroundColor = Colors.black,
     this.backgroundPalette,
+    this.imageAspectRatio = fallbackAspectRatio,
+    this.routeAnimation,
   }) : assert(
          imageUrl != null || localPath != null,
          'Either imageUrl or localPath must be provided',
@@ -101,19 +115,26 @@ class CoverPreviewDialog extends StatefulWidget {
     String? cacheKey,
     Color backgroundColor = Colors.black,
     PlayerVisualPalette? backgroundPalette,
-  }) {
+  }) async {
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    return Navigator.of(context).push(
+    final imageAspectRatio = await _resolveImageAspectRatio(
+      context,
+      imageUrl: imageUrl,
+      localPath: localPath,
+      cacheKey: cacheKey,
+    );
+    if (!context.mounted) return;
+    await Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
         barrierDismissible: true,
-        barrierColor: backgroundPalette?.backgroundStart ?? backgroundColor,
+        barrierColor: Colors.transparent,
         transitionDuration: reduceMotion
             ? Duration.zero
-            : const Duration(milliseconds: 200),
+            : const Duration(milliseconds: 280),
         reverseTransitionDuration: reduceMotion
             ? Duration.zero
-            : const Duration(milliseconds: 200),
+            : const Duration(milliseconds: 280),
         pageBuilder: (context, animation, secondaryAnimation) {
           return CoverPreviewDialog(
             imageUrl: imageUrl,
@@ -123,13 +144,61 @@ class CoverPreviewDialog extends StatefulWidget {
             cacheKey: cacheKey,
             backgroundColor: backgroundColor,
             backgroundPalette: backgroundPalette,
+            imageAspectRatio: imageAspectRatio,
+            routeAnimation: animation,
           );
         },
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(opacity: animation, child: child);
-        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+            child,
       ),
     );
+  }
+
+  static Future<double> _resolveImageAspectRatio(
+    BuildContext context, {
+    String? imageUrl,
+    String? localPath,
+    String? cacheKey,
+  }) async {
+    ImageProvider<Object>? provider;
+    if (localPath != null && File(localPath).existsSync()) {
+      provider = FileImage(File(localPath));
+    } else if (imageUrl != null) {
+      provider = CachedNetworkImageProvider(
+        imageUrl,
+        cacheKey: cacheKey,
+        cacheManager: CacheService.imageCacheManager,
+        headers: StorageService.serverCookieHeaders,
+      );
+    }
+    if (provider == null) return fallbackAspectRatio;
+
+    final completer = Completer<double>();
+    final stream = provider.resolve(createLocalImageConfiguration(context));
+    late final ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (imageInfo, synchronousCall) {
+        final width = imageInfo.image.width;
+        final height = imageInfo.image.height;
+        if (!completer.isCompleted) {
+          completer.complete(
+            width > 0 && height > 0 ? width / height : fallbackAspectRatio,
+          );
+        }
+      },
+      onError: (Object error, StackTrace? stackTrace) {
+        if (!completer.isCompleted) completer.complete(fallbackAspectRatio);
+      },
+    );
+    stream.addListener(listener);
+    try {
+      return await completer.future.timeout(
+        const Duration(milliseconds: 500),
+        onTimeout: () => fallbackAspectRatio,
+      );
+    } finally {
+      stream.removeListener(listener);
+    }
   }
 
   @override
@@ -357,13 +426,13 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
     }
   }
 
-  Widget _buildImage() {
+  Widget _buildImage({BoxFit fit = BoxFit.cover, bool includeHero = true}) {
     Widget imageWidget;
 
     if (widget.localPath != null && File(widget.localPath!).existsSync()) {
       imageWidget = Image.file(
         File(widget.localPath!),
-        fit: BoxFit.contain,
+        fit: fit,
         errorBuilder: (context, error, stackTrace) {
           if (widget.imageUrl != null) {
             return CachedNetworkImage(
@@ -371,7 +440,7 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
               cacheKey: _cacheKey,
               cacheManager: CacheService.imageCacheManager,
               httpHeaders: StorageService.serverCookieHeaders,
-              fit: BoxFit.contain,
+              fit: fit,
               placeholder: (context, url) =>
                   const Center(child: CircularProgressIndicator()),
               errorWidget: (context, url, error) =>
@@ -387,7 +456,7 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
         cacheKey: _cacheKey,
         cacheManager: CacheService.imageCacheManager,
         httpHeaders: StorageService.serverCookieHeaders,
-        fit: BoxFit.contain,
+        fit: fit,
         placeholder: (context, url) =>
             const Center(child: CircularProgressIndicator()),
         errorWidget: (context, url, error) =>
@@ -402,8 +471,13 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
     }
 
     Widget result = PrivacyBlurCover(child: imageWidget);
-    if (widget.heroTag != null && !MediaQuery.disableAnimationsOf(context)) {
-      result = Hero(tag: widget.heroTag!, child: result);
+    if (includeHero && widget.heroTag != null) {
+      result = PlayerCoverPreviewHero(
+        tag: widget.heroTag!,
+        cornerRadius: CoverPreviewDialog.cornerRadius,
+        flightChild: _buildImage(includeHero: false),
+        child: result,
+      );
     }
     return result;
   }
@@ -422,36 +496,81 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
         ),
       );
     }
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          Positioned.fill(child: background),
-          Positioned.fill(
-            child: Listener(
-              key: const ValueKey('cover-preview-background'),
-              behavior: HitTestBehavior.opaque,
-              onPointerDown: _handlePointerDown,
-              onPointerMove: _handlePointerMove,
-              onPointerUp: _handlePointerUp,
-              onPointerCancel: _handlePointerCancel,
-              child: InteractiveViewer(
-                key: const ValueKey('cover-preview-interactive-viewer'),
-                transformationController: _transformController,
-                minScale: 1.0,
-                maxScale: 5.0,
-                clipBehavior: Clip.none,
-                child: Center(
-                  child: KeyedSubtree(
-                    key: const ValueKey('cover-preview-image'),
-                    child: _buildImage(),
+    final routeAnimation = widget.routeAnimation;
+    if (routeAnimation != null) {
+      background = FadeTransition(
+        opacity: CurvedAnimation(
+          parent: routeAnimation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        ),
+        child: background,
+      );
+    }
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            Navigator.of(context).maybePop(),
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: Stack(
+            fit: StackFit.expand,
+            children: [
+              Positioned.fill(child: background),
+              Positioned.fill(
+                child: Listener(
+                  key: const ValueKey('cover-preview-background'),
+                  behavior: HitTestBehavior.opaque,
+                  onPointerDown: _handlePointerDown,
+                  onPointerMove: _handlePointerMove,
+                  onPointerUp: _handlePointerUp,
+                  onPointerCancel: _handlePointerCancel,
+                  child: InteractiveViewer(
+                    key: const ValueKey('cover-preview-interactive-viewer'),
+                    transformationController: _transformController,
+                    minScale: 1.0,
+                    maxScale: 5.0,
+                    clipBehavior: Clip.none,
+                    child: SafeArea(
+                      minimum: const EdgeInsets.all(16),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final aspectRatio = widget.imageAspectRatio > 0
+                              ? widget.imageAspectRatio
+                              : CoverPreviewDialog.fallbackAspectRatio;
+                          final width = math.min(
+                            constraints.maxWidth,
+                            constraints.maxHeight * aspectRatio,
+                          );
+                          final height = width / aspectRatio;
+                          return Center(
+                            child: SizedBox(
+                              key: const ValueKey('cover-preview-image-frame'),
+                              width: width,
+                              height: height,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(
+                                  CoverPreviewDialog.cornerRadius,
+                                ),
+                                child: KeyedSubtree(
+                                  key: const ValueKey('cover-preview-image'),
+                                  child: _buildImage(),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

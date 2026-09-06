@@ -1115,11 +1115,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
               onTap: coverUrl == null
                   ? null
                   : () => _showCoverPreview(track, coverUrl, previewPalette),
+              previewHeroTag: playerCoverPreviewHeroTag(track.id),
+              previewHeroEnabled: previewHeroActive,
             );
-            if (!previewHeroActive || MediaQuery.disableAnimationsOf(context)) {
-              return cover;
-            }
-            return Hero(tag: playerCoverPreviewHeroTag(track.id), child: cover);
+            return cover;
           },
         );
       },
@@ -1384,7 +1383,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       alignment: Alignment.center,
       child: SizedBox(
         key: const ValueKey('player-queue-width-boundary'),
-        width: isWide ? double.infinity : _compactSharedWidth,
+        width: isWide ? double.infinity : _compactSharedWidth! + 20,
         child: Column(
           children: [
             Expanded(
@@ -1393,7 +1392,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                 onClear: _clearQueueAndClosePlayer,
                 onDismissRequested: dismissRequested,
                 dismissDrag: dismissDrag,
-                horizontalPadding: 0,
+                horizontalPadding: isWide ? 0 : 10,
               ),
             ),
           ],

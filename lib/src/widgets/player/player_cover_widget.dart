@@ -146,6 +146,89 @@ class _PlayerArtworkHeroPayload extends StatelessWidget {
   Widget build(BuildContext context) => child;
 }
 
+class PlayerCoverPreviewHero extends StatelessWidget {
+  const PlayerCoverPreviewHero({
+    super.key,
+    required this.tag,
+    required this.cornerRadius,
+    required this.child,
+    this.flightChild,
+    this.enabled = true,
+  });
+
+  final Object tag;
+  final double cornerRadius;
+  final Widget child;
+  final Widget? flightChild;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!enabled || MediaQuery.disableAnimationsOf(context)) return child;
+    return Hero(
+      tag: tag,
+      createRectTween: (begin, end) => RectTween(begin: begin, end: end),
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+      flightShuttleBuilder: _playerCoverPreviewFlightShuttle,
+      child: _PlayerCoverPreviewHeroPayload(
+        cornerRadius: cornerRadius,
+        flightChild: flightChild ?? child,
+        child: child,
+      ),
+    );
+  }
+}
+
+class _PlayerCoverPreviewHeroPayload extends StatelessWidget {
+  const _PlayerCoverPreviewHeroPayload({
+    required this.cornerRadius,
+    required this.flightChild,
+    required this.child,
+  });
+
+  final double cornerRadius;
+  final Widget flightChild;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => child;
+}
+
+Widget _playerCoverPreviewFlightShuttle(
+  BuildContext flightContext,
+  Animation<double> animation,
+  HeroFlightDirection direction,
+  BuildContext fromHeroContext,
+  BuildContext toHeroContext,
+) {
+  final fromHero = fromHeroContext.widget as Hero;
+  final toHero = toHeroContext.widget as Hero;
+  final from = fromHero.child as _PlayerCoverPreviewHeroPayload;
+  final to = toHero.child as _PlayerCoverPreviewHeroPayload;
+  final stableChild = direction == HeroFlightDirection.push
+      ? to.flightChild
+      : from.flightChild;
+  return AnimatedBuilder(
+    animation: animation,
+    child: stableChild,
+    builder: (context, child) {
+      final progress = direction == HeroFlightDirection.push
+          ? animation.value
+          : 1 - animation.value;
+      final radius = Tween<double>(
+        begin: from.cornerRadius,
+        end: to.cornerRadius,
+      ).transform(progress);
+      return ClipRRect(
+        key: const ValueKey('player-cover-preview-flight-frame'),
+        borderRadius: BorderRadius.circular(radius),
+        child: child,
+      );
+    },
+  );
+}
+
 Widget _playerArtworkFlightShuttle(
   BuildContext flightContext,
   Animation<double> animation,
@@ -259,6 +342,8 @@ class PlayerCoverWidget extends StatelessWidget {
   final VoidCallback? onTap;
   final bool heroEnabled;
   final PlayerArtworkFlightTarget heroTarget;
+  final Object? previewHeroTag;
+  final bool previewHeroEnabled;
 
   const PlayerCoverWidget({
     super.key,
@@ -268,6 +353,8 @@ class PlayerCoverWidget extends StatelessWidget {
     this.onTap,
     this.heroEnabled = true,
     this.heroTarget = PlayerArtworkFlightTarget.main,
+    this.previewHeroTag,
+    this.previewHeroEnabled = false,
   });
 
   // 判断是否为本地文件路径
@@ -377,6 +464,14 @@ class PlayerCoverWidget extends StatelessWidget {
                       ),
               ),
             );
+            final previewArtwork = previewHeroTag == null
+                ? artwork
+                : PlayerCoverPreviewHero(
+                    tag: previewHeroTag!,
+                    cornerRadius: cornerRadius,
+                    enabled: previewHeroEnabled,
+                    child: artwork,
+                  );
             return PlayerArtworkHero(
               trackId: track.id,
               target: heroTarget,
@@ -388,7 +483,7 @@ class PlayerCoverWidget extends StatelessWidget {
                 url: workCoverUrl ?? track.artworkUrl,
                 forFlight: true,
               ),
-              child: artwork,
+              child: previewArtwork,
             );
           },
         ),

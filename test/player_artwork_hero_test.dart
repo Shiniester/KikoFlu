@@ -197,6 +197,115 @@ void main() {
   });
 
   testWidgets(
+    'cover preview Hero uses direct geometry and interpolates 14 to 12 radius',
+    (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: Row(
+              children: [
+                PlayerCoverPreviewHero(
+                  tag: 'preview',
+                  cornerRadius: 14,
+                  child: SizedBox(width: 320, height: 240),
+                ),
+                PlayerCoverPreviewHero(
+                  tag: 'preview-target',
+                  cornerRadius: 12,
+                  child: SizedBox(width: 360, height: 540),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      final heroes = find.byType(Hero).evaluate().toList(growable: false);
+      final from = heroes.first.widget as Hero;
+      final to = heroes.last.widget as Hero;
+      const begin = Rect.fromLTWH(20, 80, 320, 240);
+      const end = Rect.fromLTWH(16, 40, 360, 540);
+      expect(
+        from.createRectTween!(begin, end).transform(0.5),
+        Rect.lerp(begin, end, 0.5),
+      );
+      expect(from.curve, Curves.easeOutCubic);
+      expect(from.reverseCurve, Curves.easeInCubic);
+
+      BorderRadius flightRadius(
+        HeroFlightDirection direction,
+        double animationValue,
+      ) {
+        final fromContext = direction == HeroFlightDirection.push
+            ? heroes.first
+            : heroes.last;
+        final toContext = direction == HeroFlightDirection.push
+            ? heroes.last
+            : heroes.first;
+        final hero = direction == HeroFlightDirection.push ? from : to;
+        final shuttle =
+            hero.flightShuttleBuilder!(
+                  fromContext,
+                  AlwaysStoppedAnimation<double>(animationValue),
+                  direction,
+                  fromContext,
+                  toContext,
+                )
+                as AnimatedBuilder;
+        final clip = shuttle.builder(fromContext, shuttle.child) as ClipRRect;
+        return clip.borderRadius as BorderRadius;
+      }
+
+      expect(
+        flightRadius(HeroFlightDirection.push, 0),
+        BorderRadius.circular(14),
+      );
+      expect(
+        flightRadius(HeroFlightDirection.push, 0.5),
+        BorderRadius.circular(13),
+      );
+      expect(
+        flightRadius(HeroFlightDirection.push, 1),
+        BorderRadius.circular(12),
+      );
+      expect(
+        flightRadius(HeroFlightDirection.pop, 1),
+        BorderRadius.circular(12),
+      );
+      expect(
+        flightRadius(HeroFlightDirection.pop, 0.5),
+        BorderRadius.circular(13),
+      );
+      expect(
+        flightRadius(HeroFlightDirection.pop, 0),
+        BorderRadius.circular(14),
+      );
+    },
+  );
+
+  testWidgets('cover preview Hero is disabled for reduced motion', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: const PlayerCoverPreviewHero(
+              tag: 'preview',
+              cornerRadius: 14,
+              child: SizedBox(width: 320, height: 240),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(PlayerCoverPreviewHero), findsOneWidget);
+    expect(find.byType(Hero), findsNothing);
+  });
+
+  testWidgets(
     'flight artwork preserves image and privacy behavior without a fixed radius',
     (tester) async {
       SharedPreferences.setMockInitialValues({});

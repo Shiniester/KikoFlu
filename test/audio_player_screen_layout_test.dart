@@ -78,12 +78,14 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('real cover opens a toolbar-free preview', (tester) async {
+  testWidgets('zoomed real cover returns through the preview Hero', (
+    tester,
+  ) async {
     const coveredTrack = AudioTrack(
       id: 'covered-track',
       title: 'Covered track',
       url: 'https://example.invalid/audio.mp3',
-      artworkUrl: 'https://example.invalid/cover.jpg',
+      artworkUrl: 'file://assets/icons/app_icon_opaque.png',
     );
     await _pumpPlayer(tester, const Size(390, 844), track: coveredTrack);
 
@@ -98,14 +100,30 @@ void main() {
       find.byKey(const ValueKey('player-cover-artwork-covered-track')),
     );
     await tester.pump();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump(const Duration(milliseconds: 501));
+    await tester.pumpAndSettle();
     expect(find.byType(CoverPreviewDialog), findsOneWidget);
     expect(previewHero, findsNWidgets(2));
     expect(find.byIcon(Icons.close), findsNothing);
     expect(find.byIcon(Icons.save_alt), findsNothing);
 
+    final previewBackground = find.byKey(
+      const ValueKey('cover-preview-background'),
+    );
+    await tester.tapAt(tester.getCenter(previewBackground));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tapAt(tester.getCenter(previewBackground));
+    await tester.pump();
+    final viewer = tester.widget<InteractiveViewer>(
+      find.byKey(const ValueKey('cover-preview-interactive-viewer')),
+    );
+    expect(
+      viewer.transformationController!.value.getMaxScaleOnAxis(),
+      closeTo(2.5, 0.001),
+    );
+
     await tester.binding.handlePopRoute();
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(previewHero, findsWidgets);
     await tester.pumpAndSettle();
@@ -1384,7 +1402,98 @@ void main() {
     expect(find.byType(AudioPlayerScreen), findsNothing);
   });
 
-  testWidgets('short compact stage keeps controls and queue at cover width', (
+  for (final locale in const [Locale('en'), Locale('zh')]) {
+    testWidgets(
+      'compact queue keeps ${locale.languageCode} clear text centered in its expanded target',
+      (tester) async {
+        await _pumpPlayer(
+          tester,
+          const Size(390, 844),
+          locale: locale,
+          // Ahem gives every glyph the same oversized advance. Keep the
+          // localized labels narrower than the 78dp side track so this test
+          // can exercise the natural-width hit boundary.
+          textScale: 0.5,
+        );
+        await tester.tap(find.byIcon(Icons.queue_music));
+        await tester.pumpAndSettle();
+
+        final boundary = tester.getRect(
+          find.byKey(const ValueKey('player-queue-width-boundary')),
+        );
+        final clearButton = find.byKey(
+          const ValueKey('player-queue-clear-button'),
+        );
+        final clearText = find.descendant(
+          of: clearButton,
+          matching: find.byType(Text),
+        );
+        final buttonRect = tester.getRect(clearButton);
+        final textRect = tester.getRect(clearText);
+        expect(buttonRect.height, 36);
+        expect(buttonRect.width, closeTo(textRect.width + 20, 0.01));
+        expect(buttonRect.center.dx, closeTo(textRect.center.dx, 0.01));
+        expect(buttonRect.right, closeTo(boundary.right, 0.01));
+        expect(textRect.right, closeTo(boundary.right - 10, 0.01));
+
+        final currentTrack = find.byKey(
+          const ValueKey('player-queue-track-track-1'),
+        );
+        final currentTrackRect = tester.getRect(currentTrack);
+        expect(currentTrackRect.left, closeTo(boundary.left, 0.01));
+        expect(currentTrackRect.right, closeTo(boundary.right, 0.01));
+        final material = tester.widget<Material>(currentTrack);
+        expect(
+          (material.shape! as RoundedRectangleBorder).borderRadius,
+          BorderRadius.circular(14),
+        );
+        expect(material.color, isNot(Colors.transparent));
+        expect(
+          tester
+              .widget<ReorderableListView>(
+                find.byKey(const ValueKey('player-queue-list')),
+              )
+              .clipBehavior,
+          isNot(Clip.none),
+        );
+
+        final oldButtonLeft = textRect.right - 48;
+        expect(buttonRect.left, greaterThan(oldButtonLeft));
+        await tester.tapAt(
+          Offset((oldButtonLeft + buttonRect.left) / 2, buttonRect.center.dy),
+        );
+        await tester.pump();
+        expect(find.byType(PlayerGlassAlertDialog), findsNothing);
+
+        await tester.tapAt(Offset(buttonRect.right - 2, buttonRect.center.dy));
+        await tester.pumpAndSettle();
+        expect(find.byType(PlayerGlassAlertDialog), findsOneWidget);
+      },
+    );
+  }
+
+  testWidgets('compact current-track extension paints through rounded edges', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(390, 844));
+    await tester.tap(find.byIcon(Icons.queue_music));
+    await tester.pumpAndSettle();
+
+    final currentTrack = find.byKey(
+      const ValueKey('player-queue-track-track-1'),
+    );
+    final physicalShape = tester.widget<PhysicalShape>(
+      find.descendant(of: currentTrack, matching: find.byType(PhysicalShape)),
+    );
+    final shapeSize = tester.getSize(
+      find.descendant(of: currentTrack, matching: find.byType(PhysicalShape)),
+    );
+    final paintClip = physicalShape.clipper.getClip(shapeSize);
+    expect(paintClip.contains(Offset(2, shapeSize.height / 2)), isTrue);
+    expect(paintClip.contains(const Offset(1, 1)), isFalse);
+  });
+
+  testWidgets('short compact stage keeps queue content at cover width', (
     tester,
   ) async {
     await _pumpPlayer(tester, const Size(839, 720));
@@ -1402,7 +1511,7 @@ void main() {
     final queueWidth = tester
         .getSize(find.byKey(const ValueKey('player-queue-width-boundary')))
         .width;
-    expect(queueWidth, closeTo(coverWidth, 0.01));
+    expect(queueWidth, closeTo(coverWidth + 20, 0.01));
     final nowPlayingArtwork = find.byKey(
       const ValueKey('player-queue-now-playing-artwork'),
     );
@@ -1448,9 +1557,12 @@ void main() {
     expect(nowPlaying.right, closeTo(queueBoundary.right, 0.01));
     expect(titleBar.left, closeTo(queueBoundary.left, 0.01));
     expect(titleBar.right, closeTo(queueBoundary.right, 0.01));
-    expect(queueTrack.left, closeTo(titleBar.left - 10, 0.01));
-    expect(queueTrack.right, closeTo(titleBar.right + 10, 0.01));
-    expect(tester.getRect(queueArtwork).left, closeTo(titleBar.left, 0.01));
+    expect(queueTrack.left, closeTo(queueBoundary.left, 0.01));
+    expect(queueTrack.right, closeTo(queueBoundary.right, 0.01));
+    expect(
+      tester.getRect(queueArtwork).left,
+      closeTo(queueBoundary.left + 10, 0.01),
+    );
     expect(
       find.descendant(
         of: queueTrackContentFinder,
@@ -1488,10 +1600,10 @@ void main() {
     final clearButtonRect = tester.getRect(
       find.byKey(const ValueKey('player-queue-clear-button')),
     );
-    expect(clearTextRect.right, closeTo(titleBar.right, 0.01));
-    expect(clearButtonRect.right, closeTo(titleBar.right, 0.01));
-    expect(clearButtonRect.width, 48);
-    expect(clearButtonRect.left, greaterThan(titleBar.right - 68));
+    expect(clearTextRect.right, closeTo(queueBoundary.right - 10, 0.01));
+    expect(clearButtonRect.right, closeTo(queueBoundary.right, 0.01));
+    expect(clearButtonRect.width, closeTo(clearTextRect.width + 20, 0.01));
+    expect(clearButtonRect.center.dx, closeTo(clearTextRect.center.dx, 0.01));
     final queueInk = tester.widget<InkWell>(
       find.descendant(
         of: queueTrackContentFinder,
@@ -1518,7 +1630,10 @@ void main() {
       matching: find.byType(PlayerCompactAction),
     );
     expect(tester.getSize(removeButton), const Size(32, 32));
-    expect(tester.getRect(removeButton).right, closeTo(titleBar.right, 0.01));
+    expect(
+      tester.getRect(removeButton).right,
+      closeTo(queueBoundary.right - 10, 0.01),
+    );
     expect(
       removeIcon.color,
       Theme.of(
@@ -1526,7 +1641,7 @@ void main() {
       ).colorScheme.onSurfaceVariant,
     );
     await tester.tapAt(
-      Offset(clearButtonRect.left + 2, clearButtonRect.center.dy),
+      Offset(clearButtonRect.right - 2, clearButtonRect.center.dy),
     );
     await tester.pumpAndSettle();
     expect(find.text('Clear playback queue?'), findsOneWidget);
@@ -2019,6 +2134,7 @@ Future<void> _pumpPlayer(
   AudioTrack track = _track,
   PlayerWorkDetailsData? workDetails,
   LyricState? lyricState,
+  Locale locale = const Locale('en'),
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -2060,6 +2176,7 @@ Future<void> _pumpPlayer(
         themeMode: themeMode,
         localizationsDelegates: S.localizationsDelegates,
         supportedLocales: S.supportedLocales,
+        locale: locale,
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(
             context,

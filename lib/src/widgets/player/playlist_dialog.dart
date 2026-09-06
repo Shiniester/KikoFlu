@@ -81,6 +81,25 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
     final queueMetaStyle = Theme.of(
       context,
     ).textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant);
+    final extendsBeyondContent = widget.horizontalPadding == 10;
+    final titleSideWidth = extendsBeyondContent ? 78.0 : 68.0;
+    final clearButton = TextButton(
+      key: const ValueKey('player-queue-clear-button'),
+      onPressed: widget.onClear,
+      style: TextButton.styleFrom(
+        foregroundColor: colorScheme.onSurfaceVariant,
+        padding: extendsBeyondContent
+            ? const EdgeInsets.symmetric(horizontal: 10)
+            : EdgeInsets.zero,
+        minimumSize: extendsBeyondContent ? Size.zero : const Size(48, 36),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
+        alignment: extendsBeyondContent
+            ? Alignment.center
+            : Alignment.centerRight,
+      ),
+      child: Text(S.of(context).clear, style: queueMetaStyle),
+    );
 
     return RepaintBoundary(
       child: Column(
@@ -107,20 +126,25 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
             child: Padding(
               key: const ValueKey('player-queue-title-bar'),
               padding: EdgeInsets.fromLTRB(
-                widget.horizontalPadding,
+                extendsBeyondContent ? 0 : widget.horizontalPadding,
                 8,
-                widget.horizontalPadding,
+                extendsBeyondContent ? 0 : widget.horizontalPadding,
                 10,
               ),
               child: Row(
                 children: [
                   SizedBox(
-                    width: 68,
-                    child: Text(
-                      tracks.isEmpty
-                          ? '0 / 0'
-                          : '${currentIndex < 0 ? 0 : currentIndex + 1} / ${tracks.length}',
-                      style: queueMetaStyle,
+                    width: titleSideWidth,
+                    child: Padding(
+                      padding: EdgeInsets.only(
+                        left: extendsBeyondContent ? 10 : 0,
+                      ),
+                      child: Text(
+                        tracks.isEmpty
+                            ? '0 / 0'
+                            : '${currentIndex < 0 ? 0 : currentIndex + 1} / ${tracks.length}',
+                        style: queueMetaStyle,
+                      ),
                     ),
                   ),
                   Expanded(
@@ -136,34 +160,23 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
                     ),
                   ),
                   SizedBox(
-                    width: 68,
+                    width: titleSideWidth,
                     child: tracks.isEmpty || widget.onClear == null
                         ? const SizedBox.shrink()
                         : Align(
                             alignment: Alignment.centerRight,
-                            child: SizedBox(
-                              width: 48,
-                              height: 36,
-                              child: TextButton(
-                                key: const ValueKey(
-                                  'player-queue-clear-button',
-                                ),
-                                onPressed: widget.onClear,
-                                style: TextButton.styleFrom(
-                                  foregroundColor: colorScheme.onSurfaceVariant,
-                                  padding: EdgeInsets.zero,
-                                  minimumSize: const Size(48, 36),
-                                  tapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                  visualDensity: VisualDensity.compact,
-                                  alignment: Alignment.centerRight,
-                                ),
-                                child: Text(
-                                  S.of(context).clear,
-                                  style: queueMetaStyle,
-                                ),
-                              ),
-                            ),
+                            child: extendsBeyondContent
+                                ? IntrinsicWidth(
+                                    child: SizedBox(
+                                      height: 36,
+                                      child: clearButton,
+                                    ),
+                                  )
+                                : SizedBox(
+                                    width: 48,
+                                    height: 36,
+                                    child: clearButton,
+                                  ),
                           ),
                   ),
                   if (widget.showCloseButton)

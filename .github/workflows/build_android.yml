@@ -1,0 +1,301 @@
+name: Build Android and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, for example 4.4.1 or v4.4.1'
+        required: true
+        type: string
+      release_notes:
+        description: 'Release notes in Markdown'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare Release Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      suffix: ${{ steps.version.outputs.suffix }}
+    steps:
+      - name: Normalize and validate version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          version="${INPUT_VERSION#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must use MAJOR.MINOR.PATCH, for example 4.4.1."
+            exit 1
+          fi
+
+          tag="v${version}"
+          suffix="${version//./}"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::Release $tag already exists. Choose a new version."
+            exit 1
+          fi
+
+          if gh api "repos/${GH_REPO}/git/ref/tags/${tag}" >/dev/null 2>&1; then
+            echo "::error::Git tag $tag already exists. Choose a new version."
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "suffix=$suffix" >> "$GITHUB_OUTPUT"
+          echo "Building Android release $tag with filename suffix $suffix"
+
+  android:
+    name: Android Build
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set Application Version
+        run: |
+          sed -i.bak -E 's/^version: .*/version: ${{ needs.prepare.outputs.version }}/' pubspec.yaml
+          rm pubspec.yaml.bak
+
+      - name: Prepare Android Signing
+        id: android_signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "ANDROID_KEYSTORE_BASE64 secret missing; skipping signing setup."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf "%s" "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release-key.jks
+          cat <<EOF > android/key.properties
+          storeFile=app/release-key.jks
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+          chmod 600 android/app/release-key.jks android/key.properties
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          channel: 'stable'
+
+      - name: Get Dependencies
+        run: flutter pub get
+
+      - name: Build Android APKs
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          flutter build apk --release
+          mv build/app/outputs/flutter-apk/app-release.apk \
+            "dist/KikoFlu-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
+
+          # Preserve the legacy split APK versionCode scheme so existing
+          # arm64 installations can be upgraded in place.
+          flutter build apk --release --split-per-abi
+          mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+            "dist/KikoFlu-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
+
+      - name: Verify Android Package Compatibility
+        env:
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+          SIGNING_CONFIGURED: ${{ steps.android_signing.outputs.configured }}
+          EXPECTED_CERT_SHA256: b49fcc1a879b7dab15f223f7431dfbee447dbe268d1578fc549340c430ddc87f
+        run: |
+          set -euo pipefail
+
+          build_tools_dir="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          aapt="$build_tools_dir/aapt"
+          apksigner="$build_tools_dir/apksigner"
+          universal_apk="dist/KikoFlu-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
+          arm64_apk="dist/KikoFlu-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
+
+          for tool in "$aapt" "$apksigner"; do
+            if [ ! -x "$tool" ]; then
+              echo "::error::Required Android build tool not found: $tool"
+              exit 1
+            fi
+          done
+
+          universal_badging="$("$aapt" dump badging "$universal_apk" | sed -n '1p')"
+          arm64_badging="$("$aapt" dump badging "$arm64_apk" | sed -n '1p')"
+          universal_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<< "$universal_badging")"
+          arm64_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<< "$arm64_badging")"
+
+          for badging in "$universal_badging" "$arm64_badging"; do
+            package_name="$(sed -n "s/.*package: name='\([^']*\)'.*/\1/p" <<< "$badging")"
+            version_name="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<< "$badging")"
+            if [ "$package_name" != "com.meteor.kikoeruflutter" ] || [ "$version_name" != "$EXPECTED_VERSION" ]; then
+              echo "::error::Unexpected Android package metadata: $badging"
+              exit 1
+            fi
+          done
+
+          if [ "$arm64_code" -ne $((universal_code + 2000)) ]; then
+            echo "::error::arm64 versionCode $arm64_code does not preserve the legacy split offset from $universal_code."
+            exit 1
+          fi
+
+          if [ "$SIGNING_CONFIGURED" = "true" ]; then
+            for apk in "$universal_apk" "$arm64_apk"; do
+              cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
+              actual_cert="$(
+                printf '%s\n' "$cert_output" |
+                  sed -nE '/certificate SHA-256 digest:/I {
+                    s/.*certificate SHA-256 digest:[[:space:]]*//I
+                    p
+                    q
+                  }' |
+                  tr -d '[:space:]:' |
+                  tr '[:upper:]' '[:lower:]'
+              )"
+              if [ -z "$actual_cert" ]; then
+                echo "::error::Unable to read the Android signing certificate for $apk."
+                printf '%s\n' "$cert_output" >&2
+                exit 1
+              fi
+              if [ "$actual_cert" != "$EXPECTED_CERT_SHA256" ]; then
+                echo "::error::Unexpected Android signing certificate for $apk: $actual_cert"
+                exit 1
+              fi
+            done
+          fi
+
+      - name: Upload Android Artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-assets-android
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Create Android GitHub Release
+    needs:
+      - prepare
+      - android
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Android release artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: release-assets-android
+          path: release-assets
+
+      - name: Verify and publish Android release atomically
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+        run: |
+          set -euo pipefail
+
+          expected=(
+            "KikoFlu-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
+            "KikoFlu-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
+          )
+
+          for asset in "${expected[@]}"; do
+            path="release-assets/$asset"
+            if [ ! -s "$path" ]; then
+              echo "::error::Missing or empty Android release asset: $asset"
+              exit 1
+            fi
+          done
+
+          release_json="$(gh api --method POST "repos/${GH_REPO}/releases" \
+            -f "tag_name=${TAG}" \
+            -f "target_commitish=${GITHUB_SHA}" \
+            -f "name=${TAG}" \
+            -f "body=${RELEASE_NOTES}" \
+            -F 'draft=true' \
+            -F 'prerelease=false')"
+          release_id="$(jq -r '.id // empty' <<< "$release_json")"
+          upload_url="$(jq -r '.upload_url // empty' <<< "$release_json" | sed 's/{?name,label}$//')"
+          if [ -z "$release_id" ] || [ -z "$upload_url" ]; then
+            echo "::error::GitHub did not return a usable draft release id or upload URL."
+            printf '%s\n' "$release_json"
+            exit 1
+          fi
+
+          cleanup_draft() {
+            status="$1"
+            trap - ERR INT TERM
+            gh api --method DELETE "repos/${GH_REPO}/releases/${release_id}" >/dev/null 2>&1 || true
+            if gh api "repos/${GH_REPO}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+              gh api --method DELETE "repos/${GH_REPO}/git/refs/tags/${TAG}" >/dev/null 2>&1 || true
+            fi
+            exit "$status"
+          }
+          trap 'cleanup_draft $?' ERR
+          trap 'cleanup_draft 130' INT
+          trap 'cleanup_draft 143' TERM
+
+          for asset in "${expected[@]}"; do
+            asset_name="$(basename "$asset")"
+            encoded_name="$(jq -nr --arg name "$asset_name" '$name | @uri')"
+            echo "Uploading $asset_name"
+            curl --fail-with-body --silent --show-error \
+              --request POST "${upload_url}?name=${encoded_name}" \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header 'Accept: application/vnd.github+json' \
+              --header 'Content-Type: application/octet-stream' \
+              --data-binary "@release-assets/$asset"
+          done
+
+          remote_assets="$(gh api "repos/${GH_REPO}/releases/${release_id}" \
+            --jq '.assets[] | [.name, .size, .state] | @tsv')"
+          mapfile -t uploaded < <(
+            printf '%s\n' "$remote_assets" |
+              awk -F '\t' '$2 > 0 && $3 == "uploaded" { print $1 }' |
+              sort
+          )
+          mapfile -t expected_sorted < <(printf '%s\n' "${expected[@]}" | sort)
+
+          if [ "${#uploaded[@]}" -ne "${#expected_sorted[@]}" ]; then
+            echo "::error::Android draft release contains an unexpected number of complete assets."
+            printf 'Expected: %s\n' "${expected_sorted[*]}"
+            printf 'Uploaded: %s\n' "${uploaded[*]}"
+            false
+          fi
+          for index in "${!expected_sorted[@]}"; do
+            if [ "${uploaded[$index]}" != "${expected_sorted[$index]}" ]; then
+              echo "::error::Android draft release assets do not match the expected set."
+              printf 'Expected: %s\n' "${expected_sorted[*]}"
+              printf 'Uploaded: %s\n' "${uploaded[*]}"
+              false
+            fi
+          done
+
+          gh api --method PATCH "repos/${GH_REPO}/releases/${release_id}" \
+            -F 'draft=false' \
+            -F 'make_latest=true' >/dev/null
+          trap - ERR INT TERM

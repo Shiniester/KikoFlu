@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/widgets/cover_preview_dialog.dart';
@@ -65,6 +66,33 @@ void main() {
       find.byKey(const ValueKey('cover-preview-background')),
       findsNothing,
     );
+  });
+
+  testWidgets('preview frame uses the decoded ratio inside 16 pixel margins', (
+    tester,
+  ) async {
+    await _pumpPreviewHost(tester);
+
+    final viewport = tester.getRect(
+      find.byKey(const ValueKey('cover-preview-background')),
+    );
+    final frame = tester.getRect(
+      find.byKey(const ValueKey('cover-preview-image-frame')),
+    );
+    expect(frame.width / frame.height, closeTo(4 / 3, 0.001));
+    expect(frame.left - viewport.left, greaterThanOrEqualTo(16));
+    expect(viewport.right - frame.right, greaterThanOrEqualTo(16));
+    expect(frame.top - viewport.top, greaterThanOrEqualTo(16));
+    expect(viewport.bottom - frame.bottom, greaterThanOrEqualTo(16));
+    final clip = tester.widget<ClipRRect>(
+      find
+          .ancestor(
+            of: find.byKey(const ValueKey('cover-preview-image')),
+            matching: find.byType(ClipRRect),
+          )
+          .first,
+    );
+    expect(clip.borderRadius, BorderRadius.circular(12));
   });
 
   testWidgets('double tap zooms without closing the preview', (tester) async {
@@ -133,6 +161,17 @@ void main() {
     final background = find.byKey(const ValueKey('cover-preview-background'));
     await tester.tapAt(tester.getTopLeft(background) + const Offset(8, 8));
     await tester.pump(const Duration(milliseconds: 301));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('cover-preview-background')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('escape returns from the preview', (tester) async {
+    await _pumpPreviewHost(tester);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('cover-preview-background')),
