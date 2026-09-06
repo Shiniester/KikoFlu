@@ -10,7 +10,7 @@ enum PlayerButtonType {
   volume('音量控制', 'volume'),
   speed('播放速度', 'speed'),
   repeat('循环模式', 'repeat'),
-  queue('播放列表', 'queue'),
+  queue('播放队列', 'queue'),
   detail('查看详情', 'detail'),
   subtitleAdjustment('字幕轴调整', 'subtitle_adjustment'),
   floatingLyric('悬浮字幕', 'floating_lyric');

@@ -30,6 +30,7 @@ import '../widgets/player/player_vertical_gestures.dart';
 import '../widgets/text_preview_screen.dart';
 import '../widgets/work_bookmark_manager.dart';
 import '../widgets/app_bottom_dock_transition.dart';
+import '../widgets/cover_preview_dialog.dart';
 import 'work_detail_screen.dart';
 import '../../l10n/app_localizations.dart';
 
@@ -81,7 +82,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
 
   bool _isSeekingManually = false;
   double _seekValue = 0.0;
-  bool _showLyricHint = false;
   String? _currentProgress;
   int? _currentRating;
   int? _currentWorkId;
@@ -113,6 +113,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   double _compactQueueExtent = 1;
   bool _queueTransitionActive = false;
   bool _openingWorkDetail = false;
+  final ValueNotifier<String?> _coverPreviewHeroTrackId = ValueNotifier(null);
   bool _routeDismissDragAccepted = false;
   bool _reduceMotionDismissDrag = false;
   PlayerInteractiveDismissRoute? _activeDismissRoute;
@@ -142,7 +143,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         if (mounted) setState(() => _routePaletteFrozen = false);
       });
     }
-    _checkAndShowLyricHint();
   }
 
   @override
@@ -196,6 +196,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     _routePaletteTimer?.cancel();
     _unlockButtonTimer?.cancel();
     _semanticPageRevision.dispose();
+    _coverPreviewHeroTrackId.dispose();
     _progressGestureActive.dispose();
     _semanticTransitionGeneration++;
     _queueTransitionGeneration++;
@@ -216,27 +217,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         if (mounted && _showUnlockButton) {
           setState(() {
             _showUnlockButton = false;
-          });
-        }
-      });
-    }
-  }
-
-  Future<void> _checkAndShowLyricHint() async {
-    final prefs = await SharedPreferences.getInstance();
-    final hasShown = prefs.getBool('lyric_hint_has_shown') ?? false;
-
-    if (!hasShown && mounted) {
-      setState(() {
-        _showLyricHint = true;
-      });
-
-      await prefs.setBool('lyric_hint_has_shown', true);
-
-      Future.delayed(const Duration(seconds: 8), () {
-        if (mounted) {
-          setState(() {
-            _showLyricHint = false;
           });
         }
       });
@@ -484,29 +464,13 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                             duration: motionDuration,
                             curve: Curves.easeInOutCubic,
                             decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  palette.backgroundStart,
-                                  palette.backgroundMiddle,
-                                  palette.backgroundEnd,
-                                ],
-                                stops: const [0, 0.56, 1],
-                              ),
+                              gradient: palette.backgroundGradient,
                             ),
                             child: AnimatedContainer(
                               duration: motionDuration,
                               curve: Curves.easeInOutCubic,
                               decoration: BoxDecoration(
-                                gradient: RadialGradient(
-                                  center: const Alignment(-0.72, 0.62),
-                                  radius: 1.15,
-                                  colors: [
-                                    palette.accent.withValues(alpha: 0.18),
-                                    Colors.transparent,
-                                  ],
-                                ),
+                                gradient: palette.accentGradient,
                               ),
                             ),
                           ),
@@ -533,11 +497,13 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                                             context,
                                             track: track,
                                             coverUrl: coverUrl,
+                                            previewPalette: palette,
                                           )
                                         : _buildCompactPlayer(
                                             context,
                                             track: track,
                                             coverUrl: coverUrl,
+                                            previewPalette: palette,
                                           ),
                                   );
                                 },
@@ -548,8 +514,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                       ),
                       if (_isLyricLocked)
                         Positioned.fill(child: _buildPortraitLyricView()),
-                      if (_showLyricHint && !_isLyricLocked)
-                        _buildLyricHintBanner(),
                       if (isTrackLoading) _buildTrackLoadingOverlay(context),
                     ],
                   ),
@@ -613,6 +577,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     BuildContext context, {
     required AudioTrack track,
     required String? coverUrl,
+    required PlayerVisualPalette previewPalette,
   }) {
     final width = MediaQuery.sizeOf(context).width;
     final titleDismissDrag = _playerDismissDragCallbacks(context);
@@ -640,6 +605,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                         track: track,
                         coverUrl: coverUrl,
                         isWide: true,
+                        previewPalette: previewPalette,
                       )
                     : Directionality(
                         textDirection: TextDirection.ltr,
@@ -661,6 +627,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                                   track: track,
                                   coverUrl: coverUrl,
                                   isWide: true,
+                                  previewPalette: previewPalette,
                                 ),
                               ),
                             ),
@@ -795,6 +762,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     BuildContext context, {
     required AudioTrack track,
     required String? coverUrl,
+    required PlayerVisualPalette previewPalette,
   }) {
     return SafeArea(
       minimum: const EdgeInsets.fromLTRB(0, 10, 0, 8),
@@ -875,6 +843,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                             coverUrl: coverUrl,
                             sharedWidth: sharedWidth,
                             dismissDrag: mainBodyDismissDrag,
+                            previewPalette: previewPalette,
                           ),
                         ),
                         _PlayerPageBoundary(
@@ -1062,6 +1031,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     required String? coverUrl,
     required double sharedWidth,
     required PlayerVerticalDragCallbacks dismissDrag,
+    required PlayerVisualPalette previewPalette,
   }) {
     final queueDrag = _queueOpenDragCallbacks(1);
     final content = Center(
@@ -1081,6 +1051,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                     track: track,
                     coverUrl: coverUrl,
                     isWide: false,
+                    previewPalette: previewPalette,
                   ),
                 ),
               ),
@@ -1123,20 +1094,33 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     required AudioTrack track,
     required String? coverUrl,
     required bool isWide,
+    required PlayerVisualPalette previewPalette,
   }) {
     return ValueListenableBuilder<int>(
       valueListenable: _semanticPageRevision,
       builder: (context, _, __) {
         final heroEnabled = _shouldEnableMainArtworkHero(isWide: isWide);
-        return PlayerCoverWidget(
-          track: track,
-          workCoverUrl: coverUrl,
-          isLandscape: isWide,
-          heroEnabled: heroEnabled,
-          heroTarget: heroEnabled
-              ? PlayerArtworkFlightTarget.main
-              : PlayerArtworkFlightTarget.none,
-          onTap: _showLyrics,
+        return ValueListenableBuilder<String?>(
+          valueListenable: _coverPreviewHeroTrackId,
+          builder: (context, previewHeroTrackId, _) {
+            final previewHeroActive = previewHeroTrackId == track.id;
+            final cover = PlayerCoverWidget(
+              track: track,
+              workCoverUrl: coverUrl,
+              isLandscape: isWide,
+              heroEnabled: heroEnabled && !previewHeroActive,
+              heroTarget: heroEnabled
+                  ? PlayerArtworkFlightTarget.main
+                  : PlayerArtworkFlightTarget.none,
+              onTap: coverUrl == null
+                  ? null
+                  : () => _showCoverPreview(track, coverUrl, previewPalette),
+            );
+            if (!previewHeroActive || MediaQuery.disableAnimationsOf(context)) {
+              return cover;
+            }
+            return Hero(tag: playerCoverPreviewHeroTag(track.id), child: cover);
+          },
         );
       },
     );
@@ -1160,6 +1144,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     required AudioTrack track,
     required String? coverUrl,
     required bool isWide,
+    required PlayerVisualPalette previewPalette,
   }) {
     return Padding(
       key: ValueKey('cover-pane-${isWide ? 'wide' : 'compact'}'),
@@ -1185,6 +1170,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                         track: track,
                         coverUrl: coverUrl,
                         isWide: isWide,
+                        previewPalette: previewPalette,
                       ),
                     ),
                   ),
@@ -1193,6 +1179,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
             ),
           ),
           InkWell(
+            key: const ValueKey('player-cover-lyric-preview'),
             borderRadius: BorderRadius.circular(12),
             onTap: _showLyrics,
             child: Padding(
@@ -1232,6 +1219,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
           : () => _navigateToWorkDetail(context, track.workId!),
       onQueuePressed: _showQueue,
       visibleActionCount: 5,
+      additionalActionWidth: isWide || _compactSharedWidth == null
+          ? null
+          : _compactSharedWidth! + 24,
     );
     final content = Align(
       alignment: Alignment.center,
@@ -1366,7 +1356,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
               onShowQueue: () =>
                   _showQueue(compactOriginPage: isWide ? null : 2),
               showQueueDrag: isWide ? null : _queueOpenDragCallbacks(2),
-              actionWidth: isWide ? null : _compactSharedWidth,
+              lyricContentWidth: isWide ? null : _compactSharedWidth,
+              actionWidth: isWide || _compactSharedWidth == null
+                  ? null
+                  : _compactSharedWidth! + 24,
+              searchWidth: isWide ? null : _compactSharedWidth,
               translateButton: _buildLyricTranslateAppBarButton(context),
               onDownload: lyricState.source?.canSaveOriginal == true
                   ? () => _openCurrentLyricSource(context, lyricState.source!)
@@ -1594,6 +1588,35 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       _rightPane = pane;
       _lastOperatedRegion = PlayerOperatedRegion.right;
     });
+  }
+
+  Future<void> _showCoverPreview(
+    AudioTrack track,
+    String coverUrl,
+    PlayerVisualPalette palette,
+  ) async {
+    if (_coverPreviewHeroTrackId.value != null) return;
+    _coverPreviewHeroTrackId.value = track.id;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    final localPath = LocalFileUrl.pathFromUrl(coverUrl);
+    try {
+      await CoverPreviewDialog.show(
+        context,
+        imageUrl: localPath == null ? coverUrl : null,
+        localPath: localPath,
+        identifier: track.workId?.toString() ?? track.hash ?? track.id,
+        heroTag: playerCoverPreviewHeroTag(track.id),
+        cacheKey: track.workId != null
+            ? 'work_cover_${track.workId}'
+            : track.hash ?? coverUrl,
+        backgroundPalette: palette,
+      );
+    } finally {
+      if (mounted && _coverPreviewHeroTrackId.value == track.id) {
+        _coverPreviewHeroTrackId.value = null;
+      }
+    }
   }
 
   void _showLyrics() {
@@ -2269,7 +2292,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
             child: Text(S.of(context).errorWithMessage(error.toString())),
           ),
         ),
-        if (_showLyricHint) _buildLyricHintBanner(),
         if (isTrackLoading) _buildTrackLoadingOverlay(context),
       ],
     );
@@ -2749,71 +2771,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                 ),
         );
       },
-    );
-  }
-
-  Widget _buildLyricHintBanner() {
-    return Positioned(
-      top: 0,
-      left: 0,
-      right: 0,
-      child: Consumer(
-        builder: (context, ref, child) {
-          final lyricState = ref.watch(lyricControllerProvider);
-          if (lyricState.lyrics.isEmpty) {
-            return const SizedBox.shrink();
-          }
-
-          return Material(
-            color: Colors.transparent,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.info_outline,
-                    size: 18,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      S.of(context).lyricHintTapCover,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onPrimaryContainer,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () {
-                      setState(() {
-                        _showLyricHint = false;
-                      });
-                    },
-                    icon: Icon(
-                      Icons.close,
-                      size: 18,
-                      color: Theme.of(context).colorScheme.onPrimaryContainer,
-                    ),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
     );
   }
 

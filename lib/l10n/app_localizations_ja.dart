@@ -680,7 +680,7 @@ class SJa extends S {
   }
 
   @override
-  String get playlistTitle => 'プレイリスト';
+  String get playlistTitle => '再生キュー';
 
   @override
   String get clearPlaybackQueueTitle => '再生キューをクリアしますか？';
@@ -943,17 +943,17 @@ class SJa extends S {
   String get audioFormatSubtitle => '音声形式の優先順位';
 
   @override
-  String get audioTapPlaylistMode => 'プレイリストへの追加方法';
+  String get audioTapPlaylistMode => '音声追加モード';
 
   @override
-  String get selectAudioTapPlaylistMode => '音声をタップしたときのプレイリスト更新方法を選択：';
+  String get selectAudioTapPlaylistMode => '音声をタップしたときの再生キュー更新方法を選択：';
 
   @override
-  String get audioTapPlaylistModeReplace => 'プレイリストを置き換え';
+  String get audioTapPlaylistModeReplace => '再生キューを置き換え';
 
   @override
   String get audioTapPlaylistModeReplaceDescription =>
-      'タップした音声と同じフォルダー内の再生可能な音声すべてで現在のプレイリストを置き換えます。';
+      'タップした音声と同じフォルダー内の再生可能な音声すべてで現在の再生キューを置き換えます。';
 
   @override
   String get audioTapPlaylistModeAppendDirectory => '次に再生';
@@ -963,17 +963,17 @@ class SJa extends S {
       'タップした音声を現在のトラックの直後に配置し、現在の再生は中断しません。';
 
   @override
-  String get audioTapPlaylistModeAppendSingle => 'プレイリストに追加';
+  String get audioTapPlaylistModeAppendSingle => '再生キューに追加';
 
   @override
   String get audioTapPlaylistModeAppendSingleDescription =>
-      'タップした音声をプレイリストの末尾に追加し、現在の再生は切り替えません。';
+      'タップした音声を再生キューの末尾に追加し、現在の再生は切り替えません。';
 
   @override
   String get audioTapPlaylistModeAppendChip => '次に再生';
 
   @override
-  String get audioTapPlaylistModeAppendSingleChip => 'プレイリストに追加';
+  String get audioTapPlaylistModeAppendSingleChip => '再生キューに追加';
 
   @override
   String get copyName => '名前をコピー';
@@ -2135,13 +2135,10 @@ class SJa extends S {
   String get backToCover => 'カバーに戻る';
 
   @override
-  String get lyricHintTapCover => 'カバーまたはタイトルをタップして字幕画面に入る';
-
-  @override
   String get floatingSubtitle => 'フローティング字幕';
 
   @override
-  String get playlistEmpty => 'プレイリストが空です';
+  String get playlistEmpty => '再生キューが空です';
 
   @override
   String get gotIt => '了解';
@@ -2853,9 +2850,6 @@ class SJa extends S {
   String savedToPath(String path) {
     return '$path に保存しました';
   }
-
-  @override
-  String get doubleTapToZoom => 'ダブルタップで拡大 · ピンチでズーム';
 
   @override
   String getStatusFailed(String error) {

@@ -694,7 +694,7 @@ class SEn extends S {
   }
 
   @override
-  String get playlistTitle => 'Playlist';
+  String get playlistTitle => 'Playback Queue';
 
   @override
   String get clearPlaybackQueueTitle => 'Clear playback queue?';
@@ -964,18 +964,18 @@ class SEn extends S {
   String get audioFormatSubtitle => 'Audio format priority';
 
   @override
-  String get audioTapPlaylistMode => 'Playlist Add Mode';
+  String get audioTapPlaylistMode => 'Audio Add Mode';
 
   @override
   String get selectAudioTapPlaylistMode =>
-      'Choose how tapping audio updates the playlist:';
+      'Choose how tapping audio updates the playback queue:';
 
   @override
-  String get audioTapPlaylistModeReplace => 'Replace Playlist';
+  String get audioTapPlaylistModeReplace => 'Replace Playback Queue';
 
   @override
   String get audioTapPlaylistModeReplaceDescription =>
-      'Replace the current playlist with every playable audio file in the tapped file\'s folder.';
+      'Replace the current playback queue with every playable audio file in the tapped file\'s folder.';
 
   @override
   String get audioTapPlaylistModeAppendDirectory => 'Play Next';
@@ -985,17 +985,17 @@ class SEn extends S {
       'Place the tapped audio after the current track without interrupting playback.';
 
   @override
-  String get audioTapPlaylistModeAppendSingle => 'Add to Playlist';
+  String get audioTapPlaylistModeAppendSingle => 'Add to Playback Queue';
 
   @override
   String get audioTapPlaylistModeAppendSingleDescription =>
-      'Add the tapped audio to the end of the playlist without interrupting or switching playback.';
+      'Add the tapped audio to the end of the playback queue without interrupting or switching playback.';
 
   @override
   String get audioTapPlaylistModeAppendChip => 'Play Next';
 
   @override
-  String get audioTapPlaylistModeAppendSingleChip => 'Add to Playlist';
+  String get audioTapPlaylistModeAppendSingleChip => 'Add to Playback Queue';
 
   @override
   String get copyName => 'Copy Name';
@@ -2190,13 +2190,10 @@ class SEn extends S {
   String get backToCover => 'Back to cover';
 
   @override
-  String get lyricHintTapCover => 'Tap cover or title to enter subtitle view';
-
-  @override
   String get floatingSubtitle => 'Floating Subtitle';
 
   @override
-  String get playlistEmpty => 'Playlist is empty';
+  String get playlistEmpty => 'Playback queue is empty';
 
   @override
   String get gotIt => 'Got it';
@@ -2931,9 +2928,6 @@ class SEn extends S {
   String savedToPath(String path) {
     return 'Saved to: $path';
   }
-
-  @override
-  String get doubleTapToZoom => 'Double-tap to zoom · Pinch to scale';
 
   @override
   String getStatusFailed(String error) {

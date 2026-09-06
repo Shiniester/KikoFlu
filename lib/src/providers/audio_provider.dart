@@ -92,22 +92,44 @@ final progressProvider = Provider<double>((ref) {
   );
 });
 
-/// 是否可以播放下一首（列表未结束或开启了循环模式）
+/// Whether manual next navigation has a valid queue target.
 final canSkipNextProvider = Provider<bool>((ref) {
   final service = ref.watch(audioPlayerServiceProvider);
-  final audioState = ref.watch(audioPlayerControllerProvider);
-  // 监听队列和当前曲目变化
-  ref.watch(queueProvider);
-  ref.watch(currentTrackProvider);
+  final repeatMode = ref.watch(
+    audioPlayerControllerProvider.select((state) => state.repeatMode),
+  );
+  final queue = ref.watch(queueProvider).valueOrNull ?? service.queue;
+  final currentTrack = ref.watch(currentTrackProvider).valueOrNull;
+  final currentIndex = currentTrack == null
+      ? -1
+      : queue.indexWhere((track) => track.id == currentTrack.id);
+  return resolveManualSkipTarget(
+        queueLength: queue.length,
+        currentIndex: currentIndex,
+        repeatMode: repeatMode,
+        direction: ManualSkipDirection.next,
+      ) !=
+      null;
+});
 
-  // 如果开启了列表循环或单曲循环，始终可以跳转
-  if (audioState.repeatMode == LoopMode.all ||
-      audioState.repeatMode == LoopMode.one) {
-    return true;
-  }
-
-  // 否则检查是否还有下一首
-  return service.hasNext;
+/// Whether manual previous navigation has a valid queue target.
+final canSkipPreviousProvider = Provider<bool>((ref) {
+  final service = ref.watch(audioPlayerServiceProvider);
+  final repeatMode = ref.watch(
+    audioPlayerControllerProvider.select((state) => state.repeatMode),
+  );
+  final queue = ref.watch(queueProvider).valueOrNull ?? service.queue;
+  final currentTrack = ref.watch(currentTrackProvider).valueOrNull;
+  final currentIndex = currentTrack == null
+      ? -1
+      : queue.indexWhere((track) => track.id == currentTrack.id);
+  return resolveManualSkipTarget(
+        queueLength: queue.length,
+        currentIndex: currentIndex,
+        repeatMode: repeatMode,
+        direction: ManualSkipDirection.previous,
+      ) !=
+      null;
 });
 
 // Audio Player Controller

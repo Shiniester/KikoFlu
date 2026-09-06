@@ -165,7 +165,7 @@ void main() {
       );
       expect(detailsPanel, isNot(contains('for (final variant in variants)')));
       expect(lyricDisplay, isNot(contains('ensureVisible')));
-      expect(lyricDisplay, contains('_centerInsideVisibleViewport'));
+      expect(lyricDisplay, contains('_positionAtPlaybackAnchor'));
       expect(lyricDisplay, contains('class _LyricLayoutIndex'));
       expect(lyricDisplay, contains('itemExtentBuilder:'));
       expect(lyricDisplay, contains('RenderParagraph'));
@@ -192,7 +192,10 @@ void main() {
       expect(lyricSurface, isNot(contains('AnimatedPositioned')));
       expect(lyricSurface, contains('Transform.translate'));
       expect(lyricSurface, contains('Alignment.bottomCenter'));
-      expect(lyricSurface, contains('reserveSearchCenteringSpace: true'));
+      expect(
+        lyricSurface,
+        contains('visibleBottomInset: displayVisibleBottomInset'),
+      );
       expect(lyricSurface, contains('child: lyricList'));
       expect(screen, contains('AutomaticKeepAliveClientMixin'));
       expect(screen, contains('_semanticPageRevision'));

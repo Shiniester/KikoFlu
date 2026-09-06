@@ -488,7 +488,7 @@ class _LyricLayoutIndex {
     required this.locale,
   });
 
-  static const double itemVerticalPadding = 24;
+  static const double itemVerticalPadding = 20;
 
   final List<LyricLine> lyrics;
   final String query;
@@ -547,7 +547,7 @@ class _LyricLayoutIndex {
     }
     final layout = _LyricLineLayout(
       extent: painter.height + itemVerticalPadding,
-      matchCenterY: 12 + matchCenterY,
+      matchCenterY: 10 + matchCenterY,
     );
     _entries[index] = _LyricLineLayoutEntry(
       active: active,
@@ -633,14 +633,13 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
     this.searchQuery = '',
     this.layoutSearchQuery,
     this.selectedSearchMatch,
-    this.topPadding = 72,
-    this.bottomPadding = 148,
+    this.playbackAnchorFraction = 0.4,
+    this.contentWidth,
     this.visibleBottomInset = 0,
-    this.reserveSearchCenteringSpace = false,
     this.snapOnAutoScrollResume = true,
     this.snapToCurrentOnFirstLayout = false,
     this.onSeekRequested,
-  });
+  }) : assert(playbackAnchorFraction > 0 && playbackAnchorFraction < 1);
 
   final Duration? seekingPosition;
   final bool isPortrait;
@@ -652,10 +651,9 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
   final String searchQuery;
   final String? layoutSearchQuery;
   final LyricSearchMatch? selectedSearchMatch;
-  final double topPadding;
-  final double bottomPadding;
+  final double playbackAnchorFraction;
+  final double? contentWidth;
   final double visibleBottomInset;
-  final bool reserveSearchCenteringSpace;
   final bool snapOnAutoScrollResume;
   final bool snapToCurrentOnFirstLayout;
   final ValueChanged<Duration>? onSeekRequested;
@@ -671,6 +669,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
   final Map<int, GlobalKey> _textKeys = {};
   int? _currentLyricIndex;
   bool _autoScroll = true;
+  bool _userScrollInProgress = false;
   Timer? _resumeAutoScrollTimer;
   int _scrollRequestGeneration = 0;
   int? _lyricsSignature;
@@ -699,7 +698,9 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
         _scrollController.jumpTo(_scrollController.position.pixels);
       }
     }
-    if (oldWidget.suspendAutoScroll && !widget.suspendAutoScroll) {
+    if (oldWidget.suspendAutoScroll &&
+        !widget.suspendAutoScroll &&
+        _autoScroll) {
       final index = _currentLyricIndex;
       if (widget.snapOnAutoScrollResume && index != null && index >= 0) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -711,6 +712,19 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
           );
         });
       }
+    }
+    final selectedMatch = widget.selectedSearchMatch;
+    if (oldWidget.visibleBottomInset != widget.visibleBottomInset &&
+        selectedMatch != null) {
+      final match = selectedMatch;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || widget.selectedSearchMatch != match) return;
+        _scrollToMatch(
+          match,
+          animate: false,
+          visibleBottomInset: () => widget.visibleBottomInset,
+        );
+      });
     }
   }
 
@@ -813,7 +827,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
           selectedMatch: _layoutSelectedMatch,
         ) +
         layout.extent / 2;
-    return (center - _visibleViewportHeight(visibleBottomInset) / 2).clamp(
+    return (center - _playbackAnchorY(visibleBottomInset)).clamp(
       _scrollController.position.minScrollExtent,
       _scrollController.position.maxScrollExtent,
     );
@@ -843,7 +857,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
           selectedMatch: match,
         ) +
         lineLayout.matchCenterY;
-    return (matchCenter - _visibleViewportHeight(visibleBottomInset) / 2).clamp(
+    return (matchCenter - _playbackAnchorY(visibleBottomInset)).clamp(
       _scrollController.position.minScrollExtent,
       _scrollController.position.maxScrollExtent,
     );
@@ -889,7 +903,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
     final itemContext = _getKeyForIndex(index).currentContext;
     final renderObject = itemContext?.findRenderObject();
     if (renderObject is RenderBox) {
-      await _centerInsideVisibleViewport(
+      await _positionAtPlaybackAnchor(
         renderObject,
         duration,
         visibleBottomInset,
@@ -925,7 +939,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
       index,
     ).currentContext?.findRenderObject();
     if (correctedRenderObject is RenderBox) {
-      await _centerInsideVisibleViewport(
+      await _positionAtPlaybackAnchor(
         correctedRenderObject,
         duration == Duration.zero
             ? Duration.zero
@@ -1105,7 +1119,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
     );
     return (_scrollController.position.pixels +
             matchCenter.dy -
-            _visibleViewportHeight(visibleBottomInset) / 2)
+            _playbackAnchorY(visibleBottomInset))
         .clamp(
           _scrollController.position.minScrollExtent,
           _scrollController.position.maxScrollExtent,
@@ -1123,7 +1137,12 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
         .toDouble();
   }
 
-  Future<void> _centerInsideVisibleViewport(
+  double _playbackAnchorY(double visibleBottomInset) {
+    return _visibleViewportHeight(visibleBottomInset) *
+        widget.playbackAnchorFraction;
+  }
+
+  Future<void> _positionAtPlaybackAnchor(
     RenderBox item,
     Duration duration,
     double visibleBottomInset,
@@ -1138,7 +1157,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
     final target =
         (_scrollController.position.pixels +
                 itemCenter.dy -
-                _visibleViewportHeight(visibleBottomInset) / 2)
+                _playbackAnchorY(visibleBottomInset))
             .clamp(
               _scrollController.position.minScrollExtent,
               _scrollController.position.maxScrollExtent,
@@ -1170,9 +1189,55 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
     _resumeAutoScrollTimer?.cancel();
     setState(() => _autoScroll = false);
     _scrollToLyric(index, force: true, ignoreAutoScroll: true);
-    _resumeAutoScrollTimer = Timer(const Duration(seconds: 1), () {
-      if (mounted) setState(() => _autoScroll = true);
+    _scheduleAutoScrollResume();
+  }
+
+  void _beginUserBrowse() {
+    _resumeAutoScrollTimer?.cancel();
+    _resumeAutoScrollTimer = null;
+    _userScrollInProgress = true;
+    _autoScroll = false;
+    _scrollRequestGeneration++;
+  }
+
+  void _endUserBrowse() {
+    if (!_userScrollInProgress) return;
+    _userScrollInProgress = false;
+    _scheduleAutoScrollResume();
+  }
+
+  void _scheduleAutoScrollResume() {
+    _resumeAutoScrollTimer?.cancel();
+    _resumeAutoScrollTimer = Timer(const Duration(seconds: 2), () {
+      _resumeAutoScrollTimer = null;
+      if (!mounted) return;
+      setState(() => _autoScroll = true);
+      final index =
+          _currentLyricIndex ??
+          (_layoutIndex?.lyrics.isNotEmpty == true ? 0 : null);
+      if (index == null ||
+          index < 0 ||
+          widget.suspendAutoScroll ||
+          widget.isLocked) {
+        return;
+      }
+      _scrollToLyric(
+        index,
+        force: true,
+        ignoreAutoScroll: true,
+        animationDuration: const Duration(milliseconds: 300),
+      );
     });
+  }
+
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (notification is ScrollStartNotification &&
+        notification.dragDetails != null) {
+      _beginUserBrowse();
+    } else if (notification is ScrollEndNotification && _userScrollInProgress) {
+      _endUserBrowse();
+    }
+    return false;
   }
 
   @override
@@ -1243,7 +1308,11 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
           final textScaler = MediaQuery.textScalerOf(context);
           final textDirection = Directionality.of(context);
           final locale = Localizations.maybeLocaleOf(context);
-          final textWidth = math.max(1.0, constraints.maxWidth - 80);
+          final availableTextWidth = math.max(1.0, constraints.maxWidth - 56);
+          final textWidth = math.min(
+            widget.contentWidth ?? availableTextWidth,
+            availableTextWidth,
+          );
           final normalizedQuery = widget.searchQuery.trim();
           final normalizedLayoutQuery =
               (widget.layoutSearchQuery ?? widget.searchQuery).trim();
@@ -1258,76 +1327,118 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
             textDirection: textDirection,
             locale: locale,
           );
-          final hasSearchAllowance =
-              widget.reserveSearchCenteringSpace || widget.searchMode;
-          final effectiveTopPadding = hasSearchAllowance
-              ? math.max(widget.topPadding, constraints.maxHeight / 2)
-              : widget.topPadding;
-          final effectiveBottomPadding = hasSearchAllowance
-              ? math.max(widget.bottomPadding, constraints.maxHeight)
-              : widget.bottomPadding;
-          _effectiveTopPadding = effectiveTopPadding;
           _layoutCurrentIndex = currentIndex;
           _layoutSelectedMatch = widget.selectedSearchMatch;
+          final firstMatch = widget.selectedSearchMatch?.lineIndex == 0
+              ? widget.selectedSearchMatch
+              : null;
+          final lastIndex = lyrics.length - 1;
+          final lastMatch = widget.selectedSearchMatch?.lineIndex == lastIndex
+              ? widget.selectedSearchMatch
+              : null;
+          final firstLayout = layoutIndex.layoutFor(
+            0,
+            active: currentIndex == 0,
+            selectedMatch: firstMatch,
+          );
+          final lastLayout = layoutIndex.layoutFor(
+            lastIndex,
+            active: currentIndex == lastIndex,
+            selectedMatch: lastMatch,
+          );
+          final visibleHeight =
+              (constraints.maxHeight -
+                      widget.visibleBottomInset.clamp(
+                        0.0,
+                        math.max(0.0, constraints.maxHeight - 1),
+                      ))
+                  .clamp(1.0, constraints.maxHeight)
+                  .toDouble();
+          final anchorY = visibleHeight * widget.playbackAnchorFraction;
+          final firstAnchor = firstMatch == null
+              ? firstLayout.extent / 2
+              : firstLayout.matchCenterY;
+          final lastAnchor = lastMatch == null
+              ? lastLayout.extent / 2
+              : lastLayout.matchCenterY;
+          final effectiveTopPadding = math.max(0.0, anchorY - firstAnchor);
+          final effectiveBottomPadding = math.max(
+            0.0,
+            constraints.maxHeight - anchorY - (lastLayout.extent - lastAnchor),
+          );
+          _effectiveTopPadding = effectiveTopPadding;
+          final rowWidth = math.min(
+            math.max(1.0, constraints.maxWidth - 24),
+            textWidth + 32,
+          );
 
           return SizedBox.expand(
             key: _viewportKey,
-            child: ListView.builder(
-              key: const ValueKey('full-lyric-list'),
-              controller: _scrollController,
-              physics: const AlwaysScrollableScrollPhysics(
-                parent: ClampingScrollPhysics(),
-              ),
-              padding: EdgeInsets.fromLTRB(
-                24,
-                effectiveTopPadding,
-                24,
-                effectiveBottomPadding,
-              ),
-              itemCount: lyrics.length,
-              itemExtentBuilder: (index, dimensions) => layoutIndex.extentFor(
-                index,
-                currentIndex: currentIndex,
-                selectedMatch: widget.selectedSearchMatch,
-              ),
-              itemBuilder: (context, index) {
-                final lyric = lyrics[index];
-                final active = index == currentIndex;
-                final past = index < currentIndex;
-                final style = (active ? activeStyle : inactiveStyle).copyWith(
-                  color: colors.onSurface.withValues(
-                    alpha: active ? 1 : (past ? 0.24 : 0.34),
-                  ),
-                );
-                return Semantics(
-                  selected: active,
-                  button: !widget.isLocked,
-                  child: InkWell(
-                    key: _getKeyForIndex(index),
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: widget.isLocked
-                        ? null
-                        : () => _onLyricTap(index, lyrics),
-                    onLongPress: widget.onLongPress,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 12,
-                        horizontal: 16,
-                      ),
-                      child: _HighlightedLyricText(
-                        key: _getTextKeyForIndex(index),
-                        text: lyric.text,
-                        query: normalizedQuery,
-                        selectedMatch:
-                            widget.selectedSearchMatch?.lineIndex == index
-                            ? widget.selectedSearchMatch
-                            : null,
-                        style: style,
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _handleScrollNotification,
+              child: ListView.builder(
+                key: const ValueKey('full-lyric-list'),
+                controller: _scrollController,
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: ClampingScrollPhysics(),
+                ),
+                padding: EdgeInsets.fromLTRB(
+                  12,
+                  effectiveTopPadding,
+                  12,
+                  effectiveBottomPadding,
+                ),
+                itemCount: lyrics.length,
+                itemExtentBuilder: (index, dimensions) => layoutIndex.extentFor(
+                  index,
+                  currentIndex: currentIndex,
+                  selectedMatch: widget.selectedSearchMatch,
+                ),
+                itemBuilder: (context, index) {
+                  final lyric = lyrics[index];
+                  final active = index == currentIndex;
+                  final past = index < currentIndex;
+                  final style = (active ? activeStyle : inactiveStyle).copyWith(
+                    color: colors.onSurface.withValues(
+                      alpha: active ? 1 : (past ? 0.24 : 0.34),
+                    ),
+                  );
+                  return Align(
+                    alignment: Alignment.center,
+                    child: SizedBox(
+                      width: rowWidth,
+                      child: Semantics(
+                        selected: active,
+                        button: !widget.isLocked,
+                        child: InkWell(
+                          key: _getKeyForIndex(index),
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: widget.isLocked
+                              ? null
+                              : () => _onLyricTap(index, lyrics),
+                          onLongPress: widget.onLongPress,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 10,
+                              horizontal: 16,
+                            ),
+                            child: _HighlightedLyricText(
+                              key: _getTextKeyForIndex(index),
+                              text: lyric.text,
+                              query: normalizedQuery,
+                              selectedMatch:
+                                  widget.selectedSearchMatch?.lineIndex == index
+                                  ? widget.selectedSearchMatch
+                                  : null,
+                              style: style,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             ),
           );
         },

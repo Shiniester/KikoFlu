@@ -139,20 +139,30 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
                     width: 68,
                     child: tracks.isEmpty || widget.onClear == null
                         ? const SizedBox.shrink()
-                        : TextButton(
-                            onPressed: widget.onClear,
-                            style: TextButton.styleFrom(
-                              foregroundColor: colorScheme.onSurfaceVariant,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
+                        : Align(
+                            alignment: Alignment.centerRight,
+                            child: SizedBox(
+                              width: 48,
+                              height: 36,
+                              child: TextButton(
+                                key: const ValueKey(
+                                  'player-queue-clear-button',
+                                ),
+                                onPressed: widget.onClear,
+                                style: TextButton.styleFrom(
+                                  foregroundColor: colorScheme.onSurfaceVariant,
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: const Size(48, 36),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                  visualDensity: VisualDensity.compact,
+                                  alignment: Alignment.centerRight,
+                                ),
+                                child: Text(
+                                  S.of(context).clear,
+                                  style: queueMetaStyle,
+                                ),
                               ),
-                              minimumSize: const Size(0, 36),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              visualDensity: VisualDensity.compact,
-                            ),
-                            child: Text(
-                              S.of(context).clear,
-                              style: queueMetaStyle,
                             ),
                           ),
                   ),
@@ -324,72 +334,94 @@ class _QueueTrackTile extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
-      child: Material(
-        key: ValueKey('player-queue-track-${track.id}'),
-        color: isCurrentTrack
-            ? colorScheme.onSurface.withValues(alpha: 0.10)
-            : Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Row(
-              children: [
-                _QueueArtwork(
-                  key: ValueKey('player-queue-artwork-${track.id}'),
-                  track: track,
-                  url: coverUrl,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Transform.translate(
-                    offset: const Offset(0, 1),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          track.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(
-                                fontSize: 12.5,
-                                height: 1.12,
-                                fontWeight: isCurrentTrack
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                              ),
-                        ),
-                        if (track.artist?.trim().isNotEmpty == true)
-                          Text(
-                            track.artist!.trim(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(color: colorScheme.onSurfaceVariant),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-                if (isCurrentTrack)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    child: Icon(Icons.graphic_eq, color: colorScheme.primary),
-                  ),
-                PlayerCompactAction(
-                  tooltip: S.of(context).remove,
-                  onPressed: onRemove,
-                  icon: Icons.remove,
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ],
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned.fill(
+            left: -10,
+            right: -10,
+            child: Material(
+              key: ValueKey('player-queue-track-${track.id}'),
+              color: isCurrentTrack
+                  ? colorScheme.onSurface.withValues(alpha: 0.10)
+                  : Colors.transparent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
             ),
           ),
-        ),
+          Material(
+            key: ValueKey('player-queue-track-content-${track.id}'),
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: BorderRadius.circular(14),
+              overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+              splashFactory: NoSplash.splashFactory,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    _QueueArtwork(
+                      key: ValueKey('player-queue-artwork-${track.id}'),
+                      track: track,
+                      url: coverUrl,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Transform.translate(
+                        offset: const Offset(0, 1),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              track.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(
+                                    fontSize: 12.5,
+                                    height: 1.12,
+                                    fontWeight: isCurrentTrack
+                                        ? FontWeight.w700
+                                        : FontWeight.w500,
+                                  ),
+                            ),
+                            if (track.artist?.trim().isNotEmpty == true)
+                              Text(
+                                track.artist!.trim(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: colorScheme.onSurfaceVariant,
+                                    ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (isCurrentTrack)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        child: Icon(
+                          Icons.graphic_eq,
+                          color: colorScheme.primary,
+                        ),
+                      ),
+                    PlayerCompactAction(
+                      tooltip: S.of(context).remove,
+                      onPressed: onRemove,
+                      icon: Icons.remove,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -462,137 +494,57 @@ class PlaylistDialog extends ConsumerWidget {
   }
 }
 
-class PlaylistModePill extends ConsumerStatefulWidget {
+class PlaylistModePill extends ConsumerWidget {
   const PlaylistModePill({super.key});
 
   @override
-  ConsumerState<PlaylistModePill> createState() => _PlaylistModePillState();
-}
-
-class _PlaylistModePillState extends ConsumerState<PlaylistModePill> {
-  bool _expanded = false;
-  final GlobalKey _pillKey = GlobalKey();
-  double? _pillWidth;
-
-  void _toggleExpanded() {
-    if (!_expanded) {
-      final box = _pillKey.currentContext?.findRenderObject() as RenderBox?;
-      if (box != null && box.hasSize) _pillWidth = box.size.width;
-    }
-    setState(() => _expanded = !_expanded);
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(audioTapPlaylistModeProvider);
-    final colors = Theme.of(context).colorScheme;
-    final duration = MediaQuery.disableAnimationsOf(context)
-        ? Duration.zero
-        : const Duration(milliseconds: 240);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        AnimatedSize(
-          duration: duration,
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.bottomLeft,
-          child: !_expanded
-              ? const SizedBox.shrink()
-              : Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: SizedBox(
-                    width: _pillWidth,
-                    child: PlayerTransientGlassSurface(
-                      key: const ValueKey('playlist-mode-expanded-options'),
-                      borderRadius: BorderRadius.circular(14),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          for (final option in _playlistModeMenuOrder)
-                            Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                key: ValueKey(
-                                  'playlist-mode-option-${option.name}',
-                                ),
-                                onTap: () {
-                                  ref
-                                      .read(
-                                        audioTapPlaylistModeProvider.notifier,
-                                      )
-                                      .updateMode(option);
-                                  setState(() => _expanded = false);
-                                },
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 14,
-                                    vertical: 10,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        PlaylistModeToggle.modeIcon(option),
-                                        size: 19,
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Text(
-                                          option.localizedName(context),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Icon(
-                                        Icons.check,
-                                        size: 18,
-                                        color: option == mode
-                                            ? colors.primary
-                                            : Colors.transparent,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-        ),
-        Semantics(
-          button: true,
-          expanded: _expanded,
-          label:
-              '${S.of(context).audioTapPlaylistMode}: ${mode.localizedName(context)}',
-          child: SizedBox(
-            key: _pillKey,
-            child: PlayerGlassSurface(
+    final modeIndex = _playlistModeMenuOrder.indexOf(mode);
+    final nextMode =
+        _playlistModeMenuOrder[(modeIndex + 1) % _playlistModeMenuOrder.length];
+    return Semantics(
+      button: true,
+      label:
+          '${S.of(context).audioTapPlaylistMode}: ${mode.localizedName(context)}',
+      child: SizedBox(
+        key: const ValueKey('playlist-mode-pill-tap-target'),
+        height: 48,
+        child: Stack(
+          alignment: Alignment.centerLeft,
+          children: [
+            PlayerGlassSurface(
               key: const ValueKey('playlist-mode-pill'),
-              onTap: _toggleExpanded,
               borderRadius: BorderRadius.circular(999),
               borderColor: Colors.transparent,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(PlaylistModeToggle.modeIcon(mode), size: 20),
+                  Icon(PlaylistModeToggle.modeIcon(mode), size: 18),
                   const SizedBox(width: 8),
                   Flexible(child: Text(mode.localizedName(context))),
-                  const SizedBox(width: 6),
-                  AnimatedRotation(
-                    turns: _expanded ? 0.5 : 0,
-                    duration: duration,
-                    child: const Icon(Icons.keyboard_arrow_up, size: 18),
-                  ),
                 ],
               ),
             ),
-          ),
+            Positioned.fill(
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => ref
+                      .read(audioTapPlaylistModeProvider.notifier)
+                      .updateMode(nextMode),
+                  borderRadius: BorderRadius.circular(999),
+                  overlayColor: const WidgetStatePropertyAll(
+                    Colors.transparent,
+                  ),
+                  splashFactory: NoSplash.splashFactory,
+                ),
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }

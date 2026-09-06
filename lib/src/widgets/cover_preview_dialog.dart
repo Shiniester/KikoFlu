@@ -1,15 +1,58 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:saver_gallery/saver_gallery.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:path/path.dart' as p;
 
 import '../utils/snackbar_util.dart';
 import '../services/storage_service.dart';
 import '../services/cache_service.dart';
+import 'privacy_blur_cover.dart';
+import 'player/player_visual_palette.dart';
 import '../../l10n/app_localizations.dart';
+
+const _coverImageExtensions = {'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'};
+
+String playerCoverPreviewHeroTag(String trackId) =>
+    'player_cover_preview_$trackId';
+
+String resolveCoverImageExtension({String? source, required Uint8List bytes}) {
+  if (source != null && source.isNotEmpty) {
+    final path = Uri.tryParse(source)?.path ?? source;
+    final extension = p.extension(path).replaceFirst('.', '').toLowerCase();
+    if (_coverImageExtensions.contains(extension)) return extension;
+  }
+  if (bytes.length >= 4 &&
+      bytes[0] == 0x89 &&
+      bytes[1] == 0x50 &&
+      bytes[2] == 0x4e &&
+      bytes[3] == 0x47) {
+    return 'png';
+  }
+  if (bytes.length >= 3 &&
+      bytes[0] == 0xff &&
+      bytes[1] == 0xd8 &&
+      bytes[2] == 0xff) {
+    return 'jpg';
+  }
+  if (bytes.length >= 12 &&
+      String.fromCharCodes(bytes.sublist(0, 4)) == 'RIFF' &&
+      String.fromCharCodes(bytes.sublist(8, 12)) == 'WEBP') {
+    return 'webp';
+  }
+  if (bytes.length >= 3 && String.fromCharCodes(bytes.sublist(0, 3)) == 'GIF') {
+    return 'gif';
+  }
+  if (bytes.length >= 2 && bytes[0] == 0x42 && bytes[1] == 0x4d) {
+    return 'bmp';
+  }
+  return 'jpg';
+}
 
 /// 封面预览对话框，支持放大查看和保存图片
 class CoverPreviewDialog extends StatefulWidget {
@@ -28,6 +71,12 @@ class CoverPreviewDialog extends StatefulWidget {
   /// 与列表、详情和保存操作共享的稳定原图缓存键。
   final String? cacheKey;
 
+  /// 与当前播放器调色板一致的最深背景色。
+  final Color backgroundColor;
+
+  /// 当前播放器封面页使用的完整渐变调色板。
+  final PlayerVisualPalette? backgroundPalette;
+
   const CoverPreviewDialog({
     super.key,
     this.imageUrl,
@@ -35,6 +84,8 @@ class CoverPreviewDialog extends StatefulWidget {
     this.identifier,
     this.heroTag,
     this.cacheKey,
+    this.backgroundColor = Colors.black,
+    this.backgroundPalette,
   }) : assert(
          imageUrl != null || localPath != null,
          'Either imageUrl or localPath must be provided',
@@ -48,12 +99,21 @@ class CoverPreviewDialog extends StatefulWidget {
     String? identifier,
     String? heroTag,
     String? cacheKey,
+    Color backgroundColor = Colors.black,
+    PlayerVisualPalette? backgroundPalette,
   }) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     return Navigator.of(context).push(
       PageRouteBuilder(
         opaque: false,
         barrierDismissible: true,
-        barrierColor: Colors.black87,
+        barrierColor: backgroundPalette?.backgroundStart ?? backgroundColor,
+        transitionDuration: reduceMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 200),
+        reverseTransitionDuration: reduceMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 200),
         pageBuilder: (context, animation, secondaryAnimation) {
           return CoverPreviewDialog(
             imageUrl: imageUrl,
@@ -61,6 +121,8 @@ class CoverPreviewDialog extends StatefulWidget {
             identifier: identifier,
             heroTag: heroTag,
             cacheKey: cacheKey,
+            backgroundColor: backgroundColor,
+            backgroundPalette: backgroundPalette,
           );
         },
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
@@ -77,8 +139,15 @@ class CoverPreviewDialog extends StatefulWidget {
 class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
   final TransformationController _transformController =
       TransformationController();
+  final Set<int> _activePointers = <int>{};
   bool _isSaving = false;
-  bool _showControls = true;
+  bool _pointerMoved = false;
+  bool _multiTouch = false;
+  bool _longPressTriggered = false;
+  Offset? _pointerDownPosition;
+  Offset? _pendingTapPosition;
+  Timer? _longPressTimer;
+  Timer? _singleTapTimer;
 
   String? get _cacheKey {
     if (widget.cacheKey != null) return widget.cacheKey;
@@ -90,8 +159,82 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
 
   @override
   void dispose() {
+    _longPressTimer?.cancel();
+    _singleTapTimer?.cancel();
     _transformController.dispose();
     super.dispose();
+  }
+
+  void _handlePointerDown(PointerDownEvent event) {
+    _activePointers.add(event.pointer);
+    if (_activePointers.length == 1) {
+      _pointerDownPosition = event.position;
+      _pointerMoved = false;
+      _multiTouch = false;
+      _longPressTriggered = false;
+      _longPressTimer?.cancel();
+      _longPressTimer = Timer(kLongPressTimeout, () {
+        if (!mounted || _activePointers.length != 1 || _pointerMoved) return;
+        _longPressTriggered = true;
+        unawaited(_saveImage());
+      });
+      return;
+    }
+    _multiTouch = true;
+    _longPressTimer?.cancel();
+  }
+
+  void _handlePointerMove(PointerMoveEvent event) {
+    final downPosition = _pointerDownPosition;
+    if (downPosition == null ||
+        (event.position - downPosition).distance <= kTouchSlop) {
+      return;
+    }
+    _pointerMoved = true;
+    _longPressTimer?.cancel();
+  }
+
+  void _handlePointerUp(PointerUpEvent event) {
+    _activePointers.remove(event.pointer);
+    if (_activePointers.isNotEmpty) return;
+    _longPressTimer?.cancel();
+    if (!_multiTouch && !_pointerMoved && !_longPressTriggered) {
+      _registerTap(event.position);
+    }
+    _resetPointerGesture();
+  }
+
+  void _handlePointerCancel(PointerCancelEvent event) {
+    _activePointers.remove(event.pointer);
+    if (_activePointers.isEmpty) {
+      _longPressTimer?.cancel();
+      _resetPointerGesture();
+    }
+  }
+
+  void _resetPointerGesture() {
+    _pointerDownPosition = null;
+    _pointerMoved = false;
+    _multiTouch = false;
+    _longPressTriggered = false;
+  }
+
+  void _registerTap(Offset position) {
+    final pendingPosition = _pendingTapPosition;
+    if (_singleTapTimer?.isActive == true &&
+        pendingPosition != null &&
+        (position - pendingPosition).distance <= kDoubleTapSlop) {
+      _singleTapTimer!.cancel();
+      _pendingTapPosition = null;
+      _handleDoubleTap();
+      return;
+    }
+    _singleTapTimer?.cancel();
+    _pendingTapPosition = position;
+    _singleTapTimer = Timer(kDoubleTapTimeout, () {
+      _pendingTapPosition = null;
+      if (mounted) Navigator.of(context).pop();
+    });
   }
 
   void _handleDoubleTap() {
@@ -112,14 +255,12 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
     setState(() => _isSaving = true);
 
     try {
-      Uint8List? imageBytes;
-      String fileName;
+      final Uint8List imageBytes;
+      final String source;
 
       if (widget.localPath != null && File(widget.localPath!).existsSync()) {
-        // 本地图片
         imageBytes = await File(widget.localPath!).readAsBytes();
-        fileName =
-            'cover_${widget.identifier ?? DateTime.now().millisecondsSinceEpoch}.jpg';
+        source = widget.localPath!;
       } else if (widget.imageUrl != null) {
         final lease = CacheService.imageCacheManager.acquireFile(
           widget.imageUrl!,
@@ -131,11 +272,19 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
         } finally {
           await lease.release();
         }
-        fileName =
-            'cover_${widget.identifier ?? DateTime.now().millisecondsSinceEpoch}.jpg';
+        source = widget.imageUrl!;
       } else {
         throw Exception(S.of(context).noImageAvailable);
       }
+      final extension = resolveCoverImageExtension(
+        source: source,
+        bytes: imageBytes,
+      );
+      final safeIdentifier =
+          (widget.identifier ??
+                  DateTime.now().millisecondsSinceEpoch.toString())
+              .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
+      final fileName = 'cover_$safeIdentifier.$extension';
 
       // 根据平台选择保存方式
       if (Platform.isAndroid || Platform.isIOS) {
@@ -197,7 +346,6 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
       dialogTitle: S.of(context).saveCoverImage,
       fileName: fileName,
       type: FileType.image,
-      allowedExtensions: ['jpg', 'jpeg', 'png'],
     );
 
     if (result != null) {
@@ -253,100 +401,57 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
       );
     }
 
-    if (widget.heroTag != null) {
-      imageWidget = Hero(tag: widget.heroTag!, child: imageWidget);
+    Widget result = PrivacyBlurCover(child: imageWidget);
+    if (widget.heroTag != null && !MediaQuery.disableAnimationsOf(context)) {
+      result = Hero(tag: widget.heroTag!, child: result);
     }
-
-    return imageWidget;
+    return result;
   }
 
   @override
   Widget build(BuildContext context) {
+    final palette = widget.backgroundPalette;
+    Widget background = ColoredBox(color: widget.backgroundColor);
+    if (palette != null) {
+      background = DecoratedBox(
+        key: const ValueKey('cover-preview-linear-background'),
+        decoration: BoxDecoration(gradient: palette.backgroundGradient),
+        child: DecoratedBox(
+          key: const ValueKey('cover-preview-radial-background'),
+          decoration: BoxDecoration(gradient: palette.accentGradient),
+        ),
+      );
+    }
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: GestureDetector(
-        onTap: () {
-          setState(() => _showControls = !_showControls);
-        },
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // 图片区域
-            Center(
-              child: GestureDetector(
-                onDoubleTap: _handleDoubleTap,
-                child: InteractiveViewer(
-                  transformationController: _transformController,
-                  minScale: 0.5,
-                  maxScale: 5.0,
-                  child: _buildImage(),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned.fill(child: background),
+          Positioned.fill(
+            child: Listener(
+              key: const ValueKey('cover-preview-background'),
+              behavior: HitTestBehavior.opaque,
+              onPointerDown: _handlePointerDown,
+              onPointerMove: _handlePointerMove,
+              onPointerUp: _handlePointerUp,
+              onPointerCancel: _handlePointerCancel,
+              child: InteractiveViewer(
+                key: const ValueKey('cover-preview-interactive-viewer'),
+                transformationController: _transformController,
+                minScale: 1.0,
+                maxScale: 5.0,
+                clipBehavior: Clip.none,
+                child: Center(
+                  child: KeyedSubtree(
+                    key: const ValueKey('cover-preview-image'),
+                    child: _buildImage(),
+                  ),
                 ),
               ),
             ),
-
-            // 顶部工具栏
-            if (_showControls)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: SafeArea(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        // 关闭按钮
-                        IconButton(
-                          icon: const Icon(Icons.close, color: Colors.white),
-                          onPressed: () => Navigator.of(context).pop(),
-                        ),
-                        // 保存按钮
-                        IconButton(
-                          icon: _isSaving
-                              ? const SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(Icons.save_alt, color: Colors.white),
-                          onPressed: _isSaving ? null : _saveImage,
-                          tooltip: S.of(context).saveImage,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-
-            // 底部提示
-            if (_showControls)
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: SafeArea(
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      S.of(context).doubleTapToZoom,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

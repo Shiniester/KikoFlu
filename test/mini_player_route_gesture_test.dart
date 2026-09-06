@@ -166,6 +166,9 @@ void main() {
         url: 'https://example.invalid/layout.mp3',
         artist: 'Artist',
       );
+      final playerStates = StreamController<PlayerState>();
+      addTearDown(playerStates.close);
+      playerStates.add(PlayerState(false, ProcessingState.ready));
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
@@ -175,9 +178,7 @@ void main() {
             durationProvider.overrideWith(
               (ref) => Stream.value(const Duration(minutes: 4)),
             ),
-            playerStateProvider.overrideWith(
-              (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
-            ),
+            playerStateProvider.overrideWith((ref) => playerStates.stream),
             queueProvider.overrideWith((ref) => Stream.value(const [track])),
             lyricAutoLoaderProvider.overrideWith((ref) {}),
           ],
@@ -230,6 +231,36 @@ void main() {
       );
       final artworkRect = tester.getRect(artwork);
       final queueRect = tester.getRect(queueButton);
+      final playRect = tester.getRect(
+        find.byKey(const ValueKey('mini-player-play-button')),
+      );
+      final playIconRect = tester.getRect(
+        find.byKey(const ValueKey('mini-player-play-icon')),
+      );
+      final queueIconRect = tester.getRect(
+        find.byKey(const ValueKey('mini-player-queue-icon')),
+      );
+      const width = 390.0;
+      expect(artworkRect.left, closeTo(width / 8 - 32, 0.01));
+      expect(
+        playIconRect.left + 28 * 8 / 24,
+        closeTo(width * 7 / 8 - 32, 0.01),
+      );
+      expect(queueIconRect.right, closeTo(width * 7 / 8 + 32, 0.01));
+      expect(playRect.right, lessThanOrEqualTo(queueRect.left));
+
+      playerStates.add(PlayerState(true, ProcessingState.ready));
+      await tester.pump();
+      await tester.pump();
+      final pauseIconRect = tester.getRect(
+        find.byKey(const ValueKey('mini-player-play-icon')),
+      );
+      expect(find.byIcon(Icons.pause), findsOneWidget);
+      expect(
+        pauseIconRect.left + 28 * 6 / 24,
+        closeTo(width * 7 / 8 - 32, 0.01),
+      );
+
       final gesture = await tester.startGesture(tester.getCenter(swipeRegion));
       await gesture.moveBy(const Offset(-24, 0));
       await tester.pump();
@@ -312,6 +343,57 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('mini player alignment stays finite at a narrow width', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({'lyric_hint_has_shown': true});
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(224, 844);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
+    const track = AudioTrack(
+      id: 'narrow-mini-track',
+      title: 'Narrow',
+      url: 'https://example.invalid/narrow.mp3',
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentTrackProvider.overrideWith((ref) => Stream.value(track)),
+          isTrackLoadingProvider.overrideWith((ref) => Stream.value(false)),
+          positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
+          durationProvider.overrideWith(
+            (ref) => Stream.value(const Duration(minutes: 4)),
+          ),
+          playerStateProvider.overrideWith(
+            (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
+          ),
+          queueProvider.overrideWith((ref) => Stream.value(const [track])),
+          lyricAutoLoaderProvider.overrideWith((ref) {}),
+        ],
+        child: const MaterialApp(
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: Scaffold(
+            bottomNavigationBar: MiniPlayer(enableArtworkHero: false),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    for (final key in const [
+      ValueKey('mini-player-play-icon'),
+      ValueKey('mini-player-queue-icon'),
+    ]) {
+      final rect = tester.getRect(find.byKey(key));
+      expect(rect.left.isFinite, isTrue);
+      expect(rect.right.isFinite, isTrue);
+    }
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('mini artwork retains and cross-fades the cached image', (
     tester,

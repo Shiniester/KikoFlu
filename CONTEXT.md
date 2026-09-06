@@ -32,6 +32,11 @@ The full-screen player page containing the current playback queue. It is
 distinct from the app-level playlist and playlist details screens.
 _Avoid_: Player playlist page, playlist screen
 
+**Audio Add Mode (音频添加模式)**:
+The global preference that determines how selecting an audio item changes the
+current playback queue: append it, play it next, or replace the queue.
+_Avoid_: Playlist Add Mode, 播放列表添加模式
+
 **Player Audio Details Page (播放器音频详情页)**:
 The full-screen player page containing details for the current audio track. It
 is distinct from the Work Details Screen for the containing work.
@@ -41,6 +46,21 @@ _Avoid_: Player details page, work details page
 The full-screen player page containing the current track's synchronized lyrics
 or subtitles.
 _Avoid_: Subtitle screen
+
+**Playback Line (播放行)**:
+The vertical anchor in the Player Lyrics Page where the current lyric or
+selected search result is positioned while the player follows it.
+_Avoid_: Center line, current line
+
+**Repeat Mode (循环模式)**:
+The playback rule that governs natural track completion and manual previous or
+next navigation: sequential playback, single-track repeat, or queue repeat.
+_Avoid_: Shuffle mode, Audio Add Mode
+
+**Cover Preview (封面预览)**:
+The zoomable current-artwork view opened from the Player Cover Page. It is
+distinct from the Player Cover Page and saves the unblurred source artwork.
+_Avoid_: Player Cover Page, artwork editor
 
 ## 界面外观
 

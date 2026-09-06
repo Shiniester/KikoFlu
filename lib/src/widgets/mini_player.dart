@@ -183,94 +183,92 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                       const _MiniPlayerProgressArea(),
                       // Player controls
                       Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          child: Row(
-                            children: [
-                              GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () async {
-                                  await _playerLauncherKey.currentState
-                                      ?.openPlayer();
-                                },
-                                child: _buildArtwork(
-                                  context,
-                                  track,
-                                  workCoverUrl: workCoverUrl,
-                                ),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final isPortrait =
+                                MediaQuery.orientationOf(context) ==
+                                Orientation.portrait;
+                            final leadingInset = isPortrait
+                                ? (constraints.maxWidth / 8 - 32)
+                                      .clamp(0.0, double.infinity)
+                                      .toDouble()
+                                : 16.0;
+                            final trailingInset = isPortrait ? 0.0 : 16.0;
+                            return Padding(
+                              padding: EdgeInsets.fromLTRB(
+                                leadingInset,
+                                8,
+                                trailingInset,
+                                8,
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _MiniPlayerTrackSwitcher(
-                                  track: track,
-                                  onTap: () async {
-                                    await _playerLauncherKey.currentState
-                                        ?.openPlayer();
-                                  },
-                                  onPrevious: () =>
-                                      _skipTrack(context, next: false),
-                                  onNext: () => _skipTrack(context, next: true),
-                                ),
-                              ),
-                              // Controls (do not trigger navigation)
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
+                              child: Row(
                                 children: [
-                                  const _MiniPlayerPlayButton(),
-                                  IconButton(
-                                    key: const ValueKey(
-                                      'mini-player-queue-button',
-                                    ),
-                                    tooltip: S.of(context).playlistTitle,
-                                    onPressed: () async {
+                                  GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () async {
                                       await _playerLauncherKey.currentState
-                                          ?.openQueue();
+                                          ?.openPlayer();
                                     },
-                                    icon: const Icon(Icons.queue_music),
-                                    iconSize: 24,
+                                    child: _buildArtwork(
+                                      context,
+                                      track,
+                                      workCoverUrl: workCoverUrl,
+                                    ),
                                   ),
-                                  // Volume control (desktop platforms only)
-                                  Consumer(
-                                    builder: (context, ref, child) {
-                                      final volume = ref.watch(
-                                        audioPlayerControllerProvider.select(
-                                          (state) => state.volume,
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: _MiniPlayerTrackSwitcher(
+                                      track: track,
+                                      onTap: () async {
+                                        await _playerLauncherKey.currentState
+                                            ?.openPlayer();
+                                      },
+                                      onPrevious: () =>
+                                          _skipTrack(context, next: false),
+                                      onNext: () =>
+                                          _skipTrack(context, next: true),
+                                    ),
+                                  ),
+                                  _buildVolumeControl(),
+                                  if (isPortrait)
+                                    SizedBox(
+                                      width: constraints.maxWidth / 4,
+                                      child: _MiniPlayerAlignedControls(
+                                        onQueuePressed: () async {
+                                          await _playerLauncherKey.currentState
+                                              ?.openQueue();
+                                        },
+                                      ),
+                                    )
+                                  else
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const _MiniPlayerPlayButton(),
+                                        IconButton(
+                                          key: const ValueKey(
+                                            'mini-player-queue-button',
+                                          ),
+                                          tooltip: S.of(context).playlistTitle,
+                                          onPressed: () async {
+                                            await _playerLauncherKey
+                                                .currentState
+                                                ?.openQueue();
+                                          },
+                                          icon: const Icon(
+                                            Icons.queue_music,
+                                            key: ValueKey(
+                                              'mini-player-queue-icon',
+                                            ),
+                                          ),
+                                          iconSize: 24,
                                         ),
-                                      );
-                                      // 使用临时音量值避免拖动时重建
-                                      final displayVolume = _isAdjustingVolume
-                                          ? _tempVolume
-                                          : volume;
-                                      return VolumeControl(
-                                        volume: displayVolume,
-                                        onVolumeChanged: (value) {
-                                          setState(() {
-                                            _isAdjustingVolume = true;
-                                            _tempVolume = value;
-                                          });
-                                          ref
-                                              .read(
-                                                audioPlayerControllerProvider
-                                                    .notifier,
-                                              )
-                                              .setVolume(value);
-                                        },
-                                        onVolumeChangeEnd: () {
-                                          setState(() {
-                                            _isAdjustingVolume = false;
-                                          });
-                                        },
-                                        iconSize: 24,
-                                      );
-                                    },
-                                  ),
+                                      ],
+                                    ),
                                 ],
                               ),
-                            ],
-                          ),
+                            );
+                          },
                         ),
                       ),
                     ],
@@ -288,6 +286,33 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
     );
 
     return player;
+  }
+
+  Widget _buildVolumeControl() {
+    return Consumer(
+      builder: (context, ref, child) {
+        final volume = ref.watch(
+          audioPlayerControllerProvider.select((state) => state.volume),
+        );
+        final displayVolume = _isAdjustingVolume ? _tempVolume : volume;
+        return VolumeControl(
+          volume: displayVolume,
+          onVolumeChanged: (value) {
+            setState(() {
+              _isAdjustingVolume = true;
+              _tempVolume = value;
+            });
+            ref.read(audioPlayerControllerProvider.notifier).setVolume(value);
+          },
+          onVolumeChangeEnd: () {
+            setState(() {
+              _isAdjustingVolume = false;
+            });
+          },
+          iconSize: 24,
+        );
+      },
+    );
   }
 
   Widget _buildArtwork(
@@ -1164,15 +1189,82 @@ class _MiniPlayerLyricLine extends ConsumerWidget {
   }
 }
 
+class _MiniPlayerAlignedControls extends StatelessWidget {
+  const _MiniPlayerAlignedControls({required this.onQueuePressed});
+
+  final VoidCallback onQueuePressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final segmentWidth = constraints.maxWidth / 2;
+        double alignmentForLeft({
+          required double childWidth,
+          required double desiredLeft,
+        }) {
+          final availableWidth = (segmentWidth - childWidth).clamp(
+            0.0,
+            double.infinity,
+          );
+          if (availableWidth == 0) return -1;
+          final left = desiredLeft.clamp(0.0, availableWidth);
+          return 2 * left / availableWidth - 1;
+        }
+
+        final playAlignmentX = alignmentForLeft(
+          childWidth: 28,
+          desiredLeft: segmentWidth - 32,
+        );
+        final queueAlignmentX = alignmentForLeft(
+          childWidth: 24,
+          desiredLeft: 8,
+        );
+        return Row(
+          children: [
+            Expanded(
+              child: _MiniPlayerPlayButton(
+                expand: true,
+                alignment: Alignment(playAlignmentX, 0),
+              ),
+            ),
+            Expanded(
+              child: IconButton(
+                key: const ValueKey('mini-player-queue-button'),
+                tooltip: S.of(context).playlistTitle,
+                onPressed: onQueuePressed,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.expand(),
+                alignment: Alignment(queueAlignmentX, 0),
+                icon: const Icon(
+                  Icons.queue_music,
+                  key: ValueKey('mini-player-queue-icon'),
+                ),
+                iconSize: 24,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class _MiniPlayerPlayButton extends ConsumerWidget {
-  const _MiniPlayerPlayButton();
+  const _MiniPlayerPlayButton({
+    this.expand = false,
+    this.alignment = Alignment.center,
+  });
+
+  final bool expand;
+  final Alignment alignment;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isTrackLoading =
         ref.watch(isTrackLoadingProvider).valueOrNull ?? false;
     if (isTrackLoading) {
-      return const SizedBox(
+      const indicator = SizedBox(
         width: 28,
         height: 28,
         child: Padding(
@@ -1180,10 +1272,17 @@ class _MiniPlayerPlayButton extends ConsumerWidget {
           child: CircularProgressIndicator(strokeWidth: 2.5),
         ),
       );
+      return expand
+          ? SizedBox.expand(
+              child: Align(alignment: alignment, child: indicator),
+            )
+          : indicator;
     }
 
     final isPlaying = ref.watch(isPlayingProvider);
+    final visualLeftInset = isPlaying ? 28 * 6 / 24 : 28 * 8 / 24;
     return IconButton(
+      key: const ValueKey('mini-player-play-button'),
       onPressed: () {
         final controller = ref.read(audioPlayerControllerProvider.notifier);
         if (isPlaying) {
@@ -1192,7 +1291,16 @@ class _MiniPlayerPlayButton extends ConsumerWidget {
           controller.play();
         }
       },
-      icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+      padding: expand ? EdgeInsets.zero : null,
+      constraints: expand ? const BoxConstraints.expand() : null,
+      alignment: alignment,
+      icon: Transform.translate(
+        offset: Offset(-visualLeftInset, 0),
+        child: Icon(
+          isPlaying ? Icons.pause : Icons.play_arrow,
+          key: const ValueKey('mini-player-play-icon'),
+        ),
+      ),
       iconSize: 28,
     );
   }

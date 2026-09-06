@@ -81,7 +81,7 @@ final subtitleLibraryPriorityProvider =
 class AudioTapPlaylistModeNotifier extends StateNotifier<AudioTapPlaylistMode> {
   static const String preferenceKey = 'audio_tap_playlist_mode';
 
-  AudioTapPlaylistModeNotifier() : super(AudioTapPlaylistMode.replaceQueue) {
+  AudioTapPlaylistModeNotifier() : super(AudioTapPlaylistMode.addToQueue) {
     _preferenceLoad = _loadPreference();
   }
 
@@ -89,7 +89,7 @@ class AudioTapPlaylistModeNotifier extends StateNotifier<AudioTapPlaylistMode> {
   final _preference = PersistentEnumPreference<AudioTapPlaylistMode>(
     key: preferenceKey,
     values: AudioTapPlaylistMode.values,
-    fallback: AudioTapPlaylistMode.replaceQueue,
+    fallback: AudioTapPlaylistMode.addToQueue,
   );
 
   Future<void> _loadPreference() async {

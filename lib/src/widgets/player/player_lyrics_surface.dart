@@ -23,7 +23,9 @@ class PlayerLyricsSurface extends ConsumerStatefulWidget {
     this.onLongPress,
     this.onShowQueue,
     this.showQueueDrag,
+    this.lyricContentWidth,
     this.actionWidth,
+    this.searchWidth,
   });
 
   final bool isWide;
@@ -35,7 +37,9 @@ class PlayerLyricsSurface extends ConsumerStatefulWidget {
   final VoidCallback? onLongPress;
   final VoidCallback? onShowQueue;
   final PlayerVerticalDragCallbacks? showQueueDrag;
+  final double? lyricContentWidth;
   final double? actionWidth;
+  final double? searchWidth;
 
   @override
   ConsumerState<PlayerLyricsSurface> createState() =>
@@ -120,44 +124,9 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
       key: ValueKey('player-lyrics-surface-${widget.isWide}'),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final lyricList = RepaintBoundary(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                FullLyricDisplay(
-                  controller: _displayController,
-                  seekingPosition: widget.seekingPosition,
-                  isPortrait: !widget.isWide,
-                  onLongPress: widget.onLongPress,
-                  suspendAutoScroll: _searchSessionActive || !widget.isActive,
-                  searchMode: _searchHighlightsVisible,
-                  searchQuery: _searchHighlightsVisible
-                      ? _searchController.text
-                      : '',
-                  layoutSearchQuery: _searchSessionActive
-                      ? _searchController.text
-                      : null,
-                  selectedSearchMatch: _searchHighlightsVisible
-                      ? selectedMatch
-                      : null,
-                  topPadding: 86,
-                  bottomPadding: widget.isWide ? 136 : 164,
-                  visibleBottomInset: baseVisibleBottomInset,
-                  reserveSearchCenteringSpace: true,
-                  snapOnAutoScrollResume: !_skipNextAutoScrollResume,
-                  snapToCurrentOnFirstLayout: true,
-                ),
-                if (state.isLoading)
-                  const IgnorePointer(
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-              ],
-            ),
-          );
           return AnimatedBuilder(
             animation: _searchRevealController,
-            child: lyricList,
-            builder: (context, lyricList) {
+            builder: (context, _) {
               final revealedSearchHeight =
                   searchRowHeight * _searchRevealController.value;
               final requestedViewportBottom =
@@ -171,6 +140,42 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                 (constraints.maxHeight - 1).clamp(0.0, double.infinity),
               );
               _currentVisibleBottomInset = lyricViewportBottom;
+              final displayVisibleBottomInset = selectedMatch == null
+                  ? baseVisibleBottomInset
+                  : lyricViewportBottom;
+              final lyricList = RepaintBoundary(
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    FullLyricDisplay(
+                      controller: _displayController,
+                      seekingPosition: widget.seekingPosition,
+                      isPortrait: !widget.isWide,
+                      onLongPress: widget.onLongPress,
+                      suspendAutoScroll:
+                          _searchSessionActive || !widget.isActive,
+                      searchMode: _searchHighlightsVisible,
+                      searchQuery: _searchHighlightsVisible
+                          ? _searchController.text
+                          : '',
+                      layoutSearchQuery: _searchSessionActive
+                          ? _searchController.text
+                          : null,
+                      selectedSearchMatch: _searchHighlightsVisible
+                          ? selectedMatch
+                          : null,
+                      contentWidth: widget.lyricContentWidth,
+                      visibleBottomInset: displayVisibleBottomInset,
+                      snapOnAutoScrollResume: !_skipNextAutoScrollResume,
+                      snapToCurrentOnFirstLayout: true,
+                    ),
+                    if (state.isLoading)
+                      const IgnorePointer(
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                  ],
+                ),
+              );
               final bottomControls = Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -355,7 +360,7 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
       alignment: Alignment.center,
       child: SizedBox(
         key: const ValueKey('lyric-search-width-boundary'),
-        width: widget.actionWidth ?? double.infinity,
+        width: widget.searchWidth ?? widget.actionWidth ?? double.infinity,
         child: Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: PlayerTransientGlassSurface(

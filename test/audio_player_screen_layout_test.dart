@@ -26,6 +26,7 @@ import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
+import 'package:kikoeru_flutter/src/widgets/cover_preview_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _track = AudioTrack(
@@ -58,7 +59,67 @@ void main() {
       find.byKey(const ValueKey('player-track-title-button')),
       findsNothing,
     );
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byKey(const ValueKey('player-skip-previous-button')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byKey(const ValueKey('player-skip-next-button')),
+          )
+          .onPressed,
+      isNull,
+    );
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('real cover opens a toolbar-free preview', (tester) async {
+    const coveredTrack = AudioTrack(
+      id: 'covered-track',
+      title: 'Covered track',
+      url: 'https://example.invalid/audio.mp3',
+      artworkUrl: 'https://example.invalid/cover.jpg',
+    );
+    await _pumpPlayer(tester, const Size(390, 844), track: coveredTrack);
+
+    final previewHero = find.byWidgetPredicate(
+      (widget) =>
+          widget is Hero &&
+          widget.tag == playerCoverPreviewHeroTag(coveredTrack.id),
+    );
+    expect(previewHero, findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey('player-cover-artwork-covered-track')),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.byType(CoverPreviewDialog), findsOneWidget);
+    expect(previewHero, findsNWidgets(2));
+    expect(find.byIcon(Icons.close), findsNothing);
+    expect(find.byIcon(Icons.save_alt), findsNothing);
+
+    await tester.binding.handlePopRoute();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(previewHero, findsWidgets);
+    await tester.pumpAndSettle();
+    expect(previewHero, findsNothing);
+    await tester.pump(const Duration(seconds: 9));
+  });
+
+  testWidgets('missing cover does not open preview', (tester) async {
+    await _pumpPlayer(tester, const Size(390, 844));
+    await tester.tap(
+      find.byKey(const ValueKey('player-cover-artwork-track-1')),
+    );
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.byType(CoverPreviewDialog), findsNothing);
   });
 
   testWidgets('track title opens one work detail route on compact and wide', (
@@ -669,34 +730,41 @@ void main() {
     _expectMainArtworkHeroState(tester, enabled: true);
   });
 
-  testWidgets('programmatic paging waits for compact page confirmation', (
-    tester,
-  ) async {
-    await _pumpPlayer(tester, const Size(390, 844), pushedRoute: true);
-    final horizontal = tester.widget<PageView>(
-      find.byKey(const ValueKey('compact-player-pages')),
-    );
+  testWidgets(
+    'cover tap keeps compact page while horizontal swipe opens lyrics',
+    (tester) async {
+      await _pumpPlayer(tester, const Size(390, 844), pushedRoute: true);
+      final horizontal = tester.widget<PageView>(
+        find.byKey(const ValueKey('compact-player-pages')),
+      );
 
-    await tester.tap(
-      find.byKey(const ValueKey('player-cover-artwork-track-1')),
-    );
-    await tester.pump();
+      await tester.tap(
+        find.byKey(const ValueKey('player-cover-artwork-track-1')),
+      );
+      await tester.pump();
 
-    expect(horizontal.controller!.page, 1);
-    _expectMainArtworkHeroState(tester, enabled: true);
+      expect(horizontal.controller!.page, 1);
+      _expectMainArtworkHeroState(tester, enabled: true);
 
-    await tester.pumpAndSettle();
-    expect(horizontal.controller!.page, 2);
-    _expectMainArtworkHeroState(tester, enabled: false);
-  });
+      await tester.pumpAndSettle();
+      expect(horizontal.controller!.page, 1);
+      _expectMainArtworkHeroState(tester, enabled: true);
+
+      await tester.drag(
+        find.byKey(const ValueKey('compact-player-pages')),
+        const Offset(-320, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(horizontal.controller!.page, 2);
+      _expectMainArtworkHeroState(tester, enabled: false);
+    },
+  );
 
   testWidgets('wide artwork Hero follows visible left pane', (tester) async {
     await _pumpPlayer(tester, const Size(1280, 720), pushedRoute: true);
     _expectMainArtworkHeroState(tester, enabled: true);
 
-    await tester.tap(
-      find.byKey(const ValueKey('player-cover-artwork-track-1')),
-    );
+    await tester.tap(find.byKey(const ValueKey('player-cover-lyric-preview')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('lyrics-pane-wide')), findsOneWidget);
     _expectMainArtworkHeroState(tester, enabled: true);
@@ -749,6 +817,17 @@ void main() {
     expect(progressTheme.data.padding, EdgeInsets.zero);
     expect(progressTheme.data.trackHeight, 2);
     expect(progressTheme.data.trackShape, isA<PlayerUniformSliderTrackShape>());
+    final progressContext = tester.element(
+      find.byKey(const ValueKey('player-progress-slider')),
+    );
+    expect(
+      progressTheme.data.activeTrackColor,
+      Theme.of(progressContext).colorScheme.primary,
+    );
+    expect(
+      progressTheme.data.thumbColor,
+      Theme.of(progressContext).colorScheme.primary,
+    );
     final thumbShape = progressTheme.data.thumbShape as RoundSliderThumbShape;
     expect(thumbShape.enabledThumbRadius, 4);
 
@@ -805,7 +884,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('compact header and five bottom actions align to artwork', (
+  testWidgets('compact header and five bottom action glyphs align', (
     tester,
   ) async {
     await _pumpPlayer(tester, const Size(390, 844));
@@ -830,6 +909,14 @@ void main() {
     for (var index = 1; index < centers.length; index++) {
       expect(centers[index - 1].dx, lessThan(centers[index].dx));
     }
+    final firstActionIcon = tester.getRect(
+      find.descendant(of: controls, matching: find.byIcon(Icons.repeat)),
+    );
+    final lastActionIcon = tester.getRect(
+      find.descendant(of: controls, matching: find.byIcon(Icons.queue_music)),
+    );
+    expect(firstActionIcon.left, closeTo(coverRect.left, 0.01));
+    expect(lastActionIcon.right, closeTo(coverRect.right, 0.01));
     final moreRect = tester.getRect(
       find.byKey(const ValueKey('player-more-button')),
     );
@@ -847,50 +934,66 @@ void main() {
     expect(find.text('Keep Screen Awake'), findsOneWidget);
   });
 
-  testWidgets(
-    'lyric actions use the same width and positions as main actions',
-    (tester) async {
-      final lyrics = List.generate(
-        8,
-        (index) => LyricLine(
-          startTime: Duration(seconds: index),
-          endTime: Duration(seconds: index + 1),
-          text: 'aligned lyric $index',
-        ),
-      );
-      await _pumpPlayer(tester, const Size(390, 844), lyrics: lyrics);
-      final coverRect = tester.getRect(
-        find.byKey(const ValueKey('player-cover-artwork-track-1')),
-      );
-      final controls = find.byKey(const ValueKey('controls-pane-compact'));
-      final mainLeft = tester.getCenter(
-        find.descendant(of: controls, matching: find.byIcon(Icons.repeat)),
-      );
-      final mainRight = tester.getCenter(
-        find.descendant(of: controls, matching: find.byIcon(Icons.queue_music)),
-      );
+  testWidgets('lyric content and action glyphs align with the compact header', (
+    tester,
+  ) async {
+    final lyrics = List.generate(
+      8,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'aligned lyric $index',
+      ),
+    );
+    await _pumpPlayer(tester, const Size(390, 844), lyrics: lyrics);
+    final coverRect = tester.getRect(
+      find.byKey(const ValueKey('player-cover-artwork-track-1')),
+    );
+    final controls = find.byKey(const ValueKey('controls-pane-compact'));
+    final mainLeft = tester.getCenter(
+      find.descendant(of: controls, matching: find.byIcon(Icons.repeat)),
+    );
+    final mainRight = tester.getCenter(
+      find.descendant(of: controls, matching: find.byIcon(Icons.queue_music)),
+    );
 
-      await tester.drag(
-        find.byKey(const ValueKey('compact-player-pages')),
-        const Offset(-320, 0),
-      );
-      await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(-320, 0),
+    );
+    await tester.pumpAndSettle();
 
-      final actionsRect = tester.getRect(
-        find.byKey(const ValueKey('lyric-actions-width-boundary')),
-      );
-      final lyricLeft = tester.getCenter(
-        find.byKey(const ValueKey('lyric-subtitle-picker-button')),
-      );
-      final lyricRight = tester.getCenter(
-        find.byKey(const ValueKey('lyric-search-button')),
-      );
-      expect(actionsRect.left, closeTo(coverRect.left, 0.01));
-      expect(actionsRect.right, closeTo(coverRect.right, 0.01));
-      expect(lyricLeft.dx, closeTo(mainLeft.dx, 0.01));
-      expect(lyricRight.dx, closeTo(mainRight.dx, 0.01));
-    },
-  );
+    final actionsRect = tester.getRect(
+      find.byKey(const ValueKey('lyric-actions-width-boundary')),
+    );
+    final lyricLeft = tester.getCenter(
+      find.byKey(const ValueKey('lyric-subtitle-picker-button')),
+    );
+    final lyricRight = tester.getCenter(
+      find.byKey(const ValueKey('lyric-search-button')),
+    );
+    final lyricLeftIcon = tester.getRect(
+      find.descendant(
+        of: find.byKey(const ValueKey('lyric-subtitle-picker-button')),
+        matching: find.byIcon(Icons.subtitles_outlined),
+      ),
+    );
+    final lyricRightIcon = tester.getRect(
+      find.descendant(
+        of: find.byKey(const ValueKey('lyric-search-button')),
+        matching: find.byIcon(Icons.search),
+      ),
+    );
+    final lyricText = tester.getRect(find.text('aligned lyric 0'));
+    expect(actionsRect.left, closeTo(coverRect.left - 12, 0.01));
+    expect(actionsRect.right, closeTo(coverRect.right + 12, 0.01));
+    expect(lyricLeft.dx, closeTo(mainLeft.dx, 0.01));
+    expect(lyricRight.dx, closeTo(mainRight.dx, 0.01));
+    expect(lyricLeftIcon.left, closeTo(coverRect.left, 0.01));
+    expect(lyricRightIcon.right, closeTo(coverRect.right, 0.01));
+    expect(lyricText.left, closeTo(coverRect.left, 0.01));
+    expect(lyricText.right, closeTo(coverRect.right, 0.01));
+  });
 
   testWidgets('wide lyric search shares the action row center and width', (
     tester,
@@ -909,9 +1012,7 @@ void main() {
       textScale: 1.4,
       lyrics: lyrics,
     );
-    await tester.tap(
-      find.byKey(const ValueKey('player-cover-artwork-track-1')),
-    );
+    await tester.tap(find.byKey(const ValueKey('player-cover-lyric-preview')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('lyric-search-button')));
     await tester.pumpAndSettle();
@@ -1335,27 +1436,41 @@ void main() {
     final queueTrackFinder = find.byKey(
       const ValueKey('player-queue-track-track-1'),
     );
+    final queueTrackContentFinder = find.byKey(
+      const ValueKey('player-queue-track-content-track-1'),
+    );
     final queueTrack = tester.getRect(queueTrackFinder);
+    final queueList = tester.widget<ReorderableListView>(
+      find.byKey(const ValueKey('player-queue-list')),
+    );
+    expect(queueList.clipBehavior, isNot(Clip.none));
     expect(nowPlaying.left, closeTo(queueBoundary.left, 0.01));
     expect(nowPlaying.right, closeTo(queueBoundary.right, 0.01));
     expect(titleBar.left, closeTo(queueBoundary.left, 0.01));
     expect(titleBar.right, closeTo(queueBoundary.right, 0.01));
-    expect(queueTrack.left, closeTo(queueBoundary.left, 0.01));
-    expect(queueTrack.right, closeTo(queueBoundary.right, 0.01));
+    expect(queueTrack.left, closeTo(titleBar.left - 10, 0.01));
+    expect(queueTrack.right, closeTo(titleBar.right + 10, 0.01));
+    expect(tester.getRect(queueArtwork).left, closeTo(titleBar.left, 0.01));
     expect(
-      find.descendant(of: queueTrackFinder, matching: find.text('Artist')),
+      find.descendant(
+        of: queueTrackContentFinder,
+        matching: find.text('Artist'),
+      ),
       findsOneWidget,
     );
     expect(find.text('Artist · Album'), findsNothing);
     final queueTitle = tester.widget<Text>(
-      find.descendant(of: queueTrackFinder, matching: find.text(_track.title)),
+      find.descendant(
+        of: queueTrackContentFinder,
+        matching: find.text(_track.title),
+      ),
     );
     expect(queueTitle.style?.fontSize, 12.5);
     expect(queueTitle.style?.height, 1.12);
     final shiftedTextColumn = tester.widget<Transform>(
       find
           .descendant(
-            of: queueTrackFinder,
+            of: queueTrackContentFinder,
             matching: find.byWidgetPredicate(
               (widget) =>
                   widget is Transform &&
@@ -1369,25 +1484,52 @@ void main() {
     final clearText = tester.widget<Text>(find.text('Clear'));
     expect(clearText.style?.fontSize, countText.style?.fontSize);
     expect(clearText.style?.color, countText.style?.color);
+    final clearTextRect = tester.getRect(find.text('Clear'));
+    final clearButtonRect = tester.getRect(
+      find.byKey(const ValueKey('player-queue-clear-button')),
+    );
+    expect(clearTextRect.right, closeTo(titleBar.right, 0.01));
+    expect(clearButtonRect.right, closeTo(titleBar.right, 0.01));
+    expect(clearButtonRect.width, 48);
+    expect(clearButtonRect.left, greaterThan(titleBar.right - 68));
+    final queueInk = tester.widget<InkWell>(
+      find.descendant(
+        of: queueTrackContentFinder,
+        matching: find.byType(InkWell),
+      ),
+    );
+    expect(
+      queueInk.overlayColor?.resolve({WidgetState.pressed}),
+      Colors.transparent,
+    );
+    expect(queueInk.splashFactory, same(NoSplash.splashFactory));
     final removeIcon = tester.widget<Icon>(
       find.descendant(
-        of: queueTrackFinder,
+        of: queueTrackContentFinder,
         matching: find.byIcon(Icons.remove),
       ),
     );
     expect(removeIcon.size, 18);
     final removeButton = find.ancestor(
       of: find.descendant(
-        of: queueTrackFinder,
+        of: queueTrackContentFinder,
         matching: find.byIcon(Icons.remove),
       ),
       matching: find.byType(PlayerCompactAction),
     );
     expect(tester.getSize(removeButton), const Size(32, 32));
+    expect(tester.getRect(removeButton).right, closeTo(titleBar.right, 0.01));
     expect(
       removeIcon.color,
-      Theme.of(tester.element(queueTrackFinder)).colorScheme.onSurfaceVariant,
+      Theme.of(
+        tester.element(queueTrackContentFinder),
+      ).colorScheme.onSurfaceVariant,
     );
+    await tester.tapAt(
+      Offset(clearButtonRect.left + 2, clearButtonRect.center.dy),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Clear playback queue?'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -1493,7 +1635,7 @@ void main() {
       final searchWidthRect = tester.getRect(
         find.byKey(const ValueKey('lyric-search-width-boundary')),
       );
-      expect(searchWidthRect.width, closeTo(actionWidthRect.width, 0.01));
+      expect(searchWidthRect.width, closeTo(actionWidthRect.width - 24, 0.01));
       expect(
         searchWidthRect.center.dx,
         closeTo(actionWidthRect.center.dx, 0.01),

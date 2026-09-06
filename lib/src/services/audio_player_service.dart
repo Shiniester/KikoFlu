@@ -35,6 +35,25 @@ enum EnqueueNextResult {
   noActiveQueue,
 }
 
+enum ManualSkipDirection { previous, next }
+
+int? resolveManualSkipTarget({
+  required int queueLength,
+  required int currentIndex,
+  required LoopMode repeatMode,
+  required ManualSkipDirection direction,
+}) {
+  if (queueLength <= 0 || currentIndex < 0 || currentIndex >= queueLength) {
+    return null;
+  }
+
+  final offset = direction == ManualSkipDirection.next ? 1 : -1;
+  final target = currentIndex + offset;
+  if (target >= 0 && target < queueLength) return target;
+  if (repeatMode != LoopMode.all) return null;
+  return direction == ManualSkipDirection.next ? 0 : queueLength - 1;
+}
+
 class EnqueueNextQueueMutation {
   const EnqueueNextQueueMutation({
     required this.result,
@@ -1001,21 +1020,25 @@ class AudioPlayerService {
   }
 
   Future<void> skipToNext() async {
-    if (_queue.isNotEmpty && _currentIndex < _queue.length - 1) {
-      await _switchToIndexAndPlay(_currentIndex + 1);
-    } else {
-      // No next track available
-      throw Exception('没有下一首可播放');
-    }
+    final target = resolveManualSkipTarget(
+      queueLength: _queue.length,
+      currentIndex: _currentIndex,
+      repeatMode: _appLoopMode,
+      direction: ManualSkipDirection.next,
+    );
+    if (target == null) throw Exception('没有下一首可播放');
+    await _switchToIndexAndPlay(target);
   }
 
   Future<void> skipToPrevious() async {
-    if (_queue.isNotEmpty && _currentIndex > 0) {
-      await _switchToIndexAndPlay(_currentIndex - 1);
-    } else {
-      // No previous track available
-      throw Exception('没有上一首可播放');
-    }
+    final target = resolveManualSkipTarget(
+      queueLength: _queue.length,
+      currentIndex: _currentIndex,
+      repeatMode: _appLoopMode,
+      direction: ManualSkipDirection.previous,
+    );
+    if (target == null) throw Exception('没有上一首可播放');
+    await _switchToIndexAndPlay(target);
   }
 
   Future<void> skipToIndex(int index) async {
@@ -1358,6 +1381,22 @@ class AudioPlayerService {
 
   bool get hasNext => _currentIndex < _queue.length - 1;
   bool get hasPrevious => _currentIndex > 0;
+  bool get canSkipNextManually =>
+      resolveManualSkipTarget(
+        queueLength: _queue.length,
+        currentIndex: _currentIndex,
+        repeatMode: _appLoopMode,
+        direction: ManualSkipDirection.next,
+      ) !=
+      null;
+  bool get canSkipPreviousManually =>
+      resolveManualSkipTarget(
+        queueLength: _queue.length,
+        currentIndex: _currentIndex,
+        repeatMode: _appLoopMode,
+        direction: ManualSkipDirection.previous,
+      ) !=
+      null;
 
   void _emitPlaybackDiagnostic(
     PlaybackDiagnosticEventType type,

@@ -1371,7 +1371,7 @@ abstract class S {
   /// No description provided for @playlistTitle.
   ///
   /// In en, this message translates to:
-  /// **'Playlist'**
+  /// **'Playback Queue'**
   String get playlistTitle;
 
   /// No description provided for @clearPlaybackQueueTitle.
@@ -1869,25 +1869,25 @@ abstract class S {
   /// No description provided for @audioTapPlaylistMode.
   ///
   /// In en, this message translates to:
-  /// **'Playlist Add Mode'**
+  /// **'Audio Add Mode'**
   String get audioTapPlaylistMode;
 
   /// No description provided for @selectAudioTapPlaylistMode.
   ///
   /// In en, this message translates to:
-  /// **'Choose how tapping audio updates the playlist:'**
+  /// **'Choose how tapping audio updates the playback queue:'**
   String get selectAudioTapPlaylistMode;
 
   /// No description provided for @audioTapPlaylistModeReplace.
   ///
   /// In en, this message translates to:
-  /// **'Replace Playlist'**
+  /// **'Replace Playback Queue'**
   String get audioTapPlaylistModeReplace;
 
   /// No description provided for @audioTapPlaylistModeReplaceDescription.
   ///
   /// In en, this message translates to:
-  /// **'Replace the current playlist with every playable audio file in the tapped file\'s folder.'**
+  /// **'Replace the current playback queue with every playable audio file in the tapped file\'s folder.'**
   String get audioTapPlaylistModeReplaceDescription;
 
   /// No description provided for @audioTapPlaylistModeAppendDirectory.
@@ -1905,13 +1905,13 @@ abstract class S {
   /// No description provided for @audioTapPlaylistModeAppendSingle.
   ///
   /// In en, this message translates to:
-  /// **'Add to Playlist'**
+  /// **'Add to Playback Queue'**
   String get audioTapPlaylistModeAppendSingle;
 
   /// No description provided for @audioTapPlaylistModeAppendSingleDescription.
   ///
   /// In en, this message translates to:
-  /// **'Add the tapped audio to the end of the playlist without interrupting or switching playback.'**
+  /// **'Add the tapped audio to the end of the playback queue without interrupting or switching playback.'**
   String get audioTapPlaylistModeAppendSingleDescription;
 
   /// No description provided for @audioTapPlaylistModeAppendChip.
@@ -1923,7 +1923,7 @@ abstract class S {
   /// No description provided for @audioTapPlaylistModeAppendSingleChip.
   ///
   /// In en, this message translates to:
-  /// **'Add to Playlist'**
+  /// **'Add to Playback Queue'**
   String get audioTapPlaylistModeAppendSingleChip;
 
   /// No description provided for @copyName.
@@ -4032,12 +4032,6 @@ abstract class S {
   /// **'Back to cover'**
   String get backToCover;
 
-  /// No description provided for @lyricHintTapCover.
-  ///
-  /// In en, this message translates to:
-  /// **'Tap cover or title to enter subtitle view'**
-  String get lyricHintTapCover;
-
   /// No description provided for @floatingSubtitle.
   ///
   /// In en, this message translates to:
@@ -4047,7 +4041,7 @@ abstract class S {
   /// No description provided for @playlistEmpty.
   ///
   /// In en, this message translates to:
-  /// **'Playlist is empty'**
+  /// **'Playback queue is empty'**
   String get playlistEmpty;
 
   /// No description provided for @gotIt.
@@ -5243,12 +5237,6 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Saved to: {path}'**
   String savedToPath(String path);
-
-  /// No description provided for @doubleTapToZoom.
-  ///
-  /// In en, this message translates to:
-  /// **'Double-tap to zoom · Pinch to scale'**
-  String get doubleTapToZoom;
 
   /// No description provided for @getStatusFailed.
   ///

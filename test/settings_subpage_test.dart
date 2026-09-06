@@ -183,26 +183,26 @@ void main() {
     await tester.runAsync(_pumpPreferences);
     await tester.pump();
 
-    expect(find.text('Playlist Add Mode'), findsOneWidget);
-    expect(find.text('Current: Replace Playlist'), findsOneWidget);
+    expect(find.text('Audio Add Mode'), findsOneWidget);
+    expect(find.text('Current: Add to Playback Queue'), findsOneWidget);
 
-    await tester.tap(find.text('Playlist Add Mode'));
+    await tester.tap(find.text('Audio Add Mode'));
     await tester.pumpAndSettle();
-    expect(find.text('Add to Playlist'), findsOneWidget);
+    expect(find.text('Replace Playback Queue'), findsOneWidget);
 
-    await tester.tap(find.text('Add to Playlist'));
+    await tester.tap(find.text('Replace Playback Queue'));
     await tester.pumpAndSettle();
 
     expect(
       container.read(audioTapPlaylistModeProvider),
-      AudioTapPlaylistMode.addToQueue,
+      AudioTapPlaylistMode.replaceQueue,
     );
-    expect(find.text('Current: Add to Playlist'), findsOneWidget);
+    expect(find.text('Current: Replace Playback Queue'), findsOneWidget);
 
     final prefs = await SharedPreferences.getInstance();
     expect(
       prefs.getString(AudioTapPlaylistModeNotifier.preferenceKey),
-      AudioTapPlaylistMode.addToQueue.name,
+      AudioTapPlaylistMode.replaceQueue.name,
     );
   });
 
@@ -222,7 +222,7 @@ void main() {
     expect(container.read(audioTapPlaylistModeProvider), restoredMode);
   });
 
-  test('legacy append modes migrate to add-to-playlist', () async {
+  test('legacy append modes migrate to add-to-queue', () async {
     SharedPreferences.setMockInitialValues({
       AudioTapPlaylistModeNotifier.preferenceKey: 'appendDirectory',
     });

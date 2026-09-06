@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -38,7 +40,7 @@ void main() {
     expect(matches.map((match) => match.start), [0, 5, 10]);
   });
 
-  testWidgets('active lyric is bold white and tapping seeks then centers', (
+  testWidgets('active lyric is bold white and tapping seeks to playback line', (
     tester,
   ) async {
     Duration? requested;
@@ -71,12 +73,125 @@ void main() {
     expect(active.style?.color?.a, 1);
     final inactive = tester.widget<Text>(find.text('lyric 3'));
     expect(inactive.style?.color?.a, lessThan(0.4));
+    expect(
+      tester.getCenter(find.text('matching lyric 4')).dy -
+          tester.getCenter(find.text('lyric 3')).dy,
+      closeTo(44, 0.01),
+    );
 
     await tester.tap(find.text('lyric 5'));
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     expect(requested, const Duration(seconds: 5));
-    final center = tester.getCenter(find.text('lyric 5'));
-    expect((center.dy - 350).abs(), lessThan(120));
+    _expectLineAtPlaybackAnchor(tester, find.text('lyric 5'));
+  });
+
+  testWidgets(
+    'first and last lyrics use the playback line without extra edge travel',
+    (tester) async {
+      final edgeLyrics = List.generate(
+        20,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index + 5),
+          endTime: Duration(seconds: index + 6),
+          text: 'edge lyric $index',
+        ),
+      );
+      final positions = StreamController<Duration>();
+      addTearDown(positions.close);
+      positions.add(Duration.zero);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            positionProvider.overrideWith((ref) => positions.stream),
+            lyricControllerProvider.overrideWith(
+              (ref) => LyricController(
+                ref,
+                initialState: LyricState(lyrics: edgeLyrics),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            theme: ThemeData.dark(useMaterial3: true),
+            home: const Scaffold(body: FullLyricDisplay(isPortrait: true)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final firstBefore = tester.getCenter(find.text('edge lyric 0'));
+      _expectLineAtPlaybackAnchor(tester, find.text('edge lyric 0'));
+      positions.add(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(
+        tester.getCenter(find.text('edge lyric 0')).dy,
+        closeTo(firstBefore.dy, 1.1),
+      );
+
+      final scrollable = tester.state<ScrollableState>(
+        find.descendant(
+          of: find.byKey(const ValueKey('full-lyric-list')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+      await tester.pump();
+      _expectLineAtPlaybackAnchor(tester, find.text('edge lyric 19'));
+      expect(
+        scrollable.position.pixels,
+        closeTo(scrollable.position.maxScrollExtent, 1.1),
+      );
+    },
+  );
+
+  testWidgets('full lyrics resume following two seconds after user browsing', (
+    tester,
+  ) async {
+    final longLyrics = List.generate(
+      48,
+      (index) => LyricLine(
+        startTime: Duration(seconds: index),
+        endTime: Duration(seconds: index + 1),
+        text: 'browse lyric $index',
+      ),
+    );
+    final positions = StreamController<Duration>();
+    addTearDown(positions.close);
+    positions.add(const Duration(seconds: 20));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith((ref) => positions.stream),
+          lyricControllerProvider.overrideWith(
+            (ref) => LyricController(
+              ref,
+              initialState: LyricState(lyrics: longLyrics),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          theme: ThemeData.dark(useMaterial3: true),
+          home: const Scaffold(body: FullLyricDisplay(isPortrait: true)),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final list = find.byKey(const ValueKey('full-lyric-list'));
+    final scrollable = tester.state<ScrollableState>(
+      find.descendant(of: list, matching: find.byType(Scrollable)),
+    );
+    await tester.drag(list, const Offset(0, -180));
+    await tester.pump();
+    final browsedOffset = scrollable.position.pixels;
+
+    positions.add(const Duration(seconds: 21));
+    await tester.pump(const Duration(milliseconds: 1900));
+    expect(scrollable.position.pixels, closeTo(browsedOffset, 0.1));
+
+    await tester.pump(const Duration(milliseconds: 120));
+    await tester.pump(const Duration(milliseconds: 320));
+    _expectLineAtPlaybackAnchor(tester, find.text('browse lyric 21'));
   });
 
   testWidgets('compact lyric rows seek, fade edges, and resume following', (
@@ -208,7 +323,7 @@ void main() {
     },
   );
 
-  testWidgets('lyric search counts words, selects one and centers its line', (
+  testWidgets('lyric search counts words and selects on the playback line', (
     tester,
   ) async {
     final searchLyrics = List.generate(
@@ -306,7 +421,8 @@ void main() {
         (widget) => widget is RichText && widget.text.toPlainText() == '远处还有我',
       ),
     );
-    expect((selectedLine.center.dy - viewport.center.dy).abs(), lessThan(36));
+    final playbackAnchor = viewport.top + viewport.height * 0.4;
+    expect((selectedLine.center.dy - playbackAnchor).abs(), lessThan(36));
     final farHit = hitsIn('远处还有我').single;
     expect(farHit.style?.backgroundColor, colors.primary);
 
@@ -381,12 +497,12 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('1/3'), findsOneWidget);
-      _expectMatchCentered(tester, 'needle at the beginning', 0, 6);
+      _expectMatchAtPlaybackAnchor(tester, 'needle at the beginning', 0, 6);
 
       await tester.tap(find.byTooltip('Next'));
       await tester.pumpAndSettle();
       expect(find.text('2/3'), findsOneWidget);
-      _expectMatchCentered(
+      _expectMatchAtPlaybackAnchor(
         tester,
         middleText,
         middleText.lastIndexOf('needle'),
@@ -396,7 +512,7 @@ void main() {
       await tester.tap(find.byTooltip('Next'));
       await tester.pumpAndSettle();
       expect(find.text('3/3'), findsOneWidget);
-      _expectMatchCentered(
+      _expectMatchAtPlaybackAnchor(
         tester,
         'the final needle',
         'the final '.length,
@@ -409,7 +525,7 @@ void main() {
       await tester.tap(find.byTooltip('Previous'));
       await tester.pumpAndSettle();
       expect(find.text('2/3'), findsOneWidget);
-      _expectMatchCentered(
+      _expectMatchAtPlaybackAnchor(
         tester,
         middleText,
         middleText.lastIndexOf('needle'),
@@ -420,7 +536,7 @@ void main() {
       await tester.tap(find.byTooltip('Next'));
       await tester.pumpAndSettle();
       expect(find.text('1/3'), findsOneWidget);
-      _expectMatchCentered(tester, 'needle at the beginning', 0, 6);
+      _expectMatchAtPlaybackAnchor(tester, 'needle at the beginning', 0, 6);
     },
   );
 
@@ -477,11 +593,11 @@ void main() {
       'needle',
     );
     await tester.pumpAndSettle();
-    _expectMatchCentered(tester, wrapped, 0, 'needle'.length);
+    _expectMatchAtPlaybackAnchor(tester, wrapped, 0, 'needle'.length);
 
     await tester.tap(find.byTooltip('Next'));
     await tester.pumpAndSettle();
-    _expectMatchCentered(
+    _expectMatchAtPlaybackAnchor(
       tester,
       wrapped,
       wrapped.lastIndexOf('needle'),
@@ -585,7 +701,7 @@ void main() {
   });
 }
 
-void _expectMatchCentered(
+void _expectMatchAtPlaybackAnchor(
   WidgetTester tester,
   String line,
   int start,
@@ -610,7 +726,17 @@ void _expectMatchCentered(
   final viewport = tester.getRect(
     find.byKey(const ValueKey('lyric-keyboard-safe-viewport')),
   );
-  expect((glyphCenter.dy - viewport.center.dy).abs(), lessThanOrEqualTo(2.1));
+  final playbackAnchor = viewport.top + viewport.height * 0.4;
+  expect((glyphCenter.dy - playbackAnchor).abs(), lessThanOrEqualTo(2.1));
+}
+
+void _expectLineAtPlaybackAnchor(WidgetTester tester, Finder line) {
+  final viewport = tester.getRect(find.byType(FullLyricDisplay));
+  final playbackAnchor = viewport.top + viewport.height * 0.4;
+  expect(
+    (tester.getCenter(line).dy - playbackAnchor).abs(),
+    lessThanOrEqualTo(2.1),
+  );
 }
 
 double mathMin(double left, double right) => left < right ? left : right;

@@ -101,11 +101,18 @@ iOS 用户可通过 AltStore 或 SideStore 添加软件源来安装和更新 Kik
 - Flutter SDK 3.44.1+
 - Dart SDK 3.12.1+
 
+Windows 上进行 Android 开发时，请按
+[Windows Android 开发环境](docs/development/windows-android.md)配置项目锁定的
+Flutter 3.44.7、Android SDK、JDK、模拟器与真机调试。
+
 ```bash
 git clone https://github.com/pa-jesusf/KikoFlu.git
 cd KikoFlu
 flutter pub get
 ```
+
+`tool/performance/setup_android_toolchain.ps1` 创建的 `build/toolchains` 仅供
+可复现的 Android 性能测试使用，不是日常 Android Studio 开发环境。
 
 ### 构建命令
 

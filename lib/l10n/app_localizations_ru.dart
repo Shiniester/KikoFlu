@@ -697,7 +697,7 @@ class SRu extends S {
   }
 
   @override
-  String get playlistTitle => 'Плейлист';
+  String get playlistTitle => 'Очередь воспроизведения';
 
   @override
   String get clearPlaybackQueueTitle => 'Очистить очередь воспроизведения?';
@@ -969,18 +969,18 @@ class SRu extends S {
   String get audioFormatSubtitle => 'Приоритет аудиоформатов';
 
   @override
-  String get audioTapPlaylistMode => 'Режим добавления в плейлист';
+  String get audioTapPlaylistMode => 'Режим добавления аудио';
 
   @override
   String get selectAudioTapPlaylistMode =>
-      'Выберите, как нажатие на аудио изменяет плейлист:';
+      'Выберите, как нажатие на аудио изменяет очередь воспроизведения:';
 
   @override
-  String get audioTapPlaylistModeReplace => 'Заменить плейлист';
+  String get audioTapPlaylistModeReplace => 'Заменить очередь';
 
   @override
   String get audioTapPlaylistModeReplaceDescription =>
-      'Заменить текущий плейлист всеми доступными аудиофайлами из папки выбранного файла.';
+      'Заменить текущую очередь воспроизведения всеми доступными аудиофайлами из папки выбранного файла.';
 
   @override
   String get audioTapPlaylistModeAppendDirectory => 'Воспроизвести следующим';
@@ -990,17 +990,17 @@ class SRu extends S {
       'Поставить выбранное аудио сразу после текущего, не прерывая воспроизведение.';
 
   @override
-  String get audioTapPlaylistModeAppendSingle => 'Добавить в плейлист';
+  String get audioTapPlaylistModeAppendSingle => 'Добавить в очередь';
 
   @override
   String get audioTapPlaylistModeAppendSingleDescription =>
-      'Добавить выбранное аудио в конец плейлиста, не переключая текущее воспроизведение.';
+      'Добавить выбранное аудио в конец очереди воспроизведения, не переключая текущее воспроизведение.';
 
   @override
   String get audioTapPlaylistModeAppendChip => 'Воспроизвести следующим';
 
   @override
-  String get audioTapPlaylistModeAppendSingleChip => 'Добавить в плейлист';
+  String get audioTapPlaylistModeAppendSingleChip => 'Добавить в очередь';
 
   @override
   String get copyName => 'Копировать имя';
@@ -2196,14 +2196,10 @@ class SRu extends S {
   String get backToCover => 'Вернуться к обложке';
 
   @override
-  String get lyricHintTapCover =>
-      'Нажмите на обложку или название для перехода к субтитрам';
-
-  @override
   String get floatingSubtitle => 'Плавающие субтитры';
 
   @override
-  String get playlistEmpty => 'Плейлист пуст';
+  String get playlistEmpty => 'Очередь воспроизведения пуста';
 
   @override
   String get gotIt => 'Понятно';
@@ -2940,10 +2936,6 @@ class SRu extends S {
   String savedToPath(String path) {
     return 'Сохранено в: $path';
   }
-
-  @override
-  String get doubleTapToZoom =>
-      'Двойное нажатие для увеличения · Щипок для масштабирования';
 
   @override
   String getStatusFailed(String error) {

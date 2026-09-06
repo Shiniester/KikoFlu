@@ -34,6 +34,7 @@ class PlayerControlsWidget extends ConsumerStatefulWidget {
   final VoidCallback? onMorePressed;
   final int visibleActionCount;
   final bool showMoreButton;
+  final double? additionalActionWidth;
   final VoidCallback? debugOnProgressBuild;
   final VoidCallback? debugOnPlayButtonBuild;
 
@@ -54,6 +55,7 @@ class PlayerControlsWidget extends ConsumerStatefulWidget {
     this.onMorePressed,
     this.visibleActionCount = 5,
     this.showMoreButton = false,
+    this.additionalActionWidth,
     this.debugOnProgressBuild,
     this.debugOnPlayButtonBuild,
   });
@@ -653,11 +655,14 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             IconButton(
-              onPressed: () {
-                ref
-                    .read(audioPlayerControllerProvider.notifier)
-                    .skipToPrevious();
-              },
+              key: const ValueKey('player-skip-previous-button'),
+              onPressed: ref.watch(canSkipPreviousProvider)
+                  ? () {
+                      ref
+                          .read(audioPlayerControllerProvider.notifier)
+                          .skipToPrevious();
+                    }
+                  : null,
               icon: const Icon(Icons.skip_previous),
               iconSize: iconSize,
             ),
@@ -667,21 +672,15 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
               debugOnBuild: widget.debugOnPlayButtonBuild,
             ),
             IconButton(
-              onPressed: () {
-                ref.read(audioPlayerControllerProvider.notifier).skipToNext();
-              },
-              icon: Consumer(
-                builder: (context, ref, child) {
-                  final canSkipNext = ref.watch(canSkipNextProvider);
-                  final baseColor = Theme.of(context).colorScheme.onSurface;
-                  return Icon(
-                    Icons.skip_next,
-                    color: canSkipNext
-                        ? null
-                        : baseColor.withValues(alpha: 0.3),
-                  );
-                },
-              ),
+              key: const ValueKey('player-skip-next-button'),
+              onPressed: ref.watch(canSkipNextProvider)
+                  ? () {
+                      ref
+                          .read(audioPlayerControllerProvider.notifier)
+                          .skipToNext();
+                    }
+                  : null,
+              icon: const Icon(Icons.skip_next),
               iconSize: iconSize,
             ),
           ],
@@ -698,7 +697,7 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
               slotCount: widget.visibleActionCount,
             );
 
-            return Row(
+            final actions = Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 ...visibleButtons.map(
@@ -776,6 +775,35 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
                   ),
               ],
             );
+            final width = widget.additionalActionWidth;
+            if (width == null) return actions;
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                final edgeOffset = ((width - constraints.maxWidth) / 2)
+                    .clamp(0.0, double.infinity)
+                    .toDouble();
+                final lastIndex = actions.children.length - 1;
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    for (
+                      var index = 0;
+                      index < actions.children.length;
+                      index++
+                    )
+                      Transform.translate(
+                        offset: Offset(
+                          lastIndex == 0
+                              ? 0
+                              : edgeOffset * (index * 2 / lastIndex - 1),
+                          0,
+                        ),
+                        child: actions.children[index],
+                      ),
+                  ],
+                );
+              },
+            );
           },
         ),
       ],
@@ -823,6 +851,8 @@ class PlayerProgressSection extends ConsumerWidget {
               height: 32,
               child: SliderTheme(
                 data: SliderTheme.of(context).copyWith(
+                  activeTrackColor: Theme.of(context).colorScheme.primary,
+                  thumbColor: Theme.of(context).colorScheme.primary,
                   inactiveTrackColor: Theme.of(
                     context,
                   ).colorScheme.onSurfaceVariant.withValues(alpha: 0.15),

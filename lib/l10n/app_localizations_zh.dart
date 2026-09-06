@@ -679,7 +679,7 @@ class SZh extends S {
   }
 
   @override
-  String get playlistTitle => '播放列表';
+  String get playlistTitle => '播放队列';
 
   @override
   String get clearPlaybackQueueTitle => '清空播放队列？';
@@ -942,17 +942,17 @@ class SZh extends S {
   String get audioFormatSubtitle => '调整音频格式优先级';
 
   @override
-  String get audioTapPlaylistMode => '播放列表添加模式';
+  String get audioTapPlaylistMode => '音频添加模式';
 
   @override
-  String get selectAudioTapPlaylistMode => '选择点击音频时如何更新播放列表：';
+  String get selectAudioTapPlaylistMode => '选择点击音频时如何更新播放队列：';
 
   @override
-  String get audioTapPlaylistModeReplace => '替换播放列表';
+  String get audioTapPlaylistModeReplace => '替换播放队列';
 
   @override
   String get audioTapPlaylistModeReplaceDescription =>
-      '用点击音频所在目录下的所有可播放音频替换当前播放列表。';
+      '用点击音频所在目录下的所有可播放音频替换当前播放队列。';
 
   @override
   String get audioTapPlaylistModeAppendDirectory => '下一首播放';
@@ -962,17 +962,17 @@ class SZh extends S {
       '将点击的音频放到当前音频之后，不中断当前播放。';
 
   @override
-  String get audioTapPlaylistModeAppendSingle => '添加到播放列表';
+  String get audioTapPlaylistModeAppendSingle => '添加到播放队列';
 
   @override
   String get audioTapPlaylistModeAppendSingleDescription =>
-      '将点击的音频添加到播放列表末尾，不中断或切换当前播放。';
+      '将点击的音频添加到播放队列末尾，不中断或切换当前播放。';
 
   @override
   String get audioTapPlaylistModeAppendChip => '下一首播放';
 
   @override
-  String get audioTapPlaylistModeAppendSingleChip => '添加到播放列表';
+  String get audioTapPlaylistModeAppendSingleChip => '添加到播放队列';
 
   @override
   String get copyName => '复制名称';
@@ -2129,13 +2129,10 @@ class SZh extends S {
   String get backToCover => '返回封面';
 
   @override
-  String get lyricHintTapCover => '点击封面或标题可以进入字幕界面';
-
-  @override
   String get floatingSubtitle => '悬浮字幕';
 
   @override
-  String get playlistEmpty => '播放列表为空';
+  String get playlistEmpty => '播放队列为空';
 
   @override
   String get gotIt => '知道了';
@@ -2843,9 +2840,6 @@ class SZh extends S {
   String savedToPath(String path) {
     return '已保存到: $path';
   }
-
-  @override
-  String get doubleTapToZoom => '双击放大 · 双指缩放';
 
   @override
   String getStatusFailed(String error) {
@@ -4330,7 +4324,7 @@ class SZhHant extends SZh {
   }
 
   @override
-  String get playlistTitle => '播放清單';
+  String get playlistTitle => '播放佇列';
 
   @override
   String get clearPlaybackQueueTitle => '清空播放清單？';
@@ -4593,17 +4587,17 @@ class SZhHant extends SZh {
   String get audioFormatSubtitle => '調整音訊格式優先順序';
 
   @override
-  String get audioTapPlaylistMode => '播放清單新增模式';
+  String get audioTapPlaylistMode => '音訊新增模式';
 
   @override
-  String get selectAudioTapPlaylistMode => '選擇點擊音訊時如何更新播放清單：';
+  String get selectAudioTapPlaylistMode => '選擇點擊音訊時如何更新播放佇列：';
 
   @override
-  String get audioTapPlaylistModeReplace => '取代播放清單';
+  String get audioTapPlaylistModeReplace => '取代播放佇列';
 
   @override
   String get audioTapPlaylistModeReplaceDescription =>
-      '以所點音訊所在目錄中的所有可播放音訊取代目前播放清單。';
+      '以所點音訊所在目錄中的所有可播放音訊取代目前播放佇列。';
 
   @override
   String get audioTapPlaylistModeAppendDirectory => '下一首播放';
@@ -4613,17 +4607,17 @@ class SZhHant extends SZh {
       '將所點音訊放在目前音訊之後，不中斷目前播放。';
 
   @override
-  String get audioTapPlaylistModeAppendSingle => '加入播放清單';
+  String get audioTapPlaylistModeAppendSingle => '加入播放佇列';
 
   @override
   String get audioTapPlaylistModeAppendSingleDescription =>
-      '將所點音訊加入播放清單尾端，不中斷或切換目前播放。';
+      '將所點音訊加入播放佇列尾端，不中斷或切換目前播放。';
 
   @override
   String get audioTapPlaylistModeAppendChip => '下一首播放';
 
   @override
-  String get audioTapPlaylistModeAppendSingleChip => '加入播放清單';
+  String get audioTapPlaylistModeAppendSingleChip => '加入播放佇列';
 
   @override
   String get copyName => '複製名稱';
@@ -5780,13 +5774,10 @@ class SZhHant extends SZh {
   String get backToCover => '返回封面';
 
   @override
-  String get lyricHintTapCover => '點擊封面或標題可以進入字幕介面';
-
-  @override
   String get floatingSubtitle => '懸浮字幕';
 
   @override
-  String get playlistEmpty => '播放列表為空';
+  String get playlistEmpty => '播放佇列為空';
 
   @override
   String get gotIt => '知道了';
@@ -6494,9 +6485,6 @@ class SZhHant extends SZh {
   String savedToPath(String path) {
     return '已儲存到: $path';
   }
-
-  @override
-  String get doubleTapToZoom => '雙擊放大 · 雙指縮放';
 
   @override
   String getStatusFailed(String error) {
