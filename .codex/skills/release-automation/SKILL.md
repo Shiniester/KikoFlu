@@ -1,3 +1,10 @@
+---
+name: "release-automation"
+description: "Use when triggering or discussing KikoFlu GitHub Actions release workflows, including choosing Android-only patch releases or all-platform minor and major releases."
+metadata:
+  short-description: "KikoFlu GitHub Actions 发布流程与版本平台选择。"
+---
+
 # Release automation
 
 When a release is requested through the GitHub Actions **Build and Release** workflow:

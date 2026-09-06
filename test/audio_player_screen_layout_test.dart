@@ -95,6 +95,9 @@ void main() {
           widget.tag == playerCoverPreviewHeroTag(coveredTrack.id),
     );
     expect(previewHero, findsNothing);
+    final sourceRect = tester.getRect(
+      find.byKey(const ValueKey('player-cover-artwork-covered-track')),
+    );
 
     await tester.tap(
       find.byKey(const ValueKey('player-cover-artwork-covered-track')),
@@ -121,11 +124,21 @@ void main() {
       viewer.transformationController!.value.getMaxScaleOnAxis(),
       closeTo(2.5, 0.001),
     );
+    final previewRect = tester.getRect(
+      find.byKey(const ValueKey('cover-preview-image-frame')),
+    );
 
     await tester.binding.handlePopRoute();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    expect(previewHero, findsWidgets);
+    expect(previewHero, findsNWidgets(2));
+    final flight = find.byKey(
+      const ValueKey('player-cover-preview-flight-frame'),
+    );
+    expect(flight, findsOneWidget);
+    final flightRect = tester.getRect(flight);
+    expect(flightRect.width, greaterThan(sourceRect.width));
+    expect(flightRect.width, lessThan(previewRect.width));
     await tester.pumpAndSettle();
     expect(previewHero, findsNothing);
     await tester.pump(const Duration(seconds: 9));
@@ -138,6 +151,86 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 250));
     expect(find.byType(CoverPreviewDialog), findsNothing);
+  });
+
+  testWidgets('compact cover loading spinner is anchored to the artwork', (
+    tester,
+  ) async {
+    const coveredTrack = AudioTrack(
+      id: 'loading-cover',
+      title: 'Loading cover',
+      url: 'audio.mp3',
+      artworkUrl: 'file://assets/icons/app_icon_opaque.png',
+    );
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      track: coveredTrack,
+      loadingStream: Stream.value(true),
+    );
+
+    expect(
+      find.byKey(const ValueKey('player-track-loading-dim')),
+      findsOneWidget,
+    );
+    final spinner = find.byKey(const ValueKey('player-track-loading-spinner'));
+    expect(spinner, findsOneWidget);
+    expect(tester.getSize(spinner), const Size.square(36));
+    expect(
+      tester.getCenter(spinner),
+      tester.getCenter(
+        find.byKey(const ValueKey('player-cover-artwork-loading-cover')),
+      ),
+    );
+    await tester.pump(const Duration(seconds: 9));
+  });
+
+  testWidgets('compact queue loading keeps the dim layer without a spinner', (
+    tester,
+  ) async {
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      initialSurface: PlayerInitialSurface.queue,
+      loadingStream: Stream.value(true),
+    );
+
+    expect(
+      find.byKey(const ValueKey('player-track-loading-dim')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('player-track-loading-spinner')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('wide queue keeps the spinner on its visible cover', (
+    tester,
+  ) async {
+    const coveredTrack = AudioTrack(
+      id: 'wide-loading-cover',
+      title: 'Wide loading cover',
+      url: 'audio.mp3',
+      artworkUrl: 'file://assets/icons/app_icon_opaque.png',
+    );
+    await _pumpPlayer(
+      tester,
+      const Size(1280, 720),
+      track: coveredTrack,
+      initialSurface: PlayerInitialSurface.queue,
+      loadingStream: Stream.value(true),
+    );
+
+    final spinner = find.byKey(const ValueKey('player-track-loading-spinner'));
+    expect(spinner, findsOneWidget);
+    expect(
+      tester.getCenter(spinner),
+      tester.getCenter(
+        find.byKey(const ValueKey('player-cover-artwork-wide-loading-cover')),
+      ),
+    );
+    await tester.pump(const Duration(seconds: 9));
   });
 
   testWidgets('track title opens one work detail route on compact and wide', (
@@ -2129,6 +2222,7 @@ Future<void> _pumpPlayer(
   ThemeMode themeMode = ThemeMode.light,
   List<LyricLine>? lyrics,
   Stream<AudioTrack?>? trackStream,
+  Stream<bool>? loadingStream,
   bool pushedRoute = false,
   PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
   AudioTrack track = _track,
@@ -2149,7 +2243,9 @@ Future<void> _pumpPlayer(
           (ref) => trackStream ?? Stream.value(track),
         ),
         kikoeruApiServiceProvider.overrideWithValue(_PlayerTestApiService()),
-        isTrackLoadingProvider.overrideWith((ref) => Stream.value(false)),
+        isTrackLoadingProvider.overrideWith(
+          (ref) => loadingStream ?? Stream.value(false),
+        ),
         positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
         durationProvider.overrideWith(
           (ref) => Stream.value(const Duration(minutes: 4)),

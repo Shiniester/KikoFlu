@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -303,6 +305,213 @@ void main() {
 
     expect(find.byType(PlayerCoverPreviewHero), findsOneWidget);
     expect(find.byType(Hero), findsNothing);
+  });
+
+  testWidgets('ready track artwork expands and cross-fades in 180ms', (
+    tester,
+  ) async {
+    const first = AudioTrack(
+      id: 'cover-first',
+      title: 'First',
+      url: 'first.mp3',
+    );
+    const second = AudioTrack(
+      id: 'cover-second',
+      title: 'Second',
+      url: 'second.mp3',
+    );
+    final firstProvider = MemoryImage(
+      File('assets/icons/app_icon_opaque.png').readAsBytesSync(),
+    );
+    final secondProvider = MemoryImage(
+      File('assets/icons/privacy_protection_sample.png').readAsBytesSync(),
+    );
+    final track = ValueNotifier<AudioTrack>(first);
+    addTearDown(track.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(disableAnimations: false),
+              child: Scaffold(
+                body: Center(
+                  child: SizedBox(
+                    width: 320,
+                    height: 240,
+                    child: ValueListenableBuilder<AudioTrack>(
+                      valueListenable: track,
+                      builder: (context, value, _) => PlayerCoverWidget(
+                        track: value,
+                        animateTrackChanges: true,
+                        imageProviderOverride: value.id == first.id
+                            ? firstProvider
+                            : secondProvider,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    track.value = second;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 30));
+    expect(
+      find.byKey(const ValueKey('player-cover-artwork-cover-first')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('player-cover-transition-stack')),
+      findsNothing,
+    );
+
+    await tester.runAsync(
+      () => precacheImage(
+        secondProvider,
+        tester.element(find.byType(PlayerCoverWidget)),
+      ),
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('player-cover-transition-stack')),
+      findsOneWidget,
+    );
+
+    await tester.pump(const Duration(milliseconds: 90));
+    final outgoingOpacity = tester.widget<Opacity>(
+      find.byKey(const ValueKey('player-cover-outgoing-opacity')),
+    );
+    final incomingOpacity = tester.widget<Opacity>(
+      find.byKey(const ValueKey('player-cover-incoming-opacity')),
+    );
+    final outgoingScale = tester.widget<Transform>(
+      find.byKey(const ValueKey('player-cover-outgoing-scale')),
+    );
+    final incomingScale = tester.widget<Transform>(
+      find.byKey(const ValueKey('player-cover-incoming-scale')),
+    );
+    expect(outgoingOpacity.opacity, closeTo(0.5, 0.05));
+    expect(incomingOpacity.opacity, closeTo(0.5, 0.05));
+    expect(outgoingScale.transform.getMaxScaleOnAxis(), greaterThan(1));
+    expect(incomingScale.transform.getMaxScaleOnAxis(), greaterThan(1));
+    expect(
+      outgoingScale.transform.getMaxScaleOnAxis(),
+      greaterThan(incomingScale.transform.getMaxScaleOnAxis()),
+    );
+
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(
+      find.byKey(const ValueKey('player-cover-transition-stack')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('player-cover-artwork-cover-second')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('reduced-motion covers update without a transition', (
+    tester,
+  ) async {
+    const first = AudioTrack(id: 'instant-first', title: 'First', url: 'a.mp3');
+    const second = AudioTrack(
+      id: 'instant-second',
+      title: 'Second',
+      url: 'b.mp3',
+    );
+    final track = ValueNotifier<AudioTrack>(first);
+    addTearDown(track.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(disableAnimations: true),
+              child: Scaffold(
+                body: ValueListenableBuilder<AudioTrack>(
+                  valueListenable: track,
+                  builder: (context, value, _) => PlayerCoverWidget(
+                    track: value,
+                    animateTrackChanges: true,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    track.value = second;
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('player-cover-transition-stack')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('player-cover-artwork-instant-second')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('rapid track changes keep only the latest incoming cover', (
+    tester,
+  ) async {
+    const first = AudioTrack(id: 'rapid-first', title: 'First', url: 'a.mp3');
+    const second = AudioTrack(
+      id: 'rapid-second',
+      title: 'Second',
+      url: 'b.mp3',
+    );
+    const latest = AudioTrack(
+      id: 'rapid-latest',
+      title: 'Latest',
+      url: 'c.mp3',
+    );
+    final track = ValueNotifier<AudioTrack>(first);
+    addTearDown(track.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(
+            body: ValueListenableBuilder<AudioTrack>(
+              valueListenable: track,
+              builder: (context, value, _) =>
+                  PlayerCoverWidget(track: value, animateTrackChanges: true),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    track.value = second;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 45));
+    track.value = latest;
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('player-cover-transition-stack')),
+      findsOneWidget,
+    );
+
+    await tester.pump(const Duration(milliseconds: 181));
+    expect(
+      find.byKey(const ValueKey('player-cover-artwork-rapid-latest')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('player-cover-artwork-rapid-second')),
+      findsNothing,
+    );
   });
 
   testWidgets(

@@ -1,0 +1,6 @@
+interface:
+  display_name: "kikoflu-project 项目子智能体编排"
+  short_description: "按需协调项目子智能体并保持单一写入者"
+  default_prompt: "Use $kikoflu-project 按任务选择只读顾问和一个写入者。"
+policy:
+  allow_implicit_invocation: true

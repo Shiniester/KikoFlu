@@ -114,6 +114,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   bool _queueTransitionActive = false;
   bool _openingWorkDetail = false;
   final ValueNotifier<String?> _coverPreviewHeroTrackId = ValueNotifier(null);
+  final LayerLink _coverLoadingLayerLink = LayerLink();
   bool _routeDismissDragAccepted = false;
   bool _reduceMotionDismissDrag = false;
   PlayerInteractiveDismissRoute? _activeDismissRoute;
@@ -1108,6 +1109,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
               track: track,
               workCoverUrl: coverUrl,
               isLandscape: isWide,
+              artworkLayerLink: _coverLoadingLayerLink,
+              animateTrackChanges: _isPlayerCoverVisible(isWide: isWide),
               heroEnabled: heroEnabled && !previewHeroActive,
               heroTarget: heroEnabled
                   ? PlayerArtworkFlightTarget.main
@@ -2530,22 +2533,65 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     return Stack(children: [child, _buildTrackLoadingOverlay(context)]);
   }
 
+  bool _shouldShowTrackLoadingSpinner() {
+    final isWide =
+        _lastWasWide ?? usesWidePlayerLayout(MediaQuery.sizeOf(context).width);
+    return _isPlayerCoverVisible(isWide: isWide);
+  }
+
+  bool _isPlayerCoverVisible({required bool isWide}) {
+    if (isWide) {
+      // Opening the wide queue replaces the left pane with the cover even if
+      // audio details were selected before the queue opened.
+      return _rightPane == PlayerRightPane.queue ||
+          _leftPane == PlayerLeftPane.cover;
+    }
+
+    // During compact queue transitions the cover is still mounted briefly,
+    // but the queue is the visible surface and must not show a spinner.
+    return !_queueTransitionActive &&
+        _rightPane != PlayerRightPane.queue &&
+        _compactQueueTransitionController.value < 0.999 &&
+        _compactPage == 1;
+  }
+
   Widget _buildTrackLoadingOverlay(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final showSpinner = _shouldShowTrackLoadingSpinner();
     return Positioned.fill(
       child: AbsorbPointer(
-        child: ColoredBox(
-          color: colorScheme.surface.withValues(alpha: 0.18),
-          child: Center(
-            child: SizedBox(
-              width: 36,
-              height: 36,
-              child: CircularProgressIndicator(
-                strokeWidth: 3,
-                color: colorScheme.primary,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned.fill(
+              child: ColoredBox(
+                key: const ValueKey('player-track-loading-dim'),
+                color: colorScheme.surface.withValues(alpha: 0.18),
               ),
             ),
-          ),
+            if (showSpinner)
+              Positioned.fill(
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: CompositedTransformFollower(
+                    key: const ValueKey('player-track-loading-spinner-anchor'),
+                    link: _coverLoadingLayerLink,
+                    showWhenUnlinked: false,
+                    targetAnchor: Alignment.center,
+                    followerAnchor: Alignment.center,
+                    child: SizedBox(
+                      key: const ValueKey('player-track-loading-spinner'),
+                      width: 36,
+                      height: 36,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3,
+                        color: colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );

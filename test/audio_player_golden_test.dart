@@ -10,6 +10,7 @@ import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _goldenTrack = AudioTrack(
@@ -135,4 +136,75 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('player cover transition midpoint golden', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(360, 280);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    const first = AudioTrack(
+      id: 'golden-cover-first',
+      title: 'First',
+      url: 'first.mp3',
+    );
+    const second = AudioTrack(
+      id: 'golden-cover-second',
+      title: 'Second',
+      url: 'second.mp3',
+    );
+    final firstProvider = MemoryImage(
+      File('assets/icons/app_icon_opaque.png').readAsBytesSync(),
+    );
+    final secondProvider = MemoryImage(
+      File('assets/icons/privacy_protection_sample.png').readAsBytesSync(),
+    );
+    final track = ValueNotifier<AudioTrack>(first);
+    addTearDown(track.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: ThemeData.light(useMaterial3: true),
+          home: Scaffold(
+            body: Center(
+              child: RepaintBoundary(
+                key: const ValueKey('player-cover-transition-golden'),
+                child: SizedBox(
+                  width: 320,
+                  height: 240,
+                  child: ValueListenableBuilder<AudioTrack>(
+                    valueListenable: track,
+                    builder: (context, value, _) => PlayerCoverWidget(
+                      track: value,
+                      animateTrackChanges: true,
+                      imageProviderOverride: value.id == first.id
+                          ? firstProvider
+                          : secondProvider,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.runAsync(
+      () => precacheImage(
+        secondProvider,
+        tester.element(find.byType(PlayerCoverWidget)),
+      ),
+    );
+    track.value = second;
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 90));
+
+    await expectLater(
+      find.byKey(const ValueKey('player-cover-transition-golden')),
+      matchesGoldenFile('goldens/player_cover_transition_midpoint.png'),
+    );
+    expect(tester.takeException(), isNull);
+  });
 }

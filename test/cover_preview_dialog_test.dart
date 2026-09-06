@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -178,6 +179,65 @@ void main() {
       findsNothing,
     );
   });
+
+  testWidgets(
+    'show completes after the reverse route and delays background fade',
+    (tester) async {
+      var showCompleted = false;
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: ElevatedButton(
+                  key: const ValueKey('open-preview'),
+                  onPressed: () {
+                    unawaited(() async {
+                      await CoverPreviewDialog.show(
+                        context,
+                        localPath: 'assets/icons/app_icon_opaque.png',
+                        backgroundPalette: _previewPalette,
+                      );
+                      showCompleted = true;
+                    }());
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.byKey(const ValueKey('open-preview')));
+      await tester.pumpAndSettle();
+      final preview = find.byType(CoverPreviewDialog);
+      expect(preview, findsOneWidget);
+
+      Navigator.of(tester.element(preview)).pop();
+      await tester.pump();
+      expect(showCompleted, isFalse);
+
+      await tester.pump(const Duration(milliseconds: 200));
+      final fade = tester.widget<FadeTransition>(
+        find
+            .descendant(of: preview, matching: find.byType(FadeTransition))
+            .first,
+      );
+      expect(fade.opacity.value, 1);
+      expect(showCompleted, isFalse);
+
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(fade.opacity.value, greaterThan(0));
+      expect(fade.opacity.value, lessThan(1));
+      expect(showCompleted, isFalse);
+
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pumpAndSettle();
+      expect(preview, findsNothing);
+      expect(showCompleted, isTrue);
+    },
+  );
 }
 
 const _previewPalette = PlayerVisualPalette(

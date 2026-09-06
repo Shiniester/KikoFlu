@@ -1,0 +1,6 @@
+interface:
+  display_name: "Release automation 发布自动化"
+  short_description: "按版本范围选择发布平台并调度 GitHub Actions"
+  default_prompt: "Use $release-automation 根据版本变更范围选择正确的发布 workflow，并在调度后返回运行链接。"
+policy:
+  allow_implicit_invocation: true

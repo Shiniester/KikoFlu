@@ -332,7 +332,7 @@ class PlayerCompactArtwork extends StatelessWidget {
 }
 
 /// 播放器封面组件
-class PlayerCoverWidget extends StatelessWidget {
+class PlayerCoverWidget extends StatefulWidget {
   static const double preferredAspectRatio = 4 / 3;
   static const double cornerRadius = 14;
 
@@ -344,6 +344,10 @@ class PlayerCoverWidget extends StatelessWidget {
   final PlayerArtworkFlightTarget heroTarget;
   final Object? previewHeroTag;
   final bool previewHeroEnabled;
+  final LayerLink? artworkLayerLink;
+  final bool animateTrackChanges;
+  @visibleForTesting
+  final ImageProvider<Object>? imageProviderOverride;
 
   const PlayerCoverWidget({
     super.key,
@@ -355,7 +359,192 @@ class PlayerCoverWidget extends StatelessWidget {
     this.heroTarget = PlayerArtworkFlightTarget.main,
     this.previewHeroTag,
     this.previewHeroEnabled = false,
+    this.artworkLayerLink,
+    this.animateTrackChanges = false,
+    this.imageProviderOverride,
   });
+
+  @override
+  State<PlayerCoverWidget> createState() => _PlayerCoverWidgetState();
+}
+
+class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
+    with SingleTickerProviderStateMixin {
+  static const _transitionDuration = Duration(milliseconds: 180);
+  static const _transitionScale = 1.08;
+
+  late final AnimationController _transitionController;
+  late _PlayerCoverSnapshot _displayed;
+  _PlayerCoverSnapshot? _incoming;
+  ImageStream? _pendingImageStream;
+  ImageStreamListener? _pendingImageListener;
+  int _prepareRevision = 0;
+  bool _preparing = false;
+  bool _disableAnimations = false;
+
+  bool get _transitionBusy => _preparing || _incoming != null;
+
+  _PlayerCoverSnapshot get _requested => _PlayerCoverSnapshot(
+    track: widget.track,
+    url: widget.workCoverUrl ?? widget.track.artworkUrl,
+    imageProviderOverride: widget.imageProviderOverride,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _displayed = _requested;
+    _transitionController = AnimationController(
+      vsync: this,
+      duration: _transitionDuration,
+    )..addStatusListener(_handleTransitionStatus);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final disableAnimations = MediaQuery.disableAnimationsOf(context);
+    if (_disableAnimations == disableAnimations) return;
+    _disableAnimations = disableAnimations;
+    if (disableAnimations && _displayed.identity != _requested.identity) {
+      _showImmediately(_requested);
+    }
+  }
+
+  @override
+  void didUpdateWidget(PlayerCoverWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final requested = _requested;
+    final oldIdentity = _PlayerCoverSnapshot(
+      track: oldWidget.track,
+      url: oldWidget.workCoverUrl ?? oldWidget.track.artworkUrl,
+      imageProviderOverride: oldWidget.imageProviderOverride,
+    ).identity;
+    if (requested.identity != oldIdentity) {
+      _prepare(requested);
+      return;
+    }
+    if (!widget.animateTrackChanges && oldWidget.animateTrackChanges) {
+      _showImmediately(requested);
+    }
+  }
+
+  void _prepare(_PlayerCoverSnapshot requested) {
+    _cancelPendingImage();
+    final revision = ++_prepareRevision;
+    if (!widget.animateTrackChanges || _disableAnimations) {
+      _showImmediately(requested);
+      return;
+    }
+
+    final provider = _imageProvider(requested);
+    if (provider == null) {
+      _beginTransition(requested.copyWith(forcePlaceholder: true));
+      return;
+    }
+
+    _preparing = true;
+    final stream = provider.resolve(createLocalImageConfiguration(context));
+    late final ImageStreamListener listener;
+    listener = ImageStreamListener(
+      (image, synchronousCall) {
+        if (!mounted || revision != _prepareRevision) return;
+        _finishPreparing(stream, listener);
+        _beginTransition(requested);
+      },
+      onError: (Object error, StackTrace? stackTrace) {
+        if (!mounted || revision != _prepareRevision) return;
+        _finishPreparing(stream, listener);
+        _beginTransition(requested.copyWith(forcePlaceholder: true));
+      },
+    );
+    _pendingImageStream = stream;
+    _pendingImageListener = listener;
+    stream.addListener(listener);
+    if (mounted) setState(() {});
+  }
+
+  ImageProvider<Object>? _imageProvider(_PlayerCoverSnapshot snapshot) {
+    if (snapshot.forcePlaceholder) return null;
+    if (snapshot.imageProviderOverride != null) {
+      return snapshot.imageProviderOverride;
+    }
+    final url = snapshot.url;
+    if (url == null) return null;
+    if (LocalFileUrl.isLocalFileUrl(url)) {
+      final file = File(LocalFileUrl.pathFromUrl(url) ?? url);
+      return file.existsSync() ? FileImage(file) : null;
+    }
+    return CachedNetworkImageProvider(
+      url,
+      cacheKey: snapshot.track.workId != null
+          ? 'work_cover_${snapshot.track.workId}'
+          : null,
+    );
+  }
+
+  void _finishPreparing(ImageStream stream, ImageStreamListener listener) {
+    stream.removeListener(listener);
+    if (identical(_pendingImageStream, stream)) {
+      _pendingImageStream = null;
+      _pendingImageListener = null;
+    }
+    _preparing = false;
+  }
+
+  void _beginTransition(_PlayerCoverSnapshot requested) {
+    if (!mounted) return;
+    if (!widget.animateTrackChanges || _disableAnimations) {
+      _showImmediately(requested);
+      return;
+    }
+    setState(() {
+      if (_incoming != null && _transitionController.value >= 0.5) {
+        _displayed = _incoming!;
+      }
+      _incoming = requested;
+      _preparing = false;
+      _transitionController.forward(from: 0);
+    });
+  }
+
+  void _showImmediately(_PlayerCoverSnapshot requested) {
+    _cancelPendingImage();
+    _prepareRevision++;
+    _transitionController.stop();
+    _transitionController.value = 0;
+    _displayed = requested;
+    _incoming = null;
+    _preparing = false;
+    if (mounted) setState(() {});
+  }
+
+  void _handleTransitionStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed || _incoming == null) return;
+    setState(() {
+      _displayed = _incoming!;
+      _incoming = null;
+      _transitionController.value = 0;
+    });
+  }
+
+  void _cancelPendingImage() {
+    final stream = _pendingImageStream;
+    final listener = _pendingImageListener;
+    if (stream != null && listener != null) stream.removeListener(listener);
+    _pendingImageStream = null;
+    _pendingImageListener = null;
+    _preparing = false;
+  }
+
+  @override
+  void dispose() {
+    _cancelPendingImage();
+    _transitionController
+      ..removeStatusListener(_handleTransitionStatus)
+      ..dispose();
+    super.dispose();
+  }
 
   // 判断是否为本地文件路径
   bool _isLocalFile(String? url) {
@@ -367,10 +556,104 @@ class PlayerCoverWidget extends StatelessWidget {
     return LocalFileUrl.pathFromUrl(fileUrl) ?? fileUrl;
   }
 
+  Widget _buildArtworkContent(
+    _PlayerCoverSnapshot snapshot,
+    BorderRadius radius,
+  ) {
+    if (snapshot.forcePlaceholder) return _buildPlaceholder();
+    final provider = snapshot.imageProviderOverride;
+    if (provider != null) {
+      return PrivacyBlurCover(
+        borderRadius: radius,
+        child: ClipRRect(
+          borderRadius: radius,
+          child: Image(
+            image: provider,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
+          ),
+        ),
+      );
+    }
+    if (snapshot.url == null) return _buildPlaceholder();
+    final url = snapshot.url!;
+    return PrivacyBlurCover(
+      borderRadius: radius,
+      child: ClipRRect(
+        borderRadius: radius,
+        child: _isLocalFile(url)
+            ? Image.file(
+                File(_getLocalPath(url)),
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) =>
+                    _buildPlaceholder(),
+              )
+            : CachedNetworkImage(
+                imageUrl: url,
+                cacheKey: snapshot.track.workId != null
+                    ? 'work_cover_${snapshot.track.workId}'
+                    : null,
+                fit: BoxFit.cover,
+                errorWidget: (context, url, error) => _buildPlaceholder(),
+                placeholder: (context, url) => _buildPlaceholder(),
+              ),
+      ),
+    );
+  }
+
+  Widget _buildPlaceholder() => Padding(
+    padding: const EdgeInsets.all(40),
+    child: Icon(Icons.album, size: widget.isLandscape ? 80 : 120),
+  );
+
+  Widget _buildTransitionContent(BorderRadius radius) {
+    final incoming = _incoming;
+    if (incoming == null) {
+      return KeyedSubtree(
+        key: ValueKey('player-cover-layer-${_displayed.track.id}'),
+        child: _buildArtworkContent(_displayed, radius),
+      );
+    }
+    return AnimatedBuilder(
+      animation: _transitionController,
+      builder: (context, _) {
+        final opacity = _transitionController.value;
+        final scaleProgress = Curves.easeOutCubic.transform(opacity);
+        return Stack(
+          key: const ValueKey('player-cover-transition-stack'),
+          fit: StackFit.expand,
+          clipBehavior: Clip.none,
+          children: [
+            Opacity(
+              key: const ValueKey('player-cover-outgoing-opacity'),
+              opacity: 1 - opacity,
+              child: Transform.scale(
+                key: const ValueKey('player-cover-outgoing-scale'),
+                scale: 1 + (_transitionScale - 1) * scaleProgress,
+                child: _buildArtworkContent(_displayed, radius),
+              ),
+            ),
+            Opacity(
+              key: const ValueKey('player-cover-incoming-opacity'),
+              opacity: opacity,
+              child: Transform.scale(
+                key: const ValueKey('player-cover-incoming-scale'),
+                scale:
+                    _transitionScale - (_transitionScale - 1) * scaleProgress,
+                child: _buildArtworkContent(incoming, radius),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final transitionBusy = _transitionBusy;
     return GestureDetector(
-      onTap: onTap,
+      onTap: transitionBusy ? null : widget.onTap,
       child: Center(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -380,11 +663,16 @@ class PlayerCoverWidget extends StatelessWidget {
             final maxHeight = constraints.maxHeight.isFinite
                 ? constraints.maxHeight
                 : 270.0;
-            final width = math.min(maxWidth, maxHeight * preferredAspectRatio);
-            final height = width / preferredAspectRatio;
-            final radius = BorderRadius.circular(cornerRadius);
+            final width = math.min(
+              maxWidth,
+              maxHeight * PlayerCoverWidget.preferredAspectRatio,
+            );
+            final height = width / PlayerCoverWidget.preferredAspectRatio;
+            final radius = BorderRadius.circular(
+              PlayerCoverWidget.cornerRadius,
+            );
             final artwork = SizedBox(
-              key: ValueKey('player-cover-artwork-${track.id}'),
+              key: ValueKey('player-cover-artwork-${_displayed.track.id}'),
               width: width,
               height: height,
               child: Container(
@@ -407,87 +695,64 @@ class PlayerCoverWidget extends StatelessWidget {
                     ).colorScheme.onSurface.withValues(alpha: 0.18),
                   ),
                 ),
-                child: (workCoverUrl ?? track.artworkUrl) != null
-                    ? PrivacyBlurCover(
-                        borderRadius: radius,
-                        child: ClipRRect(
-                          borderRadius: radius,
-                          child: _isLocalFile(workCoverUrl ?? track.artworkUrl)
-                              ? Image.file(
-                                  File(
-                                    _getLocalPath(
-                                      (workCoverUrl ?? track.artworkUrl)!,
-                                    ),
-                                  ),
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return Padding(
-                                      padding: const EdgeInsets.all(40),
-                                      child: Icon(
-                                        Icons.album,
-                                        size: isLandscape ? 80 : 120,
-                                      ),
-                                    );
-                                  },
-                                )
-                              : CachedNetworkImage(
-                                  imageUrl: (workCoverUrl ?? track.artworkUrl)!,
-                                  // 使用workId作为cacheKey，与作品详情页保持一致，避免token变化导致重新下载
-                                  cacheKey: track.workId != null
-                                      ? 'work_cover_${track.workId}'
-                                      : null,
-                                  fit: BoxFit.cover,
-                                  errorWidget: (context, url, error) {
-                                    return Padding(
-                                      padding: const EdgeInsets.all(40),
-                                      child: Icon(
-                                        Icons.album,
-                                        size: isLandscape ? 80 : 120,
-                                      ),
-                                    );
-                                  },
-                                  placeholder: (context, url) {
-                                    return Padding(
-                                      padding: const EdgeInsets.all(40),
-                                      child: Icon(
-                                        Icons.album,
-                                        size: isLandscape ? 80 : 120,
-                                      ),
-                                    );
-                                  },
-                                ),
-                        ),
-                      )
-                    : Padding(
-                        padding: const EdgeInsets.all(40),
-                        child: Icon(Icons.album, size: isLandscape ? 80 : 120),
-                      ),
+                child: _buildTransitionContent(radius),
               ),
             );
-            final previewArtwork = previewHeroTag == null
+            final previewArtwork = widget.previewHeroTag == null
                 ? artwork
                 : PlayerCoverPreviewHero(
-                    tag: previewHeroTag!,
-                    cornerRadius: cornerRadius,
-                    enabled: previewHeroEnabled,
+                    tag: widget.previewHeroTag!,
+                    cornerRadius: PlayerCoverWidget.cornerRadius,
+                    enabled: widget.previewHeroEnabled && !transitionBusy,
                     child: artwork,
                   );
+            final linkedArtwork = widget.artworkLayerLink == null
+                ? previewArtwork
+                : CompositedTransformTarget(
+                    link: widget.artworkLayerLink!,
+                    child: previewArtwork,
+                  );
             return PlayerArtworkHero(
-              trackId: track.id,
-              target: heroTarget,
-              cornerRadius: cornerRadius,
-              enabled: heroEnabled,
+              trackId: _displayed.track.id,
+              target: widget.heroTarget,
+              cornerRadius: PlayerCoverWidget.cornerRadius,
+              enabled: widget.heroEnabled && !transitionBusy,
               isPlayerPageTarget: true,
               flightChild: PlayerCompactArtwork(
-                track: track,
-                url: workCoverUrl ?? track.artworkUrl,
+                track: _displayed.track,
+                url: _displayed.url,
                 forFlight: true,
               ),
-              child: previewArtwork,
+              child: linkedArtwork,
             );
           },
         ),
       ),
     );
   }
+}
+
+class _PlayerCoverSnapshot {
+  const _PlayerCoverSnapshot({
+    required this.track,
+    required this.url,
+    this.forcePlaceholder = false,
+    this.imageProviderOverride,
+  });
+
+  final AudioTrack track;
+  final String? url;
+  final bool forcePlaceholder;
+  final ImageProvider<Object>? imageProviderOverride;
+
+  String get identity =>
+      '${track.id}|${url ?? ''}|${identityHashCode(imageProviderOverride)}';
+
+  _PlayerCoverSnapshot copyWith({bool? forcePlaceholder}) =>
+      _PlayerCoverSnapshot(
+        track: track,
+        url: url,
+        forcePlaceholder: forcePlaceholder ?? this.forcePlaceholder,
+        imageProviderOverride: imageProviderOverride,
+      );
 }

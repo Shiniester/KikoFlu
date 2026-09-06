@@ -124,34 +124,36 @@ class CoverPreviewDialog extends StatefulWidget {
       cacheKey: cacheKey,
     );
     if (!context.mounted) return;
-    await Navigator.of(context).push(
-      PageRouteBuilder(
-        opaque: false,
-        barrierDismissible: true,
-        barrierColor: Colors.transparent,
-        transitionDuration: reduceMotion
-            ? Duration.zero
-            : const Duration(milliseconds: 280),
-        reverseTransitionDuration: reduceMotion
-            ? Duration.zero
-            : const Duration(milliseconds: 280),
-        pageBuilder: (context, animation, secondaryAnimation) {
-          return CoverPreviewDialog(
-            imageUrl: imageUrl,
-            localPath: localPath,
-            identifier: identifier,
-            heroTag: heroTag,
-            cacheKey: cacheKey,
-            backgroundColor: backgroundColor,
-            backgroundPalette: backgroundPalette,
-            imageAspectRatio: imageAspectRatio,
-            routeAnimation: animation,
-          );
-        },
-        transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-            child,
-      ),
+    final route = PageRouteBuilder<void>(
+      opaque: false,
+      barrierDismissible: true,
+      barrierColor: Colors.transparent,
+      transitionDuration: reduceMotion
+          ? Duration.zero
+          : const Duration(milliseconds: 280),
+      reverseTransitionDuration: reduceMotion
+          ? Duration.zero
+          : const Duration(milliseconds: 280),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        return CoverPreviewDialog(
+          imageUrl: imageUrl,
+          localPath: localPath,
+          identifier: identifier,
+          heroTag: heroTag,
+          cacheKey: cacheKey,
+          backgroundColor: backgroundColor,
+          backgroundPalette: backgroundPalette,
+          imageAspectRatio: imageAspectRatio,
+          routeAnimation: animation,
+        );
+      },
+      transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+          child,
     );
+    await Navigator.of(context).push(route);
+    // Navigator.push completes as soon as pop is requested. Keep the source
+    // Hero alive until the reverse transition has actually removed the route.
+    await route.completed;
   }
 
   static Future<double> _resolveImageAspectRatio(
@@ -502,7 +504,10 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
         opacity: CurvedAnimation(
           parent: routeAnimation,
           curve: Curves.easeOutCubic,
-          reverseCurve: Curves.easeInCubic,
+          // On pop, routeAnimation runs from 1 to 0. Keep the background
+          // opaque for the first 80% of that reverse flight, then fade it out
+          // over the final 20% with the requested easing.
+          reverseCurve: const Interval(0, 0.2, curve: Curves.easeInCubic),
         ),
         child: background,
       );
