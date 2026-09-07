@@ -19,6 +19,7 @@ import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
+import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_action_icons.dart';
@@ -806,6 +807,65 @@ void main() {
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('details bottom-push queue return keeps cards visually stable', (
+    tester,
+  ) async {
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      workDetails: _longPlayerWorkDetails(),
+      platform: TargetPlatform.android,
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(320, 0),
+    );
+    await tester.pumpAndSettle();
+
+    final detailsPanel = find.byKey(
+      const ValueKey('player-audio-details-panel'),
+    );
+    final detailsScroll = tester.state<ScrollableState>(
+      find.descendant(of: detailsPanel, matching: find.byType(Scrollable)),
+    );
+    detailsScroll.position.jumpTo(detailsScroll.position.maxScrollExtent);
+    await tester.pump();
+
+    final visibleCard = find.byKey(const ValueKey('player-detail-tags'));
+    expect(visibleCard, findsOneWidget);
+    double relativeCardTop() {
+      final panelRect = tester.getRect(detailsPanel);
+      return tester.getRect(visibleCard).top - panelRect.top;
+    }
+
+    final settledCardTop = relativeCardTop();
+    await tester.drag(
+      find.descendant(
+        of: detailsPanel,
+        matching: find.byType(CustomScrollView),
+      ),
+      const Offset(0, -240),
+    );
+    await tester.pumpAndSettle();
+    expect(_compactQueueProgress(tester), closeTo(1, 0.001));
+
+    await tester.drag(
+      find.byKey(const ValueKey('player-queue-title-dismiss-surface')),
+      const Offset(0, 240),
+    );
+    final cardPositions = <double>[];
+    for (var frame = 0; frame < 30; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      cardPositions.add(relativeCardTop());
+    }
+
+    expect(cardPositions, isNotEmpty);
+    for (final position in cardPositions) {
+      expect(position, closeTo(settledCardTop, 0.1));
+    }
+    expect(_compactQueueProgress(tester), closeTo(0, 0.001));
   });
 
   testWidgets('queue opened from lyrics returns to the lyric page', (
@@ -2394,6 +2454,7 @@ Future<void> _pumpPlayer(
   PlayerWorkDetailsData? workDetails,
   LyricState? lyricState,
   Locale locale = const Locale('en'),
+  TargetPlatform? platform,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -2436,8 +2497,10 @@ Future<void> _pumpPlayer(
       ],
       child: MaterialApp(
         navigatorKey: navigatorKey,
-        theme: ThemeData.light(useMaterial3: true),
-        darkTheme: ThemeData.dark(useMaterial3: true),
+        theme: ThemeData.light(useMaterial3: true).copyWith(platform: platform),
+        darkTheme: ThemeData.dark(
+          useMaterial3: true,
+        ).copyWith(platform: platform),
         themeMode: themeMode,
         localizationsDelegates: S.localizationsDelegates,
         supportedLocales: S.supportedLocales,
@@ -2464,6 +2527,41 @@ Future<void> _pumpPlayer(
     await tester.pumpAndSettle();
   }
   await tester.pump(const Duration(milliseconds: 350));
+}
+
+PlayerWorkDetailsData _longPlayerWorkDetails() {
+  final variants = List<PlayerAudioVariant>.generate(
+    20,
+    (index) => PlayerAudioVariant(
+      source: <String, Object>{'hash': 'details-hash-$index'},
+      title: 'Long detail track $index.mp3',
+      parentPath: '',
+      fullPath: 'Long detail track $index.mp3',
+      format: PlayerAudioFormat.mp3,
+      subtitleLanguage: PlayerSubtitleLanguage.none,
+      se: PlayerBinaryTrait.absent,
+      ejaculation: PlayerBinaryTrait.absent,
+    ),
+  );
+  const work = Work(
+    id: 42,
+    title: 'Long details work',
+    name: 'A long details circle',
+    release: '2025-01-01',
+    vas: [Va(id: 'va-1', name: 'A long voice actor')],
+    tags: [
+      Tag(id: 1, name: 'long tag one'),
+      Tag(id: 2, name: 'long tag two'),
+      Tag(id: 3, name: 'long tag three'),
+    ],
+  );
+  return PlayerWorkDetailsData(
+    track: _track,
+    work: work,
+    fileTree: const [],
+    variants: variants,
+    fileTreeId: 'long-details-test',
+  );
 }
 
 class _PlayerTestApiService extends KikoeruApiService {
