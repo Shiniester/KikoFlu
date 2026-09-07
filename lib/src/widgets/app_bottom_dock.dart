@@ -24,18 +24,23 @@ class AppBottomDock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final navigationBarExtent = layoutExtent(context);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         if (miniPlayer case final miniPlayer?)
           AppBottomDockMiniPlayerHero.source(child: miniPlayer),
         AppBottomDockTabBarHero.source(
-          child: NavigationBar(
-            height: navigationBarHeight,
-            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-            selectedIndex: selectedIndex,
-            onDestinationSelected: onDestinationSelected,
-            destinations: destinations,
+          child: SizedBox(
+            width: double.infinity,
+            height: navigationBarExtent,
+            child: NavigationBar(
+              height: navigationBarHeight,
+              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+              selectedIndex: selectedIndex,
+              onDestinationSelected: onDestinationSelected,
+              destinations: destinations,
+            ),
           ),
         ),
       ],

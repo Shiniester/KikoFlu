@@ -217,7 +217,7 @@ void main() {
       expect(
         playerRoute,
         contains(
-          'Duration playerRouteTransitionDuration = Duration(milliseconds: 500)',
+          'Duration playerRouteTransitionDuration = Duration(milliseconds: 450)',
         ),
       );
       expect(playerCover, contains('transitionOnUserGestures: true'));
@@ -230,7 +230,8 @@ void main() {
       expect(miniPlayer, contains('createPlayerArtworkRectTween'));
       expect(miniPlayer, contains("'mini-player-queue-button'"));
       expect(miniPlayer, contains('class _MiniPlayerTrackSwitcher'));
-      expect(miniPlayer, contains('AnimatedSwitcher'));
+      expect(miniPlayer, contains('_trackTransitionController'));
+      expect(miniPlayer, isNot(contains('AnimatedSwitcher')));
       expect(playerCover, contains('useOldImageOnUrlChange: true'));
       expect(
         playerCover,

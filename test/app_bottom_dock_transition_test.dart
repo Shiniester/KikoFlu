@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -40,6 +41,24 @@ List<Override> _playerOverrides(AudioTrack track) => [
   queueProvider.overrideWith((ref) => Stream.value([track])),
   lyricAutoLoaderProvider.overrideWith((ref) {}),
 ];
+
+Rect _lastVisibleRect(WidgetTester tester, Finder finder) {
+  const viewport = Rect.fromLTWH(0, 0, 390, 844);
+  final rects = <Rect>[];
+  for (final element in finder.evaluate()) {
+    final renderObject = element.findRenderObject();
+    if (renderObject is! RenderBox ||
+        !renderObject.attached ||
+        !renderObject.hasSize ||
+        renderObject.size.isEmpty) {
+      continue;
+    }
+    final rect = renderObject.localToGlobal(Offset.zero) & renderObject.size;
+    if (rect.overlaps(viewport)) rects.add(rect);
+  }
+  expect(rects, isNotEmpty);
+  return rects.last;
+}
 
 void main() {
   testWidgets('main bottom dock moves together into work details', (
@@ -188,6 +207,95 @@ void main() {
 
     navigatorKey.currentState!.pop();
     await tester.pumpAndSettle();
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('real NavigationBar icon gap stays fixed during dock flight', (
+    tester,
+  ) async {
+    _configurePhoneViewport(tester);
+    const sourceMiniKey = ValueKey('real-gap-source-mini');
+    const targetMiniKey = ValueKey('real-gap-target-mini');
+    const navIconKey = ValueKey('real-gap-navigation-icon');
+    final navigatorKey = GlobalKey<NavigatorState>();
+
+    await tester.pumpWidget(
+      MediaQuery(
+        data: const MediaQueryData(
+          size: Size(390, 844),
+          padding: EdgeInsets.only(bottom: 34),
+          viewPadding: EdgeInsets.only(bottom: 34),
+        ),
+        child: MaterialApp(
+          navigatorKey: navigatorKey,
+          home: AppBottomDockTransitionScope(
+            child: Scaffold(
+              body: Builder(
+                builder: (context) => Center(
+                  child: FilledButton(
+                    onPressed: () {
+                      unawaited(
+                        pushWorkDetailRoute(
+                          context,
+                          builder: (_) => const _WorkDetailsTarget(
+                            miniPlayerKey: targetMiniKey,
+                            tabBarHeight: 92,
+                          ),
+                        ),
+                      );
+                    },
+                    child: const Text('Open real dock'),
+                  ),
+                ),
+              ),
+              bottomNavigationBar: AppBottomDock(
+                selectedIndex: 0,
+                onDestinationSelected: (_) {},
+                destinations: const [
+                  NavigationDestination(
+                    icon: Icon(Icons.home, key: navIconKey),
+                    label: 'Home',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.search),
+                    label: 'Search',
+                  ),
+                ],
+                miniPlayer: const SizedBox(
+                  key: sourceMiniKey,
+                  width: double.infinity,
+                  height: 72,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open real dock'));
+    await tester.pump();
+    await tester.pump();
+    final pushGaps = <double>[];
+    for (final milliseconds in [100, 100, 100]) {
+      await tester.pump(Duration(milliseconds: milliseconds));
+      final mini = _lastVisibleRect(tester, find.byKey(targetMiniKey));
+      final icon = _lastVisibleRect(tester, find.byKey(navIconKey));
+      pushGaps.add(icon.top - mini.bottom);
+    }
+    expect(pushGaps.reduce(math.max) - pushGaps.reduce(math.min), lessThan(1));
+
+    await tester.pumpAndSettle();
+    navigatorKey.currentState!.pop();
+    await tester.pump();
+    final popGaps = <double>[];
+    for (final milliseconds in [100, 100, 100]) {
+      await tester.pump(Duration(milliseconds: milliseconds));
+      final mini = _lastVisibleRect(tester, find.byKey(targetMiniKey));
+      final icon = _lastVisibleRect(tester, find.byKey(navIconKey));
+      popGaps.add(icon.top - mini.bottom);
+    }
+    expect(popGaps.reduce(math.max) - popGaps.reduce(math.min), lessThan(1));
     debugDefaultTargetPlatformOverride = null;
   });
 
@@ -455,9 +563,13 @@ void main() {
 }
 
 class _WorkDetailsTarget extends StatelessWidget {
-  const _WorkDetailsTarget({required this.miniPlayerKey});
+  const _WorkDetailsTarget({
+    required this.miniPlayerKey,
+    this.tabBarHeight = 58,
+  });
 
   final Key? miniPlayerKey;
+  final double tabBarHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -478,9 +590,9 @@ class _WorkDetailsTarget extends StatelessWidget {
                 ),
               ),
             ),
-          const Align(
+          Align(
             alignment: Alignment.bottomCenter,
-            child: AppBottomDockTabBarHero.offstageTarget(height: 58),
+            child: AppBottomDockTabBarHero.offstageTarget(height: tabBarHeight),
           ),
         ],
       ),

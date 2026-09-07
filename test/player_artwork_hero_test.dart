@@ -98,6 +98,45 @@ void main() {
     },
   );
 
+  test(
+    'artwork bottom edge stays monotonic for a bottom-aligned Mini Player',
+    () {
+      const source = Rect.fromLTWH(16, 780, 64, 48);
+      const target = Rect.fromLTWH(40, 120, 320, 240);
+      const viewportHeight = 844.0;
+      final tween = createPlayerArtworkRectTween(
+        source,
+        target,
+        viewportHeight: viewportHeight,
+      );
+
+      var previousBottom = source.bottom;
+      for (var index = 0; index <= 100; index++) {
+        final progress = index / 100;
+        final bottom = tween.transform(progress)!.bottom;
+        expect(bottom, lessThanOrEqualTo(previousBottom + 0.0001));
+        expect(bottom, lessThanOrEqualTo(source.bottom + 0.0001));
+        previousBottom = bottom;
+      }
+
+      final reverseTween = createPlayerArtworkRectTween(
+        target,
+        source,
+        viewportHeight: viewportHeight,
+        reverse: true,
+      );
+      for (var index = 0; index <= 100; index++) {
+        final visualProgress = index / 100;
+        final actual = reverseTween.transform(1 - visualProgress)!;
+        final expected = tween.transform(visualProgress)!;
+        expect(actual.left, closeTo(expected.left, 0.0001));
+        expect(actual.top, closeTo(expected.top, 0.0001));
+        expect(actual.right, closeTo(expected.right, 0.0001));
+        expect(actual.bottom, closeTo(expected.bottom, 0.0001));
+      }
+    },
+  );
+
   test('Player Cover Page title row fades only during the chase', () {
     expect(playerCoverHeaderOpacity(0), 0);
     expect(playerCoverHeaderOpacity(playerCoverHeaderFadeStart), 0);
@@ -545,9 +584,7 @@ void main() {
       findsNothing,
     );
     expect(
-      find.byKey(
-        const ValueKey('player-cover-artwork-same-different-work'),
-      ),
+      find.byKey(const ValueKey('player-cover-artwork-same-different-work')),
       findsOneWidget,
     );
 
