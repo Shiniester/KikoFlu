@@ -715,6 +715,15 @@ class SZh extends S {
   String get repeatAll => '列表';
 
   @override
+  String get repeatSequentialQueuePlayback => '队列顺序播放';
+
+  @override
+  String get repeatSingleTrackPlayback => '单曲循环播放';
+
+  @override
+  String get repeatQueuePlayback => '队列循环播放';
+
+  @override
   String get addMark => '添加标记';
 
   @override
@@ -4358,6 +4367,15 @@ class SZhHant extends SZh {
 
   @override
   String get repeatAll => '清單';
+
+  @override
+  String get repeatSequentialQueuePlayback => '播放佇列順序播放';
+
+  @override
+  String get repeatSingleTrackPlayback => '單曲循環播放';
+
+  @override
+  String get repeatQueuePlayback => '播放佇列循環播放';
 
   @override
   String get addMark => '新增標記';

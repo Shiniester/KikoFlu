@@ -734,6 +734,16 @@ class SRu extends S {
   String get repeatAll => 'Весь список';
 
   @override
+  String get repeatSequentialQueuePlayback =>
+      'Последовательное воспроизведение';
+
+  @override
+  String get repeatSingleTrackPlayback => 'Повтор одного трека';
+
+  @override
+  String get repeatQueuePlayback => 'Повтор очереди';
+
+  @override
   String get addMark => 'Добавить отметку';
 
   @override

@@ -1440,6 +1440,24 @@ abstract class S {
   /// **'All'**
   String get repeatAll;
 
+  /// No description provided for @repeatSequentialQueuePlayback.
+  ///
+  /// In en, this message translates to:
+  /// **'Sequential Queue Playback'**
+  String get repeatSequentialQueuePlayback;
+
+  /// No description provided for @repeatSingleTrackPlayback.
+  ///
+  /// In en, this message translates to:
+  /// **'Single Track Repeat'**
+  String get repeatSingleTrackPlayback;
+
+  /// No description provided for @repeatQueuePlayback.
+  ///
+  /// In en, this message translates to:
+  /// **'Queue Repeat'**
+  String get repeatQueuePlayback;
+
   /// No description provided for @addMark.
   ///
   /// In en, this message translates to:

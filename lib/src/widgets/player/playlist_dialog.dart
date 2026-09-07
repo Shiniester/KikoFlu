@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:just_audio/just_audio.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../models/audio_tap_playlist_mode.dart';
@@ -254,9 +255,22 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
               widget.horizontalPadding,
               16,
             ),
-            child: const Align(
-              alignment: Alignment.centerLeft,
-              child: PlaylistModePill(),
+            child: const Row(
+              children: [
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: _RepeatModePill(),
+                  ),
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: PlaylistModePill(),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -516,37 +530,86 @@ class PlaylistModePill extends ConsumerWidget {
     final modeIndex = _playlistModeMenuOrder.indexOf(mode);
     final nextMode =
         _playlistModeMenuOrder[(modeIndex + 1) % _playlistModeMenuOrder.length];
+    final label = mode.localizedName(context);
+    return _QueueModePill(
+      semanticsLabel: '${S.of(context).audioTapPlaylistMode}: $label',
+      label: label,
+      surfaceKey: const ValueKey('playlist-mode-pill'),
+      tapTargetKey: const ValueKey('playlist-mode-pill-tap-target'),
+      onTap: () =>
+          ref.read(audioTapPlaylistModeProvider.notifier).updateMode(nextMode),
+    );
+  }
+}
+
+class _RepeatModePill extends ConsumerWidget {
+  const _RepeatModePill();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(
+      audioPlayerControllerProvider.select((state) => state.repeatMode),
+    );
+    final label = switch (mode) {
+      LoopMode.off => S.of(context).repeatSequentialQueuePlayback,
+      LoopMode.one => S.of(context).repeatSingleTrackPlayback,
+      LoopMode.all => S.of(context).repeatQueuePlayback,
+    };
+    final nextMode = switch (mode) {
+      LoopMode.off => LoopMode.one,
+      LoopMode.one => LoopMode.all,
+      LoopMode.all => LoopMode.off,
+    };
+    return _QueueModePill(
+      semanticsLabel: '${S.of(context).repeatMode}: $label',
+      label: label,
+      surfaceKey: const ValueKey('repeat-mode-pill'),
+      tapTargetKey: const ValueKey('repeat-mode-pill-tap-target'),
+      onTap: () => ref
+          .read(audioPlayerControllerProvider.notifier)
+          .setRepeatMode(nextMode),
+    );
+  }
+}
+
+class _QueueModePill extends StatelessWidget {
+  const _QueueModePill({
+    required this.semanticsLabel,
+    required this.label,
+    required this.surfaceKey,
+    required this.tapTargetKey,
+    required this.onTap,
+  });
+
+  final String semanticsLabel;
+  final String label;
+  final Key surfaceKey;
+  final Key tapTargetKey;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label:
-          '${S.of(context).audioTapPlaylistMode}: ${mode.localizedName(context)}',
+      label: semanticsLabel,
       child: SizedBox(
-        key: const ValueKey('playlist-mode-pill-tap-target'),
+        key: tapTargetKey,
         height: 48,
         child: Stack(
           alignment: Alignment.centerLeft,
           children: [
             PlayerGlassSurface(
-              key: const ValueKey('playlist-mode-pill'),
+              key: surfaceKey,
               borderRadius: BorderRadius.circular(999),
               borderColor: Colors.transparent,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(PlaylistModeToggle.modeIcon(mode), size: 18),
-                  const SizedBox(width: 8),
-                  Flexible(child: Text(mode.localizedName(context))),
-                ],
-              ),
+              child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
             ),
             Positioned.fill(
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  onTap: () => ref
-                      .read(audioTapPlaylistModeProvider.notifier)
-                      .updateMode(nextMode),
+                  onTap: onTap,
                   borderRadius: BorderRadius.circular(999),
                   overlayColor: const WidgetStatePropertyAll(
                     Colors.transparent,

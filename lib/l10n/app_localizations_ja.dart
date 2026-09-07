@@ -716,6 +716,15 @@ class SJa extends S {
   String get repeatAll => '全曲リピート';
 
   @override
+  String get repeatSequentialQueuePlayback => 'キュー順再生';
+
+  @override
+  String get repeatSingleTrackPlayback => '1曲リピート再生';
+
+  @override
+  String get repeatQueuePlayback => 'キューリピート再生';
+
+  @override
   String get addMark => 'マーク追加';
 
   @override
