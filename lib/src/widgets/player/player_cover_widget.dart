@@ -370,8 +370,8 @@ class PlayerCoverWidget extends StatefulWidget {
 
 class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
     with SingleTickerProviderStateMixin {
-  static const _transitionDuration = Duration(milliseconds: 240);
-  static const _transitionScale = 1.12;
+  static const _transitionDuration = Duration(milliseconds: 300);
+  static const _transitionScale = 1.20;
 
   late final AnimationController _transitionController;
   late _PlayerCoverSnapshot _displayed;
@@ -415,12 +415,17 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
   void didUpdateWidget(PlayerCoverWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     final requested = _requested;
-    final oldIdentity = _PlayerCoverSnapshot(
+    final previous = _PlayerCoverSnapshot(
       track: oldWidget.track,
       url: oldWidget.workCoverUrl ?? oldWidget.track.artworkUrl,
       imageProviderOverride: oldWidget.imageProviderOverride,
-    ).identity;
-    if (requested.identity != oldIdentity) {
+    );
+    if (requested.identity != previous.identity &&
+        previous.isSameWorkAs(requested)) {
+      _showImmediately(requested);
+      return;
+    }
+    if (requested.identity != previous.identity) {
       _prepare(requested);
       return;
     }
@@ -752,6 +757,24 @@ class _PlayerCoverSnapshot {
   final String? url;
   final bool forcePlaceholder;
   final ImageProvider<Object>? imageProviderOverride;
+
+  bool isSameWorkAs(_PlayerCoverSnapshot other) {
+    final currentWorkId = track.workId;
+    final otherWorkId = other.track.workId;
+    if (currentWorkId != null &&
+        otherWorkId != null &&
+        currentWorkId == otherWorkId) {
+      return true;
+    }
+
+    final currentUrl = url;
+    final otherUrl = other.url;
+    return currentUrl != null &&
+        currentUrl.trim().isNotEmpty &&
+        otherUrl != null &&
+        otherUrl.trim().isNotEmpty &&
+        currentUrl == otherUrl;
+  }
 
   String get identity =>
       '${track.id}|${url ?? ''}|${identityHashCode(imageProviderOverride)}';

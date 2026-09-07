@@ -199,7 +199,7 @@ void main() {
     track.value = second;
     await tester.pump();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 120));
+    await tester.pump(const Duration(milliseconds: 150));
 
     await expectLater(
       find.byKey(const ValueKey('player-cover-transition-golden')),
