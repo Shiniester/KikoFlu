@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart' show kLongPressTimeout;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -198,14 +199,26 @@ void main() {
 
       final line = find.text('matching lyric 2');
       await tester.tap(line);
-      await tester.pump(const Duration(milliseconds: 301));
-      await tester.pump(const Duration(milliseconds: 40));
-      expect(requested, const Duration(seconds: 2));
+      await tester.pump();
+      expect(requested, isNull);
       expect(toggleCount, 0);
       expect(
         _tapFeedbackAlpha(tester, 'full-lyric-tap-feedback-2'),
         greaterThan(0),
       );
+      await tester.pump(const Duration(milliseconds: 79));
+      expect(
+        _tapFeedbackAlpha(tester, 'full-lyric-tap-feedback-2'),
+        closeTo(0.10, 0.001),
+      );
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(
+        _tapFeedbackAlpha(tester, 'full-lyric-tap-feedback-2'),
+        closeTo(0.10, 0.001),
+      );
+      await tester.pump(const Duration(milliseconds: 101));
+      expect(requested, const Duration(seconds: 2));
+      expect(toggleCount, 0);
       final inkWell = tester.widget<InkWell>(
         find.ancestor(of: line, matching: find.byType(InkWell)),
       );
@@ -214,12 +227,12 @@ void main() {
         tester.getRect(find.byKey(const ValueKey('full-lyric-tap-feedback-2'))),
         tester.getRect(find.ancestor(of: line, matching: find.byType(InkWell))),
       );
-      await tester.pump(const Duration(milliseconds: 40));
+      await tester.pump(const Duration(milliseconds: 199));
       expect(
         _tapFeedbackAlpha(tester, 'full-lyric-tap-feedback-2'),
-        closeTo(0.10, 0.001),
+        greaterThan(0),
       );
-      await tester.pump(const Duration(milliseconds: 270));
+      await tester.pump(const Duration(milliseconds: 200));
       expect(
         _tapFeedbackAlpha(tester, 'full-lyric-tap-feedback-2'),
         closeTo(0, 0.001),
@@ -240,7 +253,7 @@ void main() {
     },
   );
 
-  testWidgets('reduced-motion lyric feedback stays static for 180ms', (
+  testWidgets('reduced-motion lyric feedback stays static for 300ms', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -277,7 +290,7 @@ void main() {
       _tapFeedbackAlpha(tester, 'full-lyric-tap-feedback-5'),
       closeTo(0.10, 0.001),
     );
-    await tester.pump(const Duration(milliseconds: 179));
+    await tester.pump(const Duration(milliseconds: 299));
     expect(
       _tapFeedbackAlpha(tester, 'full-lyric-tap-feedback-5'),
       closeTo(0.10, 0.001),
@@ -505,11 +518,14 @@ void main() {
       const firstFeedbackKey = 'compact-lyric-tap-feedback-2';
       final firstLine = find.byKey(const ValueKey('compact-lyric-line-2'));
       await tester.tap(firstLine);
-      await tester.pump(const Duration(milliseconds: 301));
+      await tester.pump();
+      expect(_tapFeedbackAlpha(tester, firstFeedbackKey), greaterThan(0));
+      expect(seekCount, 0);
+      expect(toggleCount, 0);
+      await tester.pump(const Duration(milliseconds: 300));
       expect(seekCount, 1);
       expect(toggleCount, 0);
-      await tester.pump(const Duration(milliseconds: 80));
-      expect(_tapFeedbackAlpha(tester, firstFeedbackKey), closeTo(0.10, 0.001));
+      expect(_tapFeedbackAlpha(tester, firstFeedbackKey), greaterThan(0));
       expect(
         tester.getRect(find.byKey(const ValueKey(firstFeedbackKey))),
         tester.getRect(firstLine),
@@ -517,25 +533,90 @@ void main() {
 
       seekCount = 0;
       final secondLine = find.byKey(const ValueKey('compact-lyric-line-3'));
-      await tester.tap(secondLine);
-      await tester.pump(const Duration(milliseconds: 50));
-      await tester.tap(secondLine);
+      final firstDoubleTap = await tester.startGesture(
+        tester.getCenter(secondLine),
+      );
+      await firstDoubleTap.up();
       await tester.pump();
+      expect(
+        _tapFeedbackAlpha(tester, 'compact-lyric-tap-feedback-3'),
+        greaterThan(0),
+      );
       await tester.pump(const Duration(milliseconds: 40));
+      final alphaBeforeSecondTap = _tapFeedbackAlpha(
+        tester,
+        'compact-lyric-tap-feedback-3',
+      );
+      expect(alphaBeforeSecondTap, greaterThan(0.08));
+      final secondDoubleTap = await tester.startGesture(
+        tester.getCenter(secondLine),
+      );
+      await secondDoubleTap.up();
+      await tester.pump();
       expect(seekCount, 0);
       expect(toggleCount, 1);
       expect(_tapFeedbackAlpha(tester, firstFeedbackKey), 0);
       expect(
         _tapFeedbackAlpha(tester, 'compact-lyric-tap-feedback-3'),
-        allOf(greaterThan(0), lessThan(0.10)),
+        closeTo(alphaBeforeSecondTap, 0.001),
       );
-      await tester.pump(const Duration(milliseconds: 310));
+      await tester.pump(const Duration(milliseconds: 470));
       expect(
         _tapFeedbackAlpha(tester, 'compact-lyric-tap-feedback-3'),
         closeTo(0, 0.001),
       );
     },
   );
+
+  testWidgets('drag, cancel, and long press do not show lyric feedback', (
+    tester,
+  ) async {
+    var seekCount = 0;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith(
+            (ref) => Stream.value(const Duration(seconds: 2)),
+          ),
+          lyricControllerProvider.overrideWith(
+            (ref) =>
+                LyricController(ref, initialState: LyricState(lyrics: lyrics)),
+          ),
+        ],
+        child: MaterialApp(
+          theme: ThemeData.dark(useMaterial3: true),
+          home: Scaffold(
+            body: FullLyricDisplay(
+              enableLineTapFeedback: true,
+              onSeekRequested: (_) => seekCount++,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final line = find.text('matching lyric 2');
+    const feedback = ValueKey<String>('full-lyric-tap-feedback-2');
+
+    var gesture = await tester.startGesture(tester.getCenter(line));
+    await gesture.moveBy(const Offset(24, 0));
+    await gesture.up();
+    await tester.pump();
+    expect(_tapFeedbackAlpha(tester, feedback.value), 0);
+    expect(seekCount, 0);
+
+    gesture = await tester.startGesture(tester.getCenter(line));
+    await gesture.cancel();
+    await tester.pump();
+    expect(_tapFeedbackAlpha(tester, feedback.value), 0);
+
+    gesture = await tester.startGesture(tester.getCenter(line));
+    await tester.pump(kLongPressTimeout + const Duration(milliseconds: 1));
+    await gesture.up();
+    await tester.pump();
+    expect(_tapFeedbackAlpha(tester, feedback.value), 0);
+  });
 
   testWidgets(
     'inactive lyric page follows before activation and stays stable',
