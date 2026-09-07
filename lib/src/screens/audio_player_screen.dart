@@ -1068,13 +1068,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
             SizedBox(
               width: sharedWidth,
               height: 144,
-              child: OverflowBox(
-                alignment: Alignment.center,
-                minWidth: sharedWidth + 24,
-                maxWidth: sharedWidth + 24,
+              child: Center(
                 child: SizedBox(
                   key: const ValueKey('compact-main-lyric-width-boundary'),
-                  width: sharedWidth + 24,
+                  width: math.max(1, sharedWidth - 16),
                   child: ThreeLineLyricDisplay(
                     key: const ValueKey('compact-main-lyric-scroll-surface'),
                     onSeekRequested: (position) => unawaited(
@@ -1085,6 +1082,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                     onLineDoubleTap: _togglePlayback,
                     enableLineTapFeedback: true,
                     lineCount: 5,
+                    textHorizontalPadding: 12,
                   ),
                 ),
               ),

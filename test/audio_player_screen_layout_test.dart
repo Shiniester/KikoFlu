@@ -1152,13 +1152,13 @@ void main() {
       LyricLine(
         startTime: Duration.zero,
         endTime: const Duration(seconds: 1),
-        text: 'short lyric',
+        text:
+            'This deliberately long lyric line must remain inside the same full-width feedback background as every other visible line.',
       ),
       LyricLine(
         startTime: const Duration(seconds: 1),
         endTime: const Duration(seconds: 2),
-        text:
-            'This deliberately long lyric line must remain inside the same full-width feedback background as every other visible line.',
+        text: 'short lyric',
       ),
       LyricLine(
         startTime: const Duration(seconds: 2),
@@ -1169,6 +1169,9 @@ void main() {
     await _pumpPlayer(tester, const Size(390, 844), lyrics: lyrics);
 
     final size = tester.getSize(
+      find.byKey(const ValueKey('player-cover-artwork-track-1')),
+    );
+    final coverRect = tester.getRect(
       find.byKey(const ValueKey('player-cover-artwork-track-1')),
     );
     expect(size.width / size.height, closeTo(4 / 3, 0.01));
@@ -1182,7 +1185,7 @@ void main() {
     final lyricViewport = tester.getRect(
       find.byKey(const ValueKey('compact-main-lyric-width-boundary')),
     );
-    expect(lyricViewport.width, closeTo(size.width + 24, 0.01));
+    expect(lyricViewport.width, closeTo(size.width - 16, 0.01));
     expect(lyricViewport.center.dx, closeTo(195, 0.01));
     final feedbackRects = [
       tester.getRect(
@@ -1194,6 +1197,14 @@ void main() {
     ];
     expect(feedbackRects[0].width, closeTo(lyricViewport.width, 0.01));
     expect(feedbackRects[1].width, closeTo(feedbackRects[0].width, 0.01));
+    expect(lyricViewport.left - coverRect.left, closeTo(8, 0.01));
+    expect(coverRect.right - lyricViewport.right, closeTo(8, 0.01));
+    final activeLine = find.text(
+      'This deliberately long lyric line must remain inside the same full-width feedback background as every other visible line.',
+    );
+    final activeText = tester.getRect(activeLine);
+    expect(activeText.left - lyricViewport.left, greaterThanOrEqualTo(12));
+    expect(lyricViewport.right - activeText.right, greaterThanOrEqualTo(12));
     final controlsSize = tester.getSize(
       find.byKey(const ValueKey('controls-pane-compact')),
     );
@@ -2378,7 +2389,39 @@ void main() {
   testWidgets('compact player supports doubled text and long metadata', (
     tester,
   ) async {
-    await _pumpPlayer(tester, const Size(390, 844), textScale: 2);
+    final lyrics = [
+      LyricLine(
+        startTime: Duration.zero,
+        endTime: const Duration(seconds: 1),
+        text: 'A long active lyric line at doubled text scale',
+      ),
+      LyricLine(
+        startTime: const Duration(seconds: 1),
+        endTime: const Duration(seconds: 2),
+        text: 'A second lyric line',
+      ),
+    ];
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      textScale: 2,
+      lyrics: lyrics,
+    );
+
+    final coverRect = tester.getRect(
+      find.byKey(const ValueKey('player-cover-artwork-track-1')),
+    );
+    final lyricViewport = tester.getRect(
+      find.byKey(const ValueKey('compact-main-lyric-width-boundary')),
+    );
+    expect(lyricViewport.width, closeTo(coverRect.width - 16, 0.01));
+    expect(lyricViewport.left - coverRect.left, closeTo(8, 0.01));
+    expect(coverRect.right - lyricViewport.right, closeTo(8, 0.01));
+    expect(
+      tester.getRect(find.byKey(const ValueKey('compact-lyric-line-0'))).width,
+      closeTo(lyricViewport.width, 0.01),
+    );
+    expect(tester.takeException(), isNull);
 
     await tester.drag(
       find.byKey(const ValueKey('compact-player-pages')),
@@ -2391,6 +2434,46 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'narrow short compact cover keeps lyric feedback inside artwork',
+    (tester) async {
+      final lyrics = [
+        LyricLine(
+          startTime: Duration.zero,
+          endTime: const Duration(seconds: 1),
+          text: 'A long lyric line on a narrow short screen',
+        ),
+        LyricLine(
+          startTime: const Duration(seconds: 1),
+          endTime: const Duration(seconds: 2),
+          text: 'A second narrow lyric',
+        ),
+      ];
+      await _pumpPlayer(tester, const Size(360, 700), lyrics: lyrics);
+
+      final coverRect = tester.getRect(
+        find.byKey(const ValueKey('player-cover-artwork-track-1')),
+      );
+      final lyricViewport = tester.getRect(
+        find.byKey(const ValueKey('compact-main-lyric-width-boundary')),
+      );
+      expect(lyricViewport.width, closeTo(coverRect.width - 16, 0.01));
+      expect(lyricViewport.left - coverRect.left, closeTo(8, 0.01));
+      expect(coverRect.right - lyricViewport.right, closeTo(8, 0.01));
+      final feedbackRects = [
+        tester.getRect(
+          find.byKey(const ValueKey('compact-lyric-tap-feedback-0')),
+        ),
+        tester.getRect(
+          find.byKey(const ValueKey('compact-lyric-tap-feedback-1')),
+        ),
+      ];
+      expect(feedbackRects[0].width, closeTo(lyricViewport.width, 0.01));
+      expect(feedbackRects[1].width, closeTo(feedbackRects[0].width, 0.01));
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('compact title stays fixed while swiping both directions', (
     tester,
