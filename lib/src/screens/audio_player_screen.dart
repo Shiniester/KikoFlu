@@ -1075,7 +1075,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
               child: Center(
                 child: SizedBox(
                   key: const ValueKey('compact-main-lyric-width-boundary'),
-                  width: math.max(1, sharedWidth - 16),
+                  width: sharedWidth,
                   child: ThreeLineLyricDisplay(
                     key: const ValueKey('compact-main-lyric-scroll-surface'),
                     onSeekRequested: (position) => unawaited(

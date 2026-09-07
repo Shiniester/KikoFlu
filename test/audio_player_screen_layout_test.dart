@@ -975,7 +975,7 @@ void main() {
     final lyricViewport = tester.getRect(
       find.byKey(const ValueKey('compact-main-lyric-width-boundary')),
     );
-    expect(lyricViewport.width, closeTo(size.width - 16, 0.01));
+    expect(lyricViewport.width, closeTo(coverRect.width, 0.01));
     expect(lyricViewport.center.dx, closeTo(195, 0.01));
     final feedbackRects = [
       tester.getRect(
@@ -987,8 +987,8 @@ void main() {
     ];
     expect(feedbackRects[0].width, closeTo(lyricViewport.width, 0.01));
     expect(feedbackRects[1].width, closeTo(feedbackRects[0].width, 0.01));
-    expect(lyricViewport.left - coverRect.left, closeTo(8, 0.01));
-    expect(coverRect.right - lyricViewport.right, closeTo(8, 0.01));
+    expect(lyricViewport.left, closeTo(coverRect.left, 0.01));
+    expect(lyricViewport.right, closeTo(coverRect.right, 0.01));
     final activeLine = find.text(
       'This deliberately long lyric line must remain inside the same full-width feedback background as every other visible line.',
     );
@@ -2047,9 +2047,9 @@ void main() {
     final lyricViewport = tester.getRect(
       find.byKey(const ValueKey('compact-main-lyric-width-boundary')),
     );
-    expect(lyricViewport.width, closeTo(coverRect.width - 16, 0.01));
-    expect(lyricViewport.left - coverRect.left, closeTo(8, 0.01));
-    expect(coverRect.right - lyricViewport.right, closeTo(8, 0.01));
+    expect(lyricViewport.width, closeTo(coverRect.width, 0.01));
+    expect(lyricViewport.left, closeTo(coverRect.left, 0.01));
+    expect(lyricViewport.right, closeTo(coverRect.right, 0.01));
     expect(
       tester.getRect(find.byKey(const ValueKey('compact-lyric-line-0'))).width,
       closeTo(lyricViewport.width, 0.01),
@@ -2091,9 +2091,9 @@ void main() {
       final lyricViewport = tester.getRect(
         find.byKey(const ValueKey('compact-main-lyric-width-boundary')),
       );
-      expect(lyricViewport.width, closeTo(coverRect.width - 16, 0.01));
-      expect(lyricViewport.left - coverRect.left, closeTo(8, 0.01));
-      expect(coverRect.right - lyricViewport.right, closeTo(8, 0.01));
+      expect(lyricViewport.width, closeTo(coverRect.width, 0.01));
+      expect(lyricViewport.left, closeTo(coverRect.left, 0.01));
+      expect(lyricViewport.right, closeTo(coverRect.right, 0.01));
       final feedbackRects = [
         tester.getRect(
           find.byKey(const ValueKey('compact-lyric-tap-feedback-0')),
