@@ -216,9 +216,7 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
   bool _multiTouch = false;
   bool _longPressTriggered = false;
   Offset? _pointerDownPosition;
-  Offset? _pendingTapPosition;
   Timer? _longPressTimer;
-  Timer? _singleTapTimer;
 
   String? get _cacheKey {
     if (widget.cacheKey != null) return widget.cacheKey;
@@ -231,7 +229,6 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
   @override
   void dispose() {
     _longPressTimer?.cancel();
-    _singleTapTimer?.cancel();
     _transformController.dispose();
     super.dispose();
   }
@@ -270,7 +267,7 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
     if (_activePointers.isNotEmpty) return;
     _longPressTimer?.cancel();
     if (!_multiTouch && !_pointerMoved && !_longPressTriggered) {
-      _registerTap(event.position);
+      Navigator.of(context).maybePop();
     }
     _resetPointerGesture();
   }
@@ -288,36 +285,6 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
     _pointerMoved = false;
     _multiTouch = false;
     _longPressTriggered = false;
-  }
-
-  void _registerTap(Offset position) {
-    final pendingPosition = _pendingTapPosition;
-    if (_singleTapTimer?.isActive == true &&
-        pendingPosition != null &&
-        (position - pendingPosition).distance <= kDoubleTapSlop) {
-      _singleTapTimer!.cancel();
-      _pendingTapPosition = null;
-      _handleDoubleTap();
-      return;
-    }
-    _singleTapTimer?.cancel();
-    _pendingTapPosition = position;
-    _singleTapTimer = Timer(kDoubleTapTimeout, () {
-      _pendingTapPosition = null;
-      if (mounted) Navigator.of(context).pop();
-    });
-  }
-
-  void _handleDoubleTap() {
-    final currentScale = _transformController.value.getMaxScaleOnAxis();
-
-    if (currentScale > 1.0) {
-      _transformController.value = Matrix4.identity();
-    } else {
-      const newScale = 2.5;
-      _transformController.value = Matrix4.identity()
-        ..scaleByDouble(newScale, newScale, newScale, 1);
-    }
   }
 
   Future<void> _saveImage() async {

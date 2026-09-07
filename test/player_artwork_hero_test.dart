@@ -307,7 +307,7 @@ void main() {
     expect(find.byType(Hero), findsNothing);
   });
 
-  testWidgets('ready track artwork expands and cross-fades in 240ms', (
+  testWidgets('ready track artwork expands and cross-fades in 300ms', (
     tester,
   ) async {
     const first = AudioTrack(
@@ -384,7 +384,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.pump(const Duration(milliseconds: 120));
+    await tester.pump(const Duration(milliseconds: 150));
     final outgoingOpacity = tester.widget<Opacity>(
       find.byKey(const ValueKey('player-cover-outgoing-opacity')),
     );
@@ -405,21 +405,164 @@ void main() {
       outgoingScale.transform.getMaxScaleOnAxis(),
       greaterThan(incomingScale.transform.getMaxScaleOnAxis()),
     );
-    expect(outgoingScale.transform.getMaxScaleOnAxis(), closeTo(1.105, 0.02));
-    expect(incomingScale.transform.getMaxScaleOnAxis(), closeTo(1.015, 0.02));
+    expect(outgoingScale.transform.getMaxScaleOnAxis(), closeTo(1.175, 0.02));
+    expect(incomingScale.transform.getMaxScaleOnAxis(), closeTo(1.025, 0.02));
     final transitionClip = tester.widget<ClipRRect>(
       find.byKey(const ValueKey('player-cover-transition-clip')),
     );
     expect(transitionClip.borderRadius, BorderRadius.circular(14));
     expect(transitionClip.clipBehavior, Clip.antiAlias);
-
-    await tester.pump(const Duration(milliseconds: 130));
+    await tester.pump(const Duration(milliseconds: 160));
     expect(
       find.byKey(const ValueKey('player-cover-transition-stack')),
       findsNothing,
     );
     expect(
       find.byKey(const ValueKey('player-cover-artwork-cover-second')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('tracks from the same work update without a cover transition', (
+    tester,
+  ) async {
+    const first = AudioTrack(
+      id: 'same-work-first',
+      title: 'First',
+      url: 'first.mp3',
+      artworkUrl: 'https://example.invalid/first.jpg',
+      workId: 7,
+    );
+    const sameWork = AudioTrack(
+      id: 'same-work-second',
+      title: 'Second',
+      url: 'second.mp3',
+      artworkUrl: 'https://example.invalid/second.jpg',
+      workId: 7,
+    );
+    const sameUrl = AudioTrack(
+      id: 'same-url-third',
+      title: 'Third',
+      url: 'third.mp3',
+      artworkUrl: 'https://example.invalid/second.jpg',
+      workId: 8,
+    );
+    const differentWork = AudioTrack(
+      id: 'different-work',
+      title: 'Different',
+      url: 'different.mp3',
+      artworkUrl: 'https://example.invalid/different.jpg',
+      workId: 9,
+    );
+    const sameDifferentWork = AudioTrack(
+      id: 'same-different-work',
+      title: 'Same work after a rapid change',
+      url: 'different-next.mp3',
+      artworkUrl: 'https://example.invalid/different-next.jpg',
+      workId: 9,
+    );
+    const emptyCover = AudioTrack(
+      id: 'empty-cover',
+      title: 'Empty cover',
+      url: 'empty.mp3',
+    );
+    const emptyCoverAgain = AudioTrack(
+      id: 'empty-cover-again',
+      title: 'Empty cover again',
+      url: 'empty-again.mp3',
+    );
+    final firstProvider = MemoryImage(
+      File('assets/icons/app_icon_opaque.png').readAsBytesSync(),
+    );
+    final secondProvider = MemoryImage(
+      File('assets/icons/privacy_protection_sample.png').readAsBytesSync(),
+    );
+    final track = ValueNotifier<AudioTrack>(first);
+    addTearDown(track.dispose);
+
+    ImageProvider<Object>? providerFor(AudioTrack value) {
+      return value == first ? firstProvider : secondProvider;
+    }
+
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(
+            body: ValueListenableBuilder<AudioTrack>(
+              valueListenable: track,
+              builder: (context, value, _) => PlayerCoverWidget(
+                track: value,
+                animateTrackChanges: true,
+                imageProviderOverride: providerFor(value),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    track.value = sameWork;
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('player-cover-transition-stack')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('player-cover-artwork-same-work-second')),
+      findsOneWidget,
+    );
+
+    track.value = sameUrl;
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('player-cover-transition-stack')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('player-cover-artwork-same-url-third')),
+      findsOneWidget,
+    );
+
+    await tester.runAsync(
+      () => precacheImage(
+        secondProvider,
+        tester.element(find.byType(PlayerCoverWidget)),
+      ),
+    );
+    track.value = differentWork;
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('player-cover-transition-stack')),
+      findsOneWidget,
+    );
+    await tester.pump(const Duration(milliseconds: 75));
+
+    track.value = sameDifferentWork;
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('player-cover-transition-stack')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(
+        const ValueKey('player-cover-artwork-same-different-work'),
+      ),
+      findsOneWidget,
+    );
+
+    track.value = emptyCover;
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('player-cover-transition-stack')),
+      findsOneWidget,
+    );
+    await tester.pump(const Duration(milliseconds: 301));
+
+    track.value = emptyCoverAgain;
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('player-cover-transition-stack')),
       findsOneWidget,
     );
   });
@@ -510,7 +653,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.pump(const Duration(milliseconds: 241));
+    await tester.pump(const Duration(milliseconds: 301));
     expect(
       find.byKey(const ValueKey('player-cover-artwork-rapid-latest')),
       findsOneWidget,

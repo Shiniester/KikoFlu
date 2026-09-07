@@ -96,14 +96,14 @@ void main() {
     expect(clip.borderRadius, BorderRadius.circular(12));
   });
 
-  testWidgets('double tap zooms without closing the preview', (tester) async {
-    await _pumpPreviewHost(tester);
+  testWidgets('single tap starts closing on the next frame', (tester) async {
+    final observer = _RecordingNavigatorObserver();
+    await _pumpPreviewHost(tester, observer: observer);
 
-    await _tapPreviewCenter(tester);
-    await tester.pump(const Duration(milliseconds: 100));
     await _tapPreviewCenter(tester);
     await tester.pump();
 
+    expect(observer.popCount, 1);
     expect(
       find.byKey(const ValueKey('cover-preview-background')),
       findsOneWidget,
@@ -119,9 +119,12 @@ void main() {
     );
     expect(listener.onPointerDown, isNotNull);
     expect(listener.onPointerUp, isNotNull);
+
+    await tester.pump(const Duration(milliseconds: 280));
+    await tester.pumpAndSettle();
     expect(
-      viewer.transformationController!.value.getMaxScaleOnAxis(),
-      closeTo(2.5, 0.001),
+      find.byKey(const ValueKey('cover-preview-background')),
+      findsNothing,
     );
   });
 
@@ -157,10 +160,13 @@ void main() {
   });
 
   testWidgets('blank background returns from the preview', (tester) async {
-    await _pumpPreviewHost(tester);
+    final observer = _RecordingNavigatorObserver();
+    await _pumpPreviewHost(tester, observer: observer);
 
     final background = find.byKey(const ValueKey('cover-preview-background'));
     await tester.tapAt(tester.getTopLeft(background) + const Offset(8, 8));
+    await tester.pump();
+    expect(observer.popCount, 1);
     await tester.pump(const Duration(milliseconds: 301));
     await tester.pumpAndSettle();
     expect(
@@ -252,12 +258,16 @@ const _previewPalette = PlayerVisualPalette(
   panelStroke: Color(0x30000000),
 );
 
-Future<void> _pumpPreviewHost(WidgetTester tester) async {
+Future<void> _pumpPreviewHost(
+  WidgetTester tester, {
+  NavigatorObserver? observer,
+}) async {
   await tester.pumpWidget(
     ProviderScope(
       child: MaterialApp(
         localizationsDelegates: S.localizationsDelegates,
         supportedLocales: S.supportedLocales,
+        navigatorObservers: [if (observer != null) observer],
         initialRoute: '/preview',
         routes: {
           '/': (context) => const Scaffold(body: Text('host')),
@@ -275,4 +285,14 @@ Future<void> _pumpPreviewHost(WidgetTester tester) async {
 Future<void> _tapPreviewCenter(WidgetTester tester) {
   final background = find.byKey(const ValueKey('cover-preview-background'));
   return tester.tapAt(tester.getCenter(background));
+}
+
+class _RecordingNavigatorObserver extends NavigatorObserver {
+  int popCount = 0;
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    popCount++;
+    super.didPop(route, previousRoute);
+  }
 }
