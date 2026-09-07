@@ -206,6 +206,13 @@ void main() {
         _tapFeedbackAlpha(tester, 'full-lyric-tap-feedback-2'),
         greaterThan(0),
       );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('full-lyric-tap-feedback-2')),
+          matching: line,
+        ),
+        findsOneWidget,
+      );
       await tester.pump(const Duration(milliseconds: 79));
       expect(
         _tapFeedbackAlpha(tester, 'full-lyric-tap-feedback-2'),
@@ -224,8 +231,11 @@ void main() {
       );
       expect(inkWell.splashFactory, NoSplash.splashFactory);
       expect(
-        tester.getRect(find.byKey(const ValueKey('full-lyric-tap-feedback-2'))),
-        tester.getRect(find.ancestor(of: line, matching: find.byType(InkWell))),
+        find.ancestor(
+          of: line,
+          matching: find.byKey(const ValueKey('full-lyric-tap-feedback-2')),
+        ),
+        findsOneWidget,
       );
       await tester.pump(const Duration(milliseconds: 199));
       expect(
@@ -252,6 +262,116 @@ void main() {
       );
     },
   );
+
+  testWidgets(
+    'lyric feedback surfaces follow full and compact rows during scroll',
+    (tester) async {
+      final positions = StreamController<Duration>();
+      addTearDown(positions.close);
+      positions.add(const Duration(seconds: 2));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            positionProvider.overrideWith((ref) => positions.stream),
+            lyricControllerProvider.overrideWith(
+              (ref) => LyricController(
+                ref,
+                initialState: LyricState(lyrics: lyrics),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            theme: ThemeData.dark(useMaterial3: true),
+            home: Scaffold(
+              body: FullLyricDisplay(
+                enableLineTapFeedback: true,
+                onSeekRequested: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final lowerLine = find.text('matching lyric 4');
+      await tester.tap(lowerLine);
+      await tester.pump(const Duration(milliseconds: 320));
+      await _expectFeedbackTravelTracksLine(
+        tester,
+        line: lowerLine,
+        feedback: const ValueKey('full-lyric-tap-feedback-4'),
+        movesUp: true,
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+
+      positions.add(const Duration(seconds: 8));
+      await tester.pumpAndSettle();
+      final upperLine = find.text('lyric 3');
+      await tester.tap(upperLine);
+      await tester.pump(const Duration(milliseconds: 320));
+      await _expectFeedbackTravelTracksLine(
+        tester,
+        line: upperLine,
+        feedback: const ValueKey('full-lyric-tap-feedback-3'),
+        movesUp: false,
+      );
+    },
+  );
+
+  testWidgets('compact feedback surface follows both lyric scroll directions', (
+    tester,
+  ) async {
+    final positions = StreamController<Duration>();
+    addTearDown(positions.close);
+    positions.add(const Duration(seconds: 2));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith((ref) => positions.stream),
+          lyricControllerProvider.overrideWith(
+            (ref) =>
+                LyricController(ref, initialState: LyricState(lyrics: lyrics)),
+          ),
+        ],
+        child: MaterialApp(
+          theme: ThemeData.dark(useMaterial3: true),
+          home: Scaffold(
+            body: Center(
+              child: ThreeLineLyricDisplay(
+                lineCount: 5,
+                enableLineTapFeedback: true,
+                onSeekRequested: (_) {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final lowerLine = find.byKey(const ValueKey('compact-lyric-line-4'));
+    await tester.tap(lowerLine);
+    await tester.pump(const Duration(milliseconds: 320));
+    await _expectFeedbackTravelTracksLine(
+      tester,
+      line: lowerLine,
+      feedback: const ValueKey('compact-lyric-tap-feedback-4'),
+      movesUp: true,
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+
+    positions.add(const Duration(seconds: 8));
+    await tester.pumpAndSettle();
+    final upperLine = find.byKey(const ValueKey('compact-lyric-line-3'));
+    await tester.tap(upperLine);
+    await tester.pump(const Duration(milliseconds: 320));
+    await _expectFeedbackTravelTracksLine(
+      tester,
+      line: upperLine,
+      feedback: const ValueKey('compact-lyric-tap-feedback-3'),
+      movesUp: false,
+    );
+  });
 
   testWidgets('reduced-motion lyric feedback stays static for 300ms', (
     tester,
@@ -541,6 +661,13 @@ void main() {
       expect(
         _tapFeedbackAlpha(tester, 'compact-lyric-tap-feedback-3'),
         greaterThan(0),
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('compact-lyric-tap-feedback-3')),
+          matching: secondLine,
+        ),
+        findsOneWidget,
       );
       await tester.pump(const Duration(milliseconds: 40));
       final alphaBeforeSecondTap = _tapFeedbackAlpha(
@@ -1110,10 +1237,47 @@ void _expectLineAtPlaybackAnchor(WidgetTester tester, Finder line) {
 }
 
 double _tapFeedbackAlpha(WidgetTester tester, String keyValue) {
-  final material = tester.widget<Material>(
+  final surface = tester.widget<DecoratedBox>(
     find.byKey(ValueKey<String>(keyValue)),
   );
-  return material.color?.a ?? 0;
+  final decoration = surface.decoration;
+  return decoration is BoxDecoration ? decoration.color?.a ?? 0 : 0;
+}
+
+Future<void> _expectFeedbackTravelTracksLine(
+  WidgetTester tester, {
+  required Finder line,
+  required Key feedback,
+  required bool movesUp,
+}) async {
+  final feedbackFinder = find.byKey(feedback);
+  final initialDelta =
+      tester.getRect(feedbackFinder).center.dy - tester.getRect(line).center.dy;
+  final centers = <double>[tester.getRect(line).center.dy];
+  for (final step in const [
+    Duration(milliseconds: 20),
+    Duration(milliseconds: 40),
+    Duration(milliseconds: 40),
+    Duration(milliseconds: 40),
+    Duration(milliseconds: 40),
+    Duration(milliseconds: 40),
+  ]) {
+    await tester.pump(step);
+    final feedbackCenter = tester.getRect(feedbackFinder).center.dy;
+    final lineCenter = tester.getRect(line).center.dy;
+    expect(feedbackCenter - lineCenter, closeTo(initialDelta, 0.5));
+    centers.add(lineCenter);
+  }
+
+  final totalTravel = centers.last - centers.first;
+  expect(totalTravel, movesUp ? lessThan(-0.5) : greaterThan(0.5));
+  for (var index = 1; index < centers.length; index++) {
+    if (movesUp) {
+      expect(centers[index], lessThanOrEqualTo(centers[index - 1] + 0.5));
+    } else {
+      expect(centers[index], greaterThanOrEqualTo(centers[index - 1] - 0.5));
+    }
+  }
 }
 
 double mathMin(double left, double right) => left < right ? left : right;
