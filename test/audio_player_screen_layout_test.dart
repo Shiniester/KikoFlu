@@ -834,61 +834,177 @@ void main() {
   testWidgets('details bottom-push queue return keeps cards visually stable', (
     tester,
   ) async {
-    await _pumpPlayer(
-      tester,
-      const Size(390, 844),
-      workDetails: _longPlayerWorkDetails(),
-      platform: TargetPlatform.android,
-    );
-    await tester.drag(
-      find.byKey(const ValueKey('compact-player-pages')),
-      const Offset(320, 0),
-    );
-    await tester.pumpAndSettle();
-
-    final detailsPanel = find.byKey(
-      const ValueKey('player-audio-details-panel'),
-    );
-    final detailsScroll = tester.state<ScrollableState>(
-      find.descendant(of: detailsPanel, matching: find.byType(Scrollable)),
-    );
-    detailsScroll.position.jumpTo(detailsScroll.position.maxScrollExtent);
-    await tester.pump();
+    final details = await _pumpLongDetailsAtBottom(tester);
+    final detailsPanel = details.panel;
+    final detailsScroll = details.scroll;
 
     final visibleCard = find.byKey(const ValueKey('player-detail-tags'));
     expect(visibleCard, findsOneWidget);
+    expect(
+      find.descendant(
+        of: detailsPanel,
+        matching: find.byType(StretchingOverscrollIndicator),
+      ),
+      findsNothing,
+    );
     double relativeCardTop() {
       final panelRect = tester.getRect(detailsPanel);
       return tester.getRect(visibleCard).top - panelRect.top;
     }
 
     final settledCardTop = relativeCardTop();
-    await tester.drag(
-      find.descendant(
-        of: detailsPanel,
-        matching: find.byType(CustomScrollView),
+    final settledScrollOffset = detailsScroll.position.pixels;
+    final detailsGesture = await tester.startGesture(
+      tester.getCenter(
+        find.descendant(
+          of: detailsPanel,
+          matching: find.byType(CustomScrollView),
+        ),
       ),
-      const Offset(0, -240),
     );
+    final openingProgress = <double>[];
+    for (var frame = 0; frame < 16; frame++) {
+      await detailsGesture.moveBy(const Offset(0, -16));
+      await tester.pump(const Duration(milliseconds: 16));
+      openingProgress.add(_compactQueueProgress(tester));
+    }
+    await detailsGesture.up();
     await tester.pumpAndSettle();
+    for (var index = 1; index < openingProgress.length; index++) {
+      expect(
+        openingProgress[index],
+        greaterThanOrEqualTo(openingProgress[index - 1]),
+      );
+    }
     expect(_compactQueueProgress(tester), closeTo(1, 0.001));
 
-    await tester.drag(
-      find.byKey(const ValueKey('player-queue-title-dismiss-surface')),
-      const Offset(0, 240),
+    final closeGesture = await tester.startGesture(
+      tester.getCenter(
+        find.byKey(const ValueKey('player-queue-title-dismiss-surface')),
+      ),
     );
+    final closingProgress = <double>[];
     final cardPositions = <double>[];
+    for (var frame = 0; frame < 15; frame++) {
+      await closeGesture.moveBy(const Offset(0, 16));
+      await tester.pump(const Duration(milliseconds: 16));
+      closingProgress.add(_compactQueueProgress(tester));
+      cardPositions.add(relativeCardTop());
+    }
+    await closeGesture.up();
     for (var frame = 0; frame < 30; frame++) {
       await tester.pump(const Duration(milliseconds: 16));
+      closingProgress.add(_compactQueueProgress(tester));
       cardPositions.add(relativeCardTop());
     }
 
+    for (var index = 1; index < closingProgress.length; index++) {
+      expect(
+        closingProgress[index],
+        lessThanOrEqualTo(closingProgress[index - 1]),
+      );
+    }
     expect(cardPositions, isNotEmpty);
     for (final position in cardPositions) {
       expect(position, closeTo(settledCardTop, 0.1));
     }
+    expect(detailsScroll.position.pixels, closeTo(settledScrollOffset, 0.1));
     expect(_compactQueueProgress(tester), closeTo(0, 0.001));
   });
+
+  for (final scenario in const [
+    (
+      name: 'below threshold settles back to details',
+      upwardFrames: 4,
+      reverse: false,
+      cancel: false,
+      reverseFrames: 0,
+    ),
+    (
+      name: 'reverses before threshold without opening',
+      upwardFrames: 8,
+      reverse: true,
+      cancel: false,
+      reverseFrames: 4,
+    ),
+    (
+      name: 'pointer cancel restores details',
+      upwardFrames: 8,
+      reverse: false,
+      cancel: true,
+      reverseFrames: 0,
+    ),
+  ]) {
+    testWidgets('details bottom-push ${scenario.name}', (tester) async {
+      final details = await _pumpLongDetailsAtBottom(tester);
+      final detailsPanel = details.panel;
+      final detailsScroll = details.scroll;
+      final visibleCard = find.byKey(const ValueKey('player-detail-tags'));
+      double relativeCardTop() {
+        final panelRect = tester.getRect(detailsPanel);
+        return tester.getRect(visibleCard).top - panelRect.top;
+      }
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(
+          find.descendant(
+            of: detailsPanel,
+            matching: find.byType(CustomScrollView),
+          ),
+        ),
+      );
+      final progress = <double>[];
+      for (var frame = 0; frame < scenario.upwardFrames; frame++) {
+        await gesture.moveBy(const Offset(0, -16));
+        await tester.pump(const Duration(milliseconds: 16));
+        progress.add(_compactQueueProgress(tester));
+      }
+
+      if (scenario.reverse) {
+        final reversedProgress = <double>[];
+        for (var frame = 0; frame < scenario.reverseFrames; frame++) {
+          await gesture.moveBy(const Offset(0, 16));
+          await tester.pump(const Duration(milliseconds: 16));
+          reversedProgress.add(_compactQueueProgress(tester));
+        }
+        for (var index = 1; index < reversedProgress.length; index++) {
+          expect(
+            reversedProgress[index],
+            lessThanOrEqualTo(reversedProgress[index - 1]),
+          );
+        }
+        expect(reversedProgress.last, lessThan(progress.last));
+        expect(reversedProgress.last, greaterThan(0));
+      }
+
+      expect(progress.last, greaterThan(0));
+      final offsetBeforeRelease = detailsScroll.position.pixels;
+      final releasedCardTop = relativeCardTop();
+      if (scenario.cancel) {
+        await gesture.cancel();
+      } else {
+        expect(_compactQueueProgress(tester), lessThan(0.22));
+        await gesture.up();
+      }
+      final cardPositions = <double>[];
+      for (var frame = 0; frame < 30; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        cardPositions.add(relativeCardTop());
+      }
+      await tester.pumpAndSettle();
+
+      expect(_compactQueueProgress(tester), closeTo(0, 0.001));
+      expect(
+        find.byKey(const ValueKey('compact-audio-details-pane')),
+        findsOneWidget,
+      );
+      expect(detailsScroll.position.pixels, closeTo(offsetBeforeRelease, 0.1));
+      for (final position in cardPositions) {
+        expect(position, closeTo(releasedCardTop, 0.1));
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('queue opened from lyrics returns to the lyric page', (
     tester,
@@ -2860,6 +2976,30 @@ PlayerWorkDetailsData _longPlayerWorkDetails() {
     variants: variants,
     fileTreeId: 'long-details-test',
   );
+}
+
+Future<({Finder panel, ScrollableState scroll})> _pumpLongDetailsAtBottom(
+  WidgetTester tester,
+) async {
+  await _pumpPlayer(
+    tester,
+    const Size(390, 844),
+    workDetails: _longPlayerWorkDetails(),
+    platform: TargetPlatform.android,
+  );
+  await tester.drag(
+    find.byKey(const ValueKey('compact-player-pages')),
+    const Offset(320, 0),
+  );
+  await tester.pumpAndSettle();
+
+  final panel = find.byKey(const ValueKey('player-audio-details-panel'));
+  final scroll = tester.state<ScrollableState>(
+    find.descendant(of: panel, matching: find.byType(Scrollable)),
+  );
+  scroll.position.jumpTo(scroll.position.maxScrollExtent);
+  await tester.pump();
+  return (panel: panel, scroll: scroll);
 }
 
 class _PlayerTestApiService extends KikoeruApiService {

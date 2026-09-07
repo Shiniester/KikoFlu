@@ -333,11 +333,8 @@ class _PlayerAudioDetailsPanelState
       ),
     );
     if (widget.showQueueDrag == null) return content;
-    return NotificationListener<OverscrollIndicatorNotification>(
-      onNotification: (notification) {
-        notification.disallowIndicator();
-        return false;
-      },
+    return ScrollConfiguration(
+      behavior: ScrollConfiguration.of(context).copyWith(overscroll: false),
       child: content,
     );
   }
