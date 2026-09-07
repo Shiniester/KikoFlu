@@ -731,6 +731,15 @@ class SEn extends S {
   String get repeatAll => 'All';
 
   @override
+  String get repeatSequentialQueuePlayback => 'Sequential Queue Playback';
+
+  @override
+  String get repeatSingleTrackPlayback => 'Single Track Repeat';
+
+  @override
+  String get repeatQueuePlayback => 'Queue Repeat';
+
+  @override
   String get addMark => 'Add Mark';
 
   @override
