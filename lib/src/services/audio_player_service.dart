@@ -37,6 +37,37 @@ enum EnqueueNextResult {
 
 enum ManualSkipDirection { previous, next }
 
+/// Direction used by the player presentation when a new track is published.
+///
+/// This is deliberately separate from [ManualSkipDirection]: a track can also
+/// be published by natural completion, queue selection, or session restore.
+enum PlayerTrackChangeDirection { none, previous, next }
+
+PlayerTrackChangeDirection resolvePlayerTrackChangeDirection({
+  required int currentIndex,
+  required int targetIndex,
+}) {
+  if (targetIndex > currentIndex) {
+    return PlayerTrackChangeDirection.next;
+  }
+  if (targetIndex < currentIndex) {
+    return PlayerTrackChangeDirection.previous;
+  }
+  return PlayerTrackChangeDirection.none;
+}
+
+class PlayerTrackChangePresentation {
+  const PlayerTrackChangePresentation({
+    required this.trackId,
+    required this.direction,
+    required this.revision,
+  });
+
+  final String trackId;
+  final PlayerTrackChangeDirection direction;
+  final int revision;
+}
+
 int? resolveManualSkipTarget({
   required int queueLength,
   required int currentIndex,
@@ -214,6 +245,8 @@ class AudioPlayerService {
       StreamController.broadcast();
   final StreamController<AudioTrack?> _currentTrackController =
       StreamController.broadcast();
+  PlayerTrackChangePresentation? _lastTrackChangePresentation;
+  int _trackChangeRevision = 0;
   final StreamController<bool> _trackLoadingController =
       StreamController<bool>.broadcast();
   final StreamController<PlaybackDiagnosticEvent>
@@ -521,6 +554,7 @@ class AudioPlayerService {
     _queue.clear();
     _currentIndex = 0;
     _queueController.add(const []);
+    _lastTrackChangePresentation = null;
     _currentTrackController.add(null);
     await stop();
     _releaseCachedPlaybackLease();
@@ -533,6 +567,8 @@ class AudioPlayerService {
   Future<void> _loadTrack(
     AudioTrack track, {
     bool emitCurrentTrack = true,
+    PlayerTrackChangeDirection trackChangeDirection =
+        PlayerTrackChangeDirection.none,
   }) async {
     _emitPlaybackDiagnostic(
       PlaybackDiagnosticEventType.trackLoadStarted,
@@ -691,10 +727,22 @@ class AudioPlayerService {
     // Publish and persist only after the source is ready. A failed URL or a
     // missing local file must never become the app's current resumable track.
     if (emitCurrentTrack) {
-      _currentTrackController.add(track);
+      _publishCurrentTrack(track, direction: trackChangeDirection);
     }
     _emitPlaybackDiagnostic(PlaybackDiagnosticEventType.trackReady, track);
     unawaited(persistPlaybackSession());
+  }
+
+  void _publishCurrentTrack(
+    AudioTrack track, {
+    required PlayerTrackChangeDirection direction,
+  }) {
+    _lastTrackChangePresentation = PlayerTrackChangePresentation(
+      trackId: track.id,
+      direction: direction,
+      revision: ++_trackChangeRevision,
+    );
+    _currentTrackController.add(track);
   }
 
   // Update media item for system notification
@@ -783,10 +831,16 @@ class AudioPlayerService {
         unawaited(play());
       } else if (_currentIndex < _queue.length - 1) {
         // Has next track - play it
-        await _switchToIndexAndPlay(_currentIndex + 1);
+        await _switchToIndexAndPlay(
+          _currentIndex + 1,
+          direction: PlayerTrackChangeDirection.next,
+        );
       } else if (_appLoopMode == LoopMode.all && _queue.isNotEmpty) {
         // List repeat - go back to first track
-        await _switchToIndexAndPlay(0);
+        await _switchToIndexAndPlay(
+          0,
+          direction: PlayerTrackChangeDirection.next,
+        );
       } else {
         // A naturally completed non-looping queue must not reappear next launch.
         _sessionCompleted = true;
@@ -1027,7 +1081,10 @@ class AudioPlayerService {
       direction: ManualSkipDirection.next,
     );
     if (target == null) throw Exception('没有下一首可播放');
-    await _switchToIndexAndPlay(target);
+    await _switchToIndexAndPlay(
+      target,
+      direction: PlayerTrackChangeDirection.next,
+    );
   }
 
   Future<void> skipToPrevious() async {
@@ -1038,20 +1095,29 @@ class AudioPlayerService {
       direction: ManualSkipDirection.previous,
     );
     if (target == null) throw Exception('没有上一首可播放');
-    await _switchToIndexAndPlay(target);
+    await _switchToIndexAndPlay(
+      target,
+      direction: PlayerTrackChangeDirection.previous,
+    );
   }
 
   Future<void> skipToIndex(int index) async {
-    if (index >= 0 && index < _queue.length) {
-      await _switchToIndexAndPlay(index);
-    }
+    if (index < 0 || index >= _queue.length || index == _currentIndex) return;
+    final direction = resolvePlayerTrackChangeDirection(
+      currentIndex: _currentIndex,
+      targetIndex: index,
+    );
+    await _switchToIndexAndPlay(index, direction: direction);
   }
 
-  Future<void> _switchToIndexAndPlay(int index) async {
+  Future<void> _switchToIndexAndPlay(
+    int index, {
+    required PlayerTrackChangeDirection direction,
+  }) async {
     final previousIndex = _currentIndex;
     _currentIndex = index;
     try {
-      await _loadTrack(_queue[_currentIndex]);
+      await _loadTrack(_queue[_currentIndex], trackChangeDirection: direction);
       await play();
     } catch (_) {
       _currentIndex = previousIndex;
@@ -1074,6 +1140,7 @@ class AudioPlayerService {
     if (_queue.isEmpty) {
       _currentIndex = 0;
       await stop();
+      _lastTrackChangePresentation = null;
       _currentTrackController.add(null);
       await _clearPlaybackSession();
       return;
@@ -1290,7 +1357,10 @@ class AudioPlayerService {
           await _player.seek(restoredPosition);
           _lastSessionPositionMs = restoredPosition.inMilliseconds;
           _updatePlaybackState();
-          _currentTrackController.add(_queue[_currentIndex]);
+          _publishCurrentTrack(
+            _queue[_currentIndex],
+            direction: PlayerTrackChangeDirection.none,
+          );
           _log.captureOutput(
             '[AudioSession] Restored ${_queue.length} tracks at '
             'index=$_currentIndex '
@@ -1353,6 +1423,8 @@ class AudioPlayerService {
   Stream<List<AudioTrack>> get queueStream => _queueController.stream;
   Stream<AudioTrack?> get currentTrackStream => _currentTrackController.stream;
   Stream<bool> get trackLoadingStream => _trackLoadingController.stream;
+  PlayerTrackChangePresentation? get lastTrackChangePresentation =>
+      _lastTrackChangePresentation;
   Stream<PlaybackDiagnosticEvent> get playbackDiagnosticEventStream =>
       _playbackDiagnosticController.stream;
 

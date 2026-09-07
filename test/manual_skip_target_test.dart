@@ -108,4 +108,21 @@ void main() {
       );
     });
   });
+
+  group('resolvePlayerTrackChangeDirection', () {
+    test('uses queue index order for direct selection', () {
+      expect(
+        resolvePlayerTrackChangeDirection(currentIndex: 1, targetIndex: 4),
+        PlayerTrackChangeDirection.next,
+      );
+      expect(
+        resolvePlayerTrackChangeDirection(currentIndex: 4, targetIndex: 1),
+        PlayerTrackChangeDirection.previous,
+      );
+      expect(
+        resolvePlayerTrackChangeDirection(currentIndex: 2, targetIndex: 2),
+        PlayerTrackChangeDirection.none,
+      );
+    });
+  });
 }
