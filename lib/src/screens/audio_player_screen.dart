@@ -1029,6 +1029,15 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     );
   }
 
+  void _togglePlayback() {
+    final controller = ref.read(audioPlayerControllerProvider.notifier);
+    if (controller.isPlaying) {
+      unawaited(controller.pause());
+    } else {
+      unawaited(controller.play());
+    }
+  }
+
   Widget _buildCompactMain(
     BuildContext context, {
     required AudioTrack track,
@@ -1067,6 +1076,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                     .read(audioPlayerControllerProvider.notifier)
                     .seekAndPersist(position),
               ),
+              onLineDoubleTap: _togglePlayback,
+              enableLineTapFeedback: true,
               lineCount: 5,
             ),
             const SizedBox(height: 16),
@@ -1356,16 +1367,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                         _compactPage == 2 &&
                         _rightPane != PlayerRightPane.queue,
               seekingPosition: _seekingPosition,
-              onTogglePlayback: () {
-                final controller = ref.read(
-                  audioPlayerControllerProvider.notifier,
-                );
-                if (controller.isPlaying) {
-                  unawaited(controller.pause());
-                } else {
-                  unawaited(controller.play());
-                }
-              },
+              onTogglePlayback: _togglePlayback,
               onFullscreen: _enterLyricFullscreen,
               onLongPress: _enterLyricFullscreen,
               onShowQueue: () =>
