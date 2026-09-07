@@ -19,13 +19,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 void _configurePhoneViewport(
   WidgetTester tester, {
   TargetPlatform platform = TargetPlatform.android,
+  double bottomInset = 0,
 }) {
   debugDefaultTargetPlatformOverride = platform;
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = const Size(390, 844);
+  tester.view.padding = FakeViewPadding(bottom: bottomInset);
+  tester.view.viewPadding = FakeViewPadding(bottom: bottomInset);
   addTearDown(() => debugDefaultTargetPlatformOverride = null);
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetPadding);
+  addTearDown(tester.view.resetViewPadding);
 }
 
 List<Override> _playerOverrides(AudioTrack track) => [
@@ -42,22 +47,37 @@ List<Override> _playerOverrides(AudioTrack track) => [
   lyricAutoLoaderProvider.overrideWith((ref) {}),
 ];
 
-Rect _lastVisibleRect(WidgetTester tester, Finder finder) {
-  const viewport = Rect.fromLTWH(0, 0, 390, 844);
-  final rects = <Rect>[];
-  for (final element in finder.evaluate()) {
-    final renderObject = element.findRenderObject();
-    if (renderObject is! RenderBox ||
-        !renderObject.attached ||
-        !renderObject.hasSize ||
-        renderObject.size.isEmpty) {
-      continue;
-    }
-    final rect = renderObject.localToGlobal(Offset.zero) & renderObject.size;
-    if (rect.overlaps(viewport)) rects.add(rect);
-  }
-  expect(rects, isNotEmpty);
-  return rects.last;
+Rect _flightChildRect(
+  WidgetTester tester, {
+  required ValueKey<String> flightRootKey,
+  required Key childKey,
+}) {
+  return tester.getRect(
+    find.descendant(
+      of: find.byKey(flightRootKey),
+      matching: find.byKey(childKey),
+    ),
+  );
+}
+
+double _dockFlightGap(WidgetTester tester) {
+  final mini = tester.getRect(find.byKey(appBottomDockMiniPlayerFlightRootKey));
+  final icon = _flightChildRect(
+    tester,
+    flightRootKey: appBottomDockTabBarFlightRootKey,
+    childKey: const ValueKey('real-gap-navigation-icon'),
+  );
+  return icon.top - mini.bottom;
+}
+
+double _settledDockGap(WidgetTester tester) {
+  final mini = tester.getRect(
+    find.byKey(const ValueKey('real-gap-source-mini')),
+  );
+  final icon = tester.getRect(
+    find.byKey(const ValueKey('real-gap-navigation-icon')),
+  );
+  return icon.top - mini.bottom;
 }
 
 void main() {
@@ -213,59 +233,51 @@ void main() {
   testWidgets('real NavigationBar icon gap stays fixed during dock flight', (
     tester,
   ) async {
-    _configurePhoneViewport(tester);
+    _configurePhoneViewport(tester, bottomInset: 34);
     const sourceMiniKey = ValueKey('real-gap-source-mini');
     const targetMiniKey = ValueKey('real-gap-target-mini');
     const navIconKey = ValueKey('real-gap-navigation-icon');
     final navigatorKey = GlobalKey<NavigatorState>();
 
     await tester.pumpWidget(
-      MediaQuery(
-        data: const MediaQueryData(
-          size: Size(390, 844),
-          padding: EdgeInsets.only(bottom: 34),
-          viewPadding: EdgeInsets.only(bottom: 34),
-        ),
-        child: MaterialApp(
-          navigatorKey: navigatorKey,
-          home: AppBottomDockTransitionScope(
-            child: Scaffold(
-              body: Builder(
-                builder: (context) => Center(
-                  child: FilledButton(
-                    onPressed: () {
-                      unawaited(
-                        pushWorkDetailRoute(
-                          context,
-                          builder: (_) => const _WorkDetailsTarget(
-                            miniPlayerKey: targetMiniKey,
-                            tabBarHeight: 92,
-                          ),
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        home: AppBottomDockTransitionScope(
+          child: Scaffold(
+            body: Builder(
+              builder: (context) => Center(
+                child: FilledButton(
+                  onPressed: () {
+                    unawaited(
+                      pushWorkDetailRoute(
+                        context,
+                        builder: (_) => const _WorkDetailsTarget(
+                          miniPlayerKey: targetMiniKey,
                         ),
-                      );
-                    },
-                    child: const Text('Open real dock'),
-                  ),
+                      ),
+                    );
+                  },
+                  child: const Text('Open real dock'),
                 ),
               ),
-              bottomNavigationBar: AppBottomDock(
-                selectedIndex: 0,
-                onDestinationSelected: (_) {},
-                destinations: const [
-                  NavigationDestination(
-                    icon: Icon(Icons.home, key: navIconKey),
-                    label: 'Home',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.search),
-                    label: 'Search',
-                  ),
-                ],
-                miniPlayer: const SizedBox(
-                  key: sourceMiniKey,
-                  width: double.infinity,
-                  height: 72,
+            ),
+            bottomNavigationBar: AppBottomDock(
+              selectedIndex: 0,
+              onDestinationSelected: (_) {},
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.home, key: navIconKey),
+                  label: 'Home',
                 ),
+                NavigationDestination(
+                  icon: Icon(Icons.search),
+                  label: 'Search',
+                ),
+              ],
+              miniPlayer: const SizedBox(
+                key: sourceMiniKey,
+                width: double.infinity,
+                height: 72,
               ),
             ),
           ),
@@ -273,29 +285,157 @@ void main() {
       ),
     );
 
+    await tester.pumpAndSettle();
+    final settledGap = _settledDockGap(tester);
     await tester.tap(find.text('Open real dock'));
     await tester.pump();
     await tester.pump();
-    final pushGaps = <double>[];
-    for (final milliseconds in [100, 100, 100]) {
+    await tester.pump();
+    final pushGaps = <double>[_dockFlightGap(tester)];
+    tester.view.padding = const FakeViewPadding();
+    await tester.pump();
+    pushGaps.add(_dockFlightGap(tester));
+    for (final milliseconds in [112, 113, 112, 112]) {
       await tester.pump(Duration(milliseconds: milliseconds));
-      final mini = _lastVisibleRect(tester, find.byKey(targetMiniKey));
-      final icon = _lastVisibleRect(tester, find.byKey(navIconKey));
-      pushGaps.add(icon.top - mini.bottom);
+      expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
+      pushGaps.add(_dockFlightGap(tester));
     }
-    expect(pushGaps.reduce(math.max) - pushGaps.reduce(math.min), lessThan(1));
+    expect(
+      pushGaps.reduce(math.max) - pushGaps.reduce(math.min),
+      lessThan(1),
+      reason: 'Push gaps: $pushGaps',
+    );
+    for (final gap in pushGaps) {
+      expect(gap, closeTo(settledGap, 1));
+    }
 
     await tester.pumpAndSettle();
+    expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsNothing);
+    expect(find.byKey(targetMiniKey), findsOneWidget);
+
     navigatorKey.currentState!.pop();
     await tester.pump();
-    final popGaps = <double>[];
-    for (final milliseconds in [100, 100, 100]) {
+    await tester.pump();
+    final popGaps = <double>[_dockFlightGap(tester)];
+    for (final milliseconds in [112, 113, 112, 112]) {
       await tester.pump(Duration(milliseconds: milliseconds));
-      final mini = _lastVisibleRect(tester, find.byKey(targetMiniKey));
-      final icon = _lastVisibleRect(tester, find.byKey(navIconKey));
-      popGaps.add(icon.top - mini.bottom);
+      expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
+      popGaps.add(_dockFlightGap(tester));
     }
-    expect(popGaps.reduce(math.max) - popGaps.reduce(math.min), lessThan(1));
+    expect(
+      popGaps.reduce(math.max) - popGaps.reduce(math.min),
+      lessThan(1),
+      reason: 'Pop gaps: $popGaps',
+    );
+    for (final gap in popGaps) {
+      expect(gap, closeTo(settledGap, 1));
+    }
+    final gapBeforeHandoff = popGaps.last;
+    await tester.pumpAndSettle();
+    expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsNothing);
+    final sourceMini = tester.getRect(find.byKey(sourceMiniKey));
+    final sourceIcon = tester.getRect(find.byKey(navIconKey));
+    expect(sourceIcon.top - sourceMini.bottom, closeTo(gapBeforeHandoff, 1));
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('Android predictive back preserves dock gap and can cancel', (
+    tester,
+  ) async {
+    _configurePhoneViewport(tester, bottomInset: 34);
+    const sourceMiniKey = ValueKey('real-gap-source-mini');
+    const targetMiniKey = ValueKey('real-gap-target-mini');
+    const navIconKey = ValueKey('real-gap-navigation-icon');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppBottomDockTransitionScope(
+          child: Scaffold(
+            body: Builder(
+              builder: (context) => Center(
+                child: FilledButton(
+                  onPressed: () {
+                    unawaited(
+                      pushWorkDetailRoute(
+                        context,
+                        builder: (_) => const _WorkDetailsTarget(
+                          miniPlayerKey: targetMiniKey,
+                        ),
+                      ),
+                    );
+                  },
+                  child: const Text('Open predictive details'),
+                ),
+              ),
+            ),
+            bottomNavigationBar: AppBottomDock(
+              selectedIndex: 0,
+              onDestinationSelected: (_) {},
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.home, key: navIconKey),
+                  label: 'Home',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.search),
+                  label: 'Search',
+                ),
+              ],
+              miniPlayer: const SizedBox(
+                key: sourceMiniKey,
+                width: double.infinity,
+                height: 72,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    final settledGap = _settledDockGap(tester);
+    await tester.tap(find.text('Open predictive details'));
+    await tester.pumpAndSettle();
+    final route =
+        ModalRoute.of(tester.element(find.byKey(targetMiniKey)))!
+            as PageRoute<void>;
+    tester.view.padding = const FakeViewPadding();
+
+    route.handleStartBackGesture(progress: 1);
+    final cancelledGaps = <double>[];
+    for (final progress in [0.99, 0.75, 0.5, 0.25]) {
+      route.handleUpdateBackGestureProgress(progress: progress);
+      await tester.pump();
+      cancelledGaps.add(_dockFlightGap(tester));
+    }
+    expect(
+      cancelledGaps,
+      everyElement(closeTo(settledGap, 1)),
+      reason: 'Predictive-back cancel gaps: $cancelledGaps',
+    );
+    route.handleCancelBackGesture();
+    await tester.pumpAndSettle();
+    expect(find.byKey(targetMiniKey), findsOneWidget);
+    expect(find.byKey(sourceMiniKey), findsNothing);
+
+    route.handleStartBackGesture(progress: 1);
+    final committedGaps = <double>[];
+    for (final progress in [0.99, 0.75, 0.5, 0.25]) {
+      route.handleUpdateBackGestureProgress(progress: progress);
+      await tester.pump();
+      committedGaps.add(_dockFlightGap(tester));
+    }
+    expect(
+      committedGaps,
+      everyElement(closeTo(settledGap, 1)),
+      reason: 'Predictive-back commit gaps: $committedGaps',
+    );
+    route.handleCommitBackGesture();
+    await tester.pumpAndSettle();
+    expect(find.byKey(sourceMiniKey), findsOneWidget);
+    expect(find.byKey(targetMiniKey), findsNothing);
+    expect(_settledDockGap(tester), closeTo(settledGap, 1));
+    expect(tester.takeException(), isNull);
     debugDefaultTargetPlatformOverride = null;
   });
 
@@ -563,13 +703,9 @@ void main() {
 }
 
 class _WorkDetailsTarget extends StatelessWidget {
-  const _WorkDetailsTarget({
-    required this.miniPlayerKey,
-    this.tabBarHeight = 58,
-  });
+  const _WorkDetailsTarget({required this.miniPlayerKey});
 
   final Key? miniPlayerKey;
-  final double tabBarHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -592,7 +728,9 @@ class _WorkDetailsTarget extends StatelessWidget {
             ),
           Align(
             alignment: Alignment.bottomCenter,
-            child: AppBottomDockTabBarHero.offstageTarget(height: tabBarHeight),
+            child: AppBottomDockTabBarHero.offstageTarget(
+              height: AppBottomDock.layoutExtent(context),
+            ),
           ),
         ],
       ),

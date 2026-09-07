@@ -11,10 +11,11 @@ class AppBottomDock extends StatelessWidget {
     this.miniPlayer,
   });
 
-  static const double navigationBarHeight = 58;
+  static const double navigationBarHeight = appBottomDockNavigationBarHeight;
 
   static double layoutExtent(BuildContext context) {
-    return navigationBarHeight + MediaQuery.viewPaddingOf(context).bottom;
+    return navigationBarHeight +
+        AppBottomDockTransitionScope.bottomInsetOf(context);
   }
 
   final int selectedIndex;
@@ -36,6 +37,7 @@ class AppBottomDock extends StatelessWidget {
             height: navigationBarExtent,
             child: NavigationBar(
               height: navigationBarHeight,
+              maintainBottomViewPadding: true,
               labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
               selectedIndex: selectedIndex,
               onDestinationSelected: onDestinationSelected,
