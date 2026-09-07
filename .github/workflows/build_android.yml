@@ -138,7 +138,7 @@ jobs:
         env:
           EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
           SIGNING_CONFIGURED: ${{ steps.android_signing.outputs.configured }}
-          EXPECTED_CERT_SHA256: b49fcc1a879b7dab15f223f7431dfbee447dbe268d1578fc549340c430ddc87f
+          EXPECTED_CERT_SHA256: 8d432df267b5eb175c2f806381c44d7b4bf657145af792ace223af34e340f740
         run: |
           set -euo pipefail
 
