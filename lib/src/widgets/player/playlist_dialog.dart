@@ -77,10 +77,49 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
     final currentIndex = tracks.indexWhere(
       (track) => track.id == currentTrack?.id,
     );
-    final colorScheme = Theme.of(context).colorScheme;
-    final queueMetaStyle = Theme.of(
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final queueMetaStyle = theme.textTheme.bodyMedium?.copyWith(
+      color: colorScheme.onSurfaceVariant,
+    );
+    final nowPlayingMetadataHeight = _reservedQueueMetadataHeight(
       context,
-    ).textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant);
+      titleStyle:
+          theme.textTheme.titleMedium?.copyWith(
+            fontSize: 14,
+            height: 1.15,
+            fontWeight: FontWeight.w700,
+          ) ??
+          const TextStyle(
+            fontSize: 14,
+            height: 1.15,
+            fontWeight: FontWeight.w700,
+          ),
+      artistStyle:
+          theme.textTheme.bodyMedium?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ) ??
+          TextStyle(color: colorScheme.onSurfaceVariant),
+    );
+    final trackMetadataHeight = _reservedQueueMetadataHeight(
+      context,
+      titleStyle:
+          theme.textTheme.titleMedium?.copyWith(
+            fontSize: 12.5,
+            height: 1.12,
+            fontWeight: FontWeight.w700,
+          ) ??
+          const TextStyle(
+            fontSize: 12.5,
+            height: 1.12,
+            fontWeight: FontWeight.w700,
+          ),
+      artistStyle:
+          theme.textTheme.bodySmall?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ) ??
+          TextStyle(color: colorScheme.onSurfaceVariant),
+    );
     final extendsBeyondContent = widget.horizontalPadding == 10;
     final titleSideWidth = extendsBeyondContent ? 78.0 : 68.0;
     final clearButton = TextButton(
@@ -112,6 +151,7 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
               child: _NowPlayingQueueHeader(
                 track: currentTrack,
                 horizontalPadding: widget.horizontalPadding,
+                metadataHeight: nowPlayingMetadataHeight,
                 coverUrl: _resolveCoverUrl(
                   currentTrack,
                   host: authState.host,
@@ -232,6 +272,7 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
                             horizontalPadding: widget.horizontalPadding,
                             coverUrl: coverUrl,
                             isCurrentTrack: isCurrentTrack,
+                            metadataHeight: trackMetadataHeight,
                             onTap: () async {
                               await ref
                                   .read(audioPlayerControllerProvider.notifier)
@@ -270,14 +311,33 @@ class _NowPlayingQueueHeader extends StatelessWidget {
     required this.track,
     required this.coverUrl,
     required this.horizontalPadding,
+    required this.metadataHeight,
   });
 
   final AudioTrack track;
   final String? coverUrl;
   final double horizontalPadding;
+  final double metadataHeight;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final titleStyle =
+        theme.textTheme.titleMedium?.copyWith(
+          fontSize: 14,
+          height: 1.15,
+          fontWeight: FontWeight.w700,
+        ) ??
+        const TextStyle(
+          fontSize: 14,
+          height: 1.15,
+          fontWeight: FontWeight.w700,
+        );
+    final artistStyle =
+        theme.textTheme.bodyMedium?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ) ??
+        TextStyle(color: theme.colorScheme.onSurfaceVariant);
     return Padding(
       key: const ValueKey('player-queue-now-playing'),
       padding: EdgeInsets.fromLTRB(horizontalPadding, 16, horizontalPadding, 8),
@@ -290,32 +350,33 @@ class _NowPlayingQueueHeader extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Transform.translate(
-              offset: const Offset(0, 1),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    track.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontSize: 14,
-                      height: 1.15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  if (track.artist?.trim().isNotEmpty == true)
-                    Text(
-                      track.artist!.trim(),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+            child: SizedBox(
+              key: const ValueKey('player-queue-now-playing-metadata'),
+              height: metadataHeight,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Transform.translate(
+                  offset: const Offset(0, 1),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        track.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: titleStyle,
                       ),
-                    ),
-                ],
+                      if (track.artist?.trim().isNotEmpty == true)
+                        Text(
+                          track.artist!.trim(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: artistStyle,
+                        ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
@@ -331,6 +392,7 @@ class _QueueTrackTile extends StatelessWidget {
     required this.coverUrl,
     required this.isCurrentTrack,
     required this.horizontalPadding,
+    required this.metadataHeight,
     required this.onTap,
     required this.onRemove,
   });
@@ -339,12 +401,30 @@ class _QueueTrackTile extends StatelessWidget {
   final String? coverUrl;
   final bool isCurrentTrack;
   final double horizontalPadding;
+  final double metadataHeight;
   final VoidCallback onTap;
   final VoidCallback onRemove;
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final titleStyle =
+        theme.textTheme.titleMedium?.copyWith(
+          fontSize: 12.5,
+          height: 1.12,
+          fontWeight: isCurrentTrack ? FontWeight.w700 : FontWeight.w500,
+        ) ??
+        TextStyle(
+          fontSize: 12.5,
+          height: 1.12,
+          fontWeight: isCurrentTrack ? FontWeight.w700 : FontWeight.w500,
+        );
+    final artistStyle =
+        theme.textTheme.bodySmall?.copyWith(
+          color: colorScheme.onSurfaceVariant,
+        ) ??
+        TextStyle(color: colorScheme.onSurfaceVariant);
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
       child: Stack(
@@ -382,47 +462,53 @@ class _QueueTrackTile extends StatelessWidget {
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Transform.translate(
-                        offset: const Offset(0, 1),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              track.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleMedium
-                                  ?.copyWith(
-                                    fontSize: 12.5,
-                                    height: 1.12,
-                                    fontWeight: isCurrentTrack
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
+                      child: SizedBox(
+                        key: ValueKey('player-queue-metadata-${track.id}'),
+                        height: metadataHeight,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Transform.translate(
+                            offset: const Offset(0, 1),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  track.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: titleStyle,
+                                ),
+                                if (track.artist?.trim().isNotEmpty == true)
+                                  Text(
+                                    track.artist!.trim(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: artistStyle,
                                   ),
+                              ],
                             ),
-                            if (track.artist?.trim().isNotEmpty == true)
-                              Text(
-                                track.artist!.trim(),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      color: colorScheme.onSurfaceVariant,
-                                    ),
-                              ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
-                    if (isCurrentTrack)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        child: Icon(
-                          Icons.graphic_eq,
-                          color: colorScheme.primary,
-                        ),
+                    SizedBox(
+                      key: ValueKey(
+                        'player-queue-current-indicator-slot-${track.id}',
                       ),
+                      width: 36,
+                      child: isCurrentTrack
+                          ? Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                              ),
+                              child: Icon(
+                                Icons.graphic_eq,
+                                color: colorScheme.primary,
+                              ),
+                            )
+                          : null,
+                    ),
                     PlayerCompactAction(
                       tooltip: S.of(context).remove,
                       onPressed: onRemove,
@@ -450,6 +536,32 @@ class _QueueArtwork extends StatelessWidget {
   Widget build(BuildContext context) {
     return PlayerCompactArtwork(track: track, url: url);
   }
+}
+
+double _reservedQueueMetadataHeight(
+  BuildContext context, {
+  required TextStyle titleStyle,
+  required TextStyle artistStyle,
+}) {
+  final textScaler = MediaQuery.textScalerOf(context);
+  final textDirection = Directionality.of(context);
+
+  double lineHeight(TextStyle style) {
+    final painter = TextPainter(
+      text: TextSpan(text: 'Hg', style: style),
+      textDirection: textDirection,
+      textScaler: textScaler,
+      maxLines: 1,
+    )..layout();
+    final height = painter.preferredLineHeight;
+    painter.dispose();
+    return height;
+  }
+
+  final textHeight = lineHeight(titleStyle) * 2 + lineHeight(artistStyle);
+  return textHeight < PlayerCompactArtwork.height
+      ? PlayerCompactArtwork.height
+      : textHeight;
 }
 
 String? _resolveCoverUrl(

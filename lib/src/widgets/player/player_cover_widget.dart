@@ -374,6 +374,11 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
   static const _transitionScale = 1.20;
 
   late final AnimationController _transitionController;
+  late final Animation<double> _outgoingOpacityAnimation;
+  late final Animation<double> _incomingOpacityAnimation;
+  late final Animation<double> _outgoingScaleAnimation;
+  late final Animation<double> _incomingScaleAnimation;
+  late final CurvedAnimation _transitionScaleCurve;
   late _PlayerCoverSnapshot _displayed;
   _PlayerCoverSnapshot? _incoming;
   ImageStream? _pendingImageStream;
@@ -398,6 +403,26 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
       vsync: this,
       duration: _transitionDuration,
     )..addStatusListener(_handleTransitionStatus);
+    _outgoingOpacityAnimation = Tween<double>(
+      begin: 1,
+      end: 0,
+    ).animate(_transitionController);
+    _incomingOpacityAnimation = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(_transitionController);
+    _transitionScaleCurve = CurvedAnimation(
+      parent: _transitionController,
+      curve: Curves.easeOutCubic,
+    );
+    _outgoingScaleAnimation = Tween<double>(
+      begin: 1,
+      end: _transitionScale,
+    ).animate(_transitionScaleCurve);
+    _incomingScaleAnimation = Tween<double>(
+      begin: _transitionScale,
+      end: 1,
+    ).animate(_transitionScaleCurve);
   }
 
   @override
@@ -545,6 +570,7 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
   @override
   void dispose() {
     _cancelPendingImage();
+    _transitionScaleCurve.dispose();
     _transitionController
       ..removeStatusListener(_handleTransitionStatus)
       ..dispose();
@@ -563,8 +589,9 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
 
   Widget _buildArtworkContent(
     _PlayerCoverSnapshot snapshot,
-    BorderRadius radius,
-  ) {
+    BorderRadius radius, {
+    bool disableImageFade = false,
+  }) {
     if (snapshot.forcePlaceholder) return _buildPlaceholder();
     final provider = snapshot.imageProviderOverride;
     if (provider != null) {
@@ -589,6 +616,18 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
         child: _isLocalFile(url)
             ? Image.file(
                 File(_getLocalPath(url)),
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) =>
+                    _buildPlaceholder(),
+              )
+            : disableImageFade
+            ? Image(
+                image: CachedNetworkImageProvider(
+                  url,
+                  cacheKey: snapshot.track.workId != null
+                      ? 'work_cover_${snapshot.track.workId}'
+                      : null,
+                ),
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) =>
                     _buildPlaceholder(),
@@ -619,38 +658,42 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
         child: _buildArtworkContent(_displayed, radius),
       );
     }
-    return AnimatedBuilder(
-      animation: _transitionController,
-      builder: (context, _) {
-        final opacity = _transitionController.value;
-        final scaleProgress = Curves.easeOutCubic.transform(opacity);
-        return Stack(
-          key: const ValueKey('player-cover-transition-stack'),
-          fit: StackFit.expand,
-          clipBehavior: Clip.none,
-          children: [
-            Opacity(
-              key: const ValueKey('player-cover-outgoing-opacity'),
-              opacity: 1 - opacity,
-              child: Transform.scale(
-                key: const ValueKey('player-cover-outgoing-scale'),
-                scale: 1 + (_transitionScale - 1) * scaleProgress,
-                child: _buildArtworkContent(_displayed, radius),
-              ),
-            ),
-            Opacity(
-              key: const ValueKey('player-cover-incoming-opacity'),
-              opacity: opacity,
-              child: Transform.scale(
-                key: const ValueKey('player-cover-incoming-scale'),
-                scale:
-                    _transitionScale - (_transitionScale - 1) * scaleProgress,
-                child: _buildArtworkContent(incoming, radius),
-              ),
-            ),
-          ],
-        );
-      },
+    // Build each artwork subtree once for this transition. The transition
+    // widgets only update compositing properties while the controller ticks;
+    // this avoids rebuilding image providers, privacy filters and placeholders
+    // on every frame.
+    final outgoing = RepaintBoundary(
+      key: const ValueKey('player-cover-outgoing-layer'),
+      child: _buildArtworkContent(_displayed, radius, disableImageFade: true),
+    );
+    final incomingLayer = RepaintBoundary(
+      key: const ValueKey('player-cover-incoming-layer'),
+      child: _buildArtworkContent(incoming, radius, disableImageFade: true),
+    );
+    return Stack(
+      key: const ValueKey('player-cover-transition-stack'),
+      fit: StackFit.expand,
+      clipBehavior: Clip.none,
+      children: [
+        FadeTransition(
+          key: const ValueKey('player-cover-outgoing-opacity'),
+          opacity: _outgoingOpacityAnimation,
+          child: ScaleTransition(
+            key: const ValueKey('player-cover-outgoing-scale'),
+            scale: _outgoingScaleAnimation,
+            child: outgoing,
+          ),
+        ),
+        FadeTransition(
+          key: const ValueKey('player-cover-incoming-opacity'),
+          opacity: _incomingOpacityAnimation,
+          child: ScaleTransition(
+            key: const ValueKey('player-cover-incoming-scale'),
+            scale: _incomingScaleAnimation,
+            child: incomingLayer,
+          ),
+        ),
+      ],
     );
   }
 
