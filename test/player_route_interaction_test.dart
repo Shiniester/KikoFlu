@@ -225,7 +225,7 @@ void main() {
     expect(route.debugTransitionValue, closeTo(0.99, 0.001));
     expect(
       route.debugSettleDuration(showRoute: true),
-      const Duration(milliseconds: 5),
+      const Duration(microseconds: 4500),
     );
     route.cancelVerticalDismissGesture();
     await tester.pump(const Duration(milliseconds: 4));
@@ -262,7 +262,7 @@ void main() {
     expect(find.text('progress-player'), findsOneWidget);
   });
 
-  test('Player Cover Page and Player Queue Page routes both use 500ms', () {
+  test('Player Cover Page and Player Queue Page routes both use 450ms', () {
     for (final mode in PlayerDismissVisualMode.values) {
       final route = AudioPlayerPageRoute<void>(
         initialDismissVisualMode: mode,

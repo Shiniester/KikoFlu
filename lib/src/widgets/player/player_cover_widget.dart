@@ -64,9 +64,12 @@ class _PlayerArtworkRectTween extends RectTween {
     final target = reverse ? begin : end;
     if (source == null || target == null) return super.lerp(t);
     final visualProgress = reverse ? 1 - t : t;
-    final movingTarget = target.shift(
-      Offset(0, viewportHeight * (1 - visualProgress)),
+    final maxTargetShift = math.max(0.0, source.bottom - target.bottom);
+    final targetShift = math.min(
+      viewportHeight * (1 - visualProgress),
+      maxTargetShift,
     );
+    final movingTarget = target.shift(Offset(0, targetShift));
     return Rect.lerp(
       source,
       movingTarget,

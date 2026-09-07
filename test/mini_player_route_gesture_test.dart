@@ -226,6 +226,10 @@ void main() {
       final swipeRegion = find.byKey(
         const ValueKey('mini-player-track-swipe-region'),
       );
+      expect(
+        tester.getRect(find.text('Swipe this title')).left,
+        closeTo(tester.getRect(swipeRegion).left, 0.01),
+      );
       final queueButton = find.byKey(
         const ValueKey('mini-player-queue-button'),
       );
@@ -279,6 +283,8 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 240));
       expect(find.text('没有下一首可播放'), findsOneWidget);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 240));
       expect(
         tester
             .widget<Transform>(
@@ -460,6 +466,19 @@ void main() {
     tracks.add(second);
     await tester.pump();
     await tester.pump();
+    final trackSwipeRegion = tester.getRect(
+      find.byKey(const ValueKey('mini-player-track-swipe-region')),
+    );
+    final secondAtStart = tester.getRect(find.text('Second'));
+    expect(secondAtStart.left, greaterThan(trackSwipeRegion.left));
+    await tester.pump(const Duration(milliseconds: 90));
+    final secondAtMidpoint = tester.getRect(find.text('Second'));
+    expect(secondAtMidpoint.left, lessThan(secondAtStart.left));
+    expect(secondAtMidpoint.left, greaterThan(trackSwipeRegion.left));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump();
+    expect(find.text('First'), findsNothing);
+    expect(find.text('Second'), findsOneWidget);
     final secondImage = tester.widget<CachedNetworkImage>(
       find.byType(CachedNetworkImage),
     );
