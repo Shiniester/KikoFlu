@@ -29,6 +29,16 @@ final currentTrackProvider = StreamProvider<AudioTrack?>((ref) {
   return _withInitialValue(service.currentTrack, service.currentTrackStream);
 });
 
+/// Presentation metadata paired with the latest published current track.
+///
+/// Watching [currentTrackProvider] keeps this read-only projection in lockstep
+/// with the stream event that caused the player UI to rebuild.
+final playerTrackChangePresentationProvider =
+    Provider<PlayerTrackChangePresentation?>((ref) {
+      ref.watch(currentTrackProvider);
+      return ref.watch(audioPlayerServiceProvider).lastTrackChangePresentation;
+    });
+
 // Player State Provider
 final playerStateProvider = StreamProvider<PlayerState>((ref) {
   final service = ref.watch(audioPlayerServiceProvider);

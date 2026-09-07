@@ -16,6 +16,7 @@ import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/providers/player_work_details_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
 import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
+import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
@@ -139,19 +140,27 @@ void main() {
     expect(find.byIcon(Icons.close), findsNothing);
     expect(find.byIcon(Icons.save_alt), findsNothing);
 
-    final previewBackground = find.byKey(
-      const ValueKey('cover-preview-background'),
+    final viewerFinder = find.byKey(
+      const ValueKey('cover-preview-interactive-viewer'),
     );
-    await tester.tapAt(tester.getCenter(previewBackground));
-    await tester.pump(const Duration(milliseconds: 100));
-    await tester.tapAt(tester.getCenter(previewBackground));
+    final pinchCenter = tester.getCenter(viewerFinder);
+    final left = await tester.createGesture();
+    final right = await tester.createGesture();
+    addTearDown(left.removePointer);
+    addTearDown(right.removePointer);
+    await left.down(pinchCenter - const Offset(5, 0));
+    await right.down(pinchCenter + const Offset(5, 0));
     await tester.pump();
-    final viewer = tester.widget<InteractiveViewer>(
-      find.byKey(const ValueKey('cover-preview-interactive-viewer')),
-    );
+    await left.moveTo(pinchCenter - const Offset(25, 0));
+    await right.moveTo(pinchCenter + const Offset(25, 0));
+    await tester.pump();
+    await left.up();
+    await right.up();
+    await tester.pump();
+    final viewer = tester.widget<InteractiveViewer>(viewerFinder);
     expect(
       viewer.transformationController!.value.getMaxScaleOnAxis(),
-      closeTo(2.5, 0.001),
+      greaterThan(1),
     );
     final previewRect = tester.getRect(
       find.byKey(const ValueKey('cover-preview-image-frame')),
@@ -200,7 +209,15 @@ void main() {
 
     expect(
       find.byKey(const ValueKey('player-track-loading-dim')),
-      findsOneWidget,
+      findsNothing,
+    );
+    expect(
+      tester
+          .widget<AbsorbPointer>(
+            find.byKey(const ValueKey('player-track-loading-absorber')),
+          )
+          .absorbing,
+      isTrue,
     );
     final spinner = find.byKey(const ValueKey('player-track-loading-spinner'));
     expect(spinner, findsOneWidget);
@@ -214,25 +231,34 @@ void main() {
     await tester.pump(const Duration(seconds: 9));
   });
 
-  testWidgets('compact queue loading keeps the dim layer without a spinner', (
-    tester,
-  ) async {
-    await _pumpPlayer(
-      tester,
-      const Size(390, 844),
-      initialSurface: PlayerInitialSurface.queue,
-      loadingStream: Stream.value(true),
-    );
+  testWidgets(
+    'compact queue loading keeps the interaction blocker without a spinner',
+    (tester) async {
+      await _pumpPlayer(
+        tester,
+        const Size(390, 844),
+        initialSurface: PlayerInitialSurface.queue,
+        loadingStream: Stream.value(true),
+      );
 
-    expect(
-      find.byKey(const ValueKey('player-track-loading-dim')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('player-track-loading-spinner')),
-      findsNothing,
-    );
-  });
+      expect(
+        find.byKey(const ValueKey('player-track-loading-dim')),
+        findsNothing,
+      );
+      expect(
+        tester
+            .widget<AbsorbPointer>(
+              find.byKey(const ValueKey('player-track-loading-absorber')),
+            )
+            .absorbing,
+        isTrue,
+      );
+      expect(
+        find.byKey(const ValueKey('player-track-loading-spinner')),
+        findsNothing,
+      );
+    },
+  );
 
   testWidgets('wide queue keeps the spinner on its visible cover', (
     tester,
@@ -251,6 +277,18 @@ void main() {
       loadingStream: Stream.value(true),
     );
 
+    expect(
+      find.byKey(const ValueKey('player-track-loading-dim')),
+      findsNothing,
+    );
+    expect(
+      tester
+          .widget<AbsorbPointer>(
+            find.byKey(const ValueKey('player-track-loading-absorber')),
+          )
+          .absorbing,
+      isTrue,
+    );
     final spinner = find.byKey(const ValueKey('player-track-loading-spinner'));
     expect(spinner, findsOneWidget);
     expect(
@@ -260,6 +298,103 @@ void main() {
       ),
     );
     await tester.pump(const Duration(seconds: 9));
+  });
+
+  testWidgets(
+    'compact next track pushes identical title text from right to left',
+    (tester) async {
+      const nextTrack = AudioTrack(
+        id: 'track-2',
+        title: 'A deliberately long player title',
+        url: 'next.mp3',
+        artist: 'Artist',
+      );
+      final tracks = StreamController<AudioTrack?>()..add(_track);
+      addTearDown(tracks.close);
+      await _pumpPlayer(
+        tester,
+        const Size(390, 844),
+        trackStream: tracks.stream,
+        trackChangePresentation: const PlayerTrackChangePresentation(
+          trackId: 'track-2',
+          direction: PlayerTrackChangeDirection.next,
+          revision: 1,
+        ),
+      );
+
+      tracks.add(nextTrack);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 130));
+
+      final outgoing = tester.widget<Transform>(
+        find.byKey(const ValueKey('player-track-title-outgoing')),
+      );
+      final incoming = tester.widget<Transform>(
+        find.byKey(const ValueKey('player-track-title-incoming')),
+      );
+      expect(outgoing.transform.storage[12], lessThan(0));
+      expect(incoming.transform.storage[12], greaterThan(0));
+      expect(
+        find.byKey(const ValueKey('player-track-title-content-track-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('player-track-title-content-track-2')),
+        findsOneWidget,
+      );
+
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey('player-track-title-content-track-1')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('player-track-title-content-track-2')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('wide previous track pushes the title group from left to right', (
+    tester,
+  ) async {
+    const previousTrack = AudioTrack(
+      id: 'track-0',
+      title: 'Previous title',
+      url: 'previous.mp3',
+      artist: 'Previous artist',
+    );
+    final tracks = StreamController<AudioTrack?>()..add(_track);
+    addTearDown(tracks.close);
+    await _pumpPlayer(
+      tester,
+      const Size(1280, 720),
+      trackStream: tracks.stream,
+      trackChangePresentation: const PlayerTrackChangePresentation(
+        trackId: 'track-0',
+        direction: PlayerTrackChangeDirection.previous,
+        revision: 1,
+      ),
+    );
+
+    tracks.add(previousTrack);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 130));
+
+    final outgoing = tester.widget<Transform>(
+      find.byKey(const ValueKey('player-track-title-outgoing')),
+    );
+    final incoming = tester.widget<Transform>(
+      find.byKey(const ValueKey('player-track-title-incoming')),
+    );
+    expect(outgoing.transform.storage[12], greaterThan(0));
+    expect(incoming.transform.storage[12], lessThan(0));
+
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump();
+    expect(find.text(_track.title), findsNothing);
+    expect(find.text(previousTrack.title), findsOneWidget);
   });
 
   testWidgets('track title opens one work detail route on compact and wide', (
@@ -2252,6 +2387,7 @@ Future<void> _pumpPlayer(
   List<LyricLine>? lyrics,
   Stream<AudioTrack?>? trackStream,
   Stream<bool>? loadingStream,
+  PlayerTrackChangePresentation? trackChangePresentation,
   bool pushedRoute = false,
   PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
   AudioTrack track = _track,
@@ -2271,6 +2407,10 @@ Future<void> _pumpPlayer(
         currentTrackProvider.overrideWith(
           (ref) => trackStream ?? Stream.value(track),
         ),
+        if (trackChangePresentation != null)
+          playerTrackChangePresentationProvider.overrideWithValue(
+            trackChangePresentation,
+          ),
         kikoeruApiServiceProvider.overrideWithValue(_PlayerTestApiService()),
         isTrackLoadingProvider.overrideWith(
           (ref) => loadingStream ?? Stream.value(false),

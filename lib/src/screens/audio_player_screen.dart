@@ -14,6 +14,7 @@ import '../providers/audio_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/player_work_details_provider.dart';
+import '../services/audio_player_service.dart';
 import '../utils/local_file_url.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/system_ui_style.dart';
@@ -673,6 +674,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                     context,
                     track,
                     dismissDrag: titleDismissDrag,
+                    allowTitleAnimation: true,
                   ),
                 Expanded(
                   child: AnimatedSwitcher(
@@ -725,6 +727,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     BuildContext context,
     AudioTrack track, {
     required PlayerVerticalDragCallbacks dismissDrag,
+    required bool allowTitleAnimation,
   }) {
     return PlayerVerticalSwipeRegion(
       key: const ValueKey('wide-header-dismiss-surface'),
@@ -740,7 +743,14 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(child: _buildTrackTitleBlock(context, track, true)),
+                  Expanded(
+                    child: _buildTrackTitleBlock(
+                      context,
+                      track,
+                      true,
+                      allowAnimation: allowTitleAnimation,
+                    ),
+                  ),
                   const SizedBox(width: 20),
                   IconButton(
                     key: const ValueKey('player-more-button-wide'),
@@ -788,6 +798,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
             context,
             mainBodyOnly: true,
           );
+          final allowTitleAnimation =
+              !_queueTransitionActive && _rightPane != PlayerRightPane.queue;
           final playerStage = Column(
             key: const ValueKey('compact-player-layout'),
             children: [
@@ -796,6 +808,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                 track,
                 sharedWidth,
                 dismissDrag: titleDismissDrag,
+                allowTitleAnimation: allowTitleAnimation,
               ),
               const SizedBox(height: 12),
               Expanded(
@@ -907,6 +920,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     AudioTrack track,
     double sharedWidth, {
     required PlayerVerticalDragCallbacks dismissDrag,
+    required bool allowTitleAnimation,
   }) {
     return PlayerVerticalSwipeRegion(
       key: const ValueKey('compact-header-dismiss-surface'),
@@ -924,7 +938,14 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(child: _buildTrackTitleBlock(context, track, false)),
+                  Expanded(
+                    child: _buildTrackTitleBlock(
+                      context,
+                      track,
+                      false,
+                      allowAnimation: allowTitleAnimation,
+                    ),
+                  ),
                   const SizedBox(width: 20),
                   IconButton(
                     key: const ValueKey('player-more-button'),
@@ -981,51 +1002,24 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   Widget _buildTrackTitleBlock(
     BuildContext context,
     AudioTrack track,
-    bool isWide,
-  ) {
-    final artist = track.artist;
-    final content = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          track.title,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-            fontSize: isWide ? 22 : 20,
-            fontWeight: FontWeight.w700,
-            height: 1.12,
-          ),
-        ),
-        if (artist != null) ...[
-          if (!isWide) const SizedBox(height: 2),
-          Text(
-            artist,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              fontSize: isWide ? null : 14,
-              height: isWide ? null : 1.15,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ],
-    );
-    if (track.workId == null) return content;
-    return Semantics(
-      button: true,
-      label: '${track.title}, ${S.of(context).viewDetail}',
-      child: InkWell(
-        key: ValueKey(
-          isWide
-              ? 'player-track-title-button-wide'
-              : 'player-track-title-button',
-        ),
-        borderRadius: BorderRadius.circular(8),
-        onTap: () => _openTrackWorkDetails(context, track),
-        child: content,
-      ),
+    bool isWide, {
+    required bool allowAnimation,
+  }) {
+    final presentation = ref.watch(playerTrackChangePresentationProvider);
+    final presentationMatches = presentation?.trackId == track.id;
+    final direction = presentationMatches
+        ? presentation!.direction
+        : PlayerTrackChangeDirection.none;
+    final presentationRevision = presentationMatches
+        ? presentation!.revision
+        : null;
+    return _PlayerTrackTitleSwitcher(
+      track: track,
+      isWide: isWide,
+      allowAnimation: allowAnimation,
+      direction: direction,
+      presentationRevision: presentationRevision,
+      onOpenWorkDetails: (track) => _openTrackWorkDetails(context, track),
     );
   }
 
@@ -2573,15 +2567,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     final showSpinner = _shouldShowTrackLoadingSpinner();
     return Positioned.fill(
       child: AbsorbPointer(
+        key: const ValueKey('player-track-loading-absorber'),
+        absorbing: true,
         child: Stack(
           fit: StackFit.expand,
           children: [
-            Positioned.fill(
-              child: ColoredBox(
-                key: const ValueKey('player-track-loading-dim'),
-                color: colorScheme.surface.withValues(alpha: 0.18),
-              ),
-            ),
             if (showSpinner)
               Positioned.fill(
                 child: Align(
@@ -2888,6 +2878,257 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         );
       }
     }
+  }
+}
+
+class _PlayerTrackTitleSwitcher extends StatefulWidget {
+  const _PlayerTrackTitleSwitcher({
+    required this.track,
+    required this.isWide,
+    required this.allowAnimation,
+    required this.direction,
+    required this.presentationRevision,
+    required this.onOpenWorkDetails,
+  });
+
+  static const duration = Duration(milliseconds: 260);
+
+  final AudioTrack track;
+  final bool isWide;
+  final bool allowAnimation;
+  final PlayerTrackChangeDirection direction;
+  final int? presentationRevision;
+  final ValueChanged<AudioTrack> onOpenWorkDetails;
+
+  @override
+  State<_PlayerTrackTitleSwitcher> createState() =>
+      _PlayerTrackTitleSwitcherState();
+}
+
+class _PlayerTrackTitleSwitcherState extends State<_PlayerTrackTitleSwitcher>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late AudioTrack _displayedTrack;
+  AudioTrack? _incomingTrack;
+  PlayerTrackChangeDirection _animationDirection =
+      PlayerTrackChangeDirection.none;
+
+  @override
+  void initState() {
+    super.initState();
+    _displayedTrack = widget.track;
+    _controller = AnimationController(
+      vsync: this,
+      duration: _PlayerTrackTitleSwitcher.duration,
+    )..addStatusListener(_handleAnimationStatus);
+  }
+
+  @override
+  void didUpdateWidget(covariant _PlayerTrackTitleSwitcher oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final trackChanged = oldWidget.track.id != widget.track.id;
+    final presentationChanged =
+        oldWidget.presentationRevision != widget.presentationRevision;
+
+    if (!widget.allowAnimation ||
+        MediaQuery.disableAnimationsOf(context) ||
+        widget.direction == PlayerTrackChangeDirection.none) {
+      if (trackChanged ||
+          presentationChanged ||
+          oldWidget.allowAnimation != widget.allowAnimation ||
+          _incomingTrack != null) {
+        _showTrackImmediately(widget.track);
+      }
+      return;
+    }
+
+    if (!trackChanged) {
+      if (oldWidget.track != widget.track) {
+        _showTrackImmediately(widget.track);
+      }
+      return;
+    }
+
+    final outgoingTrack = _incomingTrack ?? _displayedTrack;
+    _controller.stop();
+    setState(() {
+      _displayedTrack = outgoingTrack;
+      _incomingTrack = widget.track;
+      _animationDirection = widget.direction;
+    });
+    _controller.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _controller
+      ..removeStatusListener(_handleAnimationStatus)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _showTrackImmediately(AudioTrack track) {
+    _controller.stop();
+    if (!mounted) {
+      _displayedTrack = track;
+      _incomingTrack = null;
+      _animationDirection = PlayerTrackChangeDirection.none;
+      return;
+    }
+    setState(() {
+      _displayedTrack = track;
+      _incomingTrack = null;
+      _animationDirection = PlayerTrackChangeDirection.none;
+    });
+  }
+
+  void _handleAnimationStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed || _incomingTrack == null) return;
+    final incomingTrack = _incomingTrack!;
+    setState(() {
+      _displayedTrack = incomingTrack;
+      _incomingTrack = null;
+      _animationDirection = PlayerTrackChangeDirection.none;
+    });
+  }
+
+  Widget _buildTrackContent(
+    BuildContext context,
+    AudioTrack track, {
+    required bool interactive,
+  }) {
+    final artist = track.artist;
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          track.title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            fontSize: widget.isWide ? 22 : 20,
+            fontWeight: FontWeight.w700,
+            height: 1.12,
+          ),
+        ),
+        if (artist != null) ...[
+          if (!widget.isWide) const SizedBox(height: 2),
+          Text(
+            artist,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              fontSize: widget.isWide ? null : 14,
+              height: widget.isWide ? null : 1.15,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ],
+    );
+    final keyedContent = KeyedSubtree(
+      key: ValueKey('player-track-title-content-${track.id}'),
+      child: content,
+    );
+    if (!interactive || track.workId == null) return keyedContent;
+    return Semantics(
+      button: true,
+      label: '${track.title}, ${S.of(context).viewDetail}',
+      child: InkWell(
+        key: ValueKey(
+          widget.isWide
+              ? 'player-track-title-button-wide'
+              : 'player-track-title-button',
+        ),
+        borderRadius: BorderRadius.circular(8),
+        onTap: () => widget.onOpenWorkDetails(track),
+        child: keyedContent,
+      ),
+    );
+  }
+
+  double _viewportHeight(BuildContext context) {
+    final scale = (MediaQuery.textScalerOf(context).scale(16) / 16).clamp(
+      1.0,
+      2.0,
+    );
+    return (widget.isWide ? 72.0 : 64.0) * scale;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final incomingTrack = _incomingTrack;
+    return SizedBox(
+      height: _viewportHeight(context),
+      child: ClipRect(
+        key: ValueKey(
+          'player-track-title-viewport-${widget.isWide ? 'wide' : 'compact'}',
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            if (incomingTrack == null) {
+              return _buildTrackContent(
+                context,
+                _displayedTrack,
+                interactive: true,
+              );
+            }
+
+            final direction =
+                _animationDirection == PlayerTrackChangeDirection.previous
+                ? -1.0
+                : 1.0;
+            return AnimatedBuilder(
+              animation: _controller,
+              builder: (context, child) {
+                final progress = Curves.easeOutCubic.transform(
+                  _controller.value,
+                );
+                return Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Transform.translate(
+                      key: const ValueKey('player-track-title-outgoing'),
+                      offset: Offset(
+                        -constraints.maxWidth * direction * progress,
+                        0,
+                      ),
+                      child: SizedBox(
+                        width: constraints.maxWidth,
+                        child: ExcludeSemantics(
+                          child: IgnorePointer(
+                            child: _buildTrackContent(
+                              context,
+                              _displayedTrack,
+                              interactive: false,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Transform.translate(
+                      key: const ValueKey('player-track-title-incoming'),
+                      offset: Offset(
+                        constraints.maxWidth * direction * (1 - progress),
+                        0,
+                      ),
+                      child: SizedBox(
+                        width: constraints.maxWidth,
+                        child: _buildTrackContent(
+                          context,
+                          incomingTrack,
+                          interactive: true,
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
   }
 }
 
