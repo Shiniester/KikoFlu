@@ -2,6 +2,19 @@ import 'package:flutter/material.dart';
 
 const _miniPlayerHeroTag = 'app-bottom-dock-mini-player';
 const _appTabBarHeroTag = 'app-bottom-dock-tab-bar';
+const double appBottomDockNavigationBarHeight = 58;
+
+@visibleForTesting
+const appBottomDockMiniPlayerFlightRootKey = ValueKey<String>(
+  'app-bottom-dock-mini-player-flight-root',
+);
+
+@visibleForTesting
+const appBottomDockTabBarFlightRootKey = ValueKey<String>(
+  'app-bottom-dock-tab-bar-flight-root',
+);
+
+enum _AppBottomDockHeroPart { miniPlayer, tabBar }
 
 enum AppBottomDockRole { source, workDetailsTarget }
 
@@ -30,40 +43,106 @@ class AppBottomDockTransitionScope extends StatefulWidget {
             ?.sourceHeroesEnabled ??
         false;
   }
-}
 
-class _AppBottomDockTransitionScopeState
-    extends State<AppBottomDockTransitionScope> {
-  int _activeRoutes = 0;
-
-  _AppBottomDockTransitionLease arm() {
-    setState(() => _activeRoutes++);
-    return _AppBottomDockTransitionLease(this);
+  static double? handoffBottomInsetOf(BuildContext context) {
+    return _AppBottomDockHandoffMetrics.handoffBottomInsetOf(context);
   }
 
-  void _release() {
-    if (!mounted || _activeRoutes == 0) return;
-    setState(() => _activeRoutes--);
+  static double bottomInsetOf(BuildContext context) {
+    return _AppBottomDockHandoffMetrics.bottomInsetOf(context) ??
+        MediaQuery.viewPaddingOf(context).bottom;
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return _AppBottomDockTransitionHost(
-      state: this,
-      sourceHeroesEnabled: _activeRoutes > 0,
-      child: widget.child,
+  static Widget withHandoffBottomInset(
+    BuildContext context, {
+    required double bottomInset,
+    required Widget child,
+  }) {
+    return _withBottomInset(
+      context,
+      bottomInset: bottomInset,
+      frozen: true,
+      child: child,
+    );
+  }
+
+  static Widget _withBottomInset(
+    BuildContext context, {
+    required double bottomInset,
+    required bool frozen,
+    required Widget child,
+  }) {
+    final mediaQuery = MediaQuery.of(context);
+    final effectiveMediaQuery = !frozen
+        ? mediaQuery
+        : mediaQuery.copyWith(
+            padding: mediaQuery.padding.copyWith(bottom: bottomInset),
+            viewPadding: mediaQuery.viewPadding.copyWith(bottom: bottomInset),
+          );
+    return MediaQuery(
+      data: effectiveMediaQuery,
+      child: _AppBottomDockHandoffMetrics(
+        bottomInset: bottomInset,
+        frozen: frozen,
+        child: child,
+      ),
     );
   }
 }
 
+class _AppBottomDockTransitionScopeState
+    extends State<AppBottomDockTransitionScope> {
+  final List<_AppBottomDockHandoff> _handoffs = [];
+
+  _AppBottomDockTransitionLease arm(double bottomInset) {
+    final handoff = _AppBottomDockHandoff(bottomInset);
+    setState(() => _handoffs.add(handoff));
+    return _AppBottomDockTransitionLease(this, handoff);
+  }
+
+  void _release(_AppBottomDockHandoff handoff) {
+    if (!mounted || !_handoffs.contains(handoff)) return;
+    setState(() => _handoffs.remove(handoff));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final frozen = _handoffs.isNotEmpty;
+    final bottomInset = frozen
+        ? _handoffs.last.bottomInset
+        : MediaQuery.viewPaddingOf(context).bottom;
+    final host = _AppBottomDockTransitionHost(
+      state: this,
+      sourceHeroesEnabled: _handoffs.isNotEmpty,
+      child: widget.child,
+    );
+    return AppBottomDockTransitionScope._withBottomInset(
+      context,
+      bottomInset: bottomInset,
+      frozen: frozen,
+      child: host,
+    );
+  }
+}
+
+class _AppBottomDockHandoff {
+  const _AppBottomDockHandoff(this.bottomInset);
+
+  final double bottomInset;
+}
+
 class _AppBottomDockTransitionLease {
-  _AppBottomDockTransitionLease(this._owner);
+  _AppBottomDockTransitionLease(this._owner, this._handoff);
 
   _AppBottomDockTransitionScopeState? _owner;
+  _AppBottomDockHandoff? _handoff;
 
   void release() {
-    _owner?._release();
+    final owner = _owner;
+    final handoff = _handoff;
+    if (owner != null && handoff != null) owner._release(handoff);
     _owner = null;
+    _handoff = null;
   }
 }
 
@@ -83,6 +162,37 @@ class _AppBottomDockTransitionHost extends InheritedWidget {
   }
 }
 
+class _AppBottomDockHandoffMetrics extends InheritedWidget {
+  const _AppBottomDockHandoffMetrics({
+    required this.bottomInset,
+    required this.frozen,
+    required super.child,
+  });
+
+  final double bottomInset;
+  final bool frozen;
+
+  static _AppBottomDockHandoffMetrics? _maybeOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<_AppBottomDockHandoffMetrics>();
+  }
+
+  static double? bottomInsetOf(BuildContext context) {
+    return _maybeOf(context)?.bottomInset;
+  }
+
+  static double? handoffBottomInsetOf(BuildContext context) {
+    final metrics = _maybeOf(context);
+    if (metrics == null || !metrics.frozen) return null;
+    return metrics.bottomInset;
+  }
+
+  @override
+  bool updateShouldNotify(_AppBottomDockHandoffMetrics oldWidget) {
+    return bottomInset != oldWidget.bottomInset || frozen != oldWidget.frozen;
+  }
+}
+
 /// Pushes a Work Details Screen while preserving the source Bottom Dock until
 /// the route has completely left the Navigator again.
 Future<void> pushWorkDetailRoute(
@@ -90,7 +200,8 @@ Future<void> pushWorkDetailRoute(
   required WidgetBuilder builder,
 }) async {
   final sourceScope = AppBottomDockTransitionScope._maybeStateOf(context);
-  final lease = sourceScope?.arm();
+  final capturedBottomInset = MediaQuery.viewPaddingOf(context).bottom;
+  final lease = sourceScope?.arm(capturedBottomInset);
   if (lease != null) {
     await WidgetsBinding.instance.endOfFrame;
   }
@@ -99,7 +210,14 @@ Future<void> pushWorkDetailRoute(
     return;
   }
 
-  final route = MaterialPageRoute<void>(builder: builder);
+  final route = MaterialPageRoute<void>(
+    builder: (routeContext) =>
+        AppBottomDockTransitionScope.withHandoffBottomInset(
+          routeContext,
+          bottomInset: capturedBottomInset,
+          child: Builder(builder: builder),
+        ),
+  );
   try {
     await Navigator.of(context).push<void>(route);
     await route.completed;
@@ -132,6 +250,7 @@ class AppBottomDockMiniPlayerHero extends StatelessWidget {
         AppBottomDockTransitionScope._sourceHeroesEnabledOf(context);
     return _AppBottomDockHero(
       tag: _miniPlayerHeroTag,
+      part: _AppBottomDockHeroPart.miniPlayer,
       enabled: enabled,
       flightChild: child,
       suppressDescendantHeroes: true,
@@ -158,6 +277,7 @@ class AppBottomDockTabBarHero extends StatelessWidget {
     if (tabBar != null) {
       return _AppBottomDockHero(
         tag: _appTabBarHeroTag,
+        part: _AppBottomDockHeroPart.tabBar,
         enabled: AppBottomDockTransitionScope._sourceHeroesEnabledOf(context),
         flightChild: tabBar,
         child: tabBar,
@@ -170,6 +290,7 @@ class AppBottomDockTabBarHero extends StatelessWidget {
           translation: const Offset(0, 1),
           child: _AppBottomDockHero(
             tag: _appTabBarHeroTag,
+            part: _AppBottomDockHeroPart.tabBar,
             enabled: true,
             child: SizedBox(width: double.infinity, height: height),
           ),
@@ -182,6 +303,7 @@ class AppBottomDockTabBarHero extends StatelessWidget {
 class _AppBottomDockHero extends StatelessWidget {
   const _AppBottomDockHero({
     required this.tag,
+    required this.part,
     required this.enabled,
     required this.child,
     this.flightChild,
@@ -189,6 +311,7 @@ class _AppBottomDockHero extends StatelessWidget {
   });
 
   final Object tag;
+  final _AppBottomDockHeroPart part;
   final bool enabled;
   final Widget child;
   final Widget? flightChild;
@@ -197,16 +320,36 @@ class _AppBottomDockHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!enabled || MediaQuery.disableAnimationsOf(context)) return child;
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final dockExtent =
+        AppBottomDockTransitionScope.bottomInsetOf(context) +
+        appBottomDockNavigationBarHeight;
     return Hero(
       tag: tag,
       transitionOnUserGestures: true,
       curve: Curves.linear,
       reverseCurve: Curves.linear,
-      createRectTween: (begin, end) => RectTween(begin: begin, end: end),
+      createRectTween: (begin, end) => RectTween(
+        begin: _normalizeBottomDockRect(
+          begin,
+          part: part,
+          screenHeight: screenHeight,
+          dockExtent: dockExtent,
+        ),
+        end: _normalizeBottomDockRect(
+          end,
+          part: part,
+          screenHeight: screenHeight,
+          dockExtent: dockExtent,
+        ),
+      ),
       flightShuttleBuilder: _buildAppBottomDockFlight,
       child: _AppBottomDockHeroPayload(
         flightChild: flightChild,
         suppressDescendantHeroes: suppressDescendantHeroes,
+        handoffBottomInset: AppBottomDockTransitionScope.handoffBottomInsetOf(
+          context,
+        ),
         child: suppressDescendantHeroes
             ? _DockArtworkHeroMode(enabled: false, child: child)
             : child,
@@ -215,16 +358,46 @@ class _AppBottomDockHero extends StatelessWidget {
   }
 }
 
+Rect? _normalizeBottomDockRect(
+  Rect? rect, {
+  required _AppBottomDockHeroPart part,
+  required double screenHeight,
+  required double dockExtent,
+}) {
+  if (rect == null) return null;
+  // The outgoing route can report bounds with its bottom safe area removed.
+  // Anchor both heroes to the shared dock extent instead of that transient rect.
+  switch (part) {
+    case _AppBottomDockHeroPart.miniPlayer:
+      final bottom = rect.bottom < screenHeight
+          ? screenHeight - dockExtent
+          : screenHeight;
+      return Rect.fromLTWH(
+        rect.left,
+        bottom - rect.height,
+        rect.width,
+        rect.height,
+      );
+    case _AppBottomDockHeroPart.tabBar:
+      final top = rect.top < screenHeight
+          ? screenHeight - dockExtent
+          : screenHeight;
+      return Rect.fromLTWH(rect.left, top, rect.width, dockExtent);
+  }
+}
+
 class _AppBottomDockHeroPayload extends StatelessWidget {
   const _AppBottomDockHeroPayload({
     required this.child,
     required this.flightChild,
     required this.suppressDescendantHeroes,
+    required this.handoffBottomInset,
   });
 
   final Widget child;
   final Widget? flightChild;
   final bool suppressDescendantHeroes;
+  final double? handoffBottomInset;
 
   @override
   Widget build(BuildContext context) => child;
@@ -249,10 +422,25 @@ Widget _buildAppBottomDockFlight(
       preferred.suppressDescendantHeroes || fallback.suppressDescendantHeroes
       ? _DockArtworkHeroMode(enabled: false, child: child)
       : child;
+  final handoffBottomInset =
+      preferred.handoffBottomInset ?? fallback.handoffBottomInset;
+  final frozenFlightChild = handoffBottomInset == null
+      ? flightChild
+      : AppBottomDockTransitionScope.withHandoffBottomInset(
+          flightContext,
+          bottomInset: handoffBottomInset,
+          child: flightChild,
+        );
+  final flightRootKey = fromHero.tag == _miniPlayerHeroTag
+      ? appBottomDockMiniPlayerFlightRootKey
+      : appBottomDockTabBarFlightRootKey;
   return IgnorePointer(
     child: Material(
       type: MaterialType.transparency,
-      child: HeroMode(enabled: false, child: flightChild),
+      child: KeyedSubtree(
+        key: flightRootKey,
+        child: HeroMode(enabled: false, child: frozenFlightChild),
+      ),
     ),
   );
 }
