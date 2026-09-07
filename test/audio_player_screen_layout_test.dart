@@ -1148,7 +1148,25 @@ void main() {
   testWidgets('compact artwork uses the denser rectangular frame', (
     tester,
   ) async {
-    await _pumpPlayer(tester, const Size(390, 844));
+    final lyrics = [
+      LyricLine(
+        startTime: Duration.zero,
+        endTime: const Duration(seconds: 1),
+        text: 'short lyric',
+      ),
+      LyricLine(
+        startTime: const Duration(seconds: 1),
+        endTime: const Duration(seconds: 2),
+        text:
+            'This deliberately long lyric line must remain inside the same full-width feedback background as every other visible line.',
+      ),
+      LyricLine(
+        startTime: const Duration(seconds: 2),
+        endTime: const Duration(seconds: 3),
+        text: 'another lyric',
+      ),
+    ];
+    await _pumpPlayer(tester, const Size(390, 844), lyrics: lyrics);
 
     final size = tester.getSize(
       find.byKey(const ValueKey('player-cover-artwork-track-1')),
@@ -1161,6 +1179,21 @@ void main() {
       find.byKey(const ValueKey('compact-lyric-preview-5-lines')),
       findsOneWidget,
     );
+    final lyricViewport = tester.getRect(
+      find.byKey(const ValueKey('compact-main-lyric-width-boundary')),
+    );
+    expect(lyricViewport.width, closeTo(size.width + 24, 0.01));
+    expect(lyricViewport.center.dx, closeTo(195, 0.01));
+    final feedbackRects = [
+      tester.getRect(
+        find.byKey(const ValueKey('compact-lyric-tap-feedback-0')),
+      ),
+      tester.getRect(
+        find.byKey(const ValueKey('compact-lyric-tap-feedback-1')),
+      ),
+    ];
+    expect(feedbackRects[0].width, closeTo(lyricViewport.width, 0.01));
+    expect(feedbackRects[1].width, closeTo(feedbackRects[0].width, 0.01));
     final controlsSize = tester.getSize(
       find.byKey(const ValueKey('controls-pane-compact')),
     );

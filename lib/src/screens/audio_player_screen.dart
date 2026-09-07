@@ -1065,16 +1065,29 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                 ),
               ),
             ),
-            ThreeLineLyricDisplay(
-              key: const ValueKey('compact-main-lyric-scroll-surface'),
-              onSeekRequested: (position) => unawaited(
-                ref
-                    .read(audioPlayerControllerProvider.notifier)
-                    .seekAndPersist(position),
+            SizedBox(
+              width: sharedWidth,
+              height: 144,
+              child: OverflowBox(
+                alignment: Alignment.center,
+                minWidth: sharedWidth + 24,
+                maxWidth: sharedWidth + 24,
+                child: SizedBox(
+                  key: const ValueKey('compact-main-lyric-width-boundary'),
+                  width: sharedWidth + 24,
+                  child: ThreeLineLyricDisplay(
+                    key: const ValueKey('compact-main-lyric-scroll-surface'),
+                    onSeekRequested: (position) => unawaited(
+                      ref
+                          .read(audioPlayerControllerProvider.notifier)
+                          .seekAndPersist(position),
+                    ),
+                    onLineDoubleTap: _togglePlayback,
+                    enableLineTapFeedback: true,
+                    lineCount: 5,
+                  ),
+                ),
               ),
-              onLineDoubleTap: _togglePlayback,
-              enableLineTapFeedback: true,
-              lineCount: 5,
             ),
             const SizedBox(height: 16),
             PlayerVerticalSwipeRegion(
