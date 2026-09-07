@@ -93,6 +93,9 @@ class _GlobalAudioPlayerWrapperState
             ],
           )
         : content;
-    return AppBottomDockTransitionScope(child: Scaffold(body: body));
+    return AppBottomDockTransitionScope(
+      sourceHasAppTabBar: false,
+      child: Scaffold(body: body),
+    );
   }
 }

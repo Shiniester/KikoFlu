@@ -13,6 +13,7 @@ import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/global_audio_player_wrapper.dart';
+import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -20,12 +21,18 @@ void _configurePhoneViewport(
   WidgetTester tester, {
   TargetPlatform platform = TargetPlatform.android,
   double bottomInset = 0,
+  double devicePixelRatio = 1,
 }) {
   debugDefaultTargetPlatformOverride = platform;
-  tester.view.devicePixelRatio = 1;
-  tester.view.physicalSize = const Size(390, 844);
-  tester.view.padding = FakeViewPadding(bottom: bottomInset);
-  tester.view.viewPadding = FakeViewPadding(bottom: bottomInset);
+  tester.view.devicePixelRatio = devicePixelRatio;
+  tester.view.physicalSize = Size(
+    390 * devicePixelRatio,
+    844 * devicePixelRatio,
+  );
+  tester.view.padding = FakeViewPadding(bottom: bottomInset * devicePixelRatio);
+  tester.view.viewPadding = FakeViewPadding(
+    bottom: bottomInset * devicePixelRatio,
+  );
   addTearDown(() => debugDefaultTargetPlatformOverride = null);
   addTearDown(tester.view.resetDevicePixelRatio);
   addTearDown(tester.view.resetPhysicalSize);
@@ -68,6 +75,10 @@ double _dockFlightGap(WidgetTester tester) {
     childKey: const ValueKey('real-gap-navigation-icon'),
   );
   return icon.top - mini.bottom;
+}
+
+Rect _dockFlightRect(WidgetTester tester) {
+  return tester.getRect(find.byKey(appBottomDockMiniPlayerFlightRootKey));
 }
 
 double _settledDockGap(WidgetTester tester) {
@@ -233,51 +244,64 @@ void main() {
   testWidgets('real NavigationBar icon gap stays fixed during dock flight', (
     tester,
   ) async {
-    _configurePhoneViewport(tester, bottomInset: 34);
+    SharedPreferences.setMockInitialValues(const {});
+    _configurePhoneViewport(tester, bottomInset: 34, devicePixelRatio: 3);
     const sourceMiniKey = ValueKey('real-gap-source-mini');
-    const targetMiniKey = ValueKey('real-gap-target-mini');
     const navIconKey = ValueKey('real-gap-navigation-icon');
     final navigatorKey = GlobalKey<NavigatorState>();
 
     await tester.pumpWidget(
-      MaterialApp(
-        navigatorKey: navigatorKey,
-        home: AppBottomDockTransitionScope(
-          child: Scaffold(
-            body: Builder(
-              builder: (context) => Center(
-                child: FilledButton(
-                  onPressed: () {
-                    unawaited(
-                      pushWorkDetailRoute(
-                        context,
-                        builder: (_) => const _WorkDetailsTarget(
-                          miniPlayerKey: targetMiniKey,
+      ProviderScope(
+        overrides: _playerOverrides(
+          const AudioTrack(
+            id: 'bottom-dock-real-track',
+            title: 'Bottom Dock real track',
+            url: 'https://example.invalid/audio.mp3',
+          ),
+        ),
+        child: MaterialApp(
+          navigatorKey: navigatorKey,
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: AppBottomDockTransitionScope(
+            child: Scaffold(
+              body: Builder(
+                builder: (context) => Center(
+                  child: FilledButton(
+                    onPressed: () {
+                      unawaited(
+                        pushWorkDetailRoute(
+                          context,
+                          builder: (_) =>
+                              const GlobalAudioPlayerWrapper.workDetails(
+                                child: Scaffold(
+                                  body: Text('Real work details'),
+                                ),
+                              ),
                         ),
-                      ),
-                    );
-                  },
-                  child: const Text('Open real dock'),
+                      );
+                    },
+                    child: const Text('Open real dock'),
+                  ),
                 ),
               ),
-            ),
-            bottomNavigationBar: AppBottomDock(
-              selectedIndex: 0,
-              onDestinationSelected: (_) {},
-              destinations: const [
-                NavigationDestination(
-                  icon: Icon(Icons.home, key: navIconKey),
-                  label: 'Home',
+              bottomNavigationBar: AppBottomDock(
+                selectedIndex: 0,
+                onDestinationSelected: (_) {},
+                destinations: const [
+                  NavigationDestination(
+                    icon: Icon(Icons.home, key: navIconKey),
+                    label: 'Home',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.search),
+                    label: 'Search',
+                  ),
+                ],
+                miniPlayer: const SizedBox(
+                  key: sourceMiniKey,
+                  child: MiniPlayer(),
                 ),
-                NavigationDestination(
-                  icon: Icon(Icons.search),
-                  label: 'Search',
-                ),
-              ],
-              miniPlayer: const SizedBox(
-                key: sourceMiniKey,
-                width: double.infinity,
-                height: 72,
               ),
             ),
           ),
@@ -287,19 +311,26 @@ void main() {
 
     await tester.pumpAndSettle();
     final settledGap = _settledDockGap(tester);
+    final settledSourceMiniRect = tester.getRect(find.byKey(sourceMiniKey));
     await tester.tap(find.text('Open real dock'));
     await tester.pump();
     await tester.pump();
     await tester.pump();
+    final firstPushMiniRect = _dockFlightRect(tester);
+    expect(firstPushMiniRect.top, closeTo(settledSourceMiniRect.top, 1));
+    expect(firstPushMiniRect.bottom, closeTo(settledSourceMiniRect.bottom, 1));
     final pushGaps = <double>[_dockFlightGap(tester)];
     tester.view.padding = const FakeViewPadding();
-    await tester.pump();
-    pushGaps.add(_dockFlightGap(tester));
-    for (final milliseconds in [112, 113, 112, 112]) {
-      await tester.pump(Duration(milliseconds: milliseconds));
-      expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
+    Rect lastPushMiniRect = firstPushMiniRect;
+    for (var frame = 0; frame < 600; frame++) {
+      if (find.byKey(appBottomDockMiniPlayerFlightRootKey).evaluate().isEmpty) {
+        break;
+      }
+      lastPushMiniRect = _dockFlightRect(tester);
       pushGaps.add(_dockFlightGap(tester));
+      await tester.pump(const Duration(milliseconds: 1));
     }
+    expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsNothing);
     expect(
       pushGaps.reduce(math.max) - pushGaps.reduce(math.min),
       lessThan(1),
@@ -309,19 +340,31 @@ void main() {
       expect(gap, closeTo(settledGap, 1));
     }
 
-    await tester.pumpAndSettle();
-    expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsNothing);
-    expect(find.byKey(targetMiniKey), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('mini-player-dismissible')),
+      findsOneWidget,
+    );
+    final landedTargetMiniRect = tester.getRect(
+      find.byKey(const ValueKey('mini-player-dismissible')),
+    );
+    expect(landedTargetMiniRect.top, closeTo(lastPushMiniRect.top, 1));
 
     navigatorKey.currentState!.pop();
     await tester.pump();
     await tester.pump();
+    final firstPopMiniRect = _dockFlightRect(tester);
+    expect(firstPopMiniRect.top, closeTo(landedTargetMiniRect.top, 1));
     final popGaps = <double>[_dockFlightGap(tester)];
-    for (final milliseconds in [112, 113, 112, 112]) {
-      await tester.pump(Duration(milliseconds: milliseconds));
-      expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
+    Rect lastPopMiniRect = firstPopMiniRect;
+    for (var frame = 0; frame < 600; frame++) {
+      if (find.byKey(appBottomDockMiniPlayerFlightRootKey).evaluate().isEmpty) {
+        break;
+      }
+      lastPopMiniRect = _dockFlightRect(tester);
       popGaps.add(_dockFlightGap(tester));
+      await tester.pump(const Duration(milliseconds: 1));
     }
+    expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsNothing);
     expect(
       popGaps.reduce(math.max) - popGaps.reduce(math.min),
       lessThan(1),
@@ -331,10 +374,9 @@ void main() {
       expect(gap, closeTo(settledGap, 1));
     }
     final gapBeforeHandoff = popGaps.last;
-    await tester.pumpAndSettle();
-    expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsNothing);
     final sourceMini = tester.getRect(find.byKey(sourceMiniKey));
     final sourceIcon = tester.getRect(find.byKey(navIconKey));
+    expect(sourceMini.top, closeTo(lastPopMiniRect.top, 1));
     expect(sourceIcon.top - sourceMini.bottom, closeTo(gapBeforeHandoff, 1));
     debugDefaultTargetPlatformOverride = null;
   });

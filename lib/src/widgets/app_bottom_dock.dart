@@ -26,25 +26,34 @@ class AppBottomDock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final navigationBarExtent = layoutExtent(context);
+    final frozenBottomInset = AppBottomDockTransitionScope.handoffBottomInsetOf(
+      context,
+    );
+    Widget navigationBar = SizedBox(
+      width: double.infinity,
+      height: navigationBarExtent,
+      child: NavigationBar(
+        height: navigationBarHeight,
+        maintainBottomViewPadding: true,
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        selectedIndex: selectedIndex,
+        onDestinationSelected: onDestinationSelected,
+        destinations: destinations,
+      ),
+    );
+    if (frozenBottomInset != null) {
+      navigationBar = AppBottomDockTransitionScope.withHandoffBottomInset(
+        context,
+        bottomInset: frozenBottomInset,
+        child: navigationBar,
+      );
+    }
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         if (miniPlayer case final miniPlayer?)
           AppBottomDockMiniPlayerHero.source(child: miniPlayer),
-        AppBottomDockTabBarHero.source(
-          child: SizedBox(
-            width: double.infinity,
-            height: navigationBarExtent,
-            child: NavigationBar(
-              height: navigationBarHeight,
-              maintainBottomViewPadding: true,
-              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-              selectedIndex: selectedIndex,
-              onDestinationSelected: onDestinationSelected,
-              destinations: destinations,
-            ),
-          ),
-        ),
+        AppBottomDockTabBarHero.source(child: navigationBar),
       ],
     );
   }

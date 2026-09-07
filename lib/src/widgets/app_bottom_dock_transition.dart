@@ -21,9 +21,14 @@ enum AppBottomDockRole { source, workDetailsTarget }
 /// Keeps the source-side Bottom Dock heroes available for the complete
 /// lifetime of a pushed Work Details Screen route.
 class AppBottomDockTransitionScope extends StatefulWidget {
-  const AppBottomDockTransitionScope({super.key, required this.child});
+  const AppBottomDockTransitionScope({
+    super.key,
+    required this.child,
+    this.sourceHasAppTabBar = true,
+  });
 
   final Widget child;
+  final bool sourceHasAppTabBar;
 
   @override
   State<AppBottomDockTransitionScope> createState() =>
@@ -53,39 +58,35 @@ class AppBottomDockTransitionScope extends StatefulWidget {
         MediaQuery.viewPaddingOf(context).bottom;
   }
 
+  static bool sourceHasAppTabBarOf(BuildContext context) {
+    return _AppBottomDockHandoffMetrics.sourceHasAppTabBarOf(context) ?? false;
+  }
+
   static Widget withHandoffBottomInset(
     BuildContext context, {
     required double bottomInset,
     required Widget child,
   }) {
-    return _withBottomInset(
-      context,
-      bottomInset: bottomInset,
-      frozen: true,
+    final mediaQuery = MediaQuery.of(context);
+    return MediaQuery(
+      data: mediaQuery.copyWith(
+        viewPadding: mediaQuery.viewPadding.copyWith(bottom: bottomInset),
+      ),
       child: child,
     );
   }
 
-  static Widget _withBottomInset(
-    BuildContext context, {
+  static Widget _withHandoffMetrics({
     required double bottomInset,
     required bool frozen,
+    required bool sourceHasAppTabBar,
     required Widget child,
   }) {
-    final mediaQuery = MediaQuery.of(context);
-    final effectiveMediaQuery = !frozen
-        ? mediaQuery
-        : mediaQuery.copyWith(
-            padding: mediaQuery.padding.copyWith(bottom: bottomInset),
-            viewPadding: mediaQuery.viewPadding.copyWith(bottom: bottomInset),
-          );
-    return MediaQuery(
-      data: effectiveMediaQuery,
-      child: _AppBottomDockHandoffMetrics(
-        bottomInset: bottomInset,
-        frozen: frozen,
-        child: child,
-      ),
+    return _AppBottomDockHandoffMetrics(
+      bottomInset: bottomInset,
+      frozen: frozen,
+      sourceHasAppTabBar: sourceHasAppTabBar,
+      child: child,
     );
   }
 }
@@ -93,6 +94,8 @@ class AppBottomDockTransitionScope extends StatefulWidget {
 class _AppBottomDockTransitionScopeState
     extends State<AppBottomDockTransitionScope> {
   final List<_AppBottomDockHandoff> _handoffs = [];
+
+  bool get sourceHasAppTabBar => widget.sourceHasAppTabBar;
 
   _AppBottomDockTransitionLease arm(double bottomInset) {
     final handoff = _AppBottomDockHandoff(bottomInset);
@@ -107,19 +110,29 @@ class _AppBottomDockTransitionScopeState
 
   @override
   Widget build(BuildContext context) {
-    final frozen = _handoffs.isNotEmpty;
-    final bottomInset = frozen
+    final inheritedMetrics = _AppBottomDockHandoffMetrics._maybeOf(context);
+    final inheritedHandoffBottomInset = inheritedMetrics?.frozen == true
+        ? inheritedMetrics!.bottomInset
+        : null;
+    final hasLocalHandoff = _handoffs.isNotEmpty;
+    final frozen = hasLocalHandoff || inheritedHandoffBottomInset != null;
+    final bottomInset = hasLocalHandoff
         ? _handoffs.last.bottomInset
-        : MediaQuery.viewPaddingOf(context).bottom;
+        : inheritedHandoffBottomInset ??
+              MediaQuery.viewPaddingOf(context).bottom;
     final host = _AppBottomDockTransitionHost(
       state: this,
       sourceHeroesEnabled: _handoffs.isNotEmpty,
       child: widget.child,
     );
-    return AppBottomDockTransitionScope._withBottomInset(
-      context,
+    return AppBottomDockTransitionScope._withHandoffMetrics(
       bottomInset: bottomInset,
       frozen: frozen,
+      sourceHasAppTabBar: hasLocalHandoff
+          ? widget.sourceHasAppTabBar
+          : inheritedHandoffBottomInset != null
+          ? inheritedMetrics!.sourceHasAppTabBar
+          : widget.sourceHasAppTabBar,
       child: host,
     );
   }
@@ -166,11 +179,13 @@ class _AppBottomDockHandoffMetrics extends InheritedWidget {
   const _AppBottomDockHandoffMetrics({
     required this.bottomInset,
     required this.frozen,
+    required this.sourceHasAppTabBar,
     required super.child,
   });
 
   final double bottomInset;
   final bool frozen;
+  final bool sourceHasAppTabBar;
 
   static _AppBottomDockHandoffMetrics? _maybeOf(BuildContext context) {
     return context
@@ -187,9 +202,15 @@ class _AppBottomDockHandoffMetrics extends InheritedWidget {
     return metrics.bottomInset;
   }
 
+  static bool? sourceHasAppTabBarOf(BuildContext context) {
+    return _maybeOf(context)?.sourceHasAppTabBar;
+  }
+
   @override
   bool updateShouldNotify(_AppBottomDockHandoffMetrics oldWidget) {
-    return bottomInset != oldWidget.bottomInset || frozen != oldWidget.frozen;
+    return bottomInset != oldWidget.bottomInset ||
+        frozen != oldWidget.frozen ||
+        sourceHasAppTabBar != oldWidget.sourceHasAppTabBar;
   }
 }
 
@@ -200,7 +221,8 @@ Future<void> pushWorkDetailRoute(
   required WidgetBuilder builder,
 }) async {
   final sourceScope = AppBottomDockTransitionScope._maybeStateOf(context);
-  final capturedBottomInset = MediaQuery.viewPaddingOf(context).bottom;
+  final view = View.of(context);
+  final capturedBottomInset = view.viewPadding.bottom / view.devicePixelRatio;
   final lease = sourceScope?.arm(capturedBottomInset);
   if (lease != null) {
     await WidgetsBinding.instance.endOfFrame;
@@ -211,12 +233,12 @@ Future<void> pushWorkDetailRoute(
   }
 
   final route = MaterialPageRoute<void>(
-    builder: (routeContext) =>
-        AppBottomDockTransitionScope.withHandoffBottomInset(
-          routeContext,
-          bottomInset: capturedBottomInset,
-          child: Builder(builder: builder),
-        ),
+    builder: (_) => AppBottomDockTransitionScope._withHandoffMetrics(
+      bottomInset: capturedBottomInset,
+      frozen: true,
+      sourceHasAppTabBar: sourceScope?.sourceHasAppTabBar ?? false,
+      child: Builder(builder: builder),
+    ),
   );
   try {
     await Navigator.of(context).push<void>(route);
@@ -251,6 +273,7 @@ class AppBottomDockMiniPlayerHero extends StatelessWidget {
     return _AppBottomDockHero(
       tag: _miniPlayerHeroTag,
       part: _AppBottomDockHeroPart.miniPlayer,
+      role: _role,
       enabled: enabled,
       flightChild: child,
       suppressDescendantHeroes: true,
@@ -278,6 +301,7 @@ class AppBottomDockTabBarHero extends StatelessWidget {
       return _AppBottomDockHero(
         tag: _appTabBarHeroTag,
         part: _AppBottomDockHeroPart.tabBar,
+        role: AppBottomDockRole.source,
         enabled: AppBottomDockTransitionScope._sourceHeroesEnabledOf(context),
         flightChild: tabBar,
         child: tabBar,
@@ -291,6 +315,7 @@ class AppBottomDockTabBarHero extends StatelessWidget {
           child: _AppBottomDockHero(
             tag: _appTabBarHeroTag,
             part: _AppBottomDockHeroPart.tabBar,
+            role: AppBottomDockRole.workDetailsTarget,
             enabled: true,
             child: SizedBox(width: double.infinity, height: height),
           ),
@@ -304,6 +329,7 @@ class _AppBottomDockHero extends StatelessWidget {
   const _AppBottomDockHero({
     required this.tag,
     required this.part,
+    required this.role,
     required this.enabled,
     required this.child,
     this.flightChild,
@@ -312,6 +338,7 @@ class _AppBottomDockHero extends StatelessWidget {
 
   final Object tag;
   final _AppBottomDockHeroPart part;
+  final AppBottomDockRole role;
   final bool enabled;
   final Widget child;
   final Widget? flightChild;
@@ -324,24 +351,21 @@ class _AppBottomDockHero extends StatelessWidget {
     final dockExtent =
         AppBottomDockTransitionScope.bottomInsetOf(context) +
         appBottomDockNavigationBarHeight;
+    final sourceHasAppTabBar =
+        AppBottomDockTransitionScope.sourceHasAppTabBarOf(context);
     return Hero(
       tag: tag,
       transitionOnUserGestures: true,
       curve: Curves.linear,
       reverseCurve: Curves.linear,
-      createRectTween: (begin, end) => RectTween(
-        begin: _normalizeBottomDockRect(
-          begin,
-          part: part,
-          screenHeight: screenHeight,
-          dockExtent: dockExtent,
-        ),
-        end: _normalizeBottomDockRect(
-          end,
-          part: part,
-          screenHeight: screenHeight,
-          dockExtent: dockExtent,
-        ),
+      createRectTween: (begin, end) => _createBottomDockRectTween(
+        begin,
+        end,
+        part: part,
+        destinationRole: role,
+        sourceHasAppTabBar: sourceHasAppTabBar,
+        screenHeight: screenHeight,
+        dockExtent: dockExtent,
       ),
       flightShuttleBuilder: _buildAppBottomDockFlight,
       child: _AppBottomDockHeroPayload(
@@ -358,18 +382,51 @@ class _AppBottomDockHero extends StatelessWidget {
   }
 }
 
-Rect? _normalizeBottomDockRect(
+RectTween _createBottomDockRectTween(
+  Rect? begin,
+  Rect? end, {
+  required _AppBottomDockHeroPart part,
+  required AppBottomDockRole destinationRole,
+  required bool sourceHasAppTabBar,
+  required double screenHeight,
+  required double dockExtent,
+}) {
+  final push = destinationRole == AppBottomDockRole.workDetailsTarget;
+  return RectTween(
+    begin: _bottomDockEndpointRect(
+      begin,
+      part: part,
+      role: push
+          ? AppBottomDockRole.source
+          : AppBottomDockRole.workDetailsTarget,
+      sourceHasAppTabBar: sourceHasAppTabBar,
+      screenHeight: screenHeight,
+      dockExtent: dockExtent,
+    ),
+    end: _bottomDockEndpointRect(
+      end,
+      part: part,
+      role: destinationRole,
+      sourceHasAppTabBar: sourceHasAppTabBar,
+      screenHeight: screenHeight,
+      dockExtent: dockExtent,
+    ),
+  );
+}
+
+Rect? _bottomDockEndpointRect(
   Rect? rect, {
   required _AppBottomDockHeroPart part,
+  required AppBottomDockRole role,
+  required bool sourceHasAppTabBar,
   required double screenHeight,
   required double dockExtent,
 }) {
   if (rect == null) return null;
-  // The outgoing route can report bounds with its bottom safe area removed.
-  // Anchor both heroes to the shared dock extent instead of that transient rect.
+  final isSource = role == AppBottomDockRole.source;
   switch (part) {
     case _AppBottomDockHeroPart.miniPlayer:
-      final bottom = rect.bottom < screenHeight
+      final bottom = isSource && sourceHasAppTabBar
           ? screenHeight - dockExtent
           : screenHeight;
       return Rect.fromLTWH(
@@ -379,9 +436,7 @@ Rect? _normalizeBottomDockRect(
         rect.height,
       );
     case _AppBottomDockHeroPart.tabBar:
-      final top = rect.top < screenHeight
-          ? screenHeight - dockExtent
-          : screenHeight;
+      final top = isSource ? screenHeight - dockExtent : screenHeight;
       return Rect.fromLTWH(rect.left, top, rect.width, dockExtent);
   }
 }
