@@ -26,6 +26,7 @@ class PlayerLyricsSurface extends ConsumerStatefulWidget {
     this.lyricContentWidth,
     this.actionWidth,
     this.searchWidth,
+    this.onTogglePlayback,
   });
 
   final bool isWide;
@@ -40,6 +41,7 @@ class PlayerLyricsSurface extends ConsumerStatefulWidget {
   final double? lyricContentWidth;
   final double? actionWidth;
   final double? searchWidth;
+  final VoidCallback? onTogglePlayback;
 
   @override
   ConsumerState<PlayerLyricsSurface> createState() =>
@@ -150,10 +152,10 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                     FullLyricDisplay(
                       controller: _displayController,
                       seekingPosition: widget.seekingPosition,
+                      isActive: widget.isActive,
                       isPortrait: !widget.isWide,
                       onLongPress: widget.onLongPress,
-                      suspendAutoScroll:
-                          _searchSessionActive || !widget.isActive,
+                      suspendAutoScroll: _searchSessionActive,
                       searchMode: _searchHighlightsVisible,
                       searchQuery: _searchHighlightsVisible
                           ? _searchController.text
@@ -168,6 +170,7 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                       visibleBottomInset: displayVisibleBottomInset,
                       snapOnAutoScrollResume: !_skipNextAutoScrollResume,
                       snapToCurrentOnFirstLayout: true,
+                      onLineDoubleTap: widget.onTogglePlayback,
                     ),
                     if (state.isLoading)
                       const IgnorePointer(

@@ -624,6 +624,7 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
   const FullLyricDisplay({
     super.key,
     this.seekingPosition,
+    this.isActive = true,
     this.isPortrait = false,
     this.isLocked = false,
     this.onLongPress,
@@ -639,9 +640,11 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
     this.snapOnAutoScrollResume = true,
     this.snapToCurrentOnFirstLayout = false,
     this.onSeekRequested,
+    this.onLineDoubleTap,
   }) : assert(playbackAnchorFraction > 0 && playbackAnchorFraction < 1);
 
   final Duration? seekingPosition;
+  final bool isActive;
   final bool isPortrait;
   final bool isLocked;
   final VoidCallback? onLongPress;
@@ -657,6 +660,7 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
   final bool snapOnAutoScrollResume;
   final bool snapToCurrentOnFirstLayout;
   final ValueChanged<Duration>? onSeekRequested;
+  final VoidCallback? onLineDoubleTap;
 
   @override
   ConsumerState<FullLyricDisplay> createState() => _FullLyricDisplayState();
@@ -668,6 +672,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
   final Map<int, GlobalKey> _itemKeys = {};
   final Map<int, GlobalKey> _textKeys = {};
   int? _currentLyricIndex;
+  int? _pendingTappedIndex;
+  int? _pendingTapOriginIndex;
   bool _autoScroll = true;
   bool _userScrollInProgress = false;
   Timer? _resumeAutoScrollTimer;
@@ -691,6 +697,16 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
     if (!identical(oldWidget.controller, widget.controller)) {
       oldWidget.controller?._detach(this);
       widget.controller?._attach(this);
+    }
+    if (oldWidget.isActive && !widget.isActive) {
+      _resumeAutoScrollTimer?.cancel();
+      _resumeAutoScrollTimer = null;
+      _userScrollInProgress = false;
+      _autoScroll = true;
+      _scrollRequestGeneration++;
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(_scrollController.position.pixels);
+      }
     }
     if (!oldWidget.suspendAutoScroll && widget.suspendAutoScroll) {
       _scrollRequestGeneration++;
@@ -1181,15 +1197,25 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
   void _onLyricTap(int index, List<LyricLine> lyrics) {
     if (index < 0 || index >= lyrics.length) return;
     final target = lyrics[index].startTime;
+    final originIndex = _currentLyricIndex;
+    _resumeAutoScrollTimer?.cancel();
+    _resumeAutoScrollTimer = null;
+    _userScrollInProgress = false;
+    setState(() {
+      _autoScroll = true;
+      _pendingTappedIndex = index;
+      _pendingTapOriginIndex = originIndex;
+      _currentLyricIndex = index;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scrollToLyric(index, force: true, ignoreAutoScroll: true);
+    });
     if (widget.onSeekRequested case final callback?) {
       callback(target);
     } else {
       ref.read(audioPlayerControllerProvider.notifier).seekAndPersist(target);
     }
-    _resumeAutoScrollTimer?.cancel();
-    setState(() => _autoScroll = false);
-    _scrollToLyric(index, force: true, ignoreAutoScroll: true);
-    _scheduleAutoScrollResume();
   }
 
   void _beginUserBrowse() {
@@ -1261,14 +1287,31 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
       _lyricsSignature = signature;
       _scrollRequestGeneration++;
       _currentLyricIndex = null;
+      _pendingTappedIndex = null;
+      _pendingTapOriginIndex = null;
       _itemKeys.clear();
       _textKeys.clear();
       _layoutFingerprint = null;
       _layoutIndex = null;
     }
-    final currentIndex = widget.seekingPosition == null
-        ? playbackIndex
+    final seekingIndex = widget.seekingPosition == null
+        ? null
         : _indexForPosition(widget.seekingPosition!, lyrics);
+    final pendingIndex = widget.seekingPosition == null
+        ? _pendingTappedIndex
+        : null;
+    final currentIndex = seekingIndex ?? pendingIndex ?? playbackIndex;
+    if (_pendingTappedIndex case final requestedIndex?) {
+      final originIndex = _pendingTapOriginIndex;
+      final requestSettled =
+          widget.seekingPosition != null ||
+          playbackIndex == requestedIndex ||
+          (playbackIndex >= 0 && playbackIndex != originIndex);
+      if (requestSettled) {
+        _pendingTappedIndex = null;
+        _pendingTapOriginIndex = null;
+      }
+    }
 
     if (currentIndex != _currentLyricIndex && currentIndex >= 0) {
       final previous = _currentLyricIndex;
@@ -1278,6 +1321,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
         _scrollToLyric(
           currentIndex,
           animate:
+              widget.isActive &&
               widget.seekingPosition == null &&
               !(widget.snapToCurrentOnFirstLayout && previous == null),
           force: previous == null || (currentIndex - previous).abs() > 5,
@@ -1416,6 +1460,9 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
                           onTap: widget.isLocked
                               ? null
                               : () => _onLyricTap(index, lyrics),
+                          onDoubleTap: widget.isLocked
+                              ? null
+                              : widget.onLineDoubleTap,
                           onLongPress: widget.onLongPress,
                           child: Padding(
                             padding: const EdgeInsets.symmetric(

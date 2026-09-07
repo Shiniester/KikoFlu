@@ -736,7 +736,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 704),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 8, 12, 4),
+              padding: const EdgeInsets.fromLTRB(24, 8, 12, 12),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -775,7 +775,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
             context,
             BoxConstraints(
               maxWidth: constraints.maxWidth,
-              maxHeight: math.max(0, constraints.maxHeight - headerReserve - 4),
+              maxHeight: math.max(
+                0,
+                constraints.maxHeight - headerReserve - 12,
+              ),
             ),
           );
           _compactSharedWidth = sharedWidth;
@@ -794,7 +797,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                 sharedWidth,
                 dismissDrag: titleDismissDrag,
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 12),
               Expanded(
                 child: Directionality(
                   textDirection: TextDirection.ltr,
@@ -1353,6 +1356,16 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                         _compactPage == 2 &&
                         _rightPane != PlayerRightPane.queue,
               seekingPosition: _seekingPosition,
+              onTogglePlayback: () {
+                final controller = ref.read(
+                  audioPlayerControllerProvider.notifier,
+                );
+                if (controller.isPlaying) {
+                  unawaited(controller.pause());
+                } else {
+                  unawaited(controller.play());
+                }
+              },
               onFullscreen: _enterLyricFullscreen,
               onLongPress: _enterLyricFullscreen,
               onShowQueue: () =>
