@@ -334,14 +334,29 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 130));
 
-      final outgoing = tester.widget<Transform>(
+      final outgoing = tester.widget<SlideTransition>(
         find.byKey(const ValueKey('player-track-title-outgoing')),
       );
-      final incoming = tester.widget<Transform>(
+      final incoming = tester.widget<SlideTransition>(
         find.byKey(const ValueKey('player-track-title-incoming')),
       );
-      expect(outgoing.transform.storage[12], lessThan(0));
-      expect(incoming.transform.storage[12], greaterThan(0));
+      expect(outgoing.position.value.dx, closeTo(-0.875, 0.01));
+      expect(incoming.position.value.dx, closeTo(0.125, 0.01));
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('player-track-title-outgoing')),
+          matching: find.byType(FadeTransition),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('player-track-title-outgoing-layer')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('player-track-title-incoming-layer')),
+        findsOneWidget,
+      );
       expect(
         find.byKey(const ValueKey('player-track-title-content-track-1')),
         findsOneWidget,
@@ -390,14 +405,14 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 130));
 
-    final outgoing = tester.widget<Transform>(
+    final outgoing = tester.widget<SlideTransition>(
       find.byKey(const ValueKey('player-track-title-outgoing')),
     );
-    final incoming = tester.widget<Transform>(
+    final incoming = tester.widget<SlideTransition>(
       find.byKey(const ValueKey('player-track-title-incoming')),
     );
-    expect(outgoing.transform.storage[12], greaterThan(0));
-    expect(incoming.transform.storage[12], lessThan(0));
+    expect(outgoing.position.value.dx, closeTo(0.875, 0.01));
+    expect(incoming.position.value.dx, closeTo(-0.125, 0.01));
 
     await tester.pump(const Duration(milliseconds: 200));
     await tester.pump();
@@ -1726,6 +1741,163 @@ void main() {
     expect(find.byType(AudioPlayerScreen), findsNothing);
   });
 
+  for (final config in const [
+    (name: 'compact', size: Size(390, 844), textScale: 1.0),
+    (name: 'wide-scaled', size: Size(1280, 720), textScale: 2.0),
+  ]) {
+    testWidgets(
+      '${config.name} queue keeps geometry and scroll offset across title lengths',
+      (tester) async {
+        const longTrack = AudioTrack(
+          id: 'queue-long',
+          title:
+              'A queue title deliberately long enough to occupy both available lines',
+          url: 'long.mp3',
+          artist: 'Long title artist',
+        );
+        const shortTrack = AudioTrack(
+          id: 'queue-short',
+          title: 'Short title',
+          url: 'short.mp3',
+          artist: 'Short title artist',
+        );
+        const noArtistTrack = AudioTrack(
+          id: 'queue-no-artist',
+          title: 'No artist',
+          url: 'no-artist.mp3',
+        );
+        final queue = <AudioTrack>[
+          longTrack,
+          shortTrack,
+          noArtistTrack,
+          ...List.generate(
+            18,
+            (index) => AudioTrack(
+              id: 'queue-extra-$index',
+              title: 'Queue extra track $index',
+              url: 'extra-$index.mp3',
+              artist: 'Queue artist',
+            ),
+          ),
+        ];
+        final currentTracks = StreamController<AudioTrack?>()..add(longTrack);
+        final queueTracks = StreamController<List<AudioTrack>>()..add(queue);
+        addTearDown(currentTracks.close);
+        addTearDown(queueTracks.close);
+
+        await _pumpPlayer(
+          tester,
+          config.size,
+          textScale: config.textScale,
+          track: longTrack,
+          trackStream: currentTracks.stream,
+          queueStream: queueTracks.stream,
+          initialSurface: PlayerInitialSurface.queue,
+        );
+
+        Rect nowPlayingRect() => tester.getRect(
+          find.byKey(const ValueKey('player-queue-now-playing')),
+        );
+        Rect titleBarRect() => tester.getRect(
+          find.byKey(const ValueKey('player-queue-title-bar')),
+        );
+        Rect listRect() =>
+            tester.getRect(find.byKey(const ValueKey('player-queue-list')));
+        Rect modePillRect() => tester.getRect(
+          find.byKey(const ValueKey('playlist-mode-pill-tap-target')),
+        );
+
+        final initialAnchors = (
+          nowPlaying: nowPlayingRect(),
+          titleBar: titleBarRect(),
+          list: listRect(),
+          modePill: modePillRect(),
+        );
+        final longHeight = tester
+            .getSize(
+              find.byKey(
+                const ValueKey('player-queue-track-content-queue-long'),
+              ),
+            )
+            .height;
+        final shortHeight = tester
+            .getSize(
+              find.byKey(
+                const ValueKey('player-queue-track-content-queue-short'),
+              ),
+            )
+            .height;
+        final noArtistHeight = tester
+            .getSize(
+              find.byKey(
+                const ValueKey('player-queue-track-content-queue-no-artist'),
+              ),
+            )
+            .height;
+        expect(shortHeight, closeTo(longHeight, 0.01));
+        expect(noArtistHeight, closeTo(longHeight, 0.01));
+        for (final id in const ['queue-long', 'queue-short']) {
+          expect(
+            tester
+                .getSize(
+                  find.byKey(
+                    ValueKey('player-queue-current-indicator-slot-$id'),
+                  ),
+                )
+                .width,
+            36,
+          );
+        }
+        expect(
+          tester
+              .getSize(
+                find.byKey(const ValueKey('player-queue-metadata-queue-long')),
+              )
+              .width,
+          closeTo(
+            tester
+                .getSize(
+                  find.byKey(
+                    const ValueKey('player-queue-metadata-queue-short'),
+                  ),
+                )
+                .width,
+            0.01,
+          ),
+        );
+
+        currentTracks.add(shortTrack);
+        await tester.pumpAndSettle();
+        expect(nowPlayingRect(), initialAnchors.nowPlaying);
+        expect(titleBarRect(), initialAnchors.titleBar);
+        expect(listRect(), initialAnchors.list);
+        expect(modePillRect(), initialAnchors.modePill);
+
+        final scrollable = find
+            .descendant(
+              of: find.byKey(const ValueKey('player-queue-list')),
+              matching: find.byType(Scrollable),
+            )
+            .first;
+        await tester.drag(scrollable, const Offset(0, -240));
+        await tester.pumpAndSettle();
+        final scrollPosition = tester
+            .state<ScrollableState>(scrollable)
+            .position;
+        final pixelsBeforeSwitch = scrollPosition.pixels;
+        expect(pixelsBeforeSwitch, greaterThan(0));
+
+        currentTracks.add(noArtistTrack);
+        await tester.pumpAndSettle();
+        expect(scrollPosition.pixels, closeTo(pixelsBeforeSwitch, 0.01));
+        expect(nowPlayingRect(), initialAnchors.nowPlaying);
+        expect(titleBarRect(), initialAnchors.titleBar);
+        expect(listRect(), initialAnchors.list);
+        expect(modePillRect(), initialAnchors.modePill);
+      },
+    );
+  }
+
   for (final locale in const [Locale('en'), Locale('zh')]) {
     testWidgets(
       'compact queue keeps ${locale.languageCode} clear text centered in its expanded target',
@@ -2453,6 +2625,7 @@ Future<void> _pumpPlayer(
   ThemeMode themeMode = ThemeMode.light,
   List<LyricLine>? lyrics,
   Stream<AudioTrack?>? trackStream,
+  Stream<List<AudioTrack>>? queueStream,
   Stream<bool>? loadingStream,
   PlayerTrackChangePresentation? trackChangePresentation,
   bool pushedRoute = false,
@@ -2490,7 +2663,9 @@ Future<void> _pumpPlayer(
         playerStateProvider.overrideWith(
           (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
         ),
-        queueProvider.overrideWith((ref) => Stream.value([track])),
+        queueProvider.overrideWith(
+          (ref) => queueStream ?? Stream.value([track]),
+        ),
         lyricAutoLoaderProvider.overrideWith((ref) {}),
         if (workDetails != null)
           playerWorkDetailsProvider.overrideWith((ref) async => workDetails),

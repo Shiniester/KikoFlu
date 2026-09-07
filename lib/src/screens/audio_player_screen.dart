@@ -341,7 +341,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         _scheduleProgressLoad(track);
         final coverUrl = _buildWorkCoverUrl(track.workId, track.artworkUrl);
         final baseTheme = Theme.of(context);
-        final artworkThemeSeed = ref.watch(artworkThemeSeedProvider).seed;
+        final artworkThemeSeed = ref.watch(
+          artworkThemeSeedProvider.select((state) => state.seed),
+        );
         final resolvedPalette = PlayerVisualPalette.fromDominant(
           artworkThemeSeed ?? baseTheme.colorScheme.primary,
           brightness: baseTheme.brightness,
@@ -2910,6 +2912,7 @@ class _PlayerTrackTitleSwitcher extends StatefulWidget {
 class _PlayerTrackTitleSwitcherState extends State<_PlayerTrackTitleSwitcher>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  late final CurvedAnimation _slideCurve;
   late AudioTrack _displayedTrack;
   AudioTrack? _incomingTrack;
   PlayerTrackChangeDirection _animationDirection =
@@ -2923,6 +2926,10 @@ class _PlayerTrackTitleSwitcherState extends State<_PlayerTrackTitleSwitcher>
       vsync: this,
       duration: _PlayerTrackTitleSwitcher.duration,
     )..addStatusListener(_handleAnimationStatus);
+    _slideCurve = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+    );
   }
 
   @override
@@ -2963,6 +2970,7 @@ class _PlayerTrackTitleSwitcherState extends State<_PlayerTrackTitleSwitcher>
 
   @override
   void dispose() {
+    _slideCurve.dispose();
     _controller
       ..removeStatusListener(_handleAnimationStatus)
       ..dispose();
@@ -3080,52 +3088,55 @@ class _PlayerTrackTitleSwitcherState extends State<_PlayerTrackTitleSwitcher>
                 _animationDirection == PlayerTrackChangeDirection.previous
                 ? -1.0
                 : 1.0;
-            return AnimatedBuilder(
-              animation: _controller,
-              builder: (context, child) {
-                final progress = Curves.easeOutCubic.transform(
-                  _controller.value,
-                );
-                return Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Transform.translate(
-                      key: const ValueKey('player-track-title-outgoing'),
-                      offset: Offset(
-                        -constraints.maxWidth * direction * progress,
-                        0,
-                      ),
-                      child: SizedBox(
-                        width: constraints.maxWidth,
-                        child: ExcludeSemantics(
-                          child: IgnorePointer(
-                            child: _buildTrackContent(
-                              context,
-                              _displayedTrack,
-                              interactive: false,
-                            ),
-                          ),
-                        ),
-                      ),
+            // Build the title/artist subtrees once per track change. Slide
+            // transitions update only the render transform on each tick, so
+            // text layout and semantics are not rebuilt for every frame.
+            final outgoing = RepaintBoundary(
+              key: const ValueKey('player-track-title-outgoing-layer'),
+              child: ExcludeSemantics(
+                child: IgnorePointer(
+                  child: SizedBox(
+                    width: constraints.maxWidth,
+                    child: _buildTrackContent(
+                      context,
+                      _displayedTrack,
+                      interactive: false,
                     ),
-                    Transform.translate(
-                      key: const ValueKey('player-track-title-incoming'),
-                      offset: Offset(
-                        constraints.maxWidth * direction * (1 - progress),
-                        0,
-                      ),
-                      child: SizedBox(
-                        width: constraints.maxWidth,
-                        child: _buildTrackContent(
-                          context,
-                          incomingTrack,
-                          interactive: true,
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
+                  ),
+                ),
+              ),
+            );
+            final incoming = RepaintBoundary(
+              key: const ValueKey('player-track-title-incoming-layer'),
+              child: SizedBox(
+                width: constraints.maxWidth,
+                child: _buildTrackContent(
+                  context,
+                  incomingTrack,
+                  interactive: true,
+                ),
+              ),
+            );
+            return Stack(
+              clipBehavior: Clip.none,
+              children: [
+                SlideTransition(
+                  key: const ValueKey('player-track-title-outgoing'),
+                  position: Tween<Offset>(
+                    begin: Offset.zero,
+                    end: Offset(-direction, 0),
+                  ).animate(_slideCurve),
+                  child: outgoing,
+                ),
+                SlideTransition(
+                  key: const ValueKey('player-track-title-incoming'),
+                  position: Tween<Offset>(
+                    begin: Offset(direction, 0),
+                    end: Offset.zero,
+                  ).animate(_slideCurve),
+                  child: incoming,
+                ),
+              ],
             );
           },
         ),

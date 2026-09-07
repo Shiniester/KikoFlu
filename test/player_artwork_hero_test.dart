@@ -424,28 +424,33 @@ void main() {
     );
 
     await tester.pump(const Duration(milliseconds: 150));
-    final outgoingOpacity = tester.widget<Opacity>(
+    final outgoingOpacity = tester.widget<FadeTransition>(
       find.byKey(const ValueKey('player-cover-outgoing-opacity')),
     );
-    final incomingOpacity = tester.widget<Opacity>(
+    final incomingOpacity = tester.widget<FadeTransition>(
       find.byKey(const ValueKey('player-cover-incoming-opacity')),
     );
-    final outgoingScale = tester.widget<Transform>(
+    final outgoingScale = tester.widget<ScaleTransition>(
       find.byKey(const ValueKey('player-cover-outgoing-scale')),
     );
-    final incomingScale = tester.widget<Transform>(
+    final incomingScale = tester.widget<ScaleTransition>(
       find.byKey(const ValueKey('player-cover-incoming-scale')),
     );
-    expect(outgoingOpacity.opacity, closeTo(0.5, 0.05));
-    expect(incomingOpacity.opacity, closeTo(0.5, 0.05));
-    expect(outgoingScale.transform.getMaxScaleOnAxis(), greaterThan(1));
-    expect(incomingScale.transform.getMaxScaleOnAxis(), greaterThan(1));
+    expect(outgoingOpacity.opacity.value, closeTo(0.5, 0.05));
+    expect(incomingOpacity.opacity.value, closeTo(0.5, 0.05));
+    expect(outgoingScale.scale.value, greaterThan(1));
+    expect(incomingScale.scale.value, greaterThan(1));
+    expect(outgoingScale.scale.value, greaterThan(incomingScale.scale.value));
+    expect(outgoingScale.scale.value, closeTo(1.175, 0.02));
+    expect(incomingScale.scale.value, closeTo(1.025, 0.02));
     expect(
-      outgoingScale.transform.getMaxScaleOnAxis(),
-      greaterThan(incomingScale.transform.getMaxScaleOnAxis()),
+      find.byKey(const ValueKey('player-cover-outgoing-layer')),
+      findsOneWidget,
     );
-    expect(outgoingScale.transform.getMaxScaleOnAxis(), closeTo(1.175, 0.02));
-    expect(incomingScale.transform.getMaxScaleOnAxis(), closeTo(1.025, 0.02));
+    expect(
+      find.byKey(const ValueKey('player-cover-incoming-layer')),
+      findsOneWidget,
+    );
     final transitionClip = tester.widget<ClipRRect>(
       find.byKey(const ValueKey('player-cover-transition-clip')),
     );

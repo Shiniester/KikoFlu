@@ -269,6 +269,39 @@ void main() {
     );
   });
 
+  test('player track transitions keep artwork and text in static layers', () {
+    final screen = File(
+      'lib/src/screens/audio_player_screen.dart',
+    ).readAsStringSync();
+    final playerCover = File(
+      'lib/src/widgets/player/player_cover_widget.dart',
+    ).readAsStringSync();
+    final coverTransition = playerCover.substring(
+      playerCover.indexOf('Widget _buildTransitionContent'),
+      playerCover.indexOf(
+        'Widget build(BuildContext context)',
+        playerCover.indexOf('Widget _buildTransitionContent'),
+      ),
+    );
+    final titleSwitcher = screen.substring(
+      screen.indexOf('class _PlayerTrackTitleSwitcher'),
+    );
+
+    expect(coverTransition, isNot(contains('AnimatedBuilder')));
+    expect(coverTransition, contains('FadeTransition('));
+    expect(coverTransition, contains('ScaleTransition('));
+    expect(coverTransition, contains('player-cover-outgoing-layer'));
+    expect(coverTransition, contains('player-cover-incoming-layer'));
+    expect(titleSwitcher, isNot(contains('return AnimatedBuilder(')));
+    expect(titleSwitcher, contains('SlideTransition('));
+    expect(titleSwitcher, contains('player-track-title-outgoing-layer'));
+    expect(titleSwitcher, contains('player-track-title-incoming-layer'));
+    expect(
+      screen,
+      contains('artworkThemeSeedProvider.select((state) => state.seed)'),
+    );
+  });
+
   test('artwork flights and transient notices stay centralized', () {
     final appSources = Directory('lib/src')
         .listSync(recursive: true)
