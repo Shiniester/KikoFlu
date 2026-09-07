@@ -12,6 +12,48 @@ import '../../providers/lyric_provider.dart';
 import '../../providers/player_lyric_style_provider.dart';
 import '../../../l10n/app_localizations.dart';
 
+const _lyricTapFeedbackDuration = Duration(milliseconds: 350);
+const _lyricTapFeedbackStaticDuration = Duration(milliseconds: 180);
+const _lyricTapFeedbackAlpha = 0.10;
+const _lyricTapFeedbackRadius = 14.0;
+
+Animatable<double> _lyricTapFeedbackOpacity() {
+  return TweenSequence<double>([
+    TweenSequenceItem<double>(
+      tween: Tween<double>(
+        begin: 0,
+        end: 1,
+      ).chain(CurveTween(curve: Curves.easeOutCubic)),
+      weight: 80,
+    ),
+    TweenSequenceItem<double>(tween: ConstantTween<double>(1), weight: 40),
+    TweenSequenceItem<double>(
+      tween: Tween<double>(
+        begin: 1,
+        end: 0,
+      ).chain(CurveTween(curve: Curves.easeInCubic)),
+      weight: 230,
+    ),
+  ]);
+}
+
+Widget _buildLyricTapFeedbackBackground({
+  required Animation<double> opacity,
+  required bool active,
+  required bool reducedMotion,
+  required Color color,
+  required String keyValue,
+}) {
+  final progress = active ? (reducedMotion ? 1.0 : opacity.value) : 0.0;
+  return Material(
+    key: ValueKey(keyValue),
+    color: color.withValues(alpha: _lyricTapFeedbackAlpha * progress),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(_lyricTapFeedbackRadius),
+    ),
+  );
+}
+
 /// Shared top/bottom transparency used by both compact and full lyric
 /// viewports. [visibleBottomInset] keeps the lower fade attached to the
 /// actually visible edge when the keyboard clips the full lyric surface.
@@ -116,20 +158,28 @@ class ThreeLineLyricDisplay extends ConsumerStatefulWidget {
     required this.onSeekRequested,
     this.compact = false,
     this.lineCount = 3,
+    this.enableLineTapFeedback = false,
+    this.onLineDoubleTap,
   }) : assert(lineCount == 3 || lineCount == 5);
 
   final ValueChanged<Duration> onSeekRequested;
   final bool compact;
   final int lineCount;
+  final bool enableLineTapFeedback;
+  final VoidCallback? onLineDoubleTap;
 
   @override
   ConsumerState<ThreeLineLyricDisplay> createState() =>
       _ThreeLineLyricDisplayState();
 }
 
-class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay> {
+class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
+    with SingleTickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
+  late final AnimationController _tapFeedbackController;
+  late final Animation<double> _tapFeedbackOpacity;
   Timer? _resumeFollowTimer;
+  Timer? _tapFeedbackClearTimer;
   bool _isUserBrowsing = false;
   bool _userScrollInProgress = false;
   int _latestIndex = -1;
@@ -137,13 +187,72 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay> {
   int? _lyricsSignature;
   int _scrollGeneration = 0;
   double? _lastItemExtent;
+  int? _tapFeedbackIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _tapFeedbackController = AnimationController(
+      vsync: this,
+      duration: _lyricTapFeedbackDuration,
+    )..addStatusListener(_handleTapFeedbackStatus);
+    _tapFeedbackOpacity = _lyricTapFeedbackOpacity().animate(
+      _tapFeedbackController,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant ThreeLineLyricDisplay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.enableLineTapFeedback && !widget.enableLineTapFeedback) {
+      _clearTapFeedback(notify: false);
+    }
+  }
 
   @override
   void dispose() {
     _resumeFollowTimer?.cancel();
+    _tapFeedbackClearTimer?.cancel();
     _scrollGeneration++;
+    _tapFeedbackController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _handleTapFeedbackStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed || _tapFeedbackIndex == null) {
+      return;
+    }
+    if (mounted) setState(() => _tapFeedbackIndex = null);
+  }
+
+  void _clearTapFeedback({bool notify = true}) {
+    _tapFeedbackClearTimer?.cancel();
+    _tapFeedbackClearTimer = null;
+    _tapFeedbackController.stop(canceled: true);
+    if (notify && mounted) {
+      if (_tapFeedbackIndex != null) {
+        setState(() => _tapFeedbackIndex = null);
+      }
+    } else {
+      _tapFeedbackIndex = null;
+    }
+  }
+
+  void _showTapFeedback(int index) {
+    if (!widget.enableLineTapFeedback || !mounted) return;
+    _tapFeedbackClearTimer?.cancel();
+    _tapFeedbackClearTimer = null;
+    setState(() => _tapFeedbackIndex = index);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _tapFeedbackController.stop(canceled: true);
+      _tapFeedbackClearTimer = Timer(_lyricTapFeedbackStaticDuration, () {
+        _tapFeedbackClearTimer = null;
+        if (mounted) setState(() => _tapFeedbackIndex = null);
+      });
+      return;
+    }
+    _tapFeedbackController.forward(from: 0);
   }
 
   void _positionCurrentLine(
@@ -261,6 +370,9 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay> {
     final index = ref.watch(currentLyricIndexProvider);
     final settings = ref.watch(playerLyricSettingsProvider);
     if (lyrics.isEmpty) {
+      if (_tapFeedbackIndex != null || _tapFeedbackClearTimer != null) {
+        _clearTapFeedback(notify: false);
+      }
       _latestIndex = -1;
       _lastIndex = null;
       _lyricsSignature = null;
@@ -289,6 +401,7 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay> {
     final sourceChanged = signature != _lyricsSignature;
     if (sourceChanged) {
       _resetUserBrowse();
+      _clearTapFeedback(notify: false);
       _lyricsSignature = signature;
       _lastIndex = null;
     }
@@ -338,25 +451,71 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay> {
                     return Semantics(
                       button: true,
                       selected: active,
-                      child: InkWell(
-                        key: ValueKey('compact-lyric-line-$lyricIndex'),
-                        onTap: () =>
-                            _seekToLine(lyricIndex, lyrics, itemExtent),
-                        child: Center(
-                          child: _PreviewLine(
-                            text: lyrics[lyricIndex].text,
-                            fontSize: active
-                                ? settings.smallFontSize +
-                                      (widget.compact ? 0 : 1)
-                                : settings.smallFontSize - 1,
-                            lineHeight: settings.smallLineHeight,
-                            opacity: active ? 1 : (distance == 1 ? 0.56 : 0.36),
-                            fontWeight: active
-                                ? FontWeight.w800
-                                : FontWeight.w600,
-                            maxLines: 1,
+                      child: Stack(
+                        fit: StackFit.passthrough,
+                        children: [
+                          if (widget.enableLineTapFeedback)
+                            Positioned.fill(
+                              child: AnimatedBuilder(
+                                animation: _tapFeedbackController,
+                                builder: (context, _) =>
+                                    _buildLyricTapFeedbackBackground(
+                                      opacity: _tapFeedbackOpacity,
+                                      active: _tapFeedbackIndex == lyricIndex,
+                                      reducedMotion:
+                                          MediaQuery.disableAnimationsOf(
+                                            context,
+                                          ),
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurface,
+                                      keyValue:
+                                          'compact-lyric-tap-feedback-$lyricIndex',
+                                    ),
+                              ),
+                            ),
+                          Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              key: ValueKey('compact-lyric-line-$lyricIndex'),
+                              overlayColor: widget.enableLineTapFeedback
+                                  ? const WidgetStatePropertyAll(
+                                      Colors.transparent,
+                                    )
+                                  : null,
+                              splashFactory: widget.enableLineTapFeedback
+                                  ? NoSplash.splashFactory
+                                  : null,
+                              onTap: () {
+                                _showTapFeedback(lyricIndex);
+                                _seekToLine(lyricIndex, lyrics, itemExtent);
+                              },
+                              onDoubleTap: widget.onLineDoubleTap == null
+                                  ? null
+                                  : () {
+                                      _showTapFeedback(lyricIndex);
+                                      widget.onLineDoubleTap!.call();
+                                    },
+                              child: Center(
+                                child: _PreviewLine(
+                                  text: lyrics[lyricIndex].text,
+                                  fontSize: active
+                                      ? settings.smallFontSize +
+                                            (widget.compact ? 0 : 1)
+                                      : settings.smallFontSize - 1,
+                                  lineHeight: settings.smallLineHeight,
+                                  opacity: active
+                                      ? 1
+                                      : (distance == 1 ? 0.56 : 0.36),
+                                  fontWeight: active
+                                      ? FontWeight.w800
+                                      : FontWeight.w600,
+                                  maxLines: 1,
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
+                        ],
                       ),
                     );
                   },
@@ -641,6 +800,7 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
     this.snapToCurrentOnFirstLayout = false,
     this.onSeekRequested,
     this.onLineDoubleTap,
+    this.enableLineTapFeedback = false,
   }) : assert(playbackAnchorFraction > 0 && playbackAnchorFraction < 1);
 
   final Duration? seekingPosition;
@@ -661,22 +821,27 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
   final bool snapToCurrentOnFirstLayout;
   final ValueChanged<Duration>? onSeekRequested;
   final VoidCallback? onLineDoubleTap;
+  final bool enableLineTapFeedback;
 
   @override
   ConsumerState<FullLyricDisplay> createState() => _FullLyricDisplayState();
 }
 
-class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
+class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
+    with SingleTickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _viewportKey = GlobalKey();
   final Map<int, GlobalKey> _itemKeys = {};
   final Map<int, GlobalKey> _textKeys = {};
+  late final AnimationController _tapFeedbackController;
+  late final Animation<double> _tapFeedbackOpacity;
   int? _currentLyricIndex;
   int? _pendingTappedIndex;
   int? _pendingTapOriginIndex;
   bool _autoScroll = true;
   bool _userScrollInProgress = false;
   Timer? _resumeAutoScrollTimer;
+  Timer? _tapFeedbackClearTimer;
   int _scrollRequestGeneration = 0;
   int? _lyricsSignature;
   int? _layoutFingerprint;
@@ -684,10 +849,18 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
   double _effectiveTopPadding = 0;
   int _layoutCurrentIndex = -1;
   LyricSearchMatch? _layoutSelectedMatch;
+  int? _tapFeedbackIndex;
 
   @override
   void initState() {
     super.initState();
+    _tapFeedbackController = AnimationController(
+      vsync: this,
+      duration: _lyricTapFeedbackDuration,
+    )..addStatusListener(_handleTapFeedbackStatus);
+    _tapFeedbackOpacity = _lyricTapFeedbackOpacity().animate(
+      _tapFeedbackController,
+    );
     widget.controller?._attach(this);
   }
 
@@ -698,12 +871,16 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
       oldWidget.controller?._detach(this);
       widget.controller?._attach(this);
     }
+    if (oldWidget.enableLineTapFeedback && !widget.enableLineTapFeedback) {
+      _clearTapFeedback(notify: false);
+    }
     if (oldWidget.isActive && !widget.isActive) {
       _resumeAutoScrollTimer?.cancel();
       _resumeAutoScrollTimer = null;
       _userScrollInProgress = false;
       _autoScroll = true;
       _scrollRequestGeneration++;
+      _clearTapFeedback(notify: false);
       if (_scrollController.hasClients) {
         _scrollController.jumpTo(_scrollController.position.pixels);
       }
@@ -749,10 +926,48 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
     _scrollRequestGeneration++;
     widget.controller?._detach(this);
     _resumeAutoScrollTimer?.cancel();
+    _tapFeedbackClearTimer?.cancel();
+    _tapFeedbackController.dispose();
     _scrollController.dispose();
     _itemKeys.clear();
     _textKeys.clear();
     super.dispose();
+  }
+
+  void _handleTapFeedbackStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed || _tapFeedbackIndex == null) {
+      return;
+    }
+    if (mounted) setState(() => _tapFeedbackIndex = null);
+  }
+
+  void _clearTapFeedback({bool notify = true}) {
+    _tapFeedbackClearTimer?.cancel();
+    _tapFeedbackClearTimer = null;
+    _tapFeedbackController.stop(canceled: true);
+    if (notify && mounted) {
+      if (_tapFeedbackIndex != null) {
+        setState(() => _tapFeedbackIndex = null);
+      }
+    } else {
+      _tapFeedbackIndex = null;
+    }
+  }
+
+  void _showTapFeedback(int index) {
+    if (!widget.enableLineTapFeedback || !mounted) return;
+    _tapFeedbackClearTimer?.cancel();
+    _tapFeedbackClearTimer = null;
+    setState(() => _tapFeedbackIndex = index);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _tapFeedbackController.stop(canceled: true);
+      _tapFeedbackClearTimer = Timer(_lyricTapFeedbackStaticDuration, () {
+        _tapFeedbackClearTimer = null;
+        if (mounted) setState(() => _tapFeedbackIndex = null);
+      });
+      return;
+    }
+    _tapFeedbackController.forward(from: 0);
   }
 
   GlobalKey _getKeyForIndex(int index) {
@@ -1286,6 +1501,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
     if (_lyricsSignature != signature) {
       _lyricsSignature = signature;
       _scrollRequestGeneration++;
+      _clearTapFeedback(notify: false);
       _currentLyricIndex = null;
       _pendingTappedIndex = null;
       _pendingTapOriginIndex = null;
@@ -1454,32 +1670,75 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay> {
                       child: Semantics(
                         selected: active,
                         button: !widget.isLocked,
-                        child: InkWell(
-                          key: _getKeyForIndex(index),
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: widget.isLocked
-                              ? null
-                              : () => _onLyricTap(index, lyrics),
-                          onDoubleTap: widget.isLocked
-                              ? null
-                              : widget.onLineDoubleTap,
-                          onLongPress: widget.onLongPress,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 10,
-                              horizontal: 16,
+                        child: Stack(
+                          fit: StackFit.passthrough,
+                          children: [
+                            if (widget.enableLineTapFeedback)
+                              Positioned.fill(
+                                child: AnimatedBuilder(
+                                  animation: _tapFeedbackController,
+                                  builder: (context, _) =>
+                                      _buildLyricTapFeedbackBackground(
+                                        opacity: _tapFeedbackOpacity,
+                                        active: _tapFeedbackIndex == index,
+                                        reducedMotion:
+                                            MediaQuery.disableAnimationsOf(
+                                              context,
+                                            ),
+                                        color: colors.onSurface,
+                                        keyValue:
+                                            'full-lyric-tap-feedback-$index',
+                                      ),
+                                ),
+                              ),
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                key: _getKeyForIndex(index),
+                                borderRadius: BorderRadius.circular(12),
+                                overlayColor: widget.enableLineTapFeedback
+                                    ? const WidgetStatePropertyAll(
+                                        Colors.transparent,
+                                      )
+                                    : null,
+                                splashFactory: widget.enableLineTapFeedback
+                                    ? NoSplash.splashFactory
+                                    : null,
+                                onTap: widget.isLocked
+                                    ? null
+                                    : () {
+                                        _showTapFeedback(index);
+                                        _onLyricTap(index, lyrics);
+                                      },
+                                onDoubleTap:
+                                    widget.isLocked ||
+                                        widget.onLineDoubleTap == null
+                                    ? null
+                                    : () {
+                                        _showTapFeedback(index);
+                                        widget.onLineDoubleTap!.call();
+                                      },
+                                onLongPress: widget.onLongPress,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 10,
+                                    horizontal: 16,
+                                  ),
+                                  child: _HighlightedLyricText(
+                                    key: _getTextKeyForIndex(index),
+                                    text: lyric.text,
+                                    query: normalizedQuery,
+                                    selectedMatch:
+                                        widget.selectedSearchMatch?.lineIndex ==
+                                            index
+                                        ? widget.selectedSearchMatch
+                                        : null,
+                                    style: style,
+                                  ),
+                                ),
+                              ),
                             ),
-                            child: _HighlightedLyricText(
-                              key: _getTextKeyForIndex(index),
-                              text: lyric.text,
-                              query: normalizedQuery,
-                              selectedMatch:
-                                  widget.selectedSearchMatch?.lineIndex == index
-                                  ? widget.selectedSearchMatch
-                                  : null,
-                              style: style,
-                            ),
-                          ),
+                          ],
                         ),
                       ),
                     ),

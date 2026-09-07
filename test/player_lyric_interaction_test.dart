@@ -153,6 +153,140 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     expect(seekCount, 0);
     expect(toggleCount, 1);
+    expect(
+      find.byKey(const ValueKey('full-lyric-tap-feedback-2')),
+      findsNothing,
+    );
+  });
+
+  testWidgets(
+    'enabled full lyric taps fade feedback while keeping seek and toggle exclusive',
+    (tester) async {
+      Duration? requested;
+      var toggleCount = 0;
+      final positions = StreamController<Duration>();
+      addTearDown(positions.close);
+      positions.add(const Duration(seconds: 2));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            positionProvider.overrideWith((ref) => positions.stream),
+            lyricControllerProvider.overrideWith(
+              (ref) => LyricController(
+                ref,
+                initialState: LyricState(lyrics: lyrics),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            theme: ThemeData.dark(useMaterial3: true),
+            home: Scaffold(
+              body: FullLyricDisplay(
+                isPortrait: true,
+                enableLineTapFeedback: true,
+                onSeekRequested: (value) {
+                  requested = value;
+                  positions.add(value);
+                },
+                onLineDoubleTap: () => toggleCount++,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final line = find.text('matching lyric 2');
+      await tester.tap(line);
+      await tester.pump(const Duration(milliseconds: 301));
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(requested, const Duration(seconds: 2));
+      expect(toggleCount, 0);
+      expect(
+        _tapFeedbackAlpha(tester, 'full-lyric-tap-feedback-2'),
+        greaterThan(0),
+      );
+      final inkWell = tester.widget<InkWell>(
+        find.ancestor(of: line, matching: find.byType(InkWell)),
+      );
+      expect(inkWell.splashFactory, NoSplash.splashFactory);
+      expect(
+        tester.getRect(find.byKey(const ValueKey('full-lyric-tap-feedback-2'))),
+        tester.getRect(find.ancestor(of: line, matching: find.byType(InkWell))),
+      );
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(
+        _tapFeedbackAlpha(tester, 'full-lyric-tap-feedback-2'),
+        closeTo(0.10, 0.001),
+      );
+      await tester.pump(const Duration(milliseconds: 270));
+      expect(
+        _tapFeedbackAlpha(tester, 'full-lyric-tap-feedback-2'),
+        closeTo(0, 0.001),
+      );
+
+      requested = null;
+      await tester.tap(line);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(line);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(requested, isNull);
+      expect(toggleCount, 1);
+      expect(
+        _tapFeedbackAlpha(tester, 'full-lyric-tap-feedback-2'),
+        greaterThan(0),
+      );
+    },
+  );
+
+  testWidgets('reduced-motion lyric feedback stays static for 180ms', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith(
+            (ref) => Stream.value(const Duration(seconds: 2)),
+          ),
+          lyricControllerProvider.overrideWith(
+            (ref) =>
+                LyricController(ref, initialState: LyricState(lyrics: lyrics)),
+          ),
+        ],
+        child: MaterialApp(
+          theme: ThemeData.dark(useMaterial3: true),
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: FullLyricDisplay(
+              enableLineTapFeedback: true,
+              onSeekRequested: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('lyric 5'));
+    await tester.pump();
+    expect(
+      _tapFeedbackAlpha(tester, 'full-lyric-tap-feedback-5'),
+      closeTo(0.10, 0.001),
+    );
+    await tester.pump(const Duration(milliseconds: 179));
+    expect(
+      _tapFeedbackAlpha(tester, 'full-lyric-tap-feedback-5'),
+      closeTo(0.10, 0.001),
+    );
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(
+      _tapFeedbackAlpha(tester, 'full-lyric-tap-feedback-5'),
+      closeTo(0, 0.001),
+    );
   });
 
   testWidgets(
@@ -297,6 +431,10 @@ void main() {
       find.byKey(const ValueKey('compact-lyric-edge-fade-mask')),
       findsOneWidget,
     );
+    expect(
+      find.byKey(const ValueKey('compact-lyric-tap-feedback-2')),
+      findsNothing,
+    );
     final scrollable = tester.state<ScrollableState>(
       find.descendant(
         of: find.byKey(const ValueKey('compact-lyric-scroll-list')),
@@ -328,6 +466,76 @@ void main() {
     expect(scrollable.position.pixels, closeTo(followedOffset, 1));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'five-line lyrics show feedback and double tap toggles without seeking',
+    (tester) async {
+      var seekCount = 0;
+      var toggleCount = 0;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            positionProvider.overrideWith(
+              (ref) => Stream.value(const Duration(seconds: 2)),
+            ),
+            lyricControllerProvider.overrideWith(
+              (ref) => LyricController(
+                ref,
+                initialState: LyricState(lyrics: lyrics),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            theme: ThemeData.dark(useMaterial3: true),
+            home: Scaffold(
+              body: Center(
+                child: ThreeLineLyricDisplay(
+                  lineCount: 5,
+                  enableLineTapFeedback: true,
+                  onSeekRequested: (_) => seekCount++,
+                  onLineDoubleTap: () => toggleCount++,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      const firstFeedbackKey = 'compact-lyric-tap-feedback-2';
+      final firstLine = find.byKey(const ValueKey('compact-lyric-line-2'));
+      await tester.tap(firstLine);
+      await tester.pump(const Duration(milliseconds: 301));
+      expect(seekCount, 1);
+      expect(toggleCount, 0);
+      await tester.pump(const Duration(milliseconds: 80));
+      expect(_tapFeedbackAlpha(tester, firstFeedbackKey), closeTo(0.10, 0.001));
+      expect(
+        tester.getRect(find.byKey(const ValueKey(firstFeedbackKey))),
+        tester.getRect(firstLine),
+      );
+
+      seekCount = 0;
+      final secondLine = find.byKey(const ValueKey('compact-lyric-line-3'));
+      await tester.tap(secondLine);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(secondLine);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(seekCount, 0);
+      expect(toggleCount, 1);
+      expect(_tapFeedbackAlpha(tester, firstFeedbackKey), 0);
+      expect(
+        _tapFeedbackAlpha(tester, 'compact-lyric-tap-feedback-3'),
+        allOf(greaterThan(0), lessThan(0.10)),
+      );
+      await tester.pump(const Duration(milliseconds: 310));
+      expect(
+        _tapFeedbackAlpha(tester, 'compact-lyric-tap-feedback-3'),
+        closeTo(0, 0.001),
+      );
+    },
+  );
 
   testWidgets(
     'inactive lyric page follows before activation and stays stable',
@@ -442,6 +650,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    expect(
+      tester
+          .widget<FullLyricDisplay>(find.byType(FullLyricDisplay))
+          .enableLineTapFeedback,
+      isTrue,
+    );
     expect(find.byKey(const ValueKey('lyric-edge-fade-mask')), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('lyric-search-button')));
@@ -812,6 +1026,13 @@ void _expectLineAtPlaybackAnchor(WidgetTester tester, Finder line) {
     (tester.getCenter(line).dy - playbackAnchor).abs(),
     lessThanOrEqualTo(2.1),
   );
+}
+
+double _tapFeedbackAlpha(WidgetTester tester, String keyValue) {
+  final material = tester.widget<Material>(
+    find.byKey(ValueKey<String>(keyValue)),
+  );
+  return material.color?.a ?? 0;
 }
 
 double mathMin(double left, double right) => left < right ? left : right;

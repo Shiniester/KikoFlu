@@ -22,6 +22,7 @@ import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
 import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
+import 'package:kikoeru_flutter/src/widgets/player/lyric_display_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_action_icons.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_controls_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
@@ -56,6 +57,12 @@ void main() {
     await _pumpPlayer(tester, const Size(390, 844));
     expect(find.byKey(const ValueKey('compact-player-pages')), findsOneWidget);
     expect(find.byKey(const ValueKey('wide-player-layout')), findsNothing);
+    final coverLyrics = tester.widget<ThreeLineLyricDisplay>(
+      find.byKey(const ValueKey('compact-main-lyric-scroll-surface')),
+    );
+    expect(coverLyrics.lineCount, 5);
+    expect(coverLyrics.enableLineTapFeedback, isTrue);
+    expect(coverLyrics.onLineDoubleTap, isNotNull);
     expect(find.text(_track.title), findsOneWidget);
     expect(
       find.byKey(const ValueKey('player-track-title-button')),

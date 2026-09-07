@@ -171,6 +171,7 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                       snapOnAutoScrollResume: !_skipNextAutoScrollResume,
                       snapToCurrentOnFirstLayout: true,
                       onLineDoubleTap: widget.onTogglePlayback,
+                      enableLineTapFeedback: true,
                     ),
                     if (state.isLoading)
                       const IgnorePointer(
