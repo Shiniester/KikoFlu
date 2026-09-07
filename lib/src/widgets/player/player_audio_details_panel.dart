@@ -78,7 +78,7 @@ class _PlayerAudioDetailsPanelState
     final hasEditions = work.otherLanguageEditions?.isNotEmpty == true;
     final hasTags = work.tags?.isNotEmpty == true;
 
-    return RepaintBoundary(
+    final content = RepaintBoundary(
       key: const ValueKey('player-audio-details-panel'),
       child: PlayerScrollEdgeActions(
         onPushUpAtBottom: widget.onShowQueue,
@@ -331,6 +331,14 @@ class _PlayerAudioDetailsPanelState
           ],
         ),
       ),
+    );
+    if (widget.showQueueDrag == null) return content;
+    return NotificationListener<OverscrollIndicatorNotification>(
+      onNotification: (notification) {
+        notification.disallowIndicator();
+        return false;
+      },
+      child: content,
     );
   }
 
