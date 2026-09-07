@@ -78,6 +78,35 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('compact player keeps twelve pixels below the title region', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(390, 844));
+
+    final header = tester.getRect(
+      find.byKey(const ValueKey('compact-header-dismiss-surface')),
+    );
+    final pages = tester.getRect(
+      find.byKey(const ValueKey('compact-player-pages')),
+    );
+    expect(pages.top - header.bottom, closeTo(12, 0.01));
+  });
+
+  testWidgets('wide player keeps twelve pixels below the title row', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(1280, 720));
+
+    final header = find.byKey(const ValueKey('wide-header-dismiss-surface'));
+    final titleRow = find
+        .descendant(of: header, matching: find.byType(Row))
+        .first;
+    expect(
+      tester.getRect(header).bottom - tester.getRect(titleRow).bottom,
+      closeTo(12, 0.01),
+    );
+  });
+
   testWidgets('zoomed real cover returns through the preview Hero', (
     tester,
   ) async {

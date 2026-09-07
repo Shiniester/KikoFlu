@@ -44,12 +44,13 @@ void main() {
     tester,
   ) async {
     Duration? requested;
+    final positions = StreamController<Duration>();
+    addTearDown(positions.close);
+    positions.add(const Duration(seconds: 2));
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          positionProvider.overrideWith(
-            (ref) => Stream.value(const Duration(seconds: 2)),
-          ),
+          positionProvider.overrideWith((ref) => positions.stream),
           lyricControllerProvider.overrideWith(
             (ref) =>
                 LyricController(ref, initialState: LyricState(lyrics: lyrics)),
@@ -60,7 +61,10 @@ void main() {
           home: Scaffold(
             body: FullLyricDisplay(
               isPortrait: true,
-              onSeekRequested: (value) => requested = value,
+              onSeekRequested: (value) {
+                requested = value;
+                positions.add(value);
+              },
             ),
           ),
         ),
@@ -80,10 +84,75 @@ void main() {
     );
 
     await tester.tap(find.text('lyric 5'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
     expect(requested, const Duration(seconds: 5));
     _expectLineAtPlaybackAnchor(tester, find.text('lyric 5'));
+    final settledCenter = tester.getCenter(find.text('lyric 5')).dy;
+
+    await tester.pump(const Duration(milliseconds: 2500));
+    expect(
+      tester.getCenter(find.text('lyric 5')).dy,
+      closeTo(settledCenter, 0.1),
+    );
+
+    positions.add(const Duration(seconds: 6));
+    await tester.pumpAndSettle();
+    _expectLineAtPlaybackAnchor(tester, find.text('matching lyric 6'));
+
+    positions.add(const Duration(seconds: 8));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('lyric 3'));
+    await tester.pumpAndSettle();
+    expect(requested, const Duration(seconds: 3));
+    _expectLineAtPlaybackAnchor(tester, find.text('lyric 3'));
+    final upperSettledCenter = tester.getCenter(find.text('lyric 3')).dy;
+    await tester.pump(const Duration(milliseconds: 2500));
+    expect(
+      tester.getCenter(find.text('lyric 3')).dy,
+      closeTo(upperSettledCenter, 0.1),
+    );
+  });
+
+  testWidgets('double tapping a lyric toggles without seeking', (tester) async {
+    var seekCount = 0;
+    var toggleCount = 0;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith(
+            (ref) => Stream.value(const Duration(seconds: 2)),
+          ),
+          lyricControllerProvider.overrideWith(
+            (ref) =>
+                LyricController(ref, initialState: LyricState(lyrics: lyrics)),
+          ),
+        ],
+        child: MaterialApp(
+          theme: ThemeData.dark(useMaterial3: true),
+          home: Scaffold(
+            body: FullLyricDisplay(
+              onSeekRequested: (_) => seekCount++,
+              onLineDoubleTap: () => toggleCount++,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final line = find.text('matching lyric 2');
+    await tester.tap(line);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(seekCount, 1);
+    expect(toggleCount, 0);
+
+    seekCount = 0;
+    await tester.tap(line);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(line);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(seekCount, 0);
+    expect(toggleCount, 1);
   });
 
   testWidgets(
@@ -261,7 +330,7 @@ void main() {
   });
 
   testWidgets(
-    'activating lyric page snaps to playback line without animation',
+    'inactive lyric page follows before activation and stays stable',
     (tester) async {
       final longLyrics = List.generate(
         48,
@@ -273,12 +342,13 @@ void main() {
       );
       var active = false;
       late StateSetter updateActive;
+      final positions = StreamController<Duration>();
+      addTearDown(positions.close);
+      positions.add(const Duration(seconds: 5));
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            positionProvider.overrideWith(
-              (ref) => Stream.value(const Duration(seconds: 30)),
-            ),
+            positionProvider.overrideWith((ref) => positions.stream),
             lyricControllerProvider.overrideWith(
               (ref) => LyricController(
                 ref,
@@ -294,7 +364,7 @@ void main() {
                   updateActive = setState;
                   return FullLyricDisplay(
                     isPortrait: true,
-                    suspendAutoScroll: !active,
+                    isActive: active,
                     snapToCurrentOnFirstLayout: true,
                   );
                 },
@@ -311,15 +381,20 @@ void main() {
           matching: find.byType(Scrollable),
         ),
       );
-      expect(scrollable.position.pixels, 0);
+      final initialOffset = scrollable.position.pixels;
+
+      positions.add(const Duration(seconds: 30));
+      await tester.pumpAndSettle();
+      final hiddenOffset = scrollable.position.pixels;
+      expect(hiddenOffset, greaterThan(initialOffset));
+      _expectLineAtPlaybackAnchor(tester, find.text('long lyric 30'));
 
       updateActive(() => active = true);
       await tester.pump();
       await tester.pump();
-      final snappedOffset = scrollable.position.pixels;
-      expect(snappedOffset, greaterThan(0));
-      await tester.pump(const Duration(milliseconds: 180));
-      expect(scrollable.position.pixels, closeTo(snappedOffset, 0.1));
+      expect(scrollable.position.pixels, closeTo(hiddenOffset, 0.1));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(scrollable.position.pixels, closeTo(hiddenOffset, 0.1));
     },
   );
 
