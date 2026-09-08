@@ -460,7 +460,7 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
 
   void _scheduleFollowResume() {
     _resumeFollowTimer?.cancel();
-    _resumeFollowTimer = Timer(const Duration(seconds: 2), () {
+    _resumeFollowTimer = Timer(const Duration(seconds: 3), () {
       _resumeFollowTimer = null;
       if (!mounted) return;
       _isUserBrowsing = false;
@@ -1681,7 +1681,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
 
   void _scheduleAutoScrollResume() {
     _resumeAutoScrollTimer?.cancel();
-    _resumeAutoScrollTimer = Timer(const Duration(seconds: 2), () {
+    _resumeAutoScrollTimer = Timer(const Duration(seconds: 3), () {
       _resumeAutoScrollTimer = null;
       if (!mounted) return;
       setState(() => _autoScroll = true);

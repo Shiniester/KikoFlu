@@ -480,55 +480,56 @@ void main() {
     },
   );
 
-  testWidgets('full lyrics resume following two seconds after user browsing', (
-    tester,
-  ) async {
-    final longLyrics = List.generate(
-      48,
-      (index) => LyricLine(
-        startTime: Duration(seconds: index),
-        endTime: Duration(seconds: index + 1),
-        text: 'browse lyric $index',
-      ),
-    );
-    final positions = StreamController<Duration>();
-    addTearDown(positions.close);
-    positions.add(const Duration(seconds: 20));
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          positionProvider.overrideWith((ref) => positions.stream),
-          lyricControllerProvider.overrideWith(
-            (ref) => LyricController(
-              ref,
-              initialState: LyricState(lyrics: longLyrics),
-            ),
-          ),
-        ],
-        child: MaterialApp(
-          theme: ThemeData.dark(useMaterial3: true),
-          home: const Scaffold(body: FullLyricDisplay(isPortrait: true)),
+  testWidgets(
+    'full lyrics resume following three seconds after user browsing',
+    (tester) async {
+      final longLyrics = List.generate(
+        48,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index),
+          endTime: Duration(seconds: index + 1),
+          text: 'browse lyric $index',
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      final positions = StreamController<Duration>();
+      addTearDown(positions.close);
+      positions.add(const Duration(seconds: 20));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            positionProvider.overrideWith((ref) => positions.stream),
+            lyricControllerProvider.overrideWith(
+              (ref) => LyricController(
+                ref,
+                initialState: LyricState(lyrics: longLyrics),
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            theme: ThemeData.dark(useMaterial3: true),
+            home: const Scaffold(body: FullLyricDisplay(isPortrait: true)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    final list = find.byKey(const ValueKey('full-lyric-list'));
-    final scrollable = tester.state<ScrollableState>(
-      find.descendant(of: list, matching: find.byType(Scrollable)),
-    );
-    await tester.drag(list, const Offset(0, -180));
-    await tester.pump();
-    final browsedOffset = scrollable.position.pixels;
+      final list = find.byKey(const ValueKey('full-lyric-list'));
+      final scrollable = tester.state<ScrollableState>(
+        find.descendant(of: list, matching: find.byType(Scrollable)),
+      );
+      await tester.drag(list, const Offset(0, -180));
+      await tester.pump();
+      final browsedOffset = scrollable.position.pixels;
 
-    positions.add(const Duration(seconds: 21));
-    await tester.pump(const Duration(milliseconds: 1900));
-    expect(scrollable.position.pixels, closeTo(browsedOffset, 0.1));
+      positions.add(const Duration(seconds: 21));
+      await tester.pump(const Duration(milliseconds: 2900));
+      expect(scrollable.position.pixels, closeTo(browsedOffset, 0.1));
 
-    await tester.pump(const Duration(milliseconds: 120));
-    await tester.pump(const Duration(milliseconds: 320));
-    _expectLineAtPlaybackAnchor(tester, find.text('browse lyric 21'));
-  });
+      await tester.pump(const Duration(milliseconds: 120));
+      await tester.pump(const Duration(milliseconds: 320));
+      _expectLineAtPlaybackAnchor(tester, find.text('browse lyric 21'));
+    },
+  );
 
   testWidgets('compact lyric rows seek, fade edges, and resume following', (
     tester,
@@ -594,7 +595,9 @@ void main() {
     expect(requested, const Duration(seconds: 11));
     expect(scrollable.position.pixels, greaterThan(followedOffset));
 
-    await tester.pump(const Duration(seconds: 2));
+    await tester.pump(const Duration(milliseconds: 2900));
+    expect(scrollable.position.pixels, greaterThan(followedOffset));
+    await tester.pump(const Duration(milliseconds: 120));
     await tester.pump(const Duration(milliseconds: 320));
     expect(scrollable.position.pixels, closeTo(followedOffset, 1));
     expect(tester.takeException(), isNull);
