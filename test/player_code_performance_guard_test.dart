@@ -172,7 +172,7 @@ void main() {
       expect(lyricDisplay, contains('centerOnMatch('));
       expect(lyricDisplay, isNot(contains('_paddingCompensationGeneration')));
       expect(lyricDisplay, contains('ClampingScrollPhysics'));
-      expect(lyricDisplay, contains('Timer(const Duration(seconds: 2)'));
+      expect(lyricDisplay, contains('Timer(const Duration(seconds: 3)'));
       expect(
         lyricDisplay,
         contains("ValueKey('compact-lyric-line-\$lyricIndex')"),
