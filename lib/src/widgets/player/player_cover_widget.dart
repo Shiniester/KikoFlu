@@ -14,6 +14,9 @@ const double playerCoverHeaderFadeEnd = 0.85;
 
 double _smoothStep(double value) => value * value * (3 - 2 * value);
 
+double _lerpDouble(double begin, double end, double progress) =>
+    begin + (end - begin) * progress;
+
 @visibleForTesting
 double playerArtworkAttachment(double visualProgress) {
   final progress = visualProgress.clamp(0.0, 1.0);
@@ -214,15 +217,14 @@ Widget _playerCoverPreviewFlightShuttle(
       : from.flightChild;
   return AnimatedBuilder(
     animation: animation,
-    child: stableChild,
+    // Keep the artwork raster stable while the Hero flight only changes its
+    // clip geometry. The Hero itself owns the position transform.
+    child: RepaintBoundary(child: stableChild),
     builder: (context, child) {
       final progress = direction == HeroFlightDirection.push
           ? animation.value
           : 1 - animation.value;
-      final radius = Tween<double>(
-        begin: from.cornerRadius,
-        end: to.cornerRadius,
-      ).transform(progress);
+      final radius = _lerpDouble(from.cornerRadius, to.cornerRadius, progress);
       return ClipRRect(
         key: const ValueKey('player-cover-preview-flight-frame'),
         borderRadius: BorderRadius.circular(radius),
@@ -248,15 +250,14 @@ Widget _playerArtworkFlightShuttle(
       : from.flightChild;
   return AnimatedBuilder(
     animation: animation,
-    child: stableChild,
+    // Keep the artwork raster stable while the Hero flight only changes its
+    // clip geometry. The Hero itself owns the position transform.
+    child: RepaintBoundary(child: stableChild),
     builder: (context, child) {
       final progress = direction == HeroFlightDirection.push
           ? animation.value
           : 1 - animation.value;
-      final radius = Tween<double>(
-        begin: from.cornerRadius,
-        end: to.cornerRadius,
-      ).transform(progress);
+      final radius = _lerpDouble(from.cornerRadius, to.cornerRadius, progress);
       return ClipRRect(
         key: const ValueKey('player-artwork-flight-frame'),
         borderRadius: BorderRadius.circular(radius),

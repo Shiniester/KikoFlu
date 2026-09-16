@@ -89,11 +89,40 @@ void main() {
         viewportHeight: viewportHeight,
         reverse: true,
       );
-      for (final visualProgress in <double>[0, 0.2, 0.5, 0.8, 1]) {
-        expect(
-          reverseTween.transform(1 - visualProgress),
-          tween.transform(visualProgress),
-        );
+      const expectedAtFixedProgress = <({double progress, Rect rect})>[
+        (progress: 0, rect: Rect.fromLTRB(16, 720, 80, 768)),
+        (
+          progress: 0.25,
+          rect: Rect.fromLTRB(16.4041875, 716.7664998, 84.7155212, 768),
+        ),
+        (
+          progress: 0.5,
+          rect: Rect.fromLTRB(
+            26.6181156,
+            631.5157032,
+            203.8780155,
+            764.4606281,
+          ),
+        ),
+        (
+          progress: 0.75,
+          rect: Rect.fromLTRB(
+            38.4706418,
+            345.4893036,
+            342.1574875,
+            573.2544379,
+          ),
+        ),
+        (progress: 1, rect: Rect.fromLTRB(40, 120, 360, 360)),
+      ];
+      for (final entry in expectedAtFixedProgress) {
+        final visualProgress = entry.progress;
+        final actual = tween.transform(visualProgress)!;
+        expect(actual.left, closeTo(entry.rect.left, 0.0001));
+        expect(actual.top, closeTo(entry.rect.top, 0.0001));
+        expect(actual.right, closeTo(entry.rect.right, 0.0001));
+        expect(actual.bottom, closeTo(entry.rect.bottom, 0.0001));
+        expect(reverseTween.transform(1 - visualProgress), actual);
       }
     },
   );
@@ -138,16 +167,19 @@ void main() {
   );
 
   test('Player Cover Page title row fades only during the chase', () {
-    expect(playerCoverHeaderOpacity(0), 0);
-    expect(playerCoverHeaderOpacity(playerCoverHeaderFadeStart), 0);
-    expect(
-      playerCoverHeaderOpacity(
-        (playerCoverHeaderFadeStart + playerCoverHeaderFadeEnd) / 2,
-      ),
-      closeTo(0.5, 0.0001),
-    );
-    expect(playerCoverHeaderOpacity(playerCoverHeaderFadeEnd), 1);
-    expect(playerCoverHeaderOpacity(1), 1);
+    const expectedAtFixedProgress = <({double progress, double opacity})>[
+      (progress: 0, opacity: 0),
+      (progress: 0.25, opacity: 0),
+      (progress: 0.5, opacity: 0),
+      (progress: 0.75, opacity: 20 / 27),
+      (progress: 1, opacity: 1),
+    ];
+    for (final entry in expectedAtFixedProgress) {
+      expect(
+        playerCoverHeaderOpacity(entry.progress),
+        closeTo(entry.opacity, 0.0001),
+      );
+    }
   });
 
   testWidgets('player artwork flight interpolates 10 to 14 pixel radius', (
@@ -179,6 +211,16 @@ void main() {
     final heroes = find.byType(Hero).evaluate().toList(growable: false);
     final from = heroes.first.widget as Hero;
     final to = heroes.last.widget as Hero;
+    final stableFlight =
+        from.flightShuttleBuilder!(
+              heroes.first,
+              const AlwaysStoppedAnimation<double>(0.5),
+              HeroFlightDirection.push,
+              heroes.first,
+              heroes.last,
+            )
+            as AnimatedBuilder;
+    expect(stableFlight.child, isA<RepaintBoundary>());
 
     BorderRadius flightRadius(HeroFlightDirection direction, double progress) {
       final fromContext = direction == HeroFlightDirection.push
@@ -201,40 +243,11 @@ void main() {
       return clip.borderRadius as BorderRadius;
     }
 
-    expect(
-      flightRadius(HeroFlightDirection.push, 0),
-      BorderRadius.circular(10),
-    );
-    expect(
-      flightRadius(HeroFlightDirection.push, 0.001),
-      BorderRadius.circular(10.004),
-    );
-    expect(
-      flightRadius(HeroFlightDirection.push, 0.5),
-      BorderRadius.circular(12),
-    );
-    expect(
-      flightRadius(HeroFlightDirection.push, 0.999),
-      BorderRadius.circular(13.996),
-    );
-    expect(
-      flightRadius(HeroFlightDirection.push, 1),
-      BorderRadius.circular(14),
-    );
-    expect(flightRadius(HeroFlightDirection.pop, 1), BorderRadius.circular(14));
-    expect(
-      flightRadius(HeroFlightDirection.pop, 0.999),
-      BorderRadius.circular(13.996),
-    );
-    expect(
-      flightRadius(HeroFlightDirection.pop, 0.5),
-      BorderRadius.circular(12),
-    );
-    expect(
-      flightRadius(HeroFlightDirection.pop, 0.001),
-      BorderRadius.circular(10.004),
-    );
-    expect(flightRadius(HeroFlightDirection.pop, 0), BorderRadius.circular(10));
+    for (final progress in <double>[0, 0.25, 0.5, 0.75, 1]) {
+      final expected = BorderRadius.circular(10 + 4 * progress);
+      expect(flightRadius(HeroFlightDirection.push, progress), expected);
+      expect(flightRadius(HeroFlightDirection.pop, progress), expected);
+    }
   });
 
   testWidgets(
@@ -293,6 +306,7 @@ void main() {
                   toContext,
                 )
                 as AnimatedBuilder;
+        expect(shuttle.child, isA<RepaintBoundary>());
         final clip = shuttle.builder(fromContext, shuttle.child) as ClipRRect;
         return clip.borderRadius as BorderRadius;
       }

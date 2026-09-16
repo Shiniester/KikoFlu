@@ -737,6 +737,39 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('compact queue stage mounts lazily and stays mounted', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(390, 844));
+
+    expect(
+      find.byKey(const ValueKey('player-queue-pane'), skipOffstage: false),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('controls-pane-compact')),
+        matching: find.byIcon(Icons.queue_music),
+      ),
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('player-queue-pane'), skipOffstage: false),
+      findsOneWidget,
+    );
+    await tester.pumpAndSettle();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('player-queue-pane')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('player-queue-pane'), skipOffstage: false),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('compact queue transition can be interrupted and dragged back', (
     tester,
   ) async {
@@ -1679,7 +1712,17 @@ void main() {
       );
       final extent = route.debugRouteTravelDistance;
 
-      for (final progress in <double>[0.85, 0.7, 0.55, 0.7, 0.85]) {
+      for (final progress in <double>[
+        1,
+        0.75,
+        0.5,
+        0.25,
+        0,
+        0.25,
+        0.5,
+        0.75,
+        1,
+      ]) {
         route.updateVerticalDismissGesture(
           distance: extent * (1 - progress),
           extent: extent,

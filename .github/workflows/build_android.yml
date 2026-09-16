@@ -11,6 +11,11 @@ on:
         description: 'Release notes in Markdown'
         required: true
         type: string
+      arm64_only:
+        description: 'Build and publish only the Android arm64-v8a APK'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -120,22 +125,28 @@ jobs:
         run: flutter pub get
 
       - name: Build Android APKs
+        env:
+          ARM64_ONLY: ${{ inputs.arm64_only }}
         run: |
           set -euo pipefail
           mkdir -p dist
 
-          flutter build apk --release
-          mv build/app/outputs/flutter-apk/app-release.apk \
-            "dist/KikoFlu-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
+          if [ "$ARM64_ONLY" != "true" ]; then
+            flutter build apk --release
+            mv build/app/outputs/flutter-apk/app-release.apk \
+              "dist/KikoFlu-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
+          fi
 
           # Preserve the legacy split APK versionCode scheme so existing
           # arm64 installations can be upgraded in place.
-          flutter build apk --release --split-per-abi
+          flutter build apk --release --split-per-abi \
+            --target-platform android-arm64
           mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
             "dist/KikoFlu-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
 
       - name: Verify Android Package Compatibility
         env:
+          ARM64_ONLY: ${{ inputs.arm64_only }}
           EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
           SIGNING_CONFIGURED: ${{ steps.android_signing.outputs.configured }}
           EXPECTED_CERT_SHA256: 8d432df267b5eb175c2f806381c44d7b4bf657145af792ace223af34e340f740
@@ -155,12 +166,19 @@ jobs:
             fi
           done
 
-          universal_badging="$("$aapt" dump badging "$universal_apk" | sed -n '1p')"
           arm64_badging="$("$aapt" dump badging "$arm64_apk" | sed -n '1p')"
-          universal_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<< "$universal_badging")"
-          arm64_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<< "$arm64_badging")"
+          badgings=("$arm64_badging")
+          apks=("$arm64_apk")
 
-          for badging in "$universal_badging" "$arm64_badging"; do
+          if [ "$ARM64_ONLY" != "true" ]; then
+            universal_badging="$("$aapt" dump badging "$universal_apk" | sed -n '1p')"
+            universal_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<< "$universal_badging")"
+            arm64_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<< "$arm64_badging")"
+            badgings=("$universal_badging" "$arm64_badging")
+            apks=("$universal_apk" "$arm64_apk")
+          fi
+
+          for badging in "${badgings[@]}"; do
             package_name="$(sed -n "s/.*package: name='\([^']*\)'.*/\1/p" <<< "$badging")"
             version_name="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<< "$badging")"
             if [ "$package_name" != "com.meteor.kikoeruflutter" ] || [ "$version_name" != "$EXPECTED_VERSION" ]; then
@@ -169,7 +187,7 @@ jobs:
             fi
           done
 
-          if [ "$arm64_code" -ne $((universal_code + 2000)) ]; then
+          if [ "$ARM64_ONLY" != "true" ] && [ "$arm64_code" -ne $((universal_code + 2000)) ]; then
             echo "::error::arm64 versionCode $arm64_code does not preserve the legacy split offset from $universal_code."
             exit 1
           fi
@@ -179,7 +197,7 @@ jobs:
             exit 1
           fi
 
-          for apk in "$universal_apk" "$arm64_apk"; do
+          for apk in "${apks[@]}"; do
             cert_output="$("$apksigner" verify --print-certs "$apk" 2>&1)"
             actual_cert="$(
               printf '%s\n' "$cert_output" |
@@ -226,6 +244,7 @@ jobs:
 
       - name: Verify and publish Android release atomically
         env:
+          ARM64_ONLY: ${{ inputs.arm64_only }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.prepare.outputs.tag }}
@@ -235,8 +254,12 @@ jobs:
 
           expected=(
             "KikoFlu-android-arm64-v8a_${{ needs.prepare.outputs.suffix }}.apk"
-            "KikoFlu-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
           )
+          if [ "$ARM64_ONLY" != "true" ]; then
+            expected+=(
+              "KikoFlu-android-universe_${{ needs.prepare.outputs.suffix }}.apk"
+            )
+          fi
 
           for asset in "${expected[@]}"; do
             path="release-assets/$asset"

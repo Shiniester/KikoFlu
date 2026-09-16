@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
@@ -86,6 +87,20 @@ void main() {
     if (await outputRoot.exists()) {
       await outputRoot.delete(recursive: true);
     }
+    await outputRoot.create(recursive: true);
+    final artworkData = await rootBundle.load(
+      'assets/icons/app_icon_opaque.png',
+    );
+    final artworkFile = File(
+      '${outputRoot.path}${Platform.pathSeparator}player_route_artwork.png',
+    );
+    await artworkFile.writeAsBytes(
+      artworkData.buffer.asUint8List(
+        artworkData.offsetInBytes,
+        artworkData.lengthInBytes,
+      ),
+      flush: true,
+    );
 
     try {
       await tester.pumpWidget(
@@ -99,6 +114,7 @@ void main() {
               key: harnessKey,
               adapter: adapter,
               works: works,
+              artworkFilePath: artworkFile.path,
             ),
           ),
         ),
@@ -146,25 +162,8 @@ void main() {
 
       harnessKey.currentState!.selectTab(2);
       await tester.pump(const Duration(milliseconds: 500));
-      recorder.beginScenario('player');
-      for (var tick = 0; tick < 300; tick++) {
-        harnessKey.currentState!.advancePlayback();
-        await tester.pump(const Duration(milliseconds: 16));
-      }
-      final uiSwitchLatencies = <double>[];
-      for (var index = 0; index < manifest.trackSwitches; index++) {
-        final stopwatch = Stopwatch()..start();
-        harnessKey.currentState!.switchTrack();
-        await tester.pump();
-        stopwatch.stop();
-        uiSwitchLatencies.add(stopwatch.elapsedMicroseconds / 1000);
-      }
-      recorder
-        ..endScenario()
-        ..recordMetric(
-          'playerStateSwitchLatencyMs',
-          _median(uiSwitchLatencies),
-        );
+      await _measureAutomaticPlayerRoutes(tester, recorder);
+      await _measureInteractivePlayerRoutes(tester, recorder);
 
       final subtitleRoot = manifest.resolvePath(
         manifestPath,
@@ -228,10 +227,12 @@ class _ProfileHarness extends StatefulWidget {
     super.key,
     required this.adapter,
     required this.works,
+    required this.artworkFilePath,
   });
 
   final PerformanceScenarioAdapter adapter;
   final List<Map<String, dynamic>> works;
+  final String artworkFilePath;
 
   @override
   State<_ProfileHarness> createState() => _ProfileHarnessState();
@@ -239,8 +240,6 @@ class _ProfileHarness extends StatefulWidget {
 
 class _ProfileHarnessState extends State<_ProfileHarness> {
   final Set<int> _visitedTabs = {0};
-  final ValueNotifier<int> _position = ValueNotifier(0);
-  final ValueNotifier<int> _track = ValueNotifier(0);
   int _selectedTab = 0;
 
   void selectTab(int index) {
@@ -248,20 +247,6 @@ class _ProfileHarnessState extends State<_ProfileHarness> {
       _selectedTab = index;
       _visitedTabs.add(index);
     });
-  }
-
-  void advancePlayback() => _position.value++;
-
-  void switchTrack() {
-    _track.value++;
-    _position.value = 0;
-  }
-
-  @override
-  void dispose() {
-    _position.dispose();
-    _track.dispose();
-    super.dispose();
   }
 
   @override
@@ -273,7 +258,7 @@ class _ProfileHarnessState extends State<_ProfileHarness> {
         children: [
           _ProfileHome(works: widget.works),
           widget.adapter.buildDownloads(),
-          widget.adapter.buildPlayer(position: _position, track: _track),
+          widget.adapter.buildPlayer(artworkFilePath: widget.artworkFilePath),
         ],
       ),
     );
@@ -309,6 +294,108 @@ class _ProfileHome extends StatelessWidget {
       ),
     );
   }
+}
+
+const _profileRouteCycles = 5;
+const _minimumRouteFrameSamples = 200;
+
+Future<void> _measureAutomaticPlayerRoutes(
+  WidgetTester tester,
+  PerformanceRecorder recorder,
+) async {
+  const scenario = 'playerRouteAutomatic';
+  recorder.beginScenario(scenario);
+  for (var cycle = 0; cycle < _profileRouteCycles; cycle++) {
+    await tester.tap(find.byKey(const ValueKey('mini-player-artwork-frame')));
+    await _pumpRouteAnimation(tester);
+    expect(find.byKey(const ValueKey('compact-player-layout')), findsOneWidget);
+
+    Navigator.of(
+      tester.element(find.byKey(const ValueKey('compact-player-layout'))),
+    ).pop();
+    await _pumpRouteAnimation(tester);
+    expect(
+      find.byKey(const ValueKey('mini-player-upward-launcher')),
+      findsOneWidget,
+    );
+  }
+  await _endMeasuredScenario(tester, recorder, scenario);
+}
+
+Future<void> _measureInteractivePlayerRoutes(
+  WidgetTester tester,
+  PerformanceRecorder recorder,
+) async {
+  const scenario = 'playerRouteInteractive';
+  recorder.beginScenario(scenario);
+  for (var cycle = 0; cycle < _profileRouteCycles; cycle++) {
+    final launcher = find.byKey(const ValueKey('mini-player-upward-launcher'));
+
+    final cancelledOpen = await tester.startGesture(tester.getCenter(launcher));
+    for (var step = 0; step < 6; step++) {
+      await cancelledOpen.moveBy(const Offset(0, -12));
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await cancelledOpen.cancel();
+    await _pumpRouteAnimation(tester);
+    expect(find.byKey(const ValueKey('compact-player-layout')), findsNothing);
+
+    final open = await tester.startGesture(tester.getCenter(launcher));
+    for (var step = 0; step < 14; step++) {
+      await open.moveBy(const Offset(0, -16));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await open.up();
+    await _pumpRouteAnimation(tester);
+    expect(find.byKey(const ValueKey('compact-player-layout')), findsOneWidget);
+
+    final header = find.byKey(const ValueKey('compact-header-dismiss-surface'));
+    final cancelledDismiss = await tester.startGesture(
+      tester.getCenter(header),
+    );
+    for (var step = 0; step < 6; step++) {
+      await cancelledDismiss.moveBy(const Offset(0, 12));
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    await cancelledDismiss.up();
+    await _pumpRouteAnimation(tester);
+    expect(find.byKey(const ValueKey('compact-player-layout')), findsOneWidget);
+
+    final dismiss = await tester.startGesture(tester.getCenter(header));
+    for (var step = 0; step < 14; step++) {
+      await dismiss.moveBy(const Offset(0, 16));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await dismiss.up();
+    await _pumpRouteAnimation(tester);
+    expect(
+      find.byKey(const ValueKey('mini-player-upward-launcher')),
+      findsOneWidget,
+    );
+  }
+  await _endMeasuredScenario(tester, recorder, scenario);
+}
+
+Future<void> _pumpRouteAnimation(WidgetTester tester) async {
+  for (var frame = 0; frame < 32; frame++) {
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+}
+
+Future<void> _endMeasuredScenario(
+  WidgetTester tester,
+  PerformanceRecorder recorder,
+  String scenario,
+) async {
+  await tester.pump(const Duration(milliseconds: 16));
+  await tester.pump();
+  await Future<void>.delayed(Duration.zero);
+  final metrics = recorder.endScenario();
+  expect(
+    metrics['${scenario}FrameCount'],
+    greaterThanOrEqualTo(_minimumRouteFrameSamples),
+    reason: '$scenario did not capture enough FrameTiming samples',
+  );
 }
 
 Future<List<Map<String, dynamic>>> _readObjectList(String path) async {
@@ -390,12 +477,4 @@ Future<void> _waitForFirstInteractive(
     isNotNull,
     reason: 'the real KikoFlu bootstrap did not become interactive in 90 s',
   );
-}
-
-double _median(List<double> values) {
-  final sorted = List<double>.of(values)..sort();
-  final middle = sorted.length ~/ 2;
-  return sorted.length.isOdd
-      ? sorted[middle]
-      : (sorted[middle - 1] + sorted[middle]) / 2;
 }

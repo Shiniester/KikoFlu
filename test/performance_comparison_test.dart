@@ -166,14 +166,62 @@ void main() {
     expect(result.passed, isTrue);
   });
 
+  test('enforces player route improvement, samples, and jank gates', () {
+    final candidateMetrics = Map<String, double>.of(_passingMetrics)
+      ..['playerRouteAutomaticFrameP95Ms'] = 19
+      ..['playerRouteInteractiveFrameCount'] = 199
+      ..['playerRouteInteractiveJankyFrames'] = 5;
+
+    final result = comparePerformanceReports(
+      _report(
+        label: 'baseline',
+        revision: '1111111',
+        metrics: _baselineMetrics,
+      ),
+      _report(
+        label: 'candidate',
+        revision: '2222222',
+        metrics: candidateMetrics,
+      ),
+    );
+
+    expect(result.passed, isFalse);
+    expect(
+      result.metrics
+          .firstWhere(
+            (metric) => metric.name == 'playerRouteAutomaticFrameP95Ms',
+          )
+          .passed,
+      isFalse,
+    );
+    expect(
+      result.metrics
+          .firstWhere(
+            (metric) => metric.name == 'playerRouteInteractiveFrameCount',
+          )
+          .passed,
+      isFalse,
+    );
+    expect(
+      result.metrics
+          .firstWhere(
+            (metric) => metric.name == 'playerRouteInteractiveJankyFrames',
+          )
+          .passed,
+      isFalse,
+    );
+  });
+
   test('no-download regression gate allows at most five percent', () {
     final baselineMetrics = Map<String, double>.of(_baselineMetrics)
       ..removeWhere((name, _) => name.startsWith('download'))
       ..removeWhere((name, _) => isPlaybackSoakMetric(name));
     final passingCandidate = Map<String, double>.from(baselineMetrics)
-      ..['playerFrameP95Ms'] = baselineMetrics['playerFrameP95Ms']! * 1.05;
+      ..['playerRouteAutomaticFrameP95Ms'] =
+          baselineMetrics['playerRouteAutomaticFrameP95Ms']! * 1.05;
     final failingCandidate = Map<String, double>.from(passingCandidate)
-      ..['playerFrameP95Ms'] = baselineMetrics['playerFrameP95Ms']! * 1.051;
+      ..['playerRouteAutomaticFrameP95Ms'] =
+          baselineMetrics['playerRouteAutomaticFrameP95Ms']! * 1.051;
     final rules = noSignificantRegressionPerformanceRules(
       excludeDownloads: true,
       excludePlaybackSoak: true,
@@ -219,7 +267,8 @@ const _baselineMetrics = <String, double>{
   'coldStartMs': 1000,
   'firstInteractiveMs': 1200,
   'homeFrameP95Ms': 28,
-  'playerFrameP95Ms': 24,
+  'playerRouteAutomaticFrameP95Ms': 24,
+  'playerRouteInteractiveFrameP95Ms': 26,
   'scanDurationMs': 1000,
   'scanPeakPssMb': 500,
   'scanPeakPssDeltaMb': 200,
@@ -231,7 +280,10 @@ const _baselineMetrics = <String, double>{
   'trackSwitchMedianMs': 200,
   'trackSwitchP95Ms': 300,
   'homeJankyFrames': 5,
-  'playerJankyFrames': 3,
+  'playerRouteAutomaticJankyFrames': 3,
+  'playerRouteInteractiveJankyFrames': 4,
+  'playerRouteAutomaticFrameCount': 300,
+  'playerRouteInteractiveFrameCount': 500,
   'playbackUnexpectedBufferingCount': 0,
   'playbackErrorCount': 0,
   'cacheErrorCount': 0,
@@ -245,7 +297,8 @@ const _passingMetrics = <String, double>{
   'coldStartMs': 700,
   'firstInteractiveMs': 820,
   'homeFrameP95Ms': 16.5,
-  'playerFrameP95Ms': 15,
+  'playerRouteAutomaticFrameP95Ms': 17,
+  'playerRouteInteractiveFrameP95Ms': 18,
   'scanDurationMs': 700,
   'scanPeakPssMb': 510,
   'scanPeakPssDeltaMb': 140,
@@ -257,7 +310,10 @@ const _passingMetrics = <String, double>{
   'trackSwitchMedianMs': 120,
   'trackSwitchP95Ms': 200,
   'homeJankyFrames': 4,
-  'playerJankyFrames': 2,
+  'playerRouteAutomaticJankyFrames': 2,
+  'playerRouteInteractiveJankyFrames': 3,
+  'playerRouteAutomaticFrameCount': 300,
+  'playerRouteInteractiveFrameCount': 500,
   'playbackUnexpectedBufferingCount': 0,
   'playbackErrorCount': 0,
   'cacheErrorCount': 0,

@@ -107,6 +107,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   late final bool _directQueueEntry;
   int _semanticTransitionGeneration = 0;
   late final AnimationController _compactQueueTransitionController;
+  late bool _compactQueueStageBuilt;
   int _queueTransitionGeneration = 0;
   bool _queueDragActive = false;
   bool _queueDragOpening = false;
@@ -132,6 +133,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   void initState() {
     super.initState();
     _directQueueEntry = widget.initialSurface == PlayerInitialSurface.queue;
+    _compactQueueStageBuilt = _directQueueEntry;
     if (_directQueueEntry) _rightPane = PlayerRightPane.queue;
     _compactQueueTransitionController = AnimationController(
       vsync: this,
@@ -876,7 +878,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
               ),
             ],
           );
-          final queueStage = _buildQueuePane(context, isWide: false);
+          final queueStage = _compactQueueStageBuilt
+              ? _buildQueuePane(context, isWide: false)
+              : const SizedBox.expand(
+                  key: ValueKey('compact-queue-stage-placeholder'),
+                );
           return ClipRect(
             key: const ValueKey('compact-player-vertical-pages'),
             child: AnimatedBuilder(
@@ -1723,6 +1729,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     if (_rightPane == PlayerRightPane.queue) return;
     _captureQueueOrigin(compactOriginPage: compactOriginPage);
     setState(() {
+      _compactQueueStageBuilt = true;
       _rightPane = PlayerRightPane.queue;
     });
   }
@@ -1814,8 +1821,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     final request = ++_queueTransitionGeneration;
     _queueDragActive = false;
     _compactQueueTransitionController.stop();
-    if (!_queueTransitionActive) {
-      setState(() => _queueTransitionActive = true);
+    if (!_queueTransitionActive || !_compactQueueStageBuilt) {
+      setState(() {
+        _compactQueueStageBuilt = true;
+        _queueTransitionActive = true;
+      });
     }
     final target = open ? 1.0 : 0.0;
     final remaining = (_compactQueueTransitionController.value - target).abs();
@@ -1888,8 +1898,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     _queueDragActive = true;
     _queueDragOpening = true;
     _queueDragStartValue = _compactQueueTransitionController.value;
-    if (!_queueTransitionActive) {
-      setState(() => _queueTransitionActive = true);
+    if (!_queueTransitionActive || !_compactQueueStageBuilt) {
+      setState(() {
+        _compactQueueStageBuilt = true;
+        _queueTransitionActive = true;
+      });
     }
   }
 
