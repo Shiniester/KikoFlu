@@ -394,12 +394,14 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     Animation<double> animation,
     Widget child,
   ) {
+    final height = _viewportSize.height > 0
+        ? _viewportSize.height
+        : MediaQuery.sizeOf(context).height;
     return ClipRect(
       child: AnimatedBuilder(
         animation: animation,
         child: RepaintBoundary(child: child),
         builder: (context, child) {
-          final height = MediaQuery.sizeOf(context).height;
           return Transform.translate(
             key: const ValueKey('player-route-vertical-translation'),
             offset: Offset(0, height * (1 - animation.value)),

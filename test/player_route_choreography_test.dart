@@ -24,7 +24,7 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      for (final progress in <double>[0.2, 0.5, 0.8]) {
+      for (final progress in <double>[0.25, 0.5, 0.75]) {
         final actualProgress = await _setAutomaticVisualProgress(
           tester,
           route,
@@ -40,7 +40,7 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      for (final progress in <double>[0.8, 0.5, 0.2]) {
+      for (final progress in <double>[0.75, 0.5, 0.25]) {
         final actualProgress = await _setAutomaticVisualProgress(
           tester,
           route,
@@ -69,7 +69,7 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      for (final progress in <double>[0.2, 0.5, 0.8]) {
+      for (final progress in <double>[0.25, 0.5, 0.75]) {
         route.updateVerticalOpenGesture(
           distance: _viewportSize.height * progress,
           extent: _viewportSize.height,
@@ -91,7 +91,7 @@ void main() {
         isTrue,
       );
       await tester.pump();
-      for (final progress in <double>[0.8, 0.5, 0.2, 0.5]) {
+      for (final progress in <double>[0.75, 0.5, 0.25, 0.5]) {
         route.updateVerticalDismissGesture(
           distance: _viewportSize.height * (1 - progress),
           extent: _viewportSize.height,
@@ -123,7 +123,7 @@ void main() {
       await tester.pump();
       expect(find.byType(Hero, skipOffstage: false), findsNothing);
 
-      for (final progress in <double>[0.2, 0.5, 0.8]) {
+      for (final progress in <double>[0.25, 0.5, 0.75]) {
         final actualProgress = await _setAutomaticVisualProgress(
           tester,
           route,
@@ -138,7 +138,7 @@ void main() {
       navigatorKey.currentState!.pop();
       await tester.pump();
 
-      for (final progress in <double>[0.8, 0.5, 0.2]) {
+      for (final progress in <double>[0.75, 0.5, 0.25]) {
         final actualProgress = await _setAutomaticVisualProgress(
           tester,
           route,
@@ -153,6 +153,38 @@ void main() {
       expect(find.byType(_QueuePageFixture), findsNothing);
     },
   );
+
+  testWidgets('route page translation matches fixed progress samples', (
+    tester,
+  ) async {
+    final navigatorKey = await _pumpHost(tester, withCoverHero: false);
+    final route = AudioPlayerPageRoute<void>(
+      initialDismissVisualMode: PlayerDismissVisualMode.secondary,
+      builder: (_) => const _QueuePageFixture(),
+    );
+
+    unawaited(navigatorKey.currentState!.push<void>(route));
+    expect(route.beginVerticalOpenGesture(), isTrue);
+    await tester.pump();
+    await tester.pump();
+
+    for (final progress in <double>[0, 0.25, 0.5, 0.75, 1]) {
+      route.updateVerticalOpenGesture(
+        distance: _viewportSize.height * progress,
+        extent: _viewportSize.height,
+      );
+      await tester.pump();
+      expect(route.debugVisualValue, closeTo(progress, 0.001));
+      _expectQueueArtworkAttachedToPage(tester, progress);
+    }
+
+    final opened = route.endVerticalOpenGesture(
+      velocity: 0,
+      extent: _viewportSize.height,
+    );
+    await tester.pumpAndSettle();
+    expect(await opened, isTrue);
+  });
 }
 
 Future<GlobalKey<NavigatorState>> _pumpHost(

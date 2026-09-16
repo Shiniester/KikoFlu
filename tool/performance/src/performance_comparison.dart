@@ -35,8 +35,12 @@ const defaultPerformanceRules = <PerformanceMetricRule>[
     PerformanceRuleKind.improveBy25PercentOrFrameBudget,
   ),
   PerformanceMetricRule(
-    'playerFrameP95Ms',
-    PerformanceRuleKind.improveBy25PercentOrFrameBudget,
+    'playerRouteAutomaticFrameP95Ms',
+    PerformanceRuleKind.improveBy25Percent,
+  ),
+  PerformanceMetricRule(
+    'playerRouteInteractiveFrameP95Ms',
+    PerformanceRuleKind.improveBy25Percent,
   ),
   PerformanceMetricRule(
     'scanDurationMs',
@@ -79,7 +83,24 @@ const defaultPerformanceRules = <PerformanceMetricRule>[
     PerformanceRuleKind.improveBy25Percent,
   ),
   PerformanceMetricRule('homeJankyFrames', PerformanceRuleKind.noIncrease),
-  PerformanceMetricRule('playerJankyFrames', PerformanceRuleKind.noIncrease),
+  PerformanceMetricRule(
+    'playerRouteAutomaticJankyFrames',
+    PerformanceRuleKind.noIncrease,
+  ),
+  PerformanceMetricRule(
+    'playerRouteInteractiveJankyFrames',
+    PerformanceRuleKind.noIncrease,
+  ),
+  PerformanceMetricRule(
+    'playerRouteAutomaticFrameCount',
+    PerformanceRuleKind.minimum,
+    minimum: 200,
+  ),
+  PerformanceMetricRule(
+    'playerRouteInteractiveFrameCount',
+    PerformanceRuleKind.minimum,
+    minimum: 200,
+  ),
   PerformanceMetricRule(
     'playbackUnexpectedBufferingCount',
     PerformanceRuleKind.mustBeZero,
@@ -118,9 +139,17 @@ List<PerformanceMetricRule> noSignificantRegressionPerformanceRules({
       continue;
     }
     rules.add(switch (rule.name) {
-      'homeJankyFrames' || 'playerJankyFrames' => PerformanceMetricRule(
+      'homeJankyFrames' ||
+      'playerRouteAutomaticJankyFrames' ||
+      'playerRouteInteractiveJankyFrames' => PerformanceMetricRule(
         rule.name,
         PerformanceRuleKind.noIncrease,
+      ),
+      'playerRouteAutomaticFrameCount' ||
+      'playerRouteInteractiveFrameCount' => PerformanceMetricRule(
+        rule.name,
+        PerformanceRuleKind.minimum,
+        minimum: rule.minimum,
       ),
       'playbackUnexpectedBufferingCount' ||
       'playbackErrorCount' ||
