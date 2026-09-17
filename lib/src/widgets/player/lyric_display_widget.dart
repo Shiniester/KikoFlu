@@ -283,6 +283,7 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
   double? _lastItemExtent;
   int? _tapFeedbackIndex;
   int? _tapFeedbackDedupeIndex;
+  bool _tickersEnabled = true;
 
   @override
   void initState() {
@@ -305,6 +306,37 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.enableLineTapFeedback && !widget.enableLineTapFeedback) {
       _clearTapFeedbackState(notify: false);
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final enabled = TickerMode.valuesOf(context).enabled;
+    if (_tickersEnabled && !enabled) {
+      final generation = ++_scrollGeneration;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted ||
+            generation != _scrollGeneration ||
+            !_scrollController.hasClients) {
+          return;
+        }
+        // Cancel the running scroll instead of replaying it when visible again.
+        _scrollController.jumpTo(_scrollController.offset);
+      });
+    }
+    final becameVisible = !_tickersEnabled && enabled;
+    _tickersEnabled = enabled;
+    if (becameVisible &&
+        !_isUserBrowsing &&
+        _latestIndex >= 0 &&
+        _lastItemExtent != null) {
+      _positionCurrentLine(
+        _latestIndex,
+        _lastItemExtent!,
+        animate: false,
+        deferUntilLayout: false,
+      );
     }
   }
 
@@ -409,6 +441,7 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
     Duration duration = const Duration(milliseconds: 460),
     bool deferUntilLayout = true,
   }) {
+    if (!_tickersEnabled) return;
     final generation = ++_scrollGeneration;
     Future<void> position() async {
       if (!mounted ||
@@ -514,7 +547,11 @@ class _ThreeLineLyricDisplayState extends ConsumerState<ThreeLineLyricDisplay>
     final lyrics = ref.watch(
       lyricControllerProvider.select((state) => state.displayLyrics),
     );
-    final index = ref.watch(currentLyricIndexProvider);
+    ref.listen<int>(currentLyricIndexProvider, (_, index) {
+      _latestIndex = index;
+      if (_tickersEnabled) setState(() {});
+    });
+    final index = ref.read(currentLyricIndexProvider);
     final settings = ref.watch(playerLyricSettingsProvider);
     if (lyrics.isEmpty) {
       _clearTapFeedbackState(notify: false);

@@ -82,4 +82,38 @@ void main() {
       throwsFormatException,
     );
   });
+
+  test('parses local audio fixture modes and resolves staged paths', () {
+    final manifest = PerformanceAudioFixtureManifest.fromJson(const {
+      'fixtureVersion': 1,
+      'tracks': [
+        {
+          'id': 'downloaded-wav',
+          'title': '大音频_测试.wav',
+          'path': '大音频_测试.wav',
+          'mode': 'downloaded',
+          'sizeClass': 'large',
+        },
+        {
+          'id': 'cached-flac',
+          'title': 'cached.flac',
+          'path': 'cached.audio',
+          'mode': 'cache',
+          'hash': 'cache-hash',
+        },
+      ],
+    });
+
+    expect(manifest.tracks, hasLength(2));
+    expect(
+      manifest
+          .resolvePath(
+            '/data/user/0/app/files/manifest.json',
+            manifest.tracks[0],
+          )
+          .replaceAll('\\', '/'),
+      '/data/user/0/app/files/大音频_测试.wav',
+    );
+    expect(manifest.tracks[1].mode, 'cache');
+  });
 }

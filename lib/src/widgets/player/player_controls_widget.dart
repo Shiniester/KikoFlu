@@ -838,64 +838,68 @@ class PlayerProgressSection extends ConsumerWidget {
         ? Duration(milliseconds: (seekValue * dur.inMilliseconds).round())
         : pos;
 
-    return RepaintBoundary(
-      child: Column(
-        children: [
-          Listener(
-            key: const ValueKey('player-progress-gesture-target'),
-            behavior: HitTestBehavior.opaque,
-            onPointerDown: (_) => onInteractionChanged?.call(true),
-            onPointerUp: (_) => onInteractionChanged?.call(false),
-            onPointerCancel: (_) => onInteractionChanged?.call(false),
-            child: SizedBox(
-              height: 32,
-              child: SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  activeTrackColor: Theme.of(context).colorScheme.primary,
-                  thumbColor: Theme.of(context).colorScheme.primary,
-                  inactiveTrackColor: Theme.of(
-                    context,
-                  ).colorScheme.onSurfaceVariant.withValues(alpha: 0.15),
-                  trackHeight: 2,
-                  trackShape: const PlayerUniformSliderTrackShape(),
-                  thumbShape: const RoundSliderThumbShape(
-                    enabledThumbRadius: 4,
-                    disabledThumbRadius: 4,
+    return IgnorePointer(
+      key: const ValueKey('player-progress-loading-guard'),
+      ignoring: ref.watch(isTrackLoadingProvider).valueOrNull ?? false,
+      child: RepaintBoundary(
+        child: Column(
+          children: [
+            Listener(
+              key: const ValueKey('player-progress-gesture-target'),
+              behavior: HitTestBehavior.opaque,
+              onPointerDown: (_) => onInteractionChanged?.call(true),
+              onPointerUp: (_) => onInteractionChanged?.call(false),
+              onPointerCancel: (_) => onInteractionChanged?.call(false),
+              child: SizedBox(
+                height: 32,
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    activeTrackColor: Theme.of(context).colorScheme.primary,
+                    thumbColor: Theme.of(context).colorScheme.primary,
+                    inactiveTrackColor: Theme.of(
+                      context,
+                    ).colorScheme.onSurfaceVariant.withValues(alpha: 0.15),
+                    trackHeight: 2,
+                    trackShape: const PlayerUniformSliderTrackShape(),
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 4,
+                      disabledThumbRadius: 4,
+                    ),
+                    padding: EdgeInsets.zero,
                   ),
-                  padding: EdgeInsets.zero,
-                ),
-                child: Slider(
-                  key: const ValueKey('player-progress-slider'),
-                  value:
-                      (isSeekingManually
-                              ? seekValue
-                              : dur.inMilliseconds > 0
-                              ? pos.inMilliseconds / dur.inMilliseconds
-                              : 0.0)
-                          .clamp(0.0, 1.0),
-                  onChanged: onSeekChanged,
-                  onChangeEnd: onSeekEnd,
+                  child: Slider(
+                    key: const ValueKey('player-progress-slider'),
+                    value:
+                        (isSeekingManually
+                                ? seekValue
+                                : dur.inMilliseconds > 0
+                                ? pos.inMilliseconds / dur.inMilliseconds
+                                : 0.0)
+                            .clamp(0.0, 1.0),
+                    onChanged: onSeekChanged,
+                    onChangeEnd: onSeekEnd,
+                  ),
                 ),
               ),
             ),
-          ),
-          Padding(
-            padding: EdgeInsets.zero,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  formatDuration(displayPos, padHours: false),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                Text(
-                  formatDuration(dur, padHours: false),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+            Padding(
+              padding: EdgeInsets.zero,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    formatDuration(displayPos, padHours: false),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  Text(
+                    formatDuration(dur, padHours: false),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
