@@ -328,6 +328,32 @@ void main() {
             }
           }
         }
+        if (control['seekChecks'] == true) {
+          for (var i = 0; i < tracks.length; i++) {
+            if (manifest.tracks[i].sizeClass != 'large') continue;
+            await service.skipToIndex(i);
+            await _waitForPlayback(tester, service, tracks[i].id);
+            await tester.pump(const Duration(seconds: 1));
+            final duration = service.duration;
+            if (duration == null || duration <= const Duration(seconds: 10)) {
+              throw StateError('Large audio fixture has no usable duration');
+            }
+            for (final fraction in [0.25, 0.80, 0.10]) {
+              final check = await _checkSeekPlayback(
+                tester,
+                service,
+                tracks[i].id,
+                Duration(
+                  milliseconds: (duration.inMilliseconds * fraction).round(),
+                ),
+              );
+              checks.add(check);
+              if (check['passed'] != true) {
+                throw StateError('Seek did not resume for ${tracks[i].id}');
+              }
+            }
+          }
+        }
         final soak = (control['soakSeconds'] as num?)?.toInt() ?? 0;
         if (soak > 0) {
           final soakIndex = (control['soakIndex'] as num?)?.toInt() ?? 0;
@@ -388,6 +414,69 @@ void main() {
       }
     }
   }, timeout: const Timeout(Duration(minutes: 20)));
+}
+
+Future<Map<String, Object?>> _checkSeekPlayback(
+  WidgetTester tester,
+  AudioPlayerService service,
+  String trackId,
+  Duration target,
+) async {
+  final watch = Stopwatch()..start();
+  final events = <Map<String, Object?>>[];
+  Map<String, Object?> snapshot() => {
+    'elapsedMs': watch.elapsedMilliseconds,
+    'trackId': service.currentTrack?.id,
+    'positionMs': service.position.inMilliseconds,
+    'durationMs': service.duration?.inMilliseconds,
+    'playing': service.playing,
+    'processingState': service.playerState.processingState.name,
+    'loading': service.isTrackLoading,
+  };
+  final subscription = service.playerStateStream.listen((_) {
+    events.add(snapshot());
+  });
+  final check = <String, Object?>{
+    'case': 'seek-$trackId',
+    'targetMs': target.inMilliseconds,
+    'before': snapshot(),
+    'passed': false,
+  };
+  service.debugClearPlaybackDiagnostics();
+  try {
+    await service.seek(target).timeout(const Duration(seconds: 12));
+    check['seekReturnedMs'] = watch.elapsedMilliseconds;
+    final resumeWatch = Stopwatch()..start();
+    while (resumeWatch.elapsed < const Duration(seconds: 8)) {
+      if (service.currentTrack?.id == trackId &&
+          service.playing &&
+          service.playerState.processingState == ProcessingState.ready &&
+          service.position >= target + const Duration(milliseconds: 500)) {
+        break;
+      }
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    final resumedPosition = service.position;
+    await tester.pump(const Duration(seconds: 1));
+    final advanced = service.position - resumedPosition;
+    check['advancedAfterSeekMs'] = advanced.inMilliseconds;
+    check['passed'] =
+        service.currentTrack?.id == trackId &&
+        service.playing &&
+        service.playerState.processingState == ProcessingState.ready &&
+        resumedPosition >= target + const Duration(milliseconds: 500) &&
+        advanced >= const Duration(milliseconds: 700);
+  } catch (error) {
+    check['errorType'] = error.runtimeType.toString();
+  } finally {
+    check['after'] = snapshot();
+    check['stateEvents'] = events;
+    check['diagnostics'] = service.debugPlaybackDiagnostics
+        .map((event) => event.toJson())
+        .toList();
+    await subscription.cancel();
+  }
+  return check;
 }
 
 Future<void> _wait(WidgetTester tester, bool Function() predicate) async {

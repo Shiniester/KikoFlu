@@ -60,6 +60,8 @@ python tool/performance/run_player_profile.py candidate_audio --device <device> 
 python tool/performance/run_player_profile.py candidate_stop --device <device> --no-ui --stop
 python tool/performance/run_player_profile.py candidate_checks --device <device> `
   --rounds 1 --no-ui --races --audio-repeats 4 --soak 120 --soak-index 1
+python tool/performance/run_player_profile.py candidate_seeks --device <device> `
+  --rounds 1 --no-ui --seeks
 python tool/performance/summarize_player_profile.py baseline candidate baseline_audio candidate_audio candidate_stop `
   --output build/player_performance/summary.json
 ```
@@ -68,6 +70,11 @@ python tool/performance/summarize_player_profile.py baseline candidate baseline_
 `--races` 在大文件加载中连续请求
 A/B/C，校验最终曲目、发布事件、错误和完整缓存是否保留。连续播放期间另做实听，
 记录有无断音、旧曲目短暂恢复以及声道或音量变化。
+
+`--seeks` 对每个大文件（含完整缓存）在正常播放后依次跳到 25%、80%、10%，
+记录 seek 返回时间、状态变化、诊断错误和随后一秒的位置推进。位置由 just_audio
+外推，状态与进度通过仍需实听确认。跳转失败会令脚本退出；该场景与切歌、连续
+播放分别验收。
 
 ## 计时口径
 
@@ -94,5 +101,20 @@ v4.4.16，覆盖展开、部分切页、拖拽反向和交接。检查 Hero、�
 动画 UI/raster P95 达到设备预算或改善至少 25%；已达预算的场景回退不超过 5%，
 卡顿比例不增加。大文件切换中位数/P95 改善至少 25%。显式停止策略只有大文件
 两项均改善 25%、小文件回退不超过 5% 才采用。测量未达门槛时直接记录结果。
+
+Android 本地文件 seek 监听原生错误事件；错误或等待超过 8 秒时，由现有请求
+协调器停止旧原生实例，并以 `initialPosition` 重载当前音源一次。同位置或已到
+文件末尾且状态匹配的跳转允许没有 READY 回调。恢复不重新发布曲目，不删除
+完整缓存；正常完成的 seek 不换源。暂停、停止和新曲目选择始终保留最终意图。
+恢复加载失败向调用方返回错误，不循环重试。
+
+本机契约回归：
+
+```powershell
+flutter test --no-pub test/audio_player_seek_recovery_test.dart `
+  test/audio_player_latest_request_test.dart test/android_audio_backend_guard_test.dart `
+  test/playback_session_restore_failure_test.dart test/playback_history_service_test.dart `
+  test/playback_session_store_test.dart
+```
 
 本次实测与限制见 [播放器性能报告](player-performance-results.md)。

@@ -19,6 +19,7 @@ def main():
     parser.add_argument('--no-audio', action='store_true')
     parser.add_argument('--stop', action='store_true')
     parser.add_argument('--races', action='store_true')
+    parser.add_argument('--seeks', action='store_true')
     parser.add_argument('--soak', type=int, default=0)
     parser.add_argument('--soak-index', type=int, default=0)
     parser.add_argument('--audio-repeats', type=int, default=2)
@@ -44,6 +45,7 @@ def main():
             label=args.label, run=number, cycles=4, audioRepeats=args.audio_repeats,
             ui=not args.no_ui, audio=not args.no_audio, stopBeforeSwitch=args.stop,
             raceChecks=args.races, enforceLatest=args.races and args.label.startswith('candidate'),
+            seekChecks=args.seeks,
             soakSeconds=args.soak, soakIndex=args.soak_index,
         )
         environment = {
@@ -84,6 +86,8 @@ def main():
                 for check in report['checks']:
                     if check['case'] == 'harnessFailure':
                         raise RuntimeError(check['error'])
+                    if check['case'].startswith('seek-') and not check['passed']:
+                        raise RuntimeError(f'Seek playback check failed: {check}')
                     if control['enforceLatest'] and 'expected' in check:
                         if (check['actual'] != check['expected'] or
                                 check['published'] != [check['expected']] or

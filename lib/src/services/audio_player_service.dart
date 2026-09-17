@@ -172,9 +172,11 @@ class AudioPlayerService {
     AudioPlayer player, {
     PlaybackSessionStore sessionStore =
         const SharedPreferencesPlaybackSessionStore(),
+    bool androidSeekRecovery = false,
   }) {
     _player = player;
     _playbackSessionStore = sessionStore;
+    _androidSeekRecovery = androidSeekRecovery;
   }
 
   AndroidLoudnessEnhancer? _androidLoudnessEnhancer;
@@ -206,6 +208,10 @@ class AudioPlayerService {
   AudioTrack? _resumeTrack;
   bool _desiredPlaying = false;
   bool _sourceNeedsReload = false;
+  bool _androidSeekRecovery = Platform.isAndroid;
+  int _seekRevision = 0;
+  Completer<void>? _seekCancellation;
+  static const _localSeekTimeout = Duration(seconds: 8);
   Future<void>? _stopOperation;
   int _mediaItemRevision = 0;
   int _committedTrackGeneration = 0;
@@ -653,6 +659,8 @@ class AudioPlayerService {
     required bool autoplay,
     required PlayerTrackChangeDirection direction,
     Future<void> Function(_TrackLoadRequest request)? beforeCommit,
+    AudioSource? sourceToReload,
+    Duration? initialPosition,
   }) {
     if (_disposed) throw StateError('AudioPlayerService is disposed');
 
@@ -662,11 +670,14 @@ class AudioPlayerService {
       emitCurrentTrack: emitCurrentTrack,
       direction: direction,
       beforeCommit: beforeCommit,
+      sourceToReload: sourceToReload,
+      initialPosition: initialPosition,
       performanceRequestId: PerformanceRecorder.instance.beginPlaybackRequest(
         track.id,
         mode: _performanceModeForTrack(track),
       ),
     );
+    _cancelPendingSeek();
     final pending = _latestTrackLoad;
     if (pending != null) {
       pending.superseded = true;
@@ -766,6 +777,7 @@ class AudioPlayerService {
 
   Future<bool> _invalidateTrackLoads() async {
     ++_trackLoadGeneration;
+    _cancelPendingSeek();
     final pending = _latestTrackLoad;
     if (pending != null) {
       pending.superseded = true;
@@ -898,6 +910,29 @@ class AudioPlayerService {
     }
 
     try {
+      final sourceToReload = request.sourceToReload;
+      if (sourceToReload != null) {
+        // A failed Android seek can leave both the decoder and its method
+        // result stuck. Deactivate the native player before preparing the same
+        // source at the target; a second post-load seek would repeat that path.
+        // Keep the cache lease: a seek failure does not mean a corrupt file.
+        _sourceNeedsReload = true;
+        final stopping = _player.stop();
+        // A failed stop rejects this recovery, but must not leave a rejected
+        // barrier that would prevent the next requested track from loading.
+        _nativeLoadCancel = stopping.catchError((Object error) {
+          _log.captureOutput('[Audio] Seek recovery stop failed: $error');
+        });
+        await stopping;
+        _ensureCurrentTrackLoad(request);
+        await _setAudioSourceForTrackLoad(
+          request,
+          sourceToReload,
+          initialPosition: request.initialPosition,
+        );
+        _hapticsService.seek(request.initialPosition!);
+        return;
+      }
       if (localPath != null || track.hash == null || track.hash!.isEmpty) {
         await _cancelNextTrackPreload();
         _ensureCurrentTrackLoad(request);
@@ -1060,13 +1095,14 @@ class AudioPlayerService {
 
   Future<void> _setAudioSourceForTrackLoad(
     _TrackLoadRequest request,
-    AudioSource source,
-  ) async {
+    AudioSource source, {
+    Duration? initialPosition,
+  }) async {
     _ensureCurrentTrackLoad(request);
     _sourceNeedsReload = true;
     _nativeLoadInFlight = true;
     try {
-      await _player.setAudioSource(source);
+      await _player.setAudioSource(source, initialPosition: initialPosition);
     } finally {
       _nativeLoadInFlight = false;
     }
@@ -1492,11 +1528,87 @@ class AudioPlayerService {
       _completionHandled = false;
     }
     final generation = _trackLoadGeneration;
-    await _player.seek(position);
-    if (generation != _trackLoadGeneration) return;
+    final revision = ++_seekRevision;
+    _cancelPendingSeek();
+    bool isCurrentSeek() =>
+        !_disposed &&
+        generation == _trackLoadGeneration &&
+        revision == _seekRevision;
+
+    final source = _androidSeekRecovery ? _player.audioSource : null;
+    if (source is UriAudioSource && source.uri.scheme == 'file') {
+      final previousPosition = _player.position;
+      final cancellation = Completer<void>();
+      _seekCancellation = cancellation;
+      final nativeError = Completer<void>();
+      // just_audio 0.9.44 reports Android seek errors on this stream without
+      // completing seek(). Its derived playerStateStream discards the errors.
+      final subscription = _player.playbackEventStream.listen(
+        (_) {},
+        onError: (Object error, StackTrace stackTrace) {
+          if (!nativeError.isCompleted) {
+            nativeError.completeError(error, stackTrace);
+          }
+        },
+      );
+      try {
+        await Future.any<void>([
+          _player.seek(position),
+          nativeError.future,
+          cancellation.future,
+        ]).timeout(_localSeekTimeout);
+      } catch (error) {
+        if (!isCurrentSeek()) return;
+        // No-op and end-of-track seeks may have no READY transition to finish
+        // the native callback. A distant seek with stale READY is not success.
+        final readyWithoutCallback =
+            error is TimeoutException &&
+            ((_player.processingState == ProcessingState.ready &&
+                    position.inMilliseconds ==
+                        previousPosition.inMilliseconds) ||
+                (_player.processingState == ProcessingState.completed &&
+                    _player.duration != null &&
+                    position >= _player.duration!));
+        if (!readyWithoutCallback) {
+          _emitPlaybackDiagnostic(
+            PlaybackDiagnosticEventType.playbackError,
+            currentTrack,
+            error: error,
+          );
+          final track = currentTrack;
+          if (track == null) rethrow;
+          final recovery = _enqueueTrackLoad(
+            track,
+            emitCurrentTrack: false,
+            autoplay: _desiredPlaying && _player.playing,
+            direction: PlayerTrackChangeDirection.none,
+            sourceToReload: source,
+            initialPosition: position,
+          );
+          await recovery.future;
+          return;
+        }
+      } finally {
+        await subscription.cancel();
+        if (identical(_seekCancellation, cancellation)) {
+          _seekCancellation = null;
+        }
+      }
+    } else {
+      await _player.seek(position);
+    }
+    if (!isCurrentSeek()) return;
     _hapticsService.seek(position);
     _updatePlaybackState();
     await persistPlaybackPosition();
+  }
+
+  void _cancelPendingSeek() {
+    final cancellation = _seekCancellation;
+    _seekCancellation = null;
+    if (cancellation != null && !cancellation.isCompleted) {
+      cancellation.complete();
+    }
   }
 
   Future<void> seekForward(Duration duration) async {
@@ -2413,6 +2525,8 @@ class _TrackLoadRequest {
     required this.direction,
     required this.beforeCommit,
     required this.performanceRequestId,
+    this.sourceToReload,
+    this.initialPosition,
   });
 
   final int generation;
@@ -2420,6 +2534,8 @@ class _TrackLoadRequest {
   final bool emitCurrentTrack;
   final PlayerTrackChangeDirection direction;
   final Future<void> Function(_TrackLoadRequest request)? beforeCommit;
+  final AudioSource? sourceToReload;
+  final Duration? initialPosition;
   final Completer<void> completer = Completer<void>();
   bool superseded = false;
   final int? performanceRequestId;
