@@ -329,6 +329,25 @@ void main() {
           }
         }
         if (control['seekChecks'] == true) {
+          // Use live playback providers so the production Slider, controller,
+          // persistence path and native player participate in the same seek.
+          await tester.pumpWidget(
+            ProviderScope(
+              key: const ValueKey('player-seek-profile'),
+              overrides: [lyricAutoLoaderProvider.overrideWith((ref) {})],
+              child: MaterialApp(
+                navigatorKey: navigator,
+                locale: const Locale('en'),
+                localizationsDelegates: S.localizationsDelegates,
+                supportedLocales: S.supportedLocales,
+                theme: ThemeData.dark(useMaterial3: true),
+                home: const Scaffold(bottomNavigationBar: MiniPlayer()),
+              ),
+            ),
+          );
+          await tester.pump(const Duration(milliseconds: 500));
+          await tester.tap(launcher);
+          await tester.pump(const Duration(milliseconds: 650));
           for (var i = 0; i < tracks.length; i++) {
             if (manifest.tracks[i].sizeClass != 'large') continue;
             await service.skipToIndex(i);
@@ -438,24 +457,41 @@ Future<Map<String, Object?>> _checkSeekPlayback(
   });
   final check = <String, Object?>{
     'case': 'seek-$trackId',
+    'input': 'player-progress-slider',
     'targetMs': target.inMilliseconds,
     'before': snapshot(),
     'passed': false,
   };
   service.debugClearPlaybackDiagnostics();
   try {
-    await service.seek(target).timeout(const Duration(seconds: 12));
-    check['seekReturnedMs'] = watch.elapsedMilliseconds;
+    final slider = find.byKey(const ValueKey('player-progress-slider'));
+    final sliderWidget = tester.widget<Slider>(slider);
+    final theme = SliderTheme.of(tester.element(slider));
+    // The production slider's zero padding makes its track span these bounds.
+    expect(theme.padding, EdgeInsets.zero);
+    final track = tester.getRect(slider);
+    Offset point(double fraction) => Offset(
+      track.left + track.width * fraction,
+      track.center.dy,
+    );
+    final gesture = await tester.startGesture(point(sliderWidget.value));
+    await gesture.moveTo(
+      point(target.inMilliseconds / service.duration!.inMilliseconds),
+    );
+    await tester.pump(const Duration(milliseconds: 50));
+    await gesture.up();
     final resumeWatch = Stopwatch()..start();
-    while (resumeWatch.elapsed < const Duration(seconds: 8)) {
+    // Seek, recovery stop, prepare, and cancellation each have an 8s budget.
+    while (resumeWatch.elapsed < const Duration(seconds: 35)) {
+      await tester.pump(const Duration(milliseconds: 50));
       if (service.currentTrack?.id == trackId &&
           service.playing &&
           service.playerState.processingState == ProcessingState.ready &&
           service.position >= target + const Duration(milliseconds: 500)) {
         break;
       }
-      await tester.pump(const Duration(milliseconds: 50));
     }
+    check['positionAdvancingMs'] = watch.elapsedMilliseconds;
     final resumedPosition = service.position;
     await tester.pump(const Duration(seconds: 1));
     final advanced = service.position - resumedPosition;
@@ -465,9 +501,12 @@ Future<Map<String, Object?>> _checkSeekPlayback(
         service.playing &&
         service.playerState.processingState == ProcessingState.ready &&
         resumedPosition >= target + const Duration(milliseconds: 500) &&
+        resumedPosition < target + const Duration(seconds: 5) &&
         advanced >= const Duration(milliseconds: 700);
-  } catch (error) {
+  } catch (error, stack) {
     check['errorType'] = error.runtimeType.toString();
+    check['error'] = error.toString();
+    check['stack'] = stack.toString();
   } finally {
     check['after'] = snapshot();
     check['stateEvents'] = events;

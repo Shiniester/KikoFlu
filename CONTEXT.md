@@ -65,6 +65,11 @@ from the latest requested position. Only the winning request publishes a track;
 canceling a load does not make a complete cache entry corrupt.
 _Avoid_: Cover transition, title animation
 
+**Playback Position Jump (播放进度跳转)**:
+Moving to a selected time within the current track from the player's progress
+control or lyrics. The current track and its queue position remain the same.
+_Avoid_: Track Switch, 曲目切换
+
 **Track Presentation Transition (曲目视觉过渡)**:
 The existing cover and title animation after a committed track is published.
 Its direction follows the accepted playback request. It is separate from source

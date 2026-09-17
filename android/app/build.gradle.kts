@@ -74,10 +74,10 @@ flutter {
 }
 
 // just_audio 0.9.44 is compiled against Media3 1.4.1. Keep all Media3
-// artifacts aligned on 1.6.1, which contains the 32-bit FLAC extractor fix,
-// while retaining Android's native AudioTrack playback backend.
+// artifacts aligned on 1.8.0, which ignores empty FLAC seek tables and uses
+// binary search seeking (androidx/media#2327). Retain native AudioTrack playback.
 dependencies {
-    val media3Version = "1.6.1"
+    val media3Version = "1.8.0"
     implementation("androidx.media3:media3-exoplayer:$media3Version")
     implementation("androidx.media3:media3-exoplayer-dash:$media3Version")
     implementation("androidx.media3:media3-exoplayer-hls:$media3Version")

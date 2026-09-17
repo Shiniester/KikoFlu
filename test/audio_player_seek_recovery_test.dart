@@ -45,6 +45,7 @@ void main() {
       player,
       sessionStore: MemorySessionStore(),
       androidSeekRecovery: true,
+      localSeekTimeout: const Duration(milliseconds: 100),
     );
     service.updatePreloadThreshold(null);
     await service.updateQueue([track], autoplay: true);
@@ -90,7 +91,198 @@ void main() {
   });
 
   test(
-    'a local seek stuck buffering recovers once after eight seconds',
+    'a native error after seek returns reloads at the target on play',
+    () async {
+      const target = Duration(minutes: 2);
+      final seeking = service.seek(target);
+      player.finishSeek();
+      await seeking;
+      player.processingState = ProcessingState.buffering;
+      player.failSeek();
+      await Future<void>.delayed(Duration.zero);
+      expect(player.playing, isFalse);
+      expect(player.reloadPositions, isEmpty);
+      expect(service.isTrackLoading, isFalse);
+      await service.pause();
+      await service.play();
+      expect(player.reloadPositions, [target]);
+      expect(player.position, target);
+      expect(player.processingState, ProcessingState.ready);
+      expect(player.playing, isTrue);
+      expect(service.currentTrack, track);
+    },
+  );
+
+  test(
+    'a stalled recovery load times out and can be retried at the target',
+    () async {
+      const target = Duration(minutes: 2);
+      player.holdNextLoad = true;
+      final seeking = service.seek(target);
+      final failure = expectLater(
+        seeking.timeout(const Duration(seconds: 2)),
+        throwsA(isA<TimeoutException>()),
+      );
+      player.failSeek();
+      await until(() => player.pendingLoad != null);
+      await failure;
+      expect(service.isTrackLoading, isFalse);
+      expect(player.playing, isFalse);
+      expect(player.stopCount, 2);
+      await service.play();
+      expect(player.reloadPositions, [target, target]);
+      expect(player.position, target);
+      expect(player.processingState, ProcessingState.ready);
+      expect(player.playing, isTrue);
+    },
+  );
+
+  test('an error arriving with the seek reply is still recovered', () async {
+    const target = Duration(minutes: 2);
+    final seeking = service.seek(target);
+    player.finishSeek();
+    player.failSeek();
+    await seeking;
+    expect(player.reloadPositions, [target]);
+    expect(player.processingState, ProcessingState.ready);
+    expect(player.playing, isTrue);
+  });
+
+  test(
+    'late errors while paused wait for explicit play without retrying',
+    () async {
+      const target = Duration(minutes: 2);
+      await service.pause();
+      final seeking = service.seek(target);
+      player.finishSeek();
+      await seeking;
+      player.failSeek();
+      player.failSeek();
+      await Future<void>.delayed(Duration.zero);
+      expect(player.playing, isFalse);
+      expect(player.reloadPositions, isEmpty);
+      await service.play();
+      expect(player.reloadPositions, [target]);
+      player.failSeek();
+      await Future<void>.delayed(Duration.zero);
+      expect(player.playing, isFalse);
+      expect(player.reloadPositions, [target]);
+      await service.play();
+      expect(player.reloadPositions, [target, target]);
+      expect(player.position, target);
+      expect(player.playing, isTrue);
+    },
+  );
+
+  test(
+    'a stalled recovery stop fails without releasing the native barrier',
+    () async {
+      final gate = Completer<void>();
+      player.stopGate = gate;
+      addTearDown(() {
+        if (!gate.isCompleted) gate.complete();
+      });
+      const target = Duration(minutes: 2);
+      final seeking = service.seek(target);
+      final failure = expectLater(seeking, throwsA(isA<TimeoutException>()));
+      player.failSeek();
+      await failure;
+      expect(service.isTrackLoading, isFalse);
+      expect(player.reloadPositions, isEmpty);
+      await expectLater(service.play(), throwsA(isA<TimeoutException>()));
+      expect(service.isTrackLoading, isFalse);
+      expect(player.loaded, hasLength(1));
+      await expectLater(service.stop(), throwsA(isA<TimeoutException>()));
+      expect(player.playing, isFalse);
+      gate.complete();
+      await service.play();
+      expect(player.reloadPositions, [target]);
+      expect(player.position, target);
+      expect(player.playing, isTrue);
+    },
+  );
+
+  for (final lateFailure in [false, true]) {
+    test(
+      'timed-out recovery waits for late ${lateFailure ? 'failure' : 'success'} before the newest track',
+      () async {
+        player.holdNextLoad = true;
+        player.leaveLoadPendingOnStop = true;
+        final unwind = Completer<void>();
+        player.loadUnwindGate = unwind;
+        addTearDown(() {
+          if (!unwind.isCompleted) unwind.complete();
+          final pending = player.pendingLoad;
+          if (pending != null && !pending.isCompleted) player.finishLoad();
+        });
+        final published = <String?>[];
+        final subscription = service.currentTrackStream.listen((value) {
+          published.add(value?.id);
+        });
+        addTearDown(subscription.cancel);
+        final seeking = service.seek(const Duration(minutes: 1));
+        final failure = expectLater(seeking, throwsA(isA<TimeoutException>()));
+        player.failSeek();
+        await failure;
+        expect(service.isTrackLoading, isFalse);
+        expect(player.stopCount, 2);
+        expect(player.playing, isFalse);
+        const next = AudioTrack(
+          id: 'next',
+          title: 'Next',
+          url: 'https://example.invalid/next.wav',
+        );
+        const latest = AudioTrack(
+          id: 'latest',
+          title: 'Latest',
+          url: 'https://example.invalid/latest.wav',
+        );
+        final switching = service.updateQueue([next], autoplay: true);
+        final newest = service.updateQueue([latest], autoplay: true);
+        await Future<void>.delayed(Duration.zero);
+        expect(player.loaded, hasLength(2));
+        if (lateFailure) {
+          player.pendingLoad!.completeError(
+            PlayerInterruptedException('Late abort'),
+          );
+        } else {
+          player.finishLoad();
+        }
+        await Future<void>.delayed(Duration.zero);
+        expect(player.loaded, hasLength(2));
+        unwind.complete();
+        await Future.wait([switching, newest]);
+        expect(published, ['latest']);
+        expect(player.source, latest.url);
+        expect(service.currentTrack, latest);
+        expect(player.playing, isTrue);
+        expect(service.isTrackLoading, isFalse);
+      },
+    );
+  }
+
+  test(
+    'stopping or replacing the track clears the old seek error ownership',
+    () async {
+      final seeking = service.seek(const Duration(minutes: 2));
+      player.finishSeek();
+      await seeking;
+      await service.stop();
+      player.failSeek();
+      await service.play();
+      expect(player.reloadPositions, isEmpty);
+      final next = track.copyWith(id: 'next');
+      await service.updateQueue([next], autoplay: true);
+      player.failSeek();
+      await Future<void>.delayed(Duration.zero);
+      expect(player.playing, isTrue);
+      expect(player.reloadPositions, isEmpty);
+      expect(service.currentTrack, next);
+    },
+  );
+
+  test(
+    'a local seek stuck buffering recovers once after its deadline',
     () async {
       const target = Duration(minutes: 3);
       final seeking = service.seek(target);
@@ -295,6 +487,43 @@ void main() {
       expect(service.currentTrack, cached);
     },
   );
+
+  test(
+    'late error and recovery timeout retain the complete cache for retry',
+    () async {
+      const hash = 'seek-late-error-cache';
+      final partial = await CacheService.prepareAudioCacheTempFile(hash);
+      await partial.writeAsBytes([1, 2, 3, 4]);
+      await CacheService.finalizeAudioCacheFile(hash, expectedSize: 4);
+      final path = await CacheService.audioCacheFinalPath(hash);
+      final cached = AudioTrack(
+        id: 'cached',
+        title: 'cached.wav',
+        url: Uri.file(path).toString(),
+        hash: hash,
+      );
+      await service.updateQueue([cached], autoplay: true);
+      const target = Duration(minutes: 2);
+      final seeking = service.seek(target);
+      player.finishSeek();
+      await seeking;
+      player.failSeek();
+      await Future<void>.delayed(Duration.zero);
+      player.holdNextLoad = true;
+      await expectLater(service.play(), throwsA(isA<TimeoutException>()));
+      expect(service.isTrackLoading, isFalse);
+      expect(player.playing, isFalse);
+      expect(await File(path).readAsBytes(), [1, 2, 3, 4]);
+      expect(await CacheService.getCachedAudioFile(hash), path);
+      await service.play();
+      expect(player.reloadPositions, [target, target]);
+      expect(player.position, target);
+      expect(player.processingState, ProcessingState.ready);
+      expect(player.playing, isTrue);
+      expect(player.loaded.where((url) => url.startsWith('http')), isEmpty);
+      expect(service.currentTrack, cached);
+    },
+  );
 }
 
 /// Models the just_audio 0.9.44 Android contract: native seek errors arrive on
@@ -306,6 +535,8 @@ class SeekPlayer extends ControlledPlayer {
   Completer<void>? pendingSeek;
   bool failReload = false;
   bool failNextStop = false;
+  bool leaveLoadPendingOnStop = false;
+  Completer<void>? loadUnwindGate;
 
   @override
   Stream<PlaybackEvent> get playbackEventStream => events.stream;
@@ -339,6 +570,12 @@ class SeekPlayer extends ControlledPlayer {
       failNextStop = false;
       throw PlayerException(2, 'Native stop failed');
     }
+    if (leaveLoadPendingOnStop && pendingLoad != null) {
+      stopCount++;
+      playing = false;
+      processingState = ProcessingState.idle;
+      return;
+    }
     await super.stop();
   }
 
@@ -351,10 +588,21 @@ class SeekPlayer extends ControlledPlayer {
   }) async {
     reloadPositions.add(initialPosition);
     if (failReload) throw PlayerException(2, 'Native prepare failed');
-    await super.setUrl(
-      (source as UriAudioSource).uri.toFilePath(),
-      initialPosition: initialPosition,
-    );
+    try {
+      await super.setUrl(
+        (source as UriAudioSource).uri.toFilePath(),
+        initialPosition: initialPosition,
+      );
+    } finally {
+      final gate = loadUnwindGate;
+      if (gate != null) {
+        await gate.future;
+        // just_audio's activation cleanup can deactivate the platform after
+        // stop has returned; a new load must wait for this Future to settle.
+        playing = false;
+        processingState = ProcessingState.idle;
+      }
+    }
     position = initialPosition ?? Duration.zero;
     return duration;
   }
