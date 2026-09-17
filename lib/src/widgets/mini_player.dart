@@ -447,6 +447,7 @@ class _MiniPlayerTrackSwitcherState extends State<_MiniPlayerTrackSwitcher>
   double _dragOffset = 0;
   double _settleStart = 0;
   bool _switchInProgress = false;
+  int _switchRequestRevision = 0;
 
   @override
   void initState() {
@@ -609,7 +610,7 @@ class _MiniPlayerTrackSwitcherState extends State<_MiniPlayerTrackSwitcher>
   }
 
   Future<void> _requestSwitch({required bool next}) async {
-    if (_switchInProgress || _awaitingConfirmedTrack) return;
+    final requestRevision = ++_switchRequestRevision;
     setState(() => _switchInProgress = true);
     _requestedDirection = next ? 1 : -1;
     var confirmed = false;
@@ -618,14 +619,18 @@ class _MiniPlayerTrackSwitcherState extends State<_MiniPlayerTrackSwitcher>
     } catch (_) {
       confirmed = false;
     }
-    if (!mounted) return;
+    if (!mounted || requestRevision != _switchRequestRevision) return;
     if (confirmed) {
       _awaitingConfirmedTrack = true;
       if (_pendingTrack != null) {
         _commitConfirmedTrack();
       } else {
         await WidgetsBinding.instance.endOfFrame;
-        if (!mounted || _pendingTrack != null) return;
+        if (!mounted ||
+            requestRevision != _switchRequestRevision ||
+            _pendingTrack != null) {
+          return;
+        }
         if (widget.track.id == _displayTrack.id) {
           _awaitingConfirmedTrack = false;
           _switchInProgress = false;

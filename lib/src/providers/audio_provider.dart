@@ -81,7 +81,15 @@ final isPlayingProvider = Provider<bool>((ref) {
 // Track Loading Provider (true while audio source is being loaded)
 final isTrackLoadingProvider = StreamProvider<bool>((ref) {
   final service = ref.watch(audioPlayerServiceProvider);
-  return service.trackLoadingStream;
+  return _withInitialValue(service.isTrackLoading, service.trackLoadingStream);
+});
+
+final requestedTrackProvider = StreamProvider<AudioTrack?>((ref) {
+  final service = ref.watch(audioPlayerServiceProvider);
+  return _withInitialValue(
+    service.requestedTrack,
+    service.requestedTrackStream,
+  );
 });
 
 // Progress Provider (convenience)
@@ -109,7 +117,9 @@ final canSkipNextProvider = Provider<bool>((ref) {
     audioPlayerControllerProvider.select((state) => state.repeatMode),
   );
   final queue = ref.watch(queueProvider).valueOrNull ?? service.queue;
-  final currentTrack = ref.watch(currentTrackProvider).valueOrNull;
+  final currentTrack =
+      ref.watch(requestedTrackProvider).valueOrNull ??
+      ref.watch(currentTrackProvider).valueOrNull;
   final currentIndex = currentTrack == null
       ? -1
       : queue.indexWhere((track) => track.id == currentTrack.id);
@@ -129,7 +139,9 @@ final canSkipPreviousProvider = Provider<bool>((ref) {
     audioPlayerControllerProvider.select((state) => state.repeatMode),
   );
   final queue = ref.watch(queueProvider).valueOrNull ?? service.queue;
-  final currentTrack = ref.watch(currentTrackProvider).valueOrNull;
+  final currentTrack =
+      ref.watch(requestedTrackProvider).valueOrNull ??
+      ref.watch(currentTrackProvider).valueOrNull;
   final currentIndex = currentTrack == null
       ? -1
       : queue.indexWhere((track) => track.id == currentTrack.id);
@@ -261,8 +273,7 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
         .getMode();
     switch (playlistMode) {
       case AudioTapPlaylistMode.replaceQueue:
-        await _service.updateQueue([track]);
-        await _service.play();
+        await _service.updateQueue([track], autoplay: true);
       case AudioTapPlaylistMode.addToQueue:
         await _service.appendTracks([track]);
       case AudioTapPlaylistMode.playNext:
@@ -275,10 +286,15 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
 
     // Ensure single-track plays are recorded to history.
     if (playlistMode == AudioTapPlaylistMode.replaceQueue &&
+        !_service.isTrackLoading &&
+        _service.currentTrack?.id == track.id &&
         track.workId != null) {
       try {
         final api = _ref.read(kikoeruApiServiceProvider);
         final json = await api.getWork(track.workId!);
+        if (_service.isTrackLoading || _service.currentTrack?.id != track.id) {
+          return;
+        }
         final work = Work.fromJson(json);
         // Fire-and-forget: record history (don't block the UI)
         _ref
@@ -328,10 +344,11 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
 
     switch (effectiveMode) {
       case AudioTapPlaylistMode.replaceQueue:
-        await _service.updateQueue(queueTracks, startIndex: queueStartIndex);
-        _log.captureOutput('[AudioController] updateQueue完成');
-        await _service.play();
-        _log.captureOutput('[AudioController] play完成');
+        await _service.updateQueue(
+          queueTracks,
+          startIndex: queueStartIndex,
+          autoplay: true,
+        );
       case AudioTapPlaylistMode.addToQueue:
         await _service.appendTracks(queueTracks);
         _log.captureOutput('[AudioController] 已添加到播放列表末尾');
@@ -344,7 +361,10 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     }
     _ref.read(miniPlayerVisibilityProvider.notifier).show();
 
-    if (effectiveMode == AudioTapPlaylistMode.replaceQueue && work != null) {
+    if (effectiveMode == AudioTapPlaylistMode.replaceQueue &&
+        work != null &&
+        !_service.isTrackLoading &&
+        _service.currentTrack?.id == selectedTrack.id) {
       _ref.read(historyProvider.notifier).addOrUpdate(work);
     }
   }
@@ -388,7 +408,12 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
 
   /// seek 并立即持久化历史（用于用户显式拖动进度条）
   Future<void> seekAndPersist(Duration position) async {
+    if (_service.isTrackLoading) return;
+    final track = _service.currentTrack;
     await _service.seek(position);
+    if (_service.isTrackLoading || !identical(track, _service.currentTrack)) {
+      return;
+    }
     await PlaybackHistoryService.instance.onSeekCommitted(position);
   }
 

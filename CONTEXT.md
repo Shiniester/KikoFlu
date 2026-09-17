@@ -57,6 +57,20 @@ The playback rule that governs natural track completion and manual previous or
 next navigation: sequential playback, single-track repeat, or queue repeat.
 _Avoid_: Shuffle mode, Audio Add Mode
 
+**Track Switch (曲目切换)**:
+The playback request that prepares a source and commits the current track,
+queue index, system media item, and restorable session. While loading, a new
+request supersedes the previous target. Repeated next/previous requests advance
+from the latest requested position. Only the winning request publishes a track;
+canceling a load does not make a complete cache entry corrupt.
+_Avoid_: Cover transition, title animation
+
+**Track Presentation Transition (曲目视觉过渡)**:
+The existing cover and title animation after a committed track is published.
+Its direction follows the accepted playback request. It is separate from source
+preparation and does not block further track-switch requests.
+_Avoid_: Track Switch, audio crossfade
+
 **Cover Preview (封面预览)**:
 The zoomable current-artwork view opened from the Player Cover Page. It is
 distinct from the Player Cover Page and saves the unblurred source artwork.

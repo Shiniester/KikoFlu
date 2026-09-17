@@ -323,11 +323,16 @@ class HistoryWorkCard extends ConsumerWidget {
       // Fallback to single track if list fetch fails
       if (record.lastTrack != null) {
         try {
-          await AudioPlayerService.instance.updateQueue([record.lastTrack!]);
-          await AudioPlayerService.instance.seek(
-            Duration(milliseconds: record.lastPositionMs),
+          await AudioPlayerService.instance.updateQueue(
+            [record.lastTrack!],
+            autoplay: true,
+            initialPosition: Duration(milliseconds: record.lastPositionMs),
           );
-          await AudioPlayerService.instance.play();
+          if (AudioPlayerService.instance.isTrackLoading ||
+              AudioPlayerService.instance.currentTrack?.id !=
+                  record.lastTrack!.id) {
+            return;
+          }
           ref.read(miniPlayerVisibilityProvider.notifier).show();
           ref.read(historyProvider.notifier).addOrUpdate(work);
         } catch (e) {
@@ -473,11 +478,13 @@ class HistoryWorkCard extends ConsumerWidget {
         await AudioPlayerService.instance.updateQueue(
           tracks,
           startIndex: index,
+          autoplay: true,
+          initialPosition: Duration(milliseconds: record.lastPositionMs),
         );
-        await AudioPlayerService.instance.seek(
-          Duration(milliseconds: record.lastPositionMs),
-        );
-        await AudioPlayerService.instance.play();
+        if (AudioPlayerService.instance.isTrackLoading ||
+            AudioPlayerService.instance.currentTrack?.id != tracks[index].id) {
+          return;
+        }
         ref.read(miniPlayerVisibilityProvider.notifier).show();
         ref.read(historyProvider.notifier).addOrUpdate(work);
       } catch (e) {

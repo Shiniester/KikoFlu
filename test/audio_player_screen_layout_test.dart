@@ -87,6 +87,42 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('compact page tickers include both pages while dragging', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(390, 844));
+    bool ticking(String name) => TickerMode.valuesOf(
+      tester.element(
+        find
+            .descendant(
+              of: find.byKey(
+                ValueKey('compact-$name-page-boundary'),
+                skipOffstage: false,
+              ),
+              matching: find.byType(RepaintBoundary, skipOffstage: false),
+              skipOffstage: false,
+            )
+            .first,
+      ),
+    ).enabled;
+    expect(ticking('details'), isFalse);
+    expect(ticking('main'), isTrue);
+    expect(ticking('lyrics'), isFalse);
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('compact-player-pages'))),
+    );
+    await gesture.moveBy(const Offset(-20, 0));
+    await gesture.moveBy(const Offset(-100, 0));
+    await tester.pump();
+    expect(ticking('main'), isTrue);
+    expect(ticking('lyrics'), isTrue);
+    await gesture.moveBy(const Offset(-180, 0));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(ticking('main'), isFalse);
+    expect(ticking('lyrics'), isTrue);
+  });
+
   testWidgets('compact player keeps twelve pixels below the title region', (
     tester,
   ) async {
@@ -221,10 +257,10 @@ void main() {
     );
     expect(
       tester
-          .widget<AbsorbPointer>(
+          .widget<IgnorePointer>(
             find.byKey(const ValueKey('player-track-loading-absorber')),
           )
-          .absorbing,
+          .ignoring,
       isTrue,
     );
     final spinner = find.byKey(const ValueKey('player-track-loading-spinner'));
@@ -240,7 +276,7 @@ void main() {
   });
 
   testWidgets(
-    'compact queue loading keeps the interaction blocker without a spinner',
+    'compact queue loading leaves queue interaction available without a spinner',
     (tester) async {
       await _pumpPlayer(
         tester,
@@ -255,10 +291,10 @@ void main() {
       );
       expect(
         tester
-            .widget<AbsorbPointer>(
+            .widget<IgnorePointer>(
               find.byKey(const ValueKey('player-track-loading-absorber')),
             )
-            .absorbing,
+            .ignoring,
         isTrue,
       );
       expect(
@@ -291,10 +327,10 @@ void main() {
     );
     expect(
       tester
-          .widget<AbsorbPointer>(
+          .widget<IgnorePointer>(
             find.byKey(const ValueKey('player-track-loading-absorber')),
           )
-          .absorbing,
+          .ignoring,
       isTrue,
     );
     final spinner = find.byKey(const ValueKey('player-track-loading-spinner'));

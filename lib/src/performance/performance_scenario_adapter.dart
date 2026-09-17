@@ -13,7 +13,7 @@ import 'performance_download_counters.dart';
 /// Versioned boundary shared by the Android profile scenario and its reports.
 /// Increment [performanceScenarioAdapterVersion] whenever the measured widget
 /// workload changes so reports with different costs cannot be compared.
-const performanceScenarioAdapterVersion = 4;
+const performanceScenarioAdapterVersion = 5;
 
 abstract interface class PerformanceScenarioAdapter {
   String get implementation;

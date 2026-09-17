@@ -187,3 +187,136 @@ class PerformancePlaybackFixtureManifest {
     'tracks': tracks.map((track) => track.toJson()).toList(growable: false),
   };
 }
+
+/// Small, device-local manifest used by the player-only Profile scenario.
+///
+/// Unlike [PerformanceFixtureManifest], this manifest intentionally contains
+/// only source files. The runner stages the files beside the manifest in the
+/// app's external-files directory, so a large audio asset is never copied into
+/// the Flutter bundle or the repository.
+@immutable
+class PerformanceAudioFixtureManifest {
+  const PerformanceAudioFixtureManifest({
+    required this.fixtureVersion,
+    required this.tracks,
+  });
+
+  static const int currentVersion = 1;
+
+  final int fixtureVersion;
+  final List<PerformanceAudioFixtureTrack> tracks;
+
+  factory PerformanceAudioFixtureManifest.fromJson(Map<String, Object?> json) {
+    final rawTracks = json['tracks'];
+    if (rawTracks is! List) {
+      throw const FormatException('Audio fixture is missing tracks');
+    }
+    final manifest = PerformanceAudioFixtureManifest(
+      fixtureVersion: (json['fixtureVersion'] as num?)?.toInt() ?? 0,
+      tracks: rawTracks
+          .map(
+            (track) => PerformanceAudioFixtureTrack.fromJson(
+              Map<String, Object?>.from(track as Map),
+            ),
+          )
+          .toList(growable: false),
+    );
+    manifest.validate();
+    return manifest;
+  }
+
+  static Future<PerformanceAudioFixtureManifest> read(File file) async {
+    final decoded = jsonDecode(await file.readAsString());
+    if (decoded is! Map) {
+      throw const FormatException('Audio fixture is not a map');
+    }
+    return PerformanceAudioFixtureManifest.fromJson(
+      Map<String, Object?>.from(decoded),
+    );
+  }
+
+  void validate() {
+    if (fixtureVersion != currentVersion) {
+      throw FormatException(
+        'Audio fixture version $fixtureVersion is not supported; expected '
+        '$currentVersion.',
+      );
+    }
+    if (tracks.length < 2) {
+      throw const FormatException('Audio fixture needs at least two tracks');
+    }
+    final ids = <String>{};
+    for (final track in tracks) {
+      if (!ids.add(track.id)) {
+        throw FormatException(
+          'Audio fixture contains duplicate id ${track.id}',
+        );
+      }
+    }
+  }
+
+  String resolvePath(String manifestPath, PerformanceAudioFixtureTrack track) {
+    return p.normalize(
+      p.isAbsolute(track.path)
+          ? track.path
+          : p.join(p.dirname(manifestPath), track.path),
+    );
+  }
+
+  Map<String, Object?> toJson() => {
+    'fixtureVersion': fixtureVersion,
+    'tracks': tracks.map((track) => track.toJson()).toList(growable: false),
+  };
+}
+
+@immutable
+class PerformanceAudioFixtureTrack {
+  const PerformanceAudioFixtureTrack({
+    required this.id,
+    required this.title,
+    required this.path,
+    required this.mode,
+    this.hash,
+    this.sizeClass = 'unknown',
+  });
+
+  final String id;
+  final String title;
+  final String path;
+  final String mode;
+  final String? hash;
+  final String sizeClass;
+
+  factory PerformanceAudioFixtureTrack.fromJson(Map<String, Object?> json) {
+    final id = json['id']?.toString().trim() ?? '';
+    final title = json['title']?.toString() ?? '';
+    final path = json['path']?.toString() ?? '';
+    final mode = json['mode']?.toString().trim().toLowerCase() ?? '';
+    final hash = json['hash']?.toString().trim();
+    final sizeClass =
+        json['sizeClass']?.toString().trim().toLowerCase() ?? 'unknown';
+    if (id.isEmpty || title.isEmpty || path.isEmpty) {
+      throw const FormatException('Audio fixture track is incomplete');
+    }
+    if (mode != 'downloaded' && mode != 'cache') {
+      throw FormatException('Unsupported audio fixture mode: $mode');
+    }
+    return PerformanceAudioFixtureTrack(
+      id: id,
+      title: title,
+      path: path,
+      mode: mode,
+      hash: hash == null || hash.isEmpty ? null : hash,
+      sizeClass: sizeClass.isEmpty ? 'unknown' : sizeClass,
+    );
+  }
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'title': title,
+    'path': path,
+    'mode': mode,
+    if (hash != null) 'hash': hash,
+    if (sizeClass != 'unknown') 'sizeClass': sizeClass,
+  };
+}

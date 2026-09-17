@@ -253,6 +253,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   }
 
   void _handleSeekChanged(double value) {
+    if (ref.read(isTrackLoadingProvider).valueOrNull ?? false) return;
     final dur = ref.read(durationProvider).value ?? Duration.zero;
     setState(() {
       _isSeekingManually = true;
@@ -264,6 +265,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   }
 
   void _handleSeekEnd(double value) {
+    if (ref.read(isTrackLoadingProvider).valueOrNull ?? false) return;
     final dur = ref.read(durationProvider).value ?? Duration.zero;
     final newPosition = Duration(
       milliseconds: (value * dur.inMilliseconds).round(),
@@ -829,6 +831,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                       children: [
                         _PlayerPageBoundary(
                           key: const ValueKey('compact-details-page-boundary'),
+                          pageController: _compactPageController,
+                          pageIndex: 0,
                           child: Center(
                             child: SizedBox(
                               width: sharedWidth,
@@ -856,6 +860,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                         ),
                         _PlayerPageBoundary(
                           key: const ValueKey('compact-main-page-boundary'),
+                          pageController: _compactPageController,
+                          pageIndex: 1,
                           child: _buildCompactMain(
                             context,
                             track: track,
@@ -867,6 +873,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                         ),
                         _PlayerPageBoundary(
                           key: const ValueKey('compact-lyrics-page-boundary'),
+                          pageController: _compactPageController,
+                          pageIndex: 2,
                           child: _buildLyricsPane(context, isWide: false),
                         ),
                       ],
@@ -2581,9 +2589,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     final colorScheme = Theme.of(context).colorScheme;
     final showSpinner = _shouldShowTrackLoadingSpinner();
     return Positioned.fill(
-      child: AbsorbPointer(
+      child: IgnorePointer(
         key: const ValueKey('player-track-loading-absorber'),
-        absorbing: true,
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -3157,9 +3164,16 @@ class _PlayerTrackTitleSwitcherState extends State<_PlayerTrackTitleSwitcher>
 }
 
 class _PlayerPageBoundary extends StatefulWidget {
-  const _PlayerPageBoundary({super.key, required this.child});
+  const _PlayerPageBoundary({
+    super.key,
+    required this.child,
+    this.pageController,
+    this.pageIndex = 0,
+  });
 
   final Widget child;
+  final PageController? pageController;
+  final int pageIndex;
 
   @override
   State<_PlayerPageBoundary> createState() => _PlayerPageBoundaryState();
@@ -3167,12 +3181,56 @@ class _PlayerPageBoundary extends StatefulWidget {
 
 class _PlayerPageBoundaryState extends State<_PlayerPageBoundary>
     with AutomaticKeepAliveClientMixin<_PlayerPageBoundary> {
+  bool _visible = true;
+
+  bool get _pageIsVisible {
+    final controller = widget.pageController;
+    if (controller == null) return true;
+    final page =
+        controller.hasClients && controller.position.hasContentDimensions
+        ? controller.page ?? controller.initialPage.toDouble()
+        : controller.initialPage.toDouble();
+    // Both pages keep their animations throughout a drag or page transition.
+    return widget.pageIndex == page.floor() || widget.pageIndex == page.ceil();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _visible = _pageIsVisible;
+    widget.pageController?.addListener(_updateVisibility);
+  }
+
+  @override
+  void didUpdateWidget(covariant _PlayerPageBoundary oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.pageController != widget.pageController) {
+      oldWidget.pageController?.removeListener(_updateVisibility);
+      widget.pageController?.addListener(_updateVisibility);
+    }
+    _visible = _pageIsVisible;
+  }
+
+  void _updateVisibility() {
+    final visible = _pageIsVisible;
+    if (_visible != visible) setState(() => _visible = visible);
+  }
+
+  @override
+  void dispose() {
+    widget.pageController?.removeListener(_updateVisibility);
+    super.dispose();
+  }
+
   @override
   bool get wantKeepAlive => true;
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return RepaintBoundary(child: widget.child);
+    return TickerMode(
+      enabled: _visible,
+      child: RepaintBoundary(child: widget.child),
+    );
   }
 }

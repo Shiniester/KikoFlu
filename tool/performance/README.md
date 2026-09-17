@@ -1,5 +1,9 @@
 # KikoFlu Android Profile 性能闭环
 
+真实 Mini Player 转场、字幕与本地大文件切歌使用独立的
+[播放器性能场景](../../docs/development/player-performance.md)。该场景的报告由
+`summarize_player_profile.py` 汇总，不传入本页的 schema 3 比较器。
+
 这套工具在同一实体 Android 设备上运行 5 轮固定 Profile 场景，并追加一次真实账号的 Media3 soak。严格比较只接受 schema 3 报告；报告必须包含不同的 baseline/candidate Git SHA、相同 fixture SHA-256、操作增量峰值 PSS 和有效 thermal 状态。
 
 ## 固定数据与场景

@@ -66,6 +66,18 @@ class MainActivity : AudioServiceActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.meteor.kikoeruflutter/performance"
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getDisplayRefreshRate" -> result.success(
+                    window.decorView.display?.refreshRate?.toDouble()
+                )
+                else -> result.notImplemented()
+            }
+        }
     }
 
     private fun getSystemProxy(): String? {

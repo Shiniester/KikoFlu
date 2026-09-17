@@ -22,6 +22,72 @@ void main() {
     ),
   );
 
+  testWidgets('hidden preview follows without replaying a suspended scroll', (
+    tester,
+  ) async {
+    final positions = StreamController<Duration>();
+    final visible = ValueNotifier<bool>(true);
+    addTearDown(positions.close);
+    addTearDown(visible.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith((ref) => positions.stream),
+          lyricControllerProvider.overrideWith(
+            (ref) =>
+                LyricController(ref, initialState: LyricState(lyrics: lyrics)),
+          ),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: ValueListenableBuilder<bool>(
+                valueListenable: visible,
+                builder: (context, enabled, _) => TickerMode(
+                  enabled: enabled,
+                  child: SizedBox(
+                    width: 300,
+                    height: 100,
+                    child: ThreeLineLyricDisplay(onSeekRequested: (_) {}),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    positions.add(Duration.zero);
+    await tester.pumpAndSettle();
+    positions.add(const Duration(seconds: 4));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 70));
+    visible.value = false;
+    await tester.pump();
+    positions.add(const Duration(seconds: 8));
+    await tester.pump();
+    await tester.pump();
+    final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+    final hiddenOffset = scrollable.position.pixels;
+    expect(scrollable.position.isScrollingNotifier.value, isFalse);
+    visible.value = true;
+    await tester.pump();
+    final visibleOffset = scrollable.position.pixels;
+    expect(visibleOffset, greaterThan(hiddenOffset));
+    expect(
+      tester.getCenter(find.byKey(const ValueKey('compact-lyric-line-8'))).dy,
+      closeTo(
+        tester
+            .getCenter(find.byKey(const ValueKey('compact-lyric-scroll-list')))
+            .dy,
+        1,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(scrollable.position.pixels, visibleOffset);
+    expect(scrollable.position.isScrollingNotifier.value, isFalse);
+  });
+
   test('literal lyric matcher counts non-overlapping occurrences', () {
     final matches = findLyricSearchMatches([
       LyricLine(
