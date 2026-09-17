@@ -163,6 +163,7 @@ class AudioPlayerService {
     } else {
       _player = AudioPlayer();
     }
+    _listenForPlaybackErrors();
   }
 
   late final AudioPlayer _player;
@@ -173,10 +174,13 @@ class AudioPlayerService {
     PlaybackSessionStore sessionStore =
         const SharedPreferencesPlaybackSessionStore(),
     bool androidSeekRecovery = false,
+    Duration localSeekTimeout = const Duration(seconds: 8),
   }) {
     _player = player;
     _playbackSessionStore = sessionStore;
     _androidSeekRecovery = androidSeekRecovery;
+    _localSeekTimeout = localSeekTimeout;
+    _listenForPlaybackErrors();
   }
 
   AndroidLoudnessEnhancer? _androidLoudnessEnhancer;
@@ -211,7 +215,12 @@ class AudioPlayerService {
   bool _androidSeekRecovery = Platform.isAndroid;
   int _seekRevision = 0;
   Completer<void>? _seekCancellation;
-  static const _localSeekTimeout = Duration(seconds: 8);
+  Completer<void>? _seekError;
+  int? _localSeekGeneration;
+  StreamSubscription<PlaybackEvent>? _playbackErrorSubscription;
+  AudioSource? _failedLocalSource;
+  Duration? _failedLocalPosition;
+  Duration _localSeekTimeout = const Duration(seconds: 8);
   Future<void>? _stopOperation;
   int _mediaItemRevision = 0;
   int _committedTrackGeneration = 0;
@@ -678,6 +687,9 @@ class AudioPlayerService {
       ),
     );
     _cancelPendingSeek();
+    _localSeekGeneration = null;
+    _failedLocalSource = sourceToReload;
+    _failedLocalPosition = initialPosition;
     final pending = _latestTrackLoad;
     if (pending != null) {
       pending.superseded = true;
@@ -718,13 +730,16 @@ class AudioPlayerService {
       _latestTrackLoad = null;
       if (request.superseded) continue;
 
-      final previousNativeCancel = _nativeLoadCancel;
-      if (previousNativeCancel != null) await previousNativeCancel;
       _activeTrackLoad = request;
       _nativeLoadInFlight = false;
-      _nativeLoadCancelIssued = false;
-      _nativeLoadCancel = null;
       try {
+        final previousNativeCancel = _nativeLoadCancel;
+        if (previousNativeCancel != null) {
+          await _awaitNativeCancellation(previousNativeCancel);
+        }
+        _ensureCurrentTrackLoad(request);
+        _nativeLoadCancelIssued = false;
+        _nativeLoadCancel = null;
         await _loadTrack(request);
         _ensureCurrentTrackLoad(request);
         if (request.beforeCommit != null) {
@@ -739,7 +754,10 @@ class AudioPlayerService {
         request.complete();
       } catch (error, stackTrace) {
         _completePlaybackMeasurement(request, incomplete: true);
-        if (!request.completer.isCompleted) {
+        if (!_isCurrentTrackLoad(request)) {
+          request.superseded = true;
+          request.complete();
+        } else if (!request.completer.isCompleted) {
           request.completer.completeError(error, stackTrace);
         }
       } finally {
@@ -766,18 +784,28 @@ class AudioPlayerService {
 
   void _cancelActiveTrackLoad(_TrackLoadRequest request) {
     request.superseded = true;
+    _cancelNativeLoad();
+  }
+
+  void _cancelNativeLoad() {
     if (!_nativeLoadInFlight || _nativeLoadCancelIssued) return;
     _nativeLoadCancelIssued = true;
     final cancellation = _player.stop().catchError((error, stackTrace) {
-      _log.captureOutput('[Audio] 中止过期原生加载失败: $error');
+      _log.captureOutput('[Audio] 中止原生加载失败: $error');
     });
     _nativeLoadCancel = cancellation;
     unawaited(cancellation);
   }
 
+  Future<void> _awaitNativeCancellation(Future<void> cancellation) =>
+      _androidSeekRecovery
+      ? cancellation.timeout(_localSeekTimeout)
+      : cancellation;
+
   Future<bool> _invalidateTrackLoads() async {
     ++_trackLoadGeneration;
     _cancelPendingSeek();
+    _localSeekGeneration = null;
     final pending = _latestTrackLoad;
     if (pending != null) {
       pending.superseded = true;
@@ -795,7 +823,7 @@ class AudioPlayerService {
     final drain = _trackLoadDrain;
     if (drain != null) await drain;
     final nativeCancel = _nativeLoadCancel;
-    if (nativeCancel != null) await nativeCancel;
+    if (nativeCancel != null) await _awaitNativeCancellation(nativeCancel);
     return stoppedNativeLoad;
   }
 
@@ -842,6 +870,11 @@ class AudioPlayerService {
     _pendingTargetTrackId = null;
     _publishedTrack = request.track;
     _sourceNeedsReload = false;
+    _failedLocalSource = null;
+    _failedLocalPosition = null;
+    _localSeekGeneration = request.sourceToReload == null
+        ? null
+        : request.generation;
     _committedTrackGeneration = request.generation;
     if (request.emitCurrentTrack) {
       _publishCurrentTrack(request.track, direction: request.direction);
@@ -923,7 +956,7 @@ class AudioPlayerService {
         _nativeLoadCancel = stopping.catchError((Object error) {
           _log.captureOutput('[Audio] Seek recovery stop failed: $error');
         });
-        await stopping;
+        await stopping.timeout(_localSeekTimeout);
         _ensureCurrentTrackLoad(request);
         await _setAudioSourceForTrackLoad(
           request,
@@ -1101,8 +1134,30 @@ class AudioPlayerService {
     _ensureCurrentTrackLoad(request);
     _sourceNeedsReload = true;
     _nativeLoadInFlight = true;
+    final loading = _player.setAudioSource(
+      source,
+      initialPosition: initialPosition,
+    );
     try {
-      await _player.setAudioSource(source, initialPosition: initialPosition);
+      if (request.sourceToReload == null) {
+        await loading;
+      } else {
+        try {
+          await loading.timeout(_localSeekTimeout);
+        } on TimeoutException {
+          _cancelNativeLoad();
+          // A late load failure also deactivates the player inside just_audio.
+          // Keep both raw Futures as a barrier even if waiting for cleanup
+          // times out, so a later request cannot start underneath that cleanup.
+          final cleanup = Future.wait<void>([
+            _nativeLoadCancel!,
+            loading.then<void>((_) {}, onError: (Object _, StackTrace __) {}),
+          ]).then<void>((_) {});
+          _nativeLoadCancel = cleanup;
+          await _awaitNativeCancellation(cleanup);
+          rethrow;
+        }
+      }
     } finally {
       _nativeLoadInFlight = false;
     }
@@ -1413,6 +1468,8 @@ class AudioPlayerService {
         emitCurrentTrack: published?.id != track.id,
         autoplay: true,
         direction: PlayerTrackChangeDirection.none,
+        sourceToReload: _failedLocalSource,
+        initialPosition: _failedLocalPosition,
       ).future;
       return;
     }
@@ -1516,6 +1573,51 @@ class AudioPlayerService {
     await persistPlaybackPosition();
   }
 
+  void _listenForPlaybackErrors() {
+    if (!_androidSeekRecovery) return;
+    _playbackErrorSubscription = _player.playbackEventStream.listen(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {
+        if (_disposed ||
+            _sourceNeedsReload ||
+            _stopOperation != null ||
+            _activeTrackLoad != null ||
+            _latestTrackLoad != null ||
+            _localSeekGeneration != _trackLoadGeneration ||
+            currentTrack == null) {
+          return;
+        }
+        final source = _player.audioSource;
+        if (source is! UriAudioSource || source.uri.scheme != 'file') return;
+        _failedLocalSource = source;
+        _failedLocalPosition = _player.position;
+        _sourceNeedsReload = true;
+        final seekError = _seekError;
+        if (seekError != null) {
+          if (!seekError.isCompleted) {
+            seekError.completeError(error, stackTrace);
+          }
+          return;
+        }
+        // Errors can arrive after the native seek callback has returned READY.
+        // Pause the failed source; explicit play reloads it at this position.
+        // Recovery errors never start an automatic reload loop.
+        _emitPlaybackDiagnostic(
+          PlaybackDiagnosticEventType.playbackError,
+          currentTrack,
+          error: error,
+        );
+        unawaited(
+          pause().catchError((Object pauseError) {
+            _log.captureOutput(
+              '[Audio] Pause after playback error failed: $pauseError',
+            );
+          }),
+        );
+      },
+    );
+  }
+
   Future<void> seek(Duration position) async {
     if (_sourceNeedsReload ||
         _isSwitchingTrack ||
@@ -1537,26 +1639,21 @@ class AudioPlayerService {
 
     final source = _androidSeekRecovery ? _player.audioSource : null;
     if (source is UriAudioSource && source.uri.scheme == 'file') {
+      _localSeekGeneration = generation;
       final previousPosition = _player.position;
       final cancellation = Completer<void>();
       _seekCancellation = cancellation;
       final nativeError = Completer<void>();
+      _seekError = nativeError;
       // just_audio 0.9.44 reports Android seek errors on this stream without
       // completing seek(). Its derived playerStateStream discards the errors.
-      final subscription = _player.playbackEventStream.listen(
-        (_) {},
-        onError: (Object error, StackTrace stackTrace) {
-          if (!nativeError.isCompleted) {
-            nativeError.completeError(error, stackTrace);
-          }
-        },
-      );
       try {
         await Future.any<void>([
           _player.seek(position),
           nativeError.future,
           cancellation.future,
         ]).timeout(_localSeekTimeout);
+        if (isCurrentSeek() && _sourceNeedsReload) await nativeError.future;
       } catch (error) {
         if (!isCurrentSeek()) return;
         // No-op and end-of-track seeks may have no READY transition to finish
@@ -1577,6 +1674,7 @@ class AudioPlayerService {
           );
           final track = currentTrack;
           if (track == null) rethrow;
+          if (identical(_seekError, nativeError)) _seekError = null;
           final recovery = _enqueueTrackLoad(
             track,
             emitCurrentTrack: false,
@@ -1589,7 +1687,7 @@ class AudioPlayerService {
           return;
         }
       } finally {
-        await subscription.cancel();
+        if (identical(_seekError, nativeError)) _seekError = null;
         if (identical(_seekCancellation, cancellation)) {
           _seekCancellation = null;
         }
@@ -2224,6 +2322,7 @@ class AudioPlayerService {
     if (_disposed) return;
     _disposed = true;
     _desiredPlaying = false;
+    await _playbackErrorSubscription?.cancel();
     ++_intentRevision;
     final stoppedNativeLoad = await _invalidateTrackLoads();
     await persistPlaybackPosition();
