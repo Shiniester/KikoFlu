@@ -543,6 +543,7 @@ jobs:
             encoded_name="$(jq -nr --arg name "$asset_name" '$name | @uri')"
             echo "Uploading $asset_name"
             curl --fail-with-body --silent --show-error \
+              --retry 5 --retry-all-errors --retry-delay 5 --retry-max-time 300 \
               --request POST "${upload_url}?name=${encoded_name}" \
               --header "Authorization: Bearer ${GH_TOKEN}" \
               --header 'Accept: application/vnd.github+json' \
