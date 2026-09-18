@@ -282,12 +282,20 @@ class _MyScreenState extends ConsumerState<MyScreen>
       collapsedToolbarTop: collapsedToolbarTop,
     );
 
-    // 如果标签数量变化，需要重新创建 TabController
-    if (_tabController.length != tabs.length) {
+    final tabDuration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : kTabScrollDuration;
+    // 更换控制器会让 TabBarView 停止滚动并保留当前目标页。
+    if (_tabController.length != tabs.length ||
+        _tabController.animationDuration != tabDuration) {
       final oldIndex = _tabController.index;
       _tabController.removeListener(_handleTabChanged);
       _tabController.dispose();
-      _tabController = TabController(length: tabs.length, vsync: this);
+      _tabController = TabController(
+        length: tabs.length,
+        vsync: this,
+        animationDuration: tabDuration,
+      );
       _tabController.addListener(_handleTabChanged);
       // 尝试恢复之前的位置，但不超出新的范围
       if (oldIndex < tabs.length) {

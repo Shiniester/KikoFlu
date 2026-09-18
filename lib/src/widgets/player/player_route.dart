@@ -88,6 +88,7 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   double _verticalGestureStartValue = 0;
   Size _viewportSize = Size.zero;
   int _verticalSettleGeneration = 0;
+  bool _reduceMotion = false;
   NavigatorState? _gestureNavigator;
   final ValueNotifier<PlayerDismissVisualMode> _dismissVisualMode;
   late final Animation<double> _controllerAnimation;
@@ -319,9 +320,9 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     if (animationController == null || routeNavigator == null) return false;
     final request = ++_verticalSettleGeneration;
     final target = showRoute ? 1.0 : 0.0;
-    final duration = _durationForFraction(
-      (animationController.value - target).abs(),
-    );
+    final duration = _reduceMotion
+        ? Duration.zero
+        : _durationForFraction((animationController.value - target).abs());
     animationController.stop();
     try {
       if (duration == Duration.zero) {
@@ -376,6 +377,22 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   ) {
     _viewportSize = MediaQuery.sizeOf(context);
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (reduceMotion && !_reduceMotion) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (navigator == null || !_reduceMotion) return;
+        final animationController = controller!;
+        if (animationController.isAnimating) {
+          // Completing the shared animation also ends its active Hero flight.
+          final target = animationController.status == AnimationStatus.reverse
+              ? 0.0
+              : 1.0;
+          // Preserve the result awaited by an interactive Mini Player handoff.
+          animationController.stop(canceled: false);
+          animationController.value = target;
+        }
+      });
+    }
+    _reduceMotion = reduceMotion;
     final routeAnimation = reduceMotion
         ? const AlwaysStoppedAnimation<double>(1)
         : animation;

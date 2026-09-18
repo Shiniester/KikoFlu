@@ -87,6 +87,59 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final closing in [false, true]) {
+    testWidgets('reduced motion finishes queue ${closing ? "closing" : "opening"}', (
+      tester,
+    ) async {
+      await _pumpPlayer(tester, const Size(390, 844));
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey('controls-pane-compact')),
+          matching: find.byIcon(Icons.queue_music),
+        ),
+      );
+      if (closing) {
+        await tester.pumpAndSettle();
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      }
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(_compactQueueProgress(tester), greaterThan(0));
+      expect(_compactQueueProgress(tester), lessThan(1));
+
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+      await tester.pump();
+      expect(_compactQueueProgress(tester), closing ? 0 : 1);
+      expect(
+        find.byKey(ValueKey(closing ? 'compact-main-page' : 'player-queue-pane')),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(_compactQueueProgress(tester), closing ? 0 : 1);
+
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures();
+      await tester.pump();
+      if (closing) {
+        await tester.tap(find.descendant(
+          of: find.byKey(const ValueKey('controls-pane-compact')),
+          matching: find.byIcon(Icons.queue_music),
+        ));
+      } else {
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      }
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(_compactQueueProgress(tester), greaterThan(0));
+      expect(_compactQueueProgress(tester), lessThan(1));
+      await tester.pumpAndSettle();
+      expect(_compactQueueProgress(tester), closing ? 1 : 0);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('compact page tickers include both pages while dragging', (
     tester,
   ) async {
