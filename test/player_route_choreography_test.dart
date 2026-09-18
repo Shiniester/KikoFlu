@@ -12,6 +12,96 @@ const _coverArtworkRect = Rect.fromLTWH(40, 120, 320, 240);
 const _queueArtworkRect = Rect.fromLTWH(24, 112, 64, 48);
 
 void main() {
+  for (final complete in [false, true]) {
+    testWidgets('reduced motion preserves interactive open result $complete', (
+      tester,
+    ) async {
+      final navigatorKey = await _pumpHost(tester, withCoverHero: true);
+      final route = AudioPlayerPageRoute<void>(
+        builder: (_) => const _CoverPageFixture(),
+      );
+      unawaited(navigatorKey.currentState!.push<void>(route));
+      expect(route.beginVerticalOpenGesture(), isTrue);
+      await tester.pump();
+      await tester.pump();
+      route.updateVerticalOpenGesture(distance: 320, extent: 800);
+      final result = complete
+          ? route.endVerticalOpenGesture(velocity: 0, extent: 800)
+          : route.cancelVerticalOpenGesture();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(route.verticalGestureInProgress, isTrue);
+
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(await result, complete);
+      expect(navigatorKey.currentState!.userGestureInProgress, isFalse);
+      expect(
+        find.byKey(const ValueKey('player-artwork-flight-frame')),
+        findsNothing,
+      );
+      expect(
+        find.byType(_CoverPageFixture),
+        complete ? findsOneWidget : findsNothing,
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final popping in [false, true]) {
+    testWidgets(
+      'reduced motion ends an active Hero ${popping ? "pop" : "push"}',
+      (tester) async {
+        final navigatorKey = await _pumpHost(tester, withCoverHero: true);
+        final route = AudioPlayerPageRoute<void>(
+          builder: (_) => const _CoverPageFixture(),
+        );
+        unawaited(navigatorKey.currentState!.push<void>(route));
+        await tester.pump();
+        if (popping) {
+          await tester.pumpAndSettle();
+          navigatorKey.currentState!.pop();
+          await tester.pump();
+        }
+        await tester.pump(const Duration(milliseconds: 80));
+        final flight = find.byKey(
+          const ValueKey('player-artwork-flight-frame'),
+          skipOffstage: false,
+        );
+        expect(flight, findsOneWidget);
+
+        tester.platformDispatcher.accessibilityFeaturesTestValue =
+            const FakeAccessibilityFeatures(disableAnimations: true);
+        addTearDown(
+          tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+        );
+        await tester.pump();
+        await tester.pump();
+        expect(flight, findsNothing);
+        if (popping) {
+          expect(find.byType(_CoverPageFixture), findsNothing);
+        } else {
+          expect(route.debugTransitionValue, 1);
+          expect(route.debugTransitionStatus, AnimationStatus.completed);
+          expect(_routeTranslation(tester), 0);
+          expect(
+            tester.getRect(find.byKey(const ValueKey('cover-artwork-content'))),
+            _coverArtworkRect,
+          );
+        }
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(flight, findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets(
     'Player Cover Page Hero follows the staged path for automatic push and pop',
     (tester) async {

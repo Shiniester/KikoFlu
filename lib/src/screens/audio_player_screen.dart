@@ -114,6 +114,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   double _queueDragStartValue = 0;
   double _compactQueueExtent = 1;
   bool _queueTransitionActive = false;
+  bool _queueTargetOpen = false;
+  bool _reduceMotion = false;
   bool _openingWorkDetail = false;
   final ValueNotifier<String?> _coverPreviewHeroTrackId = ValueNotifier(null);
   final LayerLink _coverLoadingLayerLink = LayerLink();
@@ -156,6 +158,17 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         ? route as PlayerInteractiveDismissRoute
         : null;
     _schedulePlayerDismissModeSync();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (reduceMotion &&
+        !_reduceMotion &&
+        _queueTransitionActive &&
+        !_queueDragActive) {
+      _settleCompactQueue(
+        open: _queueTargetOpen,
+        restoreOnClose: !_queueTargetOpen,
+      );
+    }
+    _reduceMotion = reduceMotion;
   }
 
   /// 进入全屏锁定模式
@@ -1821,6 +1834,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   void _settleCompactQueue({required bool open, required bool restoreOnClose}) {
     if (!mounted || _lastWasWide == true) return;
     final request = ++_queueTransitionGeneration;
+    _queueTargetOpen = open;
     _queueDragActive = false;
     _compactQueueTransitionController.stop();
     if (!_queueTransitionActive) {
@@ -1838,11 +1852,13 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         if (duration == Duration.zero) {
           _compactQueueTransitionController.value = target;
         } else {
-          await _compactQueueTransitionController.animateTo(
-            target,
-            duration: duration,
-            curve: Curves.fastEaseInToSlowEaseOut,
-          );
+          await _compactQueueTransitionController
+              .animateTo(
+                target,
+                duration: duration,
+                curve: Curves.fastEaseInToSlowEaseOut,
+              )
+              .orCancel;
         }
       } catch (_) {
         return;
