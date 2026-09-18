@@ -22,6 +22,7 @@ import '../widgets/app_bottom_dock_transition.dart';
 import '../utils/responsive_grid_helper.dart';
 import '../utils/work_cover_prefetch.dart';
 import '../utils/scroll_optimization.dart';
+import '../utils/ui_tokens.dart';
 import '../../l10n/app_localizations.dart';
 
 class PlaylistDetailScreen extends ConsumerStatefulWidget {
@@ -471,8 +472,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
           onNextPage: notifier.nextPage,
           onGoToPage: notifier.goToPage,
           nextPageOnOverscroll: true,
-          scrollDuration: const Duration(milliseconds: 500),
-          scrollCurve: Curves.easeInOut,
+          scrollDuration: UiMotion.travel,
+          scrollCurve: UiMotion.curve,
           padding: EdgeInsets.fromLTRB(
             contentPadding,
             contentPadding,

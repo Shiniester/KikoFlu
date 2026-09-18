@@ -8,7 +8,8 @@ import statistics
 
 
 SCENES = ['expandCold', 'expandCollapse', 'dragRebound', 'dragHandoff',
-          'pageSwitch', 'lyricFollow', 'lyricScroll']
+          'pageSwitch', 'lyricFollow', 'lyricScroll',
+          'rapidTrackPresentation', 'galleryDoubleTap']
 
 
 def percentile(values, fraction):

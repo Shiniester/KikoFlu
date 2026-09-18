@@ -22,6 +22,7 @@ import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/screen_awake_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
+import 'package:kikoeru_flutter/src/widgets/image_gallery_screen.dart';
 
 /// Uses the production widgets, route and audio backend. Files and run controls
 /// are supplied through the test application's external-files directory.
@@ -46,6 +47,8 @@ void main() {
     final samples = <Map<String, Object?>>[];
     final checks = <Map<String, Object?>>[];
     final positions = StreamController<Duration>.broadcast();
+    final tracks = StreamController<AudioTrack?>();
+    var presentationRevision = 0;
     final service = AudioPlayerService.instance;
     final navigator = GlobalKey<NavigatorState>();
     Object? failure;
@@ -75,6 +78,9 @@ void main() {
         url: 'file://$root/fixtures/small_a.wav',
         artworkUrl: cover.uri.toString(),
       );
+      tracks.add(visualTrack);
+      final otherCover = File('$root/other_cover.png');
+      await otherCover.writeAsBytes(coverBytes.buffer.asUint8List());
       final lyrics = List.generate(
         500,
         (index) => LyricLine(
@@ -87,9 +93,19 @@ void main() {
         ProviderScope(
           key: const ValueKey('player-profile'),
           overrides: [
-            currentTrackProvider.overrideWith(
-              (ref) => Stream.value(visualTrack),
-            ),
+            currentTrackProvider.overrideWith((ref) => tracks.stream),
+            playerTrackChangePresentationProvider.overrideWith((ref) {
+              final current = ref.watch(currentTrackProvider).value;
+              return current == null
+                  ? null
+                  : PlayerTrackChangePresentation(
+                      trackId: current.id,
+                      direction: presentationRevision.isEven
+                          ? PlayerTrackChangeDirection.next
+                          : PlayerTrackChangeDirection.previous,
+                      revision: presentationRevision,
+                    );
+            }),
             isTrackLoadingProvider.overrideWith((ref) => Stream.value(false)),
             positionProvider.overrideWith((ref) => positions.stream),
             durationProvider.overrideWith(
@@ -185,6 +201,24 @@ void main() {
         await tester.tap(launcher);
         await tester.pump(const Duration(milliseconds: 650));
 
+        await beginScene('rapidTrackPresentation');
+        for (var i = 0; i < 40; i++) {
+          presentationRevision++;
+          tracks.add(
+            visualTrack.copyWith(
+              id: 'visual-$i',
+              title: 'Track $i - animated presentation',
+              artworkUrl: (i.isEven ? cover : otherCover).uri.toString(),
+              workId: 10000 + i,
+            ),
+          );
+          await tester.pump(const Duration(milliseconds: 45));
+        }
+        await tester.pump(const Duration(milliseconds: 600));
+        recorder.endScenario();
+        presentationRevision++;
+        tracks.add(visualTrack);
+        await tester.pump(const Duration(milliseconds: 600));
         await beginScene('pageSwitch');
         for (var i = 0; i < cycles; i++) {
           for (final dx in [-300.0, 300.0, 300.0, -300.0]) {
@@ -216,6 +250,29 @@ void main() {
         await tester.pump(const Duration(milliseconds: 650));
       }
 
+      if (control['ui'] != false) {
+        await tester.pumpWidget(
+          MaterialApp(
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: ImageGalleryScreen(
+              images: [
+                {'url': cover.uri.toString(), 'title': 'Animation fixture'},
+              ],
+            ),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 600));
+        await beginScene('galleryDoubleTap');
+        final viewer = find.byType(InteractiveViewer);
+        for (var i = 0; i < 12; i++) {
+          await tester.tapAt(tester.getCenter(viewer) + const Offset(45, 30));
+          await tester.pump(const Duration(milliseconds: 50));
+          await tester.tapAt(tester.getCenter(viewer) + const Offset(45, 30));
+          await tester.pump(const Duration(milliseconds: 350));
+        }
+        recorder.endScenario();
+      }
       if (control['audio'] != false) {
         const manifestPath = '$root/fixtures/manifest.json';
         final manifest = await PerformanceAudioFixtureManifest.read(
@@ -416,6 +473,7 @@ void main() {
       binding.reportData = report;
       await ScreenAwakeService.setEnabled(false);
       await positions.close();
+      await tracks.close();
     }
     expect(failure, isNull);
     if (control['enforceLatest'] == true) {
@@ -470,10 +528,8 @@ Future<Map<String, Object?>> _checkSeekPlayback(
     // The production slider's zero padding makes its track span these bounds.
     expect(theme.padding, EdgeInsets.zero);
     final track = tester.getRect(slider);
-    Offset point(double fraction) => Offset(
-      track.left + track.width * fraction,
-      track.center.dy,
-    );
+    Offset point(double fraction) =>
+        Offset(track.left + track.width * fraction, track.center.dy);
     final gesture = await tester.startGesture(point(sliderWidget.value));
     await gesture.moveTo(
       point(target.inMilliseconds / service.duration!.inMilliseconds),

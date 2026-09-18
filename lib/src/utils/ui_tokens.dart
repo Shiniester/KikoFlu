@@ -1,5 +1,11 @@
 import 'package:flutter/material.dart';
 
+abstract final class UiMotion {
+  static const Duration reveal = Duration(milliseconds: 200);
+  static const Duration travel = Duration(milliseconds: 250);
+  static const Curve curve = Curves.easeOutCubic;
+}
+
 /// Geometry shared by ordinary application surfaces.
 ///
 /// These values mirror the current UI. Keeping them in one place makes later

@@ -230,7 +230,7 @@ void main() {
       expect(miniPlayer, contains('createPlayerArtworkRectTween'));
       expect(miniPlayer, contains("'mini-player-queue-button'"));
       expect(miniPlayer, contains('class _MiniPlayerTrackSwitcher'));
-      expect(miniPlayer, contains('_trackTransitionController'));
+      expect(miniPlayer, contains('PlayerTrackLayers<AudioTrack>'));
       expect(miniPlayer, isNot(contains('AnimatedSwitcher')));
       expect(playerCover, contains('useOldImageOnUrlChange: true'));
       expect(
@@ -290,12 +290,12 @@ void main() {
     expect(coverTransition, isNot(contains('AnimatedBuilder')));
     expect(coverTransition, contains('FadeTransition('));
     expect(coverTransition, contains('ScaleTransition('));
-    expect(coverTransition, contains('player-cover-outgoing-layer'));
-    expect(coverTransition, contains('player-cover-incoming-layer'));
+    expect(coverTransition, contains(r'player-cover-$role-layer'));
+    expect(coverTransition, contains('RepaintBoundary('));
     expect(titleSwitcher, isNot(contains('return AnimatedBuilder(')));
     expect(titleSwitcher, contains('SlideTransition('));
-    expect(titleSwitcher, contains('player-track-title-outgoing-layer'));
-    expect(titleSwitcher, contains('player-track-title-incoming-layer'));
+    expect(titleSwitcher, contains(r'player-track-title-$role-layer'));
+    expect(titleSwitcher, contains('RepaintBoundary('));
     expect(
       screen,
       contains('artworkThemeSeedProvider.select((state) => state.seed)'),

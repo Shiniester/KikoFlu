@@ -1,0 +1,204 @@
+{
+  "animation_detail_baseline": {
+    "runs": 5,
+    "ui": {
+      "expandCold": {
+        "UiP95Ms": 13.051,
+        "RasterP95Ms": 8.359,
+        "FrameP95Ms": 13.372,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 19.263,
+        "jankPercent": 3.409
+      },
+      "expandCollapse": {
+        "UiP95Ms": 8.682,
+        "RasterP95Ms": 9.581,
+        "FrameP95Ms": 11.575,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 14.774,
+        "jankPercent": 3.298
+      },
+      "dragRebound": {
+        "UiP95Ms": 5.908,
+        "RasterP95Ms": 9.433,
+        "FrameP95Ms": 9.803,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 13.503,
+        "jankPercent": 3.708
+      },
+      "dragHandoff": {
+        "UiP95Ms": 10.619,
+        "RasterP95Ms": 10.309,
+        "FrameP95Ms": 20.792,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 21.976,
+        "jankPercent": 6.25
+      },
+      "pageSwitch": {
+        "UiP95Ms": 2.105,
+        "RasterP95Ms": 12.441,
+        "FrameP95Ms": 13.491,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 16.728,
+        "jankPercent": 2.514
+      },
+      "lyricFollow": {
+        "UiP95Ms": 9.545,
+        "RasterP95Ms": 10.265,
+        "FrameP95Ms": 15.544,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 17.18,
+        "jankPercent": 4.133
+      },
+      "lyricScroll": {
+        "UiP95Ms": 5.848,
+        "RasterP95Ms": 11.164,
+        "FrameP95Ms": 11.386,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 11.767,
+        "jankPercent": 0.463
+      },
+      "rapidTrackPresentation": {
+        "UiP95Ms": 18.132,
+        "RasterP95Ms": 7.717,
+        "FrameP95Ms": 18.387,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 18.491,
+        "jankPercent": 14.025
+      },
+      "galleryDoubleTap": {
+        "UiP95Ms": 5.25,
+        "RasterP95Ms": 4.534,
+        "FrameP95Ms": 5.593,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 10.8,
+        "jankPercent": 0.064
+      }
+    },
+    "outgoing": {},
+    "requests": {},
+    "checks": [
+      {
+        "run": 1,
+        "checks": []
+      },
+      {
+        "run": 2,
+        "checks": []
+      },
+      {
+        "run": 3,
+        "checks": []
+      },
+      {
+        "run": 4,
+        "checks": []
+      },
+      {
+        "run": 5,
+        "checks": []
+      }
+    ]
+  },
+  "animation_detail_candidate": {
+    "runs": 5,
+    "ui": {
+      "expandCold": {
+        "UiP95Ms": 12.003,
+        "RasterP95Ms": 6.608,
+        "FrameP95Ms": 12.003,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 14.453,
+        "jankPercent": 2.841
+      },
+      "expandCollapse": {
+        "UiP95Ms": 7.926,
+        "RasterP95Ms": 8.955,
+        "FrameP95Ms": 12.152,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 14.523,
+        "jankPercent": 3.457
+      },
+      "dragRebound": {
+        "UiP95Ms": 6.057,
+        "RasterP95Ms": 9.29,
+        "FrameP95Ms": 11.031,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 15.11,
+        "jankPercent": 3.364
+      },
+      "dragHandoff": {
+        "UiP95Ms": 10.674,
+        "RasterP95Ms": 9.965,
+        "FrameP95Ms": 19.922,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 20.856,
+        "jankPercent": 6.217
+      },
+      "pageSwitch": {
+        "UiP95Ms": 2.239,
+        "RasterP95Ms": 13.153,
+        "FrameP95Ms": 14.614,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 16.728,
+        "jankPercent": 3.207
+      },
+      "lyricFollow": {
+        "UiP95Ms": 9.929,
+        "RasterP95Ms": 10.423,
+        "FrameP95Ms": 15.443,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 16.439,
+        "jankPercent": 3.852
+      },
+      "lyricScroll": {
+        "UiP95Ms": 6.739,
+        "RasterP95Ms": 10.171,
+        "FrameP95Ms": 10.474,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 10.926,
+        "jankPercent": 0.308
+      },
+      "rapidTrackPresentation": {
+        "UiP95Ms": 19.688,
+        "RasterP95Ms": 7.684,
+        "FrameP95Ms": 20.192,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 20.886,
+        "jankPercent": 18.143
+      },
+      "galleryDoubleTap": {
+        "UiP95Ms": 5.736,
+        "RasterP95Ms": 4.573,
+        "FrameP95Ms": 5.841,
+        "FrameBudgetMs": 16.667,
+        "worstRunFrameP95Ms": 10.083,
+        "jankPercent": 0.064
+      }
+    },
+    "outgoing": {},
+    "requests": {},
+    "checks": [
+      {
+        "run": 1,
+        "checks": []
+      },
+      {
+        "run": 2,
+        "checks": []
+      },
+      {
+        "run": 3,
+        "checks": []
+      },
+      {
+        "run": 4,
+        "checks": []
+      },
+      {
+        "run": 5,
+        "checks": []
+      }
+    ]
+  }
+}

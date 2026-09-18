@@ -26,8 +26,8 @@ class VirtualizedPagination {
     this.onGoToPage,
     this.nextPageOnOverscroll = false,
     this.scrollToTop = true,
-    this.scrollDuration = const Duration(milliseconds: 500),
-    this.scrollCurve = Curves.easeInOut,
+    this.scrollDuration = UiMotion.travel,
+    this.scrollCurve = UiMotion.curve,
     this.extraBuilder,
     this.showWhenEmpty = false,
     this.endMessage,
@@ -94,9 +94,14 @@ class VirtualizedCollectionController {
   Future<void> scrollToTop({
     Duration duration = const Duration(milliseconds: 300),
     Curve curve = Curves.easeOut,
+    bool animate = true,
   }) async {
     final controller = _scrollController;
     if (controller == null || !controller.hasClients) return;
+    if (!animate || duration == Duration.zero) {
+      controller.jumpTo(0);
+      return;
+    }
     await controller.animateTo(0, duration: duration, curve: curve);
   }
 
@@ -236,6 +241,7 @@ class _VirtualizedSliverCollectionState<T>
   bool _inspectionScheduled = false;
   bool _requestInFlight = false;
   bool _pageRequestInFlight = false;
+  int _pageOperationRevision = 0;
   Object? _lastLoadSignature;
   List<Object> _lastVisibleIds = const [];
   late Map<Object, int> _indexById;
@@ -472,24 +478,43 @@ class _VirtualizedSliverCollectionState<T>
     bool waitForResultBeforeScroll = false,
   }) async {
     if (callback == null || _pageRequestInFlight) return;
+    final operationRevision = ++_pageOperationRevision;
+    if (_controller.hasClients) {
+      _controller.jumpTo(_controller.offset);
+    }
     setState(() => _pageRequestInFlight = true);
     try {
       final result = callback();
       if (waitForResultBeforeScroll) await result;
       if (pagination.scrollToTop) {
-        await WidgetsBinding.instance.endOfFrame;
-        if (mounted && _controller.hasClients) {
-          await _controller.animateTo(
-            0,
-            duration: pagination.scrollDuration,
-            curve: pagination.scrollCurve,
-          );
-        }
+        // The page request owns the loading lock. The scroll animation is an
+        // independent visual effect so a slow return-to-top cannot block a
+        // subsequent page request.
+        unawaited(_scrollToTop(pagination, operationRevision));
       }
       if (!waitForResultBeforeScroll) await result;
     } finally {
       if (mounted) setState(() => _pageRequestInFlight = false);
     }
+  }
+
+  Future<void> _scrollToTop(
+    VirtualizedPagination pagination,
+    int operationRevision,
+  ) async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || operationRevision != _pageOperationRevision) return;
+    if (!_controller.hasClients) return;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (reduceMotion || pagination.scrollDuration == Duration.zero) {
+      _controller.jumpTo(0);
+      return;
+    }
+    await _controller.animateTo(
+      0,
+      duration: pagination.scrollDuration,
+      curve: pagination.scrollCurve,
+    );
   }
 
   Future<void> _invokeLoadMore({bool force = false}) async {
@@ -752,7 +777,13 @@ class _VirtualizedSliverCollectionState<T>
 
     return Stack(
       children: [
-        scrollView,
+        NotificationListener<ScrollStartNotification>(
+          onNotification: (notification) {
+            if (notification.dragDetails != null) _pageOperationRevision++;
+            return false;
+          },
+          child: scrollView,
+        ),
         if (widget.isRefreshing)
           const Positioned(
             top: 0,

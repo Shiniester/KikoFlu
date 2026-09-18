@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -26,9 +28,8 @@ class WorksScreen extends ConsumerStatefulWidget {
 
 class _WorksScreenState extends ConsumerState<WorksScreen>
     with AutomaticKeepAliveClientMixin {
-  final ScrollController _scrollController = ScrollController();
-
   int _slideDirection = 0;
+  int _displayGeneration = 0;
   final Map<DisplayMode, double> _scrollPositions = {
     for (final mode in DisplayMode.values) mode: 0.0,
   };
@@ -41,6 +42,7 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
     super.initState();
     // 只在首次加载时获取数据，如果已有数据则不重新加载
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final worksState = ref.read(worksProvider);
       if (worksState.works.isEmpty) {
         ref.read(worksProvider.notifier).loadWorks(refresh: true);
@@ -48,15 +50,10 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
     });
   }
 
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
-
   void _showSortDialog(BuildContext context) {
     final displayMode = ref.read(worksProvider).displayMode;
-    final isRecommendMode = displayMode == DisplayMode.popular ||
+    final isRecommendMode =
+        displayMode == DisplayMode.popular ||
         displayMode == DisplayMode.recommended;
 
     if (isRecommendMode) {
@@ -119,24 +116,7 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
   void _changeDisplayMode(DisplayMode mode) {
     final currentMode = ref.read(worksProvider).displayMode;
     if (currentMode == mode) return;
-
-    if (_scrollController.hasClients) {
-      _scrollPositions[currentMode] = _scrollController.offset;
-    }
-
     ref.read(worksProvider.notifier).setDisplayMode(mode);
-  }
-
-  void _restoreScrollPosition(DisplayMode mode) {
-    final targetOffset = _scrollPositions[mode] ?? 0;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (!_scrollController.hasClients) return;
-      final maxExtent = _scrollController.position.maxScrollExtent;
-      final safeMax = maxExtent.isFinite ? maxExtent : targetOffset;
-      final clamped = targetOffset.clamp(0.0, safeMax).toDouble();
-      _scrollController.jumpTo(clamped);
-    });
   }
 
   void _handleSwipe(DragEndDetails details) {
@@ -168,33 +148,33 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context); // 必须调用以保持状态
-    ref.listen<WorksState>(
-      worksProvider,
-      (previous, next) {
-        if (!mounted) return;
-        if (previous == null) return;
-        if (previous.displayMode == next.displayMode) return;
+    ref.listen<WorksState>(worksProvider, (previous, next) {
+      if (!mounted) return;
+      if (previous == null) return;
+      if (previous.displayMode == next.displayMode) return;
 
-        final prevIndex = DisplayMode.values.indexOf(previous.displayMode);
-        final nextIndex = DisplayMode.values.indexOf(next.displayMode);
+      final prevIndex = DisplayMode.values.indexOf(previous.displayMode);
+      final nextIndex = DisplayMode.values.indexOf(next.displayMode);
 
-        setState(() {
-          _slideDirection = nextIndex >= prevIndex ? 1 : -1;
-        });
-
-        _restoreScrollPosition(next.displayMode);
-      },
-    );
+      setState(() {
+        _slideDirection = nextIndex >= prevIndex ? 1 : -1;
+        _displayGeneration++;
+      });
+    });
     final worksState = ref.watch(worksProvider);
-    final isRecommendMode = worksState.displayMode == DisplayMode.popular ||
+    final isRecommendMode =
+        worksState.displayMode == DisplayMode.popular ||
         worksState.displayMode == DisplayMode.recommended;
 
     final horizontalPadding = FloatingToolbarLayout.horizontalPadding(context);
     final topPadding = MediaQuery.paddingOf(context).top;
     final toolbarTop = topPadding + 8;
     final contentTopPadding = toolbarTop + 56;
-    final systemOverlayStyle =
-        transparentSystemBarsForBrightness(Theme.of(context).brightness);
+    final displayGeneration = _displayGeneration;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final systemOverlayStyle = transparentSystemBarsForBrightness(
+      Theme.of(context).brightness,
+    );
 
     return AnnotatedRegion(
       value: systemOverlayStyle,
@@ -206,35 +186,40 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
               child: GestureDetector(
                 onHorizontalDragEnd: _handleSwipe,
                 child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 250),
-                  switchInCurve: Curves.easeOut,
-                  switchOutCurve: Curves.easeIn,
+                  duration: reduceMotion
+                      ? const Duration(milliseconds: 200)
+                      : const Duration(milliseconds: 250),
+                  switchInCurve: Curves.linear,
+                  switchOutCurve: Curves.linear,
                   transitionBuilder: (child, animation) {
-                    final direction = _slideDirection == 0
-                        ? 0.0
-                        : (_slideDirection > 0 ? 0.12 : -0.12);
-                    final offsetAnimation = Tween<Offset>(
-                      begin: Offset(direction, 0),
-                      end: Offset.zero,
-                    ).animate(animation);
-                    return FadeTransition(
-                      opacity: animation,
-                      child: SlideTransition(
-                        position: offsetAnimation,
-                        child: child,
-                      ),
+                    return _WorksModeTransition(
+                      animation: animation,
+                      direction: _slideDirection,
+                      reduceMotion: MediaQuery.disableAnimationsOf(context),
+                      child: child,
                     );
                   },
                   child: KeyedSubtree(
-                    key: ValueKey(worksState.displayMode),
-                    child: _buildBody(
-                      worksState,
-                      EdgeInsets.fromLTRB(
+                    key: ValueKey(
+                      '${worksState.displayMode.name}-$_displayGeneration',
+                    ),
+                    child: _WorksModeView(
+                      worksState: worksState,
+                      initialScrollOffset:
+                          _scrollPositions[worksState.displayMode] ?? 0,
+                      onScrollOffsetChanged: (offset) {
+                        if (displayGeneration == _displayGeneration) {
+                          _scrollPositions[worksState.displayMode] = offset;
+                        }
+                      },
+                      padding: EdgeInsets.fromLTRB(
                         horizontalPadding,
                         contentTopPadding,
                         horizontalPadding,
                         horizontalPadding,
                       ),
+                      generation: displayGeneration,
+                      builder: _buildLayoutView,
                     ),
                   ),
                 ),
@@ -297,8 +282,9 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
     WorksState worksState, {
     required bool isRecommendMode,
   }) {
-    final subtitleMode =
-        SubtitleFilterMode.fromValue(worksState.subtitleFilter);
+    final subtitleMode = SubtitleFilterMode.fromValue(
+      worksState.subtitleFilter,
+    );
     return [
       FloatingFeedToolAction(
         icon: _getLayoutIcon(worksState.layoutType),
@@ -322,19 +308,30 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
     ];
   }
 
-  Widget _buildBody(WorksState worksState, EdgeInsetsGeometry padding) {
-    return _buildLayoutView(worksState, padding);
-  }
-
   Widget _buildLayoutView(
     WorksState worksState,
     EdgeInsetsGeometry padding,
+    ScrollController scrollController,
+    int generation,
   ) {
     final notifier = ref.read(worksProvider.notifier);
+    bool isActive() =>
+        mounted &&
+        generation == _displayGeneration &&
+        ref.read(worksProvider).displayMode == worksState.displayMode;
+    Future<void> guarded(Future<void> Function() action) async {
+      if (!isActive()) return;
+      await action();
+    }
+
+    void guardedRefresh() {
+      if (isActive()) unawaited(notifier.refresh());
+    }
+
     return WorksGridView(
       works: worksState.works,
       layoutType: worksState.layoutType,
-      scrollController: _scrollController,
+      scrollController: scrollController,
       padding: padding,
       physics: ScrollOptimization.physics,
       isLoading: worksState.isLoading,
@@ -343,10 +340,13 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
       hasMore: worksState.hasMore,
       error: worksState.error,
       loadMoreError: null,
-      onLoadMore:
-          worksState.displayMode == DisplayMode.all ? null : notifier.loadMore,
-      onRetry: notifier.refresh,
-      onRefresh: worksState.works.isEmpty ? null : notifier.refresh,
+      onLoadMore: worksState.displayMode == DisplayMode.all
+          ? null
+          : () => guarded(notifier.loadMore),
+      onRetry: guardedRefresh,
+      onRefresh: worksState.works.isEmpty
+          ? null
+          : () => guarded(notifier.refresh),
       pagination: worksState.displayMode == DisplayMode.all
           ? VirtualizedPagination(
               currentPage: worksState.currentPage,
@@ -354,23 +354,25 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
               totalCount: worksState.totalCount,
               hasMore: worksState.hasMore,
               isLoading: worksState.isLoading || worksState.isRefreshing,
-              onPreviousPage: notifier.previousPage,
-              onNextPage: notifier.nextPage,
-              onGoToPage: notifier.goToPage,
+              onPreviousPage: () => guarded(notifier.previousPage),
+              onNextPage: () => guarded(notifier.nextPage),
+              onGoToPage: (page) => guarded(() => notifier.goToPage(page)),
               nextPageOnOverscroll: true,
-              scrollDuration: const Duration(milliseconds: 500),
-              scrollCurve: Curves.easeInOut,
+              scrollDuration: UiMotion.travel,
+              scrollCurve: UiMotion.curve,
               extraBuilder: worksState.rawWorks.length > worksState.works.length
                   ? (context) => Text(
-                        S.of(context).pageExcludedNWorks(
-                              worksState.rawWorks.length -
-                                  worksState.works.length,
-                            ),
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontSize: 12,
-                        ),
-                      )
+                      S
+                          .of(context)
+                          .pageExcludedNWorks(
+                            worksState.rawWorks.length -
+                                worksState.works.length,
+                          ),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 12,
+                      ),
+                    )
                   : null,
             )
           : null,
@@ -394,8 +396,8 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
         message: Text(
           error.toString(),
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
           textAlign: TextAlign.center,
         ),
         action: ElevatedButton.icon(
@@ -417,8 +419,8 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
         message: Text(
           S.of(context).checkNetworkOrRetry,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
       ),
       endBuilder: (context) => Padding(
@@ -446,7 +448,9 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
             if (worksState.rawWorks.length > worksState.works.length) ...[
               const SizedBox(height: 8),
               Text(
-                S.of(context).excludedNWorks(
+                S
+                    .of(context)
+                    .excludedNWorks(
                       worksState.rawWorks.length - worksState.works.length,
                     ),
                 style: TextStyle(
@@ -459,5 +463,197 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
         ),
       ),
     );
+  }
+}
+
+class _WorksModeView extends StatefulWidget {
+  const _WorksModeView({
+    required this.worksState,
+    required this.initialScrollOffset,
+    required this.onScrollOffsetChanged,
+    required this.padding,
+    required this.generation,
+    required this.builder,
+  });
+
+  final WorksState worksState;
+  final double initialScrollOffset;
+  final ValueChanged<double> onScrollOffsetChanged;
+  final EdgeInsetsGeometry padding;
+  final int generation;
+  final Widget Function(
+    WorksState worksState,
+    EdgeInsetsGeometry padding,
+    ScrollController controller,
+    int generation,
+  )
+  builder;
+
+  @override
+  State<_WorksModeView> createState() => _WorksModeViewState();
+}
+
+class _WorksModeViewState extends State<_WorksModeView> {
+  late final ScrollController _scrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController(
+      initialScrollOffset: widget.initialScrollOffset.clamp(
+        0.0,
+        double.infinity,
+      ),
+      keepScrollOffset: false,
+    );
+    _scrollController.addListener(_handleScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final maxExtent = _scrollController.position.maxScrollExtent;
+      final target = widget.initialScrollOffset
+          .clamp(0.0, maxExtent.isFinite ? maxExtent : 0.0)
+          .toDouble();
+      if ((_scrollController.offset - target).abs() > 0.5) {
+        _scrollController.jumpTo(target);
+      }
+    });
+  }
+
+  void _handleScroll() {
+    if (_scrollController.hasClients) {
+      widget.onScrollOffsetChanged(_scrollController.offset);
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController
+      ..removeListener(_handleScroll)
+      ..dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.builder(
+      widget.worksState,
+      widget.padding,
+      _scrollController,
+      widget.generation,
+    );
+  }
+}
+
+class _WorksModeTransition extends StatefulWidget {
+  const _WorksModeTransition({
+    required this.animation,
+    required this.direction,
+    required this.reduceMotion,
+    required this.child,
+  });
+
+  final Animation<double> animation;
+  final int direction;
+  final bool reduceMotion;
+  final Widget child;
+
+  @override
+  State<_WorksModeTransition> createState() => _WorksModeTransitionState();
+}
+
+class _WorksModeTransitionState extends State<_WorksModeTransition> {
+  late final int _entryDirection;
+  bool _exitCaptured = false;
+  late double _exitStartValue;
+  late double _exitStartOpacity;
+  late Offset _exitStartOffset;
+  late int _exitDirection;
+
+  @override
+  void initState() {
+    super.initState();
+    _entryDirection = widget.direction >= 0 ? 1 : -1;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.animation,
+      builder: (context, child) {
+        final isOutgoing =
+            widget.animation.status == AnimationStatus.reverse ||
+            widget.animation.status == AnimationStatus.dismissed;
+        if (isOutgoing && !_exitCaptured) {
+          _captureExit();
+        }
+        return _buildTransition(isOutgoing, child!);
+      },
+      child: widget.child,
+    );
+  }
+
+  void _captureExit() {
+    _exitCaptured = true;
+    _exitStartValue = widget.animation.value.clamp(0.0, 1.0);
+    final entryProgress = Curves.easeOutCubic.transform(_exitStartValue);
+    _exitStartOpacity = entryProgress;
+    _exitStartOffset = Offset(_entryDirection * 0.12 * (1 - entryProgress), 0);
+    _exitDirection = widget.direction >= 0 ? 1 : -1;
+  }
+
+  Widget _buildTransition(bool isOutgoing, Widget child) {
+    final progress = widget.animation.value.clamp(0.0, 1.0);
+    final easedProgress = Curves.easeOutCubic.transform(progress);
+    final offset = widget.reduceMotion
+        ? Offset.zero
+        : isOutgoing
+        ? _exitOffset(progress)
+        : Offset(_entryDirection * 0.12 * (1 - easedProgress), 0);
+    final opacity = isOutgoing ? _exitOpacity(progress) : easedProgress;
+    final fade = FadeTransition(
+      opacity: AlwaysStoppedAnimation(opacity),
+      child: child,
+    );
+    final transitioned = SlideTransition(
+      position: AlwaysStoppedAnimation(
+        widget.reduceMotion ? Offset.zero : offset,
+      ),
+      child: fade,
+    );
+    return IgnorePointer(
+      ignoring: isOutgoing,
+      child: ExcludeFocus(
+        excluding: isOutgoing,
+        child: ExcludeSemantics(
+          excluding: isOutgoing,
+          child: HeroMode(enabled: !isOutgoing, child: transitioned),
+        ),
+      ),
+    );
+  }
+
+  Offset _exitOffset(double value) {
+    if (!_exitCaptured || _exitStartValue <= 0.0001) {
+      return Offset(-_exitDirection * 0.12, 0);
+    }
+    final progress = ((_exitStartValue - value) / _exitStartValue)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    final eased = Curves.easeOutCubic.transform(progress);
+    return Offset.lerp(
+          _exitStartOffset,
+          Offset(-_exitDirection * 0.12, 0),
+          eased,
+        ) ??
+        Offset(-_exitDirection * 0.12, 0);
+  }
+
+  double _exitOpacity(double value) {
+    if (!_exitCaptured || _exitStartValue <= 0.0001) return 0;
+    final progress = ((_exitStartValue - value) / _exitStartValue)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    final eased = Curves.easeOutCubic.transform(progress);
+    return _exitStartOpacity * (1 - eased);
   }
 }

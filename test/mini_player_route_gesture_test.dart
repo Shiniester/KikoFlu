@@ -1,3 +1,4 @@
+import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -427,6 +428,13 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          playerTrackChangePresentationProvider.overrideWithValue(
+            const PlayerTrackChangePresentation(
+              trackId: 'crossfade-second',
+              direction: PlayerTrackChangeDirection.next,
+              revision: 1,
+            ),
+          ),
           currentTrackProvider.overrideWith((ref) => tracks.stream),
           isTrackLoadingProvider.overrideWith((ref) => Stream.value(false)),
           positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),

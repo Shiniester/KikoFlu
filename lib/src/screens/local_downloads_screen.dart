@@ -15,6 +15,7 @@ import '../services/storage_service.dart';
 import '../utils/string_utils.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/scroll_optimization.dart';
+import '../utils/ui_tokens.dart';
 import '../providers/auth_provider.dart';
 import '../providers/download_provider.dart';
 import '../widgets/sort_dialog.dart';
@@ -46,7 +47,7 @@ class LocalDownloadsScreen extends ConsumerStatefulWidget {
 }
 
 class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, SingleTickerProviderStateMixin {
   bool _isSelectionMode = false;
   final Set<int> _selectedWorkIds = {}; // 选中的作品ID
   final VirtualizedCollectionController _collectionController =
@@ -56,8 +57,13 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
 
   // 搜索相关
   final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
   String _searchQuery = '';
   bool _isSearchVisible = false;
+  final _toolbarContentKey = GlobalKey();
+  late final AnimationController _toolbarEntrance;
+  late final Animation<double> _toolbarOpacity;
+  late final Animation<double> _toolbarScale;
 
   // 排序相关
   SortOrder _sortOrder = SortOrder.downloadDate;
@@ -79,15 +85,36 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
   bool get wantKeepAlive => true;
 
   @override
+  void initState() {
+    super.initState();
+    _toolbarEntrance = AnimationController(
+      vsync: this,
+      duration: UiMotion.reveal,
+      value: 1,
+    );
+    _toolbarOpacity = _toolbarEntrance.drive(CurveTween(curve: UiMotion.curve));
+    _toolbarScale = _toolbarOpacity.drive(Tween(begin: 0.97, end: 1.0));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) _toolbarEntrance.value = 1;
+  }
+
+  @override
   void dispose() {
+    _toolbarEntrance.dispose();
+    _searchFocusNode.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
   void _scrollToTop() {
     _collectionController.scrollToTop(
-      duration: const Duration(milliseconds: 500),
-      curve: Curves.easeInOut,
+      duration: UiMotion.travel,
+      curve: UiMotion.curve,
+      animate: !MediaQuery.disableAnimationsOf(context),
     );
   }
 
@@ -105,12 +132,29 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
   }
 
   void _toggleSelectionMode() {
+    _searchFocusNode.unfocus();
     setState(() {
       _isSelectionMode = !_isSelectionMode;
       if (!_isSelectionMode) {
         _selectedWorkIds.clear();
       }
     });
+    _toolbarModeChanged();
+  }
+
+  void _toolbarModeChanged() {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _toolbarEntrance.value = 1;
+    } else {
+      _toolbarEntrance.forward(from: 0);
+    }
+    if (_isSearchVisible && !_isSelectionMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _isSearchVisible && !_isSelectionMode) {
+          _searchFocusNode.requestFocus();
+        }
+      });
+    }
   }
 
   void _toggleWorkSelection(int workId) {
@@ -314,6 +358,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
         _isSelectionMode = false;
         _selectedWorkIds.clear();
       });
+      _toolbarModeChanged();
 
       // 使用 Future.microtask 延迟到下一帧显示 SnackBar
       if (mounted) {
@@ -369,14 +414,17 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
 
   // 切换搜索栏可见性
   void _toggleSearch() {
+    final entering = !_isSearchVisible;
     setState(() {
-      _isSearchVisible = !_isSearchVisible;
+      _isSearchVisible = entering;
       if (!_isSearchVisible) {
+        _searchFocusNode.unfocus();
         _searchController.clear();
         _searchQuery = '';
         _currentPage = 1;
       }
     });
+    _toolbarModeChanged();
   }
 
   // 过滤作品（根据搜索关键词）
@@ -699,6 +747,36 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
   }
 
   Widget _buildPrimaryToolbar(Map<int, List<DownloadTask>> groupedTasks) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final mode = _isSelectionMode
+        ? 'selection'
+        : _isSearchVisible
+        ? 'search'
+        : 'normal';
+    return AnimatedSize(
+      key: ValueKey(reduceMotion),
+      duration: reduceMotion ? Duration.zero : UiMotion.reveal,
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.centerLeft,
+      // Keep the input mounted when the size animation is replaced.
+      child: KeyedSubtree(
+        key: _toolbarContentKey,
+        child: FadeTransition(
+          key: ValueKey('downloads-toolbar-$mode'),
+          opacity: _toolbarOpacity,
+          child: ScaleTransition(
+            alignment: Alignment.centerLeft,
+            scale: _toolbarScale,
+            child: _buildPrimaryToolbarContent(groupedTasks),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPrimaryToolbarContent(
+    Map<int, List<DownloadTask>> groupedTasks,
+  ) {
     if (_isSelectionMode) {
       return FloatingToolbarSurface(
         padding: const EdgeInsets.all(4),
@@ -759,7 +837,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
               width: 160,
               child: TextField(
                 controller: _searchController,
-                autofocus: true,
+                focusNode: _searchFocusNode,
                 onChanged: (value) => setState(() {
                   _searchQuery = value;
                   _currentPage = 1;
@@ -884,9 +962,11 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
         onLongPress: !_isSelectionMode
             ? () {
                 setState(() {
+                  _searchFocusNode.unfocus();
                   _isSelectionMode = true;
                   _toggleWorkSelection(workId);
                 });
+                _toolbarModeChanged();
               }
             : null,
         child: Stack(

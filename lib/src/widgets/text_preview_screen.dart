@@ -413,6 +413,10 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
         .clamp(0.0, position.maxScrollExtent)
         .toDouble();
 
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _scrollController.jumpTo(targetOffset);
+      return;
+    }
     _scrollController.animateTo(
       targetOffset,
       duration: const Duration(milliseconds: 220),

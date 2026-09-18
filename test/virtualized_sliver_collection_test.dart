@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/widgets/virtualized_sliver_collection.dart';
+import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 
 Widget _app(Widget child, {Size size = const Size(400, 800)}) {
   return MaterialApp(
@@ -43,6 +44,127 @@ Widget _list({
 }
 
 void main() {
+  testWidgets('overscroll waits for the request and programmatic return does not page again', (tester) async {
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    final pending = Completer<void>();
+    var calls = 0;
+    await tester.pumpWidget(_app(VirtualizedSliverCollection<int>(
+      items: List.generate(40, (index) => index), itemId: (item) => item,
+      controller: controller,
+      physics: const ClampingScrollPhysics(),
+      pagination: VirtualizedPagination(
+        currentPage: 1, pageSize: 20, totalCount: 100,
+        hasMore: true, isLoading: false, nextPageOnOverscroll: true,
+        onNextPage: () { calls++; return pending.future; },
+      ),
+      itemBuilder: (context, item, index) => _IdentityTile(item: item),
+    )));
+    await tester.pump();
+    controller.jumpTo(controller.position.maxScrollExtent);
+    await tester.pump();
+    final bottom = controller.offset;
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -350));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(calls, 1);
+    expect(controller.offset, bottom);
+    pending.complete();
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 130));
+    expect(controller.offset, inExclusiveRange(0, bottom));
+    await tester.pump(const Duration(milliseconds: 130));
+    await tester.pump();
+    expect(controller.offset, 0);
+    expect(calls, 1);
+    await tester.pumpWidget(const SizedBox());
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'pagination unlocks before return-to-top and user drag interrupts it',
+    (tester) async {
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+      var calls = 0;
+      await tester.pumpWidget(
+        _app(
+          VirtualizedSliverCollection<int>(
+            items: List.generate(40, (index) => index),
+            itemId: (item) => item,
+            controller: controller,
+            pagination: VirtualizedPagination(
+              currentPage: 1,
+              pageSize: 20,
+              totalCount: 100,
+              hasMore: true,
+              isLoading: false,
+              onNextPage: () async {
+                calls++;
+              },
+            ),
+            itemBuilder: (context, item, index) => _IdentityTile(item: item),
+          ),
+        ),
+      );
+      await tester.pump();
+      controller.jumpTo(controller.position.maxScrollExtent);
+      await tester.pump();
+      final next = tester
+          .widget<PaginationBar>(find.byType(PaginationBar))
+          .onNextPage!;
+      next();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 30));
+      expect(controller.offset, greaterThan(0));
+      next();
+      await tester.pump();
+      expect(calls, 2);
+      await tester.pump(const Duration(milliseconds: 30));
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(CustomScrollView)),
+      );
+      await gesture.moveBy(const Offset(0, -50));
+      await tester.pump();
+      final offset = controller.offset;
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(controller.offset, offset);
+      await gesture.cancel();
+      await tester.pumpWidget(const SizedBox());
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('collection return-to-top jumps when disabled or zero duration', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+    final collection = VirtualizedCollectionController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      _app(
+        VirtualizedSliverCollection<int>(
+          items: List.generate(40, (index) => index),
+          itemId: (item) => item,
+          controller: controller,
+          collectionController: collection,
+          itemBuilder: (context, item, index) => _IdentityTile(item: item),
+        ),
+      ),
+    );
+    await tester.pump();
+    controller.jumpTo(700);
+    await collection.scrollToTop(animate: false);
+    expect(controller.offset, 0);
+    controller.jumpTo(700);
+    await collection.scrollToTop(duration: Duration.zero);
+    expect(controller.offset, 0);
+    await tester.pumpWidget(const SizedBox());
+    expect(tester.takeException(), isNull);
+  });
+
+
   testWidgets('stable item identity preserves item state after reordering',
       (tester) async {
     final items = ValueNotifier<List<int>>([1, 2, 3]);
