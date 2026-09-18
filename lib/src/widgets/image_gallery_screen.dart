@@ -29,10 +29,17 @@ class ImageGalleryScreen extends StatefulWidget {
   State<ImageGalleryScreen> createState() => _ImageGalleryScreenState();
 }
 
-class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
+class _ImageGalleryScreenState extends State<ImageGalleryScreen>
+    with SingleTickerProviderStateMixin {
   late PageController _pageController;
   late int _currentIndex;
   final Map<int, TransformationController> _transformControllers = {};
+  late final AnimationController _zoomAnimationController;
+  Matrix4Tween? _zoomTween;
+  int? _zoomAnimationIndex;
+  int? _zoomTargetIndex;
+  bool? _zoomTargetIsZoomed;
+  final Map<int, Offset> _doubleTapPositions = {};
   bool _isScaled = false;
   int _pointerCount = 0;
   bool _isSaving = false;
@@ -42,10 +49,17 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
     super.initState();
     _currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
+    _zoomAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+    )..addListener(_applyZoomAnimation);
   }
 
   @override
   void dispose() {
+    _zoomAnimationController
+      ..removeListener(_applyZoomAnimation)
+      ..dispose();
     _pageController.dispose();
     for (var controller in _transformControllers.values) {
       controller.dispose();
@@ -60,22 +74,79 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
     return _transformControllers[index]!;
   }
 
-  void _handleDoubleTap(int index) {
+  void _handleDoubleTapDown(int index, TapDownDetails details) {
+    _doubleTapPositions[index] = details.localPosition;
+  }
+
+  void _handleDoubleTap(int index, Size size) {
     final controller = _getTransformController(index);
     final currentScale = controller.value.getMaxScaleOnAxis();
+    final wasAnimatingTarget =
+        _zoomTargetIndex == index && _zoomTargetIsZoomed != null;
+    final zoomIn = wasAnimatingTarget
+        ? !_zoomTargetIsZoomed!
+        : currentScale <= 1.01;
+    final rawFocalPoint = _doubleTapPositions[index] ?? Offset.zero;
+    final focalPoint = Offset(
+      rawFocalPoint.dx.clamp(0.0, size.width).toDouble(),
+      rawFocalPoint.dy.clamp(0.0, size.height).toDouble(),
+    );
+    final scenePoint = controller.toScene(focalPoint);
+    final translation = Offset(
+      (focalPoint.dx - scenePoint.dx * 2).clamp(-size.width, 0.0),
+      (focalPoint.dy - scenePoint.dy * 2).clamp(-size.height, 0.0),
+    );
+    final target = !zoomIn
+        ? Matrix4.identity()
+        : (Matrix4.identity()
+            ..translateByDouble(translation.dx, translation.dy, 0, 1)
+            ..scaleByDouble(2.0, 2.0, 2.0, 1));
 
-    if (currentScale > 1.0) {
-      controller.value = Matrix4.identity();
-      setState(() => _isScaled = false);
-    } else {
-      const newScale = 2.0;
-      controller.value = Matrix4.identity()
-        ..scaleByDouble(newScale, newScale, newScale, 1);
-      setState(() => _isScaled = true);
+    _cancelZoomAnimation(clearTarget: false);
+    _zoomTargetIndex = index;
+    _zoomTargetIsZoomed = zoomIn;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      controller.value = target;
+      _zoomTargetIndex = null;
+      _zoomTargetIsZoomed = null;
+      _setScaled(zoomIn);
+      return;
+    }
+
+    _zoomAnimationIndex = index;
+    _zoomTween = Matrix4Tween(begin: controller.value.clone(), end: target);
+    _zoomAnimationController.forward(from: 0);
+  }
+
+  void _applyZoomAnimation() {
+    final index = _zoomAnimationIndex;
+    final tween = _zoomTween;
+    if (!mounted || index == null || tween == null) return;
+    final controller = _getTransformController(index);
+    controller.value = tween.transform(
+      Curves.easeOutCubic.transform(_zoomAnimationController.value),
+    );
+    _setScaled(controller.value.getMaxScaleOnAxis() > 1.01);
+  }
+
+  void _setScaled(bool value) {
+    if (!mounted || _isScaled == value) return;
+    setState(() => _isScaled = value);
+  }
+
+  void _cancelZoomAnimation({bool clearTarget = true}) {
+    if (_zoomAnimationController.isAnimating) {
+      _zoomAnimationController.stop();
+    }
+    _zoomAnimationIndex = null;
+    _zoomTween = null;
+    if (clearTarget) {
+      _zoomTargetIndex = null;
+      _zoomTargetIsZoomed = null;
     }
   }
 
-  void _handleTapNavigation(TapDownDetails details) {
+  void _handleTapNavigation(TapUpDetails details) {
     if (_isScaled || _pointerCount > 0) return;
 
     final screenWidth = MediaQuery.of(context).size.width;
@@ -83,19 +154,43 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
 
     if (tapPosition < screenWidth / 3) {
       if (_currentIndex > 0) {
-        _pageController.previousPage(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
-        );
+        if (MediaQuery.disableAnimationsOf(context)) {
+          _pageController.jumpToPage(_currentIndex - 1);
+        } else {
+          _pageController.previousPage(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+          );
+        }
       }
     } else if (tapPosition > screenWidth * 2 / 3) {
       if (_currentIndex < widget.images.length - 1) {
-        _pageController.nextPage(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
-        );
+        if (MediaQuery.disableAnimationsOf(context)) {
+          _pageController.jumpToPage(_currentIndex + 1);
+        } else {
+          _pageController.nextPage(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOutCubic,
+          );
+        }
       }
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!MediaQuery.disableAnimationsOf(context) ||
+        !_zoomAnimationController.isAnimating) {
+      return;
+    }
+    final index = _zoomAnimationIndex;
+    final tween = _zoomTween;
+    if (index != null && tween != null) {
+      _getTransformController(index).value = tween.end!;
+      _setScaled(_zoomTargetIsZoomed ?? false);
+    }
+    _cancelZoomAnimation();
   }
 
   Future<void> _saveImage() async {
@@ -428,6 +523,7 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
             _isScaled = false;
             _pointerCount = 0;
           });
+          _cancelZoomAnimation();
           _resetAllTransformations();
         },
         physics: _isScaled || _pointerCount > 1
@@ -437,26 +533,34 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
           final image = widget.images[index];
           final controller = _getTransformController(index);
 
-          return GestureDetector(
-            onTapDown: _handleTapNavigation,
-            onDoubleTap: () => _handleDoubleTap(index),
-            child: InteractiveViewer(
-              clipBehavior: Clip.none,
-              transformationController: controller,
-              minScale: 1.0,
-              maxScale: 4.0,
-              onInteractionEnd: (_) {
-                final maxScale = controller.value.getMaxScaleOnAxis();
-                setState(() => _isScaled = maxScale > 1.01);
-              },
-              child: Container(
-                color: Colors.black,
-                alignment: Alignment.center,
-                child: CachedImageWidget(
-                  imageUrl: image['url'] ?? '',
-                  hash: image['hash'] ?? '',
-                  cacheKey: image['cacheKey'],
-                  fit: BoxFit.contain,
+          return LayoutBuilder(
+            builder: (context, constraints) => GestureDetector(
+              onTapUp: _handleTapNavigation,
+              onDoubleTapDown: (details) =>
+                  _handleDoubleTapDown(index, details),
+              onDoubleTap: () => _handleDoubleTap(index, constraints.biggest),
+              child: InteractiveViewer(
+                clipBehavior: Clip.none,
+                transformationController: controller,
+                minScale: 1.0,
+                maxScale: 4.0,
+                onInteractionStart: (_) =>
+                    _cancelZoomAnimation(clearTarget: false),
+                onInteractionEnd: (_) {
+                  final maxScale = controller.value.getMaxScaleOnAxis();
+                  _zoomTargetIndex = null;
+                  _zoomTargetIsZoomed = null;
+                  _setScaled(maxScale > 1.01);
+                },
+                child: Container(
+                  color: Colors.black,
+                  alignment: Alignment.center,
+                  child: CachedImageWidget(
+                    imageUrl: image['url'] ?? '',
+                    hash: image['hash'] ?? '',
+                    cacheKey: image['cacheKey'],
+                    fit: BoxFit.contain,
+                  ),
                 ),
               ),
             ),
@@ -537,12 +641,17 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
 
   void _jumpToImage(int index) {
     if (index == _currentIndex) return;
+    _cancelZoomAnimation();
     _resetAllTransformations();
-    _pageController.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeInOut,
-    );
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _pageController.jumpToPage(index);
+    } else {
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+      );
+    }
   }
 
   void _resetAllTransformations() {
@@ -552,6 +661,7 @@ class _ImageGalleryScreenState extends State<ImageGalleryScreen> {
   }
 
   void _updatePointerCount({required bool increment}) {
+    if (increment) _cancelZoomAnimation(clearTarget: false);
     setState(() {
       if (increment) {
         _pointerCount += 1;

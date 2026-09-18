@@ -1,3 +1,4 @@
+import 'player_track_layers.dart';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -372,25 +373,17 @@ class PlayerCoverWidget extends StatefulWidget {
 }
 
 class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   static const _transitionDuration = Duration(milliseconds: 300);
-  static const _transitionScale = 1.20;
-
-  late final AnimationController _transitionController;
-  late final Animation<double> _outgoingOpacityAnimation;
-  late final Animation<double> _incomingOpacityAnimation;
-  late final Animation<double> _outgoingScaleAnimation;
-  late final Animation<double> _incomingScaleAnimation;
-  late final CurvedAnimation _transitionScaleCurve;
+  late final PlayerTrackLayers<_PlayerCoverSnapshot> _presentation;
   late _PlayerCoverSnapshot _displayed;
-  _PlayerCoverSnapshot? _incoming;
   ImageStream? _pendingImageStream;
   ImageStreamListener? _pendingImageListener;
   int _prepareRevision = 0;
   bool _preparing = false;
   bool _disableAnimations = false;
 
-  bool get _transitionBusy => _preparing || _incoming != null;
+  bool get _transitionBusy => _preparing || _presentation.isTransitioning;
 
   _PlayerCoverSnapshot get _requested => _PlayerCoverSnapshot(
     track: widget.track,
@@ -402,30 +395,22 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
   void initState() {
     super.initState();
     _displayed = _requested;
-    _transitionController = AnimationController(
+    _presentation = PlayerTrackLayers<_PlayerCoverSnapshot>(
       vsync: this,
+      initialValue: _displayed,
+      sameContent: (a, b) => a.identity == b.identity || a.isSameWorkAs(b),
+      kind: PlayerTrackVisualKind.cover,
       duration: _transitionDuration,
-    )..addStatusListener(_handleTransitionStatus);
-    _outgoingOpacityAnimation = Tween<double>(
-      begin: 1,
-      end: 0,
-    ).animate(_transitionController);
-    _incomingOpacityAnimation = Tween<double>(
-      begin: 0,
-      end: 1,
-    ).animate(_transitionController);
-    _transitionScaleCurve = CurvedAnimation(
-      parent: _transitionController,
-      curve: Curves.easeOutCubic,
-    );
-    _outgoingScaleAnimation = Tween<double>(
-      begin: 1,
-      end: _transitionScale,
-    ).animate(_transitionScaleCurve);
-    _incomingScaleAnimation = Tween<double>(
-      begin: _transitionScale,
-      end: 1,
-    ).animate(_transitionScaleCurve);
+    )..addListener(_layersChanged);
+  }
+
+  void _layersChanged() {
+    if (!mounted) return;
+    setState(() {
+      if (!_presentation.isTransitioning) {
+        _displayed = _presentation.layers.single.value;
+      }
+    });
   }
 
   @override
@@ -434,7 +419,7 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
     final disableAnimations = MediaQuery.disableAnimationsOf(context);
     if (_disableAnimations == disableAnimations) return;
     _disableAnimations = disableAnimations;
-    if (disableAnimations && _displayed.identity != _requested.identity) {
+    if (disableAnimations) {
       _showImmediately(_requested);
     }
   }
@@ -443,6 +428,10 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
   void didUpdateWidget(PlayerCoverWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     final requested = _requested;
+    if (!widget.animateTrackChanges && oldWidget.animateTrackChanges) {
+      _showImmediately(requested);
+      return;
+    }
     final previous = _PlayerCoverSnapshot(
       track: oldWidget.track,
       url: oldWidget.workCoverUrl ?? oldWidget.track.artworkUrl,
@@ -450,20 +439,27 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
     );
     if (requested.identity != previous.identity &&
         previous.isSameWorkAs(requested)) {
-      _showImmediately(requested);
+      _cancelPendingImage();
+      _prepareRevision++;
+      _preparing = false;
+      _presentation.discardPending();
+      if (!_presentation.replaceContent(
+        (value) => value.isSameWorkAs(requested),
+        requested,
+      )) {
+        _prepare(requested);
+      }
       return;
     }
     if (requested.identity != previous.identity) {
       _prepare(requested);
       return;
     }
-    if (!widget.animateTrackChanges && oldWidget.animateTrackChanges) {
-      _showImmediately(requested);
-    }
   }
 
   void _prepare(_PlayerCoverSnapshot requested) {
     _cancelPendingImage();
+    _presentation.discardPending();
     final revision = ++_prepareRevision;
     if (!widget.animateTrackChanges || _disableAnimations) {
       _showImmediately(requested);
@@ -531,34 +527,15 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
       _showImmediately(requested);
       return;
     }
-    setState(() {
-      if (_incoming != null && _transitionController.value >= 0.5) {
-        _displayed = _incoming!;
-      }
-      _incoming = requested;
-      _preparing = false;
-      _transitionController.forward(from: 0);
-    });
+    _preparing = false;
+    _presentation.present(requested);
   }
 
   void _showImmediately(_PlayerCoverSnapshot requested) {
     _cancelPendingImage();
     _prepareRevision++;
-    _transitionController.stop();
-    _transitionController.value = 0;
-    _displayed = requested;
-    _incoming = null;
     _preparing = false;
-    if (mounted) setState(() {});
-  }
-
-  void _handleTransitionStatus(AnimationStatus status) {
-    if (status != AnimationStatus.completed || _incoming == null) return;
-    setState(() {
-      _displayed = _incoming!;
-      _incoming = null;
-      _transitionController.value = 0;
-    });
+    _presentation.showImmediately(requested);
   }
 
   void _cancelPendingImage() {
@@ -573,9 +550,8 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
   @override
   void dispose() {
     _cancelPendingImage();
-    _transitionScaleCurve.dispose();
-    _transitionController
-      ..removeStatusListener(_handleTransitionStatus)
+    _presentation
+      ..removeListener(_layersChanged)
       ..dispose();
     super.dispose();
   }
@@ -654,49 +630,57 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
   );
 
   Widget _buildTransitionContent(BorderRadius radius) {
-    final incoming = _incoming;
-    if (incoming == null) {
+    final layers = _presentation.layers;
+    if (!_presentation.isTransitioning) {
       return KeyedSubtree(
         key: ValueKey('player-cover-layer-${_displayed.track.id}'),
         child: _buildArtworkContent(_displayed, radius),
       );
     }
-    // Build each artwork subtree once for this transition. The transition
-    // widgets only update compositing properties while the controller ticks;
-    // this avoids rebuilding image providers, privacy filters and placeholders
-    // on every frame.
-    final outgoing = RepaintBoundary(
-      key: const ValueKey('player-cover-outgoing-layer'),
-      child: _buildArtworkContent(_displayed, radius, disableImageFade: true),
-    );
-    final incomingLayer = RepaintBoundary(
-      key: const ValueKey('player-cover-incoming-layer'),
-      child: _buildArtworkContent(incoming, radius, disableImageFade: true),
-    );
+    final firstOutgoing = layers.where((layer) => layer.exiting).firstOrNull;
     return Stack(
       key: const ValueKey('player-cover-transition-stack'),
       fit: StackFit.expand,
       clipBehavior: Clip.none,
       children: [
-        FadeTransition(
-          key: const ValueKey('player-cover-outgoing-opacity'),
-          opacity: _outgoingOpacityAnimation,
-          child: ScaleTransition(
-            key: const ValueKey('player-cover-outgoing-scale'),
-            scale: _outgoingScaleAnimation,
-            child: outgoing,
+        for (final layer in layers)
+          KeyedSubtree(
+            key: ValueKey('player-cover-motion-layer-${layer.token}'),
+            child: _buildCoverLayer(
+              layer,
+              radius,
+              identical(layer, firstOutgoing),
+            ),
           ),
-        ),
-        FadeTransition(
-          key: const ValueKey('player-cover-incoming-opacity'),
-          opacity: _incomingOpacityAnimation,
-          child: ScaleTransition(
-            key: const ValueKey('player-cover-incoming-scale'),
-            scale: _incomingScaleAnimation,
-            child: incomingLayer,
-          ),
-        ),
       ],
+    );
+  }
+
+  Widget _buildCoverLayer(
+    PlayerTrackLayer<_PlayerCoverSnapshot> layer,
+    BorderRadius radius,
+    bool primaryOutgoing,
+  ) {
+    final role = layer.exiting
+        ? (primaryOutgoing ? 'outgoing' : 'outgoing-${layer.token}')
+        : 'incoming';
+    return FadeTransition(
+      key: ValueKey('player-cover-$role-opacity'),
+      opacity: layer.opacity,
+      child: ScaleTransition(
+        key: ValueKey('player-cover-$role-scale'),
+        scale: layer.scale,
+        child: RepaintBoundary(
+          key: ValueKey('player-cover-$role-layer'),
+          child: ExcludeSemantics(
+            child: _buildArtworkContent(
+              layer.value,
+              radius,
+              disableImageFade: true,
+            ),
+          ),
+        ),
+      ),
     );
   }
 

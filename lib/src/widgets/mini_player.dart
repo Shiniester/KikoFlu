@@ -11,10 +11,12 @@ import '../providers/artwork_theme_provider.dart';
 import '../providers/audio_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/player_lyric_style_provider.dart';
+import '../services/audio_player_service.dart';
 import '../utils/snackbar_util.dart';
 import 'volume_control.dart';
 import 'app_bottom_dock_transition.dart';
 import 'player/player_cover_widget.dart';
+import 'player/player_track_layers.dart';
 import 'player/player_route.dart';
 import 'player/player_vertical_gestures.dart';
 import 'player/player_visual_palette.dart';
@@ -219,6 +221,9 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                                   Expanded(
                                     child: _MiniPlayerTrackSwitcher(
                                       track: track,
+                                      presentation: ref.watch(
+                                        playerTrackChangePresentationProvider,
+                                      ),
                                       onTap: () async {
                                         await _playerLauncherKey.currentState
                                             ?.openPlayer();
@@ -412,12 +417,14 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
 class _MiniPlayerTrackSwitcher extends StatefulWidget {
   const _MiniPlayerTrackSwitcher({
     required this.track,
+    required this.presentation,
     required this.onTap,
     required this.onPrevious,
     required this.onNext,
   });
 
   final AudioTrack track;
+  final PlayerTrackChangePresentation? presentation;
   final VoidCallback onTap;
   final Future<bool> Function() onPrevious;
   final Future<bool> Function() onNext;
@@ -433,50 +440,64 @@ class _MiniPlayerTrackSwitcherState extends State<_MiniPlayerTrackSwitcher>
   static const double _switchVelocity = 500;
   static const double _maximumDrag = 72;
   static const Duration _trackTransitionDuration = Duration(milliseconds: 180);
-
   late final AnimationController _settleController;
-  late final AnimationController _trackTransitionController;
-  late AudioTrack _displayTrack;
-  AudioTrack? _outgoingTrack;
-  AudioTrack? _incomingTrack;
-  AudioTrack? _pendingTrack;
-  int _trackTransitionDirection = 1;
-  double _trackTransitionInitialDragOffset = 0;
-  int? _requestedDirection;
-  bool _awaitingConfirmedTrack = false;
+  late final PlayerTrackLayers<AudioTrack> _presentation;
   double _dragOffset = 0;
+  double _gestureDistance = 0;
   double _settleStart = 0;
-  bool _switchInProgress = false;
-  int _switchRequestRevision = 0;
+  bool _reduceMotion = false;
 
   @override
   void initState() {
     super.initState();
-    _displayTrack = widget.track;
     _settleController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 180),
-    )..addListener(_updateSettlingOffset);
-    _trackTransitionController = AnimationController(
-      vsync: this,
       duration: _trackTransitionDuration,
-    )..addStatusListener(_handleTrackTransitionStatus);
+    )..addListener(_updateSettlingOffset);
+    _presentation = PlayerTrackLayers<AudioTrack>(
+      vsync: this,
+      initialValue: widget.track,
+      sameContent: (a, b) => a.id == b.id,
+      kind: PlayerTrackVisualKind.title,
+      duration: _trackTransitionDuration,
+    )..addListener(_layersChanged);
+  }
+
+  void _layersChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (reduceMotion && !_reduceMotion) {
+      _settleController.stop();
+      _dragOffset = 0;
+      _presentation.showImmediately(widget.track);
+    }
+    _reduceMotion = reduceMotion;
   }
 
   @override
   void didUpdateWidget(covariant _MiniPlayerTrackSwitcher oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.track.id == widget.track.id) return;
-    if (_switchInProgress) {
-      _pendingTrack = widget.track;
-      if (_awaitingConfirmedTrack) _commitConfirmedTrack();
+    if (oldWidget.track == widget.track &&
+        oldWidget.presentation == widget.presentation) {
       return;
     }
-    if (_awaitingConfirmedTrack) {
-      _commitConfirmedTrack(widget.track);
-      return;
+    final metadata = widget.presentation;
+    final direction = metadata?.trackId == widget.track.id
+        ? metadata!.direction
+        : PlayerTrackChangeDirection.none;
+    if (_reduceMotion || direction == PlayerTrackChangeDirection.none) {
+      _presentation.showImmediately(widget.track);
+    } else {
+      _presentation.present(
+        widget.track,
+        direction: direction == PlayerTrackChangeDirection.previous ? -1 : 1,
+      );
     }
-    _startTrackTransition(widget.track, direction: 1);
   }
 
   @override
@@ -484,125 +505,61 @@ class _MiniPlayerTrackSwitcherState extends State<_MiniPlayerTrackSwitcher>
     _settleController
       ..removeListener(_updateSettlingOffset)
       ..dispose();
-    _trackTransitionController
-      ..removeStatusListener(_handleTrackTransitionStatus)
+    _presentation
+      ..removeListener(_layersChanged)
       ..dispose();
     super.dispose();
   }
 
   void _updateSettlingOffset() {
-    if (!mounted) return;
-    final eased = Curves.easeOutCubic.transform(_settleController.value);
-    setState(() => _dragOffset = _settleStart * (1 - eased));
+    if (mounted) {
+      setState(
+        () => _dragOffset =
+            _settleStart *
+            (1 - Curves.easeOutCubic.transform(_settleController.value)),
+      );
+    }
   }
 
   void _settleToOrigin() {
     _settleController.stop();
     _settleStart = _dragOffset;
-    if (_settleStart.abs() < 0.5) {
-      if (mounted) {
-        setState(() => _dragOffset = 0);
-      } else {
-        _dragOffset = 0;
-      }
+    if (_reduceMotion || _settleStart.abs() < 0.5) {
+      setState(() => _dragOffset = 0);
       return;
     }
-    final milliseconds = (180 * (_settleStart.abs() / _maximumDrag))
-        .round()
-        .clamp(90, 180);
-    _settleController.duration = Duration(milliseconds: milliseconds);
+    _settleController.duration = Duration(
+      milliseconds: (180 * (_settleStart.abs() / _maximumDrag)).round().clamp(
+        90,
+        180,
+      ),
+    );
     _settleController.forward(from: 0);
   }
 
-  void _handleTrackTransitionStatus(AnimationStatus status) {
-    if (status != AnimationStatus.completed || !mounted) return;
-    final incomingTrack = _incomingTrack;
-    if (incomingTrack == null) return;
-    final pendingTrack = _pendingTrack;
-    setState(() {
-      _displayTrack = incomingTrack;
-      _outgoingTrack = null;
-      _incomingTrack = null;
-      _pendingTrack = null;
-      _trackTransitionInitialDragOffset = 0;
-      _switchInProgress = false;
-      _requestedDirection = null;
-      _awaitingConfirmedTrack = false;
-    });
-    if (pendingTrack != null && pendingTrack.id != _displayTrack.id) {
-      _startTrackTransition(pendingTrack, direction: 1);
-    }
-  }
-
-  void _startTrackTransition(
-    AudioTrack track, {
-    required int direction,
-    double initialDragOffset = 0,
-  }) {
-    if (track.id == _displayTrack.id) return;
-    _trackTransitionController.stop();
-    final normalizedDirection = direction < 0 ? -1 : 1;
-    if (MediaQuery.disableAnimationsOf(context)) {
-      setState(() {
-        _displayTrack = track;
-        _outgoingTrack = null;
-        _incomingTrack = null;
-        _trackTransitionInitialDragOffset = 0;
-        _dragOffset = 0;
-        _switchInProgress = false;
-      });
-      return;
-    }
-    setState(() {
-      _outgoingTrack = _displayTrack;
-      _incomingTrack = track;
-      _trackTransitionDirection = normalizedDirection;
-      _trackTransitionInitialDragOffset = initialDragOffset;
-      _dragOffset = 0;
-      _switchInProgress = true;
-    });
-    _trackTransitionController.forward(from: 0);
-  }
-
-  void _commitConfirmedTrack([AudioTrack? track]) {
-    final confirmedTrack = track ?? _pendingTrack;
-    if (confirmedTrack == null) return;
-    _pendingTrack = null;
-    _awaitingConfirmedTrack = false;
-    final direction = _requestedDirection ?? 1;
-    _requestedDirection = null;
-    _startTrackTransition(
-      confirmedTrack,
-      direction: direction,
-      initialDragOffset: _dragOffset,
-    );
-  }
-
   void _handleDragStart(DragStartDetails details) {
-    if (_switchInProgress || _awaitingConfirmedTrack) return;
     _settleController.stop();
+    _gestureDistance = 0;
   }
 
   void _handleDragUpdate(DragUpdateDetails details) {
-    if (_switchInProgress || _awaitingConfirmedTrack) return;
-    setState(() {
-      _dragOffset = (_dragOffset + details.delta.dx).clamp(
+    _gestureDistance += details.delta.dx;
+    setState(
+      () => _dragOffset = (_dragOffset + details.delta.dx).clamp(
         -_maximumDrag,
         _maximumDrag,
-      );
-    });
+      ),
+    );
   }
 
   void _handleDragEnd(DragEndDetails details) {
-    if (_switchInProgress || _awaitingConfirmedTrack) return;
     final velocity = details.primaryVelocity ?? 0;
-    final goNext =
-        _dragOffset <= -_switchDistance || velocity <= -_switchVelocity;
-    final goPrevious =
-        _dragOffset >= _switchDistance || velocity >= _switchVelocity;
-    if (goNext) {
+    final distance = velocity.abs() >= _switchVelocity
+        ? velocity
+        : _gestureDistance;
+    if (distance <= -_switchDistance) {
       unawaited(_requestSwitch(next: true));
-    } else if (goPrevious) {
+    } else if (distance >= _switchDistance) {
       unawaited(_requestSwitch(next: false));
     } else {
       _settleToOrigin();
@@ -610,47 +567,8 @@ class _MiniPlayerTrackSwitcherState extends State<_MiniPlayerTrackSwitcher>
   }
 
   Future<void> _requestSwitch({required bool next}) async {
-    final requestRevision = ++_switchRequestRevision;
-    setState(() => _switchInProgress = true);
-    _requestedDirection = next ? 1 : -1;
-    var confirmed = false;
-    try {
-      confirmed = await (next ? widget.onNext() : widget.onPrevious());
-    } catch (_) {
-      confirmed = false;
-    }
-    if (!mounted || requestRevision != _switchRequestRevision) return;
-    if (confirmed) {
-      _awaitingConfirmedTrack = true;
-      if (_pendingTrack != null) {
-        _commitConfirmedTrack();
-      } else {
-        await WidgetsBinding.instance.endOfFrame;
-        if (!mounted ||
-            requestRevision != _switchRequestRevision ||
-            _pendingTrack != null) {
-          return;
-        }
-        if (widget.track.id == _displayTrack.id) {
-          _awaitingConfirmedTrack = false;
-          _switchInProgress = false;
-          _requestedDirection = null;
-          _settleToOrigin();
-        }
-      }
-      return;
-    }
-    final pendingTrack = _pendingTrack;
-    setState(() {
-      _pendingTrack = null;
-      _switchInProgress = false;
-      _requestedDirection = null;
-      _awaitingConfirmedTrack = false;
-    });
     _settleToOrigin();
-    if (pendingTrack != null && pendingTrack.id != _displayTrack.id) {
-      _startTrackTransition(pendingTrack, direction: 1);
-    }
+    await (next ? widget.onNext() : widget.onPrevious());
   }
 
   Widget _buildTrackContent(BuildContext context, AudioTrack track) {
@@ -691,58 +609,26 @@ class _MiniPlayerTrackSwitcherState extends State<_MiniPlayerTrackSwitcher>
   }
 
   Widget _buildTrackTransition(BuildContext context) {
-    return ClipRect(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final width = constraints.maxWidth;
-          return AnimatedBuilder(
-            animation: _trackTransitionController,
-            builder: (context, child) {
-              final incomingTrack = _incomingTrack;
-              final outgoingTrack = _outgoingTrack;
-              if (incomingTrack == null || outgoingTrack == null) {
-                return ExcludeSemantics(
-                  child: _buildTrackContent(context, _displayTrack),
-                );
-              }
-              final progress = Curves.easeOutCubic.transform(
-                _trackTransitionController.value,
-              );
-              final direction = _trackTransitionDirection.toDouble();
-              final initialDragOffset = _trackTransitionInitialDragOffset;
-              double interpolate(double begin, double end) =>
-                  begin + (end - begin) * progress;
-              return Stack(
-                fit: StackFit.expand,
-                clipBehavior: Clip.hardEdge,
-                children: [
-                  Positioned.fill(
-                    child: Transform.translate(
-                      offset: Offset(
-                        interpolate(initialDragOffset, -direction * width),
-                        0,
-                      ),
-                      child: ExcludeSemantics(
-                        child: _buildTrackContent(context, outgoingTrack),
-                      ),
+    return ExcludeSemantics(
+      child: ClipRect(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            for (final layer in _presentation.layers)
+              KeyedSubtree(
+                key: ValueKey('mini-track-layer-${layer.token}'),
+                child: FadeTransition(
+                  opacity: layer.opacity,
+                  child: SlideTransition(
+                    position: layer.offset,
+                    child: RepaintBoundary(
+                      child: _buildTrackContent(context, layer.value),
                     ),
                   ),
-                  Positioned.fill(
-                    child: Transform.translate(
-                      offset: Offset(
-                        interpolate(direction * width + initialDragOffset, 0),
-                        0,
-                      ),
-                      child: ExcludeSemantics(
-                        child: _buildTrackContent(context, incomingTrack),
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          );
-        },
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -753,10 +639,7 @@ class _MiniPlayerTrackSwitcherState extends State<_MiniPlayerTrackSwitcher>
       label: S.of(context).previousPage,
     );
     final nextAction = CustomSemanticsAction(label: S.of(context).nextPage);
-    final semanticsTrack =
-        _incomingTrack ??
-        _pendingTrack ??
-        (widget.track.id == _displayTrack.id ? _displayTrack : widget.track);
+    final semanticsTrack = widget.track;
 
     return Semantics(
       button: true,

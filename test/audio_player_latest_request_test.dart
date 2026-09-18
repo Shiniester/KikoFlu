@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
@@ -119,6 +120,58 @@ void main() {
     expect(service.currentTrack?.id, 'c');
     expect(service.isTrackLoading, isFalse);
   });
+
+  testWidgets(
+    'mini swipes submit during loading and can reverse an active transition',
+    (tester) async {
+      await tester.runAsync(() => service.updateQueue(tracks, autoplay: true));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            audioPlayerServiceProvider.overrideWithValue(service),
+            lyricAutoLoaderProvider.overrideWith((ref) {}),
+          ],
+          child: const MaterialApp(
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: Scaffold(
+              bottomNavigationBar: MiniPlayer(enableArtworkHero: false),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      final swipe = find.byKey(
+        const ValueKey('mini-player-track-swipe-region'),
+      );
+      player.holdNextLoad = true;
+      await tester.runAsync(() => tester.drag(swipe, const Offset(-100, 0)));
+      for (var i = 0; i < 10 && player.pendingLoad == null; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+      expect(service.isTrackLoading, isTrue);
+      await tester.runAsync(() => tester.drag(swipe, const Offset(-100, 0)));
+      for (var i = 0; i < 15 && service.currentTrack?.id != 'c'; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+      expect(service.currentTrack?.id, 'c');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 45));
+      await tester.runAsync(() => tester.drag(swipe, const Offset(100, 0)));
+      for (var i = 0; i < 15 && service.currentTrack?.id != 'b'; i++) {
+        await tester.pump(const Duration(milliseconds: 10));
+      }
+      expect(service.currentTrack?.id, 'b');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('B'), findsOneWidget);
+      expect(find.text('C'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'loading overlay accepts next while protecting the progress slider',

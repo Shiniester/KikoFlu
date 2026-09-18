@@ -582,12 +582,28 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 75));
 
+    final before = tester
+        .widget<FadeTransition>(
+          find.byKey(const ValueKey('player-cover-incoming-opacity')),
+        )
+        .opacity
+        .value;
     track.value = sameDifferentWork;
     await tester.pump();
     expect(
       find.byKey(const ValueKey('player-cover-transition-stack')),
-      findsNothing,
+      findsOneWidget,
     );
+    expect(
+      tester
+          .widget<FadeTransition>(
+            find.byKey(const ValueKey('player-cover-incoming-opacity')),
+          )
+          .opacity
+          .value,
+      before,
+    );
+    await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('player-cover-artwork-same-different-work')),
       findsOneWidget,

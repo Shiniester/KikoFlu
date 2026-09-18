@@ -319,6 +319,7 @@ class FloatingToolbarPositionFollower extends StatefulWidget {
 class _FloatingToolbarPositionFollowerState
     extends State<FloatingToolbarPositionFollower> {
   late bool _primaryToolbarVisible;
+  final _contentKey = GlobalKey();
 
   @override
   void initState() {
@@ -351,13 +352,16 @@ class _FloatingToolbarPositionFollowerState
 
   @override
   Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    // Reset the position animation while preserving the content subtree.
     return AnimatedPositioned(
-      duration: widget.duration,
+      key: ValueKey(reduceMotion),
+      duration: reduceMotion ? Duration.zero : widget.duration,
       curve: Curves.easeOutCubic,
       top: _primaryToolbarVisible ? widget.visibleTop : widget.hiddenTop,
       left: widget.left,
       right: widget.right,
-      child: widget.child,
+      child: KeyedSubtree(key: _contentKey, child: widget.child),
     );
   }
 }

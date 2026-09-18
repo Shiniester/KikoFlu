@@ -19,6 +19,7 @@ import '../utils/local_file_url.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/system_ui_style.dart';
 import '../widgets/player/player_cover_widget.dart';
+import '../widgets/player/player_track_layers.dart';
 import '../widgets/player/player_controls_widget.dart';
 import '../widgets/player/lyric_display_widget.dart';
 import '../widgets/player/playlist_dialog.dart';
@@ -2928,96 +2929,60 @@ class _PlayerTrackTitleSwitcher extends StatefulWidget {
 }
 
 class _PlayerTrackTitleSwitcherState extends State<_PlayerTrackTitleSwitcher>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final CurvedAnimation _slideCurve;
-  late AudioTrack _displayedTrack;
-  AudioTrack? _incomingTrack;
-  PlayerTrackChangeDirection _animationDirection =
-      PlayerTrackChangeDirection.none;
+    with TickerProviderStateMixin {
+  late final PlayerTrackLayers<AudioTrack> _presentation;
+  bool _reduceMotion = false;
 
   @override
   void initState() {
     super.initState();
-    _displayedTrack = widget.track;
-    _controller = AnimationController(
+    _presentation = PlayerTrackLayers<AudioTrack>(
       vsync: this,
+      initialValue: widget.track,
+      sameContent: (a, b) => a.id == b.id,
+      kind: PlayerTrackVisualKind.title,
       duration: _PlayerTrackTitleSwitcher.duration,
-    )..addStatusListener(_handleAnimationStatus);
-    _slideCurve = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOutCubic,
-    );
+    )..addListener(_layersChanged);
+  }
+
+  void _layersChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (reduceMotion && !_reduceMotion) {
+      _presentation.showImmediately(widget.track);
+    }
+    _reduceMotion = reduceMotion;
   }
 
   @override
   void didUpdateWidget(covariant _PlayerTrackTitleSwitcher oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final trackChanged = oldWidget.track.id != widget.track.id;
-    final presentationChanged =
-        oldWidget.presentationRevision != widget.presentationRevision;
-
     if (!widget.allowAnimation ||
-        MediaQuery.disableAnimationsOf(context) ||
+        _reduceMotion ||
         widget.direction == PlayerTrackChangeDirection.none) {
-      if (trackChanged ||
-          presentationChanged ||
-          oldWidget.allowAnimation != widget.allowAnimation ||
-          _incomingTrack != null) {
-        _showTrackImmediately(widget.track);
-      }
-      return;
+      _presentation.showImmediately(widget.track);
+    } else if (oldWidget.track != widget.track ||
+        oldWidget.presentationRevision != widget.presentationRevision) {
+      _presentation.present(
+        widget.track,
+        direction: widget.direction == PlayerTrackChangeDirection.previous
+            ? -1
+            : 1,
+      );
     }
-
-    if (!trackChanged) {
-      if (oldWidget.track != widget.track) {
-        _showTrackImmediately(widget.track);
-      }
-      return;
-    }
-
-    final outgoingTrack = _incomingTrack ?? _displayedTrack;
-    _controller.stop();
-    setState(() {
-      _displayedTrack = outgoingTrack;
-      _incomingTrack = widget.track;
-      _animationDirection = widget.direction;
-    });
-    _controller.forward(from: 0);
   }
 
   @override
   void dispose() {
-    _slideCurve.dispose();
-    _controller
-      ..removeStatusListener(_handleAnimationStatus)
+    _presentation
+      ..removeListener(_layersChanged)
       ..dispose();
     super.dispose();
-  }
-
-  void _showTrackImmediately(AudioTrack track) {
-    _controller.stop();
-    if (!mounted) {
-      _displayedTrack = track;
-      _incomingTrack = null;
-      _animationDirection = PlayerTrackChangeDirection.none;
-      return;
-    }
-    setState(() {
-      _displayedTrack = track;
-      _incomingTrack = null;
-      _animationDirection = PlayerTrackChangeDirection.none;
-    });
-  }
-
-  void _handleAnimationStatus(AnimationStatus status) {
-    if (status != AnimationStatus.completed || _incomingTrack == null) return;
-    final incomingTrack = _incomingTrack!;
-    setState(() {
-      _displayedTrack = incomingTrack;
-      _incomingTrack = null;
-      _animationDirection = PlayerTrackChangeDirection.none;
-    });
   }
 
   Widget _buildTrackContent(
@@ -3085,7 +3050,7 @@ class _PlayerTrackTitleSwitcherState extends State<_PlayerTrackTitleSwitcher>
 
   @override
   Widget build(BuildContext context) {
-    final incomingTrack = _incomingTrack;
+    final layers = _presentation.layers;
     return SizedBox(
       height: _viewportHeight(context),
       child: ClipRect(
@@ -3094,72 +3059,73 @@ class _PlayerTrackTitleSwitcherState extends State<_PlayerTrackTitleSwitcher>
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            if (incomingTrack == null) {
+            if (!_presentation.isTransitioning) {
               return _buildTrackContent(
                 context,
-                _displayedTrack,
+                layers.single.value,
                 interactive: true,
               );
             }
-
-            final direction =
-                _animationDirection == PlayerTrackChangeDirection.previous
-                ? -1.0
-                : 1.0;
-            // Build the title/artist subtrees once per track change. Slide
-            // transitions update only the render transform on each tick, so
-            // text layout and semantics are not rebuilt for every frame.
-            final outgoing = RepaintBoundary(
-              key: const ValueKey('player-track-title-outgoing-layer'),
-              child: ExcludeSemantics(
-                child: IgnorePointer(
-                  child: SizedBox(
-                    width: constraints.maxWidth,
-                    child: _buildTrackContent(
-                      context,
-                      _displayedTrack,
-                      interactive: false,
-                    ),
-                  ),
-                ),
-              ),
-            );
-            final incoming = RepaintBoundary(
-              key: const ValueKey('player-track-title-incoming-layer'),
-              child: SizedBox(
-                width: constraints.maxWidth,
-                child: _buildTrackContent(
-                  context,
-                  incomingTrack,
-                  interactive: true,
-                ),
-              ),
-            );
+            final outgoing = layers.where((layer) => layer.exiting).firstOrNull;
             return Stack(
               clipBehavior: Clip.none,
               children: [
-                SlideTransition(
-                  key: const ValueKey('player-track-title-outgoing'),
-                  position: Tween<Offset>(
-                    begin: Offset.zero,
-                    end: Offset(-direction, 0),
-                  ).animate(_slideCurve),
-                  child: outgoing,
-                ),
-                SlideTransition(
-                  key: const ValueKey('player-track-title-incoming'),
-                  position: Tween<Offset>(
-                    begin: Offset(direction, 0),
-                    end: Offset.zero,
-                  ).animate(_slideCurve),
-                  child: incoming,
-                ),
+                for (final layer in layers)
+                  KeyedSubtree(
+                    key: ValueKey('player-title-layer-${layer.token}'),
+                    child: _buildTitleLayer(
+                      context,
+                      layer,
+                      constraints.maxWidth,
+                      identical(layer, outgoing),
+                    ),
+                  ),
               ],
             );
           },
         ),
       ),
     );
+  }
+
+  Widget _buildTitleLayer(
+    BuildContext context,
+    PlayerTrackLayer<AudioTrack> layer,
+    double width,
+    bool primaryOutgoing,
+  ) {
+    final role = layer.exiting
+        ? (primaryOutgoing ? 'outgoing' : 'outgoing-${layer.token}')
+        : 'incoming';
+    final interactive = layer.value.id == widget.track.id && !layer.exiting;
+    Widget content = SlideTransition(
+      key: ValueKey('player-track-title-$role'),
+      position: layer.offset,
+      child: RepaintBoundary(
+        key: ValueKey('player-track-title-$role-layer'),
+        child: ExcludeSemantics(
+          excluding: !interactive,
+          child: ExcludeFocus(
+            excluding: !interactive,
+            child: IgnorePointer(
+              ignoring: !interactive,
+              child: SizedBox(
+                width: width,
+                child: _buildTrackContent(
+                  context,
+                  layer.value,
+                  interactive: interactive,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (layer.fades) {
+      content = FadeTransition(opacity: layer.opacity, child: content);
+    }
+    return content;
   }
 }
 

@@ -58,7 +58,8 @@ class SearchScreen extends ConsumerStatefulWidget {
 }
 
 class _SearchScreenState extends ConsumerState<SearchScreen>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, SingleTickerProviderStateMixin {
+  late final AnimationController _conditionsReveal;
   final _searchController = TextEditingController();
   final _conditionsScrollController = ScrollController(); // 用于搜索条件横向滚动
   final List<SearchCondition> _searchConditions = [];
@@ -85,15 +86,41 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   @override
   void initState() {
     super.initState();
+    _conditionsReveal = AnimationController(
+      vsync: this,
+      duration: UiMotion.reveal,
+    );
     _loadSuggestions();
   }
 
   @override
   void dispose() {
+    _conditionsReveal.dispose();
     _conditionsScrollController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _conditionsReveal.value = _searchConditions.isEmpty ? 0 : 1;
+    }
+  }
+
+  void _updateConditionsReveal() {
+    final target = _searchConditions.isEmpty ? 0.0 : 1.0;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _conditionsReveal.value = target;
+    } else {
+      _conditionsReveal.animateTo(
+        target,
+        duration: UiMotion.reveal,
+        curve: UiMotion.curve,
+      );
+    }
   }
 
   // 加载建议数据
@@ -161,6 +188,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       return;
     }
 
+    final wasEmpty = _searchConditions.isEmpty;
     setState(() {
       _searchConditions.add(
         SearchCondition(
@@ -175,17 +203,23 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       _isExcludeMode = false;
     });
 
+    if (wasEmpty) _updateConditionsReveal();
     // 取消焦点，关闭下拉框
     FocusScope.of(context).unfocus();
 
     // 自动滚动到最新添加的标签位置
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_conditionsScrollController.hasClients) {
-        _conditionsScrollController.animateTo(
-          _conditionsScrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
+      if (mounted && _conditionsScrollController.hasClients) {
+        final target = _conditionsScrollController.position.maxScrollExtent;
+        if (MediaQuery.disableAnimationsOf(context)) {
+          _conditionsScrollController.jumpTo(target);
+        } else {
+          _conditionsScrollController.animateTo(
+            target,
+            duration: UiMotion.reveal,
+            curve: Curves.easeOutCubic,
+          );
+        }
       }
     });
   }
@@ -194,6 +228,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     setState(() {
       _searchConditions.removeWhere((condition) => condition.id == id);
     });
+    if (_searchConditions.isEmpty) _updateConditionsReveal();
   }
 
   Future<void> _performSearch() async {
@@ -317,10 +352,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       child: Scaffold(
         floatingActionButton: const DownloadFab(),
         appBar: ScrollableAppBar(
-          title: Text(
-            S.of(context).search,
-            style: UiTextStyles.pageTitle,
-          ),
+          title: Text(S.of(context).search, style: UiTextStyles.pageTitle),
           clipBehavior: Clip.none,
           actions: [
             // 筛选按钮移到右上角
@@ -351,49 +383,49 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         ),
         resizeToAvoidBottomInset: true, // 自动调整以避免键盘遮挡
         body: isLandscape
-              ? Container(
-                  color: theme.colorScheme.surface,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (_showAdvancedFilters)
-                        _buildAdvancedFiltersSidebar(theme),
-                      Expanded(
-                        flex: 8,
-                        child: SingleChildScrollView(
-                          child: Container(
-                            padding: EdgeInsets.fromLTRB(
-                              _showAdvancedFilters ? 8 : 16,
-                              16,
-                              16,
-                              contentBottomPadding,
-                            ),
-                            color: theme.colorScheme.surface,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: _buildMainContentChildren(true),
-                            ),
+            ? Container(
+                color: theme.colorScheme.surface,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (_showAdvancedFilters)
+                      _buildAdvancedFiltersSidebar(theme),
+                    Expanded(
+                      flex: 8,
+                      child: SingleChildScrollView(
+                        child: Container(
+                          padding: EdgeInsets.fromLTRB(
+                            _showAdvancedFilters ? 8 : 16,
+                            16,
+                            16,
+                            contentBottomPadding,
+                          ),
+                          color: theme.colorScheme.surface,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: _buildMainContentChildren(true),
                           ),
                         ),
                       ),
-                    ],
+                    ),
+                  ],
+                ),
+              )
+            : SingleChildScrollView(
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(
+                    16,
+                    16,
+                    16,
+                    contentBottomPadding,
                   ),
-                )
-              : SingleChildScrollView(
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(
-                      16,
-                      16,
-                      16,
-                      contentBottomPadding,
-                    ),
-                    color: theme.colorScheme.surface,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: _buildMainContentChildren(false),
-                    ),
+                  color: theme.colorScheme.surface,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: _buildMainContentChildren(false),
                   ),
                 ),
+              ),
       ), // Scaffold 的闭合
     ); // GestureDetector 的闭合
   }
@@ -449,50 +481,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     final theme = Theme.of(context);
 
     return [
-      if (_searchConditions.isNotEmpty) ...[
-        Text(S.of(context).filter, style: theme.textTheme.titleSmall),
-        const SizedBox(height: 6),
-        SizedBox(
-          height: 40,
-          child: ListView.builder(
-            controller: _conditionsScrollController,
-            scrollDirection: Axis.horizontal,
-            itemCount: _searchConditions.length,
-            itemBuilder: (context, index) {
-              final condition = _searchConditions[index];
-              final displayValue = condition.type == SearchType.rjNumber
-                  ? 'RJ${condition.value}'
-                  : condition.type == SearchType.tag
-                  ? TagLocalizer.localizeByName(
-                      condition.value,
-                      Localizations.localeOf(context),
-                    )
-                  : condition.value;
-
-              return Padding(
-                padding: EdgeInsets.only(
-                  right: index == _searchConditions.length - 1 ? 0 : 6,
-                ),
-                child: SearchConditionChip(
-                  avatar: Icon(
-                    condition.isExclude
-                        ? Icons.remove_circle_outline
-                        : _getSearchTypeIcon(condition.type),
-                    size: UiIconSize.small,
-                  ),
-                  label:
-                      '${condition.type.localizedLabel(context)}: $displayValue',
-                  backgroundColor: condition.isExclude
-                      ? theme.colorScheme.errorContainer
-                      : theme.colorScheme.secondaryContainer,
-                  onDeleted: () => _removeSearchCondition(condition.id),
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 12),
-      ],
+      _buildSearchConditionsSection(theme),
       FloatingToolbarSurface(
         padding: const EdgeInsets.all(4),
         child: SizedBox(
@@ -750,6 +739,71 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       // 搜索历史
       ..._buildSearchHistory(theme),
     ];
+  }
+
+  Widget _buildSearchConditionsSection(ThemeData theme) {
+    final hidden = _searchConditions.isEmpty;
+    return ExcludeSemantics(
+      excluding: hidden,
+      child: IgnorePointer(
+        ignoring: hidden,
+        child: SizeTransition(
+          key: const ValueKey('search-conditions-reveal'),
+          sizeFactor: _conditionsReveal,
+          alignment: Alignment.topCenter,
+          child: FadeTransition(
+            opacity: _conditionsReveal,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(S.of(context).filter, style: theme.textTheme.titleSmall),
+                const SizedBox(height: 6),
+                SizedBox(
+                  height: 40,
+                  child: ListView.builder(
+                    controller: _conditionsScrollController,
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _searchConditions.length,
+                    itemBuilder: (context, index) {
+                      final condition = _searchConditions[index];
+                      final displayValue = condition.type == SearchType.rjNumber
+                          ? 'RJ${condition.value}'
+                          : condition.type == SearchType.tag
+                          ? TagLocalizer.localizeByName(
+                              condition.value,
+                              Localizations.localeOf(context),
+                            )
+                          : condition.value;
+
+                      return Padding(
+                        padding: EdgeInsets.only(
+                          right: index == _searchConditions.length - 1 ? 0 : 6,
+                        ),
+                        child: SearchConditionChip(
+                          avatar: Icon(
+                            condition.isExclude
+                                ? Icons.remove_circle_outline
+                                : _getSearchTypeIcon(condition.type),
+                            size: UiIconSize.small,
+                          ),
+                          label:
+                              '${condition.type.localizedLabel(context)}: $displayValue',
+                          backgroundColor: condition.isExclude
+                              ? theme.colorScheme.errorContainer
+                              : theme.colorScheme.secondaryContainer,
+                          onDeleted: () => _removeSearchCondition(condition.id),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   /// 构建搜索历史部分

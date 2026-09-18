@@ -5,6 +5,7 @@ import '../providers/my_reviews_provider.dart';
 import '../providers/my_tabs_display_provider.dart';
 import '../providers/works_provider.dart' show LayoutType;
 import '../utils/scroll_optimization.dart';
+import '../utils/ui_tokens.dart';
 import '../providers/auth_provider.dart';
 import '../utils/server_utils.dart';
 import '../utils/l10n_extensions.dart';
@@ -341,13 +342,21 @@ class _MyScreenState extends ConsumerState<MyScreen>
                     ignoring: !visible,
                     child: AnimatedSlide(
                       key: const ValueKey('my-tab-switcher'),
-                      offset: visible ? Offset.zero : const Offset(0, -2),
-                      duration: const Duration(milliseconds: 180),
+                      offset: visible || MediaQuery.disableAnimationsOf(context)
+                        ? Offset.zero : const Offset(0, -2),
+                      duration: MediaQuery.disableAnimationsOf(context)
+                        ? Duration.zero : const Duration(milliseconds: 180),
                       curve: Curves.easeOutCubic,
                       child: AnimatedOpacity(
                         opacity: visible ? 1 : 0,
                         duration: const Duration(milliseconds: 140),
-                        child: child,
+                        child: ExcludeFocus(
+                          excluding: !visible,
+                          child: ExcludeSemantics(
+                            excluding: !visible,
+                            child: child,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -518,8 +527,8 @@ class _MyScreenState extends ConsumerState<MyScreen>
         onNextPage: ref.read(myReviewsProvider.notifier).nextPage,
         onGoToPage: ref.read(myReviewsProvider.notifier).goToPage,
         nextPageOnOverscroll: true,
-        scrollDuration: const Duration(milliseconds: 500),
-        scrollCurve: Curves.easeInOut,
+        scrollDuration: UiMotion.travel,
+        scrollCurve: UiMotion.curve,
         showWhenEmpty: true,
       ),
       fillEmptyViewport: false,

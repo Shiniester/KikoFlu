@@ -7,6 +7,7 @@ import '../utils/l10n_extensions.dart';
 import '../widgets/playlist_card.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 import '../utils/scroll_optimization.dart';
+import '../utils/ui_tokens.dart';
 import '../utils/snackbar_util.dart';
 import '../models/playlist.dart' show PlaylistPrivacy;
 import 'playlist_detail_screen.dart';
@@ -587,8 +588,8 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
         onPreviousPage: ref.read(playlistsProvider.notifier).previousPage,
         onNextPage: ref.read(playlistsProvider.notifier).nextPage,
         onGoToPage: ref.read(playlistsProvider.notifier).goToPage,
-        scrollDuration: const Duration(milliseconds: 500),
-        scrollCurve: Curves.easeInOut,
+        scrollDuration: UiMotion.travel,
+        scrollCurve: UiMotion.curve,
       ),
       onRetry: ref.read(playlistsProvider.notifier).refresh,
       sliversBefore: [
