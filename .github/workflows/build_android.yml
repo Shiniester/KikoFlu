@@ -236,9 +236,8 @@ jobs:
             -F 'draft=true' \
             -F 'prerelease=false')"
           release_id="$(jq -r '.id // empty' <<< "$release_json")"
-          upload_url="$(jq -r '.upload_url // empty' <<< "$release_json" | sed 's/{?name,label}$//')"
-          if [ -z "$release_id" ] || [ -z "$upload_url" ]; then
-            echo "::error::GitHub did not return a usable draft release id or upload URL."
+          if [ -z "$release_id" ]; then
+            echo "::error::GitHub did not return a usable draft release id."
             printf '%s\n' "$release_json"
             exit 1
           fi
@@ -258,14 +257,18 @@ jobs:
 
           for asset in "${expected[@]}"; do
             asset_name="$(basename "$asset")"
-            encoded_name="$(jq -nr --arg name "$asset_name" '$name | @uri')"
-            echo "Uploading $asset_name"
-            curl --fail-with-body --silent --show-error \
-              --request POST "${upload_url}?name=${encoded_name}" \
-              --header "Authorization: Bearer ${GH_TOKEN}" \
-              --header 'Accept: application/vnd.github+json' \
-              --header 'Content-Type: application/octet-stream' \
-              --data-binary "@release-assets/$asset"
+            for attempt in 1 2 3; do
+              echo "Uploading $asset_name (attempt $attempt/3)"
+              # A failed upload can leave a same-name starter asset in this draft.
+              if gh release upload "$TAG" "release-assets/$asset" --repo "$GH_REPO" --clobber; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "::error::Failed to upload $asset_name after 3 attempts."
+                false
+              fi
+              sleep $((attempt * 5))
+            done
           done
 
           remote_assets="$(gh api "repos/${GH_REPO}/releases/${release_id}" \
