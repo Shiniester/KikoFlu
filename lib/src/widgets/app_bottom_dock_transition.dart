@@ -58,6 +58,19 @@ class AppBottomDockTransitionScope extends StatefulWidget {
         MediaQuery.viewPaddingOf(context).bottom;
   }
 
+  static ({Rect rect, Widget child})? tabBarSourceOf(BuildContext context) {
+    final state = _maybeStateOf(context);
+    if (state == null || !state.sourceHasAppTabBar) return null;
+    return state._tabBarSource?.call();
+  }
+
+  static void registerTabBarSource(
+    BuildContext context,
+    ({Rect rect, Widget child})? Function() source,
+  ) {
+    _maybeStateOf(context)?._tabBarSource = source;
+  }
+
   static bool sourceHasAppTabBarOf(BuildContext context) {
     return _AppBottomDockHandoffMetrics.sourceHasAppTabBarOf(context) ?? false;
   }
@@ -94,6 +107,7 @@ class AppBottomDockTransitionScope extends StatefulWidget {
 class _AppBottomDockTransitionScopeState
     extends State<AppBottomDockTransitionScope> {
   final List<_AppBottomDockHandoff> _handoffs = [];
+  ({Rect rect, Widget child})? Function()? _tabBarSource;
 
   bool get sourceHasAppTabBar => widget.sourceHasAppTabBar;
 

@@ -210,7 +210,7 @@ void main() {
       expect(playerRoute, contains('beginVerticalDismissGesture'));
       expect(
         playerRoute,
-        contains("ValueKey('player-route-vertical-translation')"),
+        contains("ValueKey('player-route-background-reveal')"),
       );
       expect(playerRoute, isNot(contains('heightFactor:')));
       expect(playerRoute, contains('mode == PlayerDismissVisualMode.main'));
@@ -222,8 +222,6 @@ void main() {
       );
       expect(playerCover, contains('transitionOnUserGestures: true'));
       expect(playerCover, contains('createPlayerArtworkRectTween'));
-      expect(playerCover, contains('playerArtworkAttachmentStart = 0.20'));
-      expect(playerCover, contains('playerArtworkAttachmentEnd = 0.85'));
       expect(screen, isNot(contains('PlayerArtworkFlightTarget.queue')));
       expect(miniPlayer, contains('PlayerArtworkHero('));
       expect(miniPlayer, contains('PlayerCompactArtwork('));

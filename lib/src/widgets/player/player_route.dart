@@ -8,14 +8,40 @@ import 'player_visual_palette.dart';
 
 const Duration playerRouteTransitionDuration = Duration(milliseconds: 450);
 
+/// A measured, render-only endpoint shared by preview and root routes.
+class PlayerTransitionSource {
+  const PlayerTransitionSource({
+    required this.miniRect,
+    required this.miniPlayerBuilder,
+    required this.surfaceColor,
+    this.artworkRect,
+    this.artworkHeroEnabled = false,
+    this.tabBar,
+    this.tabBarRect,
+  });
+
+  final Rect miniRect;
+  final Rect? artworkRect;
+  final Widget Function(BuildContext context, bool hideArtwork)
+  miniPlayerBuilder;
+  final Color surfaceColor;
+  final bool artworkHeroEnabled;
+  final Widget? tabBar;
+  final Rect? tabBarRect;
+}
+
 AudioPlayerPageRoute<T> createAudioPlayerRoute<T>({
   PlayerVisualPalette? initialPalette,
   String? initialPaletteTrackId,
+  PlayerTransitionSource? source,
+  PlayerTransitionSource? Function()? sourceProvider,
   PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
   bool skipInitialTransition = false,
 }) {
   return AudioPlayerPageRoute<T>(
     skipInitialTransition: skipInitialTransition,
+    source: source,
+    sourceProvider: sourceProvider,
     initialDismissVisualMode: initialSurface == PlayerInitialSurface.queue
         ? PlayerDismissVisualMode.secondary
         : PlayerDismissVisualMode.main,
@@ -33,10 +59,14 @@ class AudioPlayerOpenConfiguration {
   const AudioPlayerOpenConfiguration({
     required this.initialPalette,
     required this.initialPaletteTrackId,
+    this.source,
+    this.sourceProvider,
   });
 
   final PlayerVisualPalette initialPalette;
   final String initialPaletteTrackId;
+  final PlayerTransitionSource? source;
+  final PlayerTransitionSource? Function()? sourceProvider;
 
   AudioPlayerPageRoute<void> createRoute({
     bool handoff = false,
@@ -45,6 +75,8 @@ class AudioPlayerOpenConfiguration {
     return createAudioPlayerRoute<void>(
       initialPalette: initialPalette,
       initialPaletteTrackId: initialPaletteTrackId,
+      source: source,
+      sourceProvider: sourceProvider,
       initialSurface: initialSurface,
       skipInitialTransition: handoff,
     );
@@ -68,27 +100,35 @@ Future<T?> openAudioPlayer<T>(
 
 /// Shared route used by every global Mini Player entry point.
 ///
-/// The full page always travels one viewport height. The Player Cover Page's
-/// artwork consumes this route's visual progress through a staged Hero path;
-/// the Player Queue Page has no artwork Hero and moves as one page.
+/// The player surface is revealed upward from the captured Mini Player bounds.
+/// The Player Cover Page's artwork consumes the same route progress through a
+/// straight shared-element flight; queue and lyric surfaces do not attach it.
 class AudioPlayerPageRoute<T> extends PageRoute<T>
     with CupertinoRouteTransitionMixin<T>
     implements PlayerInteractiveDismissRoute {
   AudioPlayerPageRoute({
     required this.builder,
     this.skipInitialTransition = false,
+    this.source,
+    this.sourceProvider,
     PlayerDismissVisualMode initialDismissVisualMode =
         PlayerDismissVisualMode.main,
   }) : _dismissVisualMode = ValueNotifier(initialDismissVisualMode);
 
   final WidgetBuilder builder;
   final bool skipInitialTransition;
+  final PlayerTransitionSource? source;
+  final PlayerTransitionSource? Function()? sourceProvider;
   bool _verticalGestureInProgress = false;
   bool _verticalGestureOpening = false;
   double _verticalGestureStartValue = 0;
   Size _viewportSize = Size.zero;
   int _verticalSettleGeneration = 0;
   bool _reduceMotion = false;
+  AnimationStatus? _lastAnimationStatus;
+  bool _dismissGeometryCaptured = true;
+  PlayerTransitionSource? _activeSource;
+  bool _artworkHeroAvailable = false;
   NavigatorState? _gestureNavigator;
   final ValueNotifier<PlayerDismissVisualMode> _dismissVisualMode;
   late final Animation<double> _controllerAnimation;
@@ -120,6 +160,7 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
       reverseCurve: Curves.easeInCubic,
     );
     _visualAnimation = ProxyAnimation(_automaticVisualAnimation);
+    _activeSource = source;
     return _visualAnimation;
   }
 
@@ -158,10 +199,9 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
 
   @visibleForTesting
   double get debugRouteTravelDistance =>
-      _viewportSize.height > 0 ? _viewportSize.height : 1;
-
-  @visibleForTesting
-  double get debugRouteTranslation => debugRouteTravelDistance;
+      (_activeSource?.miniRect.top ??
+              (_viewportSize.height > 0 ? _viewportSize.height : 1))
+          .clamp(1.0, double.infinity);
 
   @visibleForTesting
   Duration get debugFullTravelDuration => playerRouteTransitionDuration;
@@ -179,6 +219,21 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     _dismissVisualMode.value = mode;
   }
 
+  @override
+  void setArtworkHeroAvailable(bool available) {
+    if (_artworkHeroAvailable == available) return;
+    _artworkHeroAvailable = available;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (navigator != null) changedInternalState();
+    });
+  }
+
+  @override
+  bool didPop(T? result) {
+    _captureDismissSource();
+    return super.didPop(result);
+  }
+
   /// Takes over the just-pushed route for an upward Mini Player drag.
   bool beginVerticalOpenGesture({double initialValue = 0}) {
     final animationController = controller;
@@ -186,7 +241,7 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     if (animationController == null ||
         routeNavigator == null ||
         !isActive ||
-        popGestureInProgress) {
+        (popGestureInProgress && !_verticalGestureInProgress)) {
       return false;
     }
     _beginVerticalGesture(
@@ -205,7 +260,7 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     if (animationController == null ||
         routeNavigator == null ||
         !isCurrent ||
-        popGestureInProgress) {
+        (popGestureInProgress && !_verticalGestureInProgress)) {
       return false;
     }
     setDismissVisualMode(mode);
@@ -215,13 +270,13 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
 
   void _beginVerticalGesture({required bool opening, double? resetValue}) {
     final animationController = controller!;
+    final visualValue = _visualAnimation.value;
     _verticalSettleGeneration++;
     animationController.stop();
-    if (resetValue != null &&
-        resetValue > 0 &&
-        (animationController.value - resetValue).abs() > 0.0001) {
-      animationController.value = resetValue;
-    }
+    // Keep observers on the current visual position while changing clocks.
+    _visualAnimation.parent = AlwaysStoppedAnimation(visualValue);
+    animationController.value = resetValue ?? visualValue;
+    if (!opening && visualValue == 1) _captureDismissSource();
     if (opening) {
       if (animationController.status != AnimationStatus.forward) {
         // Starting without a `from` value restores forward status without
@@ -241,6 +296,7 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
       );
       animationController.stop();
     }
+    _visualAnimation.parent = _controllerAnimation;
     if (!_verticalGestureInProgress) {
       _verticalGestureInProgress = true;
       _gestureNavigator = navigator;
@@ -248,7 +304,6 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     }
     _verticalGestureOpening = opening;
     _verticalGestureStartValue = animationController.value;
-    _visualAnimation.parent = _controllerAnimation;
   }
 
   void updateVerticalOpenGesture({
@@ -376,6 +431,12 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     Widget child,
   ) {
     _viewportSize = MediaQuery.sizeOf(context);
+    final status = animation.status;
+    if (status == AnimationStatus.completed &&
+        _lastAnimationStatus != AnimationStatus.completed) {
+      _dismissGeometryCaptured = false;
+    }
+    _lastAnimationStatus = status;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     if (reduceMotion && !_reduceMotion) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -401,31 +462,102 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
       child: child,
       builder: (context, mode, child) => HeroMode(
         enabled: !reduceMotion && mode == PlayerDismissVisualMode.main,
-        child: _buildVerticalSlide(context, routeAnimation, child!),
+        child: _buildVerticalReveal(context, routeAnimation, mode, child!),
       ),
     );
   }
 
-  Widget _buildVerticalSlide(
+  void _captureDismissSource() {
+    if (_dismissGeometryCaptured) return;
+    _activeSource = sourceProvider?.call() ?? _activeSource;
+    _dismissGeometryCaptured = true;
+  }
+
+  Widget _buildVerticalReveal(
     BuildContext context,
     Animation<double> animation,
+    PlayerDismissVisualMode mode,
     Widget child,
   ) {
-    return ClipRect(
-      child: AnimatedBuilder(
-        animation: animation,
-        child: RepaintBoundary(child: child),
-        builder: (context, child) {
-          final height = MediaQuery.sizeOf(context).height;
-          return Transform.translate(
-            key: const ValueKey('player-route-vertical-translation'),
-            offset: Offset(0, height * (1 - animation.value)),
-            transformHitTests: false,
-            child: child,
-          );
-        },
-      ),
+    return AnimatedBuilder(
+      animation: animation,
+      child: RepaintBoundary(child: child),
+      builder: (context, child) {
+        final size = MediaQuery.sizeOf(context);
+        final progress = animation.value.clamp(0.0, 1.0);
+        final source = _activeSource;
+        final sourceRect = source?.miniRect;
+        final revealTop =
+            (sourceRect?.top ?? size.height) * (1 - progress).clamp(0.0, 1.0);
+        final miniOpacity = 1 - _fadeProgress(progress, 0, 0.20);
+        final tabBarRect = source?.tabBarRect;
+        return Stack(
+          key: const ValueKey('player-route-vertical-reveal'),
+          fit: StackFit.expand,
+          clipBehavior: Clip.hardEdge,
+          children: [
+            ClipRect(
+              key: const ValueKey('player-route-background-reveal'),
+              clipper: _TopRevealClipper(revealTop),
+              child: child,
+            ),
+            if (source != null && sourceRect != null && miniOpacity > 0) ...[
+              Positioned(
+                left: 0,
+                right: 0,
+                top: sourceRect.top,
+                bottom: 0,
+                child: IgnorePointer(
+                  child: Opacity(
+                    opacity: miniOpacity,
+                    child: ColoredBox(color: source.surfaceColor),
+                  ),
+                ),
+              ),
+              Positioned.fromRect(
+                rect: sourceRect,
+                child: IgnorePointer(
+                  child: ExcludeSemantics(
+                    child: Opacity(
+                      key: const ValueKey('player-route-mini-player-opacity'),
+                      opacity: miniOpacity,
+                      child: source.miniPlayerBuilder(
+                        context,
+                        source.artworkHeroEnabled &&
+                            mode == PlayerDismissVisualMode.main &&
+                            !_reduceMotion &&
+                            _artworkHeroAvailable,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            if (source?.tabBar != null && tabBarRect != null && progress < 1)
+              Positioned.fromRect(
+                rect: tabBarRect.shift(
+                  Offset(0, (size.height - tabBarRect.top) * progress),
+                ),
+                child: IgnorePointer(
+                  child: ExcludeSemantics(
+                    child: KeyedSubtree(
+                      key: const ValueKey('player-route-bottom-dock'),
+                      child: source!.tabBar!,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
+  }
+
+  double _fadeProgress(double value, double start, double end) {
+    if (value <= start) return 0;
+    if (value >= end) return 1;
+    final t = (value - start) / (end - start);
+    return t * t * (3 - 2 * t);
   }
 
   @override
@@ -437,4 +569,17 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     _dismissVisualMode.dispose();
     super.dispose();
   }
+}
+
+class _TopRevealClipper extends CustomClipper<Rect> {
+  const _TopRevealClipper(this.top);
+
+  final double top;
+
+  @override
+  Rect getClip(Size size) =>
+      Rect.fromLTRB(0, top.clamp(0, size.height), size.width, size.height);
+
+  @override
+  bool shouldReclip(_TopRevealClipper oldClipper) => top != oldClipper.top;
 }
