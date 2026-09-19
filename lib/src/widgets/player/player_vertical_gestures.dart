@@ -10,8 +10,6 @@ enum PlayerDismissVisualMode { main, secondary }
 abstract interface class PlayerInteractiveDismissRoute {
   void setDismissVisualMode(PlayerDismissVisualMode mode);
 
-  void setArtworkHeroAvailable(bool available);
-
   bool beginVerticalDismissGesture(PlayerDismissVisualMode mode);
 
   void updateVerticalDismissGesture({

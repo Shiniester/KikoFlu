@@ -48,35 +48,12 @@ class AppBottomDock extends StatelessWidget {
         child: navigationBar,
       );
     }
-    final sourceTheme = Theme.of(context);
-    final sourceMediaQuery = MediaQuery.of(context);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         if (miniPlayer case final miniPlayer?)
           AppBottomDockMiniPlayerHero.source(child: miniPlayer),
-        AppBottomDockTabBarHero.source(
-          child: Builder(
-            builder: (barContext) {
-              AppBottomDockTransitionScope.registerTabBarSource(context, () {
-                if (!barContext.mounted) return null;
-                final box = barContext.findRenderObject();
-                if (box is! RenderBox || !box.hasSize) return null;
-                return (
-                  rect: box.localToGlobal(Offset.zero) & box.size,
-                  child: Theme(
-                    data: sourceTheme,
-                    child: MediaQuery(
-                      data: sourceMediaQuery,
-                      child: navigationBar,
-                    ),
-                  ),
-                );
-              });
-              return navigationBar;
-            },
-          ),
-        ),
+        AppBottomDockTabBarHero.source(child: navigationBar),
       ],
     );
   }

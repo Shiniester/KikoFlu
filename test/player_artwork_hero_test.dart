@@ -47,26 +47,68 @@ void main() {
     },
   );
 
-  test('cover flight directly interpolates the actual endpoints', () {
-    const source = Rect.fromLTWH(16, 720, 64, 48);
-    const target = Rect.fromLTWH(40, 120, 320, 240);
-    final tween = createPlayerArtworkRectTween(source, target);
-    final reverseTween = createPlayerArtworkRectTween(target, source);
-    for (final progress in <double>[0, 0.01, 0.2, 0.5, 0.8, 1]) {
-      expect(tween.transform(progress), Rect.lerp(source, target, progress));
-      final forward = tween.transform(progress)!;
-      final reverse = reverseTween.transform(1 - progress)!;
-      expect(reverse.top, closeTo(forward.top, 0.0001));
-      expect(reverse.left, closeTo(forward.left, 0.0001));
-      expect(reverse.size, forward.size);
-    }
-  });
+  test(
+    'Player Cover Page artwork holds, chases, then attaches to the page',
+    () {
+      const source = Rect.fromLTWH(16, 720, 64, 48);
+      const target = Rect.fromLTWH(40, 120, 320, 240);
+      const viewportHeight = 800.0;
+      final tween = createPlayerArtworkRectTween(
+        source,
+        target,
+        viewportHeight: viewportHeight,
+      );
+
+      expect(tween.transform(0), source);
+      expect(tween.transform(playerArtworkAttachmentStart), source);
+
+      const midpoint =
+          (playerArtworkAttachmentStart + playerArtworkAttachmentEnd) / 2;
+      final movingMidpointTarget = target.shift(
+        const Offset(0, viewportHeight * (1 - midpoint)),
+      );
+      expect(
+        tween.transform(midpoint),
+        Rect.lerp(
+          source,
+          movingMidpointTarget,
+          playerArtworkAttachment(midpoint),
+        ),
+      );
+
+      for (final progress in <double>[playerArtworkAttachmentEnd, 0.9, 1]) {
+        expect(
+          tween.transform(progress),
+          target.shift(Offset(0, viewportHeight * (1 - progress))),
+        );
+      }
+
+      final reverseTween = createPlayerArtworkRectTween(
+        target,
+        source,
+        viewportHeight: viewportHeight,
+        reverse: true,
+      );
+      for (final visualProgress in <double>[0, 0.2, 0.5, 0.8, 1]) {
+        expect(
+          reverseTween.transform(1 - visualProgress),
+          tween.transform(visualProgress),
+        );
+      }
+    },
+  );
+
   test(
     'artwork bottom edge stays monotonic for a bottom-aligned Mini Player',
     () {
       const source = Rect.fromLTWH(16, 780, 64, 48);
       const target = Rect.fromLTWH(40, 120, 320, 240);
-      final tween = createPlayerArtworkRectTween(source, target);
+      const viewportHeight = 844.0;
+      final tween = createPlayerArtworkRectTween(
+        source,
+        target,
+        viewportHeight: viewportHeight,
+      );
 
       var previousBottom = source.bottom;
       for (var index = 0; index <= 100; index++) {
@@ -77,7 +119,12 @@ void main() {
         previousBottom = bottom;
       }
 
-      final reverseTween = createPlayerArtworkRectTween(target, source);
+      final reverseTween = createPlayerArtworkRectTween(
+        target,
+        source,
+        viewportHeight: viewportHeight,
+        reverse: true,
+      );
       for (var index = 0; index <= 100; index++) {
         final visualProgress = index / 100;
         final actual = reverseTween.transform(1 - visualProgress)!;
@@ -90,7 +137,7 @@ void main() {
     },
   );
 
-  test('player foreground fades within its route interval', () {
+  test('Player Cover Page title row fades only during the chase', () {
     expect(playerCoverHeaderOpacity(0), 0);
     expect(playerCoverHeaderOpacity(playerCoverHeaderFadeStart), 0);
     expect(

@@ -29,7 +29,6 @@ import '../widgets/player/player_lyrics_surface.dart';
 import '../widgets/player/player_glass_surface.dart';
 import '../widgets/player/player_visual_palette.dart';
 import '../widgets/player/player_vertical_gestures.dart';
-import '../widgets/player/player_route.dart';
 import '../widgets/text_preview_screen.dart';
 import '../widgets/work_bookmark_manager.dart';
 import '../widgets/app_bottom_dock_transition.dart';
@@ -498,58 +497,44 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                         ),
                       ),
                       Positioned.fill(
-                        child: _buildPlayerContentTransition(
-                          context,
-                          Stack(
-                            children: [
-                              Positioned.fill(
-                                child: Offstage(
-                                  key: const ValueKey(
-                                    'player-stage-under-fullscreen',
-                                  ),
-                                  offstage: _isLyricLocked,
-                                  child: IgnorePointer(
-                                    ignoring: _isLyricLocked,
-                                    child: TickerMode(
-                                      enabled: !_isLyricLocked,
-                                      child: LayoutBuilder(
-                                        builder: (context, constraints) {
-                                          final isWide = usesWidePlayerLayout(
-                                            constraints.maxWidth,
-                                          );
-                                          _syncResponsivePageController(isWide);
-                                          return AnimatedSwitcher(
-                                            duration: motionDuration,
-                                            child: isWide
-                                                ? _buildWidePlayer(
-                                                    context,
-                                                    track: track,
-                                                    coverUrl: coverUrl,
-                                                    previewPalette: palette,
-                                                  )
-                                                : _buildCompactPlayer(
-                                                    context,
-                                                    track: track,
-                                                    coverUrl: coverUrl,
-                                                    previewPalette: palette,
-                                                  ),
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  ),
-                                ),
+                        child: Offstage(
+                          key: const ValueKey('player-stage-under-fullscreen'),
+                          offstage: _isLyricLocked,
+                          child: IgnorePointer(
+                            ignoring: _isLyricLocked,
+                            child: TickerMode(
+                              enabled: !_isLyricLocked,
+                              child: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final isWide = usesWidePlayerLayout(
+                                    constraints.maxWidth,
+                                  );
+                                  _syncResponsivePageController(isWide);
+                                  return AnimatedSwitcher(
+                                    duration: motionDuration,
+                                    child: isWide
+                                        ? _buildWidePlayer(
+                                            context,
+                                            track: track,
+                                            coverUrl: coverUrl,
+                                            previewPalette: palette,
+                                          )
+                                        : _buildCompactPlayer(
+                                            context,
+                                            track: track,
+                                            coverUrl: coverUrl,
+                                            previewPalette: palette,
+                                          ),
+                                  );
+                                },
                               ),
-                              if (_isLyricLocked)
-                                Positioned.fill(
-                                  child: _buildPortraitLyricView(),
-                                ),
-                              if (isTrackLoading)
-                                _buildTrackLoadingOverlay(context),
-                            ],
+                            ),
                           ),
                         ),
                       ),
+                      if (_isLyricLocked)
+                        Positioned.fill(child: _buildPortraitLyricView()),
+                      if (isTrackLoading) _buildTrackLoadingOverlay(context),
                     ],
                   ),
                 ),
@@ -1013,22 +998,28 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     BuildContext context, {
     required Key key,
     required Widget child,
-  }) => KeyedSubtree(key: key, child: child);
-
-  Widget _buildPlayerContentTransition(BuildContext context, Widget child) {
-    final route = ModalRoute.of(context);
-    if (route is! AudioPlayerPageRoute) return child;
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    return AnimatedBuilder(
-      animation: route.animation!,
+  }) {
+    return ValueListenableBuilder<int>(
+      valueListenable: _semanticPageRevision,
       child: child,
-      builder: (context, child) => Opacity(
-        key: const ValueKey('player-route-content-opacity'),
-        opacity: reduceMotion
-            ? 1
-            : playerCoverHeaderOpacity(route.animation!.value),
-        child: child,
-      ),
+      builder: (context, _, child) {
+        final routeAnimation = ModalRoute.of(context)?.animation;
+        final reduceMotion = MediaQuery.disableAnimationsOf(context);
+        if (routeAnimation == null ||
+            reduceMotion ||
+            _currentPlayerDismissVisualMode != PlayerDismissVisualMode.main) {
+          return Opacity(key: key, opacity: 1, child: child);
+        }
+        return AnimatedBuilder(
+          animation: routeAnimation,
+          child: child,
+          builder: (context, child) => Opacity(
+            key: key,
+            opacity: playerCoverHeaderOpacity(routeAnimation.value),
+            child: child,
+          ),
+        );
+      },
     );
   }
 

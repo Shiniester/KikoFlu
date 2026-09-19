@@ -1,4 +1,3 @@
-import 'helpers/player_route_geometry.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -74,11 +73,13 @@ void main() {
     await tester.pump();
     expect(route.debugTransitionValue, closeTo(0.8, 0.001));
     expect(route.debugTransitionStatus, AnimationStatus.reverse);
-    final reveal = playerRouteRevealRect(tester);
-    expect(reveal.top, closeTo(160, 0.001));
+    final translation = tester.widget<Transform>(
+      find.byKey(const ValueKey('player-route-vertical-translation')),
+    );
+    expect(translation.transform.entry(1, 3), closeTo(160, 0.001));
     final heroMode = tester.widget<HeroMode>(
       find.ancestor(
-        of: find.byKey(const ValueKey('player-route-background-reveal')),
+        of: find.byKey(const ValueKey('player-route-vertical-translation')),
         matching: find.byType(HeroMode),
       ),
     );
@@ -97,7 +98,9 @@ void main() {
       tester
           .widget<HeroMode>(
             find.ancestor(
-              of: find.byKey(const ValueKey('player-route-background-reveal')),
+              of: find.byKey(
+                const ValueKey('player-route-vertical-translation'),
+              ),
               matching: find.byType(HeroMode),
             ),
           )
@@ -131,20 +134,31 @@ void main() {
     );
     unawaited(navigatorKey.currentState!.push<void>(route));
     await tester.pump();
+    final translationFinder = find.byKey(
+      const ValueKey('player-route-vertical-translation'),
+    );
     await tester.pump(const Duration(milliseconds: 80));
     expect(
-      1 - playerRouteRevealRect(tester).top / route.debugRouteTravelDistance,
+      1 -
+          tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
+              route.debugRouteTranslation,
       closeTo(route.animation!.value, 0.001),
     );
     final firstOpeningDistance =
-        1 - playerRouteRevealRect(tester).top / route.debugRouteTravelDistance;
+        1 -
+        tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
+            route.debugRouteTranslation;
     await tester.pump(const Duration(milliseconds: 80));
     expect(
-      1 - playerRouteRevealRect(tester).top / route.debugRouteTravelDistance,
+      1 -
+          tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
+              route.debugRouteTranslation,
       closeTo(route.animation!.value, 0.001),
     );
     final halfwayOpeningDistance =
-        1 - playerRouteRevealRect(tester).top / route.debugRouteTravelDistance;
+        1 -
+        tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
+            route.debugRouteTranslation;
     expect(
       firstOpeningDistance,
       greaterThan(halfwayOpeningDistance - firstOpeningDistance),
@@ -155,18 +169,24 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
     expect(
-      1 - playerRouteRevealRect(tester).top / route.debugRouteTravelDistance,
+      1 -
+          tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
+              route.debugRouteTranslation,
       closeTo(route.animation!.value, 0.001),
     );
     final firstClosingDistance =
-        playerRouteRevealRect(tester).top / route.debugRouteTravelDistance;
+        tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
+        route.debugRouteTranslation;
     await tester.pump(const Duration(milliseconds: 80));
     expect(
-      1 - playerRouteRevealRect(tester).top / route.debugRouteTravelDistance,
+      1 -
+          tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
+              route.debugRouteTranslation,
       closeTo(route.animation!.value, 0.001),
     );
     final halfwayClosingDistance =
-        playerRouteRevealRect(tester).top / route.debugRouteTravelDistance;
+        tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
+        route.debugRouteTranslation;
     expect(
       firstClosingDistance,
       greaterThan(halfwayClosingDistance - firstClosingDistance),
@@ -219,6 +239,9 @@ void main() {
       isTrue,
     );
 
+    final translationFinder = find.byKey(
+      const ValueKey('player-route-vertical-translation'),
+    );
     for (final progress in [0.8, 0.5, 0.2]) {
       route.updateVerticalDismissGesture(
         distance: 800 * (1 - progress),
@@ -228,7 +251,7 @@ void main() {
       expect(route.debugTransitionValue, closeTo(progress, 0.001));
       expect(route.animation!.value, closeTo(progress, 0.001));
       expect(
-        playerRouteRevealRect(tester).top,
+        tester.widget<Transform>(translationFinder).transform.entry(1, 3),
         closeTo(800 * (1 - progress), 0.001),
       );
     }
@@ -270,11 +293,13 @@ void main() {
     unawaited(navigatorKey.currentState!.push<void>(route));
     await tester.pumpAndSettle();
 
-    final reveal = playerRouteRevealRect(tester);
-    expect(reveal.top, 0);
+    final translation = tester.widget<Transform>(
+      find.byKey(const ValueKey('player-route-vertical-translation')),
+    );
+    expect(translation.transform.entry(1, 3), 0);
     final heroMode = tester.widget<HeroMode>(
       find.ancestor(
-        of: find.byKey(const ValueKey('player-route-background-reveal')),
+        of: find.byKey(const ValueKey('player-route-vertical-translation')),
         matching: find.byType(HeroMode),
       ),
     );
