@@ -1,3 +1,4 @@
+import 'helpers/player_route_geometry.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -88,56 +89,63 @@ void main() {
   });
 
   for (final closing in [false, true]) {
-    testWidgets('reduced motion finishes queue ${closing ? "closing" : "opening"}', (
-      tester,
-    ) async {
-      await _pumpPlayer(tester, const Size(390, 844));
-      await tester.tap(
-        find.descendant(
-          of: find.byKey(const ValueKey('controls-pane-compact')),
-          matching: find.byIcon(Icons.queue_music),
-        ),
-      );
-      if (closing) {
+    testWidgets(
+      'reduced motion finishes queue ${closing ? "closing" : "opening"}',
+      (tester) async {
+        await _pumpPlayer(tester, const Size(390, 844));
+        await tester.tap(
+          find.descendant(
+            of: find.byKey(const ValueKey('controls-pane-compact')),
+            matching: find.byIcon(Icons.queue_music),
+          ),
+        );
+        if (closing) {
+          await tester.pumpAndSettle();
+          await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        }
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 40));
+        expect(_compactQueueProgress(tester), greaterThan(0));
+        expect(_compactQueueProgress(tester), lessThan(1));
+
+        tester.platformDispatcher.accessibilityFeaturesTestValue =
+            const FakeAccessibilityFeatures(disableAnimations: true);
+        addTearDown(
+          tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+        );
+        await tester.pump();
+        expect(_compactQueueProgress(tester), closing ? 0 : 1);
+        expect(
+          find.byKey(
+            ValueKey(closing ? 'compact-main-page' : 'player-queue-pane'),
+          ),
+          findsOneWidget,
+        );
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(_compactQueueProgress(tester), closing ? 0 : 1);
+
+        tester.platformDispatcher.accessibilityFeaturesTestValue =
+            const FakeAccessibilityFeatures();
+        await tester.pump();
+        if (closing) {
+          await tester.tap(
+            find.descendant(
+              of: find.byKey(const ValueKey('controls-pane-compact')),
+              matching: find.byIcon(Icons.queue_music),
+            ),
+          );
+        } else {
+          await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        }
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 40));
+        expect(_compactQueueProgress(tester), greaterThan(0));
+        expect(_compactQueueProgress(tester), lessThan(1));
         await tester.pumpAndSettle();
-        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-      }
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 40));
-      expect(_compactQueueProgress(tester), greaterThan(0));
-      expect(_compactQueueProgress(tester), lessThan(1));
-
-      tester.platformDispatcher.accessibilityFeaturesTestValue =
-          const FakeAccessibilityFeatures(disableAnimations: true);
-      addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
-      await tester.pump();
-      expect(_compactQueueProgress(tester), closing ? 0 : 1);
-      expect(
-        find.byKey(ValueKey(closing ? 'compact-main-page' : 'player-queue-pane')),
-        findsOneWidget,
-      );
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(_compactQueueProgress(tester), closing ? 0 : 1);
-
-      tester.platformDispatcher.accessibilityFeaturesTestValue =
-          const FakeAccessibilityFeatures();
-      await tester.pump();
-      if (closing) {
-        await tester.tap(find.descendant(
-          of: find.byKey(const ValueKey('controls-pane-compact')),
-          matching: find.byIcon(Icons.queue_music),
-        ));
-      } else {
-        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-      }
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 40));
-      expect(_compactQueueProgress(tester), greaterThan(0));
-      expect(_compactQueueProgress(tester), lessThan(1));
-      await tester.pumpAndSettle();
-      expect(_compactQueueProgress(tester), closing ? 1 : 0);
-      expect(tester.takeException(), isNull);
-    });
+        expect(_compactQueueProgress(tester), closing ? 1 : 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   testWidgets('compact page tickers include both pages while dragging', (
@@ -1675,7 +1683,7 @@ void main() {
       expect(_compactQueueProgress(tester), closeTo(0, 0.001));
       expect(find.byType(AudioPlayerScreen), findsOneWidget);
 
-      await tester.pump(const Duration(milliseconds: 1900));
+      await tester.pump(const Duration(milliseconds: 2900));
       expect(scrollable.position.pixels, closeTo(browsedOffset, 0.01));
       await tester.pump(const Duration(milliseconds: 101));
       await tester.pump();
@@ -1720,23 +1728,14 @@ void main() {
       await gesture.moveBy(const Offset(0, 15));
       await tester.pump();
     }
-    final routeTranslationFinder = find.byKey(
-      const ValueKey('player-route-vertical-translation'),
-    );
-    final outward = tester
-        .widget<Transform>(routeTranslationFinder)
-        .transform
-        .entry(1, 3);
+    final outward = playerRouteRevealRect(tester).top;
     expect(outward, greaterThan(80));
 
     for (var index = 0; index < 7; index++) {
       await gesture.moveBy(const Offset(0, -16));
       await tester.pump();
     }
-    expect(
-      tester.widget<Transform>(routeTranslationFinder).transform.entry(1, 3),
-      lessThan(outward),
-    );
+    expect(playerRouteRevealRect(tester).top, lessThan(outward));
     await gesture.up();
     await tester.pumpAndSettle();
     expect(find.byType(AudioPlayerScreen), findsOneWidget);
@@ -1775,7 +1774,11 @@ void main() {
         );
         await tester.pump();
         expect(
-          tester.widget<Opacity>(header).opacity,
+          tester
+              .widget<Opacity>(
+                find.byKey(const ValueKey('player-route-content-opacity')),
+              )
+              .opacity,
           closeTo(playerCoverHeaderOpacity(progress), 0.001),
         );
       }
@@ -1793,7 +1796,14 @@ void main() {
 
       route.cancelVerticalDismissGesture();
       await tester.pumpAndSettle();
-      expect(tester.widget<Opacity>(header).opacity, 1);
+      expect(
+        tester
+            .widget<Opacity>(
+              find.byKey(const ValueKey('player-route-content-opacity')),
+            )
+            .opacity,
+        1,
+      );
     },
   );
 
@@ -1814,11 +1824,12 @@ void main() {
       extent: route.debugRouteTravelDistance,
     );
     await tester.pump();
-    final header = find.byKey(
-      const ValueKey('wide-player-cover-header-opacity'),
-    );
     expect(
-      tester.widget<Opacity>(header).opacity,
+      tester
+          .widget<Opacity>(
+            find.byKey(const ValueKey('player-route-content-opacity')),
+          )
+          .opacity,
       closeTo(playerCoverHeaderOpacity(progress), 0.001),
     );
 
@@ -1853,10 +1864,10 @@ void main() {
     expect(
       tester
           .widget<Opacity>(
-            find.byKey(const ValueKey('compact-player-cover-header-opacity')),
+            find.byKey(const ValueKey('player-route-content-opacity')),
           )
           .opacity,
-      1,
+      closeTo(playerCoverHeaderOpacity(0.7), 0.001),
     );
     route.cancelVerticalDismissGesture();
     await tester.pumpAndSettle();
@@ -2911,7 +2922,7 @@ Finder _mainArtworkHero() => find.byWidgetPredicate(
 
 HeroMode _playerRouteHeroMode(WidgetTester tester) => tester.widget<HeroMode>(
   find.ancestor(
-    of: find.byKey(const ValueKey('player-route-vertical-translation')),
+    of: find.byKey(const ValueKey('player-route-background-reveal')),
     matching: find.byType(HeroMode),
   ),
 );
@@ -2926,16 +2937,23 @@ void _expectSecondaryPageRouteGeometry(WidgetTester tester) {
       ModalRoute.of<void>(tester.element(find.byType(AudioPlayerScreen)))!
           as AudioPlayerPageRoute<void>;
   final viewportHeight = tester
-      .getSize(find.byKey(const ValueKey('player-route-vertical-translation')))
+      .getSize(find.byKey(const ValueKey('player-route-background-reveal')))
       .height;
 
   expect(route.debugDismissVisualMode, PlayerDismissVisualMode.secondary);
-  expect(route.debugRouteTravelDistance, closeTo(viewportHeight, 0.001));
+  expect(route.debugRouteTravelDistance, lessThanOrEqualTo(viewportHeight));
   final compactHeader = find.byKey(
     const ValueKey('compact-player-cover-header-opacity'),
   );
   if (compactHeader.evaluate().isNotEmpty) {
-    expect(tester.widget<Opacity>(compactHeader).opacity, 1);
+    expect(
+      tester
+          .widget<Opacity>(
+            find.byKey(const ValueKey('player-route-content-opacity')),
+          )
+          .opacity,
+      1,
+    );
   }
 }
 

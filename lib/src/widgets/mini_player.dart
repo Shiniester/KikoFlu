@@ -25,13 +25,22 @@ class MiniPlayer extends ConsumerStatefulWidget {
   final bool enableArtworkHero;
   final PlayerArtworkFlightTarget initialArtworkFlightTarget;
   final ValueChanged<bool>? onArtworkHeroActivationChanged;
+  final bool _presentation;
+  final bool _hideArtwork;
 
   const MiniPlayer({
     super.key,
     this.enableArtworkHero = true,
     this.initialArtworkFlightTarget = PlayerArtworkFlightTarget.main,
     this.onArtworkHeroActivationChanged,
-  });
+  }) : _presentation = false,
+       _hideArtwork = false;
+
+  const MiniPlayer._presentation(this._hideArtwork)
+    : _presentation = true,
+      enableArtworkHero = false,
+      initialArtworkFlightTarget = PlayerArtworkFlightTarget.none,
+      onArtworkHeroActivationChanged = null;
 
   @override
   ConsumerState<MiniPlayer> createState() => _MiniPlayerState();
@@ -77,7 +86,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
     final artworkHeroEnabled = widget.enableArtworkHero;
 
     // 启用自动字幕加载器
-    ref.watch(lyricAutoLoaderProvider);
+    if (!widget._presentation) ref.watch(lyricAutoLoaderProvider);
 
     final player = currentTrack.when(
       data: (track) {
@@ -88,7 +97,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
           _lastTrackId = null;
         } else if (_lastTrackId != track.id) {
           _lastTrackId = track.id;
-          if (!isMiniPlayerVisible) {
+          if (!isMiniPlayerVisible && !widget._presentation) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted) {
                 ref.read(miniPlayerVisibilityProvider.notifier).show();
@@ -118,15 +127,142 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
           onAccent: playerTheme.colorScheme.onPrimary,
         );
 
+        final content = Consumer(
+          builder: (context, ref, child) {
+            final isPlaying = ref.watch(isPlayingProvider);
+            final hasLyrics = ref.watch(
+              lyricControllerProvider.select(
+                (state) => state.lyrics.isNotEmpty,
+              ),
+            );
+            final hasCurrentLyric = ref.watch(
+              currentLyricTextProvider.select((lyric) => lyric != null),
+            );
+            final shouldShowLyric = isPlaying && hasLyrics && hasCurrentLyric;
+            final playerHeight = shouldShowLyric ? 88.0 : 72.0;
+
+            final playerContent = Container(
+              height: playerHeight,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                border: Border(
+                  top: BorderSide(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.outline.withValues(alpha: 0.2),
+                    width: 1,
+                  ),
+                ),
+              ),
+              child: Column(
+                children: [
+                  const _MiniPlayerProgressArea(),
+                  // Player controls
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final isPortrait =
+                            MediaQuery.orientationOf(context) ==
+                            Orientation.portrait;
+                        final leadingInset = isPortrait
+                            ? (constraints.maxWidth / 8 - 32)
+                                  .clamp(0.0, double.infinity)
+                                  .toDouble()
+                            : 16.0;
+                        final trailingInset = isPortrait ? 0.0 : 16.0;
+                        return Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            leadingInset,
+                            8,
+                            trailingInset,
+                            8,
+                          ),
+                          child: Row(
+                            children: [
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () async {
+                                  await _playerLauncherKey.currentState
+                                      ?.openPlayer();
+                                },
+                                child: _buildArtwork(
+                                  context,
+                                  track,
+                                  workCoverUrl: workCoverUrl,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _MiniPlayerTrackSwitcher(
+                                  track: track,
+                                  presentation: ref.watch(
+                                    playerTrackChangePresentationProvider,
+                                  ),
+                                  onTap: () async {
+                                    await _playerLauncherKey.currentState
+                                        ?.openPlayer();
+                                  },
+                                  onPrevious: () =>
+                                      _skipTrack(context, next: false),
+                                  onNext: () => _skipTrack(context, next: true),
+                                ),
+                              ),
+                              _buildVolumeControl(),
+                              if (isPortrait)
+                                SizedBox(
+                                  width: constraints.maxWidth / 4,
+                                  child: _MiniPlayerAlignedControls(
+                                    onQueuePressed: () async {
+                                      await _playerLauncherKey.currentState
+                                          ?.openQueue();
+                                    },
+                                  ),
+                                )
+                              else
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const _MiniPlayerPlayButton(),
+                                    IconButton(
+                                      key: const ValueKey(
+                                        'mini-player-queue-button',
+                                      ),
+                                      tooltip: S.of(context).playlistTitle,
+                                      onPressed: () async {
+                                        await _playerLauncherKey.currentState
+                                            ?.openQueue();
+                                      },
+                                      icon: const Icon(
+                                        Icons.queue_music,
+                                        key: ValueKey('mini-player-queue-icon'),
+                                      ),
+                                      iconSize: 24,
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+
+            return playerContent;
+          },
+        );
+        if (widget._presentation) return content;
         return _MiniPlayerUpwardLauncher(
           key: _playerLauncherKey,
           sessionIdentity: track.id,
-          createConfiguration: () {
-            return AudioPlayerOpenConfiguration(
-              initialPalette: preparedPalette,
-              initialPaletteTrackId: track.id,
-            );
-          },
+          createConfiguration: () => AudioPlayerOpenConfiguration(
+            initialPalette: preparedPalette,
+            initialPaletteTrackId: track.id,
+            source: _captureTransitionSource(),
+            sourceProvider: _liveTransitionSourceProvider(),
+          ),
           artworkRect: _miniArtworkRect,
           artworkHeroEnabled:
               artworkHeroEnabled && !MediaQuery.disableAnimationsOf(context),
@@ -145,144 +281,12 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                 _playerLauncherKey.currentState
                     ?.allowPendingMiniPlayerDismiss() ??
                 true,
-            onDismissed: (direction) {
-              unawaited(
-                ref
-                    .read(audioPlayerControllerProvider.notifier)
-                    .dismissMiniPlayer(),
-              );
-            },
-            child: Consumer(
-              builder: (context, ref, child) {
-                final isPlaying = ref.watch(isPlayingProvider);
-                final hasLyrics = ref.watch(
-                  lyricControllerProvider.select(
-                    (state) => state.lyrics.isNotEmpty,
-                  ),
-                );
-                final hasCurrentLyric = ref.watch(
-                  currentLyricTextProvider.select((lyric) => lyric != null),
-                );
-                final shouldShowLyric =
-                    isPlaying && hasLyrics && hasCurrentLyric;
-                final playerHeight = shouldShowLyric ? 88.0 : 72.0;
-
-                final playerContent = Container(
-                  height: playerHeight,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surface,
-                    border: Border(
-                      top: BorderSide(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.outline.withValues(alpha: 0.2),
-                        width: 1,
-                      ),
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      const _MiniPlayerProgressArea(),
-                      // Player controls
-                      Expanded(
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final isPortrait =
-                                MediaQuery.orientationOf(context) ==
-                                Orientation.portrait;
-                            final leadingInset = isPortrait
-                                ? (constraints.maxWidth / 8 - 32)
-                                      .clamp(0.0, double.infinity)
-                                      .toDouble()
-                                : 16.0;
-                            final trailingInset = isPortrait ? 0.0 : 16.0;
-                            return Padding(
-                              padding: EdgeInsets.fromLTRB(
-                                leadingInset,
-                                8,
-                                trailingInset,
-                                8,
-                              ),
-                              child: Row(
-                                children: [
-                                  GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTap: () async {
-                                      await _playerLauncherKey.currentState
-                                          ?.openPlayer();
-                                    },
-                                    child: _buildArtwork(
-                                      context,
-                                      track,
-                                      workCoverUrl: workCoverUrl,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: _MiniPlayerTrackSwitcher(
-                                      track: track,
-                                      presentation: ref.watch(
-                                        playerTrackChangePresentationProvider,
-                                      ),
-                                      onTap: () async {
-                                        await _playerLauncherKey.currentState
-                                            ?.openPlayer();
-                                      },
-                                      onPrevious: () =>
-                                          _skipTrack(context, next: false),
-                                      onNext: () =>
-                                          _skipTrack(context, next: true),
-                                    ),
-                                  ),
-                                  _buildVolumeControl(),
-                                  if (isPortrait)
-                                    SizedBox(
-                                      width: constraints.maxWidth / 4,
-                                      child: _MiniPlayerAlignedControls(
-                                        onQueuePressed: () async {
-                                          await _playerLauncherKey.currentState
-                                              ?.openQueue();
-                                        },
-                                      ),
-                                    )
-                                  else
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const _MiniPlayerPlayButton(),
-                                        IconButton(
-                                          key: const ValueKey(
-                                            'mini-player-queue-button',
-                                          ),
-                                          tooltip: S.of(context).playlistTitle,
-                                          onPressed: () async {
-                                            await _playerLauncherKey
-                                                .currentState
-                                                ?.openQueue();
-                                          },
-                                          icon: const Icon(
-                                            Icons.queue_music,
-                                            key: ValueKey(
-                                              'mini-player-queue-icon',
-                                            ),
-                                          ),
-                                          iconSize: 24,
-                                        ),
-                                      ],
-                                    ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-
-                return playerContent;
-              },
+            onDismissed: (_) => unawaited(
+              ref
+                  .read(audioPlayerControllerProvider.notifier)
+                  .dismissMiniPlayer(),
             ),
+            child: content,
           ),
         );
       },
@@ -325,6 +329,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
     AudioTrack track, {
     String? workCoverUrl,
   }) {
+    if (widget._hideArtwork) return const SizedBox(width: 64, height: 48);
     final image = _buildArtworkImage(
       context,
       track,
@@ -358,6 +363,66 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
       return null;
     }
     return renderObject.localToGlobal(Offset.zero) & renderObject.size;
+  }
+
+  Rect? _miniPlayerRect() {
+    final launcher = _playerLauncherKey.currentContext;
+    final renderObject = launcher?.findRenderObject();
+    if (renderObject is! RenderBox ||
+        !renderObject.attached ||
+        !renderObject.hasSize) {
+      return null;
+    }
+    return renderObject.localToGlobal(Offset.zero) & renderObject.size;
+  }
+
+  PlayerTransitionSource? _captureTransitionSource() {
+    if (!mounted) return null;
+    final rect = _miniPlayerRect();
+    if (rect == null || rect.isEmpty) return null;
+    final sourceTheme = Theme.of(context);
+    final sourceMediaQuery = MediaQuery.of(context);
+    final tabBar = AppBottomDockTransitionScope.tabBarSourceOf(context);
+    return PlayerTransitionSource(
+      miniRect: rect,
+      artworkRect: _miniArtworkRect(),
+      artworkHeroEnabled: widget.enableArtworkHero,
+      surfaceColor: sourceTheme.scaffoldBackgroundColor,
+      miniPlayerBuilder: (_, hideArtwork) => Theme(
+        data: sourceTheme,
+        child: MediaQuery(
+          data: sourceMediaQuery,
+          child: Material(
+            type: MaterialType.transparency,
+            child: MiniPlayer._presentation(hideArtwork),
+          ),
+        ),
+      ),
+      tabBar: tabBar?.child,
+      tabBarRect: tabBar?.rect,
+    );
+  }
+
+  PlayerTransitionSource? Function() _liveTransitionSourceProvider() {
+    final sourceRoute = ModalRoute.of(context);
+    return () {
+      if (mounted) return _captureTransitionSource();
+      // A responsive layout can replace the source Mini Player while covered.
+      PlayerTransitionSource? source;
+      void visit(Element element) {
+        if (element is StatefulElement && element.state is _MiniPlayerState) {
+          final state = element.state as _MiniPlayerState;
+          if (!state.widget._presentation) {
+            source ??= state._captureTransitionSource();
+          }
+        } else if (source == null) {
+          element.visitChildElements(visit);
+        }
+      }
+
+      sourceRoute?.subtreeContext?.visitChildElements(visit);
+      return source;
+    };
   }
 
   Widget _buildArtworkImage(
@@ -973,8 +1038,11 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher>
       artworkTrackId: widget.sessionIdentity.toString(),
       artworkHeroEnabled: widget.artworkHeroEnabled,
       onArtworkVisibilityChanged: widget.onInteractiveArtworkVisibilityChanged,
+      prepareRootSource: () =>
+          widget.prepareArtworkTarget(PlayerInitialSurface.main),
       onRootRouteClosed: () {
         if (!mounted || generation != _sessionGeneration) return;
+        widget.restoreArtworkTarget();
         _launchInProgress = false;
       },
     );
@@ -1043,6 +1111,7 @@ class _InteractivePlayerOpenSession {
     required this.artworkTrackId,
     required this.artworkHeroEnabled,
     required this.onArtworkVisibilityChanged,
+    required this.prepareRootSource,
     required this.onRootRouteClosed,
   });
 
@@ -1054,16 +1123,13 @@ class _InteractivePlayerOpenSession {
   final String artworkTrackId;
   final bool artworkHeroEnabled;
   final ValueChanged<bool> onArtworkVisibilityChanged;
+  final Future<void> Function() prepareRootSource;
   final VoidCallback onRootRouteClosed;
 
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   final Completer<void> _routeReady = Completer<void>();
   late final HeroController _heroController = HeroController(
-    createRectTween: (begin, end) => createPlayerArtworkRectTween(
-      begin,
-      end,
-      viewportHeight: MediaQuery.sizeOf(overlay.context).height,
-    ),
+    createRectTween: (begin, end) => createPlayerArtworkRectTween(begin, end),
   );
   OverlayEntry? _entry;
   AudioPlayerPageRoute<void>? _route;
@@ -1072,35 +1138,85 @@ class _InteractivePlayerOpenSession {
   bool _started = false;
   bool _disposed = false;
   bool _settling = false;
+  final Completer<bool> _completion = Completer<bool>();
+  int _settleGeneration = 0;
+  int? _resumePointer;
+  Offset? _resumePosition;
+  VelocityTracker? _resumeVelocity;
+
+  void _resume(PointerDownEvent event) {
+    if (!_settling ||
+        _disposed ||
+        _resumePointer != null ||
+        _route?.verticalGestureInProgress != true) {
+      return;
+    }
+    if (!_route!.beginVerticalOpenGesture()) return;
+    _settleGeneration++;
+    _settling = false;
+    _resumePointer = event.pointer;
+    _resumePosition = event.position;
+    _resumeVelocity = VelocityTracker.withKind(event.kind)
+      ..addPosition(event.timeStamp, event.position);
+  }
+
+  void _moveResumed(PointerMoveEvent event) {
+    if (event.pointer != _resumePointer) return;
+    _resumeVelocity?.addPosition(event.timeStamp, event.position);
+    update(distance: _resumePosition!.dy - event.position.dy, extent: _extent);
+  }
+
+  void _endResumed(PointerUpEvent event) {
+    if (event.pointer != _resumePointer) return;
+    _resumeVelocity?.addPosition(event.timeStamp, event.position);
+    _resumePointer = null;
+    unawaited(
+      finish(
+        velocity: _resumeVelocity?.getVelocity().pixelsPerSecond.dy ?? 0,
+        extent: _extent,
+      ),
+    );
+  }
 
   Future<void> start() async {
     if (_started || _disposed) return;
     _started = true;
     _entry = OverlayEntry(
       builder: (context) => Positioned.fill(
-        child: IgnorePointer(
-          child: Navigator(
-            key: _navigatorKey,
-            observers: [_heroController],
-            requestFocus: false,
-            onGenerateInitialRoutes: (navigator, initialRoute) => [
-              PageRouteBuilder<void>(
-                settings: const RouteSettings(
-                  name: '_interactive_player_source',
+        child: Listener(
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: _resume,
+          onPointerMove: _moveResumed,
+          onPointerUp: _endResumed,
+          onPointerCancel: (event) {
+            if (event.pointer != _resumePointer) return;
+            _resumePointer = null;
+            unawaited(cancel());
+          },
+          child: IgnorePointer(
+            child: Navigator(
+              key: _navigatorKey,
+              observers: [_heroController],
+              requestFocus: false,
+              onGenerateInitialRoutes: (navigator, initialRoute) => [
+                PageRouteBuilder<void>(
+                  settings: const RouteSettings(
+                    name: '_interactive_player_source',
+                  ),
+                  opaque: false,
+                  barrierColor: Colors.transparent,
+                  transitionDuration: Duration.zero,
+                  reverseTransitionDuration: Duration.zero,
+                  pageBuilder: (context, animation, secondaryAnimation) =>
+                      _InteractivePlayerHeroSource(
+                        artworkRect: artworkRect,
+                        artworkBuilder: artworkBuilder,
+                        artworkTrackId: artworkTrackId,
+                        artworkHeroEnabled: artworkHeroEnabled,
+                      ),
                 ),
-                opaque: false,
-                barrierColor: Colors.transparent,
-                transitionDuration: Duration.zero,
-                reverseTransitionDuration: Duration.zero,
-                pageBuilder: (context, animation, secondaryAnimation) =>
-                    _InteractivePlayerHeroSource(
-                      artworkRect: artworkRect,
-                      artworkBuilder: artworkBuilder,
-                      artworkTrackId: artworkTrackId,
-                      artworkHeroEnabled: artworkHeroEnabled,
-                    ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -1129,55 +1245,65 @@ class _InteractivePlayerOpenSession {
 
   void update({required double distance, required double extent}) {
     if (_disposed || _settling) return;
-    _distance = distance.clamp(0.0, extent);
+    _distance = distance.clamp(-extent, extent);
     _extent = extent.clamp(1, double.infinity);
     _route?.updateVerticalOpenGesture(distance: _distance, extent: _extent);
   }
 
   Future<bool> finish({required double velocity, required double extent}) {
-    return _settle(complete: true, velocity: velocity, extent: extent);
+    unawaited(_settle(complete: true, velocity: velocity, extent: extent));
+    return _completion.future;
   }
 
   Future<bool> cancel() {
-    return _settle(complete: false, velocity: 0, extent: _extent);
+    unawaited(_settle(complete: false, velocity: 0, extent: _extent));
+    return _completion.future;
   }
 
-  Future<bool> _settle({
+  Future<void> _settle({
     required bool complete,
     required double velocity,
     required double extent,
   }) async {
-    if (_disposed || _settling) return false;
+    if (_disposed || _settling) return;
+    final generation = ++_settleGeneration;
     _settling = true;
     if (!_routeReady.isCompleted) {
       try {
         await _routeReady.future;
       } catch (_) {
         abort();
-        return false;
+        return;
       }
     }
-    if (_disposed) return false;
+    if (_disposed) return;
     final route = _route;
     if (route == null) {
       abort();
-      return false;
+      return;
     }
     final opened = complete
         ? await route.endVerticalOpenGesture(velocity: velocity, extent: extent)
         : await route.cancelVerticalOpenGesture();
-    if (_disposed) return false;
+    if (_disposed || generation != _settleGeneration) return;
     if (!opened) {
       _removeOverlay();
-      return false;
+      _completion.complete(false);
+      return;
     }
 
+    await prepareRootSource();
+    if (_disposed || generation != _settleGeneration) return;
     final rootRoute = configuration.createRoute(handoff: true);
     final rootRouteClosed = rootNavigator.push<void>(rootRoute);
-    unawaited(rootRouteClosed.whenComplete(onRootRouteClosed));
+    unawaited(
+      rootRouteClosed
+          .then((_) => rootRoute.completed)
+          .whenComplete(onRootRouteClosed),
+    );
     await WidgetsBinding.instance.endOfFrame;
     if (!_disposed) _removeOverlay();
-    return true;
+    if (!_completion.isCompleted) _completion.complete(true);
   }
 
   void abort() {
@@ -1187,6 +1313,7 @@ class _InteractivePlayerOpenSession {
     _entry?.remove();
     _entry = null;
     onArtworkVisibilityChanged(false);
+    if (!_completion.isCompleted) _completion.complete(false);
   }
 
   void _removeOverlay() {

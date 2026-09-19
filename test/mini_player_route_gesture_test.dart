@@ -1,3 +1,4 @@
+import 'helpers/player_route_geometry.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'dart:async';
 
@@ -21,7 +22,6 @@ void main() {
     final tween = createPlayerArtworkRectTween(
       const Rect.fromLTWH(16, 16, 64, 48),
       const Rect.fromLTWH(40, 80, 320, 240),
-      viewportHeight: 844,
     );
 
     for (final progress in [0.0, 0.25, 0.5, 0.75, 1.0]) {
@@ -83,20 +83,10 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(find.byType(AudioPlayerScreen, skipOffstage: false), findsOneWidget);
-    final routeTranslationFinder = find.byKey(
-      const ValueKey('player-route-vertical-translation'),
-      skipOffstage: false,
-    );
-    final openingOffset = tester
-        .widget<Transform>(routeTranslationFinder)
-        .transform
-        .entry(1, 3);
+    final openingOffset = playerRouteRevealRect(tester).top;
     await cancelledGesture.moveBy(const Offset(0, 60));
     await tester.pump();
-    expect(
-      tester.widget<Transform>(routeTranslationFinder).transform.entry(1, 3),
-      greaterThan(openingOffset),
-    );
+    expect(playerRouteRevealRect(tester).top, greaterThan(openingOffset));
     await cancelledGesture.cancel();
     await tester.pumpAndSettle();
     expect(find.byType(AudioPlayerScreen), findsNothing);
@@ -119,14 +109,9 @@ void main() {
           find.byType(AudioPlayerScreen, skipOffstage: false),
           findsOneWidget,
         );
-        final interactiveTranslation = tester.widget<Transform>(
-          find.byKey(
-            const ValueKey('player-route-vertical-translation'),
-            skipOffstage: false,
-          ),
-        );
-        expect(interactiveTranslation.transform.entry(1, 3), greaterThan(0));
-        expect(interactiveTranslation.transform.entry(1, 3), lessThan(844));
+        final interactiveReveal = playerRouteRevealRect(tester);
+        expect(interactiveReveal.top, greaterThan(0));
+        expect(interactiveReveal.top, lessThan(844));
       }
     }
     await gesture.up();
@@ -135,7 +120,7 @@ void main() {
     expect(find.byType(AudioPlayerScreen), findsOneWidget);
     expect(find.byKey(const ValueKey('compact-player-layout')), findsOneWidget);
     expect(
-      find.byKey(const ValueKey('player-route-vertical-translation')),
+      find.byKey(const ValueKey('player-route-background-reveal')),
       findsOneWidget,
     );
     expect(

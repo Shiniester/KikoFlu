@@ -1,4 +1,5 @@
 import 'player_track_layers.dart';
+import 'player_vertical_gestures.dart';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -8,23 +9,10 @@ import '../../models/audio_track.dart';
 import '../../utils/local_file_url.dart';
 import '../privacy_blur_cover.dart';
 
-const double playerArtworkAttachmentStart = 0.20;
-const double playerArtworkAttachmentEnd = 0.85;
 const double playerCoverHeaderFadeStart = 0.55;
 const double playerCoverHeaderFadeEnd = 0.85;
 
 double _smoothStep(double value) => value * value * (3 - 2 * value);
-
-@visibleForTesting
-double playerArtworkAttachment(double visualProgress) {
-  final progress = visualProgress.clamp(0.0, 1.0);
-  if (progress <= playerArtworkAttachmentStart) return 0;
-  if (progress >= playerArtworkAttachmentEnd) return 1;
-  final intervalProgress =
-      (progress - playerArtworkAttachmentStart) /
-      (playerArtworkAttachmentEnd - playerArtworkAttachmentStart);
-  return _smoothStep(intervalProgress);
-}
 
 double playerCoverHeaderOpacity(double visualProgress) {
   final progress = visualProgress.clamp(0.0, 1.0);
@@ -36,48 +24,8 @@ double playerCoverHeaderOpacity(double visualProgress) {
   return _smoothStep(intervalProgress);
 }
 
-Tween<Rect?> createPlayerArtworkRectTween(
-  Rect? begin,
-  Rect? end, {
-  double viewportHeight = 0,
-  bool reverse = false,
-}) => _PlayerArtworkRectTween(
-  begin: begin,
-  end: end,
-  viewportHeight: viewportHeight,
-  reverse: reverse,
-);
-
-class _PlayerArtworkRectTween extends RectTween {
-  _PlayerArtworkRectTween({
-    required super.begin,
-    required super.end,
-    required this.viewportHeight,
-    required this.reverse,
-  });
-
-  final double viewportHeight;
-  final bool reverse;
-
-  @override
-  Rect? lerp(double t) {
-    final source = reverse ? end : begin;
-    final target = reverse ? begin : end;
-    if (source == null || target == null) return super.lerp(t);
-    final visualProgress = reverse ? 1 - t : t;
-    final maxTargetShift = math.max(0.0, source.bottom - target.bottom);
-    final targetShift = math.min(
-      viewportHeight * (1 - visualProgress),
-      maxTargetShift,
-    );
-    final movingTarget = target.shift(Offset(0, targetShift));
-    return Rect.lerp(
-      source,
-      movingTarget,
-      playerArtworkAttachment(visualProgress),
-    );
-  }
-}
+Tween<Rect?> createPlayerArtworkRectTween(Rect? begin, Rect? end) =>
+    RectTween(begin: begin, end: end);
 
 enum PlayerArtworkFlightTarget { main, none }
 
@@ -106,20 +54,26 @@ class PlayerArtworkHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final available =
+        enabled &&
+        target != PlayerArtworkFlightTarget.none &&
+        !MediaQuery.disableAnimationsOf(context);
+    if (isPlayerPageTarget) {
+      final route = ModalRoute.of(context);
+      if (route is PlayerInteractiveDismissRoute) {
+        (route as PlayerInteractiveDismissRoute).setArtworkHeroAvailable(
+          available,
+        );
+      }
+    }
     Widget result;
-    if (!enabled ||
-        target == PlayerArtworkFlightTarget.none ||
-        MediaQuery.disableAnimationsOf(context)) {
+    if (!available) {
       result = child;
     } else {
       result = Hero(
         tag: playerArtworkHeroTag(trackId, target),
-        createRectTween: (begin, end) => createPlayerArtworkRectTween(
-          begin,
-          end,
-          viewportHeight: MediaQuery.sizeOf(context).height,
-          reverse: !isPlayerPageTarget,
-        ),
+        createRectTween: (begin, end) =>
+            createPlayerArtworkRectTween(begin, end),
         transitionOnUserGestures: true,
         curve: Curves.linear,
         reverseCurve: Curves.linear,
