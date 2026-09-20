@@ -671,6 +671,7 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  final dragEntry = ValueVariant<bool>({false, true});
   testWidgets('landed work details mini player opens with artwork hero', (
     tester,
   ) async {
@@ -696,7 +697,17 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('mini-player-artwork-frame')));
+    TestGesture? opening;
+    if (dragEntry.currentValue!) {
+      opening = await tester.startGesture(
+        tester.getCenter(
+          find.byKey(const ValueKey('mini-player-upward-launcher')),
+        ),
+      );
+      await opening.moveBy(const Offset(0, -220));
+    } else {
+      await tester.tap(find.byKey(const ValueKey('mini-player-artwork-frame')));
+    }
     await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 16));
@@ -715,8 +726,17 @@ void main() {
       findsOneWidget,
     );
 
+    await opening?.up();
     await tester.pumpAndSettle();
-    await tester.binding.handlePopRoute();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    final closing = await tester.startGesture(
+      tester.getCenter(
+        find.byKey(const ValueKey('compact-header-dismiss-surface')),
+      ),
+    );
+    await closing.moveBy(const Offset(0, 40));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 16));
     expect(
@@ -730,6 +750,22 @@ void main() {
       find.byKey(const ValueKey('player-artwork-flight-frame')),
       findsOneWidget,
     );
+    await closing.cancel();
+    await tester.pumpAndSettle();
+    final finalClosing = await tester.startGesture(
+      tester.getCenter(
+        find.byKey(const ValueKey('compact-header-dismiss-surface')),
+      ),
+    );
+    await finalClosing.moveBy(const Offset(0, 40));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(
+      find.byKey(const ValueKey('player-artwork-flight-frame')),
+      findsOneWidget,
+    );
+    await finalClosing.moveBy(const Offset(0, 200));
+    await finalClosing.up();
     await tester.pumpAndSettle();
     expect(
       find.byWidgetPredicate(
@@ -739,9 +775,27 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Landed work details'), findsOneWidget);
+    if (dragEntry.currentValue!) {
+      final shortOpening = await tester.startGesture(
+        tester.getCenter(
+          find.byKey(const ValueKey('mini-player-upward-launcher')),
+        ),
+      );
+      await shortOpening.moveBy(const Offset(0, -60));
+      await tester.pump(const Duration(milliseconds: 200));
+      await shortOpening.up();
+      await tester.pumpAndSettle();
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Hero && widget.tag == 'app-bottom-dock-mini-player',
+        ),
+        findsOneWidget,
+      );
+    }
     expect(tester.takeException(), isNull);
     debugDefaultTargetPlatformOverride = null;
-  });
+  }, variant: dragEntry);
 }
 
 class _WorkDetailsTarget extends StatelessWidget {

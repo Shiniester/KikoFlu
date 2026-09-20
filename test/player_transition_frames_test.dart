@@ -7,6 +7,7 @@ import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const track = AudioTrack(
@@ -21,11 +22,11 @@ void main() {
     await pumpPlayer(tester);
     await tester.tap(find.byKey(const ValueKey('mini-player-upward-launcher')));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 80));
+    await tester.pump(playerRouteTransitionDuration * (8 / 45));
     await frame(tester, 'expand_80');
-    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(playerRouteTransitionDuration * (2 / 9));
     await frame(tester, 'expand_180');
-    await tester.pump(const Duration(milliseconds: 120));
+    await tester.pump(playerRouteTransitionDuration * (4 / 15));
     await frame(tester, 'expand_300');
     await tester.pumpAndSettle();
     final gesture = await tester.startGesture(

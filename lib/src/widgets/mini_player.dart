@@ -975,6 +975,7 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher>
       onArtworkVisibilityChanged: widget.onInteractiveArtworkVisibilityChanged,
       onRootRouteClosed: () {
         if (!mounted || generation != _sessionGeneration) return;
+        widget.restoreArtworkTarget();
         _launchInProgress = false;
       },
     );
@@ -988,10 +989,15 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher>
     required double velocity,
     required double extent,
   }) async {
+    await widget.prepareArtworkTarget(PlayerInitialSurface.main);
+    if (!mounted || !identical(_interactiveSession, session)) return;
     final completed = await session.finish(velocity: velocity, extent: extent);
     if (!mounted || !identical(_interactiveSession, session)) return;
     _interactiveSession = null;
-    if (!completed) _launchInProgress = false;
+    if (!completed) {
+      widget.restoreArtworkTarget();
+      _launchInProgress = false;
+    }
   }
 
   Future<void> _cancelInteractiveSession(
@@ -1004,10 +1010,16 @@ class _MiniPlayerUpwardLauncherState extends State<_MiniPlayerUpwardLauncher>
   }
 
   void _abortInteractiveSession() {
-    _sessionGeneration++;
+    if (_interactiveSession == null) return;
+    final generation = ++_sessionGeneration;
     _interactiveSession?.abort();
     _interactiveSession = null;
     _launchInProgress = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && generation == _sessionGeneration) {
+        widget.restoreArtworkTarget();
+      }
+    });
   }
 
   void _clearPointer() {
@@ -1180,8 +1192,8 @@ class _InteractivePlayerOpenSession {
     // Move the keyed player subtree in the same frame. Waiting a frame here
     // would either mount a second player or dispose the preview's State.
     _removeOverlay();
-    final rootRouteClosed = rootNavigator.push<void>(rootRoute);
-    unawaited(rootRouteClosed.whenComplete(onRootRouteClosed));
+    unawaited(rootNavigator.push<void>(rootRoute));
+    unawaited(rootRoute.completed.whenComplete(onRootRouteClosed));
     return true;
   }
 

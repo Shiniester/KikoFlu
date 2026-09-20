@@ -217,7 +217,7 @@ void main() {
       expect(
         playerRoute,
         contains(
-          'Duration playerRouteTransitionDuration = Duration(milliseconds: 450)',
+          'Duration playerRouteTransitionDuration = Duration(milliseconds: 380)',
         ),
       );
       expect(playerCover, contains('transitionOnUserGestures: true'));

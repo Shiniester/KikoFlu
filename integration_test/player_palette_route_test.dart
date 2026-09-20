@@ -17,7 +17,7 @@ import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
 import 'package:kikoeru_flutter/src/services/background_work_scheduler.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
+import 'package:kikoeru_flutter/src/widgets/global_audio_player_wrapper.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_visual_palette.dart';
 import 'package:path_provider/path_provider.dart';
@@ -76,9 +76,8 @@ void main() {
           theme: theme,
           localizationsDelegates: S.localizationsDelegates,
           supportedLocales: S.supportedLocales,
-          home: const Scaffold(
-            body: Center(child: Text('播放器打开动画测试')),
-            bottomNavigationBar: MiniPlayer(),
+          home: const GlobalAudioPlayerWrapper.workDetails(
+            child: Scaffold(body: Center(child: Text('播放器打开动画测试'))),
           ),
         ),
       ),
@@ -135,9 +134,23 @@ void main() {
     );
     expect(tester.takeException(), isNull);
     recorder.endScenario();
-    navigator.currentState!.pop();
+    final closing = await tester.startGesture(
+      tester.getCenter(
+        find.byKey(const ValueKey('compact-header-dismiss-surface')),
+      ),
+    );
+    await closing.moveBy(const Offset(0, 40));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(
+      find.byKey(const ValueKey('player-artwork-flight-frame')),
+      findsOneWidget,
+    );
+    await closing.moveBy(const Offset(0, 220));
+    await closing.up();
     await tester.pump(const Duration(milliseconds: 600));
+    expect(find.byType(AudioPlayerScreen), findsNothing);
     checks.add('upward drag preserves player and page State through handoff');
+    checks.add('downward return to work details uses artwork Hero');
 
     final initial = PlayerVisualPalette.fromDominant(
       Colors.pink,
@@ -183,6 +196,7 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     binding.reportData = {
       'mode': 'debug',
+      'entry': 'workDetails',
       'checks': checks,
       'run': recorder.createRun(run: 1),
     };

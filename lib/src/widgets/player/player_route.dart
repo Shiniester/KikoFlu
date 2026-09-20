@@ -6,7 +6,7 @@ import '../../screens/audio_player_screen.dart';
 import 'player_vertical_gestures.dart';
 import 'player_visual_palette.dart';
 
-const Duration playerRouteTransitionDuration = Duration(milliseconds: 450);
+const Duration playerRouteTransitionDuration = Duration(milliseconds: 380);
 
 AudioPlayerPageRoute<T> createAudioPlayerRoute<T>({
   Key? playerKey,
