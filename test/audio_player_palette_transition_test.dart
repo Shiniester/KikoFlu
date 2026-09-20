@@ -10,6 +10,7 @@ import 'package:kikoeru_flutter/src/providers/artwork_theme_provider.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_visual_palette.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -53,6 +54,95 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({'lyric_hint_has_shown': true});
   });
+
+  testWidgets('entry palette stays frozen until the route finishes', (
+    tester,
+  ) async {
+    final (route, initial, resolved) = await _pumpPaletteRoute(tester);
+    await tester.pump(const Duration(milliseconds: 320));
+    expect(_backgroundTargetColors(tester), initial.backgroundGradient.colors);
+    await tester.pump(const Duration(milliseconds: 140));
+    await tester.pump();
+    expect(_backgroundTargetColors(tester), resolved.backgroundGradient.colors);
+    await tester.pumpAndSettle();
+    expect(route.animation!.status, AnimationStatus.completed);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('entry palette waits for a held open gesture to end', (
+    tester,
+  ) async {
+    final (route, initial, resolved) = await _pumpPaletteRoute(
+      tester,
+      interactive: true,
+    );
+    route.updateVerticalOpenGesture(distance: 400, extent: 800);
+    await tester.pump(const Duration(seconds: 1));
+    expect(_backgroundTargetColors(tester), initial.backgroundGradient.colors);
+    route.updateVerticalOpenGesture(distance: 800, extent: 800);
+    await tester.pump(const Duration(seconds: 1));
+    expect(route.animation!.status, AnimationStatus.completed);
+    expect(_backgroundTargetColors(tester), initial.backgroundGradient.colors);
+    expect(
+      await route.endVerticalOpenGesture(velocity: 0, extent: 800),
+      isTrue,
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(_backgroundTargetColors(tester), resolved.backgroundGradient.colors);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('cancelled opening disposes palette listeners safely', (
+    tester,
+  ) async {
+    final (route, initial, _) = await _pumpPaletteRoute(
+      tester,
+      interactive: true,
+    );
+    route.updateVerticalOpenGesture(distance: 160, extent: 800);
+    await tester.pump(const Duration(seconds: 1));
+    expect(_backgroundTargetColors(tester), initial.backgroundGradient.colors);
+    final cancelled = route.cancelVerticalOpenGesture();
+    await tester.pumpAndSettle();
+    expect(await cancelled, isFalse);
+    expect(find.byType(AudioPlayerScreen), findsNothing);
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('equal entry palette does not rebuild the shell on release', (
+    tester,
+  ) async {
+    await _pumpPaletteRoute(tester, equalPalette: true);
+    await tester.pump(playerRouteTransitionDuration);
+    final background = _backgroundAnimatedContainers(tester).first;
+    await tester.pump();
+    expect(
+      identical(_backgroundAnimatedContainers(tester).first, background),
+      isTrue,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final reducedMotion in [false, true]) {
+    testWidgets('entry palette releases without a timed transition '
+        '(reduced motion: $reducedMotion)', (tester) async {
+      final (_, _, resolved) = await _pumpPaletteRoute(
+        tester,
+        skipTransition: !reducedMotion,
+        reducedMotion: reducedMotion,
+      );
+      await _pumpMicrotasks(tester);
+      expect(
+        _backgroundTargetColors(tester),
+        resolved.backgroundGradient.colors,
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets(
     'player retains the previous palette and keeps rapid transitions opaque',
@@ -261,6 +351,71 @@ Future<void> _pumpMicrotasks(WidgetTester tester) async {
   for (var index = 0; index < 5; index++) {
     await tester.pump();
   }
+}
+
+Future<(AudioPlayerPageRoute<void>, PlayerVisualPalette, PlayerVisualPalette)>
+_pumpPaletteRoute(
+  WidgetTester tester, {
+  bool interactive = false,
+  bool equalPalette = false,
+  bool skipTransition = false,
+  bool reducedMotion = false,
+}) async {
+  tester.view.devicePixelRatio = 1;
+  tester.view.physicalSize = const Size(390, 844);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  addTearDown(tester.view.resetPhysicalSize);
+  if (reducedMotion) {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+  }
+  final theme = ThemeData(useMaterial3: true, colorSchemeSeed: Colors.teal);
+  PlayerVisualPalette palette(Color seed) => PlayerVisualPalette.fromDominant(
+    seed,
+    brightness: theme.brightness,
+    accent: theme.colorScheme.primary,
+    onAccent: theme.colorScheme.onPrimary,
+  );
+  final resolved = palette(theme.colorScheme.primary);
+  final initial = palette(
+    equalPalette ? theme.colorScheme.primary : Colors.pink,
+  );
+  final navigatorKey = GlobalKey<NavigatorState>();
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        currentTrackProvider.overrideWith((ref) => Stream.value(_firstTrack)),
+        themeArtworkDescriptorProvider.overrideWith((ref) => null),
+        isTrackLoadingProvider.overrideWith((ref) => Stream.value(false)),
+        positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
+        durationProvider.overrideWith(
+          (ref) => Stream.value(const Duration(minutes: 4)),
+        ),
+        playerStateProvider.overrideWith(
+          (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
+        ),
+        queueProvider.overrideWith((ref) => Stream.value(const [_firstTrack])),
+        lyricAutoLoaderProvider.overrideWith((ref) {}),
+      ],
+      child: MaterialApp(
+        navigatorKey: navigatorKey,
+        theme: theme,
+        localizationsDelegates: S.localizationsDelegates,
+        supportedLocales: S.supportedLocales,
+        home: const Scaffold(),
+      ),
+    ),
+  );
+  final route = createAudioPlayerRoute<void>(
+    initialPalette: initial,
+    initialPaletteTrackId: _firstTrack.id,
+    skipInitialTransition: skipTransition,
+  );
+  unawaited(navigatorKey.currentState!.push(route));
+  if (interactive) expect(route.beginVerticalOpenGesture(), isTrue);
+  await _pumpMicrotasks(tester);
+  return (route, initial, resolved);
 }
 
 List<Color> _backgroundTargetColors(WidgetTester tester) {

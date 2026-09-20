@@ -24,6 +24,32 @@ class PlayerVisualPalette {
   final Color panelColor;
   final Color panelStroke;
 
+  @override
+  bool operator ==(Object other) =>
+      other is PlayerVisualPalette &&
+      backgroundStart == other.backgroundStart &&
+      backgroundMiddle == other.backgroundMiddle &&
+      backgroundEnd == other.backgroundEnd &&
+      foreground == other.foreground &&
+      secondaryForeground == other.secondaryForeground &&
+      accent == other.accent &&
+      onAccent == other.onAccent &&
+      panelColor == other.panelColor &&
+      panelStroke == other.panelStroke;
+
+  @override
+  int get hashCode => Object.hash(
+    backgroundStart,
+    backgroundMiddle,
+    backgroundEnd,
+    foreground,
+    secondaryForeground,
+    accent,
+    onAccent,
+    panelColor,
+    panelStroke,
+  );
+
   LinearGradient get backgroundGradient => LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,

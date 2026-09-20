@@ -7,6 +7,10 @@ Android 的 Media3 固定为 1.8.0，包含空 FLAC seek table 的上游修复�
 
 ## 准备
 
+需要保留手机上的正式版、仅验证播放器打开交互时，使用
+[独立 Debug 真机回归流程](android-device-testing.md)。该流程的 Debug 帧耗时
+不用于本页的 Profile 性能验收；以下 Profile 场景仍使用正式版包名。
+
 构建前确认 USB 设备、可用空间和原始素材。测试包名为
 `com.meteor.kikoeruflutter`；同包名已有安装时，测试会修改其播放队列和缓存，
 应使用专用测试安装。测试不会修改素材原文件。

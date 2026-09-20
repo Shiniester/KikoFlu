@@ -1,0 +1,213 @@
+name: Build Android Beta and Pre-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Beta version, for example 4.5.3-beta.1 or v4.5.3-beta.1'
+        required: true
+        type: string
+      release_notes:
+        description: 'Beta release notes in Markdown'
+        required: false
+        default: 'Android beta for testing.'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-beta-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  android:
+    name: Build Android Beta APKs
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate Beta Version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION#v}"
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-beta\.[1-9][0-9]*$ ]]; then
+            echo '::error::Version must use MAJOR.MINOR.PATCH-beta.N, for example 4.5.3-beta.1.'
+            exit 1
+          fi
+          tag="v${version}"
+          if gh release view "$tag" >/dev/null 2>&1 ||
+             gh api "repos/${GH_REPO}/git/ref/tags/${tag}" >/dev/null 2>&1; then
+            echo "::error::Tag or release $tag already exists. Choose a new beta version."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Configure Separate Beta Application
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path('android/app/build.gradle.kts'): (
+                  'applicationId = "com.meteor.kikoeruflutter"',
+                  'applicationId = "com.meteor.kikoeruflutter.beta"',
+              ),
+              Path('android/app/src/main/AndroidManifest.xml'): (
+                  'android:label="KikoFlu"',
+                  'android:label="KikoFlu Beta"',
+              ),
+          }
+          for path, (old, new) in replacements.items():
+              source = path.read_text(encoding='utf-8')
+              if source.count(old) != 1:
+                  raise SystemExit(f'Expected exactly one Beta configuration target in {path}')
+              path.write_text(source.replace(old, new), encoding='utf-8')
+          PY
+
+      - name: Prepare Android Signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for secret_name in \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD; do
+            if [ -z "${!secret_name}" ]; then
+              echo "::error::Required Android signing secret $secret_name is missing."
+              exit 1
+            fi
+          done
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release-key.jks
+          test -s android/app/release-key.jks
+          cat <<EOF > android/key.properties
+          storeFile=app/release-key.jks
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+          chmod 600 android/app/release-key.jks android/key.properties
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.7'
+          channel: 'stable'
+
+      - name: Get Dependencies
+        run: flutter pub get
+
+      - name: Build Android Beta APKs
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          flutter build apk --release --build-name="$VERSION" --build-number="$GITHUB_RUN_NUMBER"
+          mv build/app/outputs/flutter-apk/app-release.apk \
+            "dist/KikoFlu-android-universe_${VERSION}.apk"
+          flutter build apk --release --split-per-abi --build-name="$VERSION" --build-number="$GITHUB_RUN_NUMBER"
+          mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+            "dist/KikoFlu-android-arm64-v8a_${VERSION}.apk"
+
+      - name: Verify Beta Packages
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          build_tools_dir="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          for apk in dist/*.apk; do
+            badging="$("$build_tools_dir/aapt" dump badging "$apk")"
+            package_line="$(sed -n '1p' <<< "$badging")"
+            package_name="$(sed -n "s/.*package: name='\([^']*\)'.*/\1/p" <<< "$package_line")"
+            version_name="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<< "$package_line")"
+            if [ "$package_name" != 'com.meteor.kikoeruflutter.beta' ] ||
+               [ "$version_name" != "$EXPECTED_VERSION" ]; then
+              echo "::error::Unexpected Beta package metadata: $package_line"
+              exit 1
+            fi
+            if grep -q '^application-debuggable' <<< "$badging"; then
+              echo '::error::Beta APKs must use the release build mode.'
+              exit 1
+            fi
+            "$build_tools_dir/apksigner" verify "$apk"
+          done
+
+      - name: Upload Beta Artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: beta-assets-android
+          path: dist/*.apk
+          if-no-files-found: error
+
+  release:
+    name: Publish Android Pre-release
+    needs: android
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          name: beta-assets-android
+          path: release-assets
+
+      - name: Publish Beta with Both APKs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.android.outputs.version }}
+          TAG: ${{ needs.android.outputs.tag }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+        run: |
+          set -euo pipefail
+          assets=(
+            "release-assets/KikoFlu-android-universe_${VERSION}.apk"
+            "release-assets/KikoFlu-android-arm64-v8a_${VERSION}.apk"
+          )
+          for asset in "${assets[@]}"; do
+            test -s "$asset"
+          done
+          printf '%s\n\n%s\n' \
+            'Android Beta: installs alongside KikoFlu as KikoFlu Beta with separate app data.' \
+            "$RELEASE_NOTES" > "$RUNNER_TEMP/beta-release-notes.md"
+          gh release create "$TAG" --target "$GITHUB_SHA" \
+            --title "KikoFlu $TAG" --notes-file "$RUNNER_TEMP/beta-release-notes.md" \
+            --draft --prerelease --latest=false
+          for asset in "${assets[@]}"; do
+            for attempt in 1 2 3; do
+              if gh release upload "$TAG" "$asset" --clobber; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo '::error::APK upload failed; the release remains a draft.'
+                exit 1
+              fi
+              sleep $((attempt * 5))
+            done
+          done
+          gh api "repos/${GH_REPO}/releases/tags/${TAG}" --jq '.assets' > "$RUNNER_TEMP/beta-assets.json"
+          jq -e 'length == 2 and all(.[]; .size > 0 and .state == "uploaded")' \
+            "$RUNNER_TEMP/beta-assets.json" >/dev/null
+          gh release edit "$TAG" --draft=false --prerelease --latest=false
+          gh release view "$TAG" --json url --jq '.url' >> "$GITHUB_STEP_SUMMARY"

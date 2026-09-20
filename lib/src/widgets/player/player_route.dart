@@ -9,6 +9,7 @@ import 'player_visual_palette.dart';
 const Duration playerRouteTransitionDuration = Duration(milliseconds: 450);
 
 AudioPlayerPageRoute<T> createAudioPlayerRoute<T>({
+  Key? playerKey,
   PlayerVisualPalette? initialPalette,
   String? initialPaletteTrackId,
   PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
@@ -20,6 +21,7 @@ AudioPlayerPageRoute<T> createAudioPlayerRoute<T>({
         ? PlayerDismissVisualMode.secondary
         : PlayerDismissVisualMode.main,
     builder: (context) => AudioPlayerScreen(
+      key: playerKey,
       initialPalette: initialPalette,
       initialPaletteTrackId: initialPaletteTrackId,
       initialSurface: initialSurface,
@@ -39,10 +41,12 @@ class AudioPlayerOpenConfiguration {
   final String initialPaletteTrackId;
 
   AudioPlayerPageRoute<void> createRoute({
+    Key? playerKey,
     bool handoff = false,
     PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
   }) {
     return createAudioPlayerRoute<void>(
+      playerKey: playerKey,
       initialPalette: initialPalette,
       initialPaletteTrackId: initialPaletteTrackId,
       initialSurface: initialSurface,

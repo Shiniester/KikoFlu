@@ -1,13 +1,13 @@
 ---
 name: "release-automation"
-description: "Use when triggering or discussing KikoFlu GitHub Actions release workflows, including choosing Android-only patch releases or all-platform minor and major releases."
+description: "Use when triggering or discussing KikoFlu GitHub Actions release workflows, including Android Beta releases for small or patch updates and all-platform stable minor and major releases."
 metadata:
   short-description: "KikoFlu GitHub Actions 发布流程与版本平台选择。"
 ---
 
 # Release automation
 
-When a release is requested through either the GitHub Actions **Build and Release** or **Build Android and Release** workflow,
+When a release is requested through a GitHub Actions workflow selected below,
 and the user explicitly requests the full repository sync:
 
 1. Inspect the working tree and include all current tracked and untracked changes in the requested commit.
@@ -28,7 +28,11 @@ When reporting an accepted dispatch, state that the workflow was started and lin
 
 ## Platform selection by release size
 
-- Patch releases, where only the PATCH component changes (for example, `4.4.0` to `4.4.1`), use **Build Android and Release** (`build_android.yml`). This workflow builds and publishes only the Android universal and arm64 APKs.
+- Small or patch updates (小版本发布) default to Android Beta releases using **Build Android Beta and Pre-release** (`build_android_beta.yml`). Explicit Beta requests also use this workflow.
+- Before choosing a Beta version, query the repository's latest published stable GitHub release, excluding drafts and pre-releases. Keep its MAJOR and MINOR components and increment PATCH by one: stable `4.5.2` produces the Beta base `4.5.3`. Derive this base from the current stable release each time; example versions are not fixed defaults.
+- Use `MAJOR.MINOR.PATCH-beta.N`, where N starts at 1 and increases beyond the highest existing Beta number for that base across tags and releases, including drafts. For example, stable `4.5.2` with an existing `4.5.3-beta.2` produces `4.5.3-beta.3`; after stable `4.5.3` is published, the next base becomes `4.5.4`. Verify an explicitly supplied version against this rule and report any mismatch before dispatching.
+- Beta releases publish the Android universal and arm64 APKs as a GitHub **Pre-release**, with `latest=false`. They use the separate `com.meteor.kikoeruflutter.beta` application ID and **KikoFlu Beta** name so they can coexist with the stable app.
 - Minor and major releases, where the MINOR or MAJOR component changes, use **Build and Release** (`build.yml`). This workflow builds and publishes all supported platform packages.
+- Use **Build Android and Release** (`build_android.yml`) for an Android-only stable patch release only when the user explicitly requests that stable release.
 
-Before dispatching either workflow, confirm that the requested version matches the release size and that the corresponding tag and release do not already exist.
+Before dispatching the selected workflow, verify that the version matches its release channel and that the corresponding tag and release do not already exist. If the user specifies an existing Beta version, report the conflict rather than reusing it. Dispatch Beta releases with the `version` and `release_notes` inputs.

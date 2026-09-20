@@ -1057,6 +1057,7 @@ class _InteractivePlayerOpenSession {
   final VoidCallback onRootRouteClosed;
 
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  final GlobalKey _playerPageKey = GlobalKey();
   final Completer<void> _routeReady = Completer<void>();
   late final HeroController _heroController = HeroController(
     createRectTween: (begin, end) => createPlayerArtworkRectTween(
@@ -1113,7 +1114,7 @@ class _InteractivePlayerOpenSession {
       abort();
       return;
     }
-    final route = configuration.createRoute();
+    final route = configuration.createRoute(playerKey: _playerPageKey);
     _route = route;
     if (artworkHeroEnabled) onArtworkVisibilityChanged(true);
     unawaited(navigator.push<void>(route));
@@ -1172,11 +1173,15 @@ class _InteractivePlayerOpenSession {
       return false;
     }
 
-    final rootRoute = configuration.createRoute(handoff: true);
+    final rootRoute = configuration.createRoute(
+      playerKey: _playerPageKey,
+      handoff: true,
+    );
+    // Move the keyed player subtree in the same frame. Waiting a frame here
+    // would either mount a second player or dispose the preview's State.
+    _removeOverlay();
     final rootRouteClosed = rootNavigator.push<void>(rootRoute);
     unawaited(rootRouteClosed.whenComplete(onRootRouteClosed));
-    await WidgetsBinding.instance.endOfFrame;
-    if (!_disposed) _removeOverlay();
     return true;
   }
 

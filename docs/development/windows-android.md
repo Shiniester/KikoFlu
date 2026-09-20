@@ -98,6 +98,11 @@ flutter devices
 Wireless debugging avoids vendor-specific Windows USB drivers. Pairing details
 are device-local and must not be committed.
 
+To test on a phone while keeping its installed release, follow the
+[Android Debug device workflow](android-device-testing.md). It verifies the
+separate debug application ID before installation and covers player route
+regression tests and restoring the normal debug entry point.
+
 ## Verify the project
 
 From the repository root, open a new terminal and run:

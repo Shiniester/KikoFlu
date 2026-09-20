@@ -33,124 +33,179 @@ void main() {
     }
   });
 
-  testWidgets('mini player upward drag opens the canonical player route', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({'lyric_hint_has_shown': true});
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(390, 844);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetPhysicalSize);
+  final artworkHero = ValueVariant<bool>({false, true});
+  testWidgets(
+    'mini player upward drag opens the canonical player route',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({'lyric_hint_has_shown': true});
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(390, 844);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
 
-    const track = AudioTrack(
-      id: 'mini-route-track',
-      title: 'Mini route track',
-      url: 'https://example.invalid/audio.mp3',
-      artist: 'Artist',
-    );
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          currentTrackProvider.overrideWith((ref) => Stream.value(track)),
-          isTrackLoadingProvider.overrideWith((ref) => Stream.value(false)),
-          positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
-          durationProvider.overrideWith(
-            (ref) => Stream.value(const Duration(minutes: 4)),
-          ),
-          playerStateProvider.overrideWith(
-            (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
-          ),
-          queueProvider.overrideWith((ref) => Stream.value(const [track])),
-          lyricAutoLoaderProvider.overrideWith((ref) {}),
-        ],
-        child: const MaterialApp(
-          localizationsDelegates: S.localizationsDelegates,
-          supportedLocales: S.supportedLocales,
-          home: Scaffold(
-            body: Center(child: Text('mini-route-host')),
-            bottomNavigationBar: MiniPlayer(enableArtworkHero: false),
+      const track = AudioTrack(
+        id: 'mini-route-track',
+        title: 'Mini route track',
+        url: 'https://example.invalid/audio.mp3',
+        artist: 'Artist',
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            currentTrackProvider.overrideWith((ref) => Stream.value(track)),
+            isTrackLoadingProvider.overrideWith((ref) => Stream.value(false)),
+            positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
+            durationProvider.overrideWith(
+              (ref) => Stream.value(const Duration(minutes: 4)),
+            ),
+            playerStateProvider.overrideWith(
+              (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
+            ),
+            queueProvider.overrideWith((ref) => Stream.value(const [track])),
+            lyricAutoLoaderProvider.overrideWith((ref) {}),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: Scaffold(
+              body: const Center(child: Text('mini-route-host')),
+              bottomNavigationBar: MiniPlayer(
+                enableArtworkHero: artworkHero.currentValue!,
+              ),
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    final launcher = find.byKey(const ValueKey('mini-player-upward-launcher'));
-    final cancelledGesture = await tester.startGesture(
-      tester.getCenter(launcher),
-    );
-    await cancelledGesture.moveBy(const Offset(0, -120));
-    await tester.pump();
-    await tester.pump();
-    expect(find.byType(AudioPlayerScreen, skipOffstage: false), findsOneWidget);
-    final routeTranslationFinder = find.byKey(
-      const ValueKey('player-route-vertical-translation'),
-      skipOffstage: false,
-    );
-    final openingOffset = tester
-        .widget<Transform>(routeTranslationFinder)
-        .transform
-        .entry(1, 3);
-    await cancelledGesture.moveBy(const Offset(0, 60));
-    await tester.pump();
-    expect(
-      tester.widget<Transform>(routeTranslationFinder).transform.entry(1, 3),
-      greaterThan(openingOffset),
-    );
-    await cancelledGesture.cancel();
-    await tester.pumpAndSettle();
-    expect(find.byType(AudioPlayerScreen), findsNothing);
-    expect(find.text('mini-route-host'), findsOneWidget);
-    expect(find.byType(MiniPlayer, skipOffstage: false), findsOneWidget);
-    expect(
-      find.byKey(
+      final launcher = find.byKey(
         const ValueKey('mini-player-upward-launcher'),
-        skipOffstage: false,
-      ),
-      findsOneWidget,
-    );
-
-    final gesture = await tester.startGesture(tester.getCenter(launcher));
-    for (var index = 0; index < 14; index++) {
-      await gesture.moveBy(const Offset(0, -16));
+      );
+      final cancelledGesture = await tester.startGesture(
+        tester.getCenter(launcher),
+      );
+      await cancelledGesture.moveBy(const Offset(0, -120));
       await tester.pump();
-      if (index == 2) {
+      await tester.pump();
+      expect(
+        find.byType(AudioPlayerScreen, skipOffstage: false),
+        findsOneWidget,
+      );
+      final routeTranslationFinder = find.byKey(
+        const ValueKey('player-route-vertical-translation'),
+        skipOffstage: false,
+      );
+      final openingOffset = tester
+          .widget<Transform>(routeTranslationFinder)
+          .transform
+          .entry(1, 3);
+      await cancelledGesture.moveBy(const Offset(0, 60));
+      await tester.pump();
+      expect(
+        tester.widget<Transform>(routeTranslationFinder).transform.entry(1, 3),
+        greaterThan(openingOffset),
+      );
+      await cancelledGesture.cancel();
+      await tester.pumpAndSettle();
+      expect(find.byType(AudioPlayerScreen), findsNothing);
+      expect(find.text('mini-route-host'), findsOneWidget);
+      expect(find.byType(MiniPlayer, skipOffstage: false), findsOneWidget);
+      expect(
+        find.byKey(
+          const ValueKey('mini-player-upward-launcher'),
+          skipOffstage: false,
+        ),
+        findsOneWidget,
+      );
+
+      final gesture = await tester.startGesture(tester.getCenter(launcher));
+      for (var index = 0; index < 14; index++) {
+        await gesture.moveBy(const Offset(0, -16));
+        await tester.pump();
+        if (index == 2) {
+          expect(
+            find.byType(AudioPlayerScreen, skipOffstage: false),
+            findsOneWidget,
+          );
+          final interactiveTranslation = tester.widget<Transform>(
+            find.byKey(
+              const ValueKey('player-route-vertical-translation'),
+              skipOffstage: false,
+            ),
+          );
+          expect(interactiveTranslation.transform.entry(1, 3), greaterThan(0));
+          expect(interactiveTranslation.transform.entry(1, 3), lessThan(844));
+        }
+      }
+      final previewState = tester.state(find.byType(AudioPlayerScreen));
+      final previewPagesState = tester.state(
+        find.byKey(const ValueKey('compact-player-pages')),
+      );
+      await gesture.up();
+      for (var frame = 0; frame < 30; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
         expect(
           find.byType(AudioPlayerScreen, skipOffstage: false),
           findsOneWidget,
         );
-        final interactiveTranslation = tester.widget<Transform>(
-          find.byKey(
-            const ValueKey('player-route-vertical-translation'),
-            skipOffstage: false,
-          ),
+        expect(
+          tester.state(find.byType(AudioPlayerScreen)),
+          same(previewState),
         );
-        expect(interactiveTranslation.transform.entry(1, 3), greaterThan(0));
-        expect(interactiveTranslation.transform.entry(1, 3), lessThan(844));
       }
-    }
-    await gesture.up();
-    await tester.pumpAndSettle();
+      await tester.pumpAndSettle();
 
-    expect(find.byType(AudioPlayerScreen), findsOneWidget);
-    expect(find.byKey(const ValueKey('compact-player-layout')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('player-route-vertical-translation')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey('mini-player-route-preview-slide')),
-      findsNothing,
-    );
+      expect(find.byType(AudioPlayerScreen), findsOneWidget);
+      expect(tester.state(find.byType(AudioPlayerScreen)), same(previewState));
+      expect(
+        tester.state(find.byKey(const ValueKey('compact-player-pages'))),
+        same(previewPagesState),
+      );
+      expect(
+        find.byKey(const ValueKey('compact-player-layout')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('player-route-vertical-translation')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('mini-player-route-preview-slide')),
+        findsNothing,
+      );
 
-    await tester.drag(
-      find.byKey(const ValueKey('compact-header-dismiss-surface')),
-      const Offset(0, 240),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('mini-route-host'), findsOneWidget);
-    expect(find.byType(AudioPlayerScreen), findsNothing);
-  });
+      await tester.drag(
+        find.byKey(const ValueKey('compact-header-dismiss-surface')),
+        const Offset(0, 240),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('mini-route-host'), findsOneWidget);
+      expect(find.byType(AudioPlayerScreen), findsNothing);
+      expect(previewState.mounted, isFalse);
+
+      // The transferred page must pop from the root Navigator on system back,
+      // and opening again must create a fresh session rather than reuse a key.
+      final nextGesture = await tester.startGesture(tester.getCenter(launcher));
+      await nextGesture.moveBy(const Offset(0, -300));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+      final nextPreviewState = tester.state(find.byType(AudioPlayerScreen));
+      expect(nextPreviewState, isNot(same(previewState)));
+      await nextGesture.up();
+      await tester.pumpAndSettle();
+      expect(
+        tester.state(find.byType(AudioPlayerScreen)),
+        same(nextPreviewState),
+      );
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(AudioPlayerScreen), findsNothing);
+      expect(nextPreviewState.mounted, isFalse);
+      expect(tester.takeException(), isNull);
+    },
+    variant: artworkHero,
+  );
 
   testWidgets(
     'mini player keeps artwork and controls fixed while title swipes',

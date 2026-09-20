@@ -102,7 +102,11 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   final FocusNode _keyboardFocusNode = FocusNode(debugLabel: 'audio-player');
   bool? _lastWasWide;
   double? _compactSharedWidth;
-  Timer? _routePaletteTimer;
+  Animation<double>? _paletteRouteAnimation;
+  ValueNotifier<bool>? _paletteRouteGesture;
+  bool _paletteReleaseScheduled = false;
+  PlayerVisualPalette? _resolvedRoutePalette;
+  PlayerVisualPalette? _displayedRoutePalette;
   Timer? _unlockButtonTimer;
   bool _routePaletteFrozen = false;
   late final bool _directQueueEntry;
@@ -143,17 +147,20 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       value: _directQueueEntry ? 1 : 0,
     );
     _routePaletteFrozen = widget.initialPalette != null;
-    if (_routePaletteFrozen) {
-      _routePaletteTimer = Timer(const Duration(milliseconds: 300), () {
-        if (mounted) setState(() => _routePaletteFrozen = false);
-      });
-    }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final route = ModalRoute.of(context);
+    if (_routePaletteFrozen) {
+      _detachPaletteRouteListeners();
+      _paletteRouteAnimation = route?.animation;
+      _paletteRouteGesture = route?.navigator?.userGestureInProgressNotifier;
+      _paletteRouteAnimation?.addStatusListener(_onPaletteRouteStatus);
+      _paletteRouteGesture?.addListener(_schedulePaletteRelease);
+      _schedulePaletteRelease();
+    }
     _playerRouteForModeSync = route is PlayerInteractiveDismissRoute
         ? route as PlayerInteractiveDismissRoute
         : null;
@@ -169,6 +176,41 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       );
     }
     _reduceMotion = reduceMotion;
+  }
+
+  void _onPaletteRouteStatus(AnimationStatus status) {
+    _schedulePaletteRelease();
+  }
+
+  bool get _canReleaseRoutePalette =>
+      (_paletteRouteAnimation == null ||
+          _paletteRouteAnimation!.status == AnimationStatus.completed) &&
+      !(_paletteRouteGesture?.value ?? false);
+
+  void _schedulePaletteRelease() {
+    if (!_routePaletteFrozen ||
+        _paletteReleaseScheduled ||
+        !_canReleaseRoutePalette) {
+      return;
+    }
+    _paletteReleaseScheduled = true;
+    // Keep palette work out of the final transition frame and wait for a
+    // gesture held at full expansion to actually finish.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _paletteReleaseScheduled = false;
+      if (!mounted || !_routePaletteFrozen || !_canReleaseRoutePalette) return;
+      _routePaletteFrozen = false;
+      _detachPaletteRouteListeners();
+      if (_resolvedRoutePalette != _displayedRoutePalette) setState(() {});
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  void _detachPaletteRouteListeners() {
+    _paletteRouteAnimation?.removeStatusListener(_onPaletteRouteStatus);
+    _paletteRouteGesture?.removeListener(_schedulePaletteRelease);
+    _paletteRouteAnimation = null;
+    _paletteRouteGesture = null;
   }
 
   /// 进入全屏锁定模式
@@ -209,7 +251,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     _wideLeftPageController.dispose();
     _wideRightPageController.dispose();
     _keyboardFocusNode.dispose();
-    _routePaletteTimer?.cancel();
+    _detachPaletteRouteListeners();
     _unlockButtonTimer?.cancel();
     _semanticPageRevision.dispose();
     _coverPreviewHeroTrackId.dispose();
@@ -372,6 +414,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                 widget.initialPalette != null
             ? widget.initialPalette!
             : resolvedPalette;
+        _resolvedRoutePalette = resolvedPalette;
+        _displayedRoutePalette = palette;
         return _buildSaltPlayerShell(
           context,
           track: track,
