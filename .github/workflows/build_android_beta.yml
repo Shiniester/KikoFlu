@@ -206,7 +206,8 @@ jobs:
               sleep $((attempt * 5))
             done
           done
-          gh api "repos/${GH_REPO}/releases/tags/${TAG}" --jq '.assets' > "$RUNNER_TEMP/beta-assets.json"
+          # Resolve drafts through the CLI; the release-by-tag endpoint returns 404 before publication.
+          gh release view "$TAG" --json assets --jq '.assets' > "$RUNNER_TEMP/beta-assets.json"
           jq -e 'length == 2 and all(.[]; .size > 0 and .state == "uploaded")' \
             "$RUNNER_TEMP/beta-assets.json" >/dev/null
           gh release edit "$TAG" --draft=false --prerelease --latest=false
