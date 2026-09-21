@@ -4,6 +4,36 @@ enum PlayerInitialSurface { main, queue }
 
 enum PlayerDismissVisualMode { main, secondary }
 
+const double playerVerticalCommitDistanceFraction = 0.22;
+const double playerVerticalCommitVelocity = 650;
+const double playerVerticalDismissCommitProgress = 0.78;
+
+bool shouldCompletePlayerOpenGesture({
+  required double visualProgress,
+  required double velocity,
+}) {
+  return visualProgress >= playerVerticalCommitDistanceFraction ||
+      velocity < -playerVerticalCommitVelocity;
+}
+
+bool shouldDismissPlayerGesture({
+  required double visualProgress,
+  required double velocity,
+}) {
+  return visualProgress <= playerVerticalDismissCommitProgress ||
+      velocity > playerVerticalCommitVelocity;
+}
+
+bool shouldCompletePlayerDismissDrag({
+  required double distance,
+  required double velocity,
+  required double extent,
+}) {
+  return distance / extent.clamp(1, double.infinity) >=
+          playerVerticalCommitDistanceFraction ||
+      velocity > playerVerticalCommitVelocity;
+}
+
 /// Implemented by the player route so in-page drag regions can drive the
 /// route without introducing a circular dependency between the route and the
 /// player screen.
@@ -37,6 +67,150 @@ class PlayerVerticalDragCallbacks {
   final ValueChanged<double> onUpdate;
   final void Function(double distance, double velocity) onEnd;
   final VoidCallback onCancel;
+}
+
+/// Coordinates the player route's downward drag without making the screen
+/// own route-session state.
+class PlayerVerticalDismissCoordinator {
+  PlayerVerticalDismissCoordinator({
+    required this.currentVisualMode,
+    required this.canDismiss,
+    required this.releaseTextInputFocus,
+  });
+
+  final PlayerDismissVisualMode Function() currentVisualMode;
+  final bool Function({
+    required bool mainBodyOnly,
+    required bool allowDirectQueue,
+  })
+  canDismiss;
+  final VoidCallback releaseTextInputFocus;
+
+  bool _routeDismissDragAccepted = false;
+  bool _reduceMotionDismissDrag = false;
+  PlayerInteractiveDismissRoute? _activeDismissRoute;
+  PlayerInteractiveDismissRoute? _playerRouteForModeSync;
+  int _routeDismissModeSyncGeneration = 0;
+  bool _disposed = false;
+
+  PlayerVerticalDragCallbacks callbacks(
+    BuildContext gestureContext, {
+    bool mainBodyOnly = false,
+    bool allowDirectQueue = false,
+  }) => PlayerVerticalDragCallbacks(
+    onStart: () => _begin(
+      gestureContext,
+      mainBodyOnly: mainBodyOnly,
+      allowDirectQueue: allowDirectQueue,
+    ),
+    onUpdate: (distance) => _update(gestureContext, distance),
+    onEnd: (distance, velocity) => _end(gestureContext, distance, velocity),
+    onCancel: _cancel,
+  );
+
+  void scheduleVisualModeSync(BuildContext context) {
+    final request = ++_routeDismissModeSyncGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed ||
+          !context.mounted ||
+          request != _routeDismissModeSyncGeneration) {
+        return;
+      }
+      syncVisualMode(context);
+    });
+  }
+
+  void syncVisualMode(BuildContext context) {
+    if (_disposed) return;
+    final route = ModalRoute.of(context);
+    _playerRouteForModeSync = route is PlayerInteractiveDismissRoute
+        ? route as PlayerInteractiveDismissRoute
+        : null;
+    _playerRouteForModeSync?.setDismissVisualMode(currentVisualMode());
+  }
+
+  void _begin(
+    BuildContext gestureContext, {
+    required bool mainBodyOnly,
+    required bool allowDirectQueue,
+  }) {
+    _routeDismissDragAccepted = false;
+    _reduceMotionDismissDrag = false;
+    _activeDismissRoute = null;
+    if (_disposed ||
+        !canDismiss(
+          mainBodyOnly: mainBodyOnly,
+          allowDirectQueue: allowDirectQueue,
+        )) {
+      return;
+    }
+    final mode = currentVisualMode();
+    releaseTextInputFocus();
+    final route = ModalRoute.of(gestureContext);
+    if (route is! PlayerInteractiveDismissRoute) return;
+    final dismissRoute = route as PlayerInteractiveDismissRoute;
+    dismissRoute.setDismissVisualMode(mode);
+    if (MediaQuery.disableAnimationsOf(gestureContext)) {
+      _reduceMotionDismissDrag = true;
+      _activeDismissRoute = dismissRoute;
+      return;
+    }
+    if (dismissRoute.beginVerticalDismissGesture(mode)) {
+      _routeDismissDragAccepted = true;
+      _activeDismissRoute = dismissRoute;
+    }
+  }
+
+  void _update(BuildContext gestureContext, double distance) {
+    if (!_routeDismissDragAccepted || _reduceMotionDismissDrag) return;
+    _activeDismissRoute?.updateVerticalDismissGesture(
+      distance: distance,
+      extent: MediaQuery.sizeOf(gestureContext).height,
+    );
+  }
+
+  void _end(BuildContext gestureContext, double distance, double velocity) {
+    final route = _activeDismissRoute;
+    final accepted = _routeDismissDragAccepted;
+    final reduceMotion = _reduceMotionDismissDrag;
+    _routeDismissDragAccepted = false;
+    _reduceMotionDismissDrag = false;
+    _activeDismissRoute = null;
+    if (route == null) return;
+    final extent = MediaQuery.sizeOf(gestureContext).height;
+    if (reduceMotion) {
+      final dismiss = shouldCompletePlayerDismissDrag(
+        distance: distance,
+        velocity: velocity,
+        extent: extent,
+      );
+      if (!dismiss || !route.beginVerticalDismissGesture(currentVisualMode())) {
+        return;
+      }
+      route.updateVerticalDismissGesture(distance: extent, extent: extent);
+      route.endVerticalDismissGesture(velocity: velocity, extent: extent);
+      return;
+    }
+    if (!accepted) return;
+    route.endVerticalDismissGesture(velocity: velocity, extent: extent);
+  }
+
+  void _cancel() {
+    final route = _activeDismissRoute;
+    final accepted = _routeDismissDragAccepted;
+    _routeDismissDragAccepted = false;
+    _reduceMotionDismissDrag = false;
+    _activeDismissRoute = null;
+    if (accepted) route?.cancelVerticalDismissGesture();
+  }
+
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _routeDismissModeSyncGeneration++;
+    _activeDismissRoute?.cancelVerticalDismissGesture();
+    _activeDismissRoute = null;
+  }
 }
 
 /// A vertical-only drag target. Using Flutter's directional recognizer keeps

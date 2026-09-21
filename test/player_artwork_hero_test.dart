@@ -722,6 +722,35 @@ void main() {
     );
   });
 
+  testWidgets('compact artwork uses image fades outside Hero flights', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    const track = AudioTrack(
+      id: 'normal-image',
+      title: 'Normal image',
+      url: 'audio.mp3',
+      artworkUrl: 'https://example.invalid/cover.jpg',
+      workId: 42,
+    );
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(
+          home: PlayerCompactArtwork(
+            track: track,
+            url: 'https://example.invalid/cover.jpg',
+          ),
+        ),
+      ),
+    );
+
+    final image = tester.widget<CachedNetworkImage>(
+      find.byType(CachedNetworkImage),
+    );
+    expect(image.fadeInDuration, const Duration(milliseconds: 220));
+    expect(image.fadeOutDuration, const Duration(milliseconds: 220));
+  });
+
   testWidgets(
     'flight artwork preserves image and privacy behavior without a fixed radius',
     (tester) async {

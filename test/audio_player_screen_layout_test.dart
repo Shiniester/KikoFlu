@@ -1910,7 +1910,7 @@ void main() {
       expect(_compactQueueProgress(tester), closeTo(0, 0.001));
       expect(find.byType(AudioPlayerScreen), findsOneWidget);
 
-      await tester.pump(const Duration(milliseconds: 1900));
+      await tester.pump(const Duration(milliseconds: 2900));
       expect(scrollable.position.pixels, closeTo(browsedOffset, 0.01));
       await tester.pump(const Duration(milliseconds: 101));
       await tester.pump();

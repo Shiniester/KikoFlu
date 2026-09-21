@@ -130,6 +130,12 @@ void main() {
       final playerRoute = File(
         'lib/src/widgets/player/player_route.dart',
       ).readAsStringSync();
+      final playerLaunch = File(
+        'lib/src/widgets/player/player_launch_region.dart',
+      ).readAsStringSync();
+      final playerVerticalGestures = File(
+        'lib/src/widgets/player/player_vertical_gestures.dart',
+      ).readAsStringSync();
       final playerCover = File(
         'lib/src/widgets/player/player_cover_widget.dart',
       ).readAsStringSync();
@@ -205,8 +211,8 @@ void main() {
       );
       expect(semanticPageHandlers, contains('_commitSemanticPage'));
       expect(semanticPageHandlers, isNot(contains('setState(')));
-      expect(screen, contains('PlayerInteractiveDismissRoute'));
       expect(screen, contains('_currentPlayerDismissVisualMode'));
+      expect(playerVerticalGestures, contains('PlayerInteractiveDismissRoute'));
       expect(playerRoute, contains('beginVerticalDismissGesture'));
       expect(
         playerRoute,
@@ -225,27 +231,23 @@ void main() {
       expect(playerCover, contains('playerArtworkAttachmentStart = 0.20'));
       expect(playerCover, contains('playerArtworkAttachmentEnd = 0.85'));
       expect(screen, isNot(contains('PlayerArtworkFlightTarget.queue')));
-      expect(miniPlayer, contains('PlayerArtworkHero('));
       expect(miniPlayer, contains('PlayerCompactArtwork('));
-      expect(miniPlayer, contains('createPlayerArtworkRectTween'));
+      expect(playerLaunch, contains('PlayerArtworkHero('));
+      expect(playerLaunch, contains('createPlayerArtworkRectTween'));
       expect(miniPlayer, contains("'mini-player-queue-button'"));
       expect(miniPlayer, contains('class _MiniPlayerTrackSwitcher'));
       expect(miniPlayer, contains('PlayerTrackLayers<AudioTrack>'));
       expect(miniPlayer, isNot(contains('AnimatedSwitcher')));
       expect(playerCover, contains('useOldImageOnUrlChange: true'));
-      expect(
-        playerCover,
-        contains('fadeOutDuration: const Duration(milliseconds: 220)'),
-      );
       expect(miniPlayer, isNot(contains('Icons.skip_previous')));
       expect(miniPlayer, isNot(contains('Icons.skip_next')));
-      expect(miniPlayer, contains('class _InteractivePlayerOpenSession'));
-      expect(miniPlayer, contains('Navigator('));
-      expect(RegExp(r'OverlayEntry\(').allMatches(miniPlayer), hasLength(1));
-      expect(miniPlayer, isNot(contains('_previewController')));
-      expect(miniPlayer, isNot(contains('mini-player-route-preview-slide')));
-      expect(miniPlayer, contains('openPlayer'));
-      expect(miniPlayer, contains('openQueue'));
+      expect(playerLaunch, contains('class PlayerLaunchRegion'));
+      expect(playerLaunch, contains('Navigator('));
+      expect(RegExp(r'OverlayEntry\(').allMatches(playerLaunch), hasLength(1));
+      expect(playerLaunch, isNot(contains('_previewController')));
+      expect(playerLaunch, isNot(contains('mini-player-route-preview-slide')));
+      expect(playerLaunch, contains('openPlayer'));
+      expect(playerLaunch, contains('openQueue'));
       expect(screen, contains('_directQueueEntry'));
       expect(screen, contains('PlayerInitialSurface.queue'));
     },
@@ -263,7 +265,7 @@ void main() {
     expect(miniPlayer, isNot(contains('await ref.read(')));
     expect(
       miniPlayer.indexOf('final preparedPalette ='),
-      lessThan(miniPlayer.indexOf('return _MiniPlayerUpwardLauncher(')),
+      lessThan(miniPlayer.indexOf('return PlayerLaunchRegion(')),
     );
   });
 

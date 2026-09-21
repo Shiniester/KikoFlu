@@ -291,7 +291,10 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     if (!_verticalGestureInProgress || !_verticalGestureOpening) {
       return Future<bool>.value(false);
     }
-    final showRoute = controller!.value >= 0.22 || velocity < -650;
+    final showRoute = shouldCompletePlayerOpenGesture(
+      visualProgress: controller!.value,
+      velocity: velocity,
+    );
     return _settleVerticalGesture(showRoute: showRoute);
   }
 
@@ -301,7 +304,10 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     required double extent,
   }) {
     if (!_verticalGestureInProgress || _verticalGestureOpening) return;
-    final dismissRoute = controller!.value <= 0.78 || velocity > 650;
+    final dismissRoute = shouldDismissPlayerGesture(
+      visualProgress: controller!.value,
+      velocity: velocity,
+    );
     unawaited(_settleVerticalGesture(showRoute: !dismissRoute));
   }
 

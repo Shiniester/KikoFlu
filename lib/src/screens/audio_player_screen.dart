@@ -126,11 +126,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   bool _openingWorkDetail = false;
   final ValueNotifier<String?> _coverPreviewHeroTrackId = ValueNotifier(null);
   final LayerLink _coverLoadingLayerLink = LayerLink();
-  bool _routeDismissDragAccepted = false;
-  bool _reduceMotionDismissDrag = false;
-  PlayerInteractiveDismissRoute? _activeDismissRoute;
-  PlayerInteractiveDismissRoute? _playerRouteForModeSync;
-  int _routeDismissModeSyncGeneration = 0;
+  late final PlayerVerticalDismissCoordinator _dismissCoordinator =
+      PlayerVerticalDismissCoordinator(
+        currentVisualMode: () => _currentPlayerDismissVisualMode,
+        canDismiss: _canDismissPlayer,
+        releaseTextInputFocus: _releaseTextInputFocus,
+      );
   final ValueNotifier<int> _semanticPageRevision = ValueNotifier<int>(0);
   final ValueNotifier<bool> _progressGestureActive = ValueNotifier<bool>(false);
 
@@ -166,10 +167,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       _paletteRouteGesture?.addListener(_schedulePaletteRelease);
       _schedulePaletteRelease();
     }
-    _playerRouteForModeSync = route is PlayerInteractiveDismissRoute
-        ? route as PlayerInteractiveDismissRoute
-        : null;
-    _schedulePlayerDismissModeSync();
+    _dismissCoordinator.scheduleVisualModeSync(context);
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
     if (reduceMotion &&
         !_reduceMotion &&
@@ -264,8 +262,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     _workProgress.dispose();
     _semanticTransitionGeneration++;
     _queueTransitionGeneration++;
-    _routeDismissModeSyncGeneration++;
-    _activeDismissRoute?.cancelVerticalDismissGesture();
+    _dismissCoordinator.dispose();
     super.dispose();
   }
 
@@ -600,7 +597,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     _lastWasWide = isWide;
     final compactTarget = _semanticCompactPage;
     _compactPage = compactTarget;
-    _schedulePlayerDismissModeSync();
+    _dismissCoordinator.scheduleVisualModeSync(context);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (isWide) {
@@ -649,8 +646,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     required PlayerVisualPalette previewPalette,
   }) {
     final width = MediaQuery.sizeOf(context).width;
-    final titleDismissDrag = _playerDismissDragCallbacks(context);
-    final mainBodyDismissDrag = _playerDismissDragCallbacks(
+    final titleDismissDrag = _dismissCoordinator.callbacks(context);
+    final mainBodyDismissDrag = _dismissCoordinator.callbacks(
       context,
       mainBodyOnly: true,
     );
@@ -860,8 +857,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
           );
           _compactSharedWidth = sharedWidth;
           _compactQueueExtent = math.max(1, constraints.maxHeight);
-          final titleDismissDrag = _playerDismissDragCallbacks(context);
-          final mainBodyDismissDrag = _playerDismissDragCallbacks(
+          final titleDismissDrag = _dismissCoordinator.callbacks(context);
+          final mainBodyDismissDrag = _dismissCoordinator.callbacks(
             context,
             mainBodyOnly: true,
           );
@@ -1496,7 +1493,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     final dismissDrag = isWide
         ? null
         : _directQueueEntry
-        ? _directQueueDismissDragCallbacks(context)
+        ? _dismissCoordinator.callbacks(context, allowDirectQueue: true)
         : _queueCloseDragCallbacks;
     return Align(
       key: const ValueKey('player-queue-pane'),
@@ -1547,115 +1544,27 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         : PlayerDismissVisualMode.secondary;
   }
 
-  void _schedulePlayerDismissModeSync() {
-    final request = ++_routeDismissModeSyncGeneration;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || request != _routeDismissModeSyncGeneration) return;
-      _syncPlayerDismissMode();
-    });
-  }
-
-  void _syncPlayerDismissMode() {
-    _playerRouteForModeSync?.setDismissVisualMode(
-      _currentPlayerDismissVisualMode,
-    );
-  }
-
-  PlayerVerticalDragCallbacks _playerDismissDragCallbacks(
-    BuildContext gestureContext, {
-    bool mainBodyOnly = false,
-    bool allowDirectQueue = false,
-  }) => PlayerVerticalDragCallbacks(
-    onStart: () => _beginPlayerDismissDrag(
-      gestureContext,
-      mainBodyOnly: mainBodyOnly,
-      allowDirectQueue: allowDirectQueue,
-    ),
-    onUpdate: _updatePlayerDismissDrag,
-    onEnd: _endPlayerDismissDrag,
-    onCancel: _cancelPlayerDismissDrag,
-  );
-
-  void _beginPlayerDismissDrag(
-    BuildContext gestureContext, {
+  bool _canDismissPlayer({
     required bool mainBodyOnly,
-    bool allowDirectQueue = false,
+    required bool allowDirectQueue,
   }) {
-    _routeDismissDragAccepted = false;
-    _reduceMotionDismissDrag = false;
-    _activeDismissRoute = null;
     if (!mounted ||
         _isLyricLocked ||
         _queueTransitionActive ||
         (_rightPane == PlayerRightPane.queue &&
             !(allowDirectQueue && _directQueueEntry)) ||
         !ModalRoute.of(context)!.isCurrent) {
-      return;
+      return false;
     }
-    final mode = _currentPlayerDismissVisualMode;
-    if (mainBodyOnly && mode != PlayerDismissVisualMode.main) return;
-    _releaseTextInputFocus();
-    final route = ModalRoute.of(gestureContext);
-    if (route == null || route is! PlayerInteractiveDismissRoute) return;
-    final dismissRoute = route as PlayerInteractiveDismissRoute;
-    dismissRoute.setDismissVisualMode(mode);
-    if (MediaQuery.disableAnimationsOf(gestureContext)) {
-      _reduceMotionDismissDrag = true;
-      _activeDismissRoute = dismissRoute;
-      return;
+    if (mainBodyOnly &&
+        _currentPlayerDismissVisualMode != PlayerDismissVisualMode.main) {
+      return false;
     }
-    if (dismissRoute.beginVerticalDismissGesture(mode)) {
-      _routeDismissDragAccepted = true;
-      _activeDismissRoute = dismissRoute;
-    }
-  }
-
-  PlayerVerticalDragCallbacks _directQueueDismissDragCallbacks(
-    BuildContext gestureContext,
-  ) => _playerDismissDragCallbacks(gestureContext, allowDirectQueue: true);
-
-  void _updatePlayerDismissDrag(double distance) {
-    if (!_routeDismissDragAccepted || _reduceMotionDismissDrag) return;
-    _activeDismissRoute?.updateVerticalDismissGesture(
-      distance: distance,
-      extent: MediaQuery.sizeOf(context).height,
-    );
-  }
-
-  void _endPlayerDismissDrag(double distance, double velocity) {
-    final route = _activeDismissRoute;
-    final accepted = _routeDismissDragAccepted;
-    final reduceMotion = _reduceMotionDismissDrag;
-    _routeDismissDragAccepted = false;
-    _reduceMotionDismissDrag = false;
-    _activeDismissRoute = null;
-    if (route == null) return;
-    final extent = MediaQuery.sizeOf(context).height;
-    if (reduceMotion) {
-      final dismiss = distance / math.max(1, extent) >= 0.22 || velocity > 650;
-      if (!dismiss ||
-          !route.beginVerticalDismissGesture(_currentPlayerDismissVisualMode)) {
-        return;
-      }
-      route.updateVerticalDismissGesture(distance: extent, extent: extent);
-      route.endVerticalDismissGesture(velocity: velocity, extent: extent);
-      return;
-    }
-    if (!accepted) return;
-    route.endVerticalDismissGesture(velocity: velocity, extent: extent);
-  }
-
-  void _cancelPlayerDismissDrag() {
-    final route = _activeDismissRoute;
-    final accepted = _routeDismissDragAccepted;
-    _routeDismissDragAccepted = false;
-    _reduceMotionDismissDrag = false;
-    _activeDismissRoute = null;
-    if (accepted) route?.cancelVerticalDismissGesture();
+    return true;
   }
 
   void _dismissPlayer() {
-    _syncPlayerDismissMode();
+    _dismissCoordinator.syncVisualMode(context);
     _releaseTextInputFocus();
     Navigator.of(context).maybePop();
   }
@@ -1666,7 +1575,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       setState(() => _playerPagesActivated = true);
     }
     _semanticPageRevision.value++;
-    _syncPlayerDismissMode();
+    _dismissCoordinator.syncVisualMode(context);
   }
 
   void _onCompactPageChanged(int index) {
@@ -1887,7 +1796,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       _compactPage = restored.compactPage;
       _lastOperatedRegion = restored.lastOperatedRegion;
     });
-    _schedulePlayerDismissModeSync();
+    _dismissCoordinator.scheduleVisualModeSync(context);
     _queueReturnState = null;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
