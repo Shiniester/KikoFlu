@@ -378,6 +378,13 @@ void main() {
       await tester.tap(queueButton);
       await tester.pumpAndSettle();
       expect(find.byType(AudioPlayerScreen), findsOneWidget);
+      expect(
+        find.byKey(
+          const ValueKey('compact-player-layout'),
+          skipOffstage: false,
+        ),
+        findsNothing,
+      );
       expect(find.byKey(const ValueKey('player-queue-pane')), findsOneWidget);
       expect(
         tester

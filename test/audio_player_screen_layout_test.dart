@@ -704,6 +704,80 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final size in [const Size(390, 844), const Size(1280, 720)]) {
+    testWidgets('direct queue skips unused work loading at $size', (
+      tester,
+    ) async {
+      final api = _CountingProgressApiService();
+      var detailsLoads = 0;
+      await _pumpPlayer(
+        tester,
+        size,
+        initialSurface: PlayerInitialSurface.queue,
+        apiService: api,
+        onWorkDetailsLoad: () => detailsLoads++,
+        track: const AudioTrack(
+          id: 'direct-queue-work',
+          title: 'Queue work',
+          url: 'audio.mp3',
+          workId: 42,
+        ),
+      );
+      expect(find.byKey(const ValueKey('player-queue-pane')), findsOneWidget);
+      expect(detailsLoads, 0);
+      expect(api.workLoads, 0);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('direct queue activates lyrics and work data before resizing', (
+    tester,
+  ) async {
+    final api = _CountingProgressApiService();
+    var detailsLoads = 0;
+    await _pumpPlayer(
+      tester,
+      const Size(1280, 720),
+      initialSurface: PlayerInitialSurface.queue,
+      apiService: api,
+      onWorkDetailsLoad: () => detailsLoads++,
+      track: const AudioTrack(
+        id: 'queue-lyrics',
+        title: 'Queue lyrics',
+        album: 'Queue album',
+        url: 'audio.mp3',
+        workId: 42,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(api.workLoads, 0);
+    expect(detailsLoads, 0);
+    await tester.tap(find.byKey(const ValueKey('player-cover-lyric-preview')));
+    await tester.pumpAndSettle();
+    final widePages = tester.widget<PageView>(
+      find.byKey(const ValueKey('wide-right-pages')),
+    );
+    expect(widePages.controller!.page, closeTo(0, 0.001));
+    expect(api.workLoads, 1);
+    expect(detailsLoads, 1);
+    tester.view.physicalSize = const Size(390, 844);
+    await tester.pumpAndSettle();
+    final pages = tester.widget<PageView>(
+      find.byKey(const ValueKey('compact-player-pages')),
+    );
+    expect(pages.controller!.page, closeTo(2, 0.001));
+    expect(_compactQueueProgress(tester), closeTo(0, 0.001));
+    await tester.drag(
+      find.byKey(const ValueKey('compact-player-pages')),
+      const Offset(320, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(pages.controller!.page, closeTo(1, 0.001));
+    expect(find.byKey(const ValueKey('controls-pane-compact')), findsOneWidget);
+    expect(api.workLoads, 1);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('direct queue entry starts on queue and pops to mini player', (
     tester,
   ) async {
@@ -715,6 +789,11 @@ void main() {
     );
 
     expect(find.byKey(const ValueKey('player-queue-pane')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('compact-player-layout'), skipOffstage: false),
+      findsNothing,
+      reason: 'Direct queue entry must not mount the hidden player pages',
+    );
     expect(_compactQueueProgress(tester), closeTo(1, 0.001));
     expect(
       tester
@@ -742,6 +821,21 @@ void main() {
       initialSurface: PlayerInitialSurface.queue,
     );
 
+    final dismissSurface = find.byKey(
+      const ValueKey('player-queue-title-dismiss-surface'),
+    );
+    final cancelled = await tester.startGesture(
+      tester.getCenter(dismissSurface),
+    );
+    await cancelled.moveBy(const Offset(0, 80));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('compact-player-layout'), skipOffstage: false),
+      findsNothing,
+    );
+    await cancelled.cancel();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('player-queue-pane')), findsOneWidget);
     await tester.fling(
       find.byKey(const ValueKey('player-queue-title-dismiss-surface')),
       const Offset(0, 300),
@@ -3098,6 +3192,7 @@ Future<void> _pumpPlayer(
   Locale locale = const Locale('en'),
   TargetPlatform? platform,
   KikoeruApiService? apiService,
+  VoidCallback? onWorkDetailsLoad,
   bool settleEntry = true,
 }) async {
   tester.view.devicePixelRatio = 1;
@@ -3133,8 +3228,11 @@ Future<void> _pumpPlayer(
           (ref) => queueStream ?? Stream.value([track]),
         ),
         lyricAutoLoaderProvider.overrideWith((ref) {}),
-        if (workDetails != null)
-          playerWorkDetailsProvider.overrideWith((ref) async => workDetails),
+        if (workDetails != null || onWorkDetailsLoad != null)
+          playerWorkDetailsProvider.overrideWith((ref) async {
+            onWorkDetailsLoad?.call();
+            return workDetails;
+          }),
         if (lyrics != null || lyricState != null)
           lyricControllerProvider.overrideWith(
             (ref) => LyricController(
@@ -3238,6 +3336,19 @@ Future<({Finder panel, ScrollableState scroll})> _pumpLongDetailsAtBottom(
   scroll.position.jumpTo(scroll.position.maxScrollExtent);
   await tester.pump();
   return (panel: panel, scroll: scroll);
+}
+
+class _CountingProgressApiService extends _PlayerTestApiService {
+  int workLoads = 0;
+
+  @override
+  Future<Map<String, dynamic>> getWork(
+    int workId, {
+    bool forceRefresh = false,
+  }) {
+    workLoads++;
+    return super.getWork(workId, forceRefresh: forceRefresh);
+  }
 }
 
 class _PendingProgressApiService extends _PlayerTestApiService {
