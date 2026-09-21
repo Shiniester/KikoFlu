@@ -754,8 +754,8 @@ void main() {
         find.byType(CachedNetworkImage),
       );
       expect(image.cacheKey, 'work_cover_42');
-      expect(image.fadeInDuration, const Duration(milliseconds: 220));
-      expect(image.fadeOutDuration, const Duration(milliseconds: 220));
+      expect(image.fadeInDuration, Duration.zero);
+      expect(image.fadeOutDuration, Duration.zero);
       expect(image.useOldImageOnUrlChange, isTrue);
 
       final container = ProviderScope.containerOf(

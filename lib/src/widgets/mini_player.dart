@@ -1199,11 +1199,8 @@ class _InteractivePlayerOpenSession {
 
   void abort() {
     if (_disposed) return;
-    _disposed = true;
     if (!_routeReady.isCompleted) _routeReady.complete();
-    _entry?.remove();
-    _entry = null;
-    onArtworkVisibilityChanged(false);
+    _removeOverlay();
   }
 
   void _removeOverlay() {

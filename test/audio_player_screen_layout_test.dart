@@ -51,6 +51,67 @@ void main() {
     );
   });
 
+  for (final size in [const Size(390, 844), const Size(1100, 800)]) {
+    testWidgets('work progress updates locally during entry at $size', (
+      tester,
+    ) async {
+      final api = _PendingProgressApiService();
+      const track = AudioTrack(
+        id: 'progress-track',
+        title: 'Progress track',
+        url: 'https://example.invalid/audio.mp3',
+        workId: 42,
+      );
+      await _pumpPlayer(
+        tester,
+        size,
+        track: track,
+        apiService: api,
+        pushedRoute: true,
+        settleEntry: false,
+      );
+      for (var i = 0; i < 4; i++) {
+        await tester.pump();
+      }
+      final route = ModalRoute.of(
+        tester.element(find.byType(AudioPlayerScreen)),
+      )!;
+      expect(route.animation!.status, AnimationStatus.forward);
+      final backgroundFinder = find.byKey(
+        const ValueKey('player-palette-background'),
+      );
+      final background = tester.widget(backgroundFinder);
+      expect(
+        tester
+            .widget<PlayerControlsWidget>(find.byType(PlayerControlsWidget))
+            .currentProgress,
+        isNull,
+      );
+      api.result.complete({
+        'id': 42,
+        'title': 'Work',
+        'progress': 'listening',
+        'userRating': 4,
+      });
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump();
+      expect(route.animation!.status, AnimationStatus.forward);
+      expect(
+        tester
+            .widget<PlayerControlsWidget>(find.byType(PlayerControlsWidget))
+            .currentProgress,
+        'listening',
+      );
+      expect(
+        tester.widget(backgroundFinder),
+        same(background),
+        reason: 'Progress must not rebuild the player shell',
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('compact player renders the paged stage without overflow', (
     tester,
   ) async {
@@ -88,56 +149,63 @@ void main() {
   });
 
   for (final closing in [false, true]) {
-    testWidgets('reduced motion finishes queue ${closing ? "closing" : "opening"}', (
-      tester,
-    ) async {
-      await _pumpPlayer(tester, const Size(390, 844));
-      await tester.tap(
-        find.descendant(
-          of: find.byKey(const ValueKey('controls-pane-compact')),
-          matching: find.byIcon(Icons.queue_music),
-        ),
-      );
-      if (closing) {
+    testWidgets(
+      'reduced motion finishes queue ${closing ? "closing" : "opening"}',
+      (tester) async {
+        await _pumpPlayer(tester, const Size(390, 844));
+        await tester.tap(
+          find.descendant(
+            of: find.byKey(const ValueKey('controls-pane-compact')),
+            matching: find.byIcon(Icons.queue_music),
+          ),
+        );
+        if (closing) {
+          await tester.pumpAndSettle();
+          await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        }
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 40));
+        expect(_compactQueueProgress(tester), greaterThan(0));
+        expect(_compactQueueProgress(tester), lessThan(1));
+
+        tester.platformDispatcher.accessibilityFeaturesTestValue =
+            const FakeAccessibilityFeatures(disableAnimations: true);
+        addTearDown(
+          tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+        );
+        await tester.pump();
+        expect(_compactQueueProgress(tester), closing ? 0 : 1);
+        expect(
+          find.byKey(
+            ValueKey(closing ? 'compact-main-page' : 'player-queue-pane'),
+          ),
+          findsOneWidget,
+        );
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(_compactQueueProgress(tester), closing ? 0 : 1);
+
+        tester.platformDispatcher.accessibilityFeaturesTestValue =
+            const FakeAccessibilityFeatures();
+        await tester.pump();
+        if (closing) {
+          await tester.tap(
+            find.descendant(
+              of: find.byKey(const ValueKey('controls-pane-compact')),
+              matching: find.byIcon(Icons.queue_music),
+            ),
+          );
+        } else {
+          await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        }
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 40));
+        expect(_compactQueueProgress(tester), greaterThan(0));
+        expect(_compactQueueProgress(tester), lessThan(1));
         await tester.pumpAndSettle();
-        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-      }
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 40));
-      expect(_compactQueueProgress(tester), greaterThan(0));
-      expect(_compactQueueProgress(tester), lessThan(1));
-
-      tester.platformDispatcher.accessibilityFeaturesTestValue =
-          const FakeAccessibilityFeatures(disableAnimations: true);
-      addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
-      await tester.pump();
-      expect(_compactQueueProgress(tester), closing ? 0 : 1);
-      expect(
-        find.byKey(ValueKey(closing ? 'compact-main-page' : 'player-queue-pane')),
-        findsOneWidget,
-      );
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(_compactQueueProgress(tester), closing ? 0 : 1);
-
-      tester.platformDispatcher.accessibilityFeaturesTestValue =
-          const FakeAccessibilityFeatures();
-      await tester.pump();
-      if (closing) {
-        await tester.tap(find.descendant(
-          of: find.byKey(const ValueKey('controls-pane-compact')),
-          matching: find.byIcon(Icons.queue_music),
-        ));
-      } else {
-        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-      }
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 40));
-      expect(_compactQueueProgress(tester), greaterThan(0));
-      expect(_compactQueueProgress(tester), lessThan(1));
-      await tester.pumpAndSettle();
-      expect(_compactQueueProgress(tester), closing ? 1 : 0);
-      expect(tester.takeException(), isNull);
-    });
+        expect(_compactQueueProgress(tester), closing ? 1 : 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   testWidgets('compact page tickers include both pages while dragging', (
@@ -795,6 +863,79 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const ValueKey('lyrics-pane-wide')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('compact queue mounts on demand and retains its scroll state', (
+    tester,
+  ) async {
+    final tracks = List.generate(
+      40,
+      (index) => AudioTrack(
+        id: 'queue-$index',
+        title: 'Queue track $index',
+        url: 'https://example.invalid/$index.mp3',
+      ),
+    );
+    await _pumpPlayer(
+      tester,
+      const Size(390, 844),
+      queueStream: Stream.value(tracks),
+    );
+    final queue = find.byKey(
+      const ValueKey('player-queue-pane'),
+      skipOffstage: false,
+    );
+    expect(queue, findsNothing);
+    final gesture = await tester.startGesture(
+      tester.getCenter(
+        find.byKey(const ValueKey('compact-header-dismiss-surface')),
+      ),
+    );
+    await gesture.moveBy(const Offset(0, -80));
+    await tester.pump();
+    expect(queue, findsOneWidget);
+    expect(_compactQueueProgress(tester), greaterThan(0));
+    expect(TickerMode.valuesOf(tester.element(queue)).enabled, isTrue);
+    await gesture.cancel();
+    await tester.pumpAndSettle();
+    expect(TickerMode.valuesOf(tester.element(queue)).enabled, isFalse);
+
+    Future<void> openQueue() async {
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey('controls-pane-compact')),
+          matching: find.byIcon(Icons.queue_music),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    await openQueue();
+    final list = find.byKey(const ValueKey('player-queue-list'));
+    final scroll = tester.state<ScrollableState>(
+      find.descendant(of: list, matching: find.byType(Scrollable)),
+    );
+    scroll.position.jumpTo(350);
+    await tester.pump();
+    final position = scroll.position.pixels;
+    await tester.fling(
+      find.byKey(const ValueKey('player-queue-title-dismiss-surface')),
+      const Offset(0, 300),
+      1000,
+    );
+    await tester.pumpAndSettle();
+    expect(scroll.mounted, isTrue);
+    expect(TickerMode.valuesOf(tester.element(queue)).enabled, isFalse);
+    await openQueue();
+    expect(
+      tester.state<ScrollableState>(
+        find.descendant(of: list, matching: find.byType(Scrollable)),
+      ),
+      same(scroll),
+    );
+    expect(scroll.position.pixels, position);
+    expect(TickerMode.valuesOf(tester.element(queue)).enabled, isTrue);
     expect(tester.takeException(), isNull);
   });
 
@@ -2956,6 +3097,8 @@ Future<void> _pumpPlayer(
   LyricState? lyricState,
   Locale locale = const Locale('en'),
   TargetPlatform? platform,
+  KikoeruApiService? apiService,
+  bool settleEntry = true,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -2973,7 +3116,9 @@ Future<void> _pumpPlayer(
           playerTrackChangePresentationProvider.overrideWithValue(
             trackChangePresentation,
           ),
-        kikoeruApiServiceProvider.overrideWithValue(_PlayerTestApiService()),
+        kikoeruApiServiceProvider.overrideWithValue(
+          apiService ?? _PlayerTestApiService(),
+        ),
         isTrackLoadingProvider.overrideWith(
           (ref) => loadingStream ?? Stream.value(false),
         ),
@@ -3027,9 +3172,13 @@ Future<void> _pumpPlayer(
         createAudioPlayerRoute<void>(initialSurface: initialSurface),
       ),
     );
-    await tester.pumpAndSettle();
+    if (settleEntry) {
+      await tester.pumpAndSettle();
+    } else {
+      await tester.pump();
+    }
   }
-  await tester.pump(const Duration(milliseconds: 350));
+  if (settleEntry) await tester.pump(const Duration(milliseconds: 350));
 }
 
 PlayerWorkDetailsData _longPlayerWorkDetails() {
@@ -3089,6 +3238,16 @@ Future<({Finder panel, ScrollableState scroll})> _pumpLongDetailsAtBottom(
   scroll.position.jumpTo(scroll.position.maxScrollExtent);
   await tester.pump();
   return (panel: panel, scroll: scroll);
+}
+
+class _PendingProgressApiService extends _PlayerTestApiService {
+  final result = Completer<Map<String, dynamic>>();
+
+  @override
+  Future<Map<String, dynamic>> getWork(
+    int workId, {
+    bool forceRefresh = false,
+  }) => result.future;
 }
 
 class _PlayerTestApiService extends KikoeruApiService {

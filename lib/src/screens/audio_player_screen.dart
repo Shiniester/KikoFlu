@@ -84,7 +84,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
 
   bool _isSeekingManually = false;
   double _seekValue = 0.0;
-  String? _currentProgress;
+  final ValueNotifier<String?> _workProgress = ValueNotifier(null);
+  String? get _currentProgress => _workProgress.value;
   int? _currentRating;
   int? _currentWorkId;
   Duration? _seekingPosition;
@@ -94,6 +95,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   int _compactPage = 1;
   PlayerOperatedRegion _lastOperatedRegion = PlayerOperatedRegion.right;
   _PlayerQueueReturnState? _queueReturnState;
+  late bool _queueHasBeenOpened;
   final PageController _compactPageController = PageController(initialPage: 1);
   final PageController _wideLeftPageController = PageController();
   final PageController _wideRightPageController = PageController(
@@ -139,6 +141,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   void initState() {
     super.initState();
     _directQueueEntry = widget.initialSurface == PlayerInitialSurface.queue;
+    _queueHasBeenOpened = _directQueueEntry;
     if (_directQueueEntry) _rightPane = PlayerRightPane.queue;
     _compactQueueTransitionController = AnimationController(
       vsync: this,
@@ -256,6 +259,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     _semanticPageRevision.dispose();
     _coverPreviewHeroTrackId.dispose();
     _progressGestureActive.dispose();
+    _workProgress.dispose();
     _semanticTransitionGeneration++;
     _queueTransitionGeneration++;
     _routeDismissModeSyncGeneration++;
@@ -288,10 +292,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       final work = Work.fromJson(workData);
 
       if (mounted && _currentWorkId == workId) {
-        setState(() {
-          _currentProgress = work.progress;
-          _currentRating = work.userRating;
-        });
+        _currentRating = work.userRating;
+        _workProgress.value = work.progress;
       }
     } catch (e) {
       debugPrint('Failed to load progress for work $workId: $e');
@@ -438,10 +440,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     if (track.workId == null || _currentWorkId == track.workId) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _currentWorkId == track.workId) return;
-      setState(() {
-        _currentWorkId = track.workId;
-        _currentProgress = null;
-      });
+      _currentWorkId = track.workId;
+      _currentRating = null;
+      _workProgress.value = null;
       _loadCurrentProgress(track.workId!);
     });
   }
@@ -942,7 +943,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
               ),
             ],
           );
-          final queueStage = _buildQueuePane(context, isWide: false);
+          final queueStage = _queueHasBeenOpened
+              ? _buildQueuePane(context, isWide: false)
+              : const SizedBox.shrink();
           return ClipRect(
             key: const ValueKey('compact-player-vertical-pages'),
             child: AnimatedBuilder(
@@ -970,7 +973,10 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                       offset: Offset(0, height * (1 - progress)),
                       child: Offstage(
                         offstage: queueOffstage,
-                        child: RepaintBoundary(child: queueStage),
+                        child: TickerMode(
+                          enabled: !queueOffstage,
+                          child: RepaintBoundary(child: queueStage),
+                        ),
                       ),
                     ),
                   ],
@@ -1290,27 +1296,30 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     double? horizontalPadding,
     PlayerVerticalDragCallbacks? dismissDrag,
   }) {
-    final controls = PlayerControlsWidget(
-      isLandscape: isWide,
-      isSeekingManually: _isSeekingManually,
-      seekValue: _seekValue,
-      onSeekChanged: _handleSeekChanged,
-      onSeekEnd: _handleSeekEnd,
-      onSeekInteractionChanged: _setProgressGestureActive,
-      seekingPosition: _seekingPosition,
-      workId: track.workId,
-      currentProgress: _currentProgress,
-      onMarkPressed: track.workId == null
-          ? null
-          : () => _showMarkDialog(context, track.workId!, track.title),
-      onDetailPressed: track.workId == null
-          ? null
-          : () => _navigateToWorkDetail(context, track.workId!),
-      onQueuePressed: _showQueue,
-      visibleActionCount: 5,
-      additionalActionWidth: isWide || _compactSharedWidth == null
-          ? null
-          : _compactSharedWidth! + 24,
+    final controls = ValueListenableBuilder<String?>(
+      valueListenable: _workProgress,
+      builder: (_, progress, _) => PlayerControlsWidget(
+        isLandscape: isWide,
+        isSeekingManually: _isSeekingManually,
+        seekValue: _seekValue,
+        onSeekChanged: _handleSeekChanged,
+        onSeekEnd: _handleSeekEnd,
+        onSeekInteractionChanged: _setProgressGestureActive,
+        seekingPosition: _seekingPosition,
+        workId: track.workId,
+        currentProgress: progress,
+        onMarkPressed: track.workId == null
+            ? null
+            : () => _showMarkDialog(context, track.workId!, track.title),
+        onDetailPressed: track.workId == null
+            ? null
+            : () => _navigateToWorkDetail(context, track.workId!),
+        onQueuePressed: _showQueue,
+        visibleActionCount: 5,
+        additionalActionWidth: isWide || _compactSharedWidth == null
+            ? null
+            : _compactSharedWidth! + 24,
+      ),
     );
     final content = Align(
       alignment: Alignment.center,
@@ -1794,6 +1803,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
   }
 
   void _captureQueueOrigin({int? compactOriginPage}) {
+    _queueHasBeenOpened = true;
     if (_queueReturnState != null || _rightPane == PlayerRightPane.queue) {
       return;
     }
@@ -2076,37 +2086,40 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                   MediaQuery.sizeOf(sheetContext).height * 0.62,
                   520,
                 ),
-                child: PlayerInfoPanel(
-                  track: track,
-                  currentProgress: _currentProgress,
-                  onMarkPressed: track.workId == null
-                      ? null
-                      : () => _showMarkDialog(
-                          context,
-                          track.workId!,
-                          track.title,
-                        ),
-                  onDetailPressed: track.workId == null
-                      ? null
-                      : () {
-                          Navigator.of(sheetContext).pop();
-                          _navigateToWorkDetail(context, track.workId!);
-                        },
-                  onQueuePressed: () {
-                    Navigator.of(sheetContext).pop();
-                    _showQueue();
-                  },
-                  onImmersiveLyrics: () {
-                    Navigator.of(sheetContext).pop();
-                    _enterLyricFullscreen();
-                  },
-                  onLyricSettings: () {
-                    Navigator.of(sheetContext).pop();
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted) showPlayerLyricSettingsSheet(context);
-                    });
-                  },
-                  visibleActionCount: 5,
+                child: ValueListenableBuilder<String?>(
+                  valueListenable: _workProgress,
+                  builder: (_, progress, _) => PlayerInfoPanel(
+                    track: track,
+                    currentProgress: progress,
+                    onMarkPressed: track.workId == null
+                        ? null
+                        : () => _showMarkDialog(
+                            context,
+                            track.workId!,
+                            track.title,
+                          ),
+                    onDetailPressed: track.workId == null
+                        ? null
+                        : () {
+                            Navigator.of(sheetContext).pop();
+                            _navigateToWorkDetail(context, track.workId!);
+                          },
+                    onQueuePressed: () {
+                      Navigator.of(sheetContext).pop();
+                      _showQueue();
+                    },
+                    onImmersiveLyrics: () {
+                      Navigator.of(sheetContext).pop();
+                      _enterLyricFullscreen();
+                    },
+                    onLyricSettings: () {
+                      Navigator.of(sheetContext).pop();
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) showPlayerLyricSettingsSheet(context);
+                      });
+                    },
+                    visibleActionCount: 5,
+                  ),
                 ),
               ),
             ),
@@ -2261,17 +2274,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
             }
 
             // 加载进度信息
-            if (track.workId != null && _currentWorkId != track.workId) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  setState(() {
-                    _currentWorkId = track.workId;
-                    _currentProgress = null;
-                  });
-                  _loadCurrentProgress(track.workId!);
-                }
-              });
-            }
+            _scheduleProgressLoad(track);
 
             final workCoverUrl = _buildWorkCoverUrl(
               track.workId,
@@ -2356,25 +2359,28 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                     ),
                     const SizedBox(height: 4),
                   ],
-                  PlayerControlsWidget(
-                    isLandscape: false,
-                    isSeekingManually: _isSeekingManually,
-                    seekValue: _seekValue,
-                    onSeekChanged: _handleSeekChanged,
-                    onSeekEnd: _handleSeekEnd,
-                    seekingPosition: _seekingPosition,
-                    workId: track.workId,
-                    currentProgress: _currentProgress,
-                    onMarkPressed: track.workId != null
-                        ? () => _showMarkDialog(
-                            context,
-                            track.workId!,
-                            track.title,
-                          )
-                        : null,
-                    onDetailPressed: track.workId != null
-                        ? () => _navigateToWorkDetail(context, track.workId!)
-                        : null,
+                  ValueListenableBuilder<String?>(
+                    valueListenable: _workProgress,
+                    builder: (_, progress, _) => PlayerControlsWidget(
+                      isLandscape: false,
+                      isSeekingManually: _isSeekingManually,
+                      seekValue: _seekValue,
+                      onSeekChanged: _handleSeekChanged,
+                      onSeekEnd: _handleSeekEnd,
+                      seekingPosition: _seekingPosition,
+                      workId: track.workId,
+                      currentProgress: progress,
+                      onMarkPressed: track.workId != null
+                          ? () => _showMarkDialog(
+                              context,
+                              track.workId!,
+                              track.title,
+                            )
+                          : null,
+                      onDetailPressed: track.workId != null
+                          ? () => _navigateToWorkDetail(context, track.workId!)
+                          : null,
+                    ),
                   ),
                 ],
               ),
@@ -2403,17 +2409,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         }
 
         // 加载进度信息
-        if (track.workId != null && _currentWorkId != track.workId) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              setState(() {
-                _currentWorkId = track.workId;
-                _currentProgress = null;
-              });
-              _loadCurrentProgress(track.workId!);
-            }
-          });
-        }
+        _scheduleProgressLoad(track);
 
         final workCoverUrl = _buildWorkCoverUrl(track.workId, track.artworkUrl);
 
@@ -2522,28 +2518,32 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                         ],
                         SizedBox(height: spacing3),
                         // 控制组件
-                        PlayerControlsWidget(
-                          isLandscape: true,
-                          isSeekingManually: _isSeekingManually,
-                          seekValue: _seekValue,
-                          onSeekChanged: _handleSeekChanged,
-                          onSeekEnd: _handleSeekEnd,
-                          seekingPosition: _seekingPosition,
-                          workId: track.workId,
-                          currentProgress: _currentProgress,
-                          onMarkPressed: track.workId != null
-                              ? () => _showMarkDialog(
-                                  context,
-                                  track.workId!,
-                                  track.title,
-                                )
-                              : null,
-                          onDetailPressed: track.workId != null
-                              ? () => _navigateToWorkDetail(
-                                  context,
-                                  track.workId!,
-                                )
-                              : null,
+                        ValueListenableBuilder<String?>(
+                          valueListenable: _workProgress,
+                          builder: (context, progress, _) =>
+                              PlayerControlsWidget(
+                                isLandscape: true,
+                                isSeekingManually: _isSeekingManually,
+                                seekValue: _seekValue,
+                                onSeekChanged: _handleSeekChanged,
+                                onSeekEnd: _handleSeekEnd,
+                                seekingPosition: _seekingPosition,
+                                workId: track.workId,
+                                currentProgress: progress,
+                                onMarkPressed: track.workId != null
+                                    ? () => _showMarkDialog(
+                                        context,
+                                        track.workId!,
+                                        track.title,
+                                      )
+                                    : null,
+                                onDetailPressed: track.workId != null
+                                    ? () => _navigateToWorkDetail(
+                                        context,
+                                        track.workId!,
+                                      )
+                                    : null,
+                              ),
                         ),
                       ],
                     ),
@@ -2918,11 +2918,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
       currentRating: _currentRating,
       workTitle: workTitle,
       onChanged: (newProgress, newRating) {
-        if (mounted) {
-          setState(() {
-            _currentProgress = newProgress;
-            _currentRating = newRating;
-          });
+        if (mounted && _currentWorkId == workId) {
+          _currentRating = newRating;
+          _workProgress.value = newProgress;
         }
       },
     );

@@ -123,8 +123,9 @@ class PlayerArtworkHero extends StatelessWidget {
         transitionOnUserGestures: true,
         curve: Curves.linear,
         reverseCurve: Curves.linear,
-        flightShuttleBuilder: _playerArtworkFlightShuttle,
-        child: _PlayerArtworkHeroPayload(
+        flightShuttleBuilder: _playerCoverFlightShuttle,
+        child: _PlayerCoverHeroPayload(
+          flightFrameKey: const ValueKey('player-artwork-flight-frame'),
           cornerRadius: cornerRadius,
           flightChild: flightChild ?? child,
           child: child,
@@ -135,13 +136,15 @@ class PlayerArtworkHero extends StatelessWidget {
   }
 }
 
-class _PlayerArtworkHeroPayload extends StatelessWidget {
-  const _PlayerArtworkHeroPayload({
+class _PlayerCoverHeroPayload extends StatelessWidget {
+  const _PlayerCoverHeroPayload({
+    required this.flightFrameKey,
     required this.cornerRadius,
     required this.flightChild,
     required this.child,
   });
 
+  final Key flightFrameKey;
   final double cornerRadius;
   final Widget flightChild;
   final Widget child;
@@ -174,8 +177,9 @@ class PlayerCoverPreviewHero extends StatelessWidget {
       createRectTween: (begin, end) => RectTween(begin: begin, end: end),
       curve: Curves.easeOutCubic,
       reverseCurve: Curves.easeInCubic,
-      flightShuttleBuilder: _playerCoverPreviewFlightShuttle,
-      child: _PlayerCoverPreviewHeroPayload(
+      flightShuttleBuilder: _playerCoverFlightShuttle,
+      child: _PlayerCoverHeroPayload(
+        flightFrameKey: const ValueKey('player-cover-preview-flight-frame'),
         cornerRadius: cornerRadius,
         flightChild: flightChild ?? child,
         child: child,
@@ -184,22 +188,7 @@ class PlayerCoverPreviewHero extends StatelessWidget {
   }
 }
 
-class _PlayerCoverPreviewHeroPayload extends StatelessWidget {
-  const _PlayerCoverPreviewHeroPayload({
-    required this.cornerRadius,
-    required this.flightChild,
-    required this.child,
-  });
-
-  final double cornerRadius;
-  final Widget flightChild;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => child;
-}
-
-Widget _playerCoverPreviewFlightShuttle(
+Widget _playerCoverFlightShuttle(
   BuildContext flightContext,
   Animation<double> animation,
   HeroFlightDirection direction,
@@ -208,8 +197,8 @@ Widget _playerCoverPreviewFlightShuttle(
 ) {
   final fromHero = fromHeroContext.widget as Hero;
   final toHero = toHeroContext.widget as Hero;
-  final from = fromHero.child as _PlayerCoverPreviewHeroPayload;
-  final to = toHero.child as _PlayerCoverPreviewHeroPayload;
+  final from = fromHero.child as _PlayerCoverHeroPayload;
+  final to = toHero.child as _PlayerCoverHeroPayload;
   final stableChild = direction == HeroFlightDirection.push
       ? to.flightChild
       : from.flightChild;
@@ -225,41 +214,7 @@ Widget _playerCoverPreviewFlightShuttle(
         end: to.cornerRadius,
       ).transform(progress);
       return ClipRRect(
-        key: const ValueKey('player-cover-preview-flight-frame'),
-        borderRadius: BorderRadius.circular(radius),
-        child: child,
-      );
-    },
-  );
-}
-
-Widget _playerArtworkFlightShuttle(
-  BuildContext flightContext,
-  Animation<double> animation,
-  HeroFlightDirection direction,
-  BuildContext fromHeroContext,
-  BuildContext toHeroContext,
-) {
-  final fromHero = fromHeroContext.widget as Hero;
-  final toHero = toHeroContext.widget as Hero;
-  final from = fromHero.child as _PlayerArtworkHeroPayload;
-  final to = toHero.child as _PlayerArtworkHeroPayload;
-  final stableChild = direction == HeroFlightDirection.push
-      ? to.flightChild
-      : from.flightChild;
-  return AnimatedBuilder(
-    animation: animation,
-    child: stableChild,
-    builder: (context, child) {
-      final progress = direction == HeroFlightDirection.push
-          ? animation.value
-          : 1 - animation.value;
-      final radius = Tween<double>(
-        begin: from.cornerRadius,
-        end: to.cornerRadius,
-      ).transform(progress);
-      return ClipRRect(
-        key: const ValueKey('player-artwork-flight-frame'),
+        key: to.flightFrameKey,
         borderRadius: BorderRadius.circular(radius),
         child: child,
       );
@@ -306,9 +261,13 @@ class PlayerCompactArtwork extends StatelessWidget {
                   ? null
                   : 'work_cover_${track.workId}',
               fit: BoxFit.cover,
-              fadeInDuration: const Duration(milliseconds: 220),
+              fadeInDuration: forFlight
+                  ? Duration.zero
+                  : const Duration(milliseconds: 220),
               fadeInCurve: Curves.easeOutCubic,
-              fadeOutDuration: const Duration(milliseconds: 220),
+              fadeOutDuration: forFlight
+                  ? Duration.zero
+                  : const Duration(milliseconds: 220),
               fadeOutCurve: Curves.easeOutCubic,
               useOldImageOnUrlChange: true,
               errorWidget: (_, __, ___) => fallback,
@@ -568,9 +527,8 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
 
   Widget _buildArtworkContent(
     _PlayerCoverSnapshot snapshot,
-    BorderRadius radius, {
-    bool disableImageFade = false,
-  }) {
+    BorderRadius radius,
+  ) {
     if (snapshot.forcePlaceholder) return _buildPlaceholder();
     final provider = snapshot.imageProviderOverride;
     if (provider != null) {
@@ -599,24 +557,15 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
                 errorBuilder: (context, error, stackTrace) =>
                     _buildPlaceholder(),
               )
-            : disableImageFade
-            ? Image(
-                image: CachedNetworkImageProvider(
-                  url,
-                  cacheKey: snapshot.track.workId != null
-                      ? 'work_cover_${snapshot.track.workId}'
-                      : null,
-                ),
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) =>
-                    _buildPlaceholder(),
-              )
             : CachedNetworkImage(
                 imageUrl: url,
                 cacheKey: snapshot.track.workId != null
                     ? 'work_cover_${snapshot.track.workId}'
                     : null,
                 fit: BoxFit.cover,
+                // Route and track transitions own the artwork animation.
+                fadeInDuration: Duration.zero,
+                fadeOutDuration: Duration.zero,
                 errorWidget: (context, url, error) => _buildPlaceholder(),
                 placeholder: (context, url) => _buildPlaceholder(),
               ),
@@ -673,11 +622,7 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
         child: RepaintBoundary(
           key: ValueKey('player-cover-$role-layer'),
           child: ExcludeSemantics(
-            child: _buildArtworkContent(
-              layer.value,
-              radius,
-              disableImageFade: true,
-            ),
+            child: _buildArtworkContent(layer.value, radius),
           ),
         ),
       ),
