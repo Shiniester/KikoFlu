@@ -10,6 +10,7 @@ import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
+import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/global_audio_player_wrapper.dart';
@@ -51,6 +52,9 @@ List<Override> _playerOverrides(AudioTrack track) => [
     (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
   ),
   queueProvider.overrideWith((ref) => Stream.value([track])),
+  manualSkipAvailabilityProvider.overrideWith(
+    (ref) => Stream.value(ManualSkipAvailability.unavailable),
+  ),
   lyricAutoLoaderProvider.overrideWith((ref) {}),
 ];
 

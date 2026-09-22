@@ -10,6 +10,7 @@ import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
+import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -110,6 +111,9 @@ void main() {
             ),
             queueProvider.overrideWith(
               (ref) => Stream.value(const [_goldenTrack]),
+            ),
+            manualSkipAvailabilityProvider.overrideWith(
+              (ref) => Stream.value(ManualSkipAvailability.unavailable),
             ),
             lyricAutoLoaderProvider.overrideWith((ref) {}),
           ],

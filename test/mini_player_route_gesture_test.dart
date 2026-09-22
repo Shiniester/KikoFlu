@@ -1,4 +1,3 @@
-import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
@@ -11,6 +10,7 @@ import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
+import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
@@ -62,6 +62,9 @@ void main() {
               (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
             ),
             queueProvider.overrideWith((ref) => Stream.value(const [track])),
+            manualSkipAvailabilityProvider.overrideWith(
+              (ref) => Stream.value(ManualSkipAvailability.unavailable),
+            ),
             lyricAutoLoaderProvider.overrideWith((ref) {}),
           ],
           child: MaterialApp(
@@ -236,6 +239,9 @@ void main() {
             ),
             playerStateProvider.overrideWith((ref) => playerStates.stream),
             queueProvider.overrideWith((ref) => Stream.value(const [track])),
+            manualSkipAvailabilityProvider.overrideWith(
+              (ref) => Stream.value(ManualSkipAvailability.unavailable),
+            ),
             lyricAutoLoaderProvider.overrideWith((ref) {}),
           ],
           child: const MaterialApp(
@@ -440,6 +446,9 @@ void main() {
             (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
           ),
           queueProvider.overrideWith((ref) => Stream.value(const [track])),
+          manualSkipAvailabilityProvider.overrideWith(
+            (ref) => Stream.value(ManualSkipAvailability.unavailable),
+          ),
           lyricAutoLoaderProvider.overrideWith((ref) {}),
         ],
         child: const MaterialApp(
@@ -473,7 +482,9 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
     final tracks = StreamController<AudioTrack?>();
+    final availability = StreamController<ManualSkipAvailability>.broadcast();
     addTearDown(tracks.close);
+    addTearDown(availability.close);
     const first = AudioTrack(
       id: 'crossfade-first',
       title: 'First',
@@ -509,6 +520,9 @@ void main() {
           queueProvider.overrideWith(
             (ref) => Stream.value(const [first, second]),
           ),
+          manualSkipAvailabilityProvider.overrideWith(
+            (ref) => availability.stream,
+          ),
           lyricAutoLoaderProvider.overrideWith((ref) {}),
         ],
         child: const MaterialApp(
@@ -521,6 +535,9 @@ void main() {
       ),
     );
     tracks.add(first);
+    availability.add(
+      const ManualSkipAvailability(canSkipNext: true, canSkipPrevious: false),
+    );
     await tester.pump();
     await tester.pump();
     final firstImage = tester.widget<CachedNetworkImage>(
@@ -534,6 +551,9 @@ void main() {
     expect(firstImage.useOldImageOnUrlChange, isTrue);
 
     tracks.add(second);
+    availability.add(
+      const ManualSkipAvailability(canSkipNext: false, canSkipPrevious: true),
+    );
     await tester.pump();
     await tester.pump();
     final trackSwipeRegion = tester.getRect(

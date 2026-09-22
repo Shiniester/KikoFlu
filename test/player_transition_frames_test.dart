@@ -6,6 +6,7 @@ import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
+import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -96,6 +97,9 @@ Future<void> pumpPlayer(WidgetTester tester) async {
           (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
         ),
         queueProvider.overrideWith((ref) => Stream.value([track])),
+        manualSkipAvailabilityProvider.overrideWith(
+          (ref) => Stream.value(ManualSkipAvailability.unavailable),
+        ),
         lyricAutoLoaderProvider.overrideWith((ref) {}),
       ],
       child: RepaintBoundary(

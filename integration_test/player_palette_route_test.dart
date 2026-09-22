@@ -15,6 +15,7 @@ import 'package:kikoeru_flutter/src/providers/artwork_theme_provider.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
+import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/background_work_scheduler.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/global_audio_player_wrapper.dart';
@@ -69,6 +70,9 @@ void main() {
             (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
           ),
           queueProvider.overrideWith((ref) => Stream.value([track])),
+          manualSkipAvailabilityProvider.overrideWith(
+            (ref) => Stream.value(ManualSkipAvailability.unavailable),
+          ),
           lyricAutoLoaderProvider.overrideWith((ref) {}),
         ],
         child: MaterialApp(

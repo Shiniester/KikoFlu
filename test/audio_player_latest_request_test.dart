@@ -98,7 +98,11 @@ void main() {
     final first = service.updateQueue(tracks, autoplay: true);
     await until(() => player.pendingLoad != null);
     final second = service.skipToNext();
+    expect(service.canSkipPreviousManually, isTrue);
+    expect(service.canSkipNextManually, isTrue);
     final third = service.skipToNext();
+    expect(service.canSkipPreviousManually, isTrue);
+    expect(service.canSkipNextManually, isFalse);
     await Future.wait([first, second, third]);
     await Future<void>.delayed(Duration.zero);
     expect(player.loaded, [tracks[0].url, tracks[2].url]);
@@ -120,6 +124,237 @@ void main() {
     expect(service.currentTrack?.id, 'c');
     expect(service.isTrackLoading, isFalse);
   });
+
+  test(
+    'manual skip providers follow service replacement without stale events',
+    () async {
+      await service.updateQueue(tracks);
+      final replacement = AudioPlayerService.forTesting(
+        ControlledPlayer(),
+        sessionStore: MemorySessionStore(),
+      );
+      addTearDown(replacement.dispose);
+
+      final selectedServiceProvider = StateProvider<AudioPlayerService>(
+        (ref) => service,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          audioPlayerServiceProvider.overrideWith(
+            (ref) => ref.watch(selectedServiceProvider),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      expect(container.read(canSkipNextProvider), isTrue);
+      expect(container.read(canSkipPreviousProvider), isFalse);
+      await container.read(manualSkipAvailabilityProvider.future);
+      expect(container.read(canSkipNextProvider), isTrue);
+      expect(container.read(canSkipPreviousProvider), isFalse);
+
+      container.read(selectedServiceProvider.notifier).state = replacement;
+      expect(container.read(manualSkipAvailabilityProvider).isLoading, isTrue);
+      expect(container.read(canSkipNextProvider), isFalse);
+      expect(container.read(canSkipPreviousProvider), isFalse);
+
+      await service.setRepeatMode(LoopMode.all);
+      await Future<void>.delayed(Duration.zero);
+      expect(container.read(canSkipNextProvider), isFalse);
+      expect(container.read(canSkipPreviousProvider), isFalse);
+
+      await replacement.updateQueue(tracks);
+      await Future<void>.delayed(Duration.zero);
+      expect(container.read(canSkipNextProvider), isTrue);
+      expect(container.read(canSkipPreviousProvider), isFalse);
+
+      await replacement.setRepeatMode(LoopMode.all);
+      await Future<void>.delayed(Duration.zero);
+      expect(container.read(canSkipPreviousProvider), isTrue);
+    },
+  );
+
+  test('manual skip availability is synchronous and deduplicated', () async {
+    final updates = <ManualSkipAvailability>[];
+    final subscription = service.manualSkipAvailabilityStream.listen(
+      updates.add,
+    );
+    addTearDown(subscription.cancel);
+
+    expect(service.manualSkipAvailability, ManualSkipAvailability.unavailable);
+    await service.updateQueue(tracks);
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      service.manualSkipAvailability,
+      const ManualSkipAvailability(canSkipNext: true, canSkipPrevious: false),
+    );
+    expect(updates, const [
+      ManualSkipAvailability(canSkipNext: true, canSkipPrevious: false),
+    ]);
+
+    await service.setRepeatMode(LoopMode.off);
+    await Future<void>.delayed(Duration.zero);
+    expect(updates, const [
+      ManualSkipAvailability(canSkipNext: true, canSkipPrevious: false),
+    ]);
+
+    final repeat = service.setRepeatMode(LoopMode.all);
+    expect(service.canSkipPreviousManually, isTrue);
+    await repeat;
+    await Future<void>.delayed(Duration.zero);
+    expect(updates, const [
+      ManualSkipAvailability(canSkipNext: true, canSkipPrevious: false),
+      ManualSkipAvailability(canSkipNext: true, canSkipPrevious: true),
+    ]);
+
+    player.positions.add(const Duration(seconds: 12));
+    await Future<void>.delayed(Duration.zero);
+    expect(updates, hasLength(2));
+  });
+
+  test(
+    'pending navigation reverses and cancellation restores availability',
+    () async {
+      await service.updateQueue(tracks);
+      final updates = <ManualSkipAvailability>[];
+      final subscription = service.manualSkipAvailabilityStream.listen(
+        updates.add,
+      );
+      addTearDown(subscription.cancel);
+      player.holdNextLoad = true;
+      final next = service.skipToNext();
+      await until(() => player.pendingLoad != null);
+      expect(
+        service.manualSkipAvailability,
+        const ManualSkipAvailability(canSkipNext: true, canSkipPrevious: true),
+      );
+      await service.skipToPrevious();
+      await next;
+      expect(service.currentTrack?.id, 'a');
+      expect(service.canSkipPreviousManually, isFalse);
+
+      player.holdNextLoad = true;
+      final canceled = service.skipToNext();
+      await until(() => player.pendingLoad != null);
+      await service.stop();
+      await canceled;
+      await Future<void>.delayed(Duration.zero);
+      expect(service.currentTrack?.id, 'a');
+      expect(
+        service.manualSkipAvailability,
+        const ManualSkipAvailability(canSkipNext: true, canSkipPrevious: false),
+      );
+      expect(updates, const [
+        ManualSkipAvailability(canSkipNext: true, canSkipPrevious: true),
+        ManualSkipAvailability(canSkipNext: true, canSkipPrevious: false),
+        ManualSkipAvailability(canSkipNext: true, canSkipPrevious: true),
+        ManualSkipAvailability(canSkipNext: true, canSkipPrevious: false),
+      ]);
+    },
+  );
+
+  test('failed load restores the committed navigation position', () async {
+    await service.updateQueue(tracks);
+    player.holdNextLoad = true;
+    final next = service.skipToNext();
+    final failed = expectLater(next, throwsA(isA<StateError>()));
+    await until(() => player.pendingLoad != null);
+    expect(service.canSkipPreviousManually, isTrue);
+    player.pendingLoad!.completeError(StateError('load failed'));
+    await failed;
+    expect(service.currentTrack?.id, 'a');
+    expect(service.canSkipPreviousManually, isFalse);
+    expect(service.canSkipNextManually, isTrue);
+  });
+
+  test(
+    'queue edits and clearing publish current navigation capabilities',
+    () async {
+      final updates = <ManualSkipAvailability>[];
+      final subscription = service.manualSkipAvailabilityStream.listen(
+        updates.add,
+      );
+      addTearDown(subscription.cancel);
+      await service.updateQueue([tracks.first]);
+      await service.appendTracks([tracks[1]]);
+      expect(service.canSkipNextManually, isTrue);
+      await service.moveTrack(0, 1);
+      expect(service.canSkipNextManually, isFalse);
+      expect(service.canSkipPreviousManually, isTrue);
+      final insertion = service.enqueueNext(tracks[2]);
+      expect(service.canSkipNextManually, isTrue);
+      await insertion;
+      await service.removeTrackAt(0);
+      expect(service.canSkipPreviousManually, isFalse);
+      await service.skipToNext();
+      expect(service.currentTrack?.id, 'c');
+      expect(service.canSkipNextManually, isFalse);
+      await service.clearQueue();
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        service.manualSkipAvailability,
+        ManualSkipAvailability.unavailable,
+      );
+      expect(updates, const [
+        ManualSkipAvailability(canSkipNext: true, canSkipPrevious: false),
+        ManualSkipAvailability(canSkipNext: false, canSkipPrevious: true),
+        ManualSkipAvailability(canSkipNext: true, canSkipPrevious: true),
+        ManualSkipAvailability(canSkipNext: true, canSkipPrevious: false),
+        ManualSkipAvailability(canSkipNext: false, canSkipPrevious: true),
+        ManualSkipAvailability.unavailable,
+      ]);
+      await expectLater(service.skipToNext(), throwsException);
+      await expectLater(service.skipToPrevious(), throwsException);
+    },
+  );
+
+  test('restoration publishes pending and committed availability', () async {
+    sessions.snapshot = const PlaybackSessionSnapshot(
+      queue: tracks,
+      currentIndex: 2,
+      position: Duration(seconds: 24),
+      ownerKey: 'https://example.invalid\ntester',
+    );
+    final updates = <ManualSkipAvailability>[];
+    final subscription = service.manualSkipAvailabilityStream.listen(
+      updates.add,
+    );
+    addTearDown(subscription.cancel);
+    player.holdNextLoad = true;
+    final restore = service.restorePlaybackSession();
+    await until(() => player.pendingLoad != null);
+    expect(service.canSkipNextManually, isFalse);
+    expect(service.canSkipPreviousManually, isTrue);
+    player.finishLoad();
+    await restore;
+    await Future<void>.delayed(Duration.zero);
+    expect(service.currentTrack?.id, 'c');
+    expect(updates, const [
+      ManualSkipAvailability(canSkipNext: false, canSkipPrevious: true),
+    ]);
+  });
+
+  for (final mode in LoopMode.values) {
+    test(
+      'single track manual navigation agrees with $mode capabilities',
+      () async {
+        await service.updateQueue([tracks.first]);
+        await service.setRepeatMode(mode);
+        final wraps = mode == LoopMode.all;
+        expect(service.canSkipNextManually, wraps);
+        expect(service.canSkipPreviousManually, wraps);
+        if (wraps) {
+          await service.skipToNext();
+          await service.skipToPrevious();
+          expect(player.loaded, hasLength(3));
+          expect(service.currentTrack?.id, 'a');
+        } else {
+          await expectLater(service.skipToNext(), throwsException);
+          await expectLater(service.skipToPrevious(), throwsException);
+        }
+      },
+    );
+  }
 
   testWidgets(
     'mini swipes submit during loading and can reverse an active transition',
@@ -204,6 +439,15 @@ void main() {
       }
       expect(service.isTrackLoading, isTrue);
       await tester.pump();
+      expect(tester.widget<IconButton>(next).onPressed, isNotNull);
+      expect(
+        tester
+            .widget<IconButton>(
+              find.byKey(const ValueKey('player-skip-previous-button')),
+            )
+            .onPressed,
+        isNotNull,
+      );
       expect(
         tester
             .widget<IgnorePointer>(
@@ -219,6 +463,8 @@ void main() {
       }
       expect(service.currentTrack?.id, 'c');
       expect(player.played, [tracks[0].url, tracks[2].url]);
+      await tester.pump();
+      expect(tester.widget<IconButton>(next).onPressed, isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();
     },
@@ -414,6 +660,7 @@ Future<void> until(bool Function() ready) async {
 }
 
 class ControlledPlayer extends Fake implements AudioPlayer {
+  final positions = StreamController<Duration>.broadcast();
   final loaded = <String>[];
   final played = <String?>[];
   final seeks = <Duration>[];
@@ -435,7 +682,7 @@ class ControlledPlayer extends Fake implements AudioPlayer {
   @override
   Stream<PlayerState> get playerStateStream => Stream.value(playerState);
   @override
-  Stream<Duration> get positionStream => Stream.value(position);
+  Stream<Duration> get positionStream => positions.stream;
   @override
   Stream<Duration?> get durationStream => Stream.value(duration);
   @override
@@ -514,7 +761,7 @@ class ControlledPlayer extends Fake implements AudioPlayer {
   }
 
   @override
-  Future<void> dispose() async {}
+  Future<void> dispose() => positions.close();
 }
 
 class MemorySessionStore implements PlaybackSessionStore {

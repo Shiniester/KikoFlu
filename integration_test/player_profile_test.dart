@@ -115,6 +115,9 @@ void main() {
               (ref) => Stream.value(PlayerState(true, ProcessingState.ready)),
             ),
             queueProvider.overrideWith((ref) => Stream.value([visualTrack])),
+            manualSkipAvailabilityProvider.overrideWith(
+              (ref) => Stream.value(ManualSkipAvailability.unavailable),
+            ),
             lyricAutoLoaderProvider.overrideWith((ref) {}),
             lyricControllerProvider.overrideWith(
               (ref) => LyricController(

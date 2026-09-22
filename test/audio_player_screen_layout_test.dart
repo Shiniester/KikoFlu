@@ -2276,6 +2276,12 @@ void main() {
           track: longTrack,
           trackStream: currentTracks.stream,
           queueStream: queueTracks.stream,
+          manualSkipAvailabilityStream: Stream.value(
+            const ManualSkipAvailability(
+              canSkipNext: true,
+              canSkipPrevious: false,
+            ),
+          ),
           initialSurface: PlayerInitialSurface.queue,
         );
 
@@ -3182,6 +3188,7 @@ Future<void> _pumpPlayer(
   List<LyricLine>? lyrics,
   Stream<AudioTrack?>? trackStream,
   Stream<List<AudioTrack>>? queueStream,
+  Stream<ManualSkipAvailability>? manualSkipAvailabilityStream,
   Stream<bool>? loadingStream,
   PlayerTrackChangePresentation? trackChangePresentation,
   bool pushedRoute = false,
@@ -3226,6 +3233,11 @@ Future<void> _pumpPlayer(
         ),
         queueProvider.overrideWith(
           (ref) => queueStream ?? Stream.value([track]),
+        ),
+        manualSkipAvailabilityProvider.overrideWith(
+          (ref) =>
+              manualSkipAvailabilityStream ??
+              Stream.value(ManualSkipAvailability.unavailable),
         ),
         lyricAutoLoaderProvider.overrideWith((ref) {}),
         if (workDetails != null || onWorkDetailsLoad != null)

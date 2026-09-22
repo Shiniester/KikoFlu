@@ -63,6 +63,38 @@ final queueProvider = StreamProvider<List<AudioTrack>>((ref) {
   return _withInitialValue(service.queue, service.queueStream);
 });
 
+final manualSkipAvailabilityProvider = StreamProvider<ManualSkipAvailability>((
+  ref,
+) {
+  final service = ref.watch(audioPlayerServiceProvider);
+  return _manualSkipAvailabilityWithInitialValue(service);
+});
+
+Stream<ManualSkipAvailability> _manualSkipAvailabilityWithInitialValue(
+  AudioPlayerService service,
+) {
+  StreamSubscription<ManualSkipAvailability>? subscription;
+  late StreamController<ManualSkipAvailability> controller;
+
+  controller = StreamController<ManualSkipAvailability>(
+    onListen: () {
+      subscription = service.manualSkipAvailabilityStream.listen(
+        controller.add,
+        onError: (Object error, StackTrace stackTrace) {
+          controller.addError(error, stackTrace);
+        },
+        onDone: controller.close,
+      );
+      controller.add(service.manualSkipAvailability);
+    },
+    onCancel: () async {
+      await subscription?.cancel();
+      subscription = null;
+    },
+  );
+  return controller.stream;
+}
+
 Stream<T> _withInitialValue<T>(T initialValue, Stream<T> updates) async* {
   yield initialValue;
   yield* updates;
@@ -112,46 +144,22 @@ final progressProvider = Provider<double>((ref) {
 
 /// Whether manual next navigation has a valid queue target.
 final canSkipNextProvider = Provider<bool>((ref) {
+  final availability = ref.watch(manualSkipAvailabilityProvider);
   final service = ref.watch(audioPlayerServiceProvider);
-  final repeatMode = ref.watch(
-    audioPlayerControllerProvider.select((state) => state.repeatMode),
-  );
-  final queue = ref.watch(queueProvider).valueOrNull ?? service.queue;
-  final currentTrack =
-      ref.watch(requestedTrackProvider).valueOrNull ??
-      ref.watch(currentTrackProvider).valueOrNull;
-  final currentIndex = currentTrack == null
-      ? -1
-      : queue.indexWhere((track) => track.id == currentTrack.id);
-  return resolveManualSkipTarget(
-        queueLength: queue.length,
-        currentIndex: currentIndex,
-        repeatMode: repeatMode,
-        direction: ManualSkipDirection.next,
-      ) !=
-      null;
+  return (availability.isLoading
+          ? service.manualSkipAvailability
+          : availability.valueOrNull ?? service.manualSkipAvailability)
+      .canSkipNext;
 });
 
 /// Whether manual previous navigation has a valid queue target.
 final canSkipPreviousProvider = Provider<bool>((ref) {
+  final availability = ref.watch(manualSkipAvailabilityProvider);
   final service = ref.watch(audioPlayerServiceProvider);
-  final repeatMode = ref.watch(
-    audioPlayerControllerProvider.select((state) => state.repeatMode),
-  );
-  final queue = ref.watch(queueProvider).valueOrNull ?? service.queue;
-  final currentTrack =
-      ref.watch(requestedTrackProvider).valueOrNull ??
-      ref.watch(currentTrackProvider).valueOrNull;
-  final currentIndex = currentTrack == null
-      ? -1
-      : queue.indexWhere((track) => track.id == currentTrack.id);
-  return resolveManualSkipTarget(
-        queueLength: queue.length,
-        currentIndex: currentIndex,
-        repeatMode: repeatMode,
-        direction: ManualSkipDirection.previous,
-      ) !=
-      null;
+  return (availability.isLoading
+          ? service.manualSkipAvailability
+          : availability.valueOrNull ?? service.manualSkipAvailability)
+      .canSkipPrevious;
 });
 
 // Audio Player Controller

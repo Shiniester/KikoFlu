@@ -10,6 +10,7 @@ import 'package:kikoeru_flutter/src/providers/artwork_theme_provider.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
+import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_visual_palette.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -153,6 +154,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
 
       final tracks = StreamController<AudioTrack?>();
+      final availability = StreamController<ManualSkipAvailability>();
       final loader = _ControllableArtworkSeedLoader();
       final appScheme = ColorScheme.fromSeed(seedColor: Colors.teal);
       final container = ProviderContainer(
@@ -174,10 +176,14 @@ void main() {
             (ref) =>
                 Stream.value(const [_firstTrack, _secondTrack, _thirdTrack]),
           ),
+          manualSkipAvailabilityProvider.overrideWith(
+            (ref) => availability.stream,
+          ),
           lyricAutoLoaderProvider.overrideWith((ref) {}),
         ],
       );
       addTearDown(tracks.close);
+      addTearDown(availability.close);
       addTearDown(container.dispose);
 
       Widget buildPlayer(ColorScheme colorScheme) {
@@ -195,6 +201,9 @@ void main() {
 
       container.read(_descriptorProvider.notifier).state = _firstDescriptor;
       tracks.add(_firstTrack);
+      availability.add(
+        const ManualSkipAvailability(canSkipNext: true, canSkipPrevious: false),
+      );
       await tester.pumpWidget(buildPlayer(appScheme));
       await _pumpMicrotasks(tester);
       expect(loader.hasPending('palette-first'), isTrue);
@@ -219,6 +228,9 @@ void main() {
 
       container.read(_descriptorProvider.notifier).state = _secondDescriptor;
       tracks.add(_secondTrack);
+      availability.add(
+        const ManualSkipAvailability(canSkipNext: true, canSkipPrevious: true),
+      );
       await _pumpMicrotasks(tester);
       expect(loader.hasPending('palette-second'), isTrue);
       expect(container.read(artworkThemeSeedProvider).isLoading, isTrue);
@@ -242,6 +254,9 @@ void main() {
 
       container.read(_descriptorProvider.notifier).state = _thirdDescriptor;
       tracks.add(_thirdTrack);
+      availability.add(
+        const ManualSkipAvailability(canSkipNext: false, canSkipPrevious: true),
+      );
       await _pumpMicrotasks(tester);
       expect(loader.hasPending('palette-third'), isTrue);
       loader.complete('palette-third', Colors.orange);
@@ -324,6 +339,9 @@ void main() {
           queueProvider.overrideWith(
             (ref) => Stream.value(const [_firstTrack]),
           ),
+          manualSkipAvailabilityProvider.overrideWith(
+            (ref) => Stream.value(ManualSkipAvailability.unavailable),
+          ),
           lyricAutoLoaderProvider.overrideWith((ref) {}),
         ],
         child: MaterialApp(
@@ -396,6 +414,9 @@ _pumpPaletteRoute(
           (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
         ),
         queueProvider.overrideWith((ref) => Stream.value(const [_firstTrack])),
+        manualSkipAvailabilityProvider.overrideWith(
+          (ref) => Stream.value(ManualSkipAvailability.unavailable),
+        ),
         lyricAutoLoaderProvider.overrideWith((ref) {}),
       ],
       child: MaterialApp(

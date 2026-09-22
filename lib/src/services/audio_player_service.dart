@@ -39,6 +39,32 @@ enum EnqueueNextResult {
 
 enum ManualSkipDirection { previous, next }
 
+@immutable
+class ManualSkipAvailability {
+  const ManualSkipAvailability({
+    required this.canSkipNext,
+    required this.canSkipPrevious,
+  });
+
+  static const unavailable = ManualSkipAvailability(
+    canSkipNext: false,
+    canSkipPrevious: false,
+  );
+
+  final bool canSkipNext;
+  final bool canSkipPrevious;
+
+  @override
+  bool operator ==(Object other) {
+    return other is ManualSkipAvailability &&
+        other.canSkipNext == canSkipNext &&
+        other.canSkipPrevious == canSkipPrevious;
+  }
+
+  @override
+  int get hashCode => Object.hash(canSkipNext, canSkipPrevious);
+}
+
 /// Direction used by the player presentation when a new track is published.
 ///
 /// This is deliberately separate from [ManualSkipDirection]: a track can also
@@ -296,6 +322,11 @@ class AudioPlayerService {
       StreamController.broadcast();
   final StreamController<AudioTrack?> _currentTrackController =
       StreamController.broadcast();
+  ManualSkipAvailability _manualSkipAvailability =
+      ManualSkipAvailability.unavailable;
+  final StreamController<ManualSkipAvailability>
+  _manualSkipAvailabilityController =
+      StreamController<ManualSkipAvailability>.broadcast();
   PlayerTrackChangePresentation? _lastTrackChangePresentation;
   int _trackChangeRevision = 0;
   final StreamController<bool> _trackLoadingController =
@@ -604,6 +635,7 @@ class AudioPlayerService {
     _queue.addAll(tracks);
     final targetIndex = startIndex.clamp(0, tracks.length - 1).toInt();
     _pendingTargetTrackId = tracks[targetIndex].id;
+    _refreshManualSkipAvailability();
     _queueController.add(List.from(_queue));
 
     // Load the current track
@@ -644,6 +676,7 @@ class AudioPlayerService {
     _performanceActivePlaybackRequestId = null;
     _performanceActivePlaybackTrackId = null;
     _desiredPlaying = false;
+    _refreshManualSkipAvailability();
     _queueController.add(const []);
     _lastTrackChangePresentation = null;
     _currentTrackController.add(null);
@@ -700,6 +733,7 @@ class AudioPlayerService {
     _resumeTrack = track;
     _desiredPlaying = autoplay;
     _pendingTargetTrackId = track.id;
+    _refreshManualSkipAvailability();
     _requestedTrackController.add(track);
     _intentRevision++;
     _setTrackLoading(true);
@@ -769,6 +803,7 @@ class AudioPlayerService {
 
     if (_latestTrackLoad == null) {
       _pendingTargetTrackId = null;
+      _refreshManualSkipAvailability();
       _requestedTrackController.add(null);
       _setTrackLoading(false);
       unawaited(persistPlaybackSession());
@@ -869,6 +904,7 @@ class AudioPlayerService {
     _currentIndex = index;
     _pendingTargetTrackId = null;
     _publishedTrack = request.track;
+    _refreshManualSkipAvailability();
     _sourceNeedsReload = false;
     _failedLocalSource = null;
     _failedLocalPosition = null;
@@ -1735,13 +1771,7 @@ class AudioPlayerService {
   }
 
   Future<void> skipToNext() async {
-    final currentIndex = _effectiveQueueIndex;
-    final target = resolveManualSkipTarget(
-      queueLength: _queue.length,
-      currentIndex: currentIndex,
-      repeatMode: _appLoopMode,
-      direction: ManualSkipDirection.next,
-    );
+    final target = _resolveManualSkipTarget(ManualSkipDirection.next);
     if (target == null) throw Exception('没有下一首可播放');
     await _switchToIndexAndPlay(
       target,
@@ -1750,13 +1780,7 @@ class AudioPlayerService {
   }
 
   Future<void> skipToPrevious() async {
-    final currentIndex = _effectiveQueueIndex;
-    final target = resolveManualSkipTarget(
-      queueLength: _queue.length,
-      currentIndex: currentIndex,
-      repeatMode: _appLoopMode,
-      direction: ManualSkipDirection.previous,
-    );
+    final target = _resolveManualSkipTarget(ManualSkipDirection.previous);
     if (target == null) throw Exception('没有上一首可播放');
     await _switchToIndexAndPlay(
       target,
@@ -1805,6 +1829,26 @@ class AudioPlayerService {
     return _currentIndex.clamp(0, _queue.length - 1).toInt();
   }
 
+  int? _resolveManualSkipTarget(ManualSkipDirection direction) {
+    return resolveManualSkipTarget(
+      queueLength: _queue.length,
+      currentIndex: _effectiveQueueIndex,
+      repeatMode: _appLoopMode,
+      direction: direction,
+    );
+  }
+
+  void _refreshManualSkipAvailability() {
+    final next = ManualSkipAvailability(
+      canSkipNext: _resolveManualSkipTarget(ManualSkipDirection.next) != null,
+      canSkipPrevious:
+          _resolveManualSkipTarget(ManualSkipDirection.previous) != null,
+    );
+    if (next == _manualSkipAvailability) return;
+    _manualSkipAvailability = next;
+    _manualSkipAvailabilityController.add(next);
+  }
+
   Future<void> removeTrackAt(int index) async {
     if (index < 0 || index >= _queue.length) return;
     final removeRevision = ++_intentRevision;
@@ -1817,6 +1861,7 @@ class AudioPlayerService {
     final currentTrackId = _publishedTrack?.id;
 
     _queue.removeAt(index);
+    _refreshManualSkipAvailability();
     _queueController.add(List.from(_queue));
 
     if (_queue.isEmpty) {
@@ -1864,6 +1909,7 @@ class AudioPlayerService {
       }
     }
 
+    _refreshManualSkipAvailability();
     _queueController.add(List.from(_queue));
     await persistPlaybackSession();
     _restartEligiblePreload();
@@ -1895,6 +1941,7 @@ class AudioPlayerService {
       if (publishedIndex >= 0) _currentIndex = publishedIndex;
     }
 
+    _refreshManualSkipAvailability();
     // The previously prefetched item may no longer be next in the queue.
     await _cancelNextTrackPreload();
     if (enqueueRevision != _intentRevision) {
@@ -1940,6 +1987,7 @@ class AudioPlayerService {
     }
 
     if (appended) {
+      _refreshManualSkipAvailability();
       _queueController.add(List.from(_queue));
       await persistPlaybackSession();
       _restartEligiblePreload();
@@ -2042,6 +2090,7 @@ class AudioPlayerService {
         ..addAll(restoredQueue);
       final targetIndex = snapshot.currentIndex.clamp(0, _queue.length - 1);
       _pendingTargetTrackId = _queue[targetIndex].id;
+      _refreshManualSkipAvailability();
       _queueController.add(List<AudioTrack>.from(_queue));
       _log.captureOutput(
         '[AudioSession] Loading restored source at index=$targetIndex',
@@ -2127,6 +2176,8 @@ class AudioPlayerService {
   Stream<Duration?> get durationStream => _player.durationStream;
   Stream<List<AudioTrack>> get queueStream => _queueController.stream;
   Stream<AudioTrack?> get currentTrackStream => _currentTrackController.stream;
+  Stream<ManualSkipAvailability> get manualSkipAvailabilityStream =>
+      _manualSkipAvailabilityController.stream;
   Stream<bool> get trackLoadingStream => _trackLoadingController.stream;
   bool get isTrackLoading => _isSwitchingTrack;
   Stream<AudioTrack?> get requestedTrackStream =>
@@ -2160,28 +2211,16 @@ class AudioPlayerService {
 
   AudioTrack? get currentTrack => _publishedTrack;
 
+  ManualSkipAvailability get manualSkipAvailability => _manualSkipAvailability;
+
   List<AudioTrack> get queue => List.unmodifiable(_queue);
   int get currentIndex => _currentIndex;
 
   bool get hasNext =>
       _effectiveQueueIndex >= 0 && _effectiveQueueIndex < _queue.length - 1;
   bool get hasPrevious => _effectiveQueueIndex > 0;
-  bool get canSkipNextManually =>
-      resolveManualSkipTarget(
-        queueLength: _queue.length,
-        currentIndex: _effectiveQueueIndex,
-        repeatMode: _appLoopMode,
-        direction: ManualSkipDirection.next,
-      ) !=
-      null;
-  bool get canSkipPreviousManually =>
-      resolveManualSkipTarget(
-        queueLength: _queue.length,
-        currentIndex: _effectiveQueueIndex,
-        repeatMode: _appLoopMode,
-        direction: ManualSkipDirection.previous,
-      ) !=
-      null;
+  bool get canSkipNextManually => manualSkipAvailability.canSkipNext;
+  bool get canSkipPreviousManually => manualSkipAvailability.canSkipPrevious;
 
   void _emitPlaybackDiagnostic(
     PlaybackDiagnosticEventType type,
@@ -2204,6 +2243,7 @@ class AudioPlayerService {
   Future<void> setRepeatMode(LoopMode mode) async {
     // Store the mode at app level
     _appLoopMode = mode;
+    _refreshManualSkipAvailability();
     // Always keep the player's loop mode off to prevent single-track looping
     // We handle all repeat logic in the app layer via playerStateStream listener
     await _player.setLoopMode(LoopMode.off);
@@ -2334,6 +2374,7 @@ class AudioPlayerService {
     if (!stoppedNativeLoad) await _player.stop();
     await _queueController.close();
     await _currentTrackController.close();
+    await _manualSkipAvailabilityController.close();
     await _trackLoadingController.close();
     await _requestedTrackController.close();
     await _playbackDiagnosticController.close();
