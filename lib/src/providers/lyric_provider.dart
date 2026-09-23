@@ -1363,7 +1363,10 @@ final lyricAutoLoaderProvider = Provider<void>((ref) {
   currentTrack.whenData((track) {
     if (track == null) {
       // 没有播放时清空字幕
-      ref.read(lyricControllerProvider.notifier).clearLyrics();
+      Future.microtask(() {
+        if (ref.read(currentTrackProvider).value != null) return;
+        ref.read(lyricControllerProvider.notifier).clearLyrics();
+      });
       return;
     }
 

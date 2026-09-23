@@ -3,10 +3,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:io';
 import '../services/floating_lyric_service.dart';
-import '../services/audio_player_service.dart';
 import '../services/log_service.dart';
 import '../models/lyric.dart';
 import 'lyric_provider.dart';
+import 'audio_provider.dart';
 import 'floating_lyric_style_provider.dart';
 
 final _log = LogService.instance;
@@ -146,6 +146,7 @@ class FloatingLyricEnabledNotifier extends StateNotifier<bool> {
   StreamSubscription? _trackSubscription;
   StreamSubscription? _closeSubscription;
   ProviderSubscription? _lyricStateSubscription;
+  ProviderSubscription<void>? _autoLoaderSubscription;
   String? _lastTrackId;
 
   FloatingLyricEnabledNotifier(this.ref) : super(false) {
@@ -287,68 +288,59 @@ class FloatingLyricEnabledNotifier extends StateNotifier<bool> {
     _stopBackgroundUpdate();
     _log.captureOutput('[FloatingLyric] 启动后台更新监听');
 
-    // 确保字幕自动加载器始终激活（即使在后台）
-    ref.read(lyricAutoLoaderProvider);
-
     // 独立的低延迟计时器只在悬浮字幕启用期间运行。
     _positionTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
-      if (AudioPlayerService.instance.playing) {
+      if (ref.read(audioPlayerServiceProvider).playing) {
         _updateLyricInBackground();
       }
     });
 
     // 监听播放状态变化
-    _playingSubscription =
-        AudioPlayerService.instance.playerStateStream.listen((_) {
-      _updateLyricInBackground();
-    });
+    _playingSubscription = ref
+        .read(audioPlayerServiceProvider)
+        .playerStateStream
+        .listen((_) {
+          _updateLyricInBackground();
+        });
 
     // 监听音轨变化
-    _trackSubscription =
-        AudioPlayerService.instance.currentTrackStream.listen((track) {
-      _log.captureOutput(
-          '[FloatingLyric] 收到音轨事件: id=${track?.id}, title=${track?.title}, lastId=$_lastTrackId');
-      if (track?.id != _lastTrackId) {
-        _lastTrackId = track?.id;
-        _log.captureOutput('[FloatingLyric] ✓ 音轨切换确认: ${track?.title}');
-        // 音轨切换时先显示"加载中"
-        FloatingLyricService.instance.updateText('♪ 加载字幕中 ♪');
-
-        // 触发字幕加载
-        if (track != null) {
-          final fileListState = ref.read(fileListControllerProvider);
-          if (fileListState.matches(track)) {
-            _log.captureOutput('[FloatingLyric] 主动触发字幕加载');
-            ref.read(lyricControllerProvider.notifier).loadLyricForTrack(
-                  track,
-                  fileListState.files,
-                );
+    _trackSubscription = ref
+        .read(audioPlayerServiceProvider)
+        .currentTrackStream
+        .listen((track) {
+          _log.captureOutput(
+            '[FloatingLyric] 收到音轨事件: id=${track?.id}, title=${track?.title}, lastId=$_lastTrackId',
+          );
+          if (track?.id != _lastTrackId) {
+            _lastTrackId = track?.id;
+            _log.captureOutput('[FloatingLyric] ✓ 音轨切换确认: ${track?.title}');
+            // 音轨切换时先显示"加载中"
+            FloatingLyricService.instance.updateText('♪ 加载字幕中 ♪');
           } else {
-            _log.captureOutput(
-              '[FloatingLyric] 当前字幕文件树不匹配，等待自动恢复',
-            );
+            _log.captureOutput('[FloatingLyric] ✗ 相同音轨，忽略');
           }
-        }
-      } else {
-        _log.captureOutput('[FloatingLyric] ✗ 相同音轨，忽略');
-      }
-    });
+        });
 
     // 监听字幕状态变化 - 当字幕加载完成或变化时更新
-    _lyricStateSubscription = ref.listen<LyricState>(
-      lyricControllerProvider,
-      (previous, next) {
-        // 当字幕加载完成（isLoading 从 true 变为 false）时更新
-        if (previous?.isLoading == true && next.isLoading == false) {
-          _log.captureOutput('[FloatingLyric] 字幕加载完成，更新悬浮窗');
-          _updateLyricInBackground();
-        }
-        // 或者字幕内容发生变化时也更新
-        else if (previous?.lyrics != next.lyrics && !next.isLoading) {
-          _log.captureOutput('[FloatingLyric] 字幕内容变化，更新悬浮窗');
-          _updateLyricInBackground();
-        }
-      },
+    _lyricStateSubscription = ref.listen<LyricState>(lyricControllerProvider, (
+      previous,
+      next,
+    ) {
+      // 当字幕加载完成（isLoading 从 true 变为 false）时更新
+      if (previous?.isLoading == true && next.isLoading == false) {
+        _log.captureOutput('[FloatingLyric] 字幕加载完成，更新悬浮窗');
+        _updateLyricInBackground();
+      }
+      // 或者字幕内容发生变化时也更新
+      else if (previous?.lyrics != next.lyrics && !next.isLoading) {
+        _log.captureOutput('[FloatingLyric] 字幕内容变化，更新悬浮窗');
+        _updateLyricInBackground();
+      }
+    });
+    // 悬浮字幕启用期间保持自动加载器活跃，不依赖播放器页面。
+    _autoLoaderSubscription = ref.listen<void>(
+      lyricAutoLoaderProvider,
+      (_, __) {},
     );
   }
 
@@ -362,13 +354,16 @@ class FloatingLyricEnabledNotifier extends StateNotifier<bool> {
     _trackSubscription = null;
     _lyricStateSubscription?.close();
     _lyricStateSubscription = null;
+    _autoLoaderSubscription?.close();
+    _autoLoaderSubscription = null;
   }
 
   /// 在后台更新字幕（不依赖 Provider watch）
   void _updateLyricInBackground() {
-    final isPlaying = AudioPlayerService.instance.playing;
+    final audioService = ref.read(audioPlayerServiceProvider);
+    final isPlaying = audioService.playing;
     final lyricState = ref.read(lyricControllerProvider);
-    final currentPosition = AudioPlayerService.instance.position;
+    final currentPosition = audioService.position;
 
     String displayText;
     if (!isPlaying) {
