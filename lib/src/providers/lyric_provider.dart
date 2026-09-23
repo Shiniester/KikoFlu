@@ -338,31 +338,9 @@ class LyricController extends StateNotifier<LyricState> {
         '[Lyric] 找到匹配字幕: title="${lyricFile['title']}", type="${lyricFile['type']}", hash=${lyricFile['hash']}',
       );
 
-      final localPath = _localPathOf(lyricFile);
-      if (localPath != null) {
-        await _loadLyricFromLocalFile(
-          localPath,
-          requestId,
-          source: LyricSourceDescriptor(
-            title: lyricFile['title']?.toString() ?? path.basename(localPath),
-            type: LyricSourceType.localFile,
-            localPath: localPath,
-            hash: lyricFile['hash']?.toString(),
-            workId: track.workId,
-          ),
-        );
-        return;
-      }
-
-      // 获取认证信息
-      final authState = ref.read(authProvider);
-      final host = authState.host ?? '';
-      final token = authState.token ?? '';
-      final hash = lyricFile['hash'];
-      final fileName = lyricFile['title'] ?? lyricFile['name'];
-      final workId = track.workId;
-
-      if (hash == null || host.isEmpty || workId == null) {
+      final source = _lyricSourceFor(lyricFile, workId: track.workId);
+      if (source == null ||
+          (source.type == LyricSourceType.remote && track.workId == null)) {
         _releaseRemoteTextLease();
         _setStateForLoadRequest(
           requestId,
@@ -370,57 +348,12 @@ class LyricController extends StateNotifier<LyricState> {
         );
         return;
       }
-
-      // 构建字幕 URL
-      String normalizedUrl = host;
-      if (!host.startsWith('http://') && !host.startsWith('https://')) {
-        normalizedUrl = 'https://$host';
-      }
-      final lyricUrl = '$normalizedUrl/api/media/stream/$hash?token=$token';
-
-      String? content;
-
-      // 1. 先尝试从缓存加载（包括下载文件和缓存文件）
-      final cachedContent = await CacheService.getCachedTextContent(
-        workId: workId,
-        hash: hash,
-        fileName: fileName,
-      );
-      if (!_isCurrentLoadRequest(requestId)) return;
-
-      if (cachedContent != null) {
-        _releaseRemoteTextLease();
-        _log.captureOutput('[Lyric] 从缓存加载字幕: $hash');
-        content = cachedContent;
-      } else {
-        _log.captureOutput('[Lyric] 从网络下载字幕: $hash');
-        final remote = await _loadRemoteText(
-          url: lyricUrl,
-          hash: hash.toString(),
-        );
-        if (!_isCurrentLoadRequest(requestId)) return;
-        _log.captureOutput('[Lyric] 网络字幕编码: ${remote.encoding}');
-        content = remote.text;
-      }
-
-      // 4. 解析字幕
-      final lyrics = LyricParser.parse(content); // 自动检测格式
-      _log.captureOutput('[Lyric] 解析完成: ${lyrics.length} 行字幕');
-      _setStateForLoadRequest(
+      final loaded = await _readAndParseLyric(
+        source,
         requestId,
-        LyricState(
-          lyrics: lyrics,
-          isLoading: false,
-          lyricUrl: lyricUrl,
-          source: LyricSourceDescriptor(
-            title: fileName?.toString() ?? 'subtitle',
-            type: LyricSourceType.remote,
-            url: lyricUrl,
-            hash: hash.toString(),
-            workId: workId,
-          ),
-        ),
+        fileName: lyricFile['title'] ?? lyricFile['name'],
       );
+      if (loaded != null) _setStateForLoadRequest(requestId, loaded);
     } catch (e) {
       if (_isCurrentLoadRequest(requestId)) _releaseRemoteTextLease();
       _log.captureOutput('[Lyric] 加载失败: $e');
@@ -951,45 +884,16 @@ class LyricController extends StateNotifier<LyricState> {
     _setStateForLoadRequest(requestId, _loadingStatePreservingCurrentLyrics());
 
     try {
-      _log.captureOutput('[Lyric] 从本地文件加载字幕: $filePath');
-
-      // 读取文件内容
-      final file = File(filePath);
-      if (!await file.exists()) {
-        _setStateForLoadRequest(
-          requestId,
-          LyricState(lyrics: [], isLoading: false, error: '文件不存在'),
-        );
-        return;
-      }
-      if (!_isCurrentLoadRequest(requestId)) return;
-
-      // 使用智能编码检测读取文件
-      final (content, encoding) = await EncodingUtils.readFileWithEncoding(
-        file,
-      );
-      if (!_isCurrentLoadRequest(requestId)) return;
-      _log.captureOutput('[Lyric] 检测到文件编码: $encoding');
-
-      // 解析字幕
-      final lyrics = LyricParser.parse(content);
-      _setStateForLoadRequest(
+      final loaded = await _readAndParseLyric(
+        source ??
+            LyricSourceDescriptor(
+              title: path.basename(filePath),
+              type: LyricSourceType.localFile,
+              localPath: filePath,
+            ),
         requestId,
-        LyricState(
-          lyrics: lyrics,
-          isLoading: false,
-          lyricUrl: 'file://$filePath',
-          source:
-              source ??
-              LyricSourceDescriptor(
-                title: path.basename(filePath),
-                type: LyricSourceType.localFile,
-                localPath: filePath,
-              ),
-        ),
       );
-
-      _log.captureOutput('[Lyric] 成功从本地文件加载字幕，共 ${lyrics.length} 行');
+      if (loaded != null) _setStateForLoadRequest(requestId, loaded);
     } catch (e) {
       _log.captureOutput('[Lyric] 从本地文件加载字幕失败: $e');
       if (!_isCurrentLoadRequest(requestId)) return;
@@ -1008,29 +912,14 @@ class LyricController extends StateNotifier<LyricState> {
     _setStateForLoadRequest(requestId, _loadingStatePreservingCurrentLyrics());
 
     try {
-      final localPath = _localPathOf(lyricFile);
-      if (localPath != null) {
-        await _loadLyricFromLocalFile(
-          localPath,
-          requestId,
-          source: LyricSourceDescriptor(
-            title: lyricFile['title']?.toString() ?? path.basename(localPath),
-            type: LyricSourceType.localFile,
-            localPath: localPath,
-            hash: lyricFile['hash']?.toString(),
-            workId: workId,
-          ),
-        );
-        return;
-      }
-
-      // 获取认证信息
-      final authState = ref.read(authProvider);
-      final host = authState.host ?? '';
-      final token = authState.token ?? '';
-      final hash = lyricFile['hash'];
-
-      if (hash == null || host.isEmpty) {
+      final isLocal = _localPathOf(lyricFile) != null;
+      final effectiveWorkId = isLocal
+          ? workId
+          : workId ??
+                lyricFile['workId'] as int? ??
+                ref.read(currentTrackProvider).value?.workId;
+      final source = _lyricSourceFor(lyricFile, workId: effectiveWorkId);
+      if (source == null) {
         _releaseRemoteTextLease();
         _setStateForLoadRequest(
           requestId,
@@ -1038,73 +927,12 @@ class LyricController extends StateNotifier<LyricState> {
         );
         return;
       }
-
-      // 构建字幕 URL
-      String normalizedUrl = host;
-      if (!host.startsWith('http://') && !host.startsWith('https://')) {
-        if (host.contains('localhost') ||
-            host.startsWith('127.0.0.1') ||
-            host.startsWith('192.168.')) {
-          normalizedUrl = 'http://$host';
-        } else {
-          normalizedUrl = 'https://$host';
-        }
-      }
-      final lyricUrl = '$normalizedUrl/api/media/stream/$hash?token=$token';
-
-      String content;
-
-      // 1. 先尝试从缓存加载（包括下载文件和缓存文件）
-      // 优先级：传入的 workId > lyricFile 中的 workId > 当前播放音轨的 workId
-      int? effectiveWorkId = workId ?? lyricFile['workId'] as int?;
-      if (effectiveWorkId == null) {
-        final currentTrackAsync = ref.read(currentTrackProvider);
-        final currentTrack = currentTrackAsync.value;
-        effectiveWorkId = currentTrack?.workId;
-      }
-
-      final fileName = lyricFile['title'] ?? lyricFile['name'];
-      final cachedContent = effectiveWorkId != null
-          ? await CacheService.getCachedTextContent(
-              workId: effectiveWorkId,
-              hash: hash,
-              fileName: fileName,
-            )
-          : null;
-      if (!_isCurrentLoadRequest(requestId)) return;
-
-      if (cachedContent != null) {
-        _releaseRemoteTextLease();
-        _log.captureOutput('[Lyric] 手动加载 - 从缓存加载字幕: $hash');
-        content = cachedContent;
-      } else {
-        _log.captureOutput('[Lyric] 手动加载 - 从网络下载字幕: $hash');
-        final remote = await _loadRemoteText(
-          url: lyricUrl,
-          hash: hash.toString(),
-        );
-        if (!_isCurrentLoadRequest(requestId)) return;
-        _log.captureOutput('[Lyric] 手动加载 - 网络字幕编码: ${remote.encoding}');
-        content = remote.text;
-      }
-
-      // 4. 解析字幕
-      final lyrics = LyricParser.parse(content);
-      _setStateForLoadRequest(
+      final loaded = await _readAndParseLyric(
+        source,
         requestId,
-        LyricState(
-          lyrics: lyrics,
-          isLoading: false,
-          lyricUrl: lyricUrl,
-          source: LyricSourceDescriptor(
-            title: fileName?.toString() ?? 'subtitle',
-            type: LyricSourceType.remote,
-            url: lyricUrl,
-            hash: hash.toString(),
-            workId: effectiveWorkId,
-          ),
-        ),
+        fileName: lyricFile['title'] ?? lyricFile['name'],
       );
+      if (loaded != null) _setStateForLoadRequest(requestId, loaded);
     } catch (e) {
       if (_isCurrentLoadRequest(requestId)) _releaseRemoteTextLease();
       if (!_isCurrentLoadRequest(requestId)) return;
@@ -1147,6 +975,91 @@ class LyricController extends StateNotifier<LyricState> {
     final message = state.error ?? '字幕文件中没有可显示的内容';
     state = previousState;
     throw StateError(message);
+  }
+
+  LyricSourceDescriptor? _lyricSourceFor(dynamic file, {int? workId}) {
+    final localPath = _localPathOf(file);
+    if (localPath != null) {
+      return LyricSourceDescriptor(
+        title: file['title']?.toString() ?? path.basename(localPath),
+        type: LyricSourceType.localFile,
+        localPath: localPath,
+        hash: file['hash']?.toString(),
+        workId: workId,
+      );
+    }
+    final auth = ref.read(authProvider);
+    final host = auth.host ?? '';
+    final hash = file['hash'];
+    if (hash == null || host.isEmpty) return null;
+    var normalizedUrl = host;
+    if (!host.startsWith('http://') && !host.startsWith('https://')) {
+      final local =
+          host.contains('localhost') ||
+          host.startsWith('127.0.0.1') ||
+          host.startsWith('192.168.');
+      normalizedUrl = '${local ? 'http' : 'https'}://$host';
+    }
+    return LyricSourceDescriptor(
+      title: (file['title'] ?? file['name'])?.toString() ?? 'subtitle',
+      type: LyricSourceType.remote,
+      url: '$normalizedUrl/api/media/stream/$hash?token=${auth.token ?? ''}',
+      hash: hash.toString(),
+      workId: workId,
+    );
+  }
+
+  Future<LyricState?> _readAndParseLyric(
+    LyricSourceDescriptor source,
+    int requestId, {
+    String? fileName,
+  }) async {
+    if (!_isCurrentLoadRequest(requestId)) return null;
+    final localPath = source.localPath;
+    final String content;
+    final String lyricUrl;
+    if (localPath != null) {
+      _releaseRemoteTextLease();
+      final file = File(localPath);
+      final exists = await file.exists();
+      if (!_isCurrentLoadRequest(requestId)) return null;
+      if (!exists) {
+        return LyricState(lyrics: [], isLoading: false, error: '文件不存在');
+      }
+      final (text, encoding) = await EncodingUtils.readFileWithEncoding(file);
+      if (!_isCurrentLoadRequest(requestId)) return null;
+      _log.captureOutput('[Lyric] 本地字幕编码: $encoding');
+      content = text;
+      lyricUrl = 'file://$localPath';
+    } else {
+      lyricUrl = source.url!;
+      final cached = source.workId == null
+          ? null
+          : await CacheService.getCachedTextContent(
+              workId: source.workId!,
+              hash: source.hash!,
+              fileName: fileName,
+            );
+      if (!_isCurrentLoadRequest(requestId)) return null;
+      if (cached != null) {
+        _releaseRemoteTextLease();
+        _log.captureOutput('[Lyric] 从缓存加载字幕: ${source.hash}');
+        content = cached;
+      } else {
+        final remote = await _loadRemoteText(url: lyricUrl, hash: source.hash!);
+        if (!_isCurrentLoadRequest(requestId)) return null;
+        _log.captureOutput('[Lyric] 网络字幕编码: ${remote.encoding}');
+        content = remote.text;
+      }
+    }
+    final lyrics = LyricParser.parse(content);
+    _log.captureOutput('[Lyric] 解析完成: ${lyrics.length} 行字幕');
+    return LyricState(
+      lyrics: lyrics,
+      isLoading: false,
+      lyricUrl: lyricUrl,
+      source: source,
+    );
   }
 
   String? _localPathOf(dynamic file) {
