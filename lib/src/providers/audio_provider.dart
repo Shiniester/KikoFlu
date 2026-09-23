@@ -279,18 +279,11 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
     final playlistMode = await _ref
         .read(audioTapPlaylistModeProvider.notifier)
         .getMode();
-    switch (playlistMode) {
-      case AudioTapPlaylistMode.replaceQueue:
-        await _service.updateQueue([track], autoplay: true);
-      case AudioTapPlaylistMode.addToQueue:
-        await _service.appendTracks([track]);
-      case AudioTapPlaylistMode.playNext:
-        final result = await _service.enqueueNext(track);
-        if (result == EnqueueNextResult.noActiveQueue) {
-          await _service.appendTracks([track]);
-        }
-    }
-    _ref.read(miniPlayerVisibilityProvider.notifier).show();
+    await _executeAudioAddMode(
+      [track],
+      startIndex: 0,
+      playlistMode: playlistMode,
+    );
 
     // Ensure single-track plays are recorded to history.
     if (playlistMode == AudioTapPlaylistMode.replaceQueue &&
@@ -350,15 +343,35 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
       'url="${queueTracks.first.url}"',
     );
 
-    switch (effectiveMode) {
+    await _executeAudioAddMode(
+      tracks,
+      startIndex: selectedIndex,
+      playlistMode: effectiveMode,
+    );
+
+    if (effectiveMode == AudioTapPlaylistMode.replaceQueue &&
+        work != null &&
+        !_service.isTrackLoading &&
+        _service.currentTrack?.id == selectedTrack.id) {
+      _ref.read(historyProvider.notifier).addOrUpdate(work);
+    }
+  }
+
+  Future<void> _executeAudioAddMode(
+    List<AudioTrack> tracks, {
+    required int startIndex,
+    required AudioTapPlaylistMode playlistMode,
+  }) async {
+    final selectedTrack = tracks[startIndex];
+    switch (playlistMode) {
       case AudioTapPlaylistMode.replaceQueue:
         await _service.updateQueue(
-          queueTracks,
-          startIndex: queueStartIndex,
+          tracks,
+          startIndex: startIndex,
           autoplay: true,
         );
       case AudioTapPlaylistMode.addToQueue:
-        await _service.appendTracks(queueTracks);
+        await _service.appendTracks([selectedTrack]);
         _log.captureOutput('[AudioController] 已添加到播放列表末尾');
       case AudioTapPlaylistMode.playNext:
         final result = await _service.enqueueNext(selectedTrack);
@@ -368,13 +381,6 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
         _log.captureOutput('[AudioController] 已安排下一首播放');
     }
     _ref.read(miniPlayerVisibilityProvider.notifier).show();
-
-    if (effectiveMode == AudioTapPlaylistMode.replaceQueue &&
-        work != null &&
-        !_service.isTrackLoading &&
-        _service.currentTrack?.id == selectedTrack.id) {
-      _ref.read(historyProvider.notifier).addOrUpdate(work);
-    }
   }
 
   Future<void> play() async {
