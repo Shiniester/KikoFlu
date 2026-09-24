@@ -510,7 +510,7 @@ class _QueueTrackTile extends StatelessWidget {
                       key: ValueKey(
                         'player-queue-current-indicator-slot-${track.id}',
                       ),
-                      width: 36,
+                      width: isCurrentTrack ? 36 : 0,
                       child: isCurrentTrack
                           ? Padding(
                               padding: const EdgeInsets.symmetric(

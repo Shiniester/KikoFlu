@@ -2337,7 +2337,7 @@ void main() {
                   ),
                 )
                 .width,
-            36,
+            id == 'queue-long' ? 36 : 0,
           );
         }
         expect(
@@ -2348,18 +2348,37 @@ void main() {
               .width,
           closeTo(
             tester
-                .getSize(
-                  find.byKey(
-                    const ValueKey('player-queue-metadata-queue-short'),
-                  ),
-                )
-                .width,
+                    .getSize(
+                      find.byKey(
+                        const ValueKey('player-queue-metadata-queue-short'),
+                      ),
+                    )
+                    .width -
+                36,
             0.01,
           ),
         );
 
         currentTracks.add(shortTrack);
         await tester.pumpAndSettle();
+        expect(
+          tester
+              .getSize(
+                find.byKey(const ValueKey('player-queue-metadata-queue-long')),
+              )
+              .width,
+          closeTo(
+            tester
+                    .getSize(
+                      find.byKey(
+                        const ValueKey('player-queue-metadata-queue-short'),
+                      ),
+                    )
+                    .width +
+                36,
+            0.01,
+          ),
+        );
         expect(nowPlayingRect(), initialAnchors.nowPlaying);
         expect(titleBarRect(), initialAnchors.titleBar);
         expect(listRect(), initialAnchors.list);
