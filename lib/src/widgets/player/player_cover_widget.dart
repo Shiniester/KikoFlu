@@ -319,6 +319,16 @@ class _CoverResizeImage extends ImageProvider<_CoverResizeKey> {
   final ImageProvider source;
   final Size size;
 
+  // Widget rebuilds must preserve image identity as well as the decoded cache key.
+  @override
+  bool operator ==(Object other) =>
+      other is _CoverResizeImage &&
+      other.source == source &&
+      other.size == size;
+
+  @override
+  int get hashCode => Object.hash(source, size);
+
   @override
   Future<_CoverResizeKey> obtainKey(ImageConfiguration configuration) => source
       .obtainKey(configuration)

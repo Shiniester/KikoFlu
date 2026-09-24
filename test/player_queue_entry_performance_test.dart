@@ -15,6 +15,7 @@ import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Future<void> openQueue(WidgetTester tester, List<AudioTrack> tracks) async {
@@ -56,6 +57,20 @@ Future<void> openQueue(WidgetTester tester, List<AudioTrack> tracks) async {
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('mini-player-queue-button')));
   await tester.pumpAndSettle();
+}
+
+void expectCoversOpaque(WidgetTester tester, String reason) {
+  final fades = tester.widgetList<FadeTransition>(
+    find.descendant(
+      of: find.byType(PlayerCompactArtwork),
+      matching: find.byType(FadeTransition),
+    ),
+  );
+  expect(
+    fades.where((fade) => fade.opacity.value < 1),
+    isEmpty,
+    reason: reason,
+  );
 }
 
 void main() {
@@ -164,6 +179,53 @@ void main() {
           expect(decoded.single.width, expectedSizes[i % 4].width);
           expect(decoded.single.height, expectedSizes[i % 4].height);
         }
+        if (remote) {
+          final readsBefore = cache.reads;
+          Navigator.of(
+            tester.element(find.byKey(const ValueKey('player-queue-list'))),
+          ).pop();
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.byKey(const ValueKey('mini-player-queue-button')),
+          );
+          for (var frame = 0; frame < 32; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+            expectCoversOpaque(
+              tester,
+              'Reopening cached queue covers must not restart their fade at frame $frame',
+            );
+          }
+          expect(cache.reads, readsBefore);
+          final row = find.byKey(
+            const ValueKey('player-queue-track-content-track-0'),
+          );
+          final gesture = await tester.startGesture(tester.getCenter(row));
+          await tester.pump(const Duration(milliseconds: 600));
+          for (var i = 0; i < 4; i++) {
+            await gesture.moveBy(const Offset(0, 16));
+            await tester.pump(const Duration(milliseconds: 16));
+            expectCoversOpaque(
+              tester,
+              'Dragging cached covers must not restart their fade',
+            );
+          }
+          await gesture.cancel();
+          await tester.pumpAndSettle();
+          expect(cache.reads, readsBefore);
+          tester.view.physicalSize = const Size(1170, 1800);
+          await tester.pumpAndSettle();
+          final queueList = find.byKey(const ValueKey('player-queue-list'));
+          for (final distance in [-160.0, 160.0]) {
+            await tester.drag(queueList, Offset(0, distance));
+            await tester.pump(const Duration(milliseconds: 16));
+            expectCoversOpaque(
+              tester,
+              'Scrolling cached covers must not restart their fade',
+            );
+            await tester.pumpAndSettle();
+          }
+          expect(cache.reads, readsBefore);
+        }
         expect(tester.takeException(), isNull);
       },
     );
@@ -172,6 +234,7 @@ void main() {
 
 class _CoverCache extends Fake implements BaseCacheManager {
   final files = <String, String>{};
+  int reads = 0;
 
   @override
   Stream<FileResponse> getFileStream(
@@ -180,6 +243,7 @@ class _CoverCache extends Fake implements BaseCacheManager {
     Map<String, String>? headers,
     bool withProgress = false,
   }) async* {
+    reads++;
     yield FileInfo(
       const LocalFileSystem().file(files[url]!),
       FileSource.Cache,
