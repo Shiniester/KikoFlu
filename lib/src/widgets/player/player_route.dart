@@ -83,10 +83,16 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     this.skipInitialTransition = false,
     PlayerDismissVisualMode initialDismissVisualMode =
         PlayerDismissVisualMode.main,
-  }) : _dismissVisualMode = ValueNotifier(initialDismissVisualMode);
+  }) : _dismissVisualMode = ValueNotifier(initialDismissVisualMode),
+       _prepareInitialFrame =
+           !skipInitialTransition &&
+           initialDismissVisualMode == PlayerDismissVisualMode.secondary;
 
   final WidgetBuilder builder;
   final bool skipInitialTransition;
+  final bool _prepareInitialFrame;
+  bool _initialFrameScheduled = false;
+  bool _initialFrameReady = false;
   bool _verticalGestureInProgress = false;
   bool _verticalGestureOpening = false;
   double _verticalGestureStartValue = 0;
@@ -100,7 +106,26 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   late final ProxyAnimation _visualAnimation;
 
   @override
-  Widget buildContent(BuildContext context) => builder(context);
+  Widget buildContent(BuildContext context) {
+    if (_prepareInitialFrame && !_initialFrameScheduled) {
+      _initialFrameScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _initialFrameReady = true;
+      });
+    }
+    return builder(context);
+  }
+
+  @override
+  Simulation? createSimulation({required bool forward}) {
+    if (!forward || !_prepareInitialFrame) {
+      return super.createSimulation(forward: forward);
+    }
+    return _QueueEntrySimulation(
+      isReady: () => _initialFrameReady,
+      duration: playerRouteTransitionDuration,
+    );
+  }
 
   @override
   String? get title => null;
@@ -447,4 +472,32 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     _dismissVisualMode.dispose();
     super.dispose();
   }
+}
+
+/// Keeps first-frame page construction outside the entrance animation's clock.
+/// The route still owns one controller and its normal completion/cancellation.
+class _QueueEntrySimulation extends Simulation {
+  _QueueEntrySimulation({required this.isReady, required Duration duration})
+    : _duration = duration.inMicroseconds / Duration.microsecondsPerSecond;
+
+  final bool Function() isReady;
+  final double _duration;
+  double? _startTime;
+
+  @override
+  double x(double time) {
+    if (_startTime == null) {
+      if (!isReady()) return 0;
+      _startTime = time;
+    }
+    return ((time - _startTime!) / _duration).clamp(0.0, 1.0);
+  }
+
+  @override
+  double dx(double time) =>
+      _startTime == null || isDone(time) ? 0 : 1 / _duration;
+
+  @override
+  bool isDone(double time) =>
+      _startTime != null && time - _startTime! >= _duration;
 }

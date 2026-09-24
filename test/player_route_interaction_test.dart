@@ -6,6 +6,98 @@ import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
 
 void main() {
+  for (final buildFirst in [false, true]) {
+    testWidgets(
+      'queue can close during frame preparation (built: $buildFirst)',
+      (tester) async {
+        final navigatorKey = GlobalKey<NavigatorState>();
+        await tester.pumpWidget(
+          MaterialApp(
+            navigatorKey: navigatorKey,
+            home: const Scaffold(body: Text('host')),
+          ),
+        );
+        final route = AudioPlayerPageRoute<void>(
+          initialDismissVisualMode: PlayerDismissVisualMode.secondary,
+          builder: (_) => const Scaffold(body: Text('queue')),
+        );
+        final result = navigatorKey.currentState!.push<void>(route);
+        if (buildFirst) await tester.pump();
+        navigatorKey.currentState!.pop();
+        await tester.pumpAndSettle();
+        await result;
+        await route.completed;
+        expect(find.text('queue'), findsNothing);
+        expect(find.text('host'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('reduced motion completes queue entry during its first frame', (
+    tester,
+  ) async {
+    final navigatorKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(disableAnimations: true),
+          child: child!,
+        ),
+        home: const Scaffold(body: Text('host')),
+      ),
+    );
+    final route = AudioPlayerPageRoute<void>(
+      initialDismissVisualMode: PlayerDismissVisualMode.secondary,
+      builder: (_) => const Scaffold(body: Text('queue')),
+    );
+    unawaited(navigatorKey.currentState!.push<void>(route));
+    await tester.pump();
+    expect(route.debugTransitionValue, 1);
+    await tester.pumpAndSettle();
+    expect(route.debugTransitionStatus, AnimationStatus.completed);
+    navigatorKey.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(find.text('host'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('queue entry excludes first layout work from animation time', (
+    tester,
+  ) async {
+    final navigatorKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        home: const Scaffold(body: Text('host')),
+      ),
+    );
+    var builds = 0;
+    final route = AudioPlayerPageRoute<void>(
+      initialDismissVisualMode: PlayerDismissVisualMode.secondary,
+      builder: (_) {
+        builds++;
+        return const Scaffold(body: Text('queue'));
+      },
+    );
+    unawaited(navigatorKey.currentState!.push<void>(route));
+    await tester.pump();
+    expect(builds, 1);
+    // The next vsync arrives late after the initial page's build/layout work.
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(route.debugTransitionValue, 0);
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(route.debugTransitionValue, closeTo(16 / 380, 0.001));
+    await tester.pump(const Duration(milliseconds: 364));
+    expect(route.debugTransitionValue, 1);
+    expect(builds, 1);
+    navigatorKey.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(find.text('host'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('player route follows, reverses, cancels and completes opening', (
     tester,
   ) async {
