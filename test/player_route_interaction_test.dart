@@ -356,7 +356,7 @@ void main() {
     expect(find.text('progress-player'), findsOneWidget);
   });
 
-  testWidgets('only compact queue entry skips the full-page transition', (
+  testWidgets('compact queue entry uses 260ms and retains 380ms dismissal', (
     tester,
   ) async {
     tester.view.devicePixelRatio = 1;
@@ -379,11 +379,17 @@ void main() {
         expect(
           route.transitionDuration,
           width == 390 && mode == PlayerDismissVisualMode.secondary
-              ? Duration.zero
+              ? const Duration(milliseconds: 260)
               : playerRouteTransitionDuration,
         );
         expect(route.reverseTransitionDuration, playerRouteTransitionDuration);
         navigatorKey.currentState!.pop();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 190));
+        expect(
+          route.debugVisualValue,
+          closeTo(Curves.easeInCubic.transform(0.5), 0.001),
+        );
         await tester.pumpAndSettle();
       }
     }

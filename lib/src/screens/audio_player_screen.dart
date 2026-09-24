@@ -145,13 +145,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
     _directQueueEntry = widget.initialSurface == PlayerInitialSurface.queue;
     _playerPagesActivated = !_directQueueEntry;
     _queueHasBeenOpened = _directQueueEntry;
-    _queueTransitionActive = _directQueueEntry;
     if (_directQueueEntry) _rightPane = PlayerRightPane.queue;
     _compactQueueTransitionController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 260),
       reverseDuration: const Duration(milliseconds: 260),
-      value: 0,
+      value: _directQueueEntry ? 1 : 0,
     );
     _routePaletteFrozen = widget.initialPalette != null;
   }
@@ -510,7 +509,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
                 builder: (context, _, child) => PopScope(
                   canPop:
                       !_isLyricLocked &&
-                      (!_queueTransitionActive || _directQueueEntry) &&
+                      !_queueTransitionActive &&
                       (_directQueueEntry ||
                           (_rightPane != PlayerRightPane.queue &&
                               (_lastWasWide == true ||
@@ -595,7 +594,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
 
   void _syncResponsivePageController(bool isWide) {
     if (_lastWasWide == isWide) return;
-    final animateQueueEntry = _lastWasWide == null && _directQueueEntry;
     _lastWasWide = isWide;
     final compactTarget = _semanticCompactPage;
     _compactPage = compactTarget;
@@ -621,12 +619,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen>
         if (_compactPageController.hasClients) {
           _compactPageController.jumpToPage(compactTarget);
         }
-        if (animateQueueEntry) {
-          _settleCompactQueue(open: true, restoreOnClose: false);
-        } else {
-          _compactQueueTransitionController.value =
-              _rightPane == PlayerRightPane.queue ? 1 : 0;
-        }
+        _compactQueueTransitionController.value =
+            _rightPane == PlayerRightPane.queue ? 1 : 0;
       }
     });
   }

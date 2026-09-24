@@ -219,6 +219,7 @@ void main() {
           route,
           progress,
           reverse: false,
+          forwardCurve: Curves.fastEaseInToSlowEaseOut,
         );
         _expectQueueArtworkAttachedToPage(tester, actualProgress);
       }
@@ -287,8 +288,9 @@ Future<double> _setAutomaticVisualProgress(
   AudioPlayerPageRoute<void> route,
   double visualProgress, {
   required bool reverse,
+  Curve forwardCurve = Curves.easeOutCubic,
 }) async {
-  final curve = reverse ? Curves.easeInCubic : Curves.easeOutCubic;
+  final curve = reverse ? Curves.easeInCubic : forwardCurve;
   route.debugSetControllerValue(_invertCurve(curve, visualProgress));
   await tester.pump();
   expect(route.debugVisualValue, closeTo(visualProgress, 0.003));

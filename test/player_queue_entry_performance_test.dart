@@ -111,11 +111,12 @@ void main() {
       await tester.pump();
       await tester.pump();
       await tester.pump();
-      final stage = find.byKey(const ValueKey('compact-queue-stage-transform'));
+      final stage = find.byKey(
+        const ValueKey('player-route-vertical-translation'),
+      );
       double offset() => tester.widget<Transform>(stage).transform.storage[13];
-      final height = tester
-          .getSize(find.byKey(const ValueKey('compact-player-vertical-pages')))
-          .height;
+      final height =
+          tester.view.physicalSize.height / tester.view.devicePixelRatio;
       expect(offset(), reduceMotion ? 0 : height);
       await tester.pump(const Duration(milliseconds: 130));
       expect(
@@ -164,7 +165,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
   for (final count in [8, 2000]) {
-    testWidgets('queue entry has only content motion with $count tracks', (
+    testWidgets('queue background moves with content for $count tracks', (
       tester,
     ) async {
       final tracks = List.generate(
@@ -204,16 +205,16 @@ void main() {
           final scroll = tester.state<ScrollableState>(
             find.descendant(of: queue, matching: find.byType(Scrollable)),
           );
-          final localY = tester.getTopLeft(row).dy - queueY;
+          final localY = tester.getTopLeft(row).dy - routeY;
           rowLocalY ??= localY;
-          expect(routeY, 0, reason: 'Queue background must stay fixed');
+          expect(queueY, 0, reason: 'Queue must not add a second slide');
           expect(
             tester
                 .getTopLeft(
                   find.byKey(const ValueKey('player-palette-background')),
                 )
                 .dy,
-            0,
+            routeY,
           );
           expect(
             scroll.position.pixels,
@@ -227,9 +228,9 @@ void main() {
             reason: 'Row movement must equal queue content movement',
           );
           if (offsets.isNotEmpty) {
-            expect(queueY, lessThanOrEqualTo(offsets.last));
+            expect(routeY, lessThanOrEqualTo(offsets.last));
           }
-          offsets.add(queueY);
+          offsets.add(routeY);
         }
         expect(offsets.length, greaterThan(20));
         expect(offsets.first, greaterThan(0));

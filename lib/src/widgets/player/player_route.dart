@@ -73,8 +73,8 @@ Future<T?> openAudioPlayer<T>(
 /// Shared route used by every global Mini Player entry point.
 ///
 /// The Player Cover Page's artwork follows the full-page route through a staged
-/// Hero path. Compact queue entry animates its content inside a fixed background;
-/// wide queue entry and route dismissal travel one viewport height.
+/// Hero path. Queue content and background travel together, using the internal
+/// queue motion for compact entry and the full-page motion for dismissal.
 class AudioPlayerPageRoute<T> extends PageRoute<T>
     with CupertinoRouteTransitionMixin<T>
     implements PlayerInteractiveDismissRoute {
@@ -114,9 +114,7 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
 
   @override
   Widget buildContent(BuildContext context) {
-    if (_prepareInitialFrame &&
-        !_compactQueueEntry &&
-        !_initialFrameScheduled) {
+    if (_prepareInitialFrame && !_initialFrameScheduled) {
       _initialFrameScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _initialFrameReady = true;
@@ -127,12 +125,12 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
 
   @override
   Simulation? createSimulation({required bool forward}) {
-    if (!forward || !_prepareInitialFrame || _compactQueueEntry) {
+    if (!forward || !_prepareInitialFrame) {
       return super.createSimulation(forward: forward);
     }
     return _QueueEntrySimulation(
       isReady: () => _initialFrameReady,
-      duration: playerRouteTransitionDuration,
+      duration: transitionDuration,
     );
   }
 
@@ -143,8 +141,10 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   bool get maintainState => true;
 
   @override
-  Duration get transitionDuration => skipInitialTransition || _compactQueueEntry
+  Duration get transitionDuration => skipInitialTransition
       ? Duration.zero
+      : _compactQueueEntry
+      ? const Duration(milliseconds: 260)
       : playerRouteTransitionDuration;
 
   @override
@@ -155,7 +155,9 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
     _controllerAnimation = super.createAnimation();
     _automaticVisualAnimation = CurvedAnimation(
       parent: _controllerAnimation,
-      curve: Curves.easeOutCubic,
+      curve: _compactQueueEntry
+          ? Curves.fastEaseInToSlowEaseOut
+          : Curves.easeOutCubic,
       reverseCurve: Curves.easeInCubic,
     );
     _visualAnimation = ProxyAnimation(_automaticVisualAnimation);
