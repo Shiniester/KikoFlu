@@ -10,8 +10,18 @@ The persistent compact playback surface shown below the app's main content.
 _Avoid_: Player bar
 
 **App Tab Bar (应用标签栏)**:
-The primary app navigation containing Home, Search, My, and Settings.
+The primary app navigation containing Audio and Settings.
 _Avoid_: Player navigation, bottom menu
+
+**Audio Screen (音声页)**:
+The app page that contains the Works Home Tab and the user's online marks,
+history, playlists, downloads, and subtitle library tabs.
+_Avoid_: Home page, My page
+
+**Works Home Tab (主页标签)**:
+The fixed first tab in the Audio Screen that displays the online works feed.
+It is distinct from the Audio Screen, which also contains the user's library tabs.
+_Avoid_: Audio Screen, app home page
 
 **Work Details Screen (作品详情页)**:
 The online or offline screen describing a work and its available audio files.

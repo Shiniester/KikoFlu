@@ -5,8 +5,15 @@
 
   "navHome": "Главная",
   "navSearch": "Поиск",
-  "navMy": "Моё",
+  "navMy": "Аудио",
   "navSettings": "Настройки",
+  "feedSettings": "Настройки ленты",
+  "searchOnlineWorks": "Поиск онлайн-работ",
+  "layout": "Раскладка",
+  "layoutBigGrid": "Крупная сетка",
+  "layoutSmallGrid": "Мелкая сетка",
+  "layoutList": "Список",
+  "subtitleFilter": "Фильтр по субтитрам",
 
   "offlineModeMessage": "Автономный режим: нет подключения к сети, доступен только загруженный контент",
   "retry": "Повторить",
@@ -526,7 +533,7 @@
   "showMetadata": "Показывать метаданные",
   "relatedRecommendations": "Похожие работы",
 
-  "myTabsDisplaySettings": "Вкладки «Моё»",
+  "myTabsDisplaySettings": "Вкладки «Аудио»",
   "showTab": "Показать вкладку",
   "tabOrder": "Порядок вкладок",
 
@@ -621,7 +628,7 @@
   "playerLyricStyleSubtitle": "Стиль текста в мини- и полноэкранном плеере",
   "workDetailDisplaySubtitle": "Содержимое страницы работы",
   "workCardDisplaySubtitle": "Содержимое карточек работ",
-  "myTabsDisplaySubtitle": "Вкладки на странице «Моё»",
+  "myTabsDisplaySubtitle": "Вкладки на странице «Аудио»",
   "pageSizeSettings": "Элементов на странице",
   "pageSizeCurrent": "{size} элементов на странице",
 
@@ -1168,7 +1175,7 @@
   "showSubtitleTagOnCard": "Показывать метку субтитров на карточке произведения",
   "showAgeRatingOnCard": "Показывать возрастной рейтинг на карточке произведения",
 
-  "myTabsDisplaySettings": "Настройки страницы «Моё»",
+  "myTabsDisplaySettings": "Настройки страницы «Аудио»",
   "showOnlineMarks": "Показывать произведения с онлайн-метками",
   "cannotBeDisabled": "Нельзя отключить",
   "showPlaylists": "Показывать созданные плейлисты",

@@ -5,8 +5,15 @@
 
   "navHome": "ホーム",
   "navSearch": "検索",
-  "navMy": "マイ",
+  "navMy": "音声",
   "navSettings": "設定",
+  "feedSettings": "表示設定",
+  "searchOnlineWorks": "オンライン作品を検索",
+  "layout": "レイアウト",
+  "layoutBigGrid": "大きなグリッド",
+  "layoutSmallGrid": "小さなグリッド",
+  "layoutList": "リスト",
+  "subtitleFilter": "字幕フィルター",
 
   "offlineModeMessage": "オフラインモード：ネットワーク接続に失敗しました。ダウンロード済みコンテンツのみアクセスできます",
   "retry": "再試行",
@@ -526,7 +533,7 @@
   "showMetadata": "メタデータを表示",
   "relatedRecommendations": "関連作品",
 
-  "myTabsDisplaySettings": "マイページタブ設定",
+  "myTabsDisplaySettings": "音声ページタブ設定",
   "showTab": "タブを表示",
   "tabOrder": "タブの順序",
 
@@ -621,7 +628,7 @@
   "playerLyricStyleSubtitle": "ミニ・全画面の歌詞スタイル",
   "workDetailDisplaySubtitle": "詳細ページの表示内容",
   "workCardDisplaySubtitle": "作品カードの表示内容",
-  "myTabsDisplaySubtitle": "マイページに表示するタブ",
+  "myTabsDisplaySubtitle": "音声ページに表示するタブ",
   "pageSizeSettings": "ページあたりの表示数",
   "pageSizeCurrent": "1ページ {size} 件",
 
@@ -1168,7 +1175,7 @@
   "showSubtitleTagOnCard": "作品カードに字幕タグを表示",
   "showAgeRatingOnCard": "作品カードに年齢区分を表示",
 
-  "myTabsDisplaySettings": "「マイ」ページ設定",
+  "myTabsDisplaySettings": "「音声」ページ設定",
   "showOnlineMarks": "オンラインマークの作品を表示",
   "cannotBeDisabled": "無効にできません",
   "showPlaylists": "作成したプレイリストを表示",

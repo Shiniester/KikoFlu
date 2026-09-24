@@ -5,8 +5,15 @@
 
   "navHome": "首頁",
   "navSearch": "搜尋",
-  "navMy": "我的",
+  "navMy": "音聲",
   "navSettings": "設定",
+  "feedSettings": "顯示設定",
+  "searchOnlineWorks": "搜尋線上作品",
+  "layout": "版面配置",
+  "layoutBigGrid": "大網格",
+  "layoutSmallGrid": "小網格",
+  "layoutList": "列表",
+  "subtitleFilter": "字幕篩選",
 
   "offlineModeMessage": "離線模式：網路連線失敗，僅可存取已下載內容",
   "retry": "重試",
@@ -526,7 +533,7 @@
   "showMetadata": "顯示元資料",
   "relatedRecommendations": "相關推薦",
 
-  "myTabsDisplaySettings": "我的頁面標籤設定",
+  "myTabsDisplaySettings": "音聲頁面標籤設定",
   "showTab": "顯示標籤",
   "tabOrder": "標籤順序",
 
@@ -621,7 +628,7 @@
   "playerLyricStyleSubtitle": "調整迷你與全螢幕歌詞樣式",
   "workDetailDisplaySubtitle": "選擇詳情頁顯示內容",
   "workCardDisplaySubtitle": "選擇作品卡片顯示內容",
-  "myTabsDisplaySubtitle": "選擇「我的」頁面標籤",
+  "myTabsDisplaySubtitle": "選擇「音聲」頁面標籤",
   "pageSizeSettings": "每頁顯示數量",
   "pageSizeCurrent": "每頁 {size} 條",
 
@@ -1168,7 +1175,7 @@
   "showSubtitleTagOnCard": "顯示作品卡片上的字幕標籤",
   "showAgeRatingOnCard": "顯示作品卡片上的年齡分級",
 
-  "myTabsDisplaySettings": "「我的」介面設定",
+  "myTabsDisplaySettings": "「音聲」介面設定",
   "showOnlineMarks": "顯示線上標記的作品",
   "cannotBeDisabled": "不可關閉",
   "showPlaylists": "顯示建立的播放列表",

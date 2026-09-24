@@ -14,13 +14,24 @@ import '../../l10n/app_localizations.dart';
 import '../widgets/download_fab.dart';
 import '../models/sort_options.dart';
 import '../utils/subtitle_filter.dart';
-import '../utils/l10n_extensions.dart';
 import '../utils/system_ui_style.dart';
 import '../utils/ui_tokens.dart';
 import '../widgets/async_state_view.dart';
+import '../widgets/settings_option_dialog.dart';
+import '../widgets/feed_settings_menu_button.dart';
+import '../widgets/radio_option_group.dart';
 
 class WorksScreen extends ConsumerStatefulWidget {
-  const WorksScreen({super.key});
+  const WorksScreen({
+    super.key,
+    this.toolbarTop,
+    this.embedded = false,
+    this.onSearchOnline,
+  });
+
+  final double? toolbarTop;
+  final bool embedded;
+  final VoidCallback? onSearchOnline;
 
   @override
   ConsumerState<WorksScreen> createState() => _WorksScreenState();
@@ -84,39 +95,78 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
     );
   }
 
-  IconData _getLayoutIcon(LayoutType layoutType) {
-    switch (layoutType) {
-      case LayoutType.bigGrid:
-        return Icons.grid_3x3;
-      case LayoutType.smallGrid:
-        return Icons.view_list;
-      case LayoutType.list:
-        return Icons.view_agenda;
-    }
-  }
-
-  String _getLayoutTooltip(LayoutType layoutType) {
-    switch (layoutType) {
-      case LayoutType.bigGrid:
-        return S.of(context).switchToSmallGrid;
-      case LayoutType.smallGrid:
-        return S.of(context).switchToList;
-      case LayoutType.list:
-        return S.of(context).switchToLargeGrid;
-    }
-  }
-
-  IconData _getSubtitleFilterIcon(int subtitleFilter) {
-    final mode = SubtitleFilterMode.fromValue(subtitleFilter);
-    return mode == SubtitleFilterMode.withSubtitles
-        ? Icons.closed_caption
-        : Icons.closed_caption_disabled;
-  }
-
   void _changeDisplayMode(DisplayMode mode) {
     final currentMode = ref.read(worksProvider).displayMode;
     if (currentMode == mode) return;
     ref.read(worksProvider.notifier).setDisplayMode(mode);
+  }
+
+  void _showLayoutOptions(WorksState state) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => CommonOptionDialog<LayoutType>(
+        title: S.of(context).layout,
+        icon: Icons.grid_view,
+        value: state.layoutType,
+        options: [
+          RadioOption(
+            value: LayoutType.bigGrid,
+            title: Text(S.of(context).layoutBigGrid),
+          ),
+          RadioOption(
+            value: LayoutType.smallGrid,
+            title: Text(S.of(context).layoutSmallGrid),
+          ),
+          RadioOption(
+            value: LayoutType.list,
+            title: Text(S.of(context).layoutList),
+          ),
+        ],
+        onChanged: (value) {
+          ref.read(worksProvider.notifier).setLayoutType(value);
+          return true;
+        },
+      ),
+    );
+  }
+
+  void _showSubtitleOptions(WorksState state) {
+    final currentMode = SubtitleFilterMode.fromValue(state.subtitleFilter);
+    showDialog<void>(
+      context: context,
+      builder: (context) => CommonOptionDialog<SubtitleFilterMode>(
+        title: S.of(context).subtitleFilter,
+        icon: Icons.closed_caption,
+        value: currentMode,
+        options: [
+          RadioOption(
+            value: SubtitleFilterMode.all,
+            title: Text(S.of(context).showAllWorks),
+          ),
+          RadioOption(
+            value: SubtitleFilterMode.withSubtitles,
+            title: Text(S.of(context).showOnlySubtitled),
+          ),
+        ],
+        onChanged: (value) {
+          if (value != currentMode) {
+            ref.read(worksProvider.notifier).setSubtitleFilter(value);
+          }
+          return true;
+        },
+      ),
+    );
+  }
+
+  void _handleFeedSetting(FeedSettingsAction action, WorksState state) {
+    switch (action) {
+      case FeedSettingsAction.layout:
+        _showLayoutOptions(state);
+      case FeedSettingsAction.subtitles:
+        _showSubtitleOptions(state);
+      case FeedSettingsAction.sort:
+        _showSortDialog(context);
+    }
   }
 
   void _handleSwipe(DragEndDetails details) {
@@ -168,7 +218,7 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
 
     final horizontalPadding = FloatingToolbarLayout.horizontalPadding(context);
     final topPadding = MediaQuery.paddingOf(context).top;
-    final toolbarTop = topPadding + 8;
+    final toolbarTop = widget.toolbarTop ?? topPadding + 8;
     final contentTopPadding = toolbarTop + 56;
     final displayGeneration = _displayGeneration;
     final reduceMotion = MediaQuery.disableAnimationsOf(context);
@@ -179,7 +229,7 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
     return AnnotatedRegion(
       value: systemOverlayStyle,
       child: Scaffold(
-        floatingActionButton: const DownloadFab(),
+        floatingActionButton: widget.embedded ? null : const DownloadFab(),
         body: Stack(
           children: [
             Positioned.fill(
@@ -282,28 +332,22 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
     WorksState worksState, {
     required bool isRecommendMode,
   }) {
-    final subtitleMode = SubtitleFilterMode.fromValue(
-      worksState.subtitleFilter,
-    );
+    final onSearchOnline = widget.onSearchOnline;
     return [
+      if (onSearchOnline != null)
+        FloatingFeedToolAction(
+          icon: Icons.search,
+          tooltip: S.of(context).searchOnlineWorks,
+          onPressed: onSearchOnline,
+        ),
       FloatingFeedToolAction(
-        icon: _getLayoutIcon(worksState.layoutType),
-        tooltip: _getLayoutTooltip(worksState.layoutType),
-        onPressed: () => ref.read(worksProvider.notifier).toggleLayoutType(),
-      ),
-      FloatingFeedToolAction(
-        icon: _getSubtitleFilterIcon(worksState.subtitleFilter),
-        tooltip: subtitleMode.localizedTooltip(context),
-        isSelected: subtitleMode.isActive,
-        onPressed: () =>
-            ref.read(worksProvider.notifier).toggleSubtitleFilter(),
-      ),
-      FloatingFeedToolAction(
-        icon: Icons.sort,
-        tooltip: isRecommendMode
-            ? S.of(context).recommendedNoSort
-            : S.of(context).sort,
-        onPressed: isRecommendMode ? null : () => _showSortDialog(context),
+        icon: Icons.more_vert,
+        tooltip: S.of(context).feedSettings,
+        onPressed: null,
+        builder: (context) => FeedSettingsMenuButton(
+          sortEnabled: !isRecommendMode,
+          onSelected: (action) => _handleFeedSetting(action, worksState),
+        ),
       ),
     ];
   }

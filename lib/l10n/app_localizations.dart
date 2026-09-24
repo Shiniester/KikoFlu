@@ -123,7 +123,7 @@ abstract class S {
   /// No description provided for @navMy.
   ///
   /// In en, this message translates to:
-  /// **'My'**
+  /// **'Audio'**
   String get navMy;
 
   /// No description provided for @navSettings.
@@ -131,6 +131,48 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Settings'**
   String get navSettings;
+
+  /// No description provided for @feedSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Feed settings'**
+  String get feedSettings;
+
+  /// No description provided for @searchOnlineWorks.
+  ///
+  /// In en, this message translates to:
+  /// **'Search online works'**
+  String get searchOnlineWorks;
+
+  /// No description provided for @layout.
+  ///
+  /// In en, this message translates to:
+  /// **'Layout'**
+  String get layout;
+
+  /// No description provided for @layoutBigGrid.
+  ///
+  /// In en, this message translates to:
+  /// **'Large grid'**
+  String get layoutBigGrid;
+
+  /// No description provided for @layoutSmallGrid.
+  ///
+  /// In en, this message translates to:
+  /// **'Small grid'**
+  String get layoutSmallGrid;
+
+  /// No description provided for @layoutList.
+  ///
+  /// In en, this message translates to:
+  /// **'List'**
+  String get layoutList;
+
+  /// No description provided for @subtitleFilter.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle filter'**
+  String get subtitleFilter;
 
   /// No description provided for @offlineModeMessage.
   ///
@@ -2853,7 +2895,7 @@ abstract class S {
   /// No description provided for @myTabsDisplaySettings.
   ///
   /// In en, this message translates to:
-  /// **'\"My\" Page Settings'**
+  /// **'\"Audio\" Page Settings'**
   String get myTabsDisplaySettings;
 
   /// No description provided for @showTab.
@@ -3345,7 +3387,7 @@ abstract class S {
   /// No description provided for @myTabsDisplaySubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Tabs shown on My'**
+  /// **'Tabs shown on Audio'**
   String get myTabsDisplaySubtitle;
 
   /// No description provided for @pageSizeSettings.

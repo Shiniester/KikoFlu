@@ -9,9 +9,7 @@ import '../widgets/app_bottom_dock_transition.dart';
 import '../widgets/app_bottom_dock.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/lazy_indexed_stack.dart';
-import 'works_screen.dart';
-import 'search_screen.dart';
-import 'my_screen.dart';
+import 'audio_screen.dart';
 import 'settings_screen.dart';
 import '../providers/settings_provider.dart';
 
@@ -24,7 +22,7 @@ class MainScreen extends ConsumerStatefulWidget {
 
 class _MainScreenState extends ConsumerState<MainScreen> {
   int _currentIndex = 0;
-  static const int _settingsTabIndex = 3;
+  static const int _settingsTabIndex = 1;
 
   // 使用 PageStorageBucket 来保存页面状态
   final PageStorageBucket _bucket = PageStorageBucket();
@@ -36,9 +34,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   void initState() {
     super.initState();
     _screens = const [
-      WorksScreen(key: PageStorageKey('works_screen')),
-      SearchScreen(key: PageStorageKey('search_screen')),
-      MyScreen(key: PageStorageKey('my_screen')),
+      AudioScreen(key: PageStorageKey('audio_screen')),
       SettingsScreen(key: PageStorageKey('settings_screen')),
     ];
   }
@@ -50,18 +46,8 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     final s = S.of(context);
     return [
       NavigationDestination(
-        icon: const Icon(Icons.home_outlined),
-        selectedIcon: const Icon(Icons.home),
-        label: s.navHome,
-      ),
-      NavigationDestination(
-        icon: const Icon(Icons.search_outlined),
-        selectedIcon: const Icon(Icons.search),
-        label: s.navSearch,
-      ),
-      NavigationDestination(
-        icon: const Icon(Icons.favorite_border),
-        selectedIcon: const Icon(Icons.favorite),
+        icon: const Icon(Icons.library_music_outlined),
+        selectedIcon: const Icon(Icons.library_music),
         label: s.navMy,
       ),
       NavigationDestination(

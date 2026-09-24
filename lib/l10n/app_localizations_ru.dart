@@ -18,10 +18,31 @@ class SRu extends S {
   String get navSearch => 'Поиск';
 
   @override
-  String get navMy => 'Моё';
+  String get navMy => 'Аудио';
 
   @override
   String get navSettings => 'Настройки';
+
+  @override
+  String get feedSettings => 'Настройки ленты';
+
+  @override
+  String get searchOnlineWorks => 'Поиск онлайн-работ';
+
+  @override
+  String get layout => 'Раскладка';
+
+  @override
+  String get layoutBigGrid => 'Крупная сетка';
+
+  @override
+  String get layoutSmallGrid => 'Мелкая сетка';
+
+  @override
+  String get layoutList => 'Список';
+
+  @override
+  String get subtitleFilter => 'Фильтр по субтитрам';
 
   @override
   String get offlineModeMessage =>
@@ -1498,7 +1519,7 @@ class SRu extends S {
   String get relatedRecommendations => 'Похожие работы';
 
   @override
-  String get myTabsDisplaySettings => 'Настройки страницы «Моё»';
+  String get myTabsDisplaySettings => 'Настройки страницы «Аудио»';
 
   @override
   String get showTab => 'Показать вкладку';
@@ -1761,7 +1782,7 @@ class SRu extends S {
   String get workCardDisplaySubtitle => 'Содержимое карточек работ';
 
   @override
-  String get myTabsDisplaySubtitle => 'Вкладки на странице «Моё»';
+  String get myTabsDisplaySubtitle => 'Вкладки на странице «Аудио»';
 
   @override
   String get pageSizeSettings => 'Элементов на странице';

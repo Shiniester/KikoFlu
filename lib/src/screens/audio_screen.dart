@@ -20,26 +20,34 @@ import 'subtitle_library_screen.dart';
 import 'playlists_screen.dart';
 import 'history_screen.dart';
 import '../widgets/sort_dialog.dart';
+import '../widgets/settings_option_dialog.dart';
+import '../widgets/global_audio_player_wrapper.dart';
+import '../widgets/feed_settings_menu_button.dart';
+import '../widgets/radio_option_group.dart';
 import '../models/sort_options.dart';
 import '../utils/subtitle_filter.dart';
 import '../utils/system_ui_style.dart';
+import 'works_screen.dart';
+import 'search_screen.dart';
 export '../providers/my_reviews_provider.dart' show MyReviewLayoutType;
 
 import '../../l10n/app_localizations.dart';
 
-class MyScreen extends ConsumerStatefulWidget {
-  const MyScreen({super.key});
+class AudioScreen extends ConsumerStatefulWidget {
+  const AudioScreen({super.key});
 
   @override
-  ConsumerState<MyScreen> createState() => _MyScreenState();
+  ConsumerState<AudioScreen> createState() => _AudioScreenState();
 }
 
-class _MyScreenState extends ConsumerState<MyScreen>
+class _AudioScreenState extends ConsumerState<AudioScreen>
     with AutomaticKeepAliveClientMixin, TickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
   late TabController _tabController;
   final ValueNotifier<bool> _tabSwitcherVisible = ValueNotifier(true);
   int _lastTabIndex = 0;
+  String _selectedTabId = 'home';
+  List<String> _tabIds = const ['home'];
 
   @override
   bool get wantKeepAlive => true; // 保持状态不被销毁
@@ -49,76 +57,109 @@ class _MyScreenState extends ConsumerState<MyScreen>
     required double contentTop,
     required double collapsedToolbarTop,
   }) {
-    final tabs = <_TabInfo>[];
+    final tabs = <_TabInfo>[
+      _TabInfo(
+        id: 'home',
+        title: S.of(context).navHome,
+        icon: Icons.home_outlined,
+        widget: WorksScreen(
+          toolbarTop: contentTop,
+          embedded: true,
+          onSearchOnline: _openOnlineSearch,
+        ),
+        showFab: true,
+        fabWidget: const DownloadFab(),
+      ),
+    ];
     final authState = ref.watch(authProvider);
     final isOfficialServer = ServerUtils.isOfficialServer(authState.host);
     final activeDownloadCount =
         ref.watch(downloadSummaryProvider).valueOrNull?.active ?? 0;
 
     if (settings.showOnlineMarks) {
-      tabs.add(_TabInfo(
-        title: S.of(context).onlineMarks,
-        icon: Icons.bookmark,
-        index: 0,
-        widget: _buildOnlineBookmarksTab(
-          toolbarTop: contentTop,
-          collapsedToolbarTop: collapsedToolbarTop,
+      tabs.add(
+        _TabInfo(
+          id: 'onlineMarks',
+          title: S.of(context).onlineMarks,
+          icon: Icons.bookmark,
+          widget: _buildOnlineBookmarksTab(
+            toolbarTop: contentTop,
+            collapsedToolbarTop: collapsedToolbarTop,
+          ),
+          showFab: true,
+          fabWidget: const DownloadFab(),
         ),
-        showFab: true,
-        fabWidget: const DownloadFab(),
-      ));
+      );
     }
 
     // 历史记录
-    tabs.add(_TabInfo(
-      title: S.of(context).historyRecord,
-      icon: Icons.history,
-      index: tabs.length,
-      widget: HistoryScreen(topInset: contentTop),
-    ));
+    tabs.add(
+      _TabInfo(
+        id: 'history',
+        title: S.of(context).historyRecord,
+        icon: Icons.history,
+        widget: _buildSearchableCollectionTab(
+          toolbarTop: contentTop,
+          collapsedToolbarTop: collapsedToolbarTop,
+          child: HistoryScreen(topInset: contentTop + 56),
+        ),
+      ),
+    );
 
     if (settings.showPlaylists && isOfficialServer) {
-      tabs.add(_TabInfo(
-        title: S.of(context).playlists,
-        icon: Icons.playlist_play,
-        index: 1,
-        widget: PlaylistsScreen(topInset: contentTop),
-      ));
+      tabs.add(
+        _TabInfo(
+          id: 'playlists',
+          title: S.of(context).playlists,
+          icon: Icons.playlist_play,
+          widget: _buildSearchableCollectionTab(
+            toolbarTop: contentTop,
+            collapsedToolbarTop: collapsedToolbarTop,
+            child: PlaylistsScreen(topInset: contentTop + 56),
+          ),
+        ),
+      );
     }
 
     // 已下载始终显示
-    tabs.add(_TabInfo(
-      title: S.of(context).downloaded,
-      icon: Icons.download_done,
-      index: 2,
-      widget: LocalDownloadsScreen(
-        toolbarTop: contentTop,
-        collapsedToolbarTop: collapsedToolbarTop,
-        primaryToolbarVisible: _tabSwitcherVisible,
-      ),
-      showFab: true,
-      fabWidget: Badge(
-        isLabelVisible: activeDownloadCount > 0,
-        label: Text('$activeDownloadCount'),
-        child: FloatingActionButton(
-          onPressed: _navigateToDownloads,
-          tooltip: S.of(context).downloadTasks,
-          child: const Icon(Icons.download),
-        ),
-      ),
-    ));
-
-    if (settings.showSubtitleLibrary) {
-      tabs.add(_TabInfo(
-        title: S.of(context).subtitleLibrary,
-        icon: Icons.subtitles,
-        index: 3,
-        widget: SubtitleLibraryScreen(
+    tabs.add(
+      _TabInfo(
+        id: 'downloads',
+        title: S.of(context).downloaded,
+        icon: Icons.download_done,
+        widget: LocalDownloadsScreen(
           toolbarTop: contentTop,
           collapsedToolbarTop: collapsedToolbarTop,
           primaryToolbarVisible: _tabSwitcherVisible,
+          onSearchOnline: _openOnlineSearch,
         ),
-      ));
+        showFab: true,
+        fabWidget: Badge(
+          isLabelVisible: activeDownloadCount > 0,
+          label: Text('$activeDownloadCount'),
+          child: FloatingActionButton(
+            onPressed: _navigateToDownloads,
+            tooltip: S.of(context).downloadTasks,
+            child: const Icon(Icons.download),
+          ),
+        ),
+      ),
+    );
+
+    if (settings.showSubtitleLibrary) {
+      tabs.add(
+        _TabInfo(
+          id: 'subtitleLibrary',
+          title: S.of(context).subtitleLibrary,
+          icon: Icons.subtitles,
+          widget: SubtitleLibraryScreen(
+            toolbarTop: contentTop,
+            collapsedToolbarTop: collapsedToolbarTop,
+            primaryToolbarVisible: _tabSwitcherVisible,
+            onSearchOnline: _openOnlineSearch,
+          ),
+        ),
+      );
     }
 
     return tabs;
@@ -127,7 +168,7 @@ class _MyScreenState extends ConsumerState<MyScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 1, vsync: this);
     _tabController.addListener(_handleTabChanged);
     // 只在首次加载时获取数据，如果已有数据则不重新加载
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -151,17 +192,58 @@ class _MyScreenState extends ConsumerState<MyScreen>
   }
 
   void _navigateToDownloads() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const DownloadsScreen(),
-      ),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (context) => const DownloadsScreen()));
   }
 
   void _handleTabChanged() {
     if (_tabController.index == _lastTabIndex) return;
     _lastTabIndex = _tabController.index;
+    if (_tabController.index < _tabIds.length) {
+      _selectedTabId = _tabIds[_tabController.index];
+    }
     _tabSwitcherVisible.value = true;
+  }
+
+  void _openOnlineSearch() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => const GlobalAudioPlayerWrapper(
+          child: SearchScreen(showBackButton: true),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchableCollectionTab({
+    required double toolbarTop,
+    required double collapsedToolbarTop,
+    required Widget child,
+  }) {
+    final horizontalPadding = FloatingToolbarLayout.horizontalPadding(context);
+    return Stack(
+      children: [
+        Positioned.fill(child: child),
+        FloatingToolbarPositionFollower(
+          primaryToolbarVisible: _tabSwitcherVisible,
+          visibleTop: toolbarTop,
+          hiddenTop: collapsedToolbarTop,
+          left: horizontalPadding,
+          right: horizontalPadding,
+          child: Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: FloatingToolbarSurface(
+              child: FloatingToolbarIconButton(
+                icon: Icons.search,
+                tooltip: S.of(context).searchOnlineWorks,
+                onPressed: _openOnlineSearch,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   bool _handleScrollNotification(ScrollNotification notification) {
@@ -174,7 +256,7 @@ class _MyScreenState extends ConsumerState<MyScreen>
 
     final scrolledPastHeader =
         notification.metrics.pixels - notification.metrics.minScrollExtent >=
-            kTextTabBarHeight;
+        kTextTabBarHeight;
 
     if (notification is ScrollUpdateNotification &&
         notification.scrollDelta != null &&
@@ -197,35 +279,6 @@ class _MyScreenState extends ConsumerState<MyScreen>
       }
     }
     return false;
-  }
-
-  IconData _getLayoutIcon(MyReviewLayoutType layoutType) {
-    switch (layoutType) {
-      case MyReviewLayoutType.bigGrid:
-        return Icons.grid_3x3;
-      case MyReviewLayoutType.smallGrid:
-        return Icons.view_list;
-      case MyReviewLayoutType.list:
-        return Icons.view_agenda;
-    }
-  }
-
-  String _getLayoutTooltip(MyReviewLayoutType layoutType) {
-    switch (layoutType) {
-      case MyReviewLayoutType.bigGrid:
-        return S.of(context).switchToSmallGrid;
-      case MyReviewLayoutType.smallGrid:
-        return S.of(context).switchToList;
-      case MyReviewLayoutType.list:
-        return S.of(context).switchToLargeGrid;
-    }
-  }
-
-  IconData _getSubtitleFilterIcon(int subtitleFilter) {
-    final mode = SubtitleFilterMode.fromValue(subtitleFilter);
-    return mode == SubtitleFilterMode.withSubtitles
-        ? Icons.closed_caption
-        : Icons.closed_caption_disabled;
   }
 
   IconData _getFilterIcon(MyReviewFilter filter) {
@@ -266,6 +319,76 @@ class _MyScreenState extends ConsumerState<MyScreen>
     );
   }
 
+  void _showOnlineLayoutDialog() {
+    final notifier = ref.read(myReviewsProvider.notifier);
+    showDialog<void>(
+      context: context,
+      builder: (context) => CommonOptionDialog<MyReviewLayoutType>(
+        title: S.of(context).layout,
+        icon: Icons.grid_view,
+        value: ref.read(myReviewsProvider).layoutType,
+        options: [
+          RadioOption(
+            value: MyReviewLayoutType.bigGrid,
+            title: Text(S.of(context).layoutBigGrid),
+          ),
+          RadioOption(
+            value: MyReviewLayoutType.smallGrid,
+            title: Text(S.of(context).layoutSmallGrid),
+          ),
+          RadioOption(
+            value: MyReviewLayoutType.list,
+            title: Text(S.of(context).layoutList),
+          ),
+        ],
+        onChanged: (value) {
+          notifier.setLayoutType(value);
+          return true;
+        },
+      ),
+    );
+  }
+
+  void _showOnlineSubtitleDialog() {
+    final notifier = ref.read(myReviewsProvider.notifier);
+    final currentMode = SubtitleFilterMode.fromValue(
+      ref.read(myReviewsProvider).subtitleFilter,
+    );
+    showDialog<void>(
+      context: context,
+      builder: (context) => CommonOptionDialog<SubtitleFilterMode>(
+        title: S.of(context).subtitleFilter,
+        icon: Icons.closed_caption,
+        value: currentMode,
+        options: [
+          RadioOption(
+            value: SubtitleFilterMode.all,
+            title: Text(S.of(context).showAllWorks),
+          ),
+          RadioOption(
+            value: SubtitleFilterMode.withSubtitles,
+            title: Text(S.of(context).showOnlySubtitled),
+          ),
+        ],
+        onChanged: (value) {
+          if (value != currentMode) notifier.setSubtitleFilter(value);
+          return true;
+        },
+      ),
+    );
+  }
+
+  void _handleOnlineFeedSetting(FeedSettingsAction action) {
+    switch (action) {
+      case FeedSettingsAction.layout:
+        _showOnlineLayoutDialog();
+      case FeedSettingsAction.subtitles:
+        _showOnlineSubtitleDialog();
+      case FeedSettingsAction.sort:
+        _showSortDialog();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context); // 必须调用以保持状态
@@ -286,26 +409,31 @@ class _MyScreenState extends ConsumerState<MyScreen>
         ? Duration.zero
         : kTabScrollDuration;
     // 更换控制器会让 TabBarView 停止滚动并保留当前目标页。
+    var selectedIndex = tabs.indexWhere((tab) => tab.id == _selectedTabId);
+    if (selectedIndex < 0) {
+      selectedIndex = 0;
+      _selectedTabId = tabs.first.id;
+    }
+    _tabIds = tabs.map((tab) => tab.id).toList(growable: false);
+
     if (_tabController.length != tabs.length ||
-        _tabController.animationDuration != tabDuration) {
-      final oldIndex = _tabController.index;
+        _tabController.animationDuration != tabDuration ||
+        _tabController.index != selectedIndex) {
       _tabController.removeListener(_handleTabChanged);
       _tabController.dispose();
       _tabController = TabController(
         length: tabs.length,
         vsync: this,
+        initialIndex: selectedIndex,
         animationDuration: tabDuration,
       );
       _tabController.addListener(_handleTabChanged);
-      // 尝试恢复之前的位置，但不超出新的范围
-      if (oldIndex < tabs.length) {
-        _tabController.index = oldIndex;
-      }
       _lastTabIndex = _tabController.index;
     }
 
-    final systemOverlayStyle =
-        transparentSystemBarsForBrightness(Theme.of(context).brightness);
+    final systemOverlayStyle = transparentSystemBarsForBrightness(
+      Theme.of(context).brightness,
+    );
 
     return AnnotatedRegion(
       value: systemOverlayStyle,
@@ -324,88 +452,98 @@ class _MyScreenState extends ConsumerState<MyScreen>
           },
         ),
         body: Stack(
-            children: [
-              Positioned.fill(
-                child: NotificationListener<ScrollNotification>(
-                  onNotification: _handleScrollNotification,
-                  child: TabBarView(
-                    controller: _tabController,
-                    children: tabs.map((tab) => tab.widget).toList(),
-                  ),
+          children: [
+            Positioned.fill(
+              child: NotificationListener<ScrollNotification>(
+                onNotification: _handleScrollNotification,
+                child: TabBarView(
+                  controller: _tabController,
+                  children: tabs
+                      .map(
+                        (tab) => KeyedSubtree(
+                          key: ValueKey(tab.id),
+                          child: tab.widget,
+                        ),
+                      )
+                      .toList(),
                 ),
               ),
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: ProgressiveTopScrim(height: topPadding + 12),
-              ),
-              Positioned(
-                top: tabSwitcherTop,
-                left: horizontalPadding,
-                right: horizontalPadding,
-                child: ValueListenableBuilder<bool>(
-                  valueListenable: _tabSwitcherVisible,
-                  builder: (context, visible, child) => IgnorePointer(
-                    ignoring: !visible,
-                    child: AnimatedSlide(
-                      key: const ValueKey('my-tab-switcher'),
-                      offset: visible || MediaQuery.disableAnimationsOf(context)
-                        ? Offset.zero : const Offset(0, -2),
-                      duration: MediaQuery.disableAnimationsOf(context)
-                        ? Duration.zero : const Duration(milliseconds: 180),
-                      curve: Curves.easeOutCubic,
-                      child: AnimatedOpacity(
-                        opacity: visible ? 1 : 0,
-                        duration: const Duration(milliseconds: 140),
-                        child: ExcludeFocus(
+            ),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: ProgressiveTopScrim(height: topPadding + 12),
+            ),
+            Positioned(
+              top: tabSwitcherTop,
+              left: horizontalPadding,
+              right: horizontalPadding,
+              child: ValueListenableBuilder<bool>(
+                valueListenable: _tabSwitcherVisible,
+                builder: (context, visible, child) => IgnorePointer(
+                  ignoring: !visible,
+                  child: AnimatedSlide(
+                    key: const ValueKey('my-tab-switcher'),
+                    offset: visible || MediaQuery.disableAnimationsOf(context)
+                        ? Offset.zero
+                        : const Offset(0, -2),
+                    duration: MediaQuery.disableAnimationsOf(context)
+                        ? Duration.zero
+                        : const Duration(milliseconds: 180),
+                    curve: Curves.easeOutCubic,
+                    child: AnimatedOpacity(
+                      opacity: visible ? 1 : 0,
+                      duration: const Duration(milliseconds: 140),
+                      child: ExcludeFocus(
+                        excluding: !visible,
+                        child: ExcludeSemantics(
                           excluding: !visible,
-                          child: ExcludeSemantics(
-                            excluding: !visible,
-                            child: child,
-                          ),
+                          child: child,
                         ),
-                      ),
-                    ),
-                  ),
-                  child: FloatingToolbarSurface(
-                    child: SizedBox(
-                      height: 40,
-                      child: TabBar(
-                        controller: _tabController,
-                        isScrollable: true,
-                        tabAlignment: TabAlignment.start,
-                        dividerColor: Colors.transparent,
-                        indicatorSize: TabBarIndicatorSize.tab,
-                        indicator: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primaryContainer,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        labelColor: Theme.of(context).colorScheme.primary,
-                        unselectedLabelColor:
-                            Theme.of(context).colorScheme.onSurfaceVariant,
-                        splashBorderRadius: BorderRadius.circular(20),
-                        tabs: tabs
-                            .map(
-                              (tab) => Tab(
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(tab.icon, size: 18),
-                                    const SizedBox(width: 6),
-                                    Text(tab.title),
-                                  ],
-                                ),
-                              ),
-                            )
-                            .toList(),
                       ),
                     ),
                   ),
                 ),
+                child: FloatingToolbarSurface(
+                  child: SizedBox(
+                    height: 40,
+                    child: TabBar(
+                      controller: _tabController,
+                      isScrollable: true,
+                      tabAlignment: TabAlignment.start,
+                      dividerColor: Colors.transparent,
+                      indicatorSize: TabBarIndicatorSize.tab,
+                      indicator: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      labelColor: Theme.of(context).colorScheme.primary,
+                      unselectedLabelColor: Theme.of(
+                        context,
+                      ).colorScheme.onSurfaceVariant,
+                      splashBorderRadius: BorderRadius.circular(20),
+                      tabs: tabs
+                          .map(
+                            (tab) => Tab(
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(tab.icon, size: 18),
+                                  const SizedBox(width: 6),
+                                  Text(tab.title),
+                                ],
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ),
+                ),
               ),
-            ],
-          ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -439,24 +577,17 @@ class _MyScreenState extends ConsumerState<MyScreen>
             ],
             toolActions: [
               FloatingFeedToolAction(
-                icon: _getLayoutIcon(state.layoutType),
-                tooltip: _getLayoutTooltip(state.layoutType),
-                onPressed: () =>
-                    ref.read(myReviewsProvider.notifier).toggleLayoutType(),
+                icon: Icons.search,
+                tooltip: S.of(context).searchOnlineWorks,
+                onPressed: _openOnlineSearch,
               ),
               FloatingFeedToolAction(
-                icon: _getSubtitleFilterIcon(state.subtitleFilter),
-                tooltip: SubtitleFilterMode.fromValue(state.subtitleFilter)
-                    .localizedTooltip(context),
-                isSelected:
-                    SubtitleFilterMode.fromValue(state.subtitleFilter).isActive,
-                onPressed: () =>
-                    ref.read(myReviewsProvider.notifier).toggleSubtitleFilter(),
-              ),
-              FloatingFeedToolAction(
-                icon: Icons.sort,
-                tooltip: S.of(context).sort,
-                onPressed: _showSortDialog,
+                icon: Icons.more_vert,
+                tooltip: S.of(context).feedSettings,
+                onPressed: null,
+                builder: (context) => FeedSettingsMenuButton(
+                  onSelected: _handleOnlineFeedSetting,
+                ),
               ),
             ],
           ),
@@ -485,8 +616,8 @@ class _MyScreenState extends ConsumerState<MyScreen>
             Text(
               state.error!,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
@@ -543,25 +674,25 @@ class _MyScreenState extends ConsumerState<MyScreen>
       padding: state.layoutType == MyReviewLayoutType.list
           ? EdgeInsets.fromLTRB(8, topPadding + 8, 8, 8)
           : MediaQuery.orientationOf(context) == Orientation.landscape
-              ? EdgeInsets.fromLTRB(24, topPadding + 8, 24, 24)
-              : EdgeInsets.fromLTRB(8, topPadding + 8, 8, 8),
+          ? EdgeInsets.fromLTRB(24, topPadding + 8, 24, 24)
+          : EdgeInsets.fromLTRB(8, topPadding + 8, 8, 8),
     );
   }
 }
 
 // Helper class to organize tab information
 class _TabInfo {
+  final String id;
   final String title;
   final IconData icon;
-  final int index;
   final Widget widget;
   final bool showFab;
   final Widget? fabWidget;
 
   const _TabInfo({
+    required this.id,
     required this.title,
     required this.icon,
-    required this.index,
     required this.widget,
     this.showFab = false,
     this.fabWidget,

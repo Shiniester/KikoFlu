@@ -97,7 +97,17 @@ void main() {
     final after = tester.widget<Transform>(transform).transform.entry(0, 0);
     expect(before, inExclusiveRange(.97, 1));
     expect(after, 1);
-    expect(tester.getSize(sizeFinder), contentSize);
+    expect(
+      find.ancestor(
+        of: find.byKey(const ValueKey('downloads-toolbar-search')),
+        matching: find.byType(AnimatedSize),
+      ),
+      findsNothing,
+    );
+    expect(
+      tester.getSize(find.byKey(const ValueKey('downloads-toolbar-search'))),
+      contentSize,
+    );
     expect(tester.element(find.byType(TextField)), same(fieldElement));
     expect(focus.hasFocus, isTrue);
     await tester.pump(const Duration(milliseconds: 40));

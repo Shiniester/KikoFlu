@@ -5,8 +5,15 @@
 
   "navHome": "Home",
   "navSearch": "Search",
-  "navMy": "My",
+  "navMy": "Audio",
   "navSettings": "Settings",
+  "feedSettings": "Feed settings",
+  "searchOnlineWorks": "Search online works",
+  "layout": "Layout",
+  "layoutBigGrid": "Large grid",
+  "layoutSmallGrid": "Small grid",
+  "layoutList": "List",
+  "subtitleFilter": "Subtitle filter",
 
   "offlineModeMessage": "Offline mode: Network connection failed, only downloaded content is accessible",
   "retry": "Retry",
@@ -676,7 +683,7 @@
   "showMetadata": "Show Metadata",
   "relatedRecommendations": "Related Works",
 
-  "myTabsDisplaySettings": "My Page Tab Settings",
+  "myTabsDisplaySettings": "Audio Page Tab Settings",
   "showTab": "Show Tab",
   "tabOrder": "Tab Order",
 
@@ -789,7 +796,7 @@
   "playerLyricStyleSubtitle": "Mini and fullscreen lyric styles",
   "workDetailDisplaySubtitle": "Detail page content",
   "workCardDisplaySubtitle": "Work card content",
-  "myTabsDisplaySubtitle": "Tabs shown on My",
+  "myTabsDisplaySubtitle": "Tabs shown on Audio",
   "pageSizeSettings": "Items Per Page",
   "pageSizeCurrent": "{size} items per page",
   "@pageSizeCurrent": { "placeholders": { "size": { "type": "int" } } },
@@ -1469,7 +1476,7 @@
   "showSubtitleTagOnCard": "Show subtitle tag on work card",
   "showAgeRatingOnCard": "Show age rating on work card",
 
-  "myTabsDisplaySettings": "\"My\" Page Settings",
+  "myTabsDisplaySettings": "\"Audio\" Page Settings",
   "showOnlineMarks": "Show online marked works",
   "cannotBeDisabled": "Cannot be disabled",
   "showPlaylists": "Show created playlists",

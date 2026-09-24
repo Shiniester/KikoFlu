@@ -21,12 +21,14 @@ class FloatingFeedToolAction {
     required this.tooltip,
     required this.onPressed,
     this.isSelected = false,
+    this.builder,
   });
 
   final IconData icon;
   final String tooltip;
   final VoidCallback? onPressed;
   final bool isSelected;
+  final WidgetBuilder? builder;
 }
 
 /// Two floating capsules used by feed surfaces: modes on the left and tools
@@ -125,7 +127,8 @@ class FloatingFeedToolbar extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       for (final action in toolActions)
-                        _ToolButton(action: action),
+                        action.builder?.call(context) ??
+                            _ToolButton(action: action),
                     ],
                   ),
                 ),
@@ -156,12 +159,32 @@ class FloatingFeedToolbar extends StatelessWidget {
 
 /// Places separated toolbar capsules in one row.
 class FloatingToolbarRow extends StatelessWidget {
-  const FloatingToolbarRow({super.key, required this.children});
+  const FloatingToolbarRow({
+    super.key,
+    required this.children,
+    this.scrollable = false,
+  });
 
   final List<Widget> children;
+  final bool scrollable;
 
   @override
   Widget build(BuildContext context) {
+    if (scrollable) {
+      return LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minWidth: constraints.maxWidth),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: children,
+            ),
+          ),
+        ),
+      );
+    }
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: children,

@@ -35,11 +35,13 @@ class LocalDownloadsScreen extends ConsumerStatefulWidget {
     this.toolbarTop = 8,
     this.collapsedToolbarTop,
     this.primaryToolbarVisible,
+    this.onSearchOnline,
   });
 
   final double toolbarTop;
   final double? collapsedToolbarTop;
   final ValueListenable<bool>? primaryToolbarVisible;
+  final VoidCallback? onSearchOnline;
 
   @override
   ConsumerState<LocalDownloadsScreen> createState() =>
@@ -707,15 +709,12 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
             top: toolbarTop,
             left: FloatingToolbarLayout.horizontalPadding(context),
             right: FloatingToolbarLayout.horizontalPadding(context),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: FloatingToolbarRow(
+              scrollable: true,
               children: [
-                Flexible(
-                  fit: FlexFit.loose,
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: _buildPrimaryToolbar(allGroupedTasks),
-                  ),
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: _buildPrimaryToolbar(allGroupedTasks),
                 ),
                 _buildSecondaryToolbar(),
               ],
@@ -728,15 +727,12 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
             hiddenTop: widget.collapsedToolbarTop ?? toolbarTop,
             left: FloatingToolbarLayout.horizontalPadding(context),
             right: FloatingToolbarLayout.horizontalPadding(context),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: FloatingToolbarRow(
+              scrollable: true,
               children: [
-                Flexible(
-                  fit: FlexFit.loose,
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: _buildPrimaryToolbar(allGroupedTasks),
-                  ),
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: _buildPrimaryToolbar(allGroupedTasks),
                 ),
                 _buildSecondaryToolbar(),
               ],
@@ -753,24 +749,24 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
         : _isSearchVisible
         ? 'search'
         : 'normal';
-    return AnimatedSize(
-      key: ValueKey(reduceMotion),
-      duration: reduceMotion ? Duration.zero : UiMotion.reveal,
-      curve: Curves.easeOutCubic,
-      alignment: Alignment.centerLeft,
-      // Keep the input mounted when the size animation is replaced.
-      child: KeyedSubtree(
-        key: _toolbarContentKey,
-        child: FadeTransition(
-          key: ValueKey('downloads-toolbar-$mode'),
-          opacity: _toolbarOpacity,
-          child: ScaleTransition(
-            alignment: Alignment.centerLeft,
-            scale: _toolbarScale,
-            child: _buildPrimaryToolbarContent(groupedTasks),
-          ),
+    final content = KeyedSubtree(
+      key: _toolbarContentKey,
+      child: FadeTransition(
+        key: ValueKey('downloads-toolbar-$mode'),
+        opacity: _toolbarOpacity,
+        child: ScaleTransition(
+          alignment: Alignment.centerLeft,
+          scale: _toolbarScale,
+          child: _buildPrimaryToolbarContent(groupedTasks),
         ),
       ),
+    );
+    if (reduceMotion) return content;
+    return AnimatedSize(
+      duration: UiMotion.reveal,
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.centerLeft,
+      child: content,
     );
   }
 
@@ -877,7 +873,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
           ),
           FloatingToolbarIconButton(
             icon: Icons.search,
-            tooltip: S.of(context).search,
+            tooltip: S.of(context).searchDownloads,
             onPressed: _toggleSearch,
           ),
         ],
@@ -905,6 +901,12 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
               icon: Icons.folder_open,
               tooltip: S.of(context).openFolder,
               onPressed: _openDownloadFolder,
+            ),
+          if (widget.onSearchOnline != null)
+            FloatingToolbarIconButton(
+              icon: Icons.travel_explore,
+              tooltip: S.of(context).searchOnlineWorks,
+              onPressed: widget.onSearchOnline,
             ),
         ],
       ),

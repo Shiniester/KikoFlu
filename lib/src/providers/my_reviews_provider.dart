@@ -326,9 +326,14 @@ class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
       SubtitleFilterMode.fromValue(state.subtitleFilter).isActive;
 
   void toggleSubtitleFilter() {
+    final currentMode = SubtitleFilterMode.fromValue(state.subtitleFilter);
+    setSubtitleFilter(currentMode.next);
+  }
+
+  void setSubtitleFilter(SubtitleFilterMode newFilterMode) {
     final currentPage = state.currentPage;
     final oldFilterMode = SubtitleFilterMode.fromValue(state.subtitleFilter);
-    final newFilterMode = oldFilterMode.next;
+    if (oldFilterMode == newFilterMode) return;
 
     int newPage;
     if (oldFilterMode == SubtitleFilterMode.all && newFilterMode.isActive) {
@@ -367,8 +372,13 @@ class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
       MyReviewLayoutType.smallGrid => MyReviewLayoutType.list,
       MyReviewLayoutType.list => MyReviewLayoutType.bigGrid,
     };
-    state = state.copyWith(layoutType: nextLayout);
-    unawaited(_layoutPreference.save(nextLayout));
+    setLayoutType(nextLayout);
+  }
+
+  void setLayoutType(MyReviewLayoutType layoutType) {
+    if (state.layoutType == layoutType) return;
+    state = state.copyWith(layoutType: layoutType);
+    unawaited(_layoutPreference.save(layoutType));
   }
 
   Future<void> refresh() =>

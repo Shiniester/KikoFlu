@@ -522,9 +522,14 @@ class WorksNotifier extends StateNotifier<WorksState> {
 
   // Cycle subtitle filter: all -> with subtitles -> all
   void toggleSubtitleFilter() {
+    final currentMode = SubtitleFilterMode.fromValue(state.subtitleFilter);
+    setSubtitleFilter(currentMode.next);
+  }
+
+  void setSubtitleFilter(SubtitleFilterMode newFilterMode) {
     final currentPage = state.currentPage;
     final oldFilterMode = SubtitleFilterMode.fromValue(state.subtitleFilter);
-    final newFilterMode = oldFilterMode.next;
+    if (oldFilterMode == newFilterMode) return;
     final newFilter = newFilterMode.value;
 
     int newPage;

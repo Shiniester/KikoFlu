@@ -5,8 +5,15 @@
 
   "navHome": "主页",
   "navSearch": "搜索",
-  "navMy": "我的",
+  "navMy": "音声",
   "navSettings": "设置",
+  "feedSettings": "显示设置",
+  "searchOnlineWorks": "搜索在线作品",
+  "layout": "布局",
+  "layoutBigGrid": "大网格",
+  "layoutSmallGrid": "小网格",
+  "layoutList": "列表",
+  "subtitleFilter": "字幕筛选",
 
   "offlineModeMessage": "离线模式：网络连接失败，仅可访问下载内容",
   "retry": "重试",
@@ -517,7 +524,7 @@
   "showMetadata": "显示元数据",
   "relatedRecommendations": "相关推荐",
 
-  "myTabsDisplaySettings": "我的页面标签设置",
+  "myTabsDisplaySettings": "音声页面标签设置",
   "showTab": "显示标签",
   "tabOrder": "标签顺序",
 
@@ -612,7 +619,7 @@
   "playerLyricStyleSubtitle": "调整迷你与全屏歌词样式",
   "workDetailDisplaySubtitle": "选择详情页显示内容",
   "workCardDisplaySubtitle": "选择作品卡片显示内容",
-  "myTabsDisplaySubtitle": "选择“我的”页面标签",
+  "myTabsDisplaySubtitle": "选择“音声”页面标签",
   "pageSizeSettings": "每页显示数量",
   "pageSizeCurrent": "每页 {size} 条",
 
@@ -1211,7 +1218,7 @@
   "showSubtitleTagOnCard": "显示作品卡片上的字幕标签",
   "showAgeRatingOnCard": "显示作品卡片上的年龄分级",
 
-  "myTabsDisplaySettings": "\"我的\"界面设置",
+  "myTabsDisplaySettings": "\"音声\"界面设置",
   "showOnlineMarks": "显示在线标记的作品",
   "cannotBeDisabled": "不可关闭",
   "showPlaylists": "显示创建的播放列表",

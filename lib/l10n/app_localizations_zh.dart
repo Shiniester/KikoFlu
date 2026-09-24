@@ -18,10 +18,31 @@ class SZh extends S {
   String get navSearch => '搜索';
 
   @override
-  String get navMy => '我的';
+  String get navMy => '音声';
 
   @override
   String get navSettings => '设置';
+
+  @override
+  String get feedSettings => '显示设置';
+
+  @override
+  String get searchOnlineWorks => '搜索在线作品';
+
+  @override
+  String get layout => '布局';
+
+  @override
+  String get layoutBigGrid => '大网格';
+
+  @override
+  String get layoutSmallGrid => '小网格';
+
+  @override
+  String get layoutList => '列表';
+
+  @override
+  String get subtitleFilter => '字幕筛选';
 
   @override
   String get offlineModeMessage => '离线模式：网络连接失败，仅可访问下载内容';
@@ -1455,7 +1476,7 @@ class SZh extends S {
   String get relatedRecommendations => '相关推荐';
 
   @override
-  String get myTabsDisplaySettings => '\"我的\"界面设置';
+  String get myTabsDisplaySettings => '\"音声\"界面设置';
 
   @override
   String get showTab => '显示标签';
@@ -1715,7 +1736,7 @@ class SZh extends S {
   String get workCardDisplaySubtitle => '选择作品卡片显示内容';
 
   @override
-  String get myTabsDisplaySubtitle => '选择“我的”页面标签';
+  String get myTabsDisplaySubtitle => '选择“音声”页面标签';
 
   @override
   String get pageSizeSettings => '每页显示数量';
@@ -3672,10 +3693,31 @@ class SZhHant extends SZh {
   String get navSearch => '搜尋';
 
   @override
-  String get navMy => '我的';
+  String get navMy => '音聲';
 
   @override
   String get navSettings => '設定';
+
+  @override
+  String get feedSettings => '顯示設定';
+
+  @override
+  String get searchOnlineWorks => '搜尋線上作品';
+
+  @override
+  String get layout => '版面配置';
+
+  @override
+  String get layoutBigGrid => '大網格';
+
+  @override
+  String get layoutSmallGrid => '小網格';
+
+  @override
+  String get layoutList => '列表';
+
+  @override
+  String get subtitleFilter => '字幕篩選';
 
   @override
   String get offlineModeMessage => '離線模式：網路連線失敗，僅可存取已下載內容';
@@ -5109,7 +5151,7 @@ class SZhHant extends SZh {
   String get relatedRecommendations => '相關推薦';
 
   @override
-  String get myTabsDisplaySettings => '「我的」介面設定';
+  String get myTabsDisplaySettings => '「音聲」介面設定';
 
   @override
   String get showTab => '顯示標籤';
@@ -5369,7 +5411,7 @@ class SZhHant extends SZh {
   String get workCardDisplaySubtitle => '選擇作品卡片顯示內容';
 
   @override
-  String get myTabsDisplaySubtitle => '選擇「我的」頁面標籤';
+  String get myTabsDisplaySubtitle => '選擇「音聲」頁面標籤';
 
   @override
   String get pageSizeSettings => '每頁顯示數量';

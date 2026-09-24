@@ -31,11 +31,13 @@ class SubtitleLibraryScreen extends ConsumerStatefulWidget {
     this.toolbarTop = 8,
     this.collapsedToolbarTop,
     this.primaryToolbarVisible,
+    this.onSearchOnline,
   });
 
   final double toolbarTop;
   final double? collapsedToolbarTop;
   final ValueListenable<bool>? primaryToolbarVisible;
+  final VoidCallback? onSearchOnline;
 
   @override
   ConsumerState<SubtitleLibraryScreen> createState() =>
@@ -784,15 +786,12 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
                 top: widget.toolbarTop,
                 left: FloatingToolbarLayout.horizontalPadding(context),
                 right: FloatingToolbarLayout.horizontalPadding(context),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                child: FloatingToolbarRow(
+                  scrollable: true,
                   children: [
-                    Flexible(
-                      fit: FlexFit.loose,
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: _buildPrimaryToolbar(),
-                      ),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: _buildPrimaryToolbar(),
                     ),
                     _buildSecondaryToolbar(),
                   ],
@@ -805,15 +804,12 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
                 hiddenTop: widget.collapsedToolbarTop ?? widget.toolbarTop,
                 left: FloatingToolbarLayout.horizontalPadding(context),
                 right: FloatingToolbarLayout.horizontalPadding(context),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                child: FloatingToolbarRow(
+                  scrollable: true,
                   children: [
-                    Flexible(
-                      fit: FlexFit.loose,
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: _buildPrimaryToolbar(),
-                      ),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: _buildPrimaryToolbar(),
                     ),
                     _buildSecondaryToolbar(),
                   ],
@@ -1063,7 +1059,7 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
           ),
           FloatingToolbarIconButton(
             icon: Icons.search,
-            tooltip: S.of(context).search,
+            tooltip: S.of(context).searchSubtitles,
             onPressed: () => setState(() => _isSearching = true),
           ),
         ],
@@ -1091,6 +1087,12 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
               icon: Icons.folder_open,
               tooltip: S.of(context).openFolder,
               onPressed: _openSubtitleLibraryFolder,
+            ),
+          if (widget.onSearchOnline != null)
+            FloatingToolbarIconButton(
+              icon: Icons.travel_explore,
+              tooltip: S.of(context).searchOnlineWorks,
+              onPressed: widget.onSearchOnline,
             ),
         ],
       ),

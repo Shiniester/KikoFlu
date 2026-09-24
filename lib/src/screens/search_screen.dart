@@ -51,7 +51,9 @@ class SearchCondition {
 }
 
 class SearchScreen extends ConsumerStatefulWidget {
-  const SearchScreen({super.key});
+  const SearchScreen({super.key, this.showBackButton = false});
+
+  final bool showBackButton;
 
   @override
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
@@ -353,6 +355,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         floatingActionButton: const DownloadFab(),
         appBar: ScrollableAppBar(
           title: Text(S.of(context).search, style: UiTextStyles.pageTitle),
+          leading: widget.showBackButton
+              ? IconButton(
+                  tooltip: S.of(context).back,
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => Navigator.of(context).maybePop(),
+                )
+              : null,
+          automaticallyImplyLeading: false,
           clipBehavior: Clip.none,
           actions: [
             // 筛选按钮移到右上角

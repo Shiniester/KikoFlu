@@ -18,10 +18,31 @@ class SJa extends S {
   String get navSearch => '検索';
 
   @override
-  String get navMy => 'マイ';
+  String get navMy => '音声';
 
   @override
   String get navSettings => '設定';
+
+  @override
+  String get feedSettings => '表示設定';
+
+  @override
+  String get searchOnlineWorks => 'オンライン作品を検索';
+
+  @override
+  String get layout => 'レイアウト';
+
+  @override
+  String get layoutBigGrid => '大きなグリッド';
+
+  @override
+  String get layoutSmallGrid => '小さなグリッド';
+
+  @override
+  String get layoutList => 'リスト';
+
+  @override
+  String get subtitleFilter => '字幕フィルター';
 
   @override
   String get offlineModeMessage =>
@@ -1457,7 +1478,7 @@ class SJa extends S {
   String get relatedRecommendations => '関連作品';
 
   @override
-  String get myTabsDisplaySettings => '「マイ」ページ設定';
+  String get myTabsDisplaySettings => '「音声」ページ設定';
 
   @override
   String get showTab => 'タブを表示';
@@ -1717,7 +1738,7 @@ class SJa extends S {
   String get workCardDisplaySubtitle => '作品カードの表示内容';
 
   @override
-  String get myTabsDisplaySubtitle => 'マイページに表示するタブ';
+  String get myTabsDisplaySubtitle => '音声ページに表示するタブ';
 
   @override
   String get pageSizeSettings => 'ページあたりの表示数';

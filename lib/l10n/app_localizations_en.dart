@@ -18,10 +18,31 @@ class SEn extends S {
   String get navSearch => 'Search';
 
   @override
-  String get navMy => 'My';
+  String get navMy => 'Audio';
 
   @override
   String get navSettings => 'Settings';
+
+  @override
+  String get feedSettings => 'Feed settings';
+
+  @override
+  String get searchOnlineWorks => 'Search online works';
+
+  @override
+  String get layout => 'Layout';
+
+  @override
+  String get layoutBigGrid => 'Large grid';
+
+  @override
+  String get layoutSmallGrid => 'Small grid';
+
+  @override
+  String get layoutList => 'List';
+
+  @override
+  String get subtitleFilter => 'Subtitle filter';
 
   @override
   String get offlineModeMessage =>
@@ -1493,7 +1514,7 @@ class SEn extends S {
   String get relatedRecommendations => 'Related Works';
 
   @override
-  String get myTabsDisplaySettings => '\"My\" Page Settings';
+  String get myTabsDisplaySettings => '\"Audio\" Page Settings';
 
   @override
   String get showTab => 'Show Tab';
@@ -1757,7 +1778,7 @@ class SEn extends S {
   String get workCardDisplaySubtitle => 'Work card content';
 
   @override
-  String get myTabsDisplaySubtitle => 'Tabs shown on My';
+  String get myTabsDisplaySubtitle => 'Tabs shown on Audio';
 
   @override
   String get pageSizeSettings => 'Items Per Page';
