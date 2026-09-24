@@ -72,9 +72,9 @@ Future<T?> openAudioPlayer<T>(
 
 /// Shared route used by every global Mini Player entry point.
 ///
-/// The full page always travels one viewport height. The Player Cover Page's
-/// artwork consumes this route's visual progress through a staged Hero path;
-/// the Player Queue Page has no artwork Hero and moves as one page.
+/// The Player Cover Page's artwork follows the full-page route through a staged
+/// Hero path. Compact queue entry animates its content inside a fixed background;
+/// wide queue entry and route dismissal travel one viewport height.
 class AudioPlayerPageRoute<T> extends PageRoute<T>
     with CupertinoRouteTransitionMixin<T>
     implements PlayerInteractiveDismissRoute {
@@ -105,9 +105,18 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   late final CurvedAnimation _automaticVisualAnimation;
   late final ProxyAnimation _visualAnimation;
 
+  bool get _compactQueueEntry {
+    final routeNavigator = navigator;
+    return _prepareInitialFrame &&
+        routeNavigator != null &&
+        !usesWidePlayerLayout(MediaQuery.sizeOf(routeNavigator.context).width);
+  }
+
   @override
   Widget buildContent(BuildContext context) {
-    if (_prepareInitialFrame && !_initialFrameScheduled) {
+    if (_prepareInitialFrame &&
+        !_compactQueueEntry &&
+        !_initialFrameScheduled) {
       _initialFrameScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _initialFrameReady = true;
@@ -118,7 +127,7 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
 
   @override
   Simulation? createSimulation({required bool forward}) {
-    if (!forward || !_prepareInitialFrame) {
+    if (!forward || !_prepareInitialFrame || _compactQueueEntry) {
       return super.createSimulation(forward: forward);
     }
     return _QueueEntrySimulation(
@@ -134,8 +143,9 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   bool get maintainState => true;
 
   @override
-  Duration get transitionDuration =>
-      skipInitialTransition ? Duration.zero : playerRouteTransitionDuration;
+  Duration get transitionDuration => skipInitialTransition || _compactQueueEntry
+      ? Duration.zero
+      : playerRouteTransitionDuration;
 
   @override
   Duration get reverseTransitionDuration => playerRouteTransitionDuration;

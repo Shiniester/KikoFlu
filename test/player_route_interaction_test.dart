@@ -63,9 +63,11 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('queue entry excludes first layout work from animation time', (
-    tester,
-  ) async {
+  testWidgets('wide queue entry waits for initial layout', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 720);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
     final navigatorKey = GlobalKey<NavigatorState>();
     await tester.pumpWidget(
       MaterialApp(
@@ -354,14 +356,36 @@ void main() {
     expect(find.text('progress-player'), findsOneWidget);
   });
 
-  test('Player Cover Page and Player Queue Page routes both use 380ms', () {
-    for (final mode in PlayerDismissVisualMode.values) {
-      final route = AudioPlayerPageRoute<void>(
-        initialDismissVisualMode: mode,
-        builder: (_) => const SizedBox.shrink(),
-      );
-      expect(route.transitionDuration, playerRouteTransitionDuration);
-      expect(route.reverseTransitionDuration, playerRouteTransitionDuration);
+  testWidgets('only compact queue entry skips the full-page transition', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final navigatorKey = GlobalKey<NavigatorState>();
+    await tester.pumpWidget(
+      MaterialApp(navigatorKey: navigatorKey, home: const Scaffold()),
+    );
+    for (final width in [390.0, 1280.0]) {
+      tester.view.physicalSize = Size(width, 844);
+      await tester.pump();
+      for (final mode in PlayerDismissVisualMode.values) {
+        final route = AudioPlayerPageRoute<void>(
+          initialDismissVisualMode: mode,
+          builder: (_) => const SizedBox.shrink(),
+        );
+        unawaited(navigatorKey.currentState!.push(route));
+        await tester.pumpAndSettle();
+        expect(
+          route.transitionDuration,
+          width == 390 && mode == PlayerDismissVisualMode.secondary
+              ? Duration.zero
+              : playerRouteTransitionDuration,
+        );
+        expect(route.reverseTransitionDuration, playerRouteTransitionDuration);
+        navigatorKey.currentState!.pop();
+        await tester.pumpAndSettle();
+      }
     }
   });
 

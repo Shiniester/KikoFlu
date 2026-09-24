@@ -2285,6 +2285,8 @@ void main() {
           initialSurface: PlayerInitialSurface.queue,
         );
 
+        await tester.pumpAndSettle();
+
         Rect nowPlayingRect() => tester.getRect(
           find.byKey(const ValueKey('player-queue-now-playing')),
         );
