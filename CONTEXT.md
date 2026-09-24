@@ -23,6 +23,17 @@ The fixed first tab in the Audio Screen that displays the online works feed.
 It is distinct from the Audio Screen, which also contains the user's library tabs.
 _Avoid_: Audio Screen, app home page
 
+**Global Works Search (全局作品搜索)**:
+The server-backed work search opened from the Works Home Tab. Its results are
+not restricted to another Audio Screen tab's collection.
+_Avoid_: scoped search
+
+**Scoped Search (范围搜索)**:
+The shared search interface opened from a library tab. Its results are limited
+to that tab's complete collection, such as one online-mark state, history,
+playlists, or completed downloads.
+_Avoid_: global works search
+
 **Work Details Screen (作品详情页)**:
 The online or offline screen describing a work and its available audio files.
 It is distinct from the Player Audio Details Page for the current track.

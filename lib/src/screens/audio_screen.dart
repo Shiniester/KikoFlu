@@ -3,6 +3,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/my_reviews_provider.dart';
 import '../providers/my_tabs_display_provider.dart';
+import '../providers/collection_layout_provider.dart';
 import '../providers/works_provider.dart' show LayoutType;
 import '../utils/scroll_optimization.dart';
 import '../utils/ui_tokens.dart';
@@ -14,16 +15,14 @@ import '../widgets/virtualized_sliver_collection.dart';
 import '../widgets/floating_feed_toolbar.dart';
 import '../widgets/download_fab.dart';
 import '../providers/download_provider.dart';
+import '../models/search_query.dart';
 import 'downloads_screen.dart';
 import 'local_downloads_screen.dart';
 import 'subtitle_library_screen.dart';
 import 'playlists_screen.dart';
 import 'history_screen.dart';
 import '../widgets/sort_dialog.dart';
-import '../widgets/settings_option_dialog.dart';
 import '../widgets/global_audio_player_wrapper.dart';
-import '../widgets/feed_settings_menu_button.dart';
-import '../widgets/radio_option_group.dart';
 import '../models/sort_options.dart';
 import '../utils/subtitle_filter.dart';
 import '../utils/system_ui_style.dart';
@@ -65,7 +64,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         widget: WorksScreen(
           toolbarTop: contentTop,
           embedded: true,
-          onSearchOnline: _openOnlineSearch,
+          onSearchOnline: () => _openSearch(scope: SearchScope.globalWorks),
         ),
         showFab: true,
         fabWidget: const DownloadFab(),
@@ -101,6 +100,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         widget: _buildSearchableCollectionTab(
           toolbarTop: contentTop,
           collapsedToolbarTop: collapsedToolbarTop,
+          layoutKey: CollectionLayoutKey.history,
           child: HistoryScreen(topInset: contentTop + 56),
         ),
       ),
@@ -115,6 +115,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
           widget: _buildSearchableCollectionTab(
             toolbarTop: contentTop,
             collapsedToolbarTop: collapsedToolbarTop,
+            layoutKey: CollectionLayoutKey.playlists,
             child: PlaylistsScreen(topInset: contentTop + 56),
           ),
         ),
@@ -131,7 +132,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
           toolbarTop: contentTop,
           collapsedToolbarTop: collapsedToolbarTop,
           primaryToolbarVisible: _tabSwitcherVisible,
-          onSearchOnline: _openOnlineSearch,
+          onSearchOnline: () => _openSearch(scope: SearchScope.downloads),
         ),
         showFab: true,
         fabWidget: Badge(
@@ -156,7 +157,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
             toolbarTop: contentTop,
             collapsedToolbarTop: collapsedToolbarTop,
             primaryToolbarVisible: _tabSwitcherVisible,
-            onSearchOnline: _openOnlineSearch,
           ),
         ),
       );
@@ -206,11 +206,15 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     _tabSwitcherVisible.value = true;
   }
 
-  void _openOnlineSearch() {
+  void _openSearch({required SearchScope scope, String? progressFilter}) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (context) => const GlobalAudioPlayerWrapper(
-          child: SearchScreen(showBackButton: true),
+        builder: (context) => GlobalAudioPlayerWrapper(
+          child: SearchScreen(
+            showBackButton: true,
+            scope: scope,
+            progressFilter: progressFilter,
+          ),
         ),
       ),
     );
@@ -219,6 +223,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   Widget _buildSearchableCollectionTab({
     required double toolbarTop,
     required double collapsedToolbarTop,
+    required CollectionLayoutKey layoutKey,
     required Widget child,
   }) {
     final horizontalPadding = FloatingToolbarLayout.horizontalPadding(context);
@@ -234,10 +239,32 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
           child: Align(
             alignment: AlignmentDirectional.centerEnd,
             child: FloatingToolbarSurface(
-              child: FloatingToolbarIconButton(
-                icon: Icons.search,
-                tooltip: S.of(context).searchOnlineWorks,
-                onPressed: _openOnlineSearch,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FloatingToolbarIconButton(
+                    icon: Icons.search,
+                    tooltip: S.of(context).searchOnlineWorks,
+                    onPressed: () => _openSearch(
+                      scope: layoutKey == CollectionLayoutKey.history
+                          ? SearchScope.history
+                          : SearchScope.playlists,
+                    ),
+                  ),
+                  FloatingToolbarIconButton(
+                    icon: switch (ref.watch(
+                      collectionLayoutProvider(layoutKey),
+                    )) {
+                      LayoutType.bigGrid => Icons.grid_view,
+                      LayoutType.smallGrid => Icons.grid_on,
+                      LayoutType.list => Icons.view_list,
+                    },
+                    tooltip: S.of(context).layout,
+                    onPressed: () => ref
+                        .read(collectionLayoutProvider(layoutKey).notifier)
+                        .cycle(),
+                  ),
+                ],
               ),
             ),
           ),
@@ -317,76 +344,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         },
       ),
     );
-  }
-
-  void _showOnlineLayoutDialog() {
-    final notifier = ref.read(myReviewsProvider.notifier);
-    showDialog<void>(
-      context: context,
-      builder: (context) => CommonOptionDialog<MyReviewLayoutType>(
-        title: S.of(context).layout,
-        icon: Icons.grid_view,
-        value: ref.read(myReviewsProvider).layoutType,
-        options: [
-          RadioOption(
-            value: MyReviewLayoutType.bigGrid,
-            title: Text(S.of(context).layoutBigGrid),
-          ),
-          RadioOption(
-            value: MyReviewLayoutType.smallGrid,
-            title: Text(S.of(context).layoutSmallGrid),
-          ),
-          RadioOption(
-            value: MyReviewLayoutType.list,
-            title: Text(S.of(context).layoutList),
-          ),
-        ],
-        onChanged: (value) {
-          notifier.setLayoutType(value);
-          return true;
-        },
-      ),
-    );
-  }
-
-  void _showOnlineSubtitleDialog() {
-    final notifier = ref.read(myReviewsProvider.notifier);
-    final currentMode = SubtitleFilterMode.fromValue(
-      ref.read(myReviewsProvider).subtitleFilter,
-    );
-    showDialog<void>(
-      context: context,
-      builder: (context) => CommonOptionDialog<SubtitleFilterMode>(
-        title: S.of(context).subtitleFilter,
-        icon: Icons.closed_caption,
-        value: currentMode,
-        options: [
-          RadioOption(
-            value: SubtitleFilterMode.all,
-            title: Text(S.of(context).showAllWorks),
-          ),
-          RadioOption(
-            value: SubtitleFilterMode.withSubtitles,
-            title: Text(S.of(context).showOnlySubtitled),
-          ),
-        ],
-        onChanged: (value) {
-          if (value != currentMode) notifier.setSubtitleFilter(value);
-          return true;
-        },
-      ),
-    );
-  }
-
-  void _handleOnlineFeedSetting(FeedSettingsAction action) {
-    switch (action) {
-      case FeedSettingsAction.layout:
-        _showOnlineLayoutDialog();
-      case FeedSettingsAction.subtitles:
-        _showOnlineSubtitleDialog();
-      case FeedSettingsAction.sort:
-        _showSortDialog();
-    }
   }
 
   @override
@@ -579,15 +536,37 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
               FloatingFeedToolAction(
                 icon: Icons.search,
                 tooltip: S.of(context).searchOnlineWorks,
-                onPressed: _openOnlineSearch,
+                onPressed: () => _openSearch(
+                  scope: SearchScope.onlineMarks,
+                  progressFilter: state.filter.value,
+                ),
               ),
               FloatingFeedToolAction(
-                icon: Icons.more_vert,
-                tooltip: S.of(context).feedSettings,
-                onPressed: null,
-                builder: (context) => FeedSettingsMenuButton(
-                  onSelected: _handleOnlineFeedSetting,
-                ),
+                icon: switch (state.layoutType) {
+                  MyReviewLayoutType.bigGrid => Icons.grid_view,
+                  MyReviewLayoutType.smallGrid => Icons.grid_on,
+                  MyReviewLayoutType.list => Icons.view_list,
+                },
+                tooltip: S.of(context).layout,
+                onPressed: () =>
+                    ref.read(myReviewsProvider.notifier).toggleLayoutType(),
+              ),
+              FloatingFeedToolAction(
+                icon:
+                    SubtitleFilterMode.fromValue(state.subtitleFilter).isActive
+                    ? Icons.closed_caption
+                    : Icons.closed_caption_off,
+                tooltip: S.of(context).subtitleFilter,
+                isSelected: SubtitleFilterMode.fromValue(
+                  state.subtitleFilter,
+                ).isActive,
+                onPressed: () =>
+                    ref.read(myReviewsProvider.notifier).toggleSubtitleFilter(),
+              ),
+              FloatingFeedToolAction(
+                icon: Icons.sort,
+                tooltip: S.of(context).sort,
+                onPressed: _showSortDialog,
               ),
             ],
           ),

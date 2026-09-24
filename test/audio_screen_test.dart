@@ -15,6 +15,7 @@ import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
+import 'package:kikoeru_flutter/src/models/search_query.dart';
 import 'package:kikoeru_flutter/src/providers/my_tabs_display_provider.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/screens/main_screen.dart';
@@ -22,7 +23,6 @@ import 'package:kikoeru_flutter/src/screens/works_screen.dart';
 import 'package:kikoeru_flutter/src/screens/history_screen.dart';
 import 'package:kikoeru_flutter/src/screens/local_downloads_screen.dart';
 import 'package:kikoeru_flutter/src/screens/subtitle_library_screen.dart';
-import 'package:kikoeru_flutter/src/widgets/feed_settings_menu_button.dart';
 import 'package:kikoeru_flutter/src/widgets/global_audio_player_wrapper.dart';
 
 class _Reviews extends MyReviewsNotifier {
@@ -167,12 +167,63 @@ void main() {
     await tester.tap(find.byTooltip('Search online works'));
     await tester.pumpAndSettle();
     expect(find.byType(SearchScreen), findsOneWidget);
+    expect(
+      tester.widget<SearchScreen>(find.byType(SearchScreen)).scope,
+      SearchScope.history,
+    );
     expect(find.byTooltip('Back'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Back'));
     await tester.pumpAndSettle();
     expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 2);
     expect(tester.state(find.byType(HistoryScreen)), same(history));
+  });
+
+  testWidgets('outer tab swipe moves between Works Home and online marks', (
+    tester,
+  ) async {
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AudioScreen)),
+    );
+    final initialMode = container.read(worksProvider).displayMode;
+
+    await tester.drag(find.byType(TabBarView), const Offset(-600, 0));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 1);
+    expect(container.read(worksProvider).displayMode, initialMode);
+
+    await tester.drag(find.byType(TabBarView), const Offset(600, 0));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 0);
+    expect(container.read(worksProvider).displayMode, initialMode);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('online mark search captures the selected mark state', (
+    tester,
+  ) async {
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AudioScreen)),
+    );
+    container
+        .read(myReviewsProvider.notifier)
+        .changeFilter(MyReviewFilter.marked);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(Tab).at(1));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Search online works'));
+    await tester.pumpAndSettle();
+
+    final search = tester.widget<SearchScreen>(find.byType(SearchScreen));
+    expect(search.scope, SearchScope.onlineMarks);
+    expect(search.progressFilter, 'marked');
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(
@@ -208,7 +259,7 @@ void main() {
     },
   );
 
-  testWidgets('feed menus keep home and online marks preferences independent', (
+  testWidgets('inline home and marks controls keep preferences independent', (
     tester,
   ) async {
     final reduced = ValueNotifier(true);
@@ -218,44 +269,42 @@ void main() {
       tester.element(find.byType(AudioScreen)),
     );
     final reviewLayout = container.read(myReviewsProvider).layoutType;
-    await tester.tap(find.byTooltip('Feed settings'));
-    await tester.pumpAndSettle();
-    final items = tester.widgetList<PopupMenuItem<FeedSettingsAction>>(
-      find.byType(PopupMenuItem<FeedSettingsAction>),
-    );
-    expect(items.map((item) => item.value), FeedSettingsAction.values);
-    await tester.tap(find.text('Layout'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Large grid'));
+    final homeLayout = container.read(worksProvider).layoutType;
+    await tester.tap(find.byTooltip('Layout').first);
     await tester.pumpAndSettle();
     expect(container.read(worksProvider).layoutType, LayoutType.bigGrid);
     expect(container.read(myReviewsProvider).layoutType, reviewLayout);
-    await tester.tap(find.byType(Tab).at(1));
+    expect(container.read(worksProvider).layoutType, isNot(homeLayout));
+    await tester.tap(find.byTooltip('Subtitle filter'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Feed settings'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Subtitle'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Show only subtitled works'));
-    await tester.pumpAndSettle();
-    expect(container.read(myReviewsProvider).subtitleFilter, 1);
-    expect(container.read(worksProvider).subtitleFilter, 0);
-    await tester.tap(find.byType(Tab).at(0));
-    await tester.pumpAndSettle();
+    final homeSubtitleFilter = container.read(worksProvider).subtitleFilter;
+    expect(homeSubtitleFilter, isNot(0));
+
     for (final mode in [DisplayMode.popular, DisplayMode.recommended]) {
       container.read(worksProvider.notifier).setDisplayMode(mode);
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Feed settings'));
-      await tester.pumpAndSettle();
-      final sort = tester
-          .widgetList<PopupMenuItem<FeedSettingsAction>>(
-            find.byType(PopupMenuItem<FeedSettingsAction>),
-          )
-          .singleWhere((item) => item.value == FeedSettingsAction.sort);
-      expect(sort.enabled, isFalse);
-      Navigator.of(tester.element(find.text('Sort'))).pop();
-      await tester.pumpAndSettle();
+      final sortButton = tester.widget<IconButton>(
+        find.ancestor(
+          of: find.byTooltip('Sort'),
+          matching: find.byType(IconButton),
+        ),
+      );
+      expect(sortButton.onPressed, isNull);
     }
+
+    await tester.tap(find.byType(Tab).at(1));
+    await tester.pumpAndSettle();
+    final workLayout = container.read(worksProvider).layoutType;
+    final workSubtitleFilter = container.read(worksProvider).subtitleFilter;
+    await tester.tap(find.byTooltip('Layout').first);
+    await tester.pumpAndSettle();
+    expect(container.read(myReviewsProvider).layoutType, isNot(reviewLayout));
+    expect(container.read(worksProvider).layoutType, workLayout);
+    await tester.tap(find.byTooltip('Subtitle filter'));
+    await tester.pumpAndSettle();
+    expect(container.read(myReviewsProvider).subtitleFilter, isNot(0));
+    expect(container.read(worksProvider).subtitleFilter, workSubtitleFilter);
+    expect(container.read(worksProvider).subtitleFilter, homeSubtitleFilter);
   });
 
   for (final size in [const Size(390, 844), const Size(1000, 600)]) {
@@ -346,8 +395,8 @@ void main() {
         final reduced = ValueNotifier(true);
         addTearDown(reduced.dispose);
         final screen = subtitles
-            ? SubtitleLibraryScreen(onSearchOnline: () {})
-            : LocalDownloadsScreen(onSearchOnline: () {});
+            ? const SubtitleLibraryScreen()
+            : const LocalDownloadsScreen();
         await _pumpAudioScreen(
           tester,
           reduced,
@@ -365,7 +414,7 @@ void main() {
         await tester.enterText(find.byType(TextField), 'test');
         await tester.pump(const Duration(milliseconds: 300));
         expect(tester.takeException(), isNull);
-        expect(find.byTooltip('Search online works'), findsOneWidget);
+        expect(find.byTooltip('Search online works'), findsNothing);
         await tester.pumpWidget(const SizedBox());
       },
     );

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -3378,9 +3379,14 @@ class _CountingProgressApiService extends _PlayerTestApiService {
   Future<Map<String, dynamic>> getWork(
     int workId, {
     bool forceRefresh = false,
+    CancelToken? cancelToken,
   }) {
     workLoads++;
-    return super.getWork(workId, forceRefresh: forceRefresh);
+    return super.getWork(
+      workId,
+      forceRefresh: forceRefresh,
+      cancelToken: cancelToken,
+    );
   }
 }
 
@@ -3391,6 +3397,7 @@ class _PendingProgressApiService extends _PlayerTestApiService {
   Future<Map<String, dynamic>> getWork(
     int workId, {
     bool forceRefresh = false,
+    CancelToken? cancelToken,
   }) => result.future;
 }
 
@@ -3399,6 +3406,7 @@ class _PlayerTestApiService extends KikoeruApiService {
   Future<Map<String, dynamic>> getWork(
     int workId, {
     bool forceRefresh = false,
+    CancelToken? cancelToken,
   }) async => <String, dynamic>{'id': workId, 'title': 'Work album'};
 
   @override

@@ -1240,5 +1240,20 @@
   "playerSubtitleShowMatches": "僅顯示匹配字幕",
   "playerSubtitleNoCandidates": "目前作品沒有可選字幕",
   "playerSubtitleMayNotMatch": "此字幕可能不匹配目前音訊",
-  "playerLyricViewSettings": "字幕檢視設定"
+  "playerLyricViewSettings": "字幕檢視設定",
+  "searchInScope": "在{scope}中搜尋",
+  "@searchInScope": { "placeholders": { "scope": { "type": "String" } } },
+  "scopedSearchInProgress": "正在搜尋此清單…",
+  "scopedSearchSourceFailure": "部分項目載入失敗，結果可能不完整。",
+  "scopedSearchPartialFailure": "有{count}項無法檢查，結果可能不完整。",
+  "@scopedSearchPartialFailure": { "placeholders": { "count": { "type": "int" } } },
+  "scopedSearchResultCount": "共{count}個作品",
+  "@scopedSearchResultCount": { "placeholders": { "count": { "type": "int" } } },
+  "scopedSearchNoResults": "沒有符合條件的作品。",
+  "scopedSearchUnresolved": "搜尋完成，但有{count}項無法檢查。",
+  "@scopedSearchUnresolved": { "placeholders": { "count": { "type": "int" } } },
+  "scopedSearchPlaylistMembership": "所屬播放清單：{playlists}",
+  "@scopedSearchPlaylistMembership": { "placeholders": { "playlists": { "type": "String" } } },
+  "downloadedFilesAndSize": "已下載{count}個檔案 · {size}",
+  "@downloadedFilesAndSize": { "placeholders": { "count": { "type": "int" }, "size": { "type": "String" } } }
 }

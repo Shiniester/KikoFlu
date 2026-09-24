@@ -5,7 +5,7 @@ import '../models/work.dart';
 import '../providers/work_card_display_provider.dart';
 import '../providers/works_provider.dart';
 import '../providers/auth_provider.dart';
-import '../utils/responsive_grid_helper.dart';
+import '../utils/collection_grid_layout.dart';
 import '../utils/work_cover_prefetch.dart';
 import 'enhanced_work_card.dart';
 import 'virtualized_sliver_collection.dart';
@@ -72,118 +72,104 @@ class WorksGridView extends ConsumerWidget {
     final auth = ref.watch(
       authProvider.select((state) => (state.host ?? '', state.token ?? '')),
     );
-    return LayoutBuilder(builder: (context, constraints) {
-      final mediaSize = MediaQuery.sizeOf(context);
-      final availableWidth = constraints.hasBoundedWidth
-          ? constraints.maxWidth.clamp(0.0, mediaSize.width).toDouble()
-          : mediaSize.width;
-      final availableHeight = constraints.hasBoundedHeight
-          ? constraints.maxHeight.clamp(0.0, mediaSize.height).toDouble()
-          : mediaSize.height;
-      final isLandscape = availableWidth > availableHeight;
-      final spacing = isLandscape ? 24.0 : 8.0;
-      final defaultPadding = spacing;
-      final collectionPadding = padding ?? EdgeInsets.all(defaultPadding);
-      final resolvedPadding =
-          collectionPadding.resolve(Directionality.of(context));
-      final horizontalPadding = resolvedPadding.horizontal / 2;
-      final crossAxisCount = switch (layoutType) {
-        LayoutType.bigGrid => displaySettings.applyCardSize(
-            ResponsiveGridHelper.getBigGridCrossAxisCount(
-              context,
-              availableWidth: availableWidth,
-              availableHeight: availableHeight,
-              horizontalPadding: horizontalPadding,
-              crossAxisSpacing: spacing,
-            ),
-          ),
-        LayoutType.smallGrid => displaySettings.applyCardSize(
-            ResponsiveGridHelper.getSmallGridCrossAxisCount(
-              context,
-              availableWidth: availableWidth,
-              availableHeight: availableHeight,
-              horizontalPadding: horizontalPadding,
-              crossAxisSpacing: spacing,
-            ),
-            minCrossAxisCount: 2,
-          ),
-        LayoutType.list => 1,
-      };
-      final isGrid = layoutType != LayoutType.list;
-      return WorkCoverPrefetchScope(
-        sourceKey: (auth.$1, auth.$2, key, pageStorageKey, works),
-        builder: (context, coverPrefetch) =>
-            VirtualizedSliverCollection<Work>(
-        controller: scrollController,
-        pageStorageKey: pageStorageKey,
-        sliversBefore: sliversBefore,
-        items: works,
-        itemId: (work) => work.id,
-        itemBuilder: (context, work, index) => EnhancedWorkCard(
-          key: ValueKey(work.id),
-          work: work,
-          crossAxisCount: crossAxisCount,
-          isListLayout: layoutType == LayoutType.list,
-        ),
-        layout: isGrid
-            ? VirtualizedCollectionLayout.masonry
-            : VirtualizedCollectionLayout.list,
-        masonryCrossAxisCount: isGrid ? crossAxisCount : null,
-        masonryCrossAxisSpacing: spacing,
-        masonryMainAxisSpacing: spacing,
-        padding: collectionPadding,
-        isInitialLoading: isLoading && works.isEmpty,
-        isRefreshing: isRefreshing,
-        isLoadingMore: isLoadingMore,
-        hasMore: hasMore,
-        error: works.isEmpty ? error : null,
-        loadMoreError: loadMoreError,
-        onRefresh: onRefresh,
-        onLoadMore: onLoadMore,
-        pagination: pagination?.copyWith(
-          padding: EdgeInsets.fromLTRB(
-            resolvedPadding.left,
-            spacing,
-            resolvedPadding.right,
-            24,
-          ),
-        ),
-        onRetry: onRetry,
-        onPrefetch: (items) {
-          coverPrefetch.prefetch(
-            context,
-            items,
-            host: auth.$1,
-            token: auth.$2,
-            crossAxisCount: crossAxisCount,
-            isListCard: layoutType == LayoutType.list,
-          );
-          onPrefetch?.call(items);
-        },
-        emptyBuilder: emptyBuilder,
-        loadingBuilder: loadingBuilder,
-        errorBuilder: errorBuilder,
-        endBuilder: endBuilder,
-        showEndIndicator:
-            pagination == null && showEndMessage && works.isNotEmpty,
-        fillEmptyViewport: fillEmptyViewport,
-        physics: physics,
-        collectionTrailingBuilder:
-            (onLoadMore != null && hasMore) || showInlineLoadingIndicator
-                ? (context) => isGrid
-                    ? const SizedBox(
-                        height: 100,
-                        child: Center(child: CircularProgressIndicator()),
-                      )
-                    : const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(16),
-                          child: CircularProgressIndicator(),
-                        ),
-                      )
-                : null,
-            ),
-      );
-    });
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final mediaSize = MediaQuery.sizeOf(context);
+        final availableWidth = constraints.hasBoundedWidth
+            ? constraints.maxWidth.clamp(0.0, mediaSize.width).toDouble()
+            : mediaSize.width;
+        final availableHeight = constraints.hasBoundedHeight
+            ? constraints.maxHeight.clamp(0.0, mediaSize.height).toDouble()
+            : mediaSize.height;
+        final metrics = resolveCollectionGridMetrics(
+          context,
+          layoutType: layoutType,
+          cardSize: displaySettings.cardSize,
+          padding: padding,
+          availableWidth: availableWidth,
+          availableHeight: availableHeight,
+        );
+        final collectionPadding = metrics.padding;
+        final resolvedPadding = metrics.padding;
+        final spacing = metrics.spacing;
+        final crossAxisCount = metrics.crossAxisCount;
+        final isGrid = layoutType != LayoutType.list;
+        return WorkCoverPrefetchScope(
+          sourceKey: (auth.$1, auth.$2, key, pageStorageKey, works),
+          builder: (context, coverPrefetch) =>
+              VirtualizedSliverCollection<Work>(
+                controller: scrollController,
+                pageStorageKey: pageStorageKey,
+                sliversBefore: sliversBefore,
+                items: works,
+                itemId: (work) => work.id,
+                itemBuilder: (context, work, index) => EnhancedWorkCard(
+                  key: ValueKey(work.id),
+                  work: work,
+                  crossAxisCount: crossAxisCount,
+                  isListLayout: layoutType == LayoutType.list,
+                ),
+                layout: isGrid
+                    ? VirtualizedCollectionLayout.masonry
+                    : VirtualizedCollectionLayout.list,
+                masonryCrossAxisCount: isGrid ? crossAxisCount : null,
+                masonryCrossAxisSpacing: spacing,
+                masonryMainAxisSpacing: spacing,
+                padding: collectionPadding,
+                isInitialLoading: isLoading && works.isEmpty,
+                isRefreshing: isRefreshing,
+                isLoadingMore: isLoadingMore,
+                hasMore: hasMore,
+                error: works.isEmpty ? error : null,
+                loadMoreError: loadMoreError,
+                onRefresh: onRefresh,
+                onLoadMore: onLoadMore,
+                pagination: pagination?.copyWith(
+                  padding: EdgeInsets.fromLTRB(
+                    resolvedPadding.left,
+                    spacing,
+                    resolvedPadding.right,
+                    24,
+                  ),
+                ),
+                onRetry: onRetry,
+                onPrefetch: (items) {
+                  coverPrefetch.prefetch(
+                    context,
+                    items,
+                    host: auth.$1,
+                    token: auth.$2,
+                    crossAxisCount: crossAxisCount,
+                    isListCard: layoutType == LayoutType.list,
+                  );
+                  onPrefetch?.call(items);
+                },
+                emptyBuilder: emptyBuilder,
+                loadingBuilder: loadingBuilder,
+                errorBuilder: errorBuilder,
+                endBuilder: endBuilder,
+                showEndIndicator:
+                    pagination == null && showEndMessage && works.isNotEmpty,
+                fillEmptyViewport: fillEmptyViewport,
+                physics: physics,
+                collectionTrailingBuilder:
+                    (onLoadMore != null && hasMore) ||
+                        showInlineLoadingIndicator
+                    ? (context) => isGrid
+                          ? const SizedBox(
+                              height: 100,
+                              child: Center(child: CircularProgressIndicator()),
+                            )
+                          : const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(16),
+                                child: CircularProgressIndicator(),
+                              ),
+                            )
+                    : null,
+              ),
+        );
+      },
+    );
   }
 }

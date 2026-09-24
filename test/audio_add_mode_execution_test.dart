@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -238,6 +239,7 @@ class _Api extends Fake implements KikoeruApiService {
   Future<Map<String, dynamic>> getWork(
     int id, {
     bool forceRefresh = false,
+    CancelToken? cancelToken,
   }) async {
     requests.add(id);
     return pending == null ? _work.toJson() : pending!.future;

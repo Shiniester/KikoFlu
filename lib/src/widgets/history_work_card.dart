@@ -19,7 +19,9 @@ import '../utils/work_cover_prefetch.dart';
 import '../utils/snackbar_util.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/work_card_display_provider.dart';
+import '../providers/works_provider.dart' show LayoutType;
 import '../utils/age_rating.dart';
+import '../utils/collection_grid_layout.dart';
 import '../../l10n/app_localizations.dart';
 import 'privacy_blur_cover.dart';
 import 'work_detail/work_cover_frame.dart';
@@ -31,8 +33,14 @@ final _log = LogService.instance;
 class HistoryWorkCard extends ConsumerWidget {
   final HistoryRecord record;
   final VoidCallback? onTap;
+  final LayoutType layoutType;
 
-  const HistoryWorkCard({super.key, required this.record, this.onTap});
+  const HistoryWorkCard({
+    super.key,
+    required this.record,
+    this.onTap,
+    this.layoutType = LayoutType.bigGrid,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -47,229 +55,256 @@ class HistoryWorkCard extends ConsumerWidget {
         ? null
         : createWorkCoverImageProvider(work: work, host: host, token: token);
 
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: InkWell(
-        onTap: () {
-          pushWorkDetailRoute(
-            context,
-            builder: (context) => WorkDetailScreen(
-              work: work,
-              initialCoverImageProvider: initialCoverImageProvider,
-            ),
-          );
-        },
-        onLongPress: () {
-          showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: Text(S.of(context).deleteRecord),
-              content: Text(S.of(context).deletePlayRecordConfirm(work.title)),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text(S.of(context).cancel),
-                ),
-                TextButton(
-                  onPressed: () {
-                    ref.read(historyProvider.notifier).remove(work.id);
-                    Navigator.pop(context);
-                  },
-                  child: Text(S.of(context).delete),
-                ),
-              ],
-            ),
-          );
-        },
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Cover
-            Expanded(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  WorkCoverHeroFrame(
-                    heroTag: 'work_cover_${work.id}',
-                    cornerRadius: workCoverDetailRadius,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: PrivacyBlurCover(
-                        child: CachedNetworkImage(
-                          imageUrl: work.getCoverImageUrl(host, token: token),
-                          httpHeaders: httpHeaders,
-                          cacheKey: 'work_cover_${work.id}',
-                          useOldImageOnUrlChange: true,
-                          fit: BoxFit.cover,
-                          placeholder: (context, url) => Container(
-                            color: Colors.grey[200],
-                            child: const Center(
-                              child: Icon(Icons.image, color: Colors.grey),
-                            ),
-                          ),
-                          errorWidget: (context, url, error) => Container(
-                            color: Colors.grey[200],
-                            child: const Center(
-                              child: Icon(
-                                Icons.broken_image,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isList = layoutType == LayoutType.list;
+        final coverWidth = isList
+            ? collectionListCoverSize.width
+            : constraints.maxWidth;
+        final cornerRadius = collectionCoverRadius(coverWidth);
+        final cover = ClipRRect(
+          borderRadius: BorderRadius.circular(cornerRadius),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              WorkCoverHeroFrame(
+                heroTag: 'work_cover_${work.id}',
+                cornerRadius: cornerRadius,
+                child: Material(
+                  color: Colors.transparent,
+                  child: PrivacyBlurCover(
+                    child: CachedNetworkImage(
+                      imageUrl: work.getCoverImageUrl(host, token: token),
+                      httpHeaders: httpHeaders,
+                      cacheKey: 'work_cover_${work.id}',
+                      useOldImageOnUrlChange: true,
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) => Container(
+                        color: Colors.grey[200],
+                        child: const Center(
+                          child: Icon(Icons.image, color: Colors.grey),
+                        ),
+                      ),
+                      errorWidget: (context, url, error) => Container(
+                        color: Colors.grey[200],
+                        child: const Center(
+                          child: Icon(Icons.broken_image, color: Colors.grey),
                         ),
                       ),
                     ),
                   ),
-                  // Gradient
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: Container(
-                      height: 60,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.7),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (showAgeRating && AgeRatingFormatter.hasValue(work.age))
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: AgeRatingChip(age: work.age, compact: true),
-                    ),
-                  // Play Button
-                  if (record.lastTrack != null)
-                    Positioned(
-                      right: 8,
-                      bottom: 8,
-                      child: Material(
-                        color: Theme.of(context).colorScheme.primary,
-                        shape: const CircleBorder(),
-                        elevation: 4,
-                        child: InkWell(
-                          customBorder: const CircleBorder(),
-                          onTap: () => _resumePlayback(context, ref),
-                          child: Padding(
-                            padding: const EdgeInsets.all(10.0),
-                            child: Icon(
-                              Icons.play_arrow,
-                              size: 24,
-                              color: Theme.of(context).colorScheme.onPrimary,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
+                ),
               ),
-            ),
-            // Info
-            Container(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    work.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Theme.of(context).colorScheme.onSurface,
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  height: 60,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: 0.7),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  if (record.lastTrack != null)
-                    Builder(
-                      builder: (context) {
-                        final lastTrack = record.lastTrack!;
-                        final int? trackDurationMs =
-                            lastTrack.duration?.inMilliseconds;
-                        final double progressValue =
-                            trackDurationMs != null && trackDurationMs > 0
-                            ? (record.lastPositionMs / trackDurationMs).clamp(
-                                0.0,
-                                1.0,
-                              )
-                            : 0.0;
-
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+              ),
+              if (!isList &&
+                  showAgeRating &&
+                  AgeRatingFormatter.hasValue(work.age))
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: AgeRatingChip(age: work.age, compact: true),
+                ),
+              if (record.lastTrack != null)
+                Positioned(
+                  right: isList ? 8 : 8,
+                  bottom: 8,
+                  child: Material(
+                    color: Theme.of(context).colorScheme.primary,
+                    shape: const CircleBorder(),
+                    elevation: 4,
+                    child: InkWell(
+                      customBorder: const CircleBorder(),
+                      onTap: () => _resumePlayback(context, ref),
+                      child: Padding(
+                        padding: EdgeInsets.all(isList ? 4 : 10),
+                        child: Icon(
+                          Icons.play_arrow,
+                          size: isList ? 20 : 24,
+                          color: Theme.of(context).colorScheme.onPrimary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+        final info = Container(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                work.title,
+                maxLines: isList ? 2 : 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 4),
+              if (record.lastTrack != null)
+                Builder(
+                  builder: (context) {
+                    final lastTrack = record.lastTrack!;
+                    final trackDurationMs = lastTrack.duration?.inMilliseconds;
+                    final progressValue =
+                        trackDurationMs != null && trackDurationMs > 0
+                        ? (record.lastPositionMs / trackDurationMs).clamp(
+                            0.0,
+                            1.0,
+                          )
+                        : 0.0;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          lastTrack.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Theme.of(context).colorScheme.secondary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              lastTrack.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Theme.of(context).colorScheme.secondary,
+                            Flexible(
+                              child: Text(
+                                '${formatDuration(Duration(milliseconds: record.lastPositionMs))} / ${formatDuration(lastTrack.duration ?? Duration.zero)}',
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w500,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  '${formatDuration(Duration(milliseconds: record.lastPositionMs))} / ${formatDuration(lastTrack.duration ?? Duration.zero)}',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w500,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                  ),
+                            if (record.playlistTotal > 0)
+                              Text(
+                                '${record.playlistIndex + 1} / ${record.playlistTotal}',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Theme.of(context).colorScheme.outline,
                                 ),
-                                if (record.playlistTotal > 0)
-                                  Text(
-                                    '${record.playlistIndex + 1} / ${record.playlistTotal}',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.outline,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            LinearProgressIndicator(
-                              value: progressValue,
-                              backgroundColor: Theme.of(
-                                context,
-                              ).colorScheme.surfaceContainerHighest,
-                              color: Theme.of(context).colorScheme.primary,
-                              minHeight: 3,
-                              borderRadius: BorderRadius.circular(1.5),
-                            ),
+                              ),
                           ],
-                        );
-                      },
-                    )
-                  else
-                    Text(
-                      S.of(context).notPlayedYet,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
+                        ),
+                        const SizedBox(height: 6),
+                        LinearProgressIndicator(
+                          value: progressValue,
+                          backgroundColor: Theme.of(
+                            context,
+                          ).colorScheme.surfaceContainerHighest,
+                          color: Theme.of(context).colorScheme.primary,
+                          minHeight: 3,
+                          borderRadius: BorderRadius.circular(1.5),
+                        ),
+                      ],
+                    );
+                  },
+                )
+              else
+                Text(
+                  S.of(context).notPlayedYet,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                ),
+            ],
+          ),
+        );
+
+        return Card(
+          margin: isList ? const EdgeInsets.all(4) : EdgeInsets.zero,
+          clipBehavior: Clip.antiAlias,
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(isList ? 12 : cornerRadius),
+          ),
+          child: InkWell(
+            onTap:
+                onTap ??
+                () => pushWorkDetailRoute(
+                  context,
+                  builder: (context) => WorkDetailScreen(
+                    work: work,
+                    initialCoverImageProvider: initialCoverImageProvider,
+                  ),
+                ),
+            onLongPress: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: Text(S.of(context).deleteRecord),
+                  content: Text(
+                    S.of(context).deletePlayRecordConfirm(work.title),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: Text(S.of(context).cancel),
                     ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+                    TextButton(
+                      onPressed: () {
+                        ref.read(historyProvider.notifier).remove(work.id);
+                        Navigator.pop(context);
+                      },
+                      child: Text(S.of(context).delete),
+                    ),
+                  ],
+                ),
+              );
+            },
+            child: isList
+                ? Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(width: 80, height: 60, child: cover),
+                        const SizedBox(width: 8),
+                        Expanded(child: info),
+                      ],
+                    ),
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AspectRatio(
+                        aspectRatio: collectionCoverAspectRatio,
+                        child: cover,
+                      ),
+                      info,
+                    ],
+                  ),
+          ),
+        );
+      },
     );
   }
 

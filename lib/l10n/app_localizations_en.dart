@@ -3803,4 +3803,44 @@ class SEn extends S {
 
   @override
   String get playerLyricViewSettings => 'Subtitle view settings';
+
+  @override
+  String searchInScope(String scope) {
+    return 'Search in $scope';
+  }
+
+  @override
+  String get scopedSearchInProgress => 'Searching this collection…';
+
+  @override
+  String get scopedSearchSourceFailure =>
+      'Some items could not be loaded. Results may be incomplete.';
+
+  @override
+  String scopedSearchPartialFailure(int count) {
+    return 'Could not check $count item(s). Results may be incomplete.';
+  }
+
+  @override
+  String scopedSearchResultCount(int count) {
+    return '$count works';
+  }
+
+  @override
+  String get scopedSearchNoResults => 'No matching works.';
+
+  @override
+  String scopedSearchUnresolved(int count) {
+    return 'Search finished, but $count item(s) could not be checked.';
+  }
+
+  @override
+  String scopedSearchPlaylistMembership(String playlists) {
+    return 'In playlists: $playlists';
+  }
+
+  @override
+  String downloadedFilesAndSize(int count, String size) {
+    return '$count downloaded file(s) · $size';
+  }
 }

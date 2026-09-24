@@ -3695,4 +3695,43 @@ class SJa extends S {
 
   @override
   String get playerLyricViewSettings => '字幕表示設定';
+
+  @override
+  String searchInScope(String scope) {
+    return '$scope内を検索';
+  }
+
+  @override
+  String get scopedSearchInProgress => 'この一覧を検索中…';
+
+  @override
+  String get scopedSearchSourceFailure => '一部の項目を読み込めませんでした。結果が不完全な可能性があります。';
+
+  @override
+  String scopedSearchPartialFailure(int count) {
+    return '$count件を確認できませんでした。結果が不完全な可能性があります。';
+  }
+
+  @override
+  String scopedSearchResultCount(int count) {
+    return '$count件の作品';
+  }
+
+  @override
+  String get scopedSearchNoResults => '一致する作品はありません。';
+
+  @override
+  String scopedSearchUnresolved(int count) {
+    return '検索は完了しましたが、$count件を確認できませんでした。';
+  }
+
+  @override
+  String scopedSearchPlaylistMembership(String playlists) {
+    return 'プレイリスト: $playlists';
+  }
+
+  @override
+  String downloadedFilesAndSize(int count, String size) {
+    return 'ダウンロード済みファイル $count件 · $size';
+  }
 }

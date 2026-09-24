@@ -1240,5 +1240,20 @@
   "playerSubtitleShowMatches": "一致する字幕のみ表示",
   "playerSubtitleNoCandidates": "この作品には選択できる字幕がありません",
   "playerSubtitleMayNotMatch": "現在の音声と一致しない可能性があります",
-  "playerLyricViewSettings": "字幕表示設定"
+  "playerLyricViewSettings": "字幕表示設定",
+  "searchInScope": "{scope}内を検索",
+  "@searchInScope": { "placeholders": { "scope": { "type": "String" } } },
+  "scopedSearchInProgress": "この一覧を検索中…",
+  "scopedSearchSourceFailure": "一部の項目を読み込めませんでした。結果が不完全な可能性があります。",
+  "scopedSearchPartialFailure": "{count}件を確認できませんでした。結果が不完全な可能性があります。",
+  "@scopedSearchPartialFailure": { "placeholders": { "count": { "type": "int" } } },
+  "scopedSearchResultCount": "{count}件の作品",
+  "@scopedSearchResultCount": { "placeholders": { "count": { "type": "int" } } },
+  "scopedSearchNoResults": "一致する作品はありません。",
+  "scopedSearchUnresolved": "検索は完了しましたが、{count}件を確認できませんでした。",
+  "@scopedSearchUnresolved": { "placeholders": { "count": { "type": "int" } } },
+  "scopedSearchPlaylistMembership": "プレイリスト: {playlists}",
+  "@scopedSearchPlaylistMembership": { "placeholders": { "playlists": { "type": "String" } } },
+  "downloadedFilesAndSize": "ダウンロード済みファイル {count}件 · {size}",
+  "@downloadedFilesAndSize": { "placeholders": { "count": { "type": "int" }, "size": { "type": "String" } } }
 }

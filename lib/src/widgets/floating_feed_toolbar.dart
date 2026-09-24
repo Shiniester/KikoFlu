@@ -21,14 +21,12 @@ class FloatingFeedToolAction {
     required this.tooltip,
     required this.onPressed,
     this.isSelected = false,
-    this.builder,
   });
 
   final IconData icon;
   final String tooltip;
   final VoidCallback? onPressed;
   final bool isSelected;
-  final WidgetBuilder? builder;
 }
 
 /// Two floating capsules used by feed surfaces: modes on the left and tools
@@ -127,8 +125,7 @@ class FloatingFeedToolbar extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       for (final action in toolActions)
-                        action.builder?.call(context) ??
-                            _ToolButton(action: action),
+                        _ToolButton(action: action),
                     ],
                   ),
                 ),

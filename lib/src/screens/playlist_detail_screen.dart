@@ -19,9 +19,10 @@ import '../widgets/enhanced_work_card.dart';
 import '../widgets/work_detail/work_cover_frame.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 import '../widgets/app_bottom_dock_transition.dart';
-import '../utils/responsive_grid_helper.dart';
 import '../utils/work_cover_prefetch.dart';
 import '../utils/scroll_optimization.dart';
+import '../utils/collection_grid_layout.dart';
+import '../providers/works_provider.dart' show LayoutType;
 import '../utils/ui_tokens.dart';
 import '../../l10n/app_localizations.dart';
 
@@ -420,17 +421,14 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     final isOwner = state.metadata?.userName == auth.userName;
     final layoutType = ref.watch(playlistDisplayProvider);
     final isMasonry = layoutType == PlaylistLayoutType.masonry;
-    final isLandscape =
-        MediaQuery.orientationOf(context) == Orientation.landscape;
-    final spacing = isLandscape ? 24.0 : 8.0;
-    final crossAxisCount = isMasonry
-        ? ref
-              .watch(workCardDisplayProvider)
-              .applyCardSize(
-                ResponsiveGridHelper.getBigGridCrossAxisCount(context),
-              )
-        : 1;
-    final contentPadding = isMasonry ? spacing : 8.0;
+    final metrics = resolveCollectionGridMetrics(
+      context,
+      layoutType: isMasonry ? LayoutType.bigGrid : LayoutType.list,
+      cardSize: ref.watch(workCardDisplayProvider).cardSize,
+    );
+    final spacing = metrics.spacing;
+    final crossAxisCount = isMasonry ? metrics.crossAxisCount : 1;
+    final contentPadding = isMasonry ? metrics.padding.left : 8.0;
 
     return WorkCoverPrefetchScope(
       sourceKey: (auth.host, auth.token, widget.playlistId, state.works),

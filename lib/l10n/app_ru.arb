@@ -1240,5 +1240,20 @@
   "playerSubtitleShowMatches": "Показывать только совпадения",
   "playerSubtitleNoCandidates": "Для этого произведения нет субтитров",
   "playerSubtitleMayNotMatch": "Субтитры могут не соответствовать текущему аудио",
-  "playerLyricViewSettings": "Настройки отображения субтитров"
+  "playerLyricViewSettings": "Настройки отображения субтитров",
+  "searchInScope": "Поиск: {scope}",
+  "@searchInScope": { "placeholders": { "scope": { "type": "String" } } },
+  "scopedSearchInProgress": "Поиск в этом списке…",
+  "scopedSearchSourceFailure": "Не удалось загрузить некоторые элементы. Результаты могут быть неполными.",
+  "scopedSearchPartialFailure": "Не удалось проверить элементов: {count}. Результаты могут быть неполными.",
+  "@scopedSearchPartialFailure": { "placeholders": { "count": { "type": "int" } } },
+  "scopedSearchResultCount": "Произведений: {count}",
+  "@scopedSearchResultCount": { "placeholders": { "count": { "type": "int" } } },
+  "scopedSearchNoResults": "Подходящие произведения не найдены.",
+  "scopedSearchUnresolved": "Поиск завершён, но не удалось проверить элементов: {count}.",
+  "@scopedSearchUnresolved": { "placeholders": { "count": { "type": "int" } } },
+  "scopedSearchPlaylistMembership": "В плейлистах: {playlists}",
+  "@scopedSearchPlaylistMembership": { "placeholders": { "playlists": { "type": "String" } } },
+  "downloadedFilesAndSize": "Файлов загружено: {count} · {size}",
+  "@downloadedFilesAndSize": { "placeholders": { "count": { "type": "int" }, "size": { "type": "String" } } }
 }

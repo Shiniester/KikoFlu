@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -11,6 +13,7 @@ import '../utils/snackbar_util.dart';
 import '../utils/string_utils.dart';
 import '../utils/age_rating.dart';
 import '../utils/work_cover_prefetch.dart';
+import '../utils/collection_grid_layout.dart';
 import '../../l10n/app_localizations.dart';
 import 'tag_chip.dart';
 import 'va_chip.dart';
@@ -25,6 +28,8 @@ class EnhancedWorkCard extends ConsumerStatefulWidget {
   final VoidCallback? onTap;
   final int crossAxisCount;
   final bool? isListLayout;
+  final String? localCoverPath;
+  final Object? coverHeroTag;
 
   const EnhancedWorkCard({
     super.key,
@@ -32,6 +37,8 @@ class EnhancedWorkCard extends ConsumerStatefulWidget {
     this.onTap,
     this.crossAxisCount = 2,
     this.isListLayout,
+    this.localCoverPath,
+    this.coverHeroTag,
   });
 
   @override
@@ -40,9 +47,6 @@ class EnhancedWorkCard extends ConsumerStatefulWidget {
 
 class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
   bool get _isListLayout => widget.isListLayout ?? widget.crossAxisCount <= 1;
-  double get _coverCornerRadius => _isListLayout || widget.crossAxisCount >= 3
-      ? workCoverCompactRadius
-      : workCoverDetailRadius;
 
   String? _progress; // 当前收藏状态
   int? _rating; // 当前评分
@@ -148,6 +152,10 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        final coverWidth = _isListLayout
+            ? collectionListCoverSize.width
+            : constraints.maxWidth;
+        final coverRadius = collectionCoverRadius(coverWidth);
         // A very narrow grid cell should use the compact content variant even
         // when a responsive fallback reduced a nominal grid to two columns.
         final isNarrowGridCell = !_isListLayout && constraints.maxWidth < 160;
@@ -165,6 +173,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
             cardOnTap,
             displaySettings,
             hasLocalSubtitle,
+            coverRadius,
           );
         }
         if (isCompact) {
@@ -175,6 +184,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
             cardOnTap,
             displaySettings,
             hasLocalSubtitle,
+            coverRadius,
           );
         }
         return _buildMediumCard(
@@ -184,6 +194,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
           cardOnTap,
           displaySettings,
           hasLocalSubtitle,
+          coverRadius,
         );
       },
     );
@@ -197,6 +208,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     VoidCallback cardOnTap,
     WorkCardDisplaySettings displaySettings,
     bool hasLocalSubtitle,
+    double coverRadius,
   ) {
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
@@ -209,7 +221,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
       margin: const EdgeInsets.all(0),
       elevation: 8,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(_coverCornerRadius),
+        borderRadius: BorderRadius.circular(coverRadius),
       ),
       child: InkWell(
         onTap: cardOnTap,
@@ -220,10 +232,15 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
           children: [
             // 封面图片区域
             AspectRatio(
-              aspectRatio: 1.0,
+              aspectRatio: collectionCoverAspectRatio,
               child: Stack(
                 children: [
-                  _buildCoverImage(context, host, token),
+                  _buildCoverImage(
+                    context,
+                    host,
+                    token,
+                    cornerRadius: coverRadius,
+                  ),
                   // 作品编号标签 (左上角)
                   Positioned(top: 4, left: 4, child: _buildRjTag()),
                   if (displaySettings.showAgeRating &&
@@ -284,6 +301,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     VoidCallback cardOnTap,
     WorkCardDisplaySettings displaySettings,
     bool hasLocalSubtitle,
+    double coverRadius,
   ) {
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
@@ -306,7 +324,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
       margin: const EdgeInsets.all(0),
       elevation: 8,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(_coverCornerRadius),
+        borderRadius: BorderRadius.circular(coverRadius),
       ),
       child: InkWell(
         onTap: cardOnTap,
@@ -317,10 +335,15 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
           children: [
             // 封面区域
             AspectRatio(
-              aspectRatio: 1.3,
+              aspectRatio: collectionCoverAspectRatio,
               child: Stack(
                 children: [
-                  _buildCoverImage(context, host, token),
+                  _buildCoverImage(
+                    context,
+                    host,
+                    token,
+                    cornerRadius: coverRadius,
+                  ),
                   Positioned(top: 6, left: 6, child: _buildRjTag()),
                   if (displaySettings.showAgeRating &&
                       AgeRatingFormatter.hasValue(widget.work.age))
@@ -461,6 +484,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     VoidCallback cardOnTap,
     WorkCardDisplaySettings displaySettings,
     bool hasLocalSubtitle,
+    double coverRadius,
   ) {
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
@@ -495,13 +519,18 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                 children: [
                   // 封面图片
                   SizedBox(
-                    width: 80,
-                    height: 80,
+                    width: collectionListCoverSize.width,
+                    height: collectionListCoverSize.height,
                     child: Stack(
                       children: [
                         ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: _buildCoverImage(context, host, token),
+                          borderRadius: BorderRadius.circular(coverRadius),
+                          child: _buildCoverImage(
+                            context,
+                            host,
+                            token,
+                            cornerRadius: coverRadius,
+                          ),
                         ),
                         // 作品编号标签
                         Positioned(
@@ -685,7 +714,33 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     );
   }
 
-  Widget _buildCoverImage(BuildContext context, String host, String token) {
+  Widget _buildCoverImage(
+    BuildContext context,
+    String host,
+    String token, {
+    required double cornerRadius,
+  }) {
+    final localCoverPath = widget.localCoverPath;
+    if (localCoverPath != null && File(localCoverPath).existsSync()) {
+      return WorkCoverHeroFrame(
+        heroTag: widget.coverHeroTag ?? 'work_cover_${widget.work.id}',
+        cornerRadius: cornerRadius,
+        child: PrivacyBlurCover(
+          child: RepaintBoundary(
+            child: Image.file(
+              File(localCoverPath),
+              width: double.infinity,
+              height: double.infinity,
+              fit: BoxFit.cover,
+              filterQuality: FilterQuality.low,
+              errorBuilder: (context, error, stackTrace) =>
+                  _buildPlaceholder(context),
+            ),
+          ),
+        ),
+      );
+    }
+
     // 使用缓存网络图片，减少滚动时的解码与网络开销，提升流畅度
     if (host.isEmpty) {
       return _buildPlaceholder(context);
@@ -701,8 +756,8 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     final httpHeaders = StorageService.serverCookieHeaders;
 
     return WorkCoverHeroFrame(
-      heroTag: 'work_cover_${widget.work.id}',
-      cornerRadius: _coverCornerRadius,
+      heroTag: widget.coverHeroTag ?? 'work_cover_${widget.work.id}',
+      cornerRadius: cornerRadius,
       child: PrivacyBlurCover(
         child: RepaintBoundary(
           child: CachedNetworkImage(

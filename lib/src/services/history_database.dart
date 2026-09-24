@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/history_record.dart';
+import '../models/work.dart';
 import 'log_service.dart';
 
 class HistoryDatabase {
@@ -62,9 +64,11 @@ class HistoryDatabase {
       // Let's try to add columns instead of dropping to preserve history if possible
       try {
         await db.execute(
-            'ALTER TABLE history ADD COLUMN playlist_index INTEGER DEFAULT 0');
+          'ALTER TABLE history ADD COLUMN playlist_index INTEGER DEFAULT 0',
+        );
         await db.execute(
-            'ALTER TABLE history ADD COLUMN playlist_total INTEGER DEFAULT 0');
+          'ALTER TABLE history ADD COLUMN playlist_total INTEGER DEFAULT 0',
+        );
       } catch (e) {
         // If columns already exist or error, ignore (or handle appropriately)
         logOutput('Migration error (ignored): $e');
@@ -81,10 +85,7 @@ class HistoryDatabase {
     );
   }
 
-  Future<List<HistoryRecord>> getAllHistory({
-    int? limit,
-    int? offset,
-  }) async {
+  Future<List<HistoryRecord>> getAllHistory({int? limit, int? offset}) async {
     final db = await instance.database;
     final result = await db.query(
       'history',
@@ -107,6 +108,20 @@ class HistoryDatabase {
     return HistoryRecord.fromMap(result.first);
   }
 
+  Future<void> updateWorkMetadata(
+    Work work, {
+    bool Function()? shouldUpdate,
+  }) async {
+    final db = await database;
+    if (shouldUpdate != null && !shouldUpdate()) return;
+    await db.update(
+      'history',
+      {'work_json': jsonEncode(work.toJson())},
+      where: 'work_id = ?',
+      whereArgs: [work.id],
+    );
+  }
+
   Future<int> getHistoryCount() async {
     final db = await instance.database;
     final result = await db.rawQuery('SELECT COUNT(*) as count FROM history');
@@ -115,11 +130,7 @@ class HistoryDatabase {
 
   Future<void> delete(int workId) async {
     final db = await instance.database;
-    await db.delete(
-      'history',
-      where: 'work_id = ?',
-      whereArgs: [workId],
-    );
+    await db.delete('history', where: 'work_id = ?', whereArgs: [workId]);
   }
 
   Future<void> clear() async {

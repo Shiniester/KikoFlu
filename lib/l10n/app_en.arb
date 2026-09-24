@@ -1544,5 +1544,20 @@
   "playerSubtitleShowMatches": "Show matching subtitles only",
   "playerSubtitleNoCandidates": "No subtitles are available for this work",
   "playerSubtitleMayNotMatch": "This subtitle may not match the current audio",
-  "playerLyricViewSettings": "Subtitle view settings"
+  "playerLyricViewSettings": "Subtitle view settings",
+  "searchInScope": "Search in {scope}",
+  "@searchInScope": { "placeholders": { "scope": { "type": "String" } } },
+  "scopedSearchInProgress": "Searching this collection…",
+  "scopedSearchSourceFailure": "Some items could not be loaded. Results may be incomplete.",
+  "scopedSearchPartialFailure": "Could not check {count} item(s). Results may be incomplete.",
+  "@scopedSearchPartialFailure": { "placeholders": { "count": { "type": "int" } } },
+  "scopedSearchResultCount": "{count} works",
+  "@scopedSearchResultCount": { "placeholders": { "count": { "type": "int" } } },
+  "scopedSearchNoResults": "No matching works.",
+  "scopedSearchUnresolved": "Search finished, but {count} item(s) could not be checked.",
+  "@scopedSearchUnresolved": { "placeholders": { "count": { "type": "int" } } },
+  "scopedSearchPlaylistMembership": "In playlists: {playlists}",
+  "@scopedSearchPlaylistMembership": { "placeholders": { "playlists": { "type": "String" } } },
+  "downloadedFilesAndSize": "{count} downloaded file(s) · {size}",
+  "@downloadedFilesAndSize": { "placeholders": { "count": { "type": "int" }, "size": { "type": "String" } } }
 }

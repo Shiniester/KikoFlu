@@ -6791,6 +6791,60 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Subtitle view settings'**
   String get playerLyricViewSettings;
+
+  /// No description provided for @searchInScope.
+  ///
+  /// In en, this message translates to:
+  /// **'Search in {scope}'**
+  String searchInScope(String scope);
+
+  /// No description provided for @scopedSearchInProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'Searching this collection…'**
+  String get scopedSearchInProgress;
+
+  /// No description provided for @scopedSearchSourceFailure.
+  ///
+  /// In en, this message translates to:
+  /// **'Some items could not be loaded. Results may be incomplete.'**
+  String get scopedSearchSourceFailure;
+
+  /// No description provided for @scopedSearchPartialFailure.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check {count} item(s). Results may be incomplete.'**
+  String scopedSearchPartialFailure(int count);
+
+  /// No description provided for @scopedSearchResultCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} works'**
+  String scopedSearchResultCount(int count);
+
+  /// No description provided for @scopedSearchNoResults.
+  ///
+  /// In en, this message translates to:
+  /// **'No matching works.'**
+  String get scopedSearchNoResults;
+
+  /// No description provided for @scopedSearchUnresolved.
+  ///
+  /// In en, this message translates to:
+  /// **'Search finished, but {count} item(s) could not be checked.'**
+  String scopedSearchUnresolved(int count);
+
+  /// No description provided for @scopedSearchPlaylistMembership.
+  ///
+  /// In en, this message translates to:
+  /// **'In playlists: {playlists}'**
+  String scopedSearchPlaylistMembership(String playlists);
+
+  /// No description provided for @downloadedFilesAndSize.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} downloaded file(s) · {size}'**
+  String downloadedFilesAndSize(int count, String size);
 }
 
 class _SDelegate extends LocalizationsDelegate<S> {

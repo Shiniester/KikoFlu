@@ -269,6 +269,38 @@ class DownloadService implements DownloadTaskRepository {
     return _workDirectoryForMetadata(downloadDir, workId, loadedMetadata);
   }
 
+  Future<void> updateWorkMetadata(
+    int workId,
+    Map<String, dynamic> updatedWork, {
+    bool Function()? shouldUpdate,
+  }) async {
+    final workDir = await getWorkDirectory(workId);
+    final existing =
+        await _loadWorkMetadata(workId, workDirectory: workDir) ??
+        <String, dynamic>{};
+    final metadata = <String, dynamic>{...existing, ...updatedWork}
+      ..['id'] = workId
+      ..[LocalWorkMetadataService.localWorkDirNameKey] = p.basename(
+        workDir.path,
+      );
+    for (final key in ['children', 'localCoverPath']) {
+      if (existing.containsKey(key)) {
+        metadata[key] = existing[key];
+      } else {
+        metadata.remove(key);
+      }
+    }
+
+    if (shouldUpdate != null && !shouldUpdate()) return;
+    await _workMetadataFile(
+      workDir,
+    ).writeAsString(jsonEncode(metadata), flush: true);
+    for (final task in _tasks.where((task) => task.workId == workId)) {
+      _updateTask(task.copyWith(workMetadata: metadata));
+    }
+    await flushPendingWrites();
+  }
+
   String? localCoverPathForMetadata(
     Directory workDir,
     Map<String, dynamic>? metadata,

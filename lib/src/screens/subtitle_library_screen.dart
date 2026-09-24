@@ -31,13 +31,11 @@ class SubtitleLibraryScreen extends ConsumerStatefulWidget {
     this.toolbarTop = 8,
     this.collapsedToolbarTop,
     this.primaryToolbarVisible,
-    this.onSearchOnline,
   });
 
   final double toolbarTop;
   final double? collapsedToolbarTop;
   final ValueListenable<bool>? primaryToolbarVisible;
-  final VoidCallback? onSearchOnline;
 
   @override
   ConsumerState<SubtitleLibraryScreen> createState() =>
@@ -1087,12 +1085,6 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
               icon: Icons.folder_open,
               tooltip: S.of(context).openFolder,
               onPressed: _openSubtitleLibraryFolder,
-            ),
-          if (widget.onSearchOnline != null)
-            FloatingToolbarIconButton(
-              icon: Icons.travel_explore,
-              tooltip: S.of(context).searchOnlineWorks,
-              onPressed: widget.onSearchOnline,
             ),
         ],
       ),

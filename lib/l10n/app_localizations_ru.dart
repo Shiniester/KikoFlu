@@ -3824,4 +3824,44 @@ class SRu extends S {
 
   @override
   String get playerLyricViewSettings => 'Настройки отображения субтитров';
+
+  @override
+  String searchInScope(String scope) {
+    return 'Поиск: $scope';
+  }
+
+  @override
+  String get scopedSearchInProgress => 'Поиск в этом списке…';
+
+  @override
+  String get scopedSearchSourceFailure =>
+      'Не удалось загрузить некоторые элементы. Результаты могут быть неполными.';
+
+  @override
+  String scopedSearchPartialFailure(int count) {
+    return 'Не удалось проверить элементов: $count. Результаты могут быть неполными.';
+  }
+
+  @override
+  String scopedSearchResultCount(int count) {
+    return 'Произведений: $count';
+  }
+
+  @override
+  String get scopedSearchNoResults => 'Подходящие произведения не найдены.';
+
+  @override
+  String scopedSearchUnresolved(int count) {
+    return 'Поиск завершён, но не удалось проверить элементов: $count.';
+  }
+
+  @override
+  String scopedSearchPlaylistMembership(String playlists) {
+    return 'В плейлистах: $playlists';
+  }
+
+  @override
+  String downloadedFilesAndSize(int count, String size) {
+    return 'Файлов загружено: $count · $size';
+  }
 }

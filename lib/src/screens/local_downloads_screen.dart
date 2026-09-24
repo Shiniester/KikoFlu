@@ -15,8 +15,12 @@ import '../services/storage_service.dart';
 import '../utils/string_utils.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/scroll_optimization.dart';
+import '../utils/collection_grid_layout.dart';
 import '../utils/ui_tokens.dart';
 import '../providers/auth_provider.dart';
+import '../providers/collection_layout_provider.dart';
+import '../providers/work_card_display_provider.dart';
+import '../providers/works_provider.dart' show LayoutType;
 import '../providers/download_provider.dart';
 import '../widgets/sort_dialog.dart';
 import 'offline_work_detail_screen.dart';
@@ -602,11 +606,12 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
   Widget build(BuildContext context) {
     super.build(context);
 
+    final downloadService = ref.watch(downloadServiceProvider);
     final taskIds =
         ref.watch(downloadTaskIdsProvider).valueOrNull ??
-        DownloadService.instance.taskIds;
+        downloadService.taskIds;
     final tasks = taskIds
-        .map(DownloadService.instance.taskById)
+        .map(downloadService.taskById)
         .whereType<DownloadTask>()
         .toList(growable: false);
     final completedTasks = tasks
@@ -635,71 +640,95 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
     final endIndex = (startIndex + _pageSize).clamp(0, totalCount);
     final currentPageWorkIds = sortedWorkIds.sublist(startIndex, endIndex);
     final toolbarTop = widget.toolbarTop;
+    final layoutType = ref.watch(
+      collectionLayoutProvider(CollectionLayoutKey.downloads),
+    );
+    final cardSize = ref.watch(
+      workCardDisplayProvider.select((settings) => settings.cardSize),
+    );
 
     return Stack(
       children: [
         Positioned.fill(
-          child: VirtualizedSliverCollection<int>(
-            collectionController: _collectionController,
-            pageStorageKey: const PageStorageKey('local-downloads-feed'),
-            items: currentPageWorkIds,
-            itemId: (workId) => workId,
-            layout: VirtualizedCollectionLayout.grid,
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 210,
-              childAspectRatio: 0.72,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-            ),
-            padding: EdgeInsets.fromLTRB(16, toolbarTop + 60, 16, 16),
-            physics: ScrollOptimization.physics,
-            pagination: totalCount == 0
-                ? null
-                : VirtualizedPagination(
-                    currentPage: currentPage,
-                    pageSize: _pageSize,
-                    totalCount: totalCount,
-                    hasMore: currentPage < totalPages,
-                    isLoading: false,
-                    onPreviousPage: _previousPage,
-                    onNextPage: () => _nextPage(totalPages),
-                    onGoToPage: _goToPage,
-                    nextPageOnOverscroll: true,
-                    scrollToTop: false,
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final metrics = resolveCollectionGridMetrics(
+                context,
+                layoutType: layoutType,
+                cardSize: cardSize,
+                availableWidth: constraints.maxWidth,
+                availableHeight: constraints.maxHeight,
+              );
+              return VirtualizedSliverCollection<int>(
+                collectionController: _collectionController,
+                pageStorageKey: const PageStorageKey('local-downloads-feed'),
+                items: currentPageWorkIds,
+                itemId: (workId) => workId,
+                layout: layoutType == LayoutType.list
+                    ? VirtualizedCollectionLayout.list
+                    : VirtualizedCollectionLayout.masonry,
+                masonryCrossAxisCount: layoutType == LayoutType.list
+                    ? null
+                    : metrics.crossAxisCount,
+                masonryCrossAxisSpacing: metrics.spacing,
+                masonryMainAxisSpacing: metrics.spacing,
+                padding: EdgeInsets.fromLTRB(
+                  metrics.padding.left,
+                  toolbarTop + 60,
+                  metrics.padding.right,
+                  metrics.padding.bottom,
+                ),
+                physics: ScrollOptimization.physics,
+                pagination: totalCount == 0
+                    ? null
+                    : VirtualizedPagination(
+                        currentPage: currentPage,
+                        pageSize: _pageSize,
+                        totalCount: totalCount,
+                        hasMore: currentPage < totalPages,
+                        isLoading: false,
+                        onPreviousPage: _previousPage,
+                        onNextPage: () => _nextPage(totalPages),
+                        onGoToPage: _goToPage,
+                        nextPageOnOverscroll: true,
+                        scrollToTop: false,
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                      ),
+                showEndIndicator: false,
+                emptyBuilder: (context) => Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        allGroupedTasks.isEmpty
+                            ? Icons.download_outlined
+                            : Icons.search_off,
+                        size: 64,
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        allGroupedTasks.isEmpty
+                            ? S.of(context).noLocalDownloads
+                            : S.of(context).noResults,
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ),
-            showEndIndicator: false,
-            emptyBuilder: (context) => Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    allGroupedTasks.isEmpty
-                        ? Icons.download_outlined
-                        : Icons.search_off,
-                    size: 64,
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    allGroupedTasks.isEmpty
-                        ? S.of(context).noLocalDownloads
-                        : S.of(context).noResults,
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            itemBuilder: (context, workId, index) {
-              final workTasks = groupedTasks[workId]!;
-              return _buildWorkCard(
-                workId: workId,
-                workTasks: workTasks,
-                firstTask: _preferredMetadataTask(workTasks),
-                isSelected: _selectedWorkIds.contains(workId),
+                ),
+                itemBuilder: (context, workId, index) {
+                  final workTasks = groupedTasks[workId]!;
+                  return _buildWorkCard(
+                    workId: workId,
+                    workTasks: workTasks,
+                    firstTask: _preferredMetadataTask(workTasks),
+                    isSelected: _selectedWorkIds.contains(workId),
+                    layoutType: layoutType,
+                  );
+                },
               );
             },
           ),
@@ -873,8 +902,10 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
           ),
           FloatingToolbarIconButton(
             icon: Icons.search,
-            tooltip: S.of(context).searchDownloads,
-            onPressed: _toggleSearch,
+            tooltip: widget.onSearchOnline == null
+                ? S.of(context).searchDownloads
+                : S.of(context).searchOnlineWorks,
+            onPressed: widget.onSearchOnline ?? _toggleSearch,
           ),
         ],
       ),
@@ -892,6 +923,23 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
             onPressed: _refreshMetadata,
           ),
           FloatingToolbarIconButton(
+            icon: switch (ref.watch(
+              collectionLayoutProvider(CollectionLayoutKey.downloads),
+            )) {
+              LayoutType.bigGrid => Icons.grid_view,
+              LayoutType.smallGrid => Icons.grid_on,
+              LayoutType.list => Icons.view_list,
+            },
+            tooltip: S.of(context).layout,
+            onPressed: () => ref
+                .read(
+                  collectionLayoutProvider(
+                    CollectionLayoutKey.downloads,
+                  ).notifier,
+                )
+                .cycle(),
+          ),
+          FloatingToolbarIconButton(
             icon: Icons.sort,
             tooltip: S.of(context).sortOptions,
             onPressed: _showSortDialog,
@@ -901,12 +949,6 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
               icon: Icons.folder_open,
               tooltip: S.of(context).openFolder,
               onPressed: _openDownloadFolder,
-            ),
-          if (widget.onSearchOnline != null)
-            FloatingToolbarIconButton(
-              icon: Icons.travel_explore,
-              tooltip: S.of(context).searchOnlineWorks,
-              onPressed: widget.onSearchOnline,
             ),
         ],
       ),
@@ -925,6 +967,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
     required List<DownloadTask> workTasks,
     required DownloadTask firstTask,
     required bool isSelected,
+    required LayoutType layoutType,
   }) {
     final authState = ref.watch(authProvider);
     final host = authState.host ?? '';
@@ -933,205 +976,233 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
       0,
       (sum, task) => sum + (task.totalBytes ?? 0),
     );
-
     Work? work;
     if (firstTask.workMetadata != null) {
       try {
-        final sanitized = _sanitizeMetadata(firstTask.workMetadata!);
-        work = Work.fromJson(sanitized);
-      } catch (e) {
+        work = Work.fromJson(_sanitizeMetadata(firstTask.workMetadata!));
+      } catch (_) {
         work = null;
       }
     }
 
-    return Card(
-      key: ValueKey(workId),
-      clipBehavior: Clip.antiAlias,
-      elevation: isSelected ? 8 : 2,
-      shadowColor: isSelected
-          ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)
-          : null,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: isSelected
-            ? BorderSide(color: Theme.of(context).colorScheme.primary, width: 2)
-            : BorderSide.none,
-      ),
-      child: InkWell(
-        onTap: _isSelectionMode
-            ? () => _toggleWorkSelection(workId)
-            : () => _openWorkDetail(workId, firstTask),
-        onLongPress: !_isSelectionMode
-            ? () {
-                setState(() {
-                  _searchFocusNode.unfocus();
-                  _isSelectionMode = true;
-                  _toggleWorkSelection(workId);
-                });
-                _toolbarModeChanged();
-              }
-            : null,
-        child: Stack(
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 封面区域
-                Expanded(
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      _buildCover(workId, work, host, token, firstTask),
-                      // 底部渐变遮罩，提升文字可读性
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          height: 60,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [
-                                Colors.transparent,
-                                Colors.black.withValues(alpha: 0.7),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isList = layoutType == LayoutType.list;
+        final coverWidth = isList
+            ? collectionListCoverSize.width
+            : constraints.maxWidth;
+        final radius = collectionCoverRadius(coverWidth);
+        final cover = ClipRRect(
+          borderRadius: BorderRadius.circular(radius),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              _buildCover(
+                workId,
+                work,
+                host,
+                token,
+                firstTask,
+                cornerRadius: radius,
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  height: 60,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: 0.7),
+                      ],
+                    ),
                   ),
                 ),
-                // 信息区域
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+              ),
+            ],
+          ),
+        );
+        final info = Container(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                work?.title ?? firstTask.workTitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  height: 1.3,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (work?.vas != null && work!.vas!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
                     children: [
-                      // 标题
-                      Text(
-                        work?.title ?? firstTask.workTitle,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          height: 1.3,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
+                      Icon(
+                        Icons.mic,
+                        size: 12,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
-                      const SizedBox(height: 8),
-                      // 声优信息
-                      if (work?.vas != null && work!.vas!.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.mic,
-                                size: 12,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  work.vas!.first.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      // 文件信息
-                      Row(
-                        children: [
-                          // 文件数量
-                          Icon(
-                            Icons.folder_outlined,
-                            size: 12,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            '${workTasks.length}',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w500,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          // 文件大小
-                          Icon(
-                            Icons.storage,
-                            size: 12,
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          work.vas!.first.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
                             color: Theme.of(
                               context,
                             ).colorScheme.onSurfaceVariant,
                           ),
-                          const SizedBox(width: 4),
-                          Flexible(
-                            child: Text(
-                              formatBytes(totalSize),
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
-                              overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              Row(
+                children: [
+                  Icon(
+                    Icons.folder_outlined,
+                    size: 12,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${workTasks.length}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.storage,
+                    size: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      formatBytes(totalSize),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+
+        return Card(
+          key: ValueKey(workId),
+          margin: EdgeInsets.zero,
+          clipBehavior: Clip.antiAlias,
+          elevation: isSelected ? 8 : 2,
+          shadowColor: isSelected
+              ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.4)
+              : null,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(isList ? 12 : radius),
+            side: isSelected
+                ? BorderSide(
+                    color: Theme.of(context).colorScheme.primary,
+                    width: 2,
+                  )
+                : BorderSide.none,
+          ),
+          child: InkWell(
+            onTap: _isSelectionMode
+                ? () => _toggleWorkSelection(workId)
+                : () => _openWorkDetail(workId, firstTask),
+            onLongPress: !_isSelectionMode
+                ? () {
+                    setState(() {
+                      _searchFocusNode.unfocus();
+                      _isSelectionMode = true;
+                      _toggleWorkSelection(workId);
+                    });
+                    _toolbarModeChanged();
+                  }
+                : null,
+            child: Stack(
+              children: [
+                isList
+                    ? Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: collectionListCoverSize.width,
+                              height: collectionListCoverSize.height,
+                              child: cover,
                             ),
+                            const SizedBox(width: 8),
+                            Expanded(child: info),
+                          ],
+                        ),
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AspectRatio(
+                            aspectRatio: collectionCoverAspectRatio,
+                            child: cover,
+                          ),
+                          info,
+                        ],
+                      ),
+                if (_isSelectionMode)
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.white.withValues(alpha: 0.95),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
                           ),
                         ],
                       ),
-                    ],
+                      padding: const EdgeInsets.all(6),
+                      child: Icon(
+                        isSelected ? Icons.check : Icons.circle_outlined,
+                        color: isSelected
+                            ? Colors.white
+                            : Theme.of(context).colorScheme.outline,
+                        size: 20,
+                      ),
+                    ),
                   ),
-                ),
               ],
             ),
-            // 选择模式的勾选标记
-            if (_isSelectionMode)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? Theme.of(context).colorScheme.primary
-                        : Colors.white.withValues(alpha: 0.95),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  padding: const EdgeInsets.all(6),
-                  child: Icon(
-                    isSelected ? Icons.check : Icons.circle_outlined,
-                    color: isSelected
-                        ? Colors.white
-                        : Theme.of(context).colorScheme.outline,
-                    size: 20,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -1140,8 +1211,9 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
     Work? work,
     String host,
     String token,
-    DownloadTask task,
-  ) {
+    DownloadTask task, {
+    required double cornerRadius,
+  }) {
     // 优先使用本地封面
     if (task.workMetadata != null) {
       final relativeCoverPath = task.workMetadata!['localCoverPath'] as String?;
@@ -1158,13 +1230,15 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
               if (localCoverPath != null && File(localCoverPath).existsSync()) {
                 return WorkCoverHeroFrame(
                   heroTag: 'offline_work_cover_$workId',
-                  cornerRadius: workCoverCompactRadius,
+                  cornerRadius: cornerRadius,
                   child: PrivacyBlurCover(
                     child: Image.file(
                       File(localCoverPath),
                       gaplessPlayback: true,
                       fit: BoxFit.cover,
                       width: double.infinity,
+                      errorBuilder: (context, error, stackTrace) =>
+                          _buildPlaceholder(),
                     ),
                   ),
                 );
@@ -1182,7 +1256,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
     if (work != null && host.isNotEmpty) {
       return WorkCoverHeroFrame(
         heroTag: 'offline_work_cover_$workId',
-        cornerRadius: workCoverCompactRadius,
+        cornerRadius: cornerRadius,
         child: PrivacyBlurCover(
           child: CachedNetworkImage(
             imageUrl: work.getCoverImageUrl(host, token: token),

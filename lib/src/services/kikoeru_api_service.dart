@@ -887,17 +887,27 @@ class KikoeruApiService {
   Future<Map<String, dynamic>> getWork(
     int workId, {
     bool forceRefresh = false,
+    CancelToken? cancelToken,
   }) async {
     if (_isOfficialServer) {
-      return _getWorkOfficial(workId, forceRefresh: forceRefresh);
+      return _getWorkOfficial(
+        workId,
+        forceRefresh: forceRefresh,
+        cancelToken: cancelToken,
+      );
     } else {
-      return _getWorkCustom(workId, forceRefresh: forceRefresh);
+      return _getWorkCustom(
+        workId,
+        forceRefresh: forceRefresh,
+        cancelToken: cancelToken,
+      );
     }
   }
 
   Future<Map<String, dynamic>> _getWorkOfficial(
     int workId, {
     required bool forceRefresh,
+    CancelToken? cancelToken,
   }) async {
     try {
       // 1. 先检查缓存
@@ -920,6 +930,7 @@ class KikoeruApiService {
       );
       final response = await _dio.get(
         '/api/work/$workId?v=2',
+        cancelToken: cancelToken,
         options: Options(
           // Reaching this point means the existing 24-hour cache missed or
           // was explicitly bypassed. Always contact the server, while still
@@ -941,6 +952,7 @@ class KikoeruApiService {
   Future<Map<String, dynamic>> _getWorkCustom(
     int workId, {
     required bool forceRefresh,
+    CancelToken? cancelToken,
   }) async {
     try {
       // 1. 先检查缓存
@@ -963,6 +975,7 @@ class KikoeruApiService {
       );
       final metadataResponse = await _dio.get(
         '/api/work/$workId',
+        cancelToken: cancelToken,
         options: Options(extra: {ConditionalGetCache.forceRefreshExtra: true}),
       );
       final data = metadataResponse.data as Map<String, dynamic>;

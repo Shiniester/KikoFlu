@@ -4,7 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../models/search_type.dart';
+import '../models/search_query.dart';
+import '../models/search_scope_session.dart';
 import '../providers/auth_provider.dart';
+import '../providers/my_reviews_provider.dart';
 import '../providers/search_history_provider.dart';
 import '../utils/l10n_extensions.dart';
 import '../utils/server_utils.dart';
@@ -18,42 +21,20 @@ import '../widgets/floating_feed_toolbar.dart';
 import '../widgets/material_popup_surface.dart';
 import '../widgets/search_condition_chip.dart';
 import 'search_result_screen.dart';
-
-// 搜索条件项
-class SearchCondition {
-  final String id;
-  final SearchType type;
-  final String value;
-  final bool isExclude; // 是否为排除模式
-
-  SearchCondition({
-    required this.id,
-    required this.type,
-    required this.value,
-    this.isExclude = false,
-  });
-
-  String toSearchString() {
-    switch (type) {
-      case SearchType.keyword:
-        return value;
-      case SearchType.rjNumber:
-        // RJ号直接添加RJ前缀（用户只输入数字）
-        return 'RJ$value';
-      case SearchType.tag:
-        return isExclude ? '\$-tag:$value\$' : '\$tag:$value\$';
-      case SearchType.circle:
-        return isExclude ? '\$-circle:$value\$' : '\$circle:$value\$';
-      case SearchType.va:
-        return isExclude ? '\$-va:$value\$' : '\$va:$value\$';
-    }
-  }
-}
+import 'scoped_search_result_screen.dart';
+import '../widgets/global_audio_player_wrapper.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
-  const SearchScreen({super.key, this.showBackButton = false});
+  const SearchScreen({
+    super.key,
+    this.showBackButton = false,
+    this.scope,
+    this.progressFilter,
+  });
 
   final bool showBackButton;
+  final SearchScope? scope;
+  final String? progressFilter;
 
   @override
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
@@ -65,6 +46,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   final _searchController = TextEditingController();
   final _conditionsScrollController = ScrollController(); // 用于搜索条件横向滚动
   final List<SearchCondition> _searchConditions = [];
+  final SearchScopeSession _scopeSession = SearchScopeSession();
   Key _autocompleteKey = UniqueKey(); // 用于强制刷新 Autocomplete
   FocusNode _searchFocusNode =
       FocusNode(); // 用于控制焦点（非 final，因为会在 Autocomplete 中重新赋值）
@@ -127,11 +109,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
 
   // 加载建议数据
   Future<void> _loadSuggestions() async {
-    if (_currentSearchType == SearchType.keyword ||
-        _currentSearchType == SearchType.rjNumber) {
+    final searchType = _currentSearchType;
+    if (searchType == SearchType.keyword || searchType == SearchType.rjNumber) {
       return; // 关键词和RJ号不需要建议列表
     }
 
+    if (!mounted) return;
     setState(() => _isLoadingSuggestions = true);
 
     try {
@@ -141,6 +124,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         case SearchType.tag:
           if (_allTags.isEmpty) {
             final data = await api.getAllTags();
+            if (!mounted || _currentSearchType != searchType) return;
             _allTags = List<Map<String, dynamic>>.from(data);
             // 按 count 字段从大到小排序
             _allTags.sort(
@@ -151,6 +135,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         case SearchType.va:
           if (_allVas.isEmpty) {
             final data = await api.getAllVas();
+            if (!mounted || _currentSearchType != searchType) return;
             _allVas = List<Map<String, dynamic>>.from(data);
             // 按 count 字段从大到小排序
             _allVas.sort(
@@ -161,6 +146,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         case SearchType.circle:
           if (_allCircles.isEmpty) {
             final data = await api.getAllCircles();
+            if (!mounted || _currentSearchType != searchType) return;
             _allCircles = List<Map<String, dynamic>>.from(data);
             // 按 count 字段从大到小排序
             _allCircles.sort(
@@ -173,13 +159,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       }
 
       // 数据加载完成后刷新 Autocomplete
+      if (!mounted || _currentSearchType != searchType) return;
       setState(() {
         _autocompleteKey = UniqueKey();
       });
     } catch (e) {
       logOutput('加载建议列表失败: $e');
     } finally {
-      setState(() => _isLoadingSuggestions = false);
+      if (mounted) setState(() => _isLoadingSuggestions = false);
     }
   }
 
@@ -238,6 +225,29 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       SnackBarUtil.showWarning(
         context,
         S.of(context).addAtLeastOneSearchCondition,
+      );
+      return;
+    }
+
+    if (widget.scope != null && widget.scope != SearchScope.globalWorks) {
+      final query = SearchQuery(
+        scope: widget.scope!,
+        conditions: _searchConditions,
+        minRate: _minRate,
+        ageRating: _ageRating,
+        salesRange: _salesRange,
+        progressFilter: widget.progressFilter,
+      );
+      Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => GlobalAudioPlayerWrapper(
+            child: ScopedSearchResultScreen(
+              query: query,
+              session: _scopeSession,
+            ),
+          ),
+        ),
       );
       return;
     }
@@ -339,6 +349,26 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     );
   }
 
+  String _searchScopeLabel(BuildContext context) {
+    final s = S.of(context);
+    return switch (widget.scope!) {
+      SearchScope.globalWorks => s.navHome,
+      SearchScope.onlineMarks => () {
+        final filter = widget.progressFilter;
+        if (filter == null || filter.isEmpty) return s.onlineMarks;
+        return MyReviewFilter.values
+            .firstWhere(
+              (value) => value.value == filter,
+              orElse: () => MyReviewFilter.all,
+            )
+            .localizedLabel(context);
+      }(),
+      SearchScope.history => s.historyRecord,
+      SearchScope.playlists => s.playlists,
+      SearchScope.downloads => s.downloaded,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context); // 必须调用以保持状态
@@ -354,7 +384,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       child: Scaffold(
         floatingActionButton: const DownloadFab(),
         appBar: ScrollableAppBar(
-          title: Text(S.of(context).search, style: UiTextStyles.pageTitle),
+          title: Text(
+            widget.scope == null || widget.scope == SearchScope.globalWorks
+                ? S.of(context).search
+                : S.of(context).searchInScope(_searchScopeLabel(context)),
+            style: UiTextStyles.pageTitle,
+          ),
           leading: widget.showBackButton
               ? IconButton(
                   tooltip: S.of(context).back,
@@ -818,6 +853,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
 
   /// 构建搜索历史部分
   List<Widget> _buildSearchHistory(ThemeData theme) {
+    if (widget.scope != null && widget.scope != SearchScope.globalWorks) {
+      return [];
+    }
     final historyState = ref.watch(searchHistoryProvider);
 
     if (historyState.isLoading) {
@@ -1056,9 +1094,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     );
     final authState = ref.watch(authProvider);
     final isOfficialServer = ServerUtils.isOfficialServer(authState.host);
+    final supportsScopeFiltering =
+        widget.scope != null && widget.scope != SearchScope.globalWorks;
+    final supportsAdvancedFilters = isOfficialServer || supportsScopeFiltering;
 
     return [
-      if (isOfficialServer) ...[
+      if (supportsAdvancedFilters) ...[
         Row(
           children: [
             const Icon(Icons.star, size: 20),
@@ -1100,7 +1141,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                 ),
                 items: AgeRating.values
                     .where(
-                      (rating) => isOfficialServer || rating != AgeRating.r15,
+                      (rating) =>
+                          supportsAdvancedFilters || rating != AgeRating.r15,
                     )
                     .map((rating) {
                       return DropdownMenuItem(
@@ -1119,7 +1161,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
               ),
             ),
           ),
-          if (isOfficialServer) ...[
+          if (supportsAdvancedFilters) ...[
             const SizedBox(width: 12),
             Expanded(
               child: FloatingToolbarSurface(

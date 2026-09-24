@@ -3,6 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/app_localizations.dart';
 import '../providers/playlists_provider.dart';
 import '../providers/auth_provider.dart';
+import '../providers/collection_layout_provider.dart';
+import '../providers/work_card_display_provider.dart';
+import '../providers/works_provider.dart' show LayoutType;
+import '../utils/collection_grid_layout.dart';
 import '../utils/l10n_extensions.dart';
 import '../widgets/playlist_card.dart';
 import '../widgets/virtualized_sliver_collection.dart';
@@ -568,79 +572,103 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
   }
 
   Widget _buildListView(PlaylistsState state) {
-    return VirtualizedSliverCollection(
-      controller: _scrollController,
-      items: state.playlists,
-      itemId: (playlist) => playlist.id,
-      physics: ScrollOptimization.physics,
-      isInitialLoading: state.isLoading && state.playlists.isEmpty,
-      isRefreshing: false,
-      isLoadingMore: state.isLoadingMore,
-      hasMore: state.hasMore,
-      error: null,
-      loadMoreError: null,
-      pagination: VirtualizedPagination(
-        currentPage: state.currentPage,
-        pageSize: state.pageSize,
-        totalCount: state.totalCount,
-        hasMore: state.hasMore,
-        isLoading: state.isLoading || state.isRefreshing,
-        onPreviousPage: ref.read(playlistsProvider.notifier).previousPage,
-        onNextPage: ref.read(playlistsProvider.notifier).nextPage,
-        onGoToPage: ref.read(playlistsProvider.notifier).goToPage,
-        scrollDuration: UiMotion.travel,
-        scrollCurve: UiMotion.curve,
-      ),
-      onRetry: ref.read(playlistsProvider.notifier).refresh,
-      sliversBefore: [
-        SliverPadding(
-          padding: EdgeInsets.fromLTRB(16, widget.topInset + 16, 16, 8),
-          sliver: SliverToBoxAdapter(
-            child: Row(
-              children: [
-                Icon(
-                  Icons.playlist_play,
-                  size: 28,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  S.of(context).myPlaylists,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  S.of(context).totalNItems(state.totalCount),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
+    final layoutType = ref.watch(
+      collectionLayoutProvider(CollectionLayoutKey.playlists),
+    );
+    final cardSize = ref.watch(
+      workCardDisplayProvider.select((settings) => settings.cardSize),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final metrics = resolveCollectionGridMetrics(
+          context,
+          layoutType: layoutType,
+          cardSize: cardSize,
+          availableWidth: constraints.maxWidth,
+          availableHeight: constraints.maxHeight,
+        );
+        return VirtualizedSliverCollection(
+          controller: _scrollController,
+          items: state.playlists,
+          itemId: (playlist) => playlist.id,
+          physics: ScrollOptimization.physics,
+          layout: layoutType == LayoutType.list
+              ? VirtualizedCollectionLayout.list
+              : VirtualizedCollectionLayout.masonry,
+          masonryCrossAxisCount: layoutType == LayoutType.list
+              ? null
+              : metrics.crossAxisCount,
+          masonryCrossAxisSpacing: metrics.spacing,
+          masonryMainAxisSpacing: metrics.spacing,
+          isInitialLoading: state.isLoading && state.playlists.isEmpty,
+          isRefreshing: false,
+          isLoadingMore: state.isLoadingMore,
+          hasMore: state.hasMore,
+          error: null,
+          loadMoreError: null,
+          pagination: VirtualizedPagination(
+            currentPage: state.currentPage,
+            pageSize: state.pageSize,
+            totalCount: state.totalCount,
+            hasMore: state.hasMore,
+            isLoading: state.isLoading || state.isRefreshing,
+            onPreviousPage: ref.read(playlistsProvider.notifier).previousPage,
+            onNextPage: ref.read(playlistsProvider.notifier).nextPage,
+            onGoToPage: ref.read(playlistsProvider.notifier).goToPage,
+            scrollDuration: UiMotion.travel,
+            scrollCurve: UiMotion.curve,
           ),
-        ),
-      ],
-      padding: EdgeInsets.zero,
-      itemBuilder: (context, playlist, index) => PlaylistCard(
-        key: ValueKey(playlist.id),
-        playlist: playlist,
-        onTap: () async {
-          final deleted = await Navigator.of(context).push<bool>(
-            MaterialPageRoute(
-              builder: (context) => PlaylistDetailScreen(
-                playlistId: playlist.id,
-                playlistName: playlist.displayName,
+          onRetry: ref.read(playlistsProvider.notifier).refresh,
+          sliversBefore: [
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(16, widget.topInset + 16, 16, 8),
+              sliver: SliverToBoxAdapter(
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.playlist_play,
+                      size: 28,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      S.of(context).myPlaylists,
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.bold, fontSize: 18),
+                    ),
+                    const Spacer(),
+                    Text(
+                      S.of(context).totalNItems(state.totalCount),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          );
-          if (deleted == true) {
-            ref.read(playlistsProvider.notifier).refresh();
-          }
-        },
-      ),
+          ],
+          padding: metrics.padding,
+          itemBuilder: (context, playlist, index) => PlaylistCard(
+            key: ValueKey(playlist.id),
+            playlist: playlist,
+            layoutType: layoutType,
+            onTap: () async {
+              final deleted = await Navigator.of(context).push<bool>(
+                MaterialPageRoute(
+                  builder: (context) => PlaylistDetailScreen(
+                    playlistId: playlist.id,
+                    playlistName: playlist.displayName,
+                  ),
+                ),
+              );
+              if (deleted == true) {
+                ref.read(playlistsProvider.notifier).refresh();
+              }
+            },
+          ),
+        );
+      },
     );
   }
 }

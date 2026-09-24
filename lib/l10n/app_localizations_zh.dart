@@ -3677,6 +3677,45 @@ class SZh extends S {
 
   @override
   String get playerLyricViewSettings => '字幕视图设置';
+
+  @override
+  String searchInScope(String scope) {
+    return '在$scope中搜索';
+  }
+
+  @override
+  String get scopedSearchInProgress => '正在搜索此列表…';
+
+  @override
+  String get scopedSearchSourceFailure => '部分项目加载失败，结果可能不完整。';
+
+  @override
+  String scopedSearchPartialFailure(int count) {
+    return '有$count项无法检查，结果可能不完整。';
+  }
+
+  @override
+  String scopedSearchResultCount(int count) {
+    return '共$count个作品';
+  }
+
+  @override
+  String get scopedSearchNoResults => '没有符合条件的作品。';
+
+  @override
+  String scopedSearchUnresolved(int count) {
+    return '搜索完成，但有$count项无法检查。';
+  }
+
+  @override
+  String scopedSearchPlaylistMembership(String playlists) {
+    return '所属播放列表：$playlists';
+  }
+
+  @override
+  String downloadedFilesAndSize(int count, String size) {
+    return '已下载$count个文件 · $size';
+  }
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -7352,4 +7391,43 @@ class SZhHant extends SZh {
 
   @override
   String get playerLyricViewSettings => '字幕檢視設定';
+
+  @override
+  String searchInScope(String scope) {
+    return '在$scope中搜尋';
+  }
+
+  @override
+  String get scopedSearchInProgress => '正在搜尋此清單…';
+
+  @override
+  String get scopedSearchSourceFailure => '部分項目載入失敗，結果可能不完整。';
+
+  @override
+  String scopedSearchPartialFailure(int count) {
+    return '有$count項無法檢查，結果可能不完整。';
+  }
+
+  @override
+  String scopedSearchResultCount(int count) {
+    return '共$count個作品';
+  }
+
+  @override
+  String get scopedSearchNoResults => '沒有符合條件的作品。';
+
+  @override
+  String scopedSearchUnresolved(int count) {
+    return '搜尋完成，但有$count項無法檢查。';
+  }
+
+  @override
+  String scopedSearchPlaylistMembership(String playlists) {
+    return '所屬播放清單：$playlists';
+  }
+
+  @override
+  String downloadedFilesAndSize(int count, String size) {
+    return '已下載$count個檔案 · $size';
+  }
 }

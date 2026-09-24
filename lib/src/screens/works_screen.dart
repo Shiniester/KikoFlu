@@ -17,9 +17,6 @@ import '../utils/subtitle_filter.dart';
 import '../utils/system_ui_style.dart';
 import '../utils/ui_tokens.dart';
 import '../widgets/async_state_view.dart';
-import '../widgets/settings_option_dialog.dart';
-import '../widgets/feed_settings_menu_button.dart';
-import '../widgets/radio_option_group.dart';
 
 class WorksScreen extends ConsumerStatefulWidget {
   const WorksScreen({
@@ -39,7 +36,6 @@ class WorksScreen extends ConsumerStatefulWidget {
 
 class _WorksScreenState extends ConsumerState<WorksScreen>
     with AutomaticKeepAliveClientMixin {
-  int _slideDirection = 0;
   int _displayGeneration = 0;
   final Map<DisplayMode, double> _scrollPositions = {
     for (final mode in DisplayMode.values) mode: 0.0,
@@ -101,100 +97,6 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
     ref.read(worksProvider.notifier).setDisplayMode(mode);
   }
 
-  void _showLayoutOptions(WorksState state) {
-    showDialog<void>(
-      context: context,
-      builder: (context) => CommonOptionDialog<LayoutType>(
-        title: S.of(context).layout,
-        icon: Icons.grid_view,
-        value: state.layoutType,
-        options: [
-          RadioOption(
-            value: LayoutType.bigGrid,
-            title: Text(S.of(context).layoutBigGrid),
-          ),
-          RadioOption(
-            value: LayoutType.smallGrid,
-            title: Text(S.of(context).layoutSmallGrid),
-          ),
-          RadioOption(
-            value: LayoutType.list,
-            title: Text(S.of(context).layoutList),
-          ),
-        ],
-        onChanged: (value) {
-          ref.read(worksProvider.notifier).setLayoutType(value);
-          return true;
-        },
-      ),
-    );
-  }
-
-  void _showSubtitleOptions(WorksState state) {
-    final currentMode = SubtitleFilterMode.fromValue(state.subtitleFilter);
-    showDialog<void>(
-      context: context,
-      builder: (context) => CommonOptionDialog<SubtitleFilterMode>(
-        title: S.of(context).subtitleFilter,
-        icon: Icons.closed_caption,
-        value: currentMode,
-        options: [
-          RadioOption(
-            value: SubtitleFilterMode.all,
-            title: Text(S.of(context).showAllWorks),
-          ),
-          RadioOption(
-            value: SubtitleFilterMode.withSubtitles,
-            title: Text(S.of(context).showOnlySubtitled),
-          ),
-        ],
-        onChanged: (value) {
-          if (value != currentMode) {
-            ref.read(worksProvider.notifier).setSubtitleFilter(value);
-          }
-          return true;
-        },
-      ),
-    );
-  }
-
-  void _handleFeedSetting(FeedSettingsAction action, WorksState state) {
-    switch (action) {
-      case FeedSettingsAction.layout:
-        _showLayoutOptions(state);
-      case FeedSettingsAction.subtitles:
-        _showSubtitleOptions(state);
-      case FeedSettingsAction.sort:
-        _showSortDialog(context);
-    }
-  }
-
-  void _handleSwipe(DragEndDetails details) {
-    if (details.primaryVelocity == null) return;
-
-    final velocity = details.primaryVelocity!;
-    final worksState = ref.read(worksProvider);
-
-    // Sensitivity threshold
-    if (velocity.abs() < 500) return;
-
-    if (velocity < 0) {
-      // Swipe Left (Next Tab)
-      if (worksState.displayMode == DisplayMode.all) {
-        _changeDisplayMode(DisplayMode.popular);
-      } else if (worksState.displayMode == DisplayMode.popular) {
-        _changeDisplayMode(DisplayMode.recommended);
-      }
-    } else {
-      // Swipe Right (Previous Tab)
-      if (worksState.displayMode == DisplayMode.recommended) {
-        _changeDisplayMode(DisplayMode.popular);
-      } else if (worksState.displayMode == DisplayMode.popular) {
-        _changeDisplayMode(DisplayMode.all);
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     super.build(context); // 必须调用以保持状态
@@ -203,13 +105,7 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
       if (previous == null) return;
       if (previous.displayMode == next.displayMode) return;
 
-      final prevIndex = DisplayMode.values.indexOf(previous.displayMode);
-      final nextIndex = DisplayMode.values.indexOf(next.displayMode);
-
-      setState(() {
-        _slideDirection = nextIndex >= prevIndex ? 1 : -1;
-        _displayGeneration++;
-      });
+      setState(() => _displayGeneration++);
     });
     final worksState = ref.watch(worksProvider);
     final isRecommendMode =
@@ -221,7 +117,6 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
     final toolbarTop = widget.toolbarTop ?? topPadding + 8;
     final contentTopPadding = toolbarTop + 56;
     final displayGeneration = _displayGeneration;
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
     final systemOverlayStyle = transparentSystemBarsForBrightness(
       Theme.of(context).brightness,
     );
@@ -233,45 +128,27 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
         body: Stack(
           children: [
             Positioned.fill(
-              child: GestureDetector(
-                onHorizontalDragEnd: _handleSwipe,
-                child: AnimatedSwitcher(
-                  duration: reduceMotion
-                      ? const Duration(milliseconds: 200)
-                      : const Duration(milliseconds: 250),
-                  switchInCurve: Curves.linear,
-                  switchOutCurve: Curves.linear,
-                  transitionBuilder: (child, animation) {
-                    return _WorksModeTransition(
-                      animation: animation,
-                      direction: _slideDirection,
-                      reduceMotion: MediaQuery.disableAnimationsOf(context),
-                      child: child,
-                    );
+              child: KeyedSubtree(
+                key: ValueKey(
+                  '${worksState.displayMode.name}-$_displayGeneration',
+                ),
+                child: _WorksModeView(
+                  worksState: worksState,
+                  initialScrollOffset:
+                      _scrollPositions[worksState.displayMode] ?? 0,
+                  onScrollOffsetChanged: (offset) {
+                    if (displayGeneration == _displayGeneration) {
+                      _scrollPositions[worksState.displayMode] = offset;
+                    }
                   },
-                  child: KeyedSubtree(
-                    key: ValueKey(
-                      '${worksState.displayMode.name}-$_displayGeneration',
-                    ),
-                    child: _WorksModeView(
-                      worksState: worksState,
-                      initialScrollOffset:
-                          _scrollPositions[worksState.displayMode] ?? 0,
-                      onScrollOffsetChanged: (offset) {
-                        if (displayGeneration == _displayGeneration) {
-                          _scrollPositions[worksState.displayMode] = offset;
-                        }
-                      },
-                      padding: EdgeInsets.fromLTRB(
-                        horizontalPadding,
-                        contentTopPadding,
-                        horizontalPadding,
-                        horizontalPadding,
-                      ),
-                      generation: displayGeneration,
-                      builder: _buildLayoutView,
-                    ),
+                  padding: EdgeInsets.fromLTRB(
+                    horizontalPadding,
+                    contentTopPadding,
+                    horizontalPadding,
+                    horizontalPadding,
                   ),
+                  generation: displayGeneration,
+                  builder: _buildLayoutView,
                 ),
               ),
             ),
@@ -286,7 +163,6 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
               left: horizontalPadding,
               right: horizontalPadding,
               child: FloatingFeedToolbar(
-                collapseModesWhenNeeded: false,
                 modeActions: _buildModeActions(context, worksState),
                 toolActions: _buildToolActions(
                   context,
@@ -332,22 +208,37 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
     WorksState worksState, {
     required bool isRecommendMode,
   }) {
-    final onSearchOnline = widget.onSearchOnline;
     return [
-      if (onSearchOnline != null)
+      if (widget.onSearchOnline != null)
         FloatingFeedToolAction(
           icon: Icons.search,
           tooltip: S.of(context).searchOnlineWorks,
-          onPressed: onSearchOnline,
+          onPressed: widget.onSearchOnline,
         ),
       FloatingFeedToolAction(
-        icon: Icons.more_vert,
-        tooltip: S.of(context).feedSettings,
-        onPressed: null,
-        builder: (context) => FeedSettingsMenuButton(
-          sortEnabled: !isRecommendMode,
-          onSelected: (action) => _handleFeedSetting(action, worksState),
-        ),
+        icon: switch (worksState.layoutType) {
+          LayoutType.bigGrid => Icons.grid_view,
+          LayoutType.smallGrid => Icons.grid_on,
+          LayoutType.list => Icons.view_list,
+        },
+        tooltip: S.of(context).layout,
+        onPressed: () => ref.read(worksProvider.notifier).toggleLayoutType(),
+      ),
+      FloatingFeedToolAction(
+        icon: SubtitleFilterMode.fromValue(worksState.subtitleFilter).isActive
+            ? Icons.closed_caption
+            : Icons.closed_caption_off,
+        tooltip: S.of(context).subtitleFilter,
+        isSelected: SubtitleFilterMode.fromValue(
+          worksState.subtitleFilter,
+        ).isActive,
+        onPressed: () =>
+            ref.read(worksProvider.notifier).toggleSubtitleFilter(),
+      ),
+      FloatingFeedToolAction(
+        icon: Icons.sort,
+        tooltip: S.of(context).sort,
+        onPressed: isRecommendMode ? null : () => _showSortDialog(context),
       ),
     ];
   }
@@ -585,119 +476,5 @@ class _WorksModeViewState extends State<_WorksModeView> {
       _scrollController,
       widget.generation,
     );
-  }
-}
-
-class _WorksModeTransition extends StatefulWidget {
-  const _WorksModeTransition({
-    required this.animation,
-    required this.direction,
-    required this.reduceMotion,
-    required this.child,
-  });
-
-  final Animation<double> animation;
-  final int direction;
-  final bool reduceMotion;
-  final Widget child;
-
-  @override
-  State<_WorksModeTransition> createState() => _WorksModeTransitionState();
-}
-
-class _WorksModeTransitionState extends State<_WorksModeTransition> {
-  late final int _entryDirection;
-  bool _exitCaptured = false;
-  late double _exitStartValue;
-  late double _exitStartOpacity;
-  late Offset _exitStartOffset;
-  late int _exitDirection;
-
-  @override
-  void initState() {
-    super.initState();
-    _entryDirection = widget.direction >= 0 ? 1 : -1;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: widget.animation,
-      builder: (context, child) {
-        final isOutgoing =
-            widget.animation.status == AnimationStatus.reverse ||
-            widget.animation.status == AnimationStatus.dismissed;
-        if (isOutgoing && !_exitCaptured) {
-          _captureExit();
-        }
-        return _buildTransition(isOutgoing, child!);
-      },
-      child: widget.child,
-    );
-  }
-
-  void _captureExit() {
-    _exitCaptured = true;
-    _exitStartValue = widget.animation.value.clamp(0.0, 1.0);
-    final entryProgress = Curves.easeOutCubic.transform(_exitStartValue);
-    _exitStartOpacity = entryProgress;
-    _exitStartOffset = Offset(_entryDirection * 0.12 * (1 - entryProgress), 0);
-    _exitDirection = widget.direction >= 0 ? 1 : -1;
-  }
-
-  Widget _buildTransition(bool isOutgoing, Widget child) {
-    final progress = widget.animation.value.clamp(0.0, 1.0);
-    final easedProgress = Curves.easeOutCubic.transform(progress);
-    final offset = widget.reduceMotion
-        ? Offset.zero
-        : isOutgoing
-        ? _exitOffset(progress)
-        : Offset(_entryDirection * 0.12 * (1 - easedProgress), 0);
-    final opacity = isOutgoing ? _exitOpacity(progress) : easedProgress;
-    final fade = FadeTransition(
-      opacity: AlwaysStoppedAnimation(opacity),
-      child: child,
-    );
-    final transitioned = SlideTransition(
-      position: AlwaysStoppedAnimation(
-        widget.reduceMotion ? Offset.zero : offset,
-      ),
-      child: fade,
-    );
-    return IgnorePointer(
-      ignoring: isOutgoing,
-      child: ExcludeFocus(
-        excluding: isOutgoing,
-        child: ExcludeSemantics(
-          excluding: isOutgoing,
-          child: HeroMode(enabled: !isOutgoing, child: transitioned),
-        ),
-      ),
-    );
-  }
-
-  Offset _exitOffset(double value) {
-    if (!_exitCaptured || _exitStartValue <= 0.0001) {
-      return Offset(-_exitDirection * 0.12, 0);
-    }
-    final progress = ((_exitStartValue - value) / _exitStartValue)
-        .clamp(0.0, 1.0)
-        .toDouble();
-    final eased = Curves.easeOutCubic.transform(progress);
-    return Offset.lerp(
-          _exitStartOffset,
-          Offset(-_exitDirection * 0.12, 0),
-          eased,
-        ) ??
-        Offset(-_exitDirection * 0.12, 0);
-  }
-
-  double _exitOpacity(double value) {
-    if (!_exitCaptured || _exitStartValue <= 0.0001) return 0;
-    final progress = ((_exitStartValue - value) / _exitStartValue)
-        .clamp(0.0, 1.0)
-        .toDouble();
-    final eased = Curves.easeOutCubic.transform(progress);
-    return _exitStartOpacity * (1 - eased);
   }
 }
