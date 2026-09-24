@@ -1,8 +1,11 @@
 import 'player_track_layers.dart';
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:octo_image/octo_image.dart';
 
 import '../../models/audio_track.dart';
 import '../../utils/local_file_url.dart';
@@ -228,6 +231,7 @@ class PlayerCompactArtwork extends StatelessWidget {
     required this.track,
     required this.url,
     this.forFlight = false,
+    this.decodeSize,
   });
 
   static const double height = 48;
@@ -237,6 +241,9 @@ class PlayerCompactArtwork extends StatelessWidget {
   final AudioTrack track;
   final String? url;
   final bool forFlight;
+
+  /// Physical-pixel bounds to cover when decoding; null keeps original size.
+  final Size? decodeSize;
 
   @override
   Widget build(BuildContext context) {
@@ -248,18 +255,27 @@ class PlayerCompactArtwork extends StatelessWidget {
     if (url == null) {
       artwork = fallback;
     } else {
-      final image = LocalFileUrl.isLocalFileUrl(url)
-          ? Image.file(
-              File(LocalFileUrl.pathFromUrl(url!)!),
+      final isLocal = LocalFileUrl.isLocalFileUrl(url);
+      final ImageProvider source = isLocal
+          ? FileImage(File(LocalFileUrl.pathFromUrl(url!)!))
+          : CachedNetworkImageProvider(
+              url!,
+              cacheKey: track.workId == null
+                  ? null
+                  : 'work_cover_${track.workId}',
+            );
+      final provider = decodeSize == null
+          ? source
+          : _CoverResizeImage(source, decodeSize!);
+      final image = isLocal
+          ? Image(
+              image: provider,
               fit: BoxFit.cover,
               gaplessPlayback: true,
               errorBuilder: (_, __, ___) => fallback,
             )
-          : CachedNetworkImage(
-              imageUrl: url!,
-              cacheKey: track.workId == null
-                  ? null
-                  : 'work_cover_${track.workId}',
+          : OctoImage(
+              image: provider,
               fit: BoxFit.cover,
               fadeInDuration: forFlight
                   ? Duration.zero
@@ -269,9 +285,9 @@ class PlayerCompactArtwork extends StatelessWidget {
                   ? Duration.zero
                   : const Duration(milliseconds: 220),
               fadeOutCurve: Curves.easeOutCubic,
-              useOldImageOnUrlChange: true,
-              errorWidget: (_, __, ___) => fallback,
-              placeholder: (_, __) => fallback,
+              gaplessPlayback: true,
+              errorBuilder: (_, __, ___) => fallback,
+              placeholderBuilder: (_) => fallback,
             );
       artwork = PrivacyBlurCover(
         borderRadius: forFlight ? null : radius,
@@ -291,6 +307,47 @@ class PlayerCompactArtwork extends StatelessWidget {
         child: artwork,
       ),
     );
+  }
+}
+
+typedef _CoverResizeKey = ({Object source, Size size, Type type});
+
+/// Resizes at decode time without discarding pixels needed by [BoxFit.cover].
+class _CoverResizeImage extends ImageProvider<_CoverResizeKey> {
+  const _CoverResizeImage(this.source, this.size);
+
+  final ImageProvider source;
+  final Size size;
+
+  @override
+  Future<_CoverResizeKey> obtainKey(ImageConfiguration configuration) => source
+      .obtainKey(configuration)
+      .then((key) => (source: key, size: size, type: _CoverResizeImage));
+
+  @override
+  ImageStreamCompleter loadImage(
+    _CoverResizeKey key,
+    ImageDecoderCallback decode,
+  ) {
+    final completer = source.loadImage(key.source, (buffer, {getTargetSize}) {
+      return decode(
+        buffer,
+        getTargetSize: (width, height) {
+          final scale = math.min(
+            1.0,
+            math.max(key.size.width / width, key.size.height / height),
+          );
+          return ui.TargetImageSize(
+            width: (width * scale).ceil(),
+            height: (height * scale).ceil(),
+          );
+        },
+      );
+    });
+    completer.addEphemeralErrorListener((error, stack) {
+      scheduleMicrotask(() => PaintingBinding.instance.imageCache.evict(key));
+    });
+    return completer;
   }
 }
 

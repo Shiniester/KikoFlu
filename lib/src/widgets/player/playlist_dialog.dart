@@ -548,7 +548,15 @@ class _QueueArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PlayerCompactArtwork(track: track, url: url);
+    // Decode queue covers for their physical display size instead of uploading
+    // several full-resolution images together during the route transition.
+    return PlayerCompactArtwork(
+      track: track,
+      url: url,
+      decodeSize:
+          const Size(PlayerCompactArtwork.width, PlayerCompactArtwork.height) *
+          MediaQuery.devicePixelRatioOf(context),
+    );
   }
 }
 

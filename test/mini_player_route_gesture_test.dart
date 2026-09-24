@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:octo_image/octo_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -540,15 +541,13 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
-    final firstImage = tester.widget<CachedNetworkImage>(
-      find.byType(CachedNetworkImage),
-    );
-    expect(firstImage.imageUrl, first.artworkUrl);
+    final firstImage = tester.widget<OctoImage>(find.byType(OctoImage));
+    expect(firstImage.image, CachedNetworkImageProvider(first.artworkUrl!));
     expect(firstImage.fadeInDuration, const Duration(milliseconds: 220));
     expect(firstImage.fadeOutDuration, const Duration(milliseconds: 220));
     expect(firstImage.fadeInCurve, Curves.easeOutCubic);
     expect(firstImage.fadeOutCurve, Curves.easeOutCubic);
-    expect(firstImage.useOldImageOnUrlChange, isTrue);
+    expect(firstImage.gaplessPlayback, isTrue);
 
     tracks.add(second);
     availability.add(
@@ -569,15 +568,13 @@ void main() {
     await tester.pump();
     expect(find.text('First'), findsNothing);
     expect(find.text('Second'), findsOneWidget);
-    final secondImage = tester.widget<CachedNetworkImage>(
-      find.byType(CachedNetworkImage),
-    );
-    expect(secondImage.imageUrl, second.artworkUrl);
+    final secondImage = tester.widget<OctoImage>(find.byType(OctoImage));
+    expect(secondImage.image, CachedNetworkImageProvider(second.artworkUrl!));
     expect(secondImage.fadeInDuration, const Duration(milliseconds: 220));
     expect(secondImage.fadeOutDuration, const Duration(milliseconds: 220));
     expect(secondImage.fadeInCurve, Curves.easeOutCubic);
     expect(secondImage.fadeOutCurve, Curves.easeOutCubic);
-    expect(secondImage.useOldImageOnUrlChange, isTrue);
+    expect(secondImage.gaplessPlayback, isTrue);
     expect(
       find.byKey(const ValueKey('mini-player-artwork-frame')),
       findsOneWidget,
