@@ -63,6 +63,8 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         icon: Icons.home_outlined,
         widget: WorksScreen(
           toolbarTop: contentTop,
+          collapsedToolbarTop: collapsedToolbarTop,
+          primaryToolbarVisible: _tabSwitcherVisible,
           embedded: true,
           onSearchOnline: () => _openSearch(scope: SearchScope.globalWorks),
         ),
@@ -417,7 +419,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
                   controller: _tabController,
                   children: tabs
                       .map(
-                        (tab) => KeyedSubtree(
+                        (tab) => _AudioTabPage(
                           key: ValueKey(tab.id),
                           child: tab.widget,
                         ),
@@ -656,6 +658,27 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
           ? EdgeInsets.fromLTRB(24, topPadding + 8, 24, 24)
           : EdgeInsets.fromLTRB(8, topPadding + 8, 8, 8),
     );
+  }
+}
+
+class _AudioTabPage extends StatefulWidget {
+  const _AudioTabPage({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<_AudioTabPage> createState() => _AudioTabPageState();
+}
+
+class _AudioTabPageState extends State<_AudioTabPage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }
 

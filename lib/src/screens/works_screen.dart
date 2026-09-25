@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -22,11 +23,15 @@ class WorksScreen extends ConsumerStatefulWidget {
   const WorksScreen({
     super.key,
     this.toolbarTop,
+    this.collapsedToolbarTop,
+    this.primaryToolbarVisible,
     this.embedded = false,
     this.onSearchOnline,
   });
 
   final double? toolbarTop;
+  final double? collapsedToolbarTop;
+  final ValueListenable<bool>? primaryToolbarVisible;
   final bool embedded;
   final VoidCallback? onSearchOnline;
 
@@ -117,6 +122,14 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
     final toolbarTop = widget.toolbarTop ?? topPadding + 8;
     final contentTopPadding = toolbarTop + 56;
     final displayGeneration = _displayGeneration;
+    final toolbar = FloatingFeedToolbar(
+      modeActions: _buildModeActions(context, worksState),
+      toolActions: _buildToolActions(
+        context,
+        worksState,
+        isRecommendMode: isRecommendMode,
+      ),
+    );
     final systemOverlayStyle = transparentSystemBarsForBrightness(
       Theme.of(context).brightness,
     );
@@ -158,19 +171,22 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
               right: 0,
               child: ProgressiveTopScrim(height: topPadding + 72),
             ),
-            Positioned(
-              top: toolbarTop,
-              left: horizontalPadding,
-              right: horizontalPadding,
-              child: FloatingFeedToolbar(
-                modeActions: _buildModeActions(context, worksState),
-                toolActions: _buildToolActions(
-                  context,
-                  worksState,
-                  isRecommendMode: isRecommendMode,
-                ),
+            if (widget.primaryToolbarVisible case final visibility?)
+              FloatingToolbarPositionFollower(
+                primaryToolbarVisible: visibility,
+                visibleTop: toolbarTop,
+                hiddenTop: widget.collapsedToolbarTop ?? toolbarTop,
+                left: horizontalPadding,
+                right: horizontalPadding,
+                child: toolbar,
+              )
+            else
+              Positioned(
+                top: toolbarTop,
+                left: horizontalPadding,
+                right: horizontalPadding,
+                child: toolbar,
               ),
-            ),
           ],
         ),
       ),

@@ -15,6 +15,7 @@ import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
+import 'package:kikoeru_flutter/src/models/history_record.dart';
 import 'package:kikoeru_flutter/src/models/search_query.dart';
 import 'package:kikoeru_flutter/src/providers/my_tabs_display_provider.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
@@ -24,9 +25,23 @@ import 'package:kikoeru_flutter/src/screens/history_screen.dart';
 import 'package:kikoeru_flutter/src/screens/local_downloads_screen.dart';
 import 'package:kikoeru_flutter/src/screens/subtitle_library_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/global_audio_player_wrapper.dart';
+import 'package:kikoeru_flutter/src/widgets/floating_feed_toolbar.dart';
 
 class _Reviews extends MyReviewsNotifier {
   _Reviews(Ref ref) : super(KikoeruApiService(), ref);
+
+  void populate() {
+    final works = List.generate(
+      40,
+      (i) => Work(id: 200 + i, title: 'Marked $i'),
+    );
+    state = state.copyWith(
+      works: works,
+      rawWorks: works,
+      totalCount: 40,
+      hasMore: false,
+    );
+  }
 
   @override
   Future<void> load({
@@ -39,6 +54,21 @@ class _Reviews extends MyReviewsNotifier {
 
 class _History extends HistoryNotifier {
   _History(super.ref);
+
+  void populate() {
+    state = HistoryState(
+      records: List.generate(
+        40,
+        (i) => HistoryRecord(
+          work: Work(id: 100 + i, title: 'History $i'),
+          lastPlayedTime: DateTime(2026),
+        ),
+      ),
+      totalCount: 40,
+      pageSize: 40,
+      hasMore: false,
+    );
+  }
 
   @override
   Future<void> load({
@@ -127,6 +157,160 @@ void main() {
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
     );
+  });
+
+  for (final disableAnimations in [false, true]) {
+    for (final layout in LayoutType.values) {
+      testWidgets(
+        'online marks retain position after visiting downloads ($disableAnimations, $layout)',
+        (tester) async {
+          final reduced = ValueNotifier(disableAnimations);
+          addTearDown(reduced.dispose);
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('my_reviews_layout_type', layout.name);
+          await prefs.setString('collection_history_layout_type', layout.name);
+          await _pumpAudioScreen(tester, reduced);
+          final container = ProviderScope.containerOf(
+            tester.element(find.byType(AudioScreen)),
+          );
+          (container.read(myReviewsProvider.notifier) as _Reviews).populate();
+          await tester.tap(find.byType(Tab).at(1));
+          await tester.pumpAndSettle();
+          ScrollController marksScroll() => tester
+              .widget<CustomScrollView>(
+                find.descendant(
+                  of: find.byKey(const ValueKey('onlineMarks')),
+                  matching: find.byType(CustomScrollView),
+                ),
+              )
+              .controller!;
+          marksScroll().jumpTo(510);
+          await tester.pumpAndSettle();
+          expect(
+            marksScroll().offset,
+            510,
+            reason: 'before leaving online marks',
+          );
+          for (var i = 0; i < 2; i++) {
+            await tester.drag(find.byType(TabBarView), const Offset(-600, 0));
+            await tester.pumpAndSettle();
+          }
+          expect(_pages(tester).page, 3);
+          for (var i = 0; i < 2; i++) {
+            await tester.drag(find.byType(TabBarView), const Offset(600, 0));
+            await tester.pumpAndSettle();
+          }
+          expect(_pages(tester).page, 1);
+          expect(marksScroll().offset, 510);
+          expect(tester.takeException(), isNull);
+        },
+      );
+
+      testWidgets(
+        'history retains position after swiping back from home ($disableAnimations, $layout)',
+        (tester) async {
+          final reduced = ValueNotifier(disableAnimations);
+          addTearDown(reduced.dispose);
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('my_reviews_layout_type', layout.name);
+          await prefs.setString('collection_history_layout_type', layout.name);
+          await _pumpAudioScreen(tester, reduced);
+          final container = ProviderScope.containerOf(
+            tester.element(find.byType(AudioScreen)),
+          );
+          (container.read(historyProvider.notifier) as _History).populate();
+          await tester.tap(find.byType(Tab).at(2));
+          await tester.pumpAndSettle();
+          ScrollController historyScroll() => tester
+              .widget<CustomScrollView>(
+                find.descendant(
+                  of: find.byType(HistoryScreen),
+                  matching: find.byType(CustomScrollView),
+                ),
+              )
+              .controller!;
+          historyScroll().jumpTo(360);
+          await tester.pumpAndSettle();
+          expect(historyScroll().offset, 360);
+          for (var i = 0; i < 2; i++) {
+            await tester.drag(find.byType(TabBarView), const Offset(600, 0));
+            await tester.pumpAndSettle();
+          }
+          expect(_pages(tester).page, 0);
+          for (var i = 0; i < 2; i++) {
+            await tester.drag(find.byType(TabBarView), const Offset(-600, 0));
+            await tester.pumpAndSettle();
+          }
+          expect(_pages(tester).page, 2);
+          expect(historyScroll().offset, 360);
+          final historyElement = tester.element(find.byType(HistoryScreen));
+          await tester.tap(find.byIcon(Icons.search).last);
+          await tester.pumpAndSettle();
+          await tester.tap(find.byIcon(Icons.arrow_back));
+          await tester.pumpAndSettle();
+          expect(historyScroll().offset, 360);
+          expect(
+            tester.element(find.byType(HistoryScreen)),
+            same(historyElement),
+          );
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+
+    testWidgets('home toolbar follows tab visibility ($disableAnimations)', (
+      tester,
+    ) async {
+      final reduced = ValueNotifier(disableAnimations);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced);
+      final toolbar = find.descendant(
+        of: find.byType(WorksScreen),
+        matching: find.byType(FloatingFeedToolbar),
+      );
+      final scrollView = find
+          .descendant(
+            of: find.byType(WorksScreen),
+            matching: find.byType(CustomScrollView),
+          )
+          .first;
+      final initialTop = tester.getTopLeft(toolbar).dy;
+      await tester.drag(scrollView, const Offset(0, -300));
+      await tester.pumpAndSettle();
+      expect(
+        tester.getTopLeft(toolbar).dy,
+        closeTo(initialTop - kTextTabBarHeight - 8, 0.1),
+      );
+      await tester.drag(scrollView, const Offset(0, 150));
+      await tester.pumpAndSettle();
+      expect(tester.getTopLeft(toolbar).dy, closeTo(initialTop, 0.1));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('subtitle library stays mounted across distant tab switches', (
+    tester,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('my_tabs_show_subtitle_library', true);
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced, settle: false);
+    await tester.pump(const Duration(milliseconds: 300));
+    final tabs = tester.widget<TabBar>(find.byType(TabBar)).controller!;
+    tabs.animateTo(tabs.length - 1);
+    await tester.pump(const Duration(milliseconds: 300));
+    final libraryElement = tester.element(find.byType(SubtitleLibraryScreen));
+    tabs.animateTo(0);
+    await tester.pump(const Duration(milliseconds: 300));
+    tabs.animateTo(tabs.length - 1);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      tester.element(find.byType(SubtitleLibraryScreen)),
+      same(libraryElement),
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('reduced motion switches Audio tabs immediately', (tester) async {

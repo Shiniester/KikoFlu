@@ -620,33 +620,8 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
           ),
           onRetry: ref.read(playlistsProvider.notifier).refresh,
           sliversBefore: [
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(16, widget.topInset + 16, 16, 8),
-              sliver: SliverToBoxAdapter(
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.playlist_play,
-                      size: 28,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      S.of(context).myPlaylists,
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.bold, fontSize: 18),
-                    ),
-                    const Spacer(),
-                    Text(
-                      S.of(context).totalNItems(state.totalCount),
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            if (widget.topInset > 0)
+              SliverToBoxAdapter(child: SizedBox(height: widget.topInset)),
           ],
           padding: metrics.padding,
           itemBuilder: (context, playlist, index) => PlaylistCard(
