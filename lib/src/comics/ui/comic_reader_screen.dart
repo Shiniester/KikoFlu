@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -51,6 +52,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   ItemScrollController _continuous = ItemScrollController();
   final _positions = ItemPositionsListener.create();
   final Map<int, Future<Uint8List>> _images = {};
+  final Map<int, double> _aspectRatios = {};
   Timer? _saveTimer;
   @override
   void initState() {
@@ -94,14 +96,11 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   }
 
   void _setBars() {
-    SystemChrome.setEnabledSystemUIMode(
-      _controls ? SystemUiMode.edgeToEdge : SystemUiMode.immersiveSticky,
-    );
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
   void _toggle() {
     setState(() => _controls = !_controls);
-    _setBars();
   }
 
   Future<void> _loadChapter() async {
@@ -111,6 +110,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       _loading = true;
       _error = null;
       _images.clear();
+      _aspectRatios.clear();
       _pages = [];
     });
     try {
@@ -155,11 +155,29 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     });
   }
 
-  Future<Uint8List> _image(int page) => _images.putIfAbsent(page, () {
+  Future<Uint8List> _image(int page) => _images.putIfAbsent(page, () async {
+    final generation = _generation;
     final source = ref
         .read(comicSourcesProvider)
         .firstWhere((s) => s.key == widget.comic.source);
-    return ref.read(comicImageLoaderProvider)(source, _pages[page]);
+    final bytes = await ref.read(comicImageLoaderProvider)(
+      source,
+      _pages[page],
+    );
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    try {
+      final descriptor = await ui.ImageDescriptor.encoded(buffer);
+      try {
+        if (mounted && generation == _generation) {
+          _aspectRatios[page] = descriptor.width / descriptor.height;
+        }
+      } finally {
+        descriptor.dispose();
+      }
+    } finally {
+      buffer.dispose();
+    }
+    return bytes;
   });
   void _preload() {
     final count = StorageService.getInt('comic_preload') ?? 3;
@@ -256,34 +274,38 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       FutureBuilder<Uint8List>(
         future: _image(page),
         builder: (context, snapshot) {
+          Widget content;
           if (snapshot.hasError) {
-            return SizedBox(
-              height: continuous ? 300 : null,
-              child: Center(
-                child: IconButton(
-                  color: Colors.white,
-                  tooltip: S.of(context).retry,
-                  onPressed: () => setState(() => _images.remove(page)),
-                  icon: const Icon(Icons.refresh),
-                ),
+            content = Center(
+              child: IconButton(
+                color: Colors.white,
+                tooltip: S.of(context).retry,
+                onPressed: () => setState(() => _images.remove(page)),
+                icon: const Icon(Icons.refresh),
+              ),
+            );
+          } else if (!snapshot.hasData) {
+            content = const Center(child: CircularProgressIndicator());
+          } else {
+            content = _ZoomableComicPage(
+              child: Image.memory(
+                snapshot.data!,
+                fit: BoxFit.contain,
+                width: continuous ? MediaQuery.sizeOf(context).width : null,
+                gaplessPlayback: true,
+                errorBuilder: (_, __, ___) =>
+                    const Icon(Icons.broken_image, color: Colors.white),
               ),
             );
           }
-          if (!snapshot.hasData) {
-            return SizedBox(
-              height: continuous ? 300 : null,
-              child: const Center(child: CircularProgressIndicator()),
-            );
-          }
-          final image = Image.memory(
-            snapshot.data!,
-            fit: BoxFit.contain,
-            width: continuous ? MediaQuery.sizeOf(context).width : null,
-            gaplessPlayback: true,
-            errorBuilder: (_, __, ___) =>
-                const Icon(Icons.broken_image, color: Colors.white),
-          );
-          return _ZoomableComicPage(child: image);
+          // Keep decoded page geometry after its image bytes leave the cache.
+          // Returning to an earlier page must not resize the slivers above it.
+          return continuous
+              ? AspectRatio(
+                  aspectRatio: _aspectRatios[page] ?? 2 / 3,
+                  child: content,
+                )
+              : content;
         },
       );
   Widget _body(ComicReadingMode mode) {
@@ -294,6 +316,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     if (mode == ComicReadingMode.continuous) {
       return ScrollablePositionedList.builder(
         key: ValueKey(_layoutGeneration),
+        padding: EdgeInsets.zero,
         itemCount: _pages.length,
         itemScrollController: _continuous,
         itemPositionsListener: _positions,
@@ -493,6 +516,13 @@ class _ZoomableComicPage extends StatefulWidget {
 
 class _ZoomableComicPageState extends State<_ZoomableComicPage> {
   final _transform = TransformationController();
+  bool _zoomed = false;
+
+  void _updateZoom() {
+    final zoomed = _transform.value.getMaxScaleOnAxis() > 1;
+    if (_zoomed != zoomed) setState(() => _zoomed = zoomed);
+  }
+
   @override
   void dispose() {
     _transform.dispose();
@@ -507,9 +537,12 @@ class _ZoomableComicPageState extends State<_ZoomableComicPage> {
             _transform.value = _transform.value.getMaxScaleOnAxis() > 1
                 ? Matrix4.identity()
                 : (Matrix4.identity()..scaleByDouble(2, 2, 1, 1));
+            _updateZoom();
           },
     child: InteractiveViewer(
       transformationController: _transform,
+      panEnabled: _zoomed,
+      onInteractionUpdate: (_) => _updateZoom(),
       minScale: 1,
       maxScale: 5,
       child: Center(child: widget.child),

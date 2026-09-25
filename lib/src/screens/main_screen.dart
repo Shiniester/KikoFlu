@@ -8,7 +8,6 @@ import '../providers/auth_provider.dart';
 import '../widgets/app_bottom_dock_transition.dart';
 import '../widgets/app_bottom_dock.dart';
 import '../widgets/mini_player.dart';
-import '../widgets/lazy_indexed_stack.dart';
 import 'audio_screen.dart';
 import '../comics/ui/comic_screen.dart';
 import 'settings_screen.dart';
@@ -21,15 +20,17 @@ class MainScreen extends ConsumerStatefulWidget {
   ConsumerState<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends ConsumerState<MainScreen> {
+class _MainScreenState extends ConsumerState<MainScreen>
+    with TickerProviderStateMixin {
+  late TabController _tabs = TabController(length: 3, vsync: this);
   int _currentIndex = 0;
+  final _selection = ValueNotifier(0);
   static const int _settingsTabIndex = 2;
 
   // 使用 PageStorageBucket 来保存页面状态
   final PageStorageBucket _bucket = PageStorageBucket();
 
   late final List<Widget> _screens;
-  final Set<int> _visitedTabs = {0};
 
   @override
   void initState() {
@@ -40,6 +41,28 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       SettingsScreen(key: PageStorageKey('settings_screen')),
     ];
   }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    _selection.dispose();
+    super.dispose();
+  }
+
+  Widget _buildPages() => TabBarView(
+    key: const ValueKey('main-tab-pages'),
+    controller: _tabs,
+    physics: const NeverScrollableScrollPhysics(),
+    children: [
+      for (var i = 0; i < _screens.length; i++)
+        _MainTabPage(
+          key: ValueKey(i),
+          index: i,
+          selection: _selection,
+          child: _screens[i],
+        ),
+    ],
+  );
 
   List<NavigationDestination> _buildDestinations(
     BuildContext context,
@@ -78,8 +101,10 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
     setState(() {
       _currentIndex = index;
-      _visitedTabs.add(index);
     });
+
+    _selection.value = index;
+    _tabs.animateTo(index);
 
     if (index == _settingsTabIndex) {
       ref.read(settingsCacheRefreshTriggerProvider.notifier).state++;
@@ -88,6 +113,18 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : kTabScrollDuration;
+    if (_tabs.animationDuration != duration) {
+      _tabs.dispose();
+      _tabs = TabController(
+        length: 3,
+        vsync: this,
+        initialIndex: _currentIndex,
+        animationDuration: duration,
+      );
+    }
     final isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
     final showUpdateBadge = ref.watch(showUpdateRedDotProvider);
@@ -131,11 +168,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
                       final pages = PageStorage(
                         bucket: _bucket,
-                        child: LazyIndexedStack(
-                          index: _currentIndex,
-                          visitedIndices: _visitedTabs,
-                          children: _screens,
-                        ),
+                        child: _buildPages(),
                       );
                       final miniPlayer = Consumer(
                         builder: (context, ref, child) {
@@ -278,14 +311,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                 child: SafeArea(
                   top: false,
                   bottom: false,
-                  child: PageStorage(
-                    bucket: _bucket,
-                    child: LazyIndexedStack(
-                      index: _currentIndex,
-                      visitedIndices: _visitedTabs,
-                      children: _screens,
-                    ),
-                  ),
+                  child: PageStorage(bucket: _bucket, child: _buildPages()),
                 ),
               );
             },
@@ -380,6 +406,42 @@ class _MainScreenState extends ConsumerState<MainScreen> {
             ),
           )
           .toList(),
+    );
+  }
+}
+
+class _MainTabPage extends StatefulWidget {
+  const _MainTabPage({
+    super.key,
+    required this.index,
+    required this.selection,
+    required this.child,
+  });
+  final int index;
+  final ValueNotifier<int> selection;
+  final Widget child;
+  @override
+  State<_MainTabPage> createState() => _MainTabPageState();
+}
+
+class _MainTabPageState extends State<_MainTabPage>
+    with AutomaticKeepAliveClientMixin {
+  bool _visited = false;
+  @override
+  bool get wantKeepAlive => true;
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return ValueListenableBuilder<int>(
+      valueListenable: widget.selection,
+      child: widget.child,
+      builder: (context, index, child) {
+        final selected = index == widget.index;
+        _visited |= selected;
+        return _visited
+            ? HeroMode(enabled: selected, child: child!)
+            : const SizedBox.shrink();
+      },
     );
   }
 }

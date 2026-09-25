@@ -1,3 +1,4 @@
+import 'package:kikoeru_flutter/src/screens/settings_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -500,6 +501,60 @@ void main() {
     expect(container.read(worksProvider).subtitleFilter, workSubtitleFilter);
     expect(container.read(worksProvider).subtitleFilter, homeSubtitleFilter);
   });
+
+  for (final reducedMotion in [false, true]) {
+    for (final size in [const Size(390, 844), const Size(1000, 600)]) {
+      testWidgets(
+        'main navigation slides and retains state ($size, reduced=$reducedMotion)',
+        (tester) async {
+          tester.view.physicalSize = size;
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.reset);
+          final reduced = ValueNotifier(reducedMotion);
+          addTearDown(reduced.dispose);
+          await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+          final audioState = tester.state(find.byType(AudioScreen));
+          final start = tester.getRect(find.byType(AudioScreen));
+          final navigation = size.width > size.height
+              ? find.byType(NavigationRail)
+              : find.byType(NavigationBar);
+          await tester.tap(
+            find.descendant(
+              of: navigation,
+              matching: find.byIcon(Icons.settings_outlined),
+            ),
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 100));
+          final destination = tester.getRect(find.byType(SettingsScreen));
+          if (reducedMotion) {
+            expect(destination.left, closeTo(start.left, .1));
+          } else {
+            expect(destination.left, greaterThan(start.left));
+            expect(destination.left, lessThan(start.right));
+            expect(
+              tester.getRect(find.byType(AudioScreen)).left,
+              lessThan(start.left),
+            );
+          }
+          await tester.pumpAndSettle();
+          expect(
+            tester.getRect(find.byType(SettingsScreen)).left,
+            closeTo(start.left, .1),
+          );
+          await tester.tap(
+            find.descendant(
+              of: navigation,
+              matching: find.byIcon(Icons.library_music_outlined),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(tester.state(find.byType(AudioScreen)), same(audioState));
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
 
   for (final size in [const Size(390, 844), const Size(1000, 600)]) {
     testWidgets('main navigation retains Audio state at $size', (tester) async {

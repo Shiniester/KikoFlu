@@ -1,4 +1,12 @@
-import 'dart:convert';
+import 'package:kikoeru_flutter/src/comics/comic_downloads.dart';
+import 'package:kikoeru_flutter/src/comics/ui/comic_widgets.dart';
+import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
+import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
+import 'package:kikoeru_flutter/src/widgets/metadata_search_chip.dart';
+import 'dart:async';
+import 'package:flutter/services.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
+import 'package:image/image.dart' as img;
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
@@ -27,6 +35,7 @@ const _comic = Comic(
   id: 'book',
   title: 'Fixture book',
   cover: 'fixture-cover',
+  tags: ['Fixture tag'],
   chapters: [
     ComicChapter('one', 'Chapter 1'),
     ComicChapter('two', 'Chapter 2'),
@@ -81,6 +90,12 @@ class _Source extends ComicSource {
 }
 
 class _Library extends ComicLibrary {
+  final List<Map<String, dynamic>> savedTasks = [];
+  @override
+  Future<void> saveTask(String id, Map<String, dynamic> task) async {}
+  @override
+  Future<void> deleteTask(String id) async {}
+
   ComicProgress? last;
   int favoriteWrites = 0;
   @override
@@ -89,7 +104,7 @@ class _Library extends ComicLibrary {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> loadTasks() async => [];
+  Future<List<Map<String, dynamic>>> loadTasks() async => savedTasks;
   @override
   Future<List<Comic>> favorites() async => [];
   @override
@@ -102,8 +117,8 @@ class _Library extends ComicLibrary {
   }
 }
 
-final _png = base64Decode(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==',
+final _png = Uint8List.fromList(
+  img.encodePng(img.Image(width: 100, height: 160)),
 );
 
 void main() {
@@ -123,6 +138,7 @@ void main() {
     _Source source, {
     _Source? other,
     AudioTrack? track,
+    Future<Uint8List> Function(ComicPage)? loadImage,
   }) async {
     final container = ProviderContainer(
       overrides: [
@@ -148,7 +164,7 @@ void main() {
         ),
         lyricAutoLoaderProvider.overrideWith((ref) {}),
         comicImageLoaderProvider.overrideWithValue(
-          (source, page) async => _png,
+          (source, page) => loadImage?.call(page) ?? Future.value(_png),
         ),
       ],
     );
@@ -169,6 +185,233 @@ void main() {
     await tester.pumpAndSettle();
     return container;
   }
+
+  testWidgets('reader controls do not resize comic pages', (tester) async {
+    await StorageService.setString('comic_reading_mode', 'vertical');
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'SystemChrome.setEnabledSystemUIMode') {
+          tester.view.physicalSize = call.arguments == 'SystemUiMode.edgeToEdge'
+              ? const Size(390, 796)
+              : const Size(390, 844);
+          tester.view.padding = call.arguments == 'SystemUiMode.edgeToEdge'
+              ? const FakeViewPadding(top: 24, bottom: 24)
+              : const FakeViewPadding();
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await pump(
+      tester,
+      const ComicReaderScreen(
+        comic: _comic,
+        chapter: ComicChapter('one', 'Chapter 1'),
+      ),
+      _Library(),
+      _Source(),
+    );
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pumpAndSettle();
+    final before = tester.getRect(find.byType(FutureBuilder<Uint8List>).first);
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    expect(find.byType(Slider), findsOneWidget);
+    expect(tester.getRect(find.byType(FutureBuilder<Uint8List>).first), before);
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      null,
+    );
+  });
+
+  testWidgets(
+    'returning to earlier pages preserves their height while reloading',
+    (tester) async {
+      await StorageService.setString('comic_reading_mode', 'continuous');
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reload = Completer<Uint8List>();
+      final requests = <String, int>{};
+      await pump(
+        tester,
+        const ComicReaderScreen(
+          comic: _comic,
+          chapter: ComicChapter('one', 'Chapter 1'),
+        ),
+        _Library(),
+        _Source(),
+        loadImage: (page) {
+          final count = requests.update(
+            page.url,
+            (v) => v + 1,
+            ifAbsent: () => 1,
+          );
+          return page.url == 'page-0' && count > 1
+              ? reload.future
+              : Future.value(_png);
+        },
+      );
+      final firstHeight = tester.getSize(find.byType(Image).first).height;
+      final controller = tester
+          .widget<ScrollablePositionedList>(
+            find.byType(ScrollablePositionedList),
+          )
+          .itemScrollController!;
+      controller.jumpTo(index: 6);
+      await tester.pumpAndSettle();
+      controller.jumpTo(index: 0);
+      await tester.pump();
+      await tester.pump();
+      expect(
+        tester.getSize(find.byType(FutureBuilder<Uint8List>).first).height,
+        closeTo(firstHeight, .1),
+      );
+      reload.complete(_png);
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets('comic download entry disappears when the last task is removed', (
+    tester,
+  ) async {
+    final library = _Library();
+    final task = ComicDownloadTask(
+      comic: _comic,
+      chapter: _comic.chapters.first,
+      directory: '',
+      status: ComicDownloadStatus.paused,
+    );
+    library.savedTasks.add(task.toJson());
+    final container = await pump(
+      tester,
+      const ComicScreen(),
+      library,
+      _Source(),
+    );
+    expect(find.byTooltip('Download Tasks'), findsOneWidget);
+    final downloads = container.read(comicDownloadsProvider);
+    await downloads.remove(downloads.tasks.single);
+    await tester.pumpAndSettle();
+    expect(find.byType(FloatingActionButton), findsNothing);
+  });
+
+  for (final size in [const Size(320, 640), const Size(1000, 600)]) {
+    testWidgets('comic details keep toolbar actions and shared tags at $size', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await pump(
+        tester,
+        const ComicDetailScreen(comic: _comic),
+        _Library(),
+        _Source(),
+      );
+      final appBar = find.byType(AppBar);
+      expect(
+        find.descendant(of: appBar, matching: find.byTooltip('Download')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: appBar, matching: find.byTooltip('Favorites')),
+        findsOneWidget,
+      );
+      final download = tester.getCenter(find.byTooltip('Download'));
+      final favorite = tester.getCenter(find.byTooltip('Favorites'));
+      expect(download.dx, lessThan(favorite.dx));
+      expect(download.dy, favorite.dy);
+      expect(find.byType(MetadataSearchChip), findsOneWidget);
+      await tester.tap(find.byTooltip('Download'));
+      await tester.pumpAndSettle();
+      expect(find.byType(CheckboxListTile), findsNWidgets(2));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets(
+    'comic detail route hands off both dock parts and restores them on return',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await pump(
+        tester,
+        AppBottomDockTransitionScope(
+          child: Scaffold(
+            body: Builder(
+              builder: (context) => Center(
+                child: TextButton(
+                  onPressed: () => openComic(context, _comic),
+                  child: const Text('Open comic'),
+                ),
+              ),
+            ),
+            bottomNavigationBar: AppBottomDock(
+              selectedIndex: 1,
+              onDestinationSelected: (_) {},
+              miniPlayer: const MiniPlayer(),
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.library_music),
+                  label: 'Audio',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.menu_book),
+                  label: 'Comics',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.settings),
+                  label: 'Settings',
+                ),
+              ],
+            ),
+          ),
+        ),
+        _Library(),
+        _Source(),
+        track: const AudioTrack(
+          id: 'dock-track',
+          title: 'Audio',
+          url: 'https://example.invalid/audio.mp3',
+        ),
+      );
+      final sourceRect = tester.getRect(find.byType(MiniPlayer));
+      await tester.tap(find.text('Open comic'));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+      expect(
+        tester.getRect(find.byKey(appBottomDockMiniPlayerFlightRootKey)).top,
+        greaterThan(sourceRect.top),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(ComicDetailScreen), findsOneWidget);
+      expect(find.byType(MiniPlayer), findsOneWidget);
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+      await tester.pumpAndSettle();
+      expect(tester.getRect(find.byType(MiniPlayer)), sourceRect);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'aggregate retry preserves successful sources and supports both layouts',
@@ -215,12 +458,12 @@ void main() {
         library,
         source,
       );
-      await tester.tap(find.text('Favorites'));
+      await tester.tap(find.byTooltip('Favorites'));
       await tester.pumpAndSettle();
       expect(source.favoriteWrites, 1);
       expect(library.favoriteWrites, 0);
       source.favoriteFails = false;
-      await tester.tap(find.text('Favorites'));
+      await tester.tap(find.byTooltip('Favorites'));
       await tester.pumpAndSettle();
       expect(source.favoriteWrites, 2);
       expect(library.favoriteWrites, 0);
@@ -228,7 +471,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(library.favoriteWrites, 1);
       source.loggedIn = false;
-      await tester.tap(find.text('Favorites'));
+      await tester.tap(find.byTooltip('Favorites'));
       await tester.pumpAndSettle();
       expect(library.favoriteWrites, 2);
     },
@@ -237,6 +480,7 @@ void main() {
     tester,
   ) async {
     await pump(tester, const ComicScreen(), _Library(), _Source());
+    expect(find.byType(FloatingActionButton), findsNothing);
     expect(find.text('Fixture book'), findsOneWidget);
     await tester.tap(find.text('History').first);
     await tester.pumpAndSettle();

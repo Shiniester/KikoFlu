@@ -18,10 +18,12 @@ Audio server configuration survives logout, while active credentials and cache
 scope switch to the anonymous identity. Existing audio preference keys remain.
 
 Share the floating LibraryTabStrip, toolbar components, global proxy, logging,
-theme, language, and Mini Player. Audio Work Details retain ADR 0001's Dock handoff.
-Comic details and the fullscreen reader use ordinary independent routes. The
-reader owns its control-layer Mini Player and preserves its route while the full
-player is open.
+theme, language, and Mini Player. Audio and comic details share ADR 0001's route
+and Dock handoff, responsive detail layout, metadata chips and toolbar actions.
+The fullscreen reader uses an independent route with a stable immersive canvas.
+Its control layer owns the Mini Player and preserves the reader route while the
+full player is open. Main navigation uses the same horizontal tab transition as
+the library tabs and retains each visited page's state.
 
 Keep comic models, source adapters, credentials, SQLite tables, image cache and
 chapter download service separate. A source-qualified comic ID prevents collisions;

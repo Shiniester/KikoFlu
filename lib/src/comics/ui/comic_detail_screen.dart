@@ -2,6 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
+import '../../widgets/scrollable_appbar.dart';
+import '../../widgets/metadata_search_chip.dart';
+import '../../widgets/work_detail/work_detail_responsive_layout.dart';
+import '../../widgets/work_detail/work_title_header.dart';
+import '../../utils/system_ui_style.dart';
+import 'comic_search_screen.dart';
 import '../../utils/snackbar_util.dart';
 import '../comic_models.dart';
 import '../comic_providers.dart';
@@ -167,154 +173,183 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    return GlobalAudioPlayerWrapper(
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(
-            widget.comic.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+    return GlobalAudioPlayerWrapper.workDetails(
+      child: FutureBuilder<Comic>(
+        future: _details,
+        builder: (context, snapshot) => Scaffold(
+          appBar: ScrollableAppBar(
+            systemOverlayStyle: transparentSystemBarsForBrightness(
+              Theme.of(context).brightness,
+            ),
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            title: Text(
+              widget.comic.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            actions: [
+              IconButton(
+                tooltip: s.download,
+                icon: const Icon(Icons.download),
+                onPressed:
+                    snapshot.hasData && snapshot.data!.chapters.isNotEmpty
+                    ? () => _download(snapshot.data!)
+                    : null,
+              ),
+              IconButton(
+                tooltip: s.comicFavorites,
+                icon: const Icon(Icons.bookmark_add_outlined),
+                onPressed: _busy || !snapshot.hasData
+                    ? null
+                    : () => _favorite(snapshot.data!),
+              ),
+            ],
+          ),
+          body: _buildBody(context, snapshot),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBody(BuildContext context, AsyncSnapshot<Comic> snapshot) {
+    final s = S.of(context);
+    if (snapshot.hasError) {
+      return ComicErrorView(
+        error: snapshot.error!,
+        retry: () => setState(_load),
+      );
+    }
+    if (!snapshot.hasData) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final comic = snapshot.data!;
+    return WorkDetailResponsiveLayout(
+      coverBuilder: (context, isLandscape) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: Center(
+          child: SizedBox(
+            height: isLandscape ? MediaQuery.sizeOf(context).height * .65 : 280,
+            child: AspectRatio(
+              aspectRatio: 2 / 3,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: ComicImage(
+                  source: comic.source,
+                  page: comic.coverPage,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
           ),
         ),
-        body: FutureBuilder<Comic>(
-          future: _details,
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return ComicErrorView(
-                error: snapshot.error!,
-                retry: () => setState(_load),
-              );
-            }
-            if (!snapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final comic = snapshot.data!;
-            return ListView(
-              padding: const EdgeInsets.all(16),
+      ),
+      info: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            WorkTitleHeader(title: comic.title, showTranslateButton: false),
+            const SizedBox(height: 8),
+            Text(
+              ref
+                  .read(comicSourcesProvider)
+                  .firstWhere((s) => s.key == comic.source)
+                  .name,
+            ),
+            if (comic.rating != null) Text('${s.ratingLabel}: ${comic.rating}'),
+            if (comic.extra['likes'] != null)
+              Row(
+                children: [
+                  const Icon(Icons.thumb_up_alt_outlined, size: 16),
+                  const SizedBox(width: 4),
+                  Text('${comic.extra['likes']}'),
+                ],
+              ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 120,
-                      height: 175,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: ComicImage(
-                          source: comic.source,
-                          page: comic.coverPage,
-                          fit: BoxFit.cover,
+                FilledButton.icon(
+                  onPressed: comic.chapters.isEmpty ? null : () => _read(comic),
+                  icon: const Icon(Icons.menu_book),
+                  label: Text(s.comicContinue),
+                ),
+                TextButton(
+                  onPressed: _busy ? null : () => _favorite(comic, local: true),
+                  child: Text(s.comicSaveLocal),
+                ),
+                if (ref
+                    .read(comicSourcesProvider)
+                    .firstWhere((s) => s.key == comic.source)
+                    .hasComments)
+                  TextButton(
+                    onPressed: () => _comments(comic),
+                    child: Text(s.comicComments),
+                  ),
+              ],
+            ),
+            if (_busy) const LinearProgressIndicator(),
+            if (_favoriteError != null)
+              MaterialBanner(
+                content: Text('$_favoriteError'),
+                actions: [
+                  TextButton(
+                    onPressed: () => _favorite(comic, local: _favoriteLocal),
+                    child: Text(s.retry),
+                  ),
+                ],
+              ),
+            const SizedBox(height: 16),
+            SelectableText(comic.description),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              children: comic.tags
+                  .map(
+                    (tag) => MetadataSearchChip(
+                      label: tag,
+                      searchKeyword: tag,
+                      searchTypeLabel: s.tagLabel,
+                      searchParams: const {},
+                      chipTone: MetadataChipTone.primary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      borderRadius: 6,
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => ComicSearchScreen(
+                            initialSource: comic.source,
+                            initialQuery: tag,
+                          ),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            comic.title,
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            ref
-                                .read(comicSourcesProvider)
-                                .firstWhere((s) => s.key == comic.source)
-                                .name,
-                          ),
-                          if (comic.rating != null)
-                            Text('${s.ratingLabel}: ${comic.rating}'),
-                          if (comic.extra['likes'] != null)
-                            Row(
-                              children: [
-                                const Icon(
-                                  Icons.thumb_up_alt_outlined,
-                                  size: 16,
-                                ),
-                                const SizedBox(width: 4),
-                                Text('${comic.extra['likes']}'),
-                              ],
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: comic.chapters.isEmpty
-                          ? null
-                          : () => _read(comic),
-                      icon: const Icon(Icons.menu_book),
-                      label: Text(s.comicContinue),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: _busy ? null : () => _favorite(comic),
-                      icon: const Icon(Icons.bookmark_add_outlined),
-                      label: Text(s.comicFavorites),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () => _download(comic),
-                      icon: const Icon(Icons.download_outlined),
-                      label: Text(s.downloaded),
-                    ),
-                    TextButton(
-                      onPressed: _busy
-                          ? null
-                          : () => _favorite(comic, local: true),
-                      child: Text(s.comicSaveLocal),
-                    ),
-                    if (ref
-                        .read(comicSourcesProvider)
-                        .firstWhere((s) => s.key == comic.source)
-                        .hasComments)
-                      TextButton(
-                        onPressed: () => _comments(comic),
-                        child: Text(s.comicComments),
-                      ),
-                  ],
-                ),
-                if (_busy) const LinearProgressIndicator(),
-                if (_favoriteError != null)
-                  MaterialBanner(
-                    content: Text('$_favoriteError'),
-                    actions: [
-                      TextButton(
-                        onPressed: () =>
-                            _favorite(comic, local: _favoriteLocal),
-                        child: Text(s.retry),
-                      ),
-                    ],
-                  ),
-                const SizedBox(height: 16),
-                SelectableText(comic.description),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  children: comic.tags
-                      .map((tag) => Chip(label: Text(tag)))
-                      .toList(),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  s.comicChapters,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                for (final chapter in comic.chapters)
-                  ListTile(
-                    title: Text(chapter.title),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => _read(comic, chapter: chapter),
-                  ),
-              ],
-            );
-          },
+                  )
+                  .toList(),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              s.comicChapters,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            for (final chapter in comic.chapters)
+              ListTile(
+                title: Text(chapter.title),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _read(comic, chapter: chapter),
+              ),
+          ],
         ),
       ),
     );

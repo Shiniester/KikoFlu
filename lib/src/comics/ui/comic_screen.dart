@@ -41,14 +41,16 @@ class _ComicScreenState extends ConsumerState<ComicScreen>
       Icons.download_done,
     ];
     return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'comic-downloads',
-        tooltip: s.downloadTasks,
-        onPressed: () => Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => const ComicDownloadScreen())),
-        child: const Icon(Icons.download_outlined),
-      ),
+      floatingActionButton: ref.watch(comicDownloadsProvider).tasks.isEmpty
+          ? null
+          : FloatingActionButton(
+              heroTag: 'comic-downloads',
+              tooltip: s.downloadTasks,
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ComicDownloadScreen()),
+              ),
+              child: const Icon(Icons.download_outlined),
+            ),
       body: Stack(
         children: [
           Positioned.fill(

@@ -1,3 +1,4 @@
+import '../../widgets/app_bottom_dock_transition.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -237,9 +238,7 @@ class ComicGrid extends ConsumerWidget {
 }
 
 void openComic(BuildContext context, Comic comic) {
-  Navigator.of(
-    context,
-  ).push(MaterialPageRoute(builder: (_) => ComicDetailScreen(comic: comic)));
+  pushWorkDetailRoute(context, builder: (_) => ComicDetailScreen(comic: comic));
 }
 
 class ComicKeepAlive extends StatefulWidget {
