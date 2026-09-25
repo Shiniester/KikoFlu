@@ -1,7 +1,8 @@
 # KikoFlu
 
-KikoFlu presents audio playback through a persistent compact surface and a
-full-screen player with several focused pages.
+KikoFlu combines audio playback and comic reading. Audio uses a persistent compact
+surface and a full-screen player; comics use source-backed libraries and a
+full-screen reader with shared playback access.
 
 ## Language
 
@@ -10,7 +11,7 @@ The persistent compact playback surface shown below the app's main content.
 _Avoid_: Player bar
 
 **App Tab Bar (应用标签栏)**:
-The primary app navigation containing Audio and Settings.
+The primary app navigation containing Audio, Comics, and Settings.
 _Avoid_: Player navigation, bottom menu
 
 **Audio Screen (音声页)**:
@@ -123,3 +124,41 @@ _避免_：动态色、系统颜色
 **播放器视觉调色板**：
 完整播放器与应用配色共享同一个封面基础色。它保留适合模糊封面背景的局部背景和前景，强调色与应用配色一致；它不控制桌面悬浮字幕。
 _避免_：应用配色、全局主题
+
+
+**Comic Screen (漫画页)**:
+The app page containing Home, Favorites, History, and Downloaded tabs. It shares
+floating navigation and toolbar behavior with the Audio Screen.
+_Avoid_: Works Home Tab, discovery page
+
+**Comic Home Tab (漫画主页)**:
+The first Comic Screen tab, showing recommendations and categories for the
+selected enabled Comic Source.
+_Avoid_: Comic Screen, source library
+
+**Comic Source (漫画源)**:
+One built-in provider of comic metadata, chapter images and optional account
+features. Comic identity is sourceKey + comicId; chapter identity adds chapterId.
+Credentials, capabilities, and network parsing belong to the source.
+_Avoid_: audio server, custom script
+
+**Local Favorite (本地收藏)**:
+A comic saved in the device's comic database, independent of all accounts.
+_Avoid_: downloaded comic
+
+**Source Favorite (源站收藏)**:
+A comic saved by a signed-in source account. The main favorite action prefers
+this destination when supported; a failed source write requires retry and does
+not silently become a Local Favorite.
+_Avoid_: synchronized local favorite
+
+**Reading Progress (阅读进度)**:
+A source-qualified comic's chapter ID and zero-based actual image page index.
+Online and downloaded reading share this position across display modes.
+_Avoid_: audio playback position, spread index
+
+**Anonymous Visitor (匿名游客)**:
+A user without an active audio account. Startup does not submit demo credentials.
+Audio requests use the saved server with no account credentials; each Comic
+Source independently determines whether anonymous access is permitted.
+_Avoid_: guest demo account, offline account

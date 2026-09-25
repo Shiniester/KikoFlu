@@ -177,82 +177,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
-  // 游客登录
   Future<void> _loginAsGuest() async {
-    // 验证服务器地址
-    if (_hostValue.trim().isEmpty) {
-      SnackBarUtil.showError(context, S.of(context).pleaseEnterServerAddress);
-      return;
-    }
-
-    // 显示二次确认对话框
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Text(S.of(context).guestModeTitle),
-          content: Text(S.of(context).guestModeMessage),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: Text(S.of(context).cancel),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: Text(S.of(context).continueGuestMode),
-            ),
-          ],
-        );
-      },
-    );
-
-    // 用户取消了操作
-    if (confirmed != true) {
-      return;
-    }
-
+    if (_hostValue.trim().isEmpty) return;
     if (!await _saveProxyAddress() || !mounted) return;
-
-    setState(() => _isLoading = true);
-
-    final host = _hostValue.trim();
-    const guestUsername = 'guest';
-    const guestPassword = 'guest';
-    final serverCookie = _serverCookieController.text.trim();
-
-    try {
-      final success = await ref
-          .read(authProvider.notifier)
-          .login(guestUsername, guestPassword, host, serverCookie);
-
-      if (success && mounted) {
-        if (widget.isAddingAccount) {
-          // Adding account mode - just go back
-          Navigator.pop(context, true);
-          SnackBarUtil.showSuccess(context, S.of(context).guestAccountAdded);
-        } else {
-          // Normal login - go to main screen
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (context) => const MainScreen()),
-            (route) => false,
-          );
-        }
-      } else if (mounted) {
-        final error = ref.read(authProvider).error;
-        SnackBarUtil.showError(
-          context,
-          error ?? S.of(context).guestLoginFailed,
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        SnackBarUtil.showError(context, S.of(context).guestLoginFailed);
-      }
-    }
-
-    if (mounted) {
-      setState(() => _isLoading = false);
-    }
+    await ref
+        .read(authProvider.notifier)
+        .enterAnonymous(host: _hostValue.trim());
+    if (mounted) Navigator.of(context).pop(true);
   }
 
   void _toggleMode() {

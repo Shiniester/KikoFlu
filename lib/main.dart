@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dynamic_color/dynamic_color.dart';
@@ -17,7 +18,6 @@ import 'dart:ffi' as ffi;
 import 'package:ffi/ffi.dart';
 import 'package:sqlite3/open.dart' as sqlite3_open;
 
-import 'src/screens/login_screen.dart';
 import 'src/screens/main_screen.dart';
 import 'src/widgets/desktop_floating_lyric.dart';
 import 'src/utils/theme.dart';
@@ -380,6 +380,11 @@ AppBootstrapCoordinator _createBootstrapCoordinator({
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks([
+      'PicaComic',
+    ], await rootBundle.loadString('third_party/picacomic/LICENSE'));
+  });
   PerformanceRecorder.instance.start();
 
   if (Platform.isAndroid) {
@@ -720,15 +725,5 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
     );
   }
 
-  Widget _buildHomeScreen() {
-    final authState = ref.watch(authProvider);
-
-    // 如果有用户信息（包括离线模式），显示主页
-    // 这样用户可以访问本地下载的内�?
-    if (authState.currentUser != null) {
-      return const MainScreen();
-    } else {
-      return const LoginScreen();
-    }
-  }
+  Widget _buildHomeScreen() => const MainScreen();
 }

@@ -3864,4 +3864,218 @@ class SRu extends S {
   String downloadedFilesAndSize(int count, String size) {
     return 'Файлов загружено: $count · $size';
   }
+
+  @override
+  String get navComics => 'Манга';
+
+  @override
+  String get audioSettings => 'Настройки аудио';
+
+  @override
+  String get comicSettings => 'Настройки манги';
+
+  @override
+  String get comicFavorites => 'Избранное';
+
+  @override
+  String get comicLocalFavorites => 'Локальное избранное';
+
+  @override
+  String get comicOnlineFavorites => 'Избранное на сайте';
+
+  @override
+  String get comicSources => 'Источники и аккаунты';
+
+  @override
+  String get comicReader => 'Читалка';
+
+  @override
+  String get comicSearchTargets => 'Область поиска';
+
+  @override
+  String get comicSearchSingle => 'Один источник';
+
+  @override
+  String get comicSearchGrouped => 'По источникам';
+
+  @override
+  String get comicSearchMerged => 'Общий список';
+
+  @override
+  String get comicCategories => 'Категории';
+
+  @override
+  String get comicChapters => 'Главы';
+
+  @override
+  String get comicContinue => 'Продолжить чтение';
+
+  @override
+  String get comicRead => 'Читать';
+
+  @override
+  String get comicSaveLocal => 'Сохранить локально';
+
+  @override
+  String get comicRemoveFavorite => 'Удалить из избранного';
+
+  @override
+  String get comicComments => 'Комментарии и оценка';
+
+  @override
+  String get comicNoResults => 'Манги пока нет';
+
+  @override
+  String get comicLoginRequired =>
+      'Войдите в этот источник в настройках манги.';
+
+  @override
+  String get comicAnonymous => 'Без аккаунта';
+
+  @override
+  String get comicSessionCookie => 'Cookie сеанса';
+
+  @override
+  String get comicSessionToken => 'Токен доступа';
+
+  @override
+  String get comicOpenWebsite => 'Открыть сайт для входа';
+
+  @override
+  String get comicEndpoint => 'Сайт источника';
+
+  @override
+  String get comicEnabled => 'Включить источник';
+
+  @override
+  String get comicReadingMode => 'Режим чтения';
+
+  @override
+  String get comicModeLtr => 'Слева направо';
+
+  @override
+  String get comicModeRtl => 'Справа налево';
+
+  @override
+  String get comicModeVertical => 'Вертикальные страницы';
+
+  @override
+  String get comicModeContinuous => 'Непрерывная прокрутка';
+
+  @override
+  String get comicModeSpread => 'Две страницы';
+
+  @override
+  String get comicModeReverseSpread => 'Две страницы, справа налево';
+
+  @override
+  String get comicKeepAwake => 'Не выключать экран при чтении';
+
+  @override
+  String get comicPreload => 'Предзагрузка страниц';
+
+  @override
+  String get comicDownloadSelected => 'Скачать выбранные главы';
+
+  @override
+  String get comicPause => 'Приостановить';
+
+  @override
+  String get comicResume => 'Продолжить / повторить';
+
+  @override
+  String get comicQueued => 'В очереди';
+
+  @override
+  String get comicDownloading => 'Скачивание';
+
+  @override
+  String get comicPaused => 'Приостановлено';
+
+  @override
+  String get comicFailed => 'Ошибка';
+
+  @override
+  String get comicComplete => 'Завершено';
+
+  @override
+  String get comicClearCache => 'Очистить кеш изображений манги';
+
+  @override
+  String get comicSourceFavorite => 'Сохранить на сайте';
+
+  @override
+  String get comicChooseChapters => 'Выбрать главы';
+
+  @override
+  String get comicNextChapter => 'Следующая глава';
+
+  @override
+  String get comicPreviousChapter => 'Предыдущая глава';
+
+  @override
+  String get comicPage => 'Страница';
+
+  @override
+  String get comicCookiesHelp =>
+      'Войдите на сайте источника и вставьте Cookie сеанса.';
+
+  @override
+  String get comicShowGrid => 'Сетка / список';
+
+  @override
+  String get comicDeleteConfirm =>
+      'Удалить скачанную главу с этого устройства?';
+
+  @override
+  String get comicSort => 'Порядок поиска';
+
+  @override
+  String get comicLogout => 'Выйти';
+
+  @override
+  String get comicLogin => 'Войти';
+
+  @override
+  String get comicUsername => 'Имя пользователя / почта';
+
+  @override
+  String get comicPassword => 'Пароль';
+
+  @override
+  String get comicSaved => 'Сохранено';
+
+  @override
+  String get comicTapToTurn => 'Листать нажатием по краям';
+
+  @override
+  String get comicDoubleTapZoom => 'Масштаб двойным нажатием';
+
+  @override
+  String get comicDefaultOnlineFavorites =>
+      'По умолчанию показывать избранное сайта';
+
+  @override
+  String get comicNewest => 'Сначала новые';
+
+  @override
+  String get comicOldest => 'Сначала старые';
+
+  @override
+  String get comicMostLiked => 'Больше отметок «Нравится»';
+
+  @override
+  String get comicMostViewed => 'Больше просмотров';
+
+  @override
+  String get comicMostPages => 'Больше страниц';
+
+  @override
+  String get comicPopularToday => 'Популярное за день';
+
+  @override
+  String get comicPopularWeek => 'Популярное за неделю';
+
+  @override
+  String get comicPopularMonth => 'Популярное за месяц';
 }

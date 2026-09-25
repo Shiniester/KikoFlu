@@ -3734,4 +3734,214 @@ class SJa extends S {
   String downloadedFilesAndSize(int count, String size) {
     return 'ダウンロード済みファイル $count件 · $size';
   }
+
+  @override
+  String get navComics => '漫画';
+
+  @override
+  String get audioSettings => '音声設定';
+
+  @override
+  String get comicSettings => '漫画設定';
+
+  @override
+  String get comicFavorites => 'お気に入り';
+
+  @override
+  String get comicLocalFavorites => '端末のお気に入り';
+
+  @override
+  String get comicOnlineFavorites => 'サイトのお気に入り';
+
+  @override
+  String get comicSources => '配信元とアカウント';
+
+  @override
+  String get comicReader => 'リーダー';
+
+  @override
+  String get comicSearchTargets => '検索対象';
+
+  @override
+  String get comicSearchSingle => 'この配信元';
+
+  @override
+  String get comicSearchGrouped => '配信元別に表示';
+
+  @override
+  String get comicSearchMerged => 'まとめて表示';
+
+  @override
+  String get comicCategories => 'カテゴリ';
+
+  @override
+  String get comicChapters => 'チャプター';
+
+  @override
+  String get comicContinue => '続きを読む';
+
+  @override
+  String get comicRead => '読む';
+
+  @override
+  String get comicSaveLocal => '端末に保存';
+
+  @override
+  String get comicRemoveFavorite => 'お気に入りから削除';
+
+  @override
+  String get comicComments => 'コメントと評価';
+
+  @override
+  String get comicNoResults => '漫画がありません';
+
+  @override
+  String get comicLoginRequired => '漫画設定でこの配信元にログインしてください。';
+
+  @override
+  String get comicAnonymous => '匿名';
+
+  @override
+  String get comicSessionCookie => 'セッション Cookie';
+
+  @override
+  String get comicSessionToken => 'アクセストークン';
+
+  @override
+  String get comicOpenWebsite => 'ログインサイトを開く';
+
+  @override
+  String get comicEndpoint => '配信元のサイト';
+
+  @override
+  String get comicEnabled => '配信元を有効にする';
+
+  @override
+  String get comicReadingMode => '読み方';
+
+  @override
+  String get comicModeLtr => '左から右';
+
+  @override
+  String get comicModeRtl => '右から左';
+
+  @override
+  String get comicModeVertical => '縦ページ送り';
+
+  @override
+  String get comicModeContinuous => '縦スクロール';
+
+  @override
+  String get comicModeSpread => '見開き';
+
+  @override
+  String get comicModeReverseSpread => '見開き（右から左）';
+
+  @override
+  String get comicKeepAwake => '読書中は画面を点灯';
+
+  @override
+  String get comicPreload => '先読みページ数';
+
+  @override
+  String get comicDownloadSelected => '選択したチャプターをダウンロード';
+
+  @override
+  String get comicPause => '一時停止';
+
+  @override
+  String get comicResume => '再開／再試行';
+
+  @override
+  String get comicQueued => '待機中';
+
+  @override
+  String get comicDownloading => 'ダウンロード中';
+
+  @override
+  String get comicPaused => '一時停止中';
+
+  @override
+  String get comicFailed => '失敗';
+
+  @override
+  String get comicComplete => '完了';
+
+  @override
+  String get comicClearCache => '漫画画像のキャッシュを削除';
+
+  @override
+  String get comicSourceFavorite => 'サイトに保存';
+
+  @override
+  String get comicChooseChapters => 'チャプターを選択';
+
+  @override
+  String get comicNextChapter => '次のチャプター';
+
+  @override
+  String get comicPreviousChapter => '前のチャプター';
+
+  @override
+  String get comicPage => 'ページ';
+
+  @override
+  String get comicCookiesHelp => '配信元のサイトにログインし、セッション Cookie を貼り付けてください。';
+
+  @override
+  String get comicShowGrid => 'グリッド／リスト';
+
+  @override
+  String get comicDeleteConfirm => 'ダウンロード済みのチャプターをこの端末から削除しますか？';
+
+  @override
+  String get comicSort => '検索順';
+
+  @override
+  String get comicLogout => 'ログアウト';
+
+  @override
+  String get comicLogin => 'ログイン';
+
+  @override
+  String get comicUsername => 'ユーザー名／メールアドレス';
+
+  @override
+  String get comicPassword => 'パスワード';
+
+  @override
+  String get comicSaved => '保存しました';
+
+  @override
+  String get comicTapToTurn => '画面の端をタップしてページを送る';
+
+  @override
+  String get comicDoubleTapZoom => 'ダブルタップで拡大';
+
+  @override
+  String get comicDefaultOnlineFavorites => 'サイトのお気に入りを初期表示';
+
+  @override
+  String get comicNewest => '新しい順';
+
+  @override
+  String get comicOldest => '古い順';
+
+  @override
+  String get comicMostLiked => 'いいねが多い順';
+
+  @override
+  String get comicMostViewed => '閲覧数順';
+
+  @override
+  String get comicMostPages => 'ページ数順';
+
+  @override
+  String get comicPopularToday => '今日の人気';
+
+  @override
+  String get comicPopularWeek => '今週の人気';
+
+  @override
+  String get comicPopularMonth => '今月の人気';
 }

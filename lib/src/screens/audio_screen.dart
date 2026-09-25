@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/my_reviews_provider.dart';
 import '../providers/my_tabs_display_provider.dart';
@@ -13,6 +13,8 @@ import '../utils/l10n_extensions.dart';
 import '../widgets/works_grid_view.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 import '../widgets/floating_feed_toolbar.dart';
+import '../widgets/library_tab_strip.dart';
+import '../widgets/audio_account_prompt.dart';
 import '../widgets/download_fab.dart';
 import '../providers/download_provider.dart';
 import '../models/search_query.dart';
@@ -275,40 +277,8 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     );
   }
 
-  bool _handleScrollNotification(ScrollNotification notification) {
-    if (notification.metrics.axis != Axis.vertical) return false;
-
-    if (notification.metrics.pixels <= notification.metrics.minScrollExtent) {
-      _tabSwitcherVisible.value = true;
-      return false;
-    }
-
-    final scrolledPastHeader =
-        notification.metrics.pixels - notification.metrics.minScrollExtent >=
-        kTextTabBarHeight;
-
-    if (notification is ScrollUpdateNotification &&
-        notification.scrollDelta != null &&
-        notification.scrollDelta != 0) {
-      if (notification.scrollDelta! < 0) {
-        _tabSwitcherVisible.value = true;
-      } else if (scrolledPastHeader) {
-        _tabSwitcherVisible.value = false;
-      }
-    } else if (notification is UserScrollNotification) {
-      switch (notification.direction) {
-        case ScrollDirection.reverse:
-          if (scrolledPastHeader) {
-            _tabSwitcherVisible.value = false;
-          }
-        case ScrollDirection.forward:
-          _tabSwitcherVisible.value = true;
-        case ScrollDirection.idle:
-          break;
-      }
-    }
-    return false;
-  }
+  bool _handleScrollNotification(ScrollNotification notification) =>
+      updateLibraryToolbarVisibility(notification, _tabSwitcherVisible);
 
   IconData _getFilterIcon(MyReviewFilter filter) {
     switch (filter) {
@@ -438,67 +408,24 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
               top: tabSwitcherTop,
               left: horizontalPadding,
               right: horizontalPadding,
-              child: ValueListenableBuilder<bool>(
-                valueListenable: _tabSwitcherVisible,
-                builder: (context, visible, child) => IgnorePointer(
-                  ignoring: !visible,
-                  child: AnimatedSlide(
-                    key: const ValueKey('my-tab-switcher'),
-                    offset: visible || MediaQuery.disableAnimationsOf(context)
-                        ? Offset.zero
-                        : const Offset(0, -2),
-                    duration: MediaQuery.disableAnimationsOf(context)
-                        ? Duration.zero
-                        : const Duration(milliseconds: 180),
-                    curve: Curves.easeOutCubic,
-                    child: AnimatedOpacity(
-                      opacity: visible ? 1 : 0,
-                      duration: const Duration(milliseconds: 140),
-                      child: ExcludeFocus(
-                        excluding: !visible,
-                        child: ExcludeSemantics(
-                          excluding: !visible,
-                          child: child,
+              child: LibraryTabStrip(
+                controller: _tabController,
+                visible: _tabSwitcherVisible,
+                motionKey: const ValueKey('my-tab-switcher'),
+                tabs: tabs
+                    .map(
+                      (tab) => Tab(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(tab.icon, size: 18),
+                            const SizedBox(width: 6),
+                            Text(tab.title),
+                          ],
                         ),
                       ),
-                    ),
-                  ),
-                ),
-                child: FloatingToolbarSurface(
-                  child: SizedBox(
-                    height: 40,
-                    child: TabBar(
-                      controller: _tabController,
-                      isScrollable: true,
-                      tabAlignment: TabAlignment.start,
-                      dividerColor: Colors.transparent,
-                      indicatorSize: TabBarIndicatorSize.tab,
-                      indicator: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      labelColor: Theme.of(context).colorScheme.primary,
-                      unselectedLabelColor: Theme.of(
-                        context,
-                      ).colorScheme.onSurfaceVariant,
-                      splashBorderRadius: BorderRadius.circular(20),
-                      tabs: tabs
-                          .map(
-                            (tab) => Tab(
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(tab.icon, size: 18),
-                                  const SizedBox(width: 6),
-                                  Text(tab.title),
-                                ],
-                              ),
-                            ),
-                          )
-                          .toList(),
-                    ),
-                  ),
-                ),
+                    )
+                    .toList(),
               ),
             ),
           ],
@@ -511,6 +438,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     required double toolbarTop,
     required double collapsedToolbarTop,
   }) {
+    if (ref.watch(authProvider).isAnonymous) return const AudioAccountPrompt();
     final state = ref.watch(myReviewsProvider);
     final horizontalPadding = FloatingToolbarLayout.horizontalPadding(context);
 

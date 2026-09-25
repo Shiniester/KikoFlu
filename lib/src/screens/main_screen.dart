@@ -10,6 +10,7 @@ import '../widgets/app_bottom_dock.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/lazy_indexed_stack.dart';
 import 'audio_screen.dart';
+import '../comics/ui/comic_screen.dart';
 import 'settings_screen.dart';
 import '../providers/settings_provider.dart';
 
@@ -22,7 +23,7 @@ class MainScreen extends ConsumerStatefulWidget {
 
 class _MainScreenState extends ConsumerState<MainScreen> {
   int _currentIndex = 0;
-  static const int _settingsTabIndex = 1;
+  static const int _settingsTabIndex = 2;
 
   // 使用 PageStorageBucket 来保存页面状态
   final PageStorageBucket _bucket = PageStorageBucket();
@@ -35,6 +36,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     super.initState();
     _screens = const [
       AudioScreen(key: PageStorageKey('audio_screen')),
+      ComicScreen(key: PageStorageKey('comic_screen')),
       SettingsScreen(key: PageStorageKey('settings_screen')),
     ];
   }
@@ -49,6 +51,11 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         icon: const Icon(Icons.library_music_outlined),
         selectedIcon: const Icon(Icons.library_music),
         label: s.navMy,
+      ),
+      NavigationDestination(
+        icon: const Icon(Icons.menu_book_outlined),
+        selectedIcon: const Icon(Icons.menu_book),
+        label: s.navComics,
       ),
       NavigationDestination(
         icon: Badge(
@@ -117,6 +124,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                     builder: (context, ref, child) {
                       final authState = ref.watch(authProvider);
                       final isOfflineMode =
+                          _currentIndex == 0 &&
                           authState.currentUser != null &&
                           !authState.isLoggedIn &&
                           authState.error != null;
@@ -171,6 +179,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                 builder: (context, ref, child) {
                   final authState = ref.watch(authProvider);
                   final isOfflineMode =
+                      _currentIndex == 0 &&
                       authState.currentUser != null &&
                       !authState.isLoggedIn &&
                       authState.error != null;
@@ -259,6 +268,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
             builder: (context, ref, child) {
               final authState = ref.watch(authProvider);
               final isOfflineMode =
+                  _currentIndex == 0 &&
                   authState.currentUser != null &&
                   !authState.isLoggedIn &&
                   authState.error != null;
@@ -289,6 +299,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
               builder: (context, ref, child) {
                 final authState = ref.watch(authProvider);
                 final isOfflineMode =
+                    _currentIndex == 0 &&
                     authState.currentUser != null &&
                     !authState.isLoggedIn &&
                     authState.error != null;

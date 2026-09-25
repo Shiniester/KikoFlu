@@ -14,6 +14,8 @@ import 'package:kikoeru_flutter/src/screens/search_screen.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:kikoeru_flutter/src/providers/auth_provider.dart' show AuthNotifier, AuthState, authProvider;
+import 'package:kikoeru_flutter/src/models/user.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/models/history_record.dart';
 import 'package:kikoeru_flutter/src/models/search_query.dart';
@@ -111,6 +113,7 @@ Future<void> _pumpAudioScreen(
 }) async {
   final app = ProviderScope(
     overrides: [
+      authProvider.overrideWith((ref) => _AuthenticatedAudio()),
       myReviewsProvider.overrideWith((ref) => _Reviews(ref)),
       worksProvider.overrideWith((ref) => _Works(ref)),
       subtitleLibraryProvider.overrideWith((ref) => _SubtitleLibrary()),
@@ -146,6 +149,13 @@ PageController _pages(WidgetTester tester) => tester
       ),
     )
     .controller!;
+
+class _AuthenticatedAudio extends AuthNotifier {
+  _AuthenticatedAudio() : super(KikoeruApiService()) {
+    state = const AuthState(currentUser: User(name: 'listener'), host: 'https://api.asmr-200.com', isLoggedIn: true);
+  }
+  @override Future<void> enterAnonymous({String? host}) async {}
+}
 
 void main() {
   setUp(() async {
@@ -509,7 +519,7 @@ void main() {
       if (size.width > size.height) {
         expect(
           tester.widget<NavigationRail>(navigation).destinations.length,
-          2,
+          3,
         );
       } else {
         expect(
@@ -517,7 +527,7 @@ void main() {
               .widget<NavigationBar>(navigation)
               .destinations
               .map((item) => (item as NavigationDestination).label),
-          ['Audio', 'Settings'],
+          ['Audio', 'Comics', 'Settings'],
         );
       }
       final scroll = tester

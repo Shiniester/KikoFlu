@@ -4,12 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/audio_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/screen_awake_service.dart';
+import '../comics/comic_providers.dart';
+import '../services/storage_service.dart';
 
 class ScreenAwakeObserver extends ConsumerStatefulWidget {
-  const ScreenAwakeObserver({
-    super.key,
-    required this.child,
-  });
+  const ScreenAwakeObserver({super.key, required this.child});
 
   final Widget child;
 
@@ -40,12 +39,16 @@ class _ScreenAwakeObserverState extends ConsumerState<ScreenAwakeObserver> {
   @override
   Widget build(BuildContext context) {
     final keepAwake = ref.watch(keepScreenAwakeProvider);
-    final hasTrack = ref.watch(currentTrackProvider).maybeWhen(
-          data: (track) => track != null,
-          orElse: () => false,
-        );
+    final hasTrack = ref
+        .watch(currentTrackProvider)
+        .maybeWhen(data: (track) => track != null, orElse: () => false);
 
-    _apply(keepAwake && hasTrack);
+    ref.watch(comicSettingsRevisionProvider);
+    final reading = ref.watch(comicReaderActiveProvider);
+    _apply(
+      (keepAwake && hasTrack) ||
+          (reading && (StorageService.getBool('comic_keep_awake') ?? true)),
+    );
     return widget.child;
   }
 }

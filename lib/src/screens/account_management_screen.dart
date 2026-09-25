@@ -63,9 +63,6 @@ class _AccountManagementScreenState
     if (confirm != true) return;
 
     try {
-      // Switch account in database
-      await AccountDatabase.instance.setActiveAccount(account.id!);
-
       // Login with the account
       final success = await ref
           .read(authProvider.notifier)

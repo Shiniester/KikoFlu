@@ -174,6 +174,11 @@ class AccountDatabase {
     return result;
   }
 
+  Future<void> clearActiveAccount() async {
+    final db = await database;
+    await db.update('accounts', {'isActive': 0});
+  }
+
   Future<void> close() async {
     final db = await database;
     await db.close();

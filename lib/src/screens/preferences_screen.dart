@@ -401,24 +401,6 @@ class PreferencesScreen extends ConsumerWidget {
     }
   }
 
-  void _showProxySettingsDialog(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (_) => const _ProxySettingsDialog(),
-    );
-  }
-
-  Widget _buildProxySettings(BuildContext context, WidgetRef ref) {
-    final proxySettings = ref.watch(proxySettingsProvider);
-    return SettingsListTile(
-      icon: Icons.vpn_lock_outlined,
-      title: S.of(context).proxySettingsOptional,
-      subtitle: proxySettings.mode.localizedDescription(context),
-      trailing: Text(proxySettings.mode.localizedName(context)),
-      onTap: () => _showProxySettingsDialog(context),
-    );
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final priority = ref.watch(subtitleLibraryPriorityProvider);
@@ -625,7 +607,6 @@ class PreferencesScreen extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 16),
-          SettingsSectionCard(child: _buildProxySettings(context, ref)),
         ],
       ),
     );
@@ -984,15 +965,15 @@ class _PreloadThresholdDialogState
   }
 }
 
-class _ProxySettingsDialog extends ConsumerStatefulWidget {
-  const _ProxySettingsDialog();
+class ProxySettingsDialog extends ConsumerStatefulWidget {
+  const ProxySettingsDialog({super.key});
 
   @override
-  ConsumerState<_ProxySettingsDialog> createState() =>
-      _ProxySettingsDialogState();
+  ConsumerState<ProxySettingsDialog> createState() =>
+      ProxySettingsDialogState();
 }
 
-class _ProxySettingsDialogState extends ConsumerState<_ProxySettingsDialog> {
+class ProxySettingsDialogState extends ConsumerState<ProxySettingsDialog> {
   late final TextEditingController _controller;
   late final FocusNode _focusNode;
   late ProxyMode _proxyMode;

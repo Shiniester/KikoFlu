@@ -3716,6 +3716,216 @@ class SZh extends S {
   String downloadedFilesAndSize(int count, String size) {
     return '已下载$count个文件 · $size';
   }
+
+  @override
+  String get navComics => '漫画';
+
+  @override
+  String get audioSettings => '音声设置';
+
+  @override
+  String get comicSettings => '漫画设置';
+
+  @override
+  String get comicFavorites => '收藏';
+
+  @override
+  String get comicLocalFavorites => '本地收藏';
+
+  @override
+  String get comicOnlineFavorites => '源站收藏';
+
+  @override
+  String get comicSources => '漫画源与账号';
+
+  @override
+  String get comicReader => '阅读器';
+
+  @override
+  String get comicSearchTargets => '搜索目标';
+
+  @override
+  String get comicSearchSingle => '单源搜索';
+
+  @override
+  String get comicSearchGrouped => '分开展示';
+
+  @override
+  String get comicSearchMerged => '合并展示';
+
+  @override
+  String get comicCategories => '分类';
+
+  @override
+  String get comicChapters => '章节';
+
+  @override
+  String get comicContinue => '继续阅读';
+
+  @override
+  String get comicRead => '阅读';
+
+  @override
+  String get comicSaveLocal => '保存至本地收藏';
+
+  @override
+  String get comicRemoveFavorite => '取消收藏';
+
+  @override
+  String get comicComments => '评论与评分';
+
+  @override
+  String get comicNoResults => '暂无漫画';
+
+  @override
+  String get comicLoginRequired => '请在漫画设置中登录此源。';
+
+  @override
+  String get comicAnonymous => '游客';
+
+  @override
+  String get comicSessionCookie => '会话 Cookie';
+
+  @override
+  String get comicSessionToken => '访问令牌';
+
+  @override
+  String get comicOpenWebsite => '打开登录网站';
+
+  @override
+  String get comicEndpoint => '漫画源地址';
+
+  @override
+  String get comicEnabled => '启用漫画源';
+
+  @override
+  String get comicReadingMode => '阅读模式';
+
+  @override
+  String get comicModeLtr => '从左至右';
+
+  @override
+  String get comicModeRtl => '从右至左';
+
+  @override
+  String get comicModeVertical => '上下分页';
+
+  @override
+  String get comicModeContinuous => '连续竖滚';
+
+  @override
+  String get comicModeSpread => '双页';
+
+  @override
+  String get comicModeReverseSpread => '反向双页';
+
+  @override
+  String get comicKeepAwake => '阅读时保持常亮';
+
+  @override
+  String get comicPreload => '预加载页数';
+
+  @override
+  String get comicDownloadSelected => '下载所选章节';
+
+  @override
+  String get comicPause => '暂停';
+
+  @override
+  String get comicResume => '继续／重试';
+
+  @override
+  String get comicQueued => '等待下载';
+
+  @override
+  String get comicDownloading => '正在下载';
+
+  @override
+  String get comicPaused => '已暂停';
+
+  @override
+  String get comicFailed => '下载失败';
+
+  @override
+  String get comicComplete => '已完成';
+
+  @override
+  String get comicClearCache => '清理漫画图片缓存';
+
+  @override
+  String get comicSourceFavorite => '保存至源站收藏';
+
+  @override
+  String get comicChooseChapters => '选择章节';
+
+  @override
+  String get comicNextChapter => '下一章';
+
+  @override
+  String get comicPreviousChapter => '上一章';
+
+  @override
+  String get comicPage => '页码';
+
+  @override
+  String get comicCookiesHelp => '在漫画源网站登录后，粘贴该网站的会话 Cookie。';
+
+  @override
+  String get comicShowGrid => '网格／列表';
+
+  @override
+  String get comicDeleteConfirm => '删除本机已下载的章节？';
+
+  @override
+  String get comicSort => '搜索排序';
+
+  @override
+  String get comicLogout => '退出登录';
+
+  @override
+  String get comicLogin => '登录';
+
+  @override
+  String get comicUsername => '用户名／邮箱';
+
+  @override
+  String get comicPassword => '密码';
+
+  @override
+  String get comicSaved => '已保存';
+
+  @override
+  String get comicTapToTurn => '点按两侧翻页';
+
+  @override
+  String get comicDoubleTapZoom => '双击缩放';
+
+  @override
+  String get comicDefaultOnlineFavorites => '默认显示源站收藏';
+
+  @override
+  String get comicNewest => '最新';
+
+  @override
+  String get comicOldest => '最早';
+
+  @override
+  String get comicMostLiked => '最多喜欢';
+
+  @override
+  String get comicMostViewed => '最多浏览';
+
+  @override
+  String get comicMostPages => '最多图片';
+
+  @override
+  String get comicPopularToday => '今日热门';
+
+  @override
+  String get comicPopularWeek => '本周热门';
+
+  @override
+  String get comicPopularMonth => '本月热门';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -7430,4 +7640,214 @@ class SZhHant extends SZh {
   String downloadedFilesAndSize(int count, String size) {
     return '已下載$count個檔案 · $size';
   }
+
+  @override
+  String get navComics => '漫畫';
+
+  @override
+  String get audioSettings => '音聲設定';
+
+  @override
+  String get comicSettings => '漫畫設定';
+
+  @override
+  String get comicFavorites => '收藏';
+
+  @override
+  String get comicLocalFavorites => '本機收藏';
+
+  @override
+  String get comicOnlineFavorites => '源站收藏';
+
+  @override
+  String get comicSources => '來源與帳號';
+
+  @override
+  String get comicReader => '閱讀器';
+
+  @override
+  String get comicSearchTargets => '搜尋範圍';
+
+  @override
+  String get comicSearchSingle => '單一來源';
+
+  @override
+  String get comicSearchGrouped => '分開顯示';
+
+  @override
+  String get comicSearchMerged => '合併顯示';
+
+  @override
+  String get comicCategories => '分類';
+
+  @override
+  String get comicChapters => '章節';
+
+  @override
+  String get comicContinue => '繼續閱讀';
+
+  @override
+  String get comicRead => '閱讀';
+
+  @override
+  String get comicSaveLocal => '收藏到本機';
+
+  @override
+  String get comicRemoveFavorite => '取消收藏';
+
+  @override
+  String get comicComments => '評論與評分';
+
+  @override
+  String get comicNoResults => '暫無漫畫';
+
+  @override
+  String get comicLoginRequired => '請前往漫畫設定登入此來源。';
+
+  @override
+  String get comicAnonymous => '匿名遊客';
+
+  @override
+  String get comicSessionCookie => '工作階段 Cookie';
+
+  @override
+  String get comicSessionToken => '存取權杖';
+
+  @override
+  String get comicOpenWebsite => '開啟登入網站';
+
+  @override
+  String get comicEndpoint => '來源網站';
+
+  @override
+  String get comicEnabled => '啟用來源';
+
+  @override
+  String get comicReadingMode => '閱讀模式';
+
+  @override
+  String get comicModeLtr => '由左至右';
+
+  @override
+  String get comicModeRtl => '由右至左';
+
+  @override
+  String get comicModeVertical => '上下翻頁';
+
+  @override
+  String get comicModeContinuous => '連續垂直捲動';
+
+  @override
+  String get comicModeSpread => '雙頁';
+
+  @override
+  String get comicModeReverseSpread => '反向雙頁';
+
+  @override
+  String get comicKeepAwake => '閱讀時保持螢幕開啟';
+
+  @override
+  String get comicPreload => '預載頁數';
+
+  @override
+  String get comicDownloadSelected => '下載所選章節';
+
+  @override
+  String get comicPause => '暫停';
+
+  @override
+  String get comicResume => '繼續／重試';
+
+  @override
+  String get comicQueued => '等待中';
+
+  @override
+  String get comicDownloading => '下載中';
+
+  @override
+  String get comicPaused => '已暫停';
+
+  @override
+  String get comicFailed => '失敗';
+
+  @override
+  String get comicComplete => '已完成';
+
+  @override
+  String get comicClearCache => '清除漫畫圖片快取';
+
+  @override
+  String get comicSourceFavorite => '收藏到源站';
+
+  @override
+  String get comicChooseChapters => '選擇章節';
+
+  @override
+  String get comicNextChapter => '下一章';
+
+  @override
+  String get comicPreviousChapter => '上一章';
+
+  @override
+  String get comicPage => '頁碼';
+
+  @override
+  String get comicCookiesHelp => '請在來源網站登入後，貼上其工作階段 Cookie。';
+
+  @override
+  String get comicShowGrid => '網格／清單';
+
+  @override
+  String get comicDeleteConfirm => '確定從此裝置刪除已下載章節？';
+
+  @override
+  String get comicSort => '搜尋排序';
+
+  @override
+  String get comicLogout => '登出';
+
+  @override
+  String get comicLogin => '登入';
+
+  @override
+  String get comicUsername => '使用者名稱／電子郵件';
+
+  @override
+  String get comicPassword => '密碼';
+
+  @override
+  String get comicSaved => '已儲存';
+
+  @override
+  String get comicTapToTurn => '點按兩側翻頁';
+
+  @override
+  String get comicDoubleTapZoom => '點兩下縮放';
+
+  @override
+  String get comicDefaultOnlineFavorites => '預設顯示源站收藏';
+
+  @override
+  String get comicNewest => '最新';
+
+  @override
+  String get comicOldest => '最早';
+
+  @override
+  String get comicMostLiked => '最多喜歡';
+
+  @override
+  String get comicMostViewed => '最多瀏覽';
+
+  @override
+  String get comicMostPages => '最多圖片';
+
+  @override
+  String get comicPopularToday => '今日熱門';
+
+  @override
+  String get comicPopularWeek => '本週熱門';
+
+  @override
+  String get comicPopularMonth => '本月熱門';
 }

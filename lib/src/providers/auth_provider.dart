@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:equatable/equatable.dart';
@@ -26,6 +27,8 @@ class AuthState extends Equatable {
   final bool isLoading;
   final String? error;
   final bool isLoggedIn;
+
+  bool get isAnonymous => currentUser == null;
 
   const AuthState({
     this.currentUser,
@@ -68,12 +71,35 @@ class AuthState extends Equatable {
 // Auth notifier
 class AuthNotifier extends StateNotifier<AuthState> {
   final KikoeruApiService _apiService;
+  late final Future<void> ready;
+  int _authRevision = 0;
+  Future<void> _pendingCommit = Future.value();
+
+  // Serialize credential persistence while allowing logout to revoke requests immediately.
+  Future<bool> _commitAuth(int revision, Future<void> Function() commit) async {
+    final previous = _pendingCommit;
+    final completed = Completer<void>();
+    _pendingCommit = completed.future;
+    await previous;
+    try {
+      if (revision != _authRevision) return false;
+      await commit();
+      return revision == _authRevision;
+    } finally {
+      completed.complete();
+    }
+  }
 
   AuthNotifier(this._apiService) : super(const AuthState()) {
-    _loadCurrentUser();
+    final host =
+        StorageService.getString('server_host') ??
+        ServerUtils.defaultRemoteHost;
+    _apiService.init('', host, accountScope: 'anonymous');
+    ready = _loadCurrentUser();
   }
 
   Future<void> _loadCurrentUser() async {
+    final revision = _authRevision;
     try {
       _log.captureOutput('[Auth] Loading current user...');
 
@@ -81,6 +107,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
       final token = StorageService.getString('auth_token');
       final host = StorageService.getString('server_host');
       final userJson = StorageService.getMap('current_user');
+
+      if (StorageService.getBool('audio_anonymous') == true ||
+          (token == null && userJson == null)) {
+        await enterAnonymous(host: host);
+        return;
+      }
 
       _log.captureOutput(
         '[Auth] Stored token: ${token != null ? "exists" : "null"}',
@@ -116,6 +148,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
           );
           return; // Token is valid, we're done
         } catch (e) {
+          if (revision != _authRevision) return;
           _log.captureOutput('[Auth] Token validation failed: $e');
           // Token is invalid, try to re-login with saved account
         }
@@ -124,6 +157,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       // If no valid token, try to load from database and re-login
       _log.captureOutput('[Auth] Checking database for active account...');
       final activeAccount = await AccountDatabase.instance.getActiveAccount();
+      if (revision != _authRevision) return;
 
       if (activeAccount != null) {
         // Silently re-login with saved credentials
@@ -146,6 +180,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
           silent: true, // Don't show loading state
         );
 
+        if (_authRevision != revision + 1) return;
         if (success) {
           _log.captureOutput('[Auth] Re-login successful');
           return;
@@ -193,11 +228,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
       _log.captureOutput('[Auth] No valid authentication found, logging out');
       await logout();
     } catch (e) {
+      if (revision != _authRevision) return;
       _log.captureOutput('[Auth] Failed to load saved auth: $e');
 
       // 在异常情况下，也尝试检查是否有缓存账户
       try {
         final activeAccount = await AccountDatabase.instance.getActiveAccount();
+        if (revision != _authRevision) return;
         if (activeAccount != null) {
           _log.captureOutput(
             '[Auth] Exception occurred but found cached account, entering offline mode',
@@ -242,16 +279,22 @@ class AuthNotifier extends StateNotifier<AuthState> {
     String? serverCookie, {
     bool silent = false,
   }) async {
+    final revision = ++_authRevision;
+    final previous = state;
+    final previousCookie = StorageService.getString('server_cookie');
     if (!silent) {
       state = state.copyWith(isLoading: true, error: null);
     }
 
-    if (serverCookie != null && serverCookie.isNotEmpty) {
-      await StorageService.setString('server_cookie', serverCookie);
-    } else {
-      await StorageService.remove('server_cookie');
-    }
+    await _commitAuth(revision, () async {
+      if (serverCookie != null && serverCookie.isNotEmpty) {
+        await StorageService.setString('server_cookie', serverCookie);
+      } else {
+        await StorageService.remove('server_cookie');
+      }
+    });
 
+    if (revision != _authRevision) return false;
     try {
       _log.captureOutput(
         '[Auth] Login attempt - username: $username, host: $host, silent: $silent',
@@ -267,6 +310,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
       // Attempt login
       final response = await _apiService.login(username, password, host);
+      if (revision != _authRevision) return false;
 
       final token = response['token'] as String?;
       if (token == null) {
@@ -305,6 +349,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         userInfo = await _apiService.getUserInfo();
       }
 
+      if (revision != _authRevision) return false;
       final user = User.fromJson(userInfo);
 
       // For official servers, verify the loggedIn field to ensure proper authentication
@@ -322,68 +367,78 @@ class AuthNotifier extends StateNotifier<AuthState> {
         lastUpdateTime: DateTime.now(),
       );
 
-      // Save to storage (using normalized host)
-      await StorageService.setString('auth_token', token);
-      await StorageService.setString('server_host', normalizedHost);
-      await StorageService.setMap('current_user', authenticatedUser.toJson());
+      return await _commitAuth(revision, () async {
+        // Save to storage (using normalized host)
+        await StorageService.setString('auth_token', token);
+        await StorageService.setBool('audio_anonymous', false);
+        await StorageService.setString('server_host', normalizedHost);
+        await StorageService.setMap('current_user', authenticatedUser.toJson());
 
-      // Save or update account in database
-      try {
-        final existingAccounts = await AccountDatabase.instance
-            .getAllAccounts();
-        final existingAccount = existingAccounts.firstWhere(
-          (acc) => acc.username == username && acc.host == normalizedHost,
-          orElse: () => Account(
-            username: username,
-            password: password,
-            host: normalizedHost,
-            serverCookie: serverCookie,
-            isActive: true,
-            createdAt: DateTime.now(),
-          ),
-        );
-
-        if (existingAccount.id != null) {
-          // Update existing account
-          await AccountDatabase.instance.updateAccount(
-            existingAccount.copyWith(
-              password: password,
-              isActive: true,
-              serverCookie: serverCookie,
-              lastUsedAt: DateTime.now(),
-            ),
-          );
-        } else {
-          // Create new account
-          await AccountDatabase.instance.createAccount(
-            Account(
+        // Save or update account in database
+        try {
+          final existingAccounts = await AccountDatabase.instance
+              .getAllAccounts();
+          final existingAccount = existingAccounts.firstWhere(
+            (acc) => acc.username == username && acc.host == normalizedHost,
+            orElse: () => Account(
               username: username,
               password: password,
               host: normalizedHost,
               serverCookie: serverCookie,
               isActive: true,
               createdAt: DateTime.now(),
-              lastUsedAt: DateTime.now(),
             ),
           );
+
+          if (existingAccount.id != null) {
+            // Update existing account
+            await AccountDatabase.instance.updateAccount(
+              existingAccount.copyWith(
+                password: password,
+                isActive: true,
+                serverCookie: serverCookie,
+                lastUsedAt: DateTime.now(),
+              ),
+            );
+          } else {
+            // Create new account
+            await AccountDatabase.instance.createAccount(
+              Account(
+                username: username,
+                password: password,
+                host: normalizedHost,
+                serverCookie: serverCookie,
+                isActive: true,
+                createdAt: DateTime.now(),
+                lastUsedAt: DateTime.now(),
+              ),
+            );
+          }
+          _log.captureOutput('[Auth] Account saved to database');
+        } catch (e) {
+          _log.captureOutput('[Auth] Failed to save account to database: $e');
         }
-        _log.captureOutput('[Auth] Account saved to database');
-      } catch (e) {
-        _log.captureOutput('[Auth] Failed to save account to database: $e');
-      }
 
-      state = state.copyWith(
-        currentUser: authenticatedUser,
-        token: token,
-        host: normalizedHost,
-        isLoading: false,
-        isLoggedIn: true,
-      );
+        if (revision != _authRevision) return;
+        state = state.copyWith(
+          currentUser: authenticatedUser,
+          token: token,
+          host: normalizedHost,
+          isLoading: false,
+          isLoggedIn: true,
+        );
 
-      _log.captureOutput('[Auth] Login completed, state updated');
-      return true;
+        _log.captureOutput('[Auth] Login completed, state updated');
+      });
     } catch (e) {
       _log.captureOutput('[Auth] Login error: $e');
+      if (revision != _authRevision) return false;
+      if (!await _commitAuth(
+        revision,
+        () => _restoreClient(previous, previousCookie),
+      )) {
+        return false;
+      }
 
       if (!silent) {
         state = state.copyWith(
@@ -401,20 +456,27 @@ class AuthNotifier extends StateNotifier<AuthState> {
     String host, [
     String? serverCookie,
   ]) async {
+    final revision = ++_authRevision;
+    final previous = state;
+    final previousCookie = StorageService.getString('server_cookie');
     state = state.copyWith(isLoading: true, error: null);
 
-    if (serverCookie != null && serverCookie.isNotEmpty) {
-      await StorageService.setString('server_cookie', serverCookie);
-    } else {
-      await StorageService.remove('server_cookie');
-    }
+    await _commitAuth(revision, () async {
+      if (serverCookie != null && serverCookie.isNotEmpty) {
+        await StorageService.setString('server_cookie', serverCookie);
+      } else {
+        await StorageService.remove('server_cookie');
+      }
+    });
 
+    if (revision != _authRevision) return false;
     try {
       // Initialize API service
       _apiService.init('', host, accountScope: username);
 
       // Attempt registration
       final response = await _apiService.register(username, password, host);
+      if (revision != _authRevision) return false;
 
       final token = response['token'] as String?;
       if (token == null) {
@@ -449,6 +511,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         userInfo = await _apiService.getUserInfo();
       }
 
+      if (revision != _authRevision) return false;
       final user = User.fromJson(userInfo);
 
       // For official servers, verify the loggedIn field to ensure proper authentication
@@ -466,42 +529,51 @@ class AuthNotifier extends StateNotifier<AuthState> {
         lastUpdateTime: DateTime.now(),
       );
 
-      // Save to storage (using normalized host)
-      await StorageService.setString('auth_token', token);
-      await StorageService.setString('server_host', normalizedHost);
-      await StorageService.setMap('current_user', authenticatedUser.toJson());
+      return await _commitAuth(revision, () async {
+        // Save to storage (using normalized host)
+        await StorageService.setString('auth_token', token);
+        await StorageService.setBool('audio_anonymous', false);
+        await StorageService.setString('server_host', normalizedHost);
+        await StorageService.setMap('current_user', authenticatedUser.toJson());
 
-      // Save account to database
-      try {
-        await AccountDatabase.instance.createAccount(
-          Account(
-            username: username,
-            password: password,
-            host: normalizedHost,
-            isActive: true,
-            serverCookie: serverCookie,
-            createdAt: DateTime.now(),
-            lastUsedAt: DateTime.now(),
-          ),
+        // Save account to database
+        try {
+          await AccountDatabase.instance.createAccount(
+            Account(
+              username: username,
+              password: password,
+              host: normalizedHost,
+              isActive: true,
+              serverCookie: serverCookie,
+              createdAt: DateTime.now(),
+              lastUsedAt: DateTime.now(),
+            ),
+          );
+          _log.captureOutput('[Auth] Registered account saved to database');
+        } catch (e) {
+          _log.captureOutput(
+            '[Auth] Failed to save registered account to database: $e',
+          );
+        }
+
+        if (revision != _authRevision) return;
+        state = state.copyWith(
+          currentUser: authenticatedUser,
+          token: token,
+          host: normalizedHost,
+          isLoading: false,
+          isLoggedIn: true,
         );
-        _log.captureOutput('[Auth] Registered account saved to database');
-      } catch (e) {
-        _log.captureOutput(
-          '[Auth] Failed to save registered account to database: $e',
-        );
-      }
-
-      state = state.copyWith(
-        currentUser: authenticatedUser,
-        token: token,
-        host: normalizedHost,
-        isLoading: false,
-        isLoggedIn: true,
-      );
-
-      return true;
+      });
     } catch (e) {
       String errorMessage = 'Registration failed: ${e.toString()}';
+      if (revision != _authRevision) return false;
+      if (!await _commitAuth(
+        revision,
+        () => _restoreClient(previous, previousCookie),
+      )) {
+        return false;
+      }
 
       if (e is KikoeruApiException && e.originalError is DioException) {
         final dioError = e.originalError as DioException;
@@ -528,8 +600,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> _refreshUserInfo() async {
+    final revision = _authRevision;
     try {
       final userInfo = await _apiService.getUserInfo();
+      if (revision != _authRevision) return;
       final user = User.fromJson(userInfo);
 
       // For official servers, verify the loggedIn field
@@ -538,9 +612,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
         throw Exception('User not logged in');
       }
 
-      await StorageService.setMap('current_user', user.toJson());
+      await _commitAuth(revision, () async {
+        await StorageService.setMap('current_user', user.toJson());
+        if (revision != _authRevision) return;
 
-      state = state.copyWith(currentUser: user);
+        state = state.copyWith(currentUser: user);
+      });
     } catch (e) {
       _log.captureOutput('Failed to refresh user info: $e');
       // Rethrow the exception so caller can handle it
@@ -584,19 +661,51 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
-    try {
+    await enterAnonymous(host: state.host);
+  }
+
+  Future<void> _restoreClient(AuthState previous, String? cookie) async {
+    _apiService.init(
+      previous.token ?? '',
+      previous.host ?? ServerUtils.defaultRemoteHost,
+      accountScope: previous.currentUser?.name ?? 'anonymous',
+    );
+    if (cookie == null) {
+      await StorageService.remove('server_cookie');
+    } else {
+      await StorageService.setString('server_cookie', cookie);
+    }
+  }
+
+  Future<void> enterAnonymous({String? host}) async {
+    final revision = ++_authRevision;
+    var server =
+        host ??
+        StorageService.getString('server_host') ??
+        ServerUtils.defaultRemoteHost;
+    if (!server.contains('://')) {
+      server =
+          '${server.startsWith('localhost') || server.startsWith('127.') || server.startsWith('192.168.') ? 'http' : 'https'}://$server';
+    }
+    server = server.replaceFirst(RegExp(r'/+$'), '');
+    _apiService.init('', server, accountScope: 'anonymous');
+    state = AuthState(host: server);
+    await _commitAuth(revision, () async {
       await StorageService.remove('auth_token');
-      await StorageService.remove('server_host');
       await StorageService.remove('current_user');
       await StorageService.remove('server_cookie');
-    } catch (e) {
-      _log.captureOutput('Failed to clear storage: $e');
-    }
-
-    state = const AuthState();
+      await StorageService.setString('server_host', server);
+      await StorageService.setBool('audio_anonymous', true);
+      try {
+        await AccountDatabase.instance.clearActiveAccount();
+      } catch (e) {
+        _log.captureOutput('[Auth] Failed to clear active account: $e');
+      }
+    });
   }
 
   Future<void> switchUser(User user) async {
+    final revision = ++_authRevision;
     final token = user.token;
     final host = user.host;
     final serverCookie = user.serverCookie;
@@ -606,25 +715,30 @@ class AuthNotifier extends StateNotifier<AuthState> {
         '[Auth] Switching user - username: ${user.name}, host: $host',
       );
 
-      if (serverCookie != null && serverCookie.isNotEmpty) {
-        await StorageService.setString('server_cookie', serverCookie);
-      } else {
-        await StorageService.remove('server_cookie');
-      }
+      await _commitAuth(revision, () async {
+        if (serverCookie != null && serverCookie.isNotEmpty) {
+          await StorageService.setString('server_cookie', serverCookie);
+        } else {
+          await StorageService.remove('server_cookie');
+        }
 
-      _apiService.init(token, host, accountScope: user.name);
-      await StorageService.setString('auth_token', token);
-      await StorageService.setString('server_host', host);
-      await StorageService.setMap('current_user', user.toJson());
+        if (revision != _authRevision) return;
+        _apiService.init(token, host, accountScope: user.name);
+        await StorageService.setString('auth_token', token);
+        await StorageService.setBool('audio_anonymous', false);
+        await StorageService.setString('server_host', host);
+        await StorageService.setMap('current_user', user.toJson());
+        if (revision != _authRevision) return;
 
-      state = state.copyWith(
-        currentUser: user,
-        token: token,
-        host: host,
-        isLoggedIn: true,
-      );
+        state = state.copyWith(
+          currentUser: user,
+          token: token,
+          host: host,
+          isLoggedIn: true,
+        );
 
-      _log.captureOutput('[Auth] User switched successfully');
+        _log.captureOutput('[Auth] User switched successfully');
+      });
     } else {
       throw Exception('Invalid user data: missing token or host');
     }

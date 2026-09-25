@@ -18,6 +18,7 @@ import '../utils/subtitle_filter.dart';
 import '../utils/system_ui_style.dart';
 import '../utils/ui_tokens.dart';
 import '../widgets/async_state_view.dart';
+import '../widgets/audio_account_prompt.dart';
 
 class WorksScreen extends ConsumerStatefulWidget {
   const WorksScreen({
@@ -334,7 +335,7 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
         message: Text(S.of(context).loading),
         iconToTitleSpacing: UiSpacing.large,
       ),
-      errorBuilder: (context, error, retry) => AsyncStateView(
+      errorBuilder: (context, error, retry) => error.toString().contains('[audio-login-required]') ? const AudioAccountPrompt() : AsyncStateView(
         icon: Icon(
           Icons.error_outline,
           size: 64,

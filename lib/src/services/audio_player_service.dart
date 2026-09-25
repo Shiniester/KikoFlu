@@ -2140,10 +2140,10 @@ class AudioPlayerService {
     final userName = StorageService.getMap(
       'current_user',
     )?['name']?.toString().trim();
-    if (host == null || host.isEmpty || userName == null || userName.isEmpty) {
+    if (host == null || host.isEmpty) {
       return null;
     }
-    return '$host\n$userName';
+    return '$host\n${userName == null || userName.isEmpty ? 'anonymous' : userName}';
   }
 
   AudioTrack _refreshStoredTrackCredentials(AudioTrack track) {

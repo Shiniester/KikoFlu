@@ -17,6 +17,7 @@ import 'package:kikoeru_flutter/src/widgets/global_audio_player_wrapper.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
 
 void _configurePhoneViewport(
   WidgetTester tester, {
@@ -96,6 +97,12 @@ double _settledDockGap(WidgetTester tester) {
 }
 
 void main() {
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
+  });
   testWidgets('main bottom dock moves together into work details', (
     tester,
   ) async {

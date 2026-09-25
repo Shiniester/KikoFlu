@@ -3,26 +3,34 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/screens/preferences_screen.dart';
+import 'package:kikoeru_flutter/src/screens/settings_screen.dart';
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/services/proxy_config.dart';
 import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-Widget _testApp({TargetPlatform platform = TargetPlatform.android}) {
+Widget _testApp({
+  TargetPlatform platform = TargetPlatform.android,
+  bool globalSettings = false,
+}) {
   return ProviderScope(
     child: MaterialApp(
       locale: const Locale('en'),
       theme: ThemeData(platform: platform),
       localizationsDelegates: S.localizationsDelegates,
       supportedLocales: S.supportedLocales,
-      home: const PreferencesScreen(),
+      home: globalSettings ? const SettingsScreen() : const PreferencesScreen(),
     ),
   );
 }
 
 void main() {
-  setUp(() {
+  setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
     ProxyConfig.mode = ProxyMode.system;
     ProxyConfig.address = '127.0.0.1:7890';
   });
@@ -30,7 +38,7 @@ void main() {
   testWidgets('proxy settings open as one dialog with manual address field', (
     tester,
   ) async {
-    await tester.pumpWidget(_testApp());
+    await tester.pumpWidget(_testApp(globalSettings: true));
     await tester.pump();
 
     await tester.scrollUntilVisible(
@@ -39,7 +47,6 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     await tester.pumpAndSettle();
-    expect(find.text('System proxy'), findsOneWidget);
     expect(find.text('Proxy address'), findsNothing);
 
     await tester.tap(find.text('Proxy').first);

@@ -3843,4 +3843,216 @@ class SEn extends S {
   String downloadedFilesAndSize(int count, String size) {
     return '$count downloaded file(s) · $size';
   }
+
+  @override
+  String get navComics => 'Comics';
+
+  @override
+  String get audioSettings => 'Audio settings';
+
+  @override
+  String get comicSettings => 'Comic settings';
+
+  @override
+  String get comicFavorites => 'Favorites';
+
+  @override
+  String get comicLocalFavorites => 'Local favorites';
+
+  @override
+  String get comicOnlineFavorites => 'Online favorites';
+
+  @override
+  String get comicSources => 'Sources and accounts';
+
+  @override
+  String get comicReader => 'Reader';
+
+  @override
+  String get comicSearchTargets => 'Search targets';
+
+  @override
+  String get comicSearchSingle => 'Single source';
+
+  @override
+  String get comicSearchGrouped => 'Grouped results';
+
+  @override
+  String get comicSearchMerged => 'Merged results';
+
+  @override
+  String get comicCategories => 'Categories';
+
+  @override
+  String get comicChapters => 'Chapters';
+
+  @override
+  String get comicContinue => 'Continue reading';
+
+  @override
+  String get comicRead => 'Read';
+
+  @override
+  String get comicSaveLocal => 'Save locally';
+
+  @override
+  String get comicRemoveFavorite => 'Remove favorite';
+
+  @override
+  String get comicComments => 'Comments and rating';
+
+  @override
+  String get comicNoResults => 'No comics here yet';
+
+  @override
+  String get comicLoginRequired => 'Sign in to this source in comic settings.';
+
+  @override
+  String get comicAnonymous => 'Anonymous';
+
+  @override
+  String get comicSessionCookie => 'Session cookie';
+
+  @override
+  String get comicSessionToken => 'Access token';
+
+  @override
+  String get comicOpenWebsite => 'Open sign-in website';
+
+  @override
+  String get comicEndpoint => 'Source website';
+
+  @override
+  String get comicEnabled => 'Enable source';
+
+  @override
+  String get comicReadingMode => 'Reading mode';
+
+  @override
+  String get comicModeLtr => 'Left to right';
+
+  @override
+  String get comicModeRtl => 'Right to left';
+
+  @override
+  String get comicModeVertical => 'Vertical pages';
+
+  @override
+  String get comicModeContinuous => 'Continuous scroll';
+
+  @override
+  String get comicModeSpread => 'Two pages';
+
+  @override
+  String get comicModeReverseSpread => 'Two pages, right to left';
+
+  @override
+  String get comicKeepAwake => 'Keep awake while reading';
+
+  @override
+  String get comicPreload => 'Preload pages';
+
+  @override
+  String get comicDownloadSelected => 'Download selected chapters';
+
+  @override
+  String get comicPause => 'Pause';
+
+  @override
+  String get comicResume => 'Resume / retry';
+
+  @override
+  String get comicQueued => 'Queued';
+
+  @override
+  String get comicDownloading => 'Downloading';
+
+  @override
+  String get comicPaused => 'Paused';
+
+  @override
+  String get comicFailed => 'Failed';
+
+  @override
+  String get comicComplete => 'Complete';
+
+  @override
+  String get comicClearCache => 'Clear comic image cache';
+
+  @override
+  String get comicSourceFavorite => 'Save to source';
+
+  @override
+  String get comicChooseChapters => 'Choose chapters';
+
+  @override
+  String get comicNextChapter => 'Next chapter';
+
+  @override
+  String get comicPreviousChapter => 'Previous chapter';
+
+  @override
+  String get comicPage => 'Page';
+
+  @override
+  String get comicCookiesHelp =>
+      'Sign in on the source website, then paste its session cookie.';
+
+  @override
+  String get comicShowGrid => 'Grid / list';
+
+  @override
+  String get comicDeleteConfirm =>
+      'Delete the downloaded chapter from this device?';
+
+  @override
+  String get comicSort => 'Search order';
+
+  @override
+  String get comicLogout => 'Sign out';
+
+  @override
+  String get comicLogin => 'Sign in';
+
+  @override
+  String get comicUsername => 'Username / email';
+
+  @override
+  String get comicPassword => 'Password';
+
+  @override
+  String get comicSaved => 'Saved';
+
+  @override
+  String get comicTapToTurn => 'Tap edges to turn pages';
+
+  @override
+  String get comicDoubleTapZoom => 'Double-tap to zoom';
+
+  @override
+  String get comicDefaultOnlineFavorites => 'Show source favorites by default';
+
+  @override
+  String get comicNewest => 'Newest';
+
+  @override
+  String get comicOldest => 'Oldest';
+
+  @override
+  String get comicMostLiked => 'Most liked';
+
+  @override
+  String get comicMostViewed => 'Most viewed';
+
+  @override
+  String get comicMostPages => 'Most pages';
+
+  @override
+  String get comicPopularToday => 'Popular today';
+
+  @override
+  String get comicPopularWeek => 'Popular this week';
+
+  @override
+  String get comicPopularMonth => 'Popular this month';
 }

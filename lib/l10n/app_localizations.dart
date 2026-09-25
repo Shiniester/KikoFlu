@@ -6845,6 +6845,426 @@ abstract class S {
   /// In en, this message translates to:
   /// **'{count} downloaded file(s) · {size}'**
   String downloadedFilesAndSize(int count, String size);
+
+  /// No description provided for @navComics.
+  ///
+  /// In en, this message translates to:
+  /// **'Comics'**
+  String get navComics;
+
+  /// No description provided for @audioSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio settings'**
+  String get audioSettings;
+
+  /// No description provided for @comicSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Comic settings'**
+  String get comicSettings;
+
+  /// No description provided for @comicFavorites.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorites'**
+  String get comicFavorites;
+
+  /// No description provided for @comicLocalFavorites.
+  ///
+  /// In en, this message translates to:
+  /// **'Local favorites'**
+  String get comicLocalFavorites;
+
+  /// No description provided for @comicOnlineFavorites.
+  ///
+  /// In en, this message translates to:
+  /// **'Online favorites'**
+  String get comicOnlineFavorites;
+
+  /// No description provided for @comicSources.
+  ///
+  /// In en, this message translates to:
+  /// **'Sources and accounts'**
+  String get comicSources;
+
+  /// No description provided for @comicReader.
+  ///
+  /// In en, this message translates to:
+  /// **'Reader'**
+  String get comicReader;
+
+  /// No description provided for @comicSearchTargets.
+  ///
+  /// In en, this message translates to:
+  /// **'Search targets'**
+  String get comicSearchTargets;
+
+  /// No description provided for @comicSearchSingle.
+  ///
+  /// In en, this message translates to:
+  /// **'Single source'**
+  String get comicSearchSingle;
+
+  /// No description provided for @comicSearchGrouped.
+  ///
+  /// In en, this message translates to:
+  /// **'Grouped results'**
+  String get comicSearchGrouped;
+
+  /// No description provided for @comicSearchMerged.
+  ///
+  /// In en, this message translates to:
+  /// **'Merged results'**
+  String get comicSearchMerged;
+
+  /// No description provided for @comicCategories.
+  ///
+  /// In en, this message translates to:
+  /// **'Categories'**
+  String get comicCategories;
+
+  /// No description provided for @comicChapters.
+  ///
+  /// In en, this message translates to:
+  /// **'Chapters'**
+  String get comicChapters;
+
+  /// No description provided for @comicContinue.
+  ///
+  /// In en, this message translates to:
+  /// **'Continue reading'**
+  String get comicContinue;
+
+  /// No description provided for @comicRead.
+  ///
+  /// In en, this message translates to:
+  /// **'Read'**
+  String get comicRead;
+
+  /// No description provided for @comicSaveLocal.
+  ///
+  /// In en, this message translates to:
+  /// **'Save locally'**
+  String get comicSaveLocal;
+
+  /// No description provided for @comicRemoveFavorite.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove favorite'**
+  String get comicRemoveFavorite;
+
+  /// No description provided for @comicComments.
+  ///
+  /// In en, this message translates to:
+  /// **'Comments and rating'**
+  String get comicComments;
+
+  /// No description provided for @comicNoResults.
+  ///
+  /// In en, this message translates to:
+  /// **'No comics here yet'**
+  String get comicNoResults;
+
+  /// No description provided for @comicLoginRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to this source in comic settings.'**
+  String get comicLoginRequired;
+
+  /// No description provided for @comicAnonymous.
+  ///
+  /// In en, this message translates to:
+  /// **'Anonymous'**
+  String get comicAnonymous;
+
+  /// No description provided for @comicSessionCookie.
+  ///
+  /// In en, this message translates to:
+  /// **'Session cookie'**
+  String get comicSessionCookie;
+
+  /// No description provided for @comicSessionToken.
+  ///
+  /// In en, this message translates to:
+  /// **'Access token'**
+  String get comicSessionToken;
+
+  /// No description provided for @comicOpenWebsite.
+  ///
+  /// In en, this message translates to:
+  /// **'Open sign-in website'**
+  String get comicOpenWebsite;
+
+  /// No description provided for @comicEndpoint.
+  ///
+  /// In en, this message translates to:
+  /// **'Source website'**
+  String get comicEndpoint;
+
+  /// No description provided for @comicEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable source'**
+  String get comicEnabled;
+
+  /// No description provided for @comicReadingMode.
+  ///
+  /// In en, this message translates to:
+  /// **'Reading mode'**
+  String get comicReadingMode;
+
+  /// No description provided for @comicModeLtr.
+  ///
+  /// In en, this message translates to:
+  /// **'Left to right'**
+  String get comicModeLtr;
+
+  /// No description provided for @comicModeRtl.
+  ///
+  /// In en, this message translates to:
+  /// **'Right to left'**
+  String get comicModeRtl;
+
+  /// No description provided for @comicModeVertical.
+  ///
+  /// In en, this message translates to:
+  /// **'Vertical pages'**
+  String get comicModeVertical;
+
+  /// No description provided for @comicModeContinuous.
+  ///
+  /// In en, this message translates to:
+  /// **'Continuous scroll'**
+  String get comicModeContinuous;
+
+  /// No description provided for @comicModeSpread.
+  ///
+  /// In en, this message translates to:
+  /// **'Two pages'**
+  String get comicModeSpread;
+
+  /// No description provided for @comicModeReverseSpread.
+  ///
+  /// In en, this message translates to:
+  /// **'Two pages, right to left'**
+  String get comicModeReverseSpread;
+
+  /// No description provided for @comicKeepAwake.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep awake while reading'**
+  String get comicKeepAwake;
+
+  /// No description provided for @comicPreload.
+  ///
+  /// In en, this message translates to:
+  /// **'Preload pages'**
+  String get comicPreload;
+
+  /// No description provided for @comicDownloadSelected.
+  ///
+  /// In en, this message translates to:
+  /// **'Download selected chapters'**
+  String get comicDownloadSelected;
+
+  /// No description provided for @comicPause.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get comicPause;
+
+  /// No description provided for @comicResume.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume / retry'**
+  String get comicResume;
+
+  /// No description provided for @comicQueued.
+  ///
+  /// In en, this message translates to:
+  /// **'Queued'**
+  String get comicQueued;
+
+  /// No description provided for @comicDownloading.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading'**
+  String get comicDownloading;
+
+  /// No description provided for @comicPaused.
+  ///
+  /// In en, this message translates to:
+  /// **'Paused'**
+  String get comicPaused;
+
+  /// No description provided for @comicFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get comicFailed;
+
+  /// No description provided for @comicComplete.
+  ///
+  /// In en, this message translates to:
+  /// **'Complete'**
+  String get comicComplete;
+
+  /// No description provided for @comicClearCache.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear comic image cache'**
+  String get comicClearCache;
+
+  /// No description provided for @comicSourceFavorite.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to source'**
+  String get comicSourceFavorite;
+
+  /// No description provided for @comicChooseChapters.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose chapters'**
+  String get comicChooseChapters;
+
+  /// No description provided for @comicNextChapter.
+  ///
+  /// In en, this message translates to:
+  /// **'Next chapter'**
+  String get comicNextChapter;
+
+  /// No description provided for @comicPreviousChapter.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous chapter'**
+  String get comicPreviousChapter;
+
+  /// No description provided for @comicPage.
+  ///
+  /// In en, this message translates to:
+  /// **'Page'**
+  String get comicPage;
+
+  /// No description provided for @comicCookiesHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in on the source website, then paste its session cookie.'**
+  String get comicCookiesHelp;
+
+  /// No description provided for @comicShowGrid.
+  ///
+  /// In en, this message translates to:
+  /// **'Grid / list'**
+  String get comicShowGrid;
+
+  /// No description provided for @comicDeleteConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete the downloaded chapter from this device?'**
+  String get comicDeleteConfirm;
+
+  /// No description provided for @comicSort.
+  ///
+  /// In en, this message translates to:
+  /// **'Search order'**
+  String get comicSort;
+
+  /// No description provided for @comicLogout.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign out'**
+  String get comicLogout;
+
+  /// No description provided for @comicLogin.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in'**
+  String get comicLogin;
+
+  /// No description provided for @comicUsername.
+  ///
+  /// In en, this message translates to:
+  /// **'Username / email'**
+  String get comicUsername;
+
+  /// No description provided for @comicPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get comicPassword;
+
+  /// No description provided for @comicSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved'**
+  String get comicSaved;
+
+  /// No description provided for @comicTapToTurn.
+  ///
+  /// In en, this message translates to:
+  /// **'Tap edges to turn pages'**
+  String get comicTapToTurn;
+
+  /// No description provided for @comicDoubleTapZoom.
+  ///
+  /// In en, this message translates to:
+  /// **'Double-tap to zoom'**
+  String get comicDoubleTapZoom;
+
+  /// No description provided for @comicDefaultOnlineFavorites.
+  ///
+  /// In en, this message translates to:
+  /// **'Show source favorites by default'**
+  String get comicDefaultOnlineFavorites;
+
+  /// No description provided for @comicNewest.
+  ///
+  /// In en, this message translates to:
+  /// **'Newest'**
+  String get comicNewest;
+
+  /// No description provided for @comicOldest.
+  ///
+  /// In en, this message translates to:
+  /// **'Oldest'**
+  String get comicOldest;
+
+  /// No description provided for @comicMostLiked.
+  ///
+  /// In en, this message translates to:
+  /// **'Most liked'**
+  String get comicMostLiked;
+
+  /// No description provided for @comicMostViewed.
+  ///
+  /// In en, this message translates to:
+  /// **'Most viewed'**
+  String get comicMostViewed;
+
+  /// No description provided for @comicMostPages.
+  ///
+  /// In en, this message translates to:
+  /// **'Most pages'**
+  String get comicMostPages;
+
+  /// No description provided for @comicPopularToday.
+  ///
+  /// In en, this message translates to:
+  /// **'Popular today'**
+  String get comicPopularToday;
+
+  /// No description provided for @comicPopularWeek.
+  ///
+  /// In en, this message translates to:
+  /// **'Popular this week'**
+  String get comicPopularWeek;
+
+  /// No description provided for @comicPopularMonth.
+  ///
+  /// In en, this message translates to:
+  /// **'Popular this month'**
+  String get comicPopularMonth;
 }
 
 class _SDelegate extends LocalizationsDelegate<S> {

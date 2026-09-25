@@ -4,6 +4,7 @@ import '../../l10n/app_localizations.dart';
 import 'dart:io';
 
 import 'account_management_screen.dart';
+import '../comics/ui/comic_settings_screen.dart';
 import 'download_path_settings_screen.dart';
 import 'theme_settings_screen.dart';
 import 'ui_settings_screen.dart';
@@ -14,6 +15,7 @@ import 'privacy_mode_settings_screen.dart';
 import 'floating_lyric_style_screen.dart';
 import 'log_screen.dart';
 import '../providers/locale_provider.dart';
+import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/update_provider.dart';
 import '../providers/floating_lyric_provider.dart';
@@ -28,7 +30,8 @@ import '../widgets/radio_option_group.dart';
 import '../widgets/settings_option_dialog.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.audioOnly = false});
+  final bool audioOnly;
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
@@ -114,14 +117,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         MediaQuery.of(context).orientation == Orientation.landscape;
     final cards = [
       _buildAccountCard(context),
-      _buildDownloadAndCacheCard(context),
+      if (widget.audioOnly) _buildDownloadAndCacheCard(context),
       _buildAppearanceAndAboutCard(context),
     ];
 
     return Scaffold(
-      floatingActionButton: const DownloadFab(),
+      floatingActionButton: widget.audioOnly ? const DownloadFab() : null,
       appBar: ScrollableAppBar(
-        title: Text(S.of(context).settingsTitle, style: UiTextStyles.pageTitle),
+        title: Text(
+          widget.audioOnly
+              ? S.of(context).audioSettings
+              : S.of(context).settingsTitle,
+          style: UiTextStyles.pageTitle,
+        ),
       ),
       body: isLandscape
           ? _buildLandscapeLayout(cards)
@@ -181,42 +189,99 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     return SettingsSectionList(
       children: [
-        SettingsNavigationTile(
-          icon: Icons.manage_accounts,
-          title: S.of(context).accountManagement,
-          subtitle: S.of(context).accountManagementSubtitle,
-          onTap: () {
-            Navigator.of(context).push(
+        if (!widget.audioOnly) ...[
+          SettingsNavigationTile(
+            icon: Icons.library_music,
+            title: S.of(context).audioSettings,
+            onTap: () => Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (context) => const AccountManagementScreen(),
+                builder: (_) => const SettingsScreen(audioOnly: true),
               ),
-            );
-          },
-        ),
-        SettingsNavigationTile(
-          icon: Icons.privacy_tip_outlined,
-          title: S.of(context).privacyMode,
-          subtitle: privacySettings.enabled
-              ? S.of(context).privacyModeEnabled
-              : S.of(context).privacyModeDisabled,
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => const PrivacyModeSettingsScreen(),
-              ),
-            );
-          },
-        ),
+            ),
+          ),
+          SettingsNavigationTile(
+            icon: Icons.menu_book,
+            title: S.of(context).comicSettings,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ComicSettingsScreen()),
+            ),
+          ),
+          SettingsNavigationTile(
+            icon: Icons.public,
+            title: S.of(context).proxySettingsOptional,
+            onTap: () => showDialog(
+              context: context,
+              builder: (_) => const ProxySettingsDialog(),
+            ),
+          ),
+        ],
+        if (widget.audioOnly)
+          SettingsNavigationTile(
+            icon: Icons.manage_accounts,
+            title: S.of(context).accountManagement,
+            subtitle:
+                ref.watch(authProvider).currentUser?.name ??
+                S.of(context).comicAnonymous,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const AccountManagementScreen(),
+                ),
+              );
+            },
+          ),
+        if (widget.audioOnly && !ref.watch(authProvider).isAnonymous)
+          SettingsNavigationTile(
+            icon: Icons.logout,
+            title: S.of(context).logout,
+            onTap: () async {
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  content: Text(S.of(context).logoutConfirm),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: Text(S.of(context).cancel),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: Text(S.of(context).logout),
+                    ),
+                  ],
+                ),
+              );
+              if (confirmed == true && mounted) {
+                await ref.read(authProvider.notifier).logout();
+              }
+            },
+          ),
+        if (!widget.audioOnly)
+          SettingsNavigationTile(
+            icon: Icons.privacy_tip_outlined,
+            title: S.of(context).privacyMode,
+            subtitle: privacySettings.enabled
+                ? S.of(context).privacyModeEnabled
+                : S.of(context).privacyModeDisabled,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const PrivacyModeSettingsScreen(),
+                ),
+              );
+            },
+          ),
         // 显示悬浮字幕 (Android & Windows & Linux & macOS & iOS)
-        if (Platform.isAndroid ||
-            Platform.isWindows ||
-            Platform.isLinux ||
-            Platform.isMacOS ||
-            Platform.isIOS)
+        if (widget.audioOnly &&
+            (Platform.isAndroid ||
+                Platform.isWindows ||
+                Platform.isLinux ||
+                Platform.isMacOS ||
+                Platform.isIOS))
           _buildFloatingLyricTile(context),
 
         // 仅在安卓平台显示权限管理
-        if (Platform.isAndroid)
+        if (!widget.audioOnly && Platform.isAndroid)
           SettingsNavigationTile(
             icon: Icons.security,
             title: S.of(context).permissionManagement,
@@ -425,165 +490,175 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget _buildAppearanceAndAboutCard(BuildContext context) {
     return SettingsSectionList(
       children: [
-        SettingsNavigationTile(
-          icon: Icons.palette,
-          title: S.of(context).themeSettings,
-          subtitle: S.of(context).themeSettingsSubtitle,
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => const ThemeSettingsScreen(),
-              ),
-            );
-          },
-        ),
-        Consumer(
-          builder: (context, ref, _) {
-            final currentLocale = ref.watch(localeProvider);
-            String localeLabel;
-            if (currentLocale == null) {
-              localeLabel = S.of(context).languageSystem;
-            } else if (currentLocale.scriptCode == 'Hant') {
-              localeLabel = S.of(context).languageZhTw;
-            } else {
-              localeLabel = switch (currentLocale.languageCode) {
-                'zh' => S.of(context).languageZh,
-                'en' => S.of(context).languageEn,
-                'ja' => S.of(context).languageJa,
-                'ru' => S.of(context).languageRu,
-                _ => currentLocale.languageCode,
-              };
-            }
-            return SettingsNavigationTile(
-              icon: Icons.language,
-              title: S.of(context).settingsLanguage,
-              subtitle: localeLabel,
-              onTap: () => _showLanguagePicker(context, ref),
-            );
-          },
-        ),
-        SettingsNavigationTile(
-          icon: Icons.dashboard_customize,
-          title: S.of(context).uiSettings,
-          subtitle: S.of(context).uiSettingsSubtitle,
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (context) => const UiSettingsScreen()),
-            );
-          },
-        ),
-        SettingsNavigationTile(
-          icon: Icons.tune,
-          title: S.of(context).preferenceSettings,
-          subtitle: S.of(context).preferenceSettingsSubtitle,
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => const PreferencesScreen(),
-              ),
-            );
-          },
-        ),
-        SettingsNavigationTile(
-          icon: Icons.article_outlined,
-          title: S.of(context).logTitle,
-          subtitle: S.of(context).logSubtitle,
-          onTap: () {
-            Navigator.of(
-              context,
-            ).push(MaterialPageRoute(builder: (context) => const LogScreen()));
-          },
-        ),
-        Consumer(
-          builder: (context, ref, _) {
-            final showRedDot = ref.watch(showUpdateRedDotProvider);
-            final hasNewVersion = ref.watch(hasNewVersionProvider);
+        if (!widget.audioOnly)
+          SettingsNavigationTile(
+            icon: Icons.palette,
+            title: S.of(context).themeSettings,
+            subtitle: S.of(context).themeSettingsSubtitle,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const ThemeSettingsScreen(),
+                ),
+              );
+            },
+          ),
+        if (!widget.audioOnly)
+          Consumer(
+            builder: (context, ref, _) {
+              final currentLocale = ref.watch(localeProvider);
+              String localeLabel;
+              if (currentLocale == null) {
+                localeLabel = S.of(context).languageSystem;
+              } else if (currentLocale.scriptCode == 'Hant') {
+                localeLabel = S.of(context).languageZhTw;
+              } else {
+                localeLabel = switch (currentLocale.languageCode) {
+                  'zh' => S.of(context).languageZh,
+                  'en' => S.of(context).languageEn,
+                  'ja' => S.of(context).languageJa,
+                  'ru' => S.of(context).languageRu,
+                  _ => currentLocale.languageCode,
+                };
+              }
+              return SettingsNavigationTile(
+                icon: Icons.language,
+                title: S.of(context).settingsLanguage,
+                subtitle: localeLabel,
+                onTap: () => _showLanguagePicker(context, ref),
+              );
+            },
+          ),
+        if (widget.audioOnly)
+          SettingsNavigationTile(
+            icon: Icons.dashboard_customize,
+            title: S.of(context).uiSettings,
+            subtitle: S.of(context).uiSettingsSubtitle,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const UiSettingsScreen(),
+                ),
+              );
+            },
+          ),
+        if (widget.audioOnly)
+          SettingsNavigationTile(
+            icon: Icons.tune,
+            title: S.of(context).preferenceSettings,
+            subtitle: S.of(context).preferenceSettingsSubtitle,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const PreferencesScreen(),
+                ),
+              );
+            },
+          ),
+        if (!widget.audioOnly)
+          SettingsNavigationTile(
+            icon: Icons.article_outlined,
+            title: S.of(context).logTitle,
+            subtitle: S.of(context).logSubtitle,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const LogScreen()),
+              );
+            },
+          ),
+        if (!widget.audioOnly)
+          Consumer(
+            builder: (context, ref, _) {
+              final showRedDot = ref.watch(showUpdateRedDotProvider);
+              final hasNewVersion = ref.watch(hasNewVersionProvider);
 
-            return SettingsListTile(
-              leading: Stack(
-                children: [
-                  Icon(
-                    Icons.info_outline,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  // Red dot indicator for updates (only when not notified)
-                  if (showRedDot)
-                    Positioned(
-                      right: 0,
-                      top: 0,
-                      child: Container(
-                        width: 8,
-                        height: 8,
+              return SettingsListTile(
+                leading: Stack(
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    // Red dot indicator for updates (only when not notified)
+                    if (showRedDot)
+                      Positioned(
+                        right: 0,
+                        top: 0,
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Theme.of(context).colorScheme.surface,
+                              width: 1,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                title: S.of(context).aboutTitle,
+                subtitle: S.of(context).aboutSubtitle,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (hasNewVersion)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
-                          color: Colors.red,
-                          shape: BoxShape.circle,
+                          gradient: LinearGradient(
+                            colors: [
+                              Theme.of(context).colorScheme.primaryContainer,
+                              Theme.of(context).colorScheme.secondaryContainer,
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: Theme.of(context).colorScheme.surface,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.3),
                             width: 1,
                           ),
                         ),
-                      ),
-                    ),
-                ],
-              ),
-              title: S.of(context).aboutTitle,
-              subtitle: S.of(context).aboutSubtitle,
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (hasNewVersion)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Theme.of(context).colorScheme.primaryContainer,
-                            Theme.of(context).colorScheme.secondaryContainer,
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.primary.withValues(alpha: 0.3),
-                          width: 1,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.new_releases,
-                            size: 14,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            S.of(context).hasNewVersion,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.new_releases,
+                              size: 14,
                               color: Theme.of(context).colorScheme.primary,
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 4),
+                            Text(
+                              S.of(context).hasNewVersion,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
+                    const SizedBox(width: 8),
+                    const Icon(Icons.arrow_forward_ios),
+                  ],
+                ),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const AboutScreen(),
                     ),
-                  const SizedBox(width: 8),
-                  const Icon(Icons.arrow_forward_ios),
-                ],
-              ),
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (context) => const AboutScreen()),
-                );
-              },
-            );
-          },
-        ),
+                  );
+                },
+              );
+            },
+          ),
       ],
     );
   }

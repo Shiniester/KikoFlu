@@ -22,6 +22,7 @@ class KikoeruApiService {
   String? _token;
   String? _host;
   String? _accountScope;
+  int _sessionGeneration = 0;
   int _subtitle = 0; // 1: 带字幕, 0: 不限制 (默认显示所有作品)
   String _order = 'create_date';
   String _sort = 'desc'; // 默认降序排列
@@ -39,6 +40,37 @@ class KikoeruApiService {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
+          options.extra.putIfAbsent(
+            'audioSessionGeneration',
+            () => _sessionGeneration,
+          );
+          if (options.extra['audioSessionGeneration'] != _sessionGeneration) {
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                type: DioExceptionType.cancel,
+                error: 'Audio account changed',
+              ),
+            );
+            return;
+          }
+          options.headers.remove('Authorization');
+          options.headers.remove('Cookie');
+          final personalWrite =
+              options.method != 'GET' &&
+              RegExp(
+                r'^/api/(review|favourites|progress|playlists?|vote)(/|$)',
+              ).hasMatch(options.path);
+          if (personalWrite && (_token == null || _token!.isEmpty)) {
+            handler.reject(
+              DioException(
+                requestOptions: options,
+                response: Response(requestOptions: options, statusCode: 401),
+                type: DioExceptionType.badResponse,
+              ),
+            );
+            return;
+          }
           // 仅在访问官方服务器时设置浏览器 UA，自建服务器使用应用标识
           if (ServerUtils.isOfficialServer(_host)) {
             options.headers['User-Agent'] =
@@ -52,7 +84,9 @@ class KikoeruApiService {
           options.headers['Accept-Encoding'] = 'gzip';
 
           // 如果配置了服务器Cookie则添加到请求头中
-          options.headers.addAll(StorageService.serverCookieHeaders);
+          if (_accountScope != 'anonymous') {
+            options.headers.addAll(StorageService.serverCookieHeaders);
+          }
 
           // Add Authorization header if token exists
           // Only exclude for POST requests to auth endpoints (login/register)
@@ -99,6 +133,17 @@ class KikoeruApiService {
           handler.next(error);
         },
         onResponse: (response, handler) async {
+          if (response.requestOptions.extra['audioSessionGeneration'] !=
+              _sessionGeneration) {
+            handler.reject(
+              DioException(
+                requestOptions: response.requestOptions,
+                type: DioExceptionType.cancel,
+                error: 'Audio account changed',
+              ),
+            );
+            return;
+          }
           final cacheFamilies = _cacheFamiliesForMutation(
             response.requestOptions,
           );
@@ -131,6 +176,7 @@ class KikoeruApiService {
   }
 
   void init(String token, String host, {String? accountScope}) {
+    _sessionGeneration++;
     _token = token;
     _accountScope = accountScope;
     // Handle host configuration properly
@@ -2080,5 +2126,11 @@ class KikoeruApiException implements Exception {
   KikoeruApiException(this.message, this.originalError);
 
   @override
-  String toString() => 'KikoeruApiException: $message';
+  String toString() => requiresAuthentication
+      ? '[audio-login-required] Sign in from Settings > Audio settings > Accounts.'
+      : 'KikoeruApiException: $message';
+
+  bool get requiresAuthentication =>
+      originalError is DioException &&
+      [401, 403].contains((originalError as DioException).response?.statusCode);
 }
