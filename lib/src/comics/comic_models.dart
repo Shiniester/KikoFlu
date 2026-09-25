@@ -42,6 +42,17 @@ class Comic {
   ComicPage get coverPage =>
       ComicPage(cover, localPath: extra['localCover'] as String?);
   String get key => jsonEncode([source, id]);
+  Comic withChapters(List<ComicChapter> value) => Comic(
+    source: source,
+    id: id,
+    title: title,
+    cover: cover,
+    description: description,
+    tags: tags,
+    chapters: value,
+    rating: rating,
+    extra: extra,
+  );
   Map<String, dynamic> toJson() => {
     'source': source,
     'id': id,

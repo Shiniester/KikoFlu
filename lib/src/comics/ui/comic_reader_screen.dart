@@ -103,6 +103,37 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     setState(() => _controls = !_controls);
   }
 
+  Widget _controlLayer({
+    required Key key,
+    required bool visible,
+    required Offset hiddenOffset,
+    required Widget child,
+  }) {
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 200);
+    return IgnorePointer(
+      ignoring: !visible,
+      child: ExcludeFocus(
+        excluding: !visible,
+        child: ExcludeSemantics(
+          excluding: !visible,
+          child: AnimatedSlide(
+            key: key,
+            offset: visible ? Offset.zero : hiddenOffset,
+            duration: duration,
+            curve: Curves.easeOutCubic,
+            child: AnimatedOpacity(
+              opacity: visible ? 1 : 0,
+              duration: duration,
+              child: child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadChapter() async {
     final generation = ++_generation;
     _saveTimer?.cancel();
@@ -181,10 +212,14 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   });
   void _preload() {
     final count = StorageService.getInt('comic_preload') ?? 3;
-    for (var i = _page; i <= _page + count && i < _pages.length; i++) {
+    final first =
+        ref.read(comicReadingModeProvider) == ComicReadingMode.continuous
+        ? (_page - count).clamp(0, _pages.length - 1)
+        : _page;
+    for (var i = first; i <= _page + count && i < _pages.length; i++) {
       _image(i).then<void>((_) {}, onError: (Object _, StackTrace __) {});
     }
-    _images.removeWhere((i, _) => i < _page - 2 || i > _page + count + 2);
+    _images.removeWhere((i, _) => i < first - 2 || i > _page + count + 2);
   }
 
   Future<void> _saveProgress(String chapter, int page) async {
@@ -270,44 +305,57 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     }
   }
 
-  Widget _pageImage(int page, {bool continuous = false}) =>
-      FutureBuilder<Uint8List>(
-        future: _image(page),
-        builder: (context, snapshot) {
-          Widget content;
-          if (snapshot.hasError) {
-            content = Center(
-              child: IconButton(
-                color: Colors.white,
-                tooltip: S.of(context).retry,
-                onPressed: () => setState(() => _images.remove(page)),
-                icon: const Icon(Icons.refresh),
-              ),
-            );
-          } else if (!snapshot.hasData) {
-            content = const Center(child: CircularProgressIndicator());
-          } else {
-            content = _ZoomableComicPage(
-              child: Image.memory(
-                snapshot.data!,
-                fit: BoxFit.contain,
-                width: continuous ? MediaQuery.sizeOf(context).width : null,
-                gaplessPlayback: true,
-                errorBuilder: (_, __, ___) =>
-                    const Icon(Icons.broken_image, color: Colors.white),
-              ),
-            );
-          }
-          // Keep decoded page geometry after its image bytes leave the cache.
-          // Returning to an earlier page must not resize the slivers above it.
-          return continuous
-              ? AspectRatio(
-                  aspectRatio: _aspectRatios[page] ?? 2 / 3,
-                  child: content,
-                )
-              : content;
-        },
-      );
+  Widget _pageImage(int page, {bool continuous = false}) {
+    final image = FutureBuilder<Uint8List>(
+      future: _image(page),
+      builder: (context, snapshot) {
+        Widget content;
+        if (snapshot.hasError) {
+          content = Center(
+            child: IconButton(
+              color: Colors.white,
+              tooltip: S.of(context).retry,
+              onPressed: () => setState(() => _images.remove(page)),
+              icon: const Icon(Icons.refresh),
+            ),
+          );
+        } else if (!snapshot.hasData) {
+          content = const Center(child: CircularProgressIndicator());
+        } else {
+          content = _ZoomableComicPage(
+            child: Image.memory(
+              snapshot.data!,
+              fit: BoxFit.contain,
+              width: continuous ? MediaQuery.sizeOf(context).width : null,
+              gaplessPlayback: true,
+              errorBuilder: (_, __, ___) =>
+                  const Icon(Icons.broken_image, color: Colors.white),
+            ),
+          );
+        }
+        // Keep decoded page geometry after its image bytes leave the cache.
+        // Returning to an earlier page must not resize the slivers above it.
+        return continuous
+            ? AspectRatio(
+                aspectRatio: _aspectRatios[page] ?? 2 / 3,
+                child: content,
+              )
+            : content;
+      },
+    );
+    return continuous
+        ? AnimatedSize(
+            key: ValueKey('comic-page-size-$page'),
+            alignment: Alignment.topCenter,
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 250),
+            curve: Curves.easeOutCubic,
+            child: image,
+          )
+        : image;
+  }
+
   Widget _body(ComicReadingMode mode) {
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
@@ -409,11 +457,14 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
         child: Stack(
           children: [
             Positioned.fill(child: _body(mode)),
-            if (_controls || _error != null)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: _controlLayer(
+                key: const ValueKey('comic-reader-top-controls'),
+                visible: _controls || _error != null,
+                hiddenOffset: const Offset(0, -1),
                 child: Material(
                   color: Theme.of(context).colorScheme.surface,
                   child: SafeArea(
@@ -453,47 +504,53 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                   ),
                 ),
               ),
-            if (_controls && _pages.isNotEmpty)
+            ),
+            if (_pages.isNotEmpty)
               Positioned(
                 bottom: 0,
                 left: 0,
                 right: 0,
-                child: Material(
-                  color: Theme.of(context).colorScheme.surface,
-                  child: SafeArea(
-                    top: false,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          children: [
-                            IconButton(
-                              tooltip: s.comicPreviousChapter,
-                              onPressed: () => _chapterBy(-1),
-                              icon: const Icon(Icons.skip_previous),
-                            ),
-                            Expanded(
-                              child: Slider(
-                                value: _page.toDouble(),
-                                min: 0,
-                                max: (_pages.length - 1)
-                                    .clamp(1, 1 << 30)
-                                    .toDouble(),
-                                onChanged: _pages.length < 2
-                                    ? null
-                                    : (value) => _jump(value.round()),
+                child: _controlLayer(
+                  key: const ValueKey('comic-reader-bottom-controls'),
+                  visible: _controls,
+                  hiddenOffset: const Offset(0, 1),
+                  child: Material(
+                    color: Theme.of(context).colorScheme.surface,
+                    child: SafeArea(
+                      top: false,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              IconButton(
+                                tooltip: s.comicPreviousChapter,
+                                onPressed: () => _chapterBy(-1),
+                                icon: const Icon(Icons.skip_previous),
                               ),
-                            ),
-                            Text('${_page + 1}/${_pages.length}'),
-                            IconButton(
-                              tooltip: s.comicNextChapter,
-                              onPressed: () => _chapterBy(1),
-                              icon: const Icon(Icons.skip_next),
-                            ),
-                          ],
-                        ),
-                        if (hasAudio) const MiniPlayer(),
-                      ],
+                              Expanded(
+                                child: Slider(
+                                  value: _page.toDouble(),
+                                  min: 0,
+                                  max: (_pages.length - 1)
+                                      .clamp(1, 1 << 30)
+                                      .toDouble(),
+                                  onChanged: _pages.length < 2
+                                      ? null
+                                      : (value) => _jump(value.round()),
+                                ),
+                              ),
+                              Text('${_page + 1}/${_pages.length}'),
+                              IconButton(
+                                tooltip: s.comicNextChapter,
+                                onPressed: () => _chapterBy(1),
+                                icon: const Icon(Icons.skip_next),
+                              ),
+                            ],
+                          ),
+                          if (hasAudio) const MiniPlayer(),
+                        ],
+                      ),
                     ),
                   ),
                 ),

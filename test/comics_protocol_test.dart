@@ -12,12 +12,14 @@ import 'package:kikoeru_flutter/src/comics/sources/eh_source.dart';
 import 'package:kikoeru_flutter/src/comics/sources/ht_source.dart';
 import 'package:kikoeru_flutter/src/comics/sources/nh_source.dart';
 import 'package:kikoeru_flutter/src/comics/sources/hitomi_source.dart';
+import 'package:kikoeru_flutter/src/comics/sources/pica_source.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_search_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_reader_screen.dart';
 
 class _Adapter implements HttpClientAdapter {
   final requests = <RequestOptions>[];
   int status = 200;
+  String Function(RequestOptions)? respond;
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
@@ -26,7 +28,7 @@ class _Adapter implements HttpClientAdapter {
   ) async {
     requests.add(options);
     return ResponseBody.fromString(
-      '{}',
+      respond?.call(options) ?? '{}',
       status,
       headers: {
         Headers.contentTypeHeader: ['application/json'],
@@ -105,6 +107,52 @@ void main() {
       ),
     );
     http.dispose();
+  });
+  test('Pica metadata is available before its paginated chapters', () async {
+    final adapter = _Adapter();
+    adapter.respond = (request) {
+      if (request.uri.path == '/comics/book') {
+        return jsonEncode({
+          'data': {
+            'comic': {
+              '_id': 'book',
+              'title': 'Book',
+              'description': 'Synopsis',
+              'thumb': {
+                'fileServer': 'https://img.example',
+                'path': 'cover.jpg',
+              },
+            },
+          },
+        });
+      }
+      final page = int.parse(request.uri.queryParameters['page']!);
+      return jsonEncode({
+        'data': {
+          'eps': {
+            'pages': 2,
+            'docs': page == 1
+                ? [
+                    {'order': 2, 'title': 'Second'},
+                  ]
+                : [
+                    {'order': 1, 'title': 'First'},
+                  ],
+          },
+        },
+      });
+    };
+    final source = PicaSource(
+      ComicHttp('picacg', client: Dio()..httpClientAdapter = adapter),
+    );
+    addTearDown(source.http.dispose);
+    final detail = await source.details('book');
+    expect(detail.description, 'Synopsis');
+    expect(detail.chapters, isEmpty);
+    expect(adapter.requests, hasLength(1));
+    final chapters = await source.chapters(detail);
+    expect(chapters.map((chapter) => chapter.title), ['First', 'Second']);
+    expect(adapter.requests, hasLength(3));
   });
   test('NH v2 parses page paths and retains signed URLs', () {
     final comic = NhSource.parseComic({

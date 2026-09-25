@@ -19,7 +19,7 @@ scope switch to the anonymous identity. Existing audio preference keys remain.
 
 Share the floating LibraryTabStrip, toolbar components, global proxy, logging,
 theme, language, and Mini Player. Audio and comic details share ADR 0001's route
-and Dock handoff, responsive detail layout, metadata chips and toolbar actions.
+and Dock handoff, responsive detail conventions, metadata chips and toolbar actions.
 The fullscreen reader uses an independent route with a stable immersive canvas.
 Its control layer owns the Mini Player and preserves the reader route while the
 full player is open. Main navigation uses the same horizontal tab transition as
@@ -32,7 +32,9 @@ milliseconds. Downloads retain chapter metadata and per-image completion state.
 
 Built-in Dart adapters implement source capabilities. No JavaScript runtime or
 custom source loader is introduced. Source favorites remain account-owned and
-local favorites remain device-owned; failed source writes are visible errors.
+local favorites remain device-owned. The main favorite action saves both after
+a successful source write; failed source writes are visible errors. Sources may
+load metadata and chapter catalogs separately so metadata can appear first.
 Global settings contain Audio settings and Comic settings as independent entries.
 
 ## Consequences

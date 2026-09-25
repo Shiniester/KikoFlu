@@ -1,4 +1,5 @@
 import '../../widgets/app_bottom_dock_transition.dart';
+import '../../widgets/work_detail/work_cover_frame.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -164,10 +165,17 @@ class ComicGrid extends ConsumerWidget {
           leading: SizedBox(
             width: 54,
             height: 76,
-            child: ComicImage(
-              source: comics[i].source,
-              page: comics[i].coverPage,
-              fit: BoxFit.cover,
+            child: HeroMode(
+              enabled: comics.take(i).every((c) => c.key != comics[i].key),
+              child: WorkCoverHeroFrame(
+                heroTag: comicCoverHeroTag(comics[i]),
+                cornerRadius: workCoverCompactRadius,
+                child: ComicImage(
+                  source: comics[i].source,
+                  page: comics[i].coverPage,
+                  fit: BoxFit.contain,
+                ),
+              ),
             ),
           ),
           title: Text(
@@ -205,10 +213,17 @@ class ComicGrid extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
-                child: ComicImage(
-                  source: comics[i].source,
-                  page: comics[i].coverPage,
-                  fit: BoxFit.cover,
+                child: HeroMode(
+                  enabled: comics.take(i).every((c) => c.key != comics[i].key),
+                  child: WorkCoverHeroFrame(
+                    heroTag: comicCoverHeroTag(comics[i]),
+                    cornerRadius: workCoverCompactRadius,
+                    child: ComicImage(
+                      source: comics[i].source,
+                      page: comics[i].coverPage,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
                 ),
               ),
               Padding(
@@ -236,6 +251,8 @@ class ComicGrid extends ConsumerWidget {
     );
   }
 }
+
+String comicCoverHeroTag(Comic comic) => 'comic-cover:${comic.key}';
 
 void openComic(BuildContext context, Comic comic) {
   pushWorkDetailRoute(context, builder: (_) => ComicDetailScreen(comic: comic));

@@ -148,8 +148,8 @@ _Avoid_: downloaded comic
 
 **Source Favorite (源站收藏)**:
 A comic saved by a signed-in source account. The main favorite action prefers
-this destination when supported; a failed source write requires retry and does
-not silently become a Local Favorite.
+this destination when supported, then also saves a Local Favorite. A failed
+source write requires retry and does not silently become a Local Favorite.
 _Avoid_: synchronized local favorite
 
 **Reading Progress (阅读进度)**:

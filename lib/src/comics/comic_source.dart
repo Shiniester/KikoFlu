@@ -18,6 +18,7 @@ abstract class ComicSource {
   Future<ComicResult> category(ComicCategory category, {String? cursor}) =>
       search(category.id, cursor: cursor);
   Future<Comic> details(String id);
+  Future<List<ComicChapter>> chapters(Comic comic) async => comic.chapters;
   Future<List<ComicPage>> pages(Comic comic, ComicChapter chapter);
   Future<List<ComicComment>> comments(Comic comic) async => const [];
   Future<ComicResult> favorites({String? cursor}) async =>

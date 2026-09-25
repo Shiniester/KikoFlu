@@ -35,8 +35,9 @@ void main() {
           final feed = await source.explore();
           expect(feed.items, isNotEmpty);
           final detail = await source.details(feed.items.first.id);
-          expect(detail.chapters, isNotEmpty);
-          final pages = await source.pages(detail, detail.chapters.first);
+          final chapters = await source.chapters(detail);
+          expect(chapters, isNotEmpty);
+          final pages = await source.pages(detail, chapters.first);
           expect(pages, isNotEmpty);
           expect(Uri.tryParse(pages.first.url)?.hasAbsolutePath, true);
 
@@ -51,7 +52,7 @@ void main() {
           // Deliberately log counts only, without titles, image URLs or credentials.
           // ignore: avoid_print
           print(
-            '$key: ${feed.items.length} results, ${detail.chapters.length} chapters, ${pages.length} pages',
+            '$key: ${feed.items.length} results, ${chapters.length} chapters, ${pages.length} pages',
           );
         } on ComicSourceException catch (error) {
           if (!error.loginRequired) rethrow;

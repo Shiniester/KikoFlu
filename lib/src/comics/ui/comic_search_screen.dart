@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
+import '../../widgets/work_detail/work_cover_frame.dart';
 import '../comic_models.dart';
 import '../comic_providers.dart';
 import '../comic_source.dart';
@@ -252,10 +253,19 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                       child: Column(
                         children: [
                           Expanded(
-                            child: ComicImage(
-                              source: source.key,
-                              page: items[i].coverPage,
-                              fit: BoxFit.cover,
+                            child: HeroMode(
+                              enabled: items
+                                  .take(i)
+                                  .every((c) => c.key != items[i].key),
+                              child: WorkCoverHeroFrame(
+                                heroTag: comicCoverHeroTag(items[i]),
+                                cornerRadius: workCoverCompactRadius,
+                                child: ComicImage(
+                                  source: source.key,
+                                  page: items[i].coverPage,
+                                  fit: BoxFit.contain,
+                                ),
+                              ),
                             ),
                           ),
                           Text(

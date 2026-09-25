@@ -63,11 +63,16 @@ class _ComicScreenState extends ConsumerState<ComicScreen>
                   for (var i = 0; i < 4; i++)
                     ComicKeepAlive(
                       key: ValueKey('comic-tab-$i'),
-                      child: _ComicCollection(
-                        tab: i,
-                        toolbarTop: top + kTextTabBarHeight + 8,
-                        collapsedTop: top,
-                        visible: _visible,
+                      child: AnimatedBuilder(
+                        animation: _tabs,
+                        builder: (context, child) =>
+                            HeroMode(enabled: _tabs.index == i, child: child!),
+                        child: _ComicCollection(
+                          tab: i,
+                          toolbarTop: top + kTextTabBarHeight + 8,
+                          collapsedTop: top,
+                          visible: _visible,
+                        ),
                       ),
                     ),
                 ],

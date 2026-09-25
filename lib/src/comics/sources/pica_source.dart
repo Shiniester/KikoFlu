@@ -170,6 +170,12 @@ class PicaSource extends ComicSource {
   @override
   Future<Comic> details(String id) async {
     final data = (await _api('comics/$id'))['comic'];
+    return _comic(data);
+  }
+
+  @override
+  Future<List<ComicChapter>> chapters(Comic comic) async {
+    final id = comic.id;
     final eps = <dynamic>[];
     for (var page = 1; ; page++) {
       final e = (await _api('comics/$id/eps?page=$page'))['eps'];
@@ -177,12 +183,7 @@ class PicaSource extends ComicSource {
       if (page >= (e['pages'] as num)) break;
     }
     eps.sort((a, b) => (a['order'] as num).compareTo(b['order'] as num));
-    return _comic(
-      data,
-      chapters: eps
-          .map((e) => ComicChapter('${e['order']}', e['title']))
-          .toList(),
-    );
+    return eps.map((e) => ComicChapter('${e['order']}', e['title'])).toList();
   }
 
   @override
