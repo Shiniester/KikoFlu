@@ -4,6 +4,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../services/storage_service.dart';
 import '../../widgets/floating_feed_toolbar.dart';
 import '../../widgets/library_tab_strip.dart';
+import '../../widgets/app_bottom_dock_transition.dart';
 import '../comic_models.dart';
 import '../comic_providers.dart';
 import 'comic_widgets.dart';
@@ -262,13 +263,13 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
   }
 
   void _search() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ComicSearchScreen(
-          initialSource: _source,
-          libraryTab: widget.tab == 0 ? null : widget.tab,
-          onlineFavorites: _online,
-        ),
+    pushWorkDetailRoute(
+      context,
+      builder: (_) => ComicSearchScreen(
+        dockHandoff: true,
+        initialSource: _source,
+        libraryTab: widget.tab == 0 ? null : widget.tab,
+        onlineFavorites: _online,
       ),
     );
   }

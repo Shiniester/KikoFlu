@@ -8,6 +8,7 @@ import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/widgets/privacy_blur_cover.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
+import 'package:octo_image/octo_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _track = AudioTrack(
@@ -744,9 +745,7 @@ void main() {
       ),
     );
 
-    final image = tester.widget<CachedNetworkImage>(
-      find.byType(CachedNetworkImage),
-    );
+    final image = tester.widget<OctoImage>(find.byType(OctoImage));
     expect(image.fadeInDuration, const Duration(milliseconds: 220));
     expect(image.fadeOutDuration, const Duration(milliseconds: 220));
   });
@@ -779,13 +778,14 @@ void main() {
       );
       expect(privacyCover.borderRadius, isNull);
       expect(find.byType(ClipRRect), findsNothing);
-      final image = tester.widget<CachedNetworkImage>(
-        find.byType(CachedNetworkImage),
+      final image = tester.widget<OctoImage>(find.byType(OctoImage));
+      expect(
+        (image.image as CachedNetworkImageProvider).cacheKey,
+        'work_cover_42',
       );
-      expect(image.cacheKey, 'work_cover_42');
       expect(image.fadeInDuration, Duration.zero);
       expect(image.fadeOutDuration, Duration.zero);
-      expect(image.useOldImageOnUrlChange, isTrue);
+      expect(image.gaplessPlayback, isTrue);
 
       final container = ProviderScope.containerOf(
         tester.element(find.byType(PlayerCompactArtwork)),

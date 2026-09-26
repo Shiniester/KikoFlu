@@ -346,14 +346,6 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                     if (_metadataLoading) const LinearProgressIndicator(),
                     if (_metadataError != null)
                       _retryBanner(_metadataError!, _loadMetadata),
-                    if (ref
-                        .read(comicSourcesProvider)
-                        .firstWhere((source) => source.key == comic.source)
-                        .hasComments)
-                      TextButton(
-                        onPressed: () => _comments(comic),
-                        child: Text(s.comicComments),
-                      ),
                     const SizedBox(height: 16),
                     SelectableText(comic.description),
                     const SizedBox(height: 12),
@@ -387,6 +379,21 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                           )
                           .toList(),
                     ),
+                    if (ref
+                        .read(comicSourcesProvider)
+                        .firstWhere((source) => source.key == comic.source)
+                        .hasComments) ...[
+                      const SizedBox(height: 16),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          s.comicComments,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => _comments(comic),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     Text(
                       s.comicChapters,

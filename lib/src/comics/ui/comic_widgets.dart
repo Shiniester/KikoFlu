@@ -1,14 +1,40 @@
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/work_detail/work_cover_frame.dart';
 import 'dart:typed_data';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import '../../../l10n/app_localizations.dart';
 import '../comic_models.dart';
 
 import '../comic_providers.dart';
 import 'comic_settings_screen.dart';
 import 'comic_detail_screen.dart';
+
+class _ComicImageRequest {
+  const _ComicImageRequest(this.source, this.page);
+
+  final String source;
+  final ComicPage page;
+
+  String get key => jsonEncode([source, page.toJson()]);
+
+  @override
+  bool operator ==(Object other) =>
+      other is _ComicImageRequest && other.key == key;
+
+  @override
+  int get hashCode => key.hashCode;
+}
+
+final _comicImageBytesProvider = FutureProvider.autoDispose
+    .family<Uint8List, _ComicImageRequest>((ref, request) {
+      final source = ref
+          .read(comicSourcesProvider)
+          .firstWhere((source) => source.key == request.source);
+      return ref.read(comicImageLoaderProvider)(source, request.page);
+    });
 
 class ComicImage extends ConsumerStatefulWidget {
   const ComicImage({
@@ -20,66 +46,55 @@ class ComicImage extends ConsumerStatefulWidget {
   final String source;
   final ComicPage page;
   final BoxFit fit;
+
   @override
   ConsumerState<ComicImage> createState() => _ComicImageState();
 }
 
 class _ComicImageState extends ConsumerState<ComicImage> {
-  late Future<Uint8List> _image;
-  void _load() {
-    final source = ref
-        .read(comicSourcesProvider)
-        .firstWhere((s) => s.key == widget.source);
-    _image = ref.read(comicImageLoaderProvider)(source, widget.page);
-  }
+  Uint8List? _lastBytes;
 
   @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void didUpdateWidget(ComicImage old) {
-    super.didUpdateWidget(old);
-    if (old.source != widget.source ||
-        old.page.url != widget.page.url ||
-        old.page.localPath != widget.page.localPath) {
-      _load();
+  void didUpdateWidget(ComicImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.source != widget.source ||
+        oldWidget.page.url != widget.page.url) {
+      _lastBytes = null;
     }
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<Uint8List>(
-    future: _image,
-    builder: (context, snapshot) {
-      if (snapshot.hasError) {
-        return Center(
-          child: IconButton(
-            tooltip: S.of(context).retry,
-            icon: const Icon(Icons.broken_image_outlined),
-            onPressed: () => setState(_load),
-          ),
-        );
-      }
-      if (!snapshot.hasData) {
-        return const Center(
-          child: SizedBox(
-            width: 24,
-            height: 24,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        );
-      }
+  Widget build(BuildContext context) {
+    final request = _ComicImageRequest(widget.source, widget.page);
+    final image = ref.watch(_comicImageBytesProvider(request));
+    final bytes = image.valueOrNull ?? _lastBytes;
+    if (image.valueOrNull != null) _lastBytes = image.valueOrNull;
+    if (image.hasError) {
+      return Center(
+        child: IconButton(
+          tooltip: S.of(context).retry,
+          icon: const Icon(Icons.broken_image_outlined),
+          onPressed: () => ref.invalidate(_comicImageBytesProvider(request)),
+        ),
+      );
+    }
+    if (bytes != null) {
       return Image.memory(
-        snapshot.data!,
+        bytes,
         fit: widget.fit,
         gaplessPlayback: true,
         errorBuilder: (_, __, ___) =>
             const Center(child: Icon(Icons.broken_image_outlined)),
       );
-    },
-  );
+    }
+    return const Center(
+      child: SizedBox(
+        width: 24,
+        height: 24,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ),
+    );
+  }
 }
 
 class ComicErrorView extends StatelessWidget {
@@ -157,50 +172,71 @@ class ComicGrid extends ConsumerWidget {
         controller: controller,
         padding: padding,
         itemCount: comics.length,
-        itemBuilder: (context, i) => ListTile(
-          contentPadding: const EdgeInsets.symmetric(
-            vertical: 8,
-            horizontal: 4,
-          ),
-          leading: SizedBox(
-            width: 54,
-            height: 76,
-            child: HeroMode(
-              enabled: comics.take(i).every((c) => c.key != comics[i].key),
-              child: WorkCoverHeroFrame(
-                heroTag: comicCoverHeroTag(comics[i]),
-                cornerRadius: workCoverCompactRadius,
-                child: ComicImage(
-                  source: comics[i].source,
-                  page: comics[i].coverPage,
-                  fit: BoxFit.contain,
-                ),
+        itemBuilder: (context, i) => Card(
+          margin: const EdgeInsets.symmetric(vertical: 6),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => openComic(context, comics[i]),
+            onLongPress: onLongPress == null
+                ? null
+                : () => onLongPress!(comics[i]),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 80,
+                    height: 120,
+                    child: HeroMode(
+                      enabled: comics
+                          .take(i)
+                          .every((c) => c.key != comics[i].key),
+                      child: WorkCoverHeroFrame(
+                        heroTag: comicCoverHeroTag(comics[i]),
+                        cornerRadius: workCoverCompactRadius,
+                        child: ComicImage(
+                          source: comics[i].source,
+                          page: comics[i].coverPage,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          comics[i].title,
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          comics[i].source,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-          title: Text(
-            comics[i].title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          subtitle: Text(comics[i].source),
-          onTap: () => openComic(context, comics[i]),
-          onLongPress: onLongPress == null
-              ? null
-              : () => onLongPress!(comics[i]),
         ),
       );
     }
-    return GridView.builder(
+    return MasonryGridView.builder(
       controller: controller,
       padding: padding,
       itemCount: comics.length,
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+      gridDelegate: const SliverSimpleGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 190,
-        childAspectRatio: .58,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
       ),
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
       itemBuilder: (context, i) => Card(
         clipBehavior: Clip.antiAlias,
         margin: EdgeInsets.zero,
@@ -211,8 +247,10 @@ class ComicGrid extends ConsumerWidget {
               : () => onLongPress!(comics[i]),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
+              AspectRatio(
+                aspectRatio: 2 / 3,
                 child: HeroMode(
                   enabled: comics.take(i).every((c) => c.key != comics[i].key),
                   child: WorkCoverHeroFrame(
@@ -221,7 +259,7 @@ class ComicGrid extends ConsumerWidget {
                     child: ComicImage(
                       source: comics[i].source,
                       page: comics[i].coverPage,
-                      fit: BoxFit.contain,
+                      fit: BoxFit.cover,
                     ),
                   ),
                 ),
@@ -230,11 +268,10 @@ class ComicGrid extends ConsumerWidget {
                 padding: const EdgeInsets.all(8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       comics[i].title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.labelLarge,
                     ),
                     Text(

@@ -25,6 +25,7 @@ import 'playlists_screen.dart';
 import 'history_screen.dart';
 import '../widgets/sort_dialog.dart';
 import '../widgets/global_audio_player_wrapper.dart';
+import '../widgets/app_bottom_dock_transition.dart';
 import '../models/sort_options.dart';
 import '../utils/subtitle_filter.dart';
 import '../utils/system_ui_style.dart';
@@ -211,14 +212,13 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   }
 
   void _openSearch({required SearchScope scope, String? progressFilter}) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (context) => GlobalAudioPlayerWrapper(
-          child: SearchScreen(
-            showBackButton: true,
-            scope: scope,
-            progressFilter: progressFilter,
-          ),
+    pushWorkDetailRoute(
+      context,
+      builder: (_) => GlobalAudioPlayerWrapper.workDetails(
+        child: SearchScreen(
+          showBackButton: true,
+          scope: scope,
+          progressFilter: progressFilter,
         ),
       ),
     );

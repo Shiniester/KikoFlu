@@ -28,12 +28,14 @@ class ComicSearchScreen extends ConsumerStatefulWidget {
     this.libraryTab,
     this.onlineFavorites = false,
     this.category,
+    this.dockHandoff = false,
   });
   final String? initialSource;
   final String initialQuery;
   final int? libraryTab;
   final bool onlineFavorites;
   final ComicCategory? category;
+  final bool dockHandoff;
   @override
   ConsumerState<ComicSearchScreen> createState() => _ComicSearchScreenState();
 }
@@ -295,145 +297,145 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
           ? _results.values.toList()
           : _targets.map((s) => _results[s.key] ?? <Comic>[]).toList(),
     );
-    return GlobalAudioPlayerWrapper(
-      child: Scaffold(
-        appBar: AppBar(title: Text(widget.category?.title ?? s.search)),
-        body: Column(
-          children: [
-            if (widget.category == null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                child: TextField(
-                  controller: _query,
-                  textInputAction: TextInputAction.search,
-                  onSubmitted: (_) => _search(),
-                  decoration: InputDecoration(
-                    hintText: s.search,
-                    prefixIcon: const Icon(Icons.search),
-                    suffixIcon: IconButton(
-                      onPressed: () => _search(),
-                      icon: const Icon(Icons.arrow_forward),
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                    ),
+    final screen = Scaffold(
+      appBar: AppBar(title: Text(widget.category?.title ?? s.search)),
+      body: Column(
+        children: [
+          if (widget.category == null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: TextField(
+                controller: _query,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) => _search(),
+                decoration: InputDecoration(
+                  hintText: s.search,
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: IconButton(
+                    onPressed: () => _search(),
+                    icon: const Icon(Icons.arrow_forward),
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
                   ),
                 ),
               ),
-            if (widget.libraryTab == null && widget.category == null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          for (final mode in ComicSearchMode.values)
-                            Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: ChoiceChip(
-                                label: Text(
-                                  [
-                                    s.comicSearchSingle,
-                                    s.comicSearchGrouped,
-                                    s.comicSearchMerged,
-                                  ][mode.index],
-                                ),
-                                selected: _mode == mode,
-                                onSelected: (_) {
-                                  setState(() => _mode = mode);
-                                  if (_submitted) _search();
-                                },
+            ),
+          if (widget.libraryTab == null && widget.category == null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final mode in ComicSearchMode.values)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(
+                              label: Text(
+                                [
+                                  s.comicSearchSingle,
+                                  s.comicSearchGrouped,
+                                  s.comicSearchMerged,
+                                ][mode.index],
                               ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          for (final source in sources)
-                            Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: ChoiceChip(
-                                label: Text(source.name),
-                                selected:
-                                    _mode != ComicSearchMode.single ||
-                                    source.key == _source,
-                                onSelected: _mode != ComicSearchMode.single
-                                    ? null
-                                    : (_) {
-                                        setState(() {
-                                          _source = source.key;
-                                          _sort = null;
-                                        });
-                                        if (_submitted) _search();
-                                      },
-                              ),
-                            ),
-                          if (_mode == ComicSearchMode.single &&
-                              (selected?.searchSorts.isNotEmpty ?? false))
-                            PopupMenuButton<String>(
-                              tooltip: s.comicSort,
-                              icon: const Icon(Icons.sort),
-                              itemBuilder: (_) => selected!.searchSorts
-                                  .map(
-                                    (sort) => PopupMenuItem(
-                                      value: sort,
-                                      child: Text(_sortLabel(sort)),
-                                    ),
-                                  )
-                                  .toList(),
-                              onSelected: (sort) {
-                                setState(() => _sort = sort);
+                              selected: _mode == mode,
+                              onSelected: (_) {
+                                setState(() => _mode = mode);
                                 if (_submitted) _search();
                               },
                             ),
-                        ],
-                      ),
+                          ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-            if (_pending.isNotEmpty) const LinearProgressIndicator(),
-            if (_errors.isNotEmpty &&
-                _mode != ComicSearchMode.grouped &&
-                items.isNotEmpty)
-              MaterialBanner(
-                content: Text(
-                  _errors.entries.map((e) => '${e.key}: ${e.value}').join('\n'),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () =>
-                        _search(retrySources: _errors.keys.toSet()),
-                    child: Text(s.retry),
+                  ),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        for (final source in sources)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(
+                              label: Text(source.name),
+                              selected:
+                                  _mode != ComicSearchMode.single ||
+                                  source.key == _source,
+                              onSelected: _mode != ComicSearchMode.single
+                                  ? null
+                                  : (_) {
+                                      setState(() {
+                                        _source = source.key;
+                                        _sort = null;
+                                      });
+                                      if (_submitted) _search();
+                                    },
+                            ),
+                          ),
+                        if (_mode == ComicSearchMode.single &&
+                            (selected?.searchSorts.isNotEmpty ?? false))
+                          PopupMenuButton<String>(
+                            tooltip: s.comicSort,
+                            icon: const Icon(Icons.sort),
+                            itemBuilder: (_) => selected!.searchSorts
+                                .map(
+                                  (sort) => PopupMenuItem(
+                                    value: sort,
+                                    child: Text(_sortLabel(sort)),
+                                  ),
+                                )
+                                .toList(),
+                            onSelected: (sort) {
+                              setState(() => _sort = sort);
+                              if (_submitted) _search();
+                            },
+                          ),
+                      ],
+                    ),
                   ),
                 ],
               ),
-            Expanded(
-              child: !_submitted
-                  ? const SizedBox.shrink()
-                  : _mode == ComicSearchMode.grouped
-                  ? ListView(
-                      controller: _scroll,
-                      padding: const EdgeInsets.all(16),
-                      children: _targets.map(_group).toList(),
-                    )
-                  : _errors.isNotEmpty && items.isEmpty && _pending.isEmpty
-                  ? ComicErrorView(
-                      error: _errors.values.first,
-                      retry: () => _search(),
-                    )
-                  : ComicGrid(comics: items, controller: _scroll),
             ),
-          ],
-        ),
+          if (_pending.isNotEmpty) const LinearProgressIndicator(),
+          if (_errors.isNotEmpty &&
+              _mode != ComicSearchMode.grouped &&
+              items.isNotEmpty)
+            MaterialBanner(
+              content: Text(
+                _errors.entries.map((e) => '${e.key}: ${e.value}').join('\n'),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => _search(retrySources: _errors.keys.toSet()),
+                  child: Text(s.retry),
+                ),
+              ],
+            ),
+          Expanded(
+            child: !_submitted
+                ? const SizedBox.shrink()
+                : _mode == ComicSearchMode.grouped
+                ? ListView(
+                    controller: _scroll,
+                    padding: const EdgeInsets.all(16),
+                    children: _targets.map(_group).toList(),
+                  )
+                : _errors.isNotEmpty && items.isEmpty && _pending.isEmpty
+                ? ComicErrorView(
+                    error: _errors.values.first,
+                    retry: () => _search(),
+                  )
+                : ComicGrid(comics: items, controller: _scroll),
+          ),
+        ],
       ),
     );
+    return widget.dockHandoff
+        ? GlobalAudioPlayerWrapper.workDetails(child: screen)
+        : GlobalAudioPlayerWrapper(child: screen);
   }
 }
 

@@ -15,7 +15,8 @@ import 'package:kikoeru_flutter/src/screens/search_screen.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:kikoeru_flutter/src/providers/auth_provider.dart' show AuthNotifier, AuthState, authProvider;
+import 'package:kikoeru_flutter/src/providers/auth_provider.dart'
+    show AuthNotifier, AuthState, authProvider;
 import 'package:kikoeru_flutter/src/models/user.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/models/history_record.dart';
@@ -29,6 +30,13 @@ import 'package:kikoeru_flutter/src/screens/local_downloads_screen.dart';
 import 'package:kikoeru_flutter/src/screens/subtitle_library_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/global_audio_player_wrapper.dart';
 import 'package:kikoeru_flutter/src/widgets/floating_feed_toolbar.dart';
+import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
+import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
+import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
+import 'package:kikoeru_flutter/src/models/audio_track.dart';
+import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
+import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
+import 'package:just_audio/just_audio.dart';
 
 class _Reviews extends MyReviewsNotifier {
   _Reviews(Ref ref) : super(KikoeruApiService(), ref);
@@ -111,6 +119,7 @@ Future<void> _pumpAudioScreen(
   ValueNotifier<bool> reduced, {
   Widget screen = const AudioScreen(),
   bool settle = true,
+  AudioTrack? track,
 }) async {
   final app = ProviderScope(
     overrides: [
@@ -123,7 +132,22 @@ Future<void> _pumpAudioScreen(
         (ref) => Stream.value(const DownloadTaskSummary.empty()),
       ),
       downloadTaskIdsProvider.overrideWith((ref) => Stream.value(<String>[])),
-      currentTrackProvider.overrideWith((ref) => Stream.value(null)),
+      currentTrackProvider.overrideWith((ref) => Stream.value(track)),
+      if (track != null) ...[
+        isTrackLoadingProvider.overrideWith((ref) => Stream.value(false)),
+        positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
+        durationProvider.overrideWith(
+          (ref) => Stream.value(const Duration(minutes: 4)),
+        ),
+        playerStateProvider.overrideWith(
+          (ref) => Stream.value(PlayerState(false, ProcessingState.ready)),
+        ),
+        queueProvider.overrideWith((ref) => Stream.value([track])),
+        manualSkipAvailabilityProvider.overrideWith(
+          (ref) => Stream.value(ManualSkipAvailability.unavailable),
+        ),
+        lyricAutoLoaderProvider.overrideWith((ref) {}),
+      ],
     ],
     child: MaterialApp(
       localizationsDelegates: S.localizationsDelegates,
@@ -153,9 +177,14 @@ PageController _pages(WidgetTester tester) => tester
 
 class _AuthenticatedAudio extends AuthNotifier {
   _AuthenticatedAudio() : super(KikoeruApiService()) {
-    state = const AuthState(currentUser: User(name: 'listener'), host: 'https://api.asmr-200.com', isLoggedIn: true);
+    state = const AuthState(
+      currentUser: User(name: 'listener'),
+      host: 'https://api.asmr-200.com',
+      isLoggedIn: true,
+    );
   }
-  @override Future<void> enterAnonymous({String? host}) async {}
+  @override
+  Future<void> enterAnonymous({String? host}) async {}
 }
 
 void main() {
@@ -168,6 +197,63 @@ void main() {
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
     );
+  });
+
+  testWidgets('audio search hands off the app tab bar and restores it', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final reduced = ValueNotifier(false);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(
+      tester,
+      reduced,
+      screen: AppBottomDockTransitionScope(
+        child: Scaffold(
+          body: const AudioScreen(),
+          bottomNavigationBar: AppBottomDock(
+            selectedIndex: 0,
+            onDestinationSelected: (_) {},
+            miniPlayer: const MiniPlayer(),
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.library_music),
+                label: 'Audio',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.menu_book),
+                label: 'Comics',
+              ),
+            ],
+          ),
+        ),
+      ),
+      track: const AudioTrack(
+        id: 'audio-search-track',
+        title: 'Audio',
+        url: 'https://example.invalid/audio.mp3',
+      ),
+    );
+    await tester.tap(find.byTooltip('Search online works'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+    expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.byType(SearchScreen), findsOneWidget);
+    expect(find.byType(MiniPlayer), findsOneWidget);
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+    expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(find.byType(SearchScreen), findsNothing);
+    expect(find.byType(MiniPlayer), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   for (final disableAnimations in [false, true]) {

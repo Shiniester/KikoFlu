@@ -3,6 +3,7 @@ import 'package:kikoeru_flutter/src/comics/ui/comic_widgets.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/metadata_search_chip.dart';
+import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_title_header.dart';
 import 'package:kikoeru_flutter/src/services/log_service.dart';
 import 'dart:async';
@@ -48,6 +49,7 @@ class _Source extends ComicSource {
   _Source([this.sourceKey = 'fixture']) : super(ComicHttp(sourceKey));
   final String sourceKey;
   bool loggedIn = false, favoriteFails = false;
+  bool commentsEnabled = false;
   int searches = 0, favoriteWrites = 0;
   int detailRequests = 0, chapterRequests = 0;
   Completer<Comic>? detailGate;
@@ -55,6 +57,12 @@ class _Source extends ComicSource {
   bool detailFails = false, chaptersFail = false;
   @override
   bool get isLoggedIn => loggedIn;
+  @override
+  bool get hasComments => commentsEnabled;
+  @override
+  Future<List<ComicComment>> comments(Comic comic) async => const [
+    ComicComment('Reader', 'Existing comment'),
+  ];
   @override
   Future<void> setFavorite(Comic comic, bool value) async {
     favoriteWrites++;
@@ -388,6 +396,75 @@ void main() {
     expect(find.byType(FloatingActionButton), findsNothing);
   });
 
+  testWidgets(
+    'comic grid cards hug covers and grow with existing title content',
+    (tester) async {
+      await StorageService.setBool('comic_grid', true);
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      const longTitle = Comic(
+        source: 'fixture',
+        id: 'long',
+        title: 'A deliberately long comic title that wraps over several lines',
+        cover: 'second-cover',
+      );
+      await pump(
+        tester,
+        const Scaffold(body: ComicGrid(comics: [_comic, longTitle])),
+        _Library(),
+        _Source(),
+      );
+      final cards = find.byType(Card);
+      expect(cards, findsNWidgets(2));
+      final first = tester.getRect(cards.at(0));
+      final second = tester.getRect(cards.at(1));
+      expect(first.width, second.width);
+      expect(second.height, greaterThan(first.height));
+      final cover = tester.getRect(find.byType(ComicImage).first);
+      expect((cover.top - first.top).abs(), lessThan(1));
+      expect((cover.left - first.left).abs(), lessThan(1));
+      expect(
+        tester.widget<ComicImage>(find.byType(ComicImage).first).fit,
+        BoxFit.cover,
+      );
+      expect(find.text('Fixture tag'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('comic list card keeps its rounded cover inside the card', (
+    tester,
+  ) async {
+    await StorageService.setBool('comic_grid', false);
+    await pump(
+      tester,
+      const Scaffold(body: ComicGrid(comics: [_comic])),
+      _Library(),
+      _Source(),
+    );
+    final card = tester.getRect(find.byType(Card));
+    final cover = tester.getRect(find.byType(ComicImage));
+    expect(cover.width, 80);
+    expect(cover.height, 120);
+    expect(
+      tester.widget<ComicImage>(find.byType(ComicImage)).fit,
+      BoxFit.cover,
+    );
+    expect(card.contains(cover.topLeft), isTrue);
+    expect(card.contains(cover.bottomRight), isTrue);
+    final clip = tester.widget<ClipRRect>(
+      find
+          .ancestor(
+            of: find.byType(ComicImage),
+            matching: find.byType(ClipRRect),
+          )
+          .first,
+    );
+    expect(clip.borderRadius, BorderRadius.circular(workCoverCompactRadius));
+    expect(tester.takeException(), isNull);
+  });
+
   for (final size in [const Size(320, 640), const Size(1000, 600)]) {
     testWidgets('comic details keep toolbar actions and shared tags at $size', (
       tester,
@@ -444,6 +521,33 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('comments sit between tags and chapters and remain read only', (
+    tester,
+  ) async {
+    final source = _Source()..commentsEnabled = true;
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: _comic),
+      _Library(),
+      source,
+    );
+    final labels = S.of(tester.element(find.byType(ComicDetailScreen)));
+    final comments = find.text(labels.comicComments);
+    expect(
+      tester.getTopLeft(find.text('Fixture tag')).dy,
+      lessThan(tester.getTopLeft(comments).dy),
+    );
+    expect(
+      tester.getTopLeft(comments).dy,
+      lessThan(tester.getTopLeft(find.text(labels.comicChapters)).dy),
+    );
+    await tester.ensureVisible(comments);
+    await tester.tap(comments);
+    await tester.pumpAndSettle();
+    expect(find.text('Existing comment'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
+  });
 
   testWidgets('detail cover scales when a window is resized', (tester) async {
     tester.view.physicalSize = const Size(320, 640);
@@ -806,6 +910,86 @@ void main() {
     image.complete(_png);
   });
 
+  testWidgets('loaded comic cover stays visible throughout Hero push and pop', (
+    tester,
+  ) async {
+    var loads = 0;
+    await pump(
+      tester,
+      const Scaffold(body: ComicGrid(comics: [_comic])),
+      _Library(),
+      _Source(),
+      loadImage: (_) {
+        loads++;
+        return Future.value(_png);
+      },
+    );
+    expect(loads, 1);
+    await tester.tap(find.text('Fixture book'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(loads, 1);
+    expect(find.byType(ComicImage), findsWidgets);
+    expect(
+      find.descendant(
+        of: find.byType(ComicImage),
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsNothing,
+    );
+    expect(find.byType(Image), findsWidgets);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(loads, 1);
+    expect(find.byType(ComicImage), findsWidgets);
+    expect(
+      find.descendant(
+        of: find.byType(ComicImage),
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsNothing,
+    );
+    expect(find.byType(Image), findsWidgets);
+  });
+
+  testWidgets('pending comic cover keeps one request during Hero flight', (
+    tester,
+  ) async {
+    final pending = Completer<Uint8List>();
+    var loads = 0;
+    await pump(
+      tester,
+      const Scaffold(body: ComicGrid(comics: [_comic])),
+      _Library(),
+      _Source(),
+      loadImage: (_) {
+        loads++;
+        return pending.future;
+      },
+      settle: false,
+    );
+    expect(loads, 1);
+    await tester.tap(find.text('Fixture book'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(loads, 1);
+    pending.complete(_png);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byType(ComicImage), findsWidgets);
+    expect(
+      find.descendant(
+        of: find.byType(ComicImage),
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsNothing,
+    );
+    expect(find.byType(Image), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'comic detail route hands off both dock parts and restores them on return',
     (tester) async {
@@ -874,6 +1058,67 @@ void main() {
       expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
       await tester.pumpAndSettle();
       expect(tester.getRect(find.byType(MiniPlayer)), sourceRect);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'comic search hands off the Dock and Mini Player on both directions',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await pump(
+        tester,
+        AppBottomDockTransitionScope(
+          child: Scaffold(
+            body: const ComicScreen(),
+            bottomNavigationBar: AppBottomDock(
+              selectedIndex: 1,
+              onDestinationSelected: (_) {},
+              miniPlayer: const MiniPlayer(),
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.library_music),
+                  label: 'Audio',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.menu_book),
+                  label: 'Comics',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.settings),
+                  label: 'Settings',
+                ),
+              ],
+            ),
+          ),
+        ),
+        _Library(),
+        _Source(),
+        track: const AudioTrack(
+          id: 'search-track',
+          title: 'Audio',
+          url: 'https://example.invalid/audio.mp3',
+        ),
+      );
+      await tester.tap(find.byTooltip('Search').first);
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+      await tester.pumpAndSettle();
+      expect(find.byType(ComicSearchScreen), findsOneWidget);
+      expect(find.byType(MiniPlayer), findsOneWidget);
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+      await tester.pumpAndSettle();
+      expect(find.byType(ComicSearchScreen), findsNothing);
+      expect(find.byType(MiniPlayer), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
