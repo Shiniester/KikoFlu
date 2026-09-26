@@ -414,66 +414,66 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
       );
     }
     final top = widget.toolbarTop + 56;
+    final footer = Padding(
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_errors.isNotEmpty && _items.isNotEmpty)
+            MaterialBanner(
+              content: Text(
+                _errors.entries
+                    .map((entry) {
+                      final source = ref
+                          .read(comicSourcesProvider)
+                          .where((source) => source.key == entry.key)
+                          .firstOrNull;
+                      return '${source?.name ?? entry.key}: ${entry.value}';
+                    })
+                    .join('\n'),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: _loading
+                      ? null
+                      : () => _loadPage(_pendingPage, retryFailures: true),
+                  child: Text(s.retry),
+                ),
+              ],
+            ),
+          PaginationBar(
+            currentPage: _page,
+            pageSize: pageSize,
+            totalCount: null,
+            hasMore: _hasMore && _errors.isEmpty,
+            isLoading: _loading,
+            onPreviousPage: _page > 1 ? () => _loadPage(_page - 1) : null,
+            onNextPage: _hasMore && _errors.isEmpty
+                ? () => _loadPage(_page + 1)
+                : null,
+          ),
+        ],
+      ),
+    );
     return Stack(
       children: [
         Positioned.fill(
-          child: Column(
-            children: [
-              Expanded(
-                child: RefreshIndicator(
-                  onRefresh: () => _loadPage(1, reset: true, clearItems: true),
-                  child: ComicGrid(
-                    comics: _items,
-                    controller: _scroll,
-                    padding: EdgeInsets.fromLTRB(
-                      FloatingToolbarLayout.horizontalPadding(context),
-                      top,
-                      FloatingToolbarLayout.horizontalPadding(context),
-                      16,
-                    ),
-                    onLongPress: widget.tab == 1 || widget.tab == 2
-                        ? _removeFromLibrary
-                        : null,
-                  ),
-                ),
+          child: RefreshIndicator(
+            onRefresh: () => _loadPage(1, reset: true, clearItems: true),
+            child: ComicGrid(
+              comics: _items,
+              controller: _scroll,
+              padding: EdgeInsets.fromLTRB(
+                FloatingToolbarLayout.horizontalPadding(context),
+                top,
+                FloatingToolbarLayout.horizontalPadding(context),
+                16,
               ),
-              if (_errors.isNotEmpty && _items.isNotEmpty)
-                MaterialBanner(
-                  content: Text(
-                    _errors.entries
-                        .map((entry) {
-                          final source = ref
-                              .read(comicSourcesProvider)
-                              .where((source) => source.key == entry.key)
-                              .firstOrNull;
-                          return '${source?.name ?? entry.key}: ${entry.value}';
-                        })
-                        .join('\n'),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: _loading
-                          ? null
-                          : () => _loadPage(_pendingPage, retryFailures: true),
-                      child: Text(s.retry),
-                    ),
-                  ],
-                ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-                child: PaginationBar(
-                  currentPage: _page,
-                  pageSize: pageSize,
-                  totalCount: null,
-                  hasMore: _hasMore && _errors.isEmpty,
-                  isLoading: _loading,
-                  onPreviousPage: _page > 1 ? () => _loadPage(_page - 1) : null,
-                  onNextPage: _hasMore && _errors.isEmpty
-                      ? () => _loadPage(_page + 1)
-                      : null,
-                ),
-              ),
-            ],
+              onLongPress: widget.tab == 1 || widget.tab == 2
+                  ? _removeFromLibrary
+                  : null,
+              footer: footer,
+            ),
           ),
         ),
         if (_loading && _items.isEmpty)

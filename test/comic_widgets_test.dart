@@ -38,6 +38,7 @@ import 'package:kikoeru_flutter/src/comics/ui/comic_detail_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_reader_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_search_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
+import 'package:kikoeru_flutter/src/widgets/settings_option_dialog.dart';
 
 const _comic = Comic(
   source: 'fixture',
@@ -136,6 +137,27 @@ class _PaginatedSource extends _Source {
     cursors.add(cursor);
     return cursor == null
         ? ComicResult(firstPage, next: 'second-page')
+        : ComicResult(secondPage);
+  }
+}
+
+class _PaginatedSearchSource extends _Source {
+  _PaginatedSearchSource(this.firstPage, this.secondPage);
+
+  final List<Comic> firstPage;
+  final List<Comic> secondPage;
+  final cursors = <String?>[];
+
+  @override
+  Future<ComicResult> search(
+    String query, {
+    String? cursor,
+    String? sort,
+  }) async {
+    searches++;
+    cursors.add(cursor);
+    return cursor == null
+        ? ComicResult(firstPage, next: 'search-next')
         : ComicResult(secondPage);
   }
 }
@@ -708,6 +730,18 @@ void main() {
     await tester.ensureVisible(pageSize);
     await tester.tap(pageSize);
     await tester.pumpAndSettle();
+    expect(find.byType(CommonOptionDialog<int>), findsOneWidget);
+    expect(find.text('40'), findsOneWidget);
+    expect(find.text('20'), findsOneWidget);
+    expect(find.text('60'), findsOneWidget);
+    expect(find.text('100'), findsOneWidget);
+    final selectedOption = tester.widget<RadioListTile<int>>(
+      find.ancestor(
+        of: find.text('40'),
+        matching: find.byType(RadioListTile<int>),
+      ),
+    );
+    expect(selectedOption.selected, isTrue);
     await tester.tap(find.text('60').last);
     await tester.pumpAndSettle();
 
@@ -883,10 +917,25 @@ void main() {
         final restoredCard = tester.getRect(firstCard);
         expect(restoredCard.top, closeTo(firstCardContentTop, 3));
         expect(restoredCard.left, closeTo(firstCardLeft, 1));
-        await tester.tap(find.text('Next'));
+        final next = find.text('Next');
+        expect(next.hitTestable(), findsNothing);
+        await tester.scrollUntilVisible(
+          next.hitTestable(),
+          400,
+          scrollable: scrollable,
+        );
+        expect(next.hitTestable(), findsOneWidget);
+        await tester.tap(next);
         await tester.pumpAndSettle();
         expect(source.cursors, [null, 'second-page']);
-        await tester.tap(find.text('Previous'));
+        final previous = find.text('Previous');
+        expect(previous.hitTestable(), findsNothing);
+        await tester.scrollUntilVisible(
+          previous.hitTestable(),
+          400,
+          scrollable: scrollable,
+        );
+        await tester.tap(previous);
         await tester.pumpAndSettle();
         expect(source.cursors, [null, 'second-page']);
         expect(find.text('First 0'), findsOneWidget);
@@ -928,35 +977,112 @@ void main() {
       source,
     );
 
-    await tester.tap(find.text('Next'));
-    await tester.pumpAndSettle();
     final pagination = find.byType(PaginationBar);
+    final next = find.text('Next');
+    final grid = find.byType(ComicGrid);
+    final scrollable = find.descendant(
+      of: grid,
+      matching: find.byType(Scrollable),
+    );
+    expect(next.hitTestable(), findsNothing);
+    await tester.scrollUntilVisible(
+      next.hitTestable(),
+      400,
+      scrollable: scrollable,
+    );
+    expect(next.hitTestable(), findsOneWidget);
+    await tester.tap(next);
+    await tester.pumpAndSettle();
+    expect(find.text('Previous').hitTestable(), findsNothing);
+    final position = tester.state<ScrollableState>(scrollable).position;
+    expect(position.pixels, closeTo(0, 0.1));
+
+    final pageTwo = find.descendant(of: pagination, matching: find.text('2'));
+    await tester.scrollUntilVisible(
+      pageTwo.hitTestable(),
+      400,
+      scrollable: scrollable,
+    );
     expect(
       find.descendant(of: pagination, matching: find.text('2')),
       findsOneWidget,
     );
     expect(source.cursors, [null, 'second-page']);
 
-    final grid = find.byType(ComicGrid);
-    final scrollable = find.descendant(
-      of: grid,
-      matching: find.byType(Scrollable),
-    );
-    final position = tester.state<ScrollableState>(scrollable).position;
-    position.jumpTo(position.maxScrollExtent.clamp(1, 300));
+    position.jumpTo(position.pixels.clamp(1, 300));
     await tester.pumpAndSettle();
     expect(position.pixels, greaterThan(0));
 
     container.read(comicPageSizeProvider.notifier).setPageSize(20);
     await tester.pumpAndSettle();
 
-    expect(
-      find.descendant(of: pagination, matching: find.text('1')),
-      findsOneWidget,
-    );
-    expect(find.text('Size first 0'), findsOneWidget);
-    expect(source.cursors, [null, 'second-page', null]);
     expect(position.pixels, closeTo(0, 0.1));
+    expect(find.text('Size first 0'), findsOneWidget);
+    final pageOne = find.descendant(of: pagination, matching: find.text('1'));
+    await tester.scrollUntilVisible(
+      pageOne.hitTestable(),
+      400,
+      scrollable: scrollable,
+    );
+    expect(pageOne, findsOneWidget);
+    expect(source.cursors, [null, 'second-page', null]);
+  });
+
+  testWidgets('full comic search places list pagination at the scroll end', (
+    tester,
+  ) async {
+    await StorageService.setString(
+      ComicLayoutNotifier.preferenceKey,
+      LayoutType.list.name,
+    );
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final source = _PaginatedSearchSource(
+      List.generate(
+        48,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'search-first-$i',
+          title: 'Search first $i',
+          cover: 'search-first-cover-$i',
+        ),
+      ),
+      List.generate(
+        8,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'search-second-$i',
+          title: 'Search second $i',
+          cover: 'search-second-cover-$i',
+        ),
+      ),
+    );
+    await pump(
+      tester,
+      const ComicSearchScreen(initialSource: 'fixture', initialQuery: 'book'),
+      _Library(),
+      source,
+    );
+
+    final next = find.text('Next');
+    final grid = find.byType(ComicGrid);
+    final scrollable = find.descendant(
+      of: grid,
+      matching: find.byType(Scrollable),
+    );
+    expect(next.hitTestable(), findsNothing);
+    await tester.scrollUntilVisible(
+      next.hitTestable(),
+      400,
+      scrollable: scrollable,
+    );
+    expect(next.hitTestable(), findsOneWidget);
+    await tester.tap(next);
+    await tester.pumpAndSettle();
+
+    expect(source.cursors, [null, 'search-next']);
+    expect(find.text('Previous').hitTestable(), findsNothing);
   });
 
   testWidgets(

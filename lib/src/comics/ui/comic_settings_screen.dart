@@ -6,6 +6,8 @@ import '../../../l10n/app_localizations.dart';
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../services/storage_service.dart';
 import '../../widgets/settings_section.dart';
+import '../../widgets/radio_option_group.dart';
+import '../../widgets/settings_option_dialog.dart';
 import '../../utils/snackbar_util.dart';
 import '../comic_models.dart';
 import '../comic_providers.dart';
@@ -152,26 +154,25 @@ class ComicSettingsScreen extends ConsumerWidget {
                 icon: Icons.format_list_numbered,
                 title: s.pageSizeSettings,
                 subtitle: s.pageSizeCurrent(pageSize),
-                onTap: () async {
-                  final selected = await showDialog<int>(
-                    context: context,
-                    builder: (context) => SimpleDialog(
-                      title: Text(s.pageSizeSettings),
-                      children: [
-                        for (final size in ComicPageSizeNotifier.options)
-                          SimpleDialogOption(
-                            onPressed: () => Navigator.pop(context, size),
-                            child: Text('$size'),
-                          ),
-                      ],
-                    ),
-                  );
-                  if (selected != null) {
-                    ref
-                        .read(comicPageSizeProvider.notifier)
-                        .setPageSize(selected);
-                  }
-                },
+                trailingIconSize: 16,
+                onTap: () => showDialog<void>(
+                  context: context,
+                  builder: (dialogContext) => CommonOptionDialog<int>(
+                    title: S.of(dialogContext).pageSizeSettings,
+                    icon: Icons.format_list_numbered,
+                    value: pageSize,
+                    options: [
+                      for (final size in ComicPageSizeNotifier.options)
+                        RadioOption(value: size, title: Text('$size')),
+                    ],
+                    onChanged: (size) {
+                      ref
+                          .read(comicPageSizeProvider.notifier)
+                          .setPageSize(size);
+                      return true;
+                    },
+                  ),
+                ),
               ),
               SettingsNavigationTile(
                 icon: Icons.grid_view,

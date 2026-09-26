@@ -510,62 +510,65 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                     padding: const EdgeInsets.all(16),
                     children: _targets.map(_group).toList(),
                   )
-                : Column(
-                    children: [
-                      Expanded(
-                        child: _pageErrors.isNotEmpty && items.isEmpty
-                            ? ComicErrorView(
-                                error: _pageErrors.values.first,
-                                retry: () => _loadPage(
-                                  _pendingPage,
-                                  retryFailures: _buffer != null,
-                                ),
-                              )
-                            : ComicGrid(comics: items, controller: _scroll),
-                      ),
-                      if (_pageErrors.isNotEmpty && items.isNotEmpty)
-                        MaterialBanner(
-                          content: Text(
-                            _pageErrors.entries
-                                .map((entry) {
-                                  final source = sources
-                                      .where(
-                                        (source) => source.key == entry.key,
-                                      )
-                                      .firstOrNull;
-                                  return '${source?.name ?? entry.key}: ${entry.value}';
-                                })
-                                .join('\n'),
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: _pageLoading
-                                  ? null
-                                  : () => _loadPage(
-                                      _pendingPage,
-                                      retryFailures: true,
-                                    ),
-                              child: Text(s.retry),
+                : ComicGrid(
+                    comics: items,
+                    controller: _scroll,
+                    emptyContent: _pageErrors.isNotEmpty && items.isEmpty
+                        ? ComicErrorView(
+                            error: _pageErrors.values.first,
+                            retry: () => _loadPage(
+                              _pendingPage,
+                              retryFailures: _buffer != null,
                             ),
-                          ],
-                        ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-                        child: PaginationBar(
-                          currentPage: _page,
-                          pageSize: pageSize,
-                          totalCount: null,
-                          hasMore: _hasMore && _pageErrors.isEmpty,
-                          isLoading: _pageLoading,
-                          onPreviousPage: _page > 1
-                              ? () => _loadPage(_page - 1)
-                              : null,
-                          onNextPage: _hasMore && _pageErrors.isEmpty
-                              ? () => _loadPage(_page + 1)
-                              : null,
-                        ),
+                          )
+                        : null,
+                    footer: Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_pageErrors.isNotEmpty && items.isNotEmpty)
+                            MaterialBanner(
+                              content: Text(
+                                _pageErrors.entries
+                                    .map((entry) {
+                                      final source = sources
+                                          .where(
+                                            (source) => source.key == entry.key,
+                                          )
+                                          .firstOrNull;
+                                      return '${source?.name ?? entry.key}: ${entry.value}';
+                                    })
+                                    .join('\n'),
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: _pageLoading
+                                      ? null
+                                      : () => _loadPage(
+                                          _pendingPage,
+                                          retryFailures: true,
+                                        ),
+                                  child: Text(s.retry),
+                                ),
+                              ],
+                            ),
+                          PaginationBar(
+                            currentPage: _page,
+                            pageSize: pageSize,
+                            totalCount: null,
+                            hasMore: _hasMore && _pageErrors.isEmpty,
+                            isLoading: _pageLoading,
+                            onPreviousPage: _page > 1
+                                ? () => _loadPage(_page - 1)
+                                : null,
+                            onNextPage: _hasMore && _pageErrors.isEmpty
+                                ? () => _loadPage(_page + 1)
+                                : null,
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
           ),
         ],
