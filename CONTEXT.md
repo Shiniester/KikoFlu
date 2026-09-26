@@ -136,6 +136,12 @@ The first Comic Screen tab, showing recommendations and categories for the
 selected enabled Comic Source.
 _Avoid_: Comic Screen, source library
 
+**Comic Collection Layout (漫画集合布局)**:
+  The card presentation shared by the Home, Favorites, History, and Downloaded
+  tabs: big grid, small grid with proportion-preserving covers in a denser
+  masonry layout, or list. The small grid is the compact-cover view.
+_Avoid_: Comic Reading Mode
+
 **Comic Source (漫画源)**:
 One built-in provider of comic metadata, chapter images and optional account
 features. Comic identity is sourceKey + comicId; chapter identity adds chapterId.

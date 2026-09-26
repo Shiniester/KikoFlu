@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/storage_service.dart';
+import '../providers/works_provider.dart' show LayoutType;
 import 'comic_downloads.dart';
 import 'comic_http.dart';
 import 'comic_library.dart';
@@ -53,9 +56,42 @@ final comicReadingModeProvider = StateProvider<ComicReadingMode>((ref) {
 final comicSelectedSourceProvider = StateProvider<String>(
   (ref) => StorageService.getString('comic_selected_source') ?? 'picacg',
 );
-final comicGridProvider = StateProvider<bool>(
-  (ref) => StorageService.getBool('comic_grid') ?? true,
-);
+final comicLayoutProvider =
+    StateNotifierProvider<ComicLayoutNotifier, LayoutType>(
+      (ref) => ComicLayoutNotifier(),
+    );
+
+class ComicLayoutNotifier extends StateNotifier<LayoutType> {
+  ComicLayoutNotifier() : super(_initialLayout());
+
+  static const preferenceKey = 'comic_layout_type';
+  static const legacyPreferenceKey = 'comic_grid';
+
+  static LayoutType _initialLayout() {
+    final saved = StorageService.getString(preferenceKey);
+    for (final layout in LayoutType.values) {
+      if (layout.name == saved) return layout;
+    }
+    return StorageService.getBool(legacyPreferenceKey) == false
+        ? LayoutType.list
+        : LayoutType.bigGrid;
+  }
+
+  void set(LayoutType layout) {
+    if (state == layout) return;
+    state = layout;
+    unawaited(StorageService.setString(preferenceKey, layout.name));
+  }
+
+  void cycle() {
+    set(switch (state) {
+      LayoutType.bigGrid => LayoutType.smallGrid,
+      LayoutType.smallGrid => LayoutType.list,
+      LayoutType.list => LayoutType.bigGrid,
+    });
+  }
+}
+
 final enabledComicSourcesProvider = Provider<List<ComicSource>>((ref) {
   ref.watch(comicSettingsRevisionProvider);
   return ref

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../providers/works_provider.dart' show LayoutType;
 import '../../services/storage_service.dart';
 import '../../widgets/settings_section.dart';
 import '../../utils/snackbar_util.dart';
@@ -26,6 +27,7 @@ class ComicSettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(comicSettingsRevisionProvider);
     final s = S.of(context);
+    final layout = ref.watch(comicLayoutProvider);
     Future<void> save(String key, bool value) async {
       await StorageService.setBool(key, value);
       ref.read(comicSettingsRevisionProvider.notifier).state++;
@@ -145,13 +147,45 @@ class ComicSettingsScreen extends ConsumerWidget {
                     StorageService.getBool('comic_online_favorites') ?? false,
                 onChanged: (v) => save('comic_online_favorites', v),
               ),
-              SettingsSwitchTile(
+              SettingsNavigationTile(
                 icon: Icons.grid_view,
-                title: s.comicShowGrid,
-                value: ref.watch(comicGridProvider),
-                onChanged: (v) {
-                  ref.read(comicGridProvider.notifier).state = v;
-                  StorageService.setBool('comic_grid', v);
+                title: s.layout,
+                subtitle: switch (layout) {
+                  LayoutType.bigGrid => s.layoutBigGrid,
+                  LayoutType.smallGrid => s.layoutSmallGrid,
+                  LayoutType.list => s.layoutList,
+                },
+                onTap: () async {
+                  final selected = await showDialog<LayoutType>(
+                    context: context,
+                    builder: (context) => SimpleDialog(
+                      title: Text(s.layout),
+                      children: [
+                        for (final (value, label) in [
+                          (LayoutType.bigGrid, s.layoutBigGrid),
+                          (LayoutType.smallGrid, s.layoutSmallGrid),
+                          (LayoutType.list, s.layoutList),
+                        ])
+                          SimpleDialogOption(
+                            onPressed: () => Navigator.pop(context, value),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  layout == value
+                                      ? Icons.radio_button_checked
+                                      : Icons.radio_button_unchecked,
+                                ),
+                                const SizedBox(width: 12),
+                                Text(label),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                  if (selected != null) {
+                    ref.read(comicLayoutProvider.notifier).set(selected);
+                  }
                 },
               ),
               SettingsNavigationTile(

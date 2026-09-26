@@ -23,12 +23,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
+import 'package:kikoeru_flutter/src/providers/works_provider.dart'
+    show LayoutType;
 import 'package:kikoeru_flutter/src/comics/comic_models.dart';
 import 'package:kikoeru_flutter/src/comics/comic_source.dart';
 import 'package:kikoeru_flutter/src/comics/comic_http.dart';
 import 'package:kikoeru_flutter/src/comics/comic_library.dart';
 import 'package:kikoeru_flutter/src/comics/comic_providers.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_screen.dart';
+import 'package:kikoeru_flutter/src/comics/ui/comic_settings_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_detail_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_reader_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_search_screen.dart';
@@ -112,6 +115,22 @@ class _Source extends ComicSource {
       throw const ComicSourceException('Chapter unavailable');
     }
     return List.generate(8, (i) => ComicPage('page-$i'));
+  }
+}
+
+class _PaginatedSource extends _Source {
+  _PaginatedSource(this.firstPage, this.secondPage);
+
+  final List<Comic> firstPage;
+  final List<Comic> secondPage;
+  final cursors = <String?>[];
+
+  @override
+  Future<ComicResult> explore({String? cursor}) async {
+    cursors.add(cursor);
+    return cursor == null
+        ? ComicResult(firstPage, next: 'second-page')
+        : ComicResult(secondPage);
   }
 }
 
@@ -429,6 +448,225 @@ void main() {
     expect(find.byType(FloatingActionButton), findsNothing);
   });
 
+  testWidgets('comic layout toolbar cycles and persists all three layouts', (
+    tester,
+  ) async {
+    await StorageService.setBool('comic_grid', true);
+    final container = await pump(
+      tester,
+      const ComicScreen(),
+      _Library(),
+      _Source(),
+    );
+    final layoutButton = find.byTooltip('Layout');
+    expect(container.read(comicLayoutProvider), LayoutType.bigGrid);
+
+    await tester.tap(layoutButton);
+    await tester.pumpAndSettle();
+    expect(container.read(comicLayoutProvider), LayoutType.smallGrid);
+    expect(find.byIcon(Icons.grid_on), findsOneWidget);
+
+    await tester.tap(layoutButton);
+    await tester.pumpAndSettle();
+    expect(container.read(comicLayoutProvider), LayoutType.list);
+    expect(find.byIcon(Icons.view_list), findsOneWidget);
+
+    await tester.tap(layoutButton);
+    await tester.pumpAndSettle();
+    expect(container.read(comicLayoutProvider), LayoutType.bigGrid);
+    await tester.pump();
+    expect(StorageService.getString('comic_layout_type'), 'bigGrid');
+  });
+
+  testWidgets('comic settings selects the shared small-grid preference', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final container = await pump(
+      tester,
+      const ComicSettingsScreen(),
+      _Library(),
+      _Source(),
+    );
+
+    await tester.tap(find.text('Layout'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Small grid'));
+    await tester.pumpAndSettle();
+
+    expect(container.read(comicLayoutProvider), LayoutType.smallGrid);
+    expect(StorageService.getString('comic_layout_type'), 'smallGrid');
+    expect(find.text('Small grid'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  test('comic layout preference restores and migrates legacy values', () async {
+    final legacyList = ProviderContainer();
+    addTearDown(legacyList.dispose);
+    expect(legacyList.read(comicLayoutProvider), LayoutType.list);
+
+    await StorageService.setBool('comic_grid', true);
+    final legacyGrid = ProviderContainer();
+    addTearDown(legacyGrid.dispose);
+    expect(legacyGrid.read(comicLayoutProvider), LayoutType.bigGrid);
+
+    await StorageService.setString(
+      'comic_layout_type',
+      LayoutType.smallGrid.name,
+    );
+    final restored = ProviderContainer();
+    addTearDown(restored.dispose);
+    expect(restored.read(comicLayoutProvider), LayoutType.smallGrid);
+  });
+
+  for (final layout in [LayoutType.bigGrid, LayoutType.smallGrid]) {
+    testWidgets(
+      'ComicScreen keeps paged covers stable in $layout through fast down and reverse scroll',
+      (tester) async {
+        await StorageService.setString('comic_layout_type', layout.name);
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final firstPage = List.generate(
+          48,
+          (i) => Comic(
+            source: 'fixture',
+            id: 'first-$i',
+            title: 'First $i',
+            cover: 'first-cover-$i',
+          ),
+        );
+        final secondPage = List.generate(
+          24,
+          (i) => Comic(
+            source: 'fixture',
+            id: 'second-$i',
+            title: 'Second $i',
+            cover: 'second-cover-$i',
+          ),
+        );
+        final source = _PaginatedSource(firstPage, secondPage);
+        final firstCoverReload = Completer<Uint8List>();
+        final firstCoverReloadStarted = Completer<void>();
+        var firstCoverRequests = 0;
+        await pump(
+          tester,
+          const ComicScreen(),
+          _Library(),
+          source,
+          loadImage: (page) {
+            if (page.url == 'first-cover-0') {
+              firstCoverRequests++;
+              if (firstCoverRequests > 1) {
+                if (!firstCoverReloadStarted.isCompleted) {
+                  firstCoverReloadStarted.complete();
+                }
+                return firstCoverReload.future;
+              }
+            }
+            return Future.value(_png);
+          },
+          settle: false,
+        );
+        await tester.pumpAndSettle();
+        final firstCard = find
+            .ancestor(of: find.text('First 0'), matching: find.byType(Card))
+            .first;
+        final firstCardRect = tester.getRect(firstCard);
+        final firstCardContentTop = firstCardRect.top;
+        final firstCardLeft = firstCardRect.left;
+        final anchorTitle = layout == LayoutType.smallGrid
+            ? 'First 3'
+            : 'First 2';
+        final anchor = find
+            .ancestor(of: find.text(anchorTitle), matching: find.byType(Card))
+            .first;
+        final anchorRect = tester.getRect(anchor);
+        final anchorContentTop = anchorRect.top;
+        final anchorLeft = anchorRect.left;
+
+        final grid = find.byType(ComicGrid);
+        final scrollable = find.descendant(
+          of: grid,
+          matching: find.byType(Scrollable),
+        );
+        expect(scrollable, findsOneWidget);
+        final position = tester.state<ScrollableState>(scrollable).position;
+        await tester.fling(scrollable, const Offset(0, -1800), 12000);
+        await tester.pumpAndSettle();
+        expect(position.pixels, greaterThan(1000));
+        expect(source.cursors, [null, 'second-page']);
+
+        final reverseGesture = await tester.startGesture(
+          tester.getCenter(scrollable),
+        );
+        final offsets = <double>[position.pixels];
+        final anchorContentTops = <double>[];
+        final anchorLefts = <double>[];
+        var reloadFrames = 0;
+        var anchorWasObserved = false;
+        void recordAnchor() {
+          final currentAnchor = find.ancestor(
+            of: find.text(anchorTitle),
+            matching: find.byType(Card),
+          );
+          if (currentAnchor.evaluate().isEmpty) return;
+          anchorWasObserved = true;
+          final rect = tester.getRect(currentAnchor.first);
+          anchorContentTops.add(rect.top + position.pixels);
+          anchorLefts.add(rect.left);
+        }
+
+        for (var frame = 0; frame < 180; frame++) {
+          if (position.pixels > 0) {
+            await reverseGesture.moveBy(const Offset(0, 64));
+          }
+          await tester.pump(const Duration(milliseconds: 16));
+          offsets.add(position.pixels);
+          recordAnchor();
+          if (firstCoverReloadStarted.isCompleted &&
+              !firstCoverReload.isCompleted) {
+            reloadFrames++;
+            if (reloadFrames == 6) firstCoverReload.complete(_png);
+          }
+        }
+        await reverseGesture.up();
+        while (firstCoverReloadStarted.isCompleted &&
+            !firstCoverReload.isCompleted &&
+            reloadFrames < 6) {
+          await tester.pump(const Duration(milliseconds: 16));
+          offsets.add(position.pixels);
+          recordAnchor();
+          reloadFrames++;
+        }
+        if (!firstCoverReload.isCompleted) firstCoverReload.complete(_png);
+        await tester.pump();
+        recordAnchor();
+        await tester.pumpAndSettle();
+
+        expect(firstCoverReloadStarted.isCompleted, isTrue);
+        expect(anchorWasObserved, isTrue);
+        expect(offsets, isNotEmpty);
+        for (var i = 1; i < offsets.length; i++) {
+          expect(offsets[i], lessThanOrEqualTo(offsets[i - 1] + 0.5));
+        }
+        expect(anchorContentTops, isNotEmpty);
+        for (final top in anchorContentTops) {
+          expect(top, closeTo(anchorContentTop, 2));
+        }
+        for (final left in anchorLefts) {
+          expect(left, closeTo(anchorLeft, 1));
+        }
+        final restoredCard = tester.getRect(firstCard);
+        expect(restoredCard.top, closeTo(firstCardContentTop, 2));
+        expect(restoredCard.left, closeTo(firstCardLeft, 1));
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets(
     'comic grid cards hug covers and grow with existing title content',
     (tester) async {
@@ -553,7 +791,7 @@ void main() {
     expect(badge.right, greaterThan(cover.center.dx));
     expect(find.text('unknown'), findsNothing);
     expect(find.text('Fixture tag'), findsNothing);
-    container.read(comicGridProvider.notifier).state = false;
+    container.read(comicLayoutProvider.notifier).set(LayoutType.list);
     await tester.pumpAndSettle();
     expect(find.text('2024-05-12'), findsNothing);
     expect(tester.takeException(), isNull);
@@ -614,7 +852,33 @@ void main() {
       );
       expect(find.text('fixture'), findsNothing);
 
-      container.read(comicGridProvider.notifier).state = false;
+      container.read(comicLayoutProvider.notifier).set(LayoutType.smallGrid);
+      await tester.pumpAndSettle();
+      final smallGridCards = find.byType(Card);
+      final smallGridFirst = tester.getRect(smallGridCards.at(0));
+      final smallGridNext = tester.getRect(smallGridCards.at(1));
+      final smallGridInset = size.width > size.height ? 24.0 : 8.0;
+      final smallGridGap = smallGridInset;
+      final smallGridColumns = size.width > size.height ? 5 : 3;
+      final smallGridCardWidth =
+          (size.width -
+              smallGridInset * 2 -
+              smallGridGap * (smallGridColumns - 1)) /
+          smallGridColumns;
+      expect(smallGridFirst.left, closeTo(smallGridInset, 0.1));
+      expect(smallGridFirst.width, closeTo(smallGridCardWidth, 0.1));
+      expect(
+        smallGridNext.left - smallGridFirst.right,
+        closeTo(smallGridGap, 0.1),
+      );
+      final smallGridTitle = tester.widget<Text>(find.text('Fixture book'));
+      expect(
+        smallGridTitle.style?.fontSize,
+        size.width > size.height ? 13.5 : 11,
+      );
+      expect(smallGridTitle.style?.fontWeight, FontWeight.bold);
+
+      container.read(comicLayoutProvider.notifier).set(LayoutType.list);
       await tester.pumpAndSettle();
       final listCards = find.byType(Card);
       final listFirst = tester.getRect(
@@ -639,15 +903,15 @@ void main() {
     });
   }
 
-  for (final grid in [false, true]) {
+  for (final layout in LayoutType.values) {
     for (final (label, bytes, ratio) in [
       ('wide', _widePng, 180 / 100),
       ('tall', _tallPng, 100 / 220),
     ]) {
-      testWidgets('$label comic cover uses its real ratio in $grid layout', (
+      testWidgets('$label comic cover uses its real ratio in $layout layout', (
         tester,
       ) async {
-        await StorageService.setBool('comic_grid', grid);
+        await StorageService.setString('comic_layout_type', layout.name);
         await pump(
           tester,
           const Scaffold(body: ComicGrid(comics: [_comic])),
@@ -675,7 +939,7 @@ void main() {
           clip.borderRadius,
           BorderRadius.circular(workCoverCompactRadius),
         );
-        if (grid) {
+        if (layout != LayoutType.list) {
           final card = tester.getRect(find.byType(Card));
           expect((frame.left - card.left).abs(), lessThan(1));
           expect((frame.right - card.right).abs(), lessThan(1));
@@ -688,7 +952,10 @@ void main() {
             greaterThan(frame.bottom),
           );
         }
-        expect(find.text('Fixture tag'), grid ? findsNothing : findsOneWidget);
+        expect(
+          find.text('Fixture tag'),
+          layout == LayoutType.list ? findsOneWidget : findsNothing,
+        );
         expect(tester.takeException(), isNull);
       });
     }
@@ -1222,11 +1489,11 @@ void main() {
     expect(cover.page.localPath, 'offline-cover');
   });
 
-  for (final grid in [false, true]) {
-    testWidgets('comic $grid cover heroes into detail and returns', (
+  for (final layout in LayoutType.values) {
+    testWidgets('comic $layout cover heroes into detail and returns', (
       tester,
     ) async {
-      await StorageService.setBool('comic_grid', grid);
+      await StorageService.setString('comic_layout_type', layout.name);
       await pump(
         tester,
         const Scaffold(body: ComicGrid(comics: [_comic])),
@@ -1250,7 +1517,7 @@ void main() {
       final destination = tester.getRect(
         find.byKey(const ValueKey('comic-detail-cover')),
       );
-      if (grid) {
+      if (layout != LayoutType.list) {
         expect(destination.width, closeTo(start.width, 0.1));
       } else {
         expect(destination.width, greaterThan(start.width));

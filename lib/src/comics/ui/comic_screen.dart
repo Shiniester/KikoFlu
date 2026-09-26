@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../providers/works_provider.dart' show LayoutType;
 import '../../services/storage_service.dart';
 import '../../widgets/floating_feed_toolbar.dart';
 import '../../widgets/library_tab_strip.dart';
@@ -411,15 +412,13 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
                 onPressed: _search,
               ),
               FloatingFeedToolAction(
-                icon: ref.watch(comicGridProvider)
-                    ? Icons.grid_view
-                    : Icons.view_list,
-                tooltip: s.comicShowGrid,
-                onPressed: () {
-                  final value = !ref.read(comicGridProvider);
-                  ref.read(comicGridProvider.notifier).state = value;
-                  StorageService.setBool('comic_grid', value);
+                icon: switch (ref.watch(comicLayoutProvider)) {
+                  LayoutType.bigGrid => Icons.grid_view,
+                  LayoutType.smallGrid => Icons.grid_on,
+                  LayoutType.list => Icons.view_list,
                 },
+                tooltip: s.layout,
+                onPressed: () => ref.read(comicLayoutProvider.notifier).cycle(),
               ),
             ],
           ),

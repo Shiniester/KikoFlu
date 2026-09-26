@@ -114,6 +114,7 @@ class ComicCover extends ConsumerStatefulWidget {
     required this.heroTag,
     this.maxWidth,
     this.maxHeight,
+    this.placeholderAspectRatio,
     this.cornerRadius = workCoverCompactRadius,
   });
 
@@ -122,6 +123,7 @@ class ComicCover extends ConsumerStatefulWidget {
   final Object heroTag;
   final double? maxWidth;
   final double? maxHeight;
+  final double? placeholderAspectRatio;
   final double cornerRadius;
 
   @override
@@ -210,7 +212,8 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
     if (image.valueOrNull != null) _lastPicture = image.valueOrNull;
     final nextPicture = image.valueOrNull ?? _lastPicture;
     if (!_routeMoving || !_hasVisibleState) {
-      final oldRatio = _layoutPicture?.aspectRatio ?? 2 / 3;
+      final oldRatio =
+          _layoutPicture?.aspectRatio ?? widget.placeholderAspectRatio ?? 2 / 3;
       final revealAfterResize =
           _hasVisibleState &&
           _visiblePicture == null &&
@@ -238,7 +241,8 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
     }
     final picture = _visiblePicture;
     final failed = _visibleFailed;
-    final ratio = _layoutPicture?.aspectRatio ?? 2 / 3;
+    final ratio =
+        _layoutPicture?.aspectRatio ?? widget.placeholderAspectRatio ?? 2 / 3;
     final content = ComicImage._(
       widget.page,
       picture,
@@ -334,11 +338,15 @@ class _ComicCardWhenReady extends ConsumerStatefulWidget {
     required this.source,
     required this.page,
     required this.child,
+    this.placeholderAspectRatio,
+    this.onAspectRatio,
   });
 
   final String source;
   final ComicPage page;
   final Widget child;
+  final double? placeholderAspectRatio;
+  final ValueChanged<double>? onAspectRatio;
 
   @override
   ConsumerState<_ComicCardWhenReady> createState() =>
@@ -362,12 +370,19 @@ class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady> {
     final image = ref.watch(
       _comicImageBytesProvider(_ComicImageRequest(widget.source, widget.page)),
     );
+    final picture = image.valueOrNull;
+    if (picture != null) widget.onAspectRatio?.call(picture.aspectRatio);
+    if (image.hasError) {
+      widget.onAspectRatio?.call(widget.placeholderAspectRatio ?? 2 / 3);
+    }
     _shown |= image.valueOrNull != null || image.hasError;
-    return _shown ? widget.child : const SizedBox.shrink();
+    return _shown || widget.placeholderAspectRatio != null
+        ? widget.child
+        : const SizedBox.shrink();
   }
 }
 
-class ComicGrid extends ConsumerWidget {
+class ComicGrid extends ConsumerStatefulWidget {
   const ComicGrid({
     super.key,
     required this.comics,
@@ -379,14 +394,40 @@ class ComicGrid extends ConsumerWidget {
   final EdgeInsets? padding;
   final ScrollController? controller;
   final void Function(Comic)? onLongPress;
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final grid = ref.watch(comicGridProvider);
+  ConsumerState<ComicGrid> createState() => _ComicGridState();
+}
+
+class _ComicGridState extends ConsumerState<ComicGrid> {
+  final _coverAspectRatios = <String, double>{};
+
+  Widget _readyCard(Comic comic, Widget Function(double?) buildCard) {
+    final page = comic.coverPage;
+    final request = _ComicImageRequest(comic.source, page);
+    final placeholderAspectRatio = _coverAspectRatios[request.key];
+    return _ComicCardWhenReady(
+      source: comic.source,
+      page: page,
+      placeholderAspectRatio: placeholderAspectRatio,
+      onAspectRatio: (ratio) => _coverAspectRatios[request.key] = ratio,
+      child: buildCard(placeholderAspectRatio),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final comics = widget.comics;
+    final padding = widget.padding;
+    final controller = widget.controller;
+    final onLongPress = widget.onLongPress;
+    final layoutType = ref.watch(comicLayoutProvider);
+    final isList = layoutType == LayoutType.list;
     return LayoutBuilder(
       builder: (context, constraints) {
         final metrics = resolveCollectionGridMetrics(
           context,
-          layoutType: grid ? LayoutType.bigGrid : LayoutType.list,
+          layoutType: layoutType,
           cardSize: WorkCardSize.normal,
           padding: padding,
           availableWidth: constraints.hasBoundedWidth
@@ -396,9 +437,8 @@ class ComicGrid extends ConsumerWidget {
               ? constraints.maxHeight
               : null,
         );
-        final bigGridMetrics = grid
-            ? metrics
-            : resolveCollectionGridMetrics(
+        final detailMetrics = isList
+            ? resolveCollectionGridMetrics(
                 context,
                 layoutType: LayoutType.bigGrid,
                 cardSize: WorkCardSize.normal,
@@ -409,15 +449,16 @@ class ComicGrid extends ConsumerWidget {
                 availableHeight: constraints.hasBoundedHeight
                     ? constraints.maxHeight
                     : null,
-              );
+              )
+            : metrics;
         final contentWidth = constraints.hasBoundedWidth
             ? constraints.maxWidth
             : MediaQuery.sizeOf(context).width;
         final gridCoverWidth =
             (contentWidth -
-                bigGridMetrics.padding.horizontal -
-                bigGridMetrics.spacing * (bigGridMetrics.crossAxisCount - 1)) /
-            bigGridMetrics.crossAxisCount;
+                detailMetrics.padding.horizontal -
+                detailMetrics.spacing * (detailMetrics.crossAxisCount - 1)) /
+            detailMetrics.crossAxisCount;
         if (comics.isEmpty) {
           return ListView(
             controller: controller,
@@ -433,15 +474,14 @@ class ComicGrid extends ConsumerWidget {
         }
         final isLandscape =
             MediaQuery.orientationOf(context) == Orientation.landscape;
-        if (!grid) {
+        if (isList) {
           return ListView.builder(
             controller: controller,
             padding: metrics.padding,
             itemCount: comics.length,
-            itemBuilder: (context, i) => _ComicCardWhenReady(
-              source: comics[i].source,
-              page: comics[i].coverPage,
-              child: Card(
+            itemBuilder: (context, i) => _readyCard(
+              comics[i],
+              (placeholderAspectRatio) => Card(
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 clipBehavior: Clip.antiAlias,
                 shape: RoundedRectangleBorder(
@@ -455,7 +495,7 @@ class ComicGrid extends ConsumerWidget {
                   ),
                   onLongPress: onLongPress == null
                       ? null
-                      : () => onLongPress!(comics[i]),
+                      : () => onLongPress(comics[i]),
                   child: Padding(
                     padding: const EdgeInsets.all(12),
                     child: Row(
@@ -470,6 +510,7 @@ class ComicGrid extends ConsumerWidget {
                             page: comics[i].coverPage,
                             heroTag: comicCoverHeroTag(comics[i]),
                             maxWidth: 80,
+                            placeholderAspectRatio: placeholderAspectRatio,
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -539,10 +580,9 @@ class ComicGrid extends ConsumerWidget {
           ),
           crossAxisSpacing: metrics.spacing,
           mainAxisSpacing: metrics.spacing,
-          itemBuilder: (context, i) => _ComicCardWhenReady(
-            source: comics[i].source,
-            page: comics[i].coverPage,
-            child: Card(
+          itemBuilder: (context, i) => _readyCard(
+            comics[i],
+            (placeholderAspectRatio) => Card(
               clipBehavior: Clip.antiAlias,
               margin: EdgeInsets.zero,
               shape: RoundedRectangleBorder(
@@ -556,7 +596,7 @@ class ComicGrid extends ConsumerWidget {
                 ),
                 onLongPress: onLongPress == null
                     ? null
-                    : () => onLongPress!(comics[i]),
+                    : () => onLongPress(comics[i]),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
@@ -571,6 +611,7 @@ class ComicGrid extends ConsumerWidget {
                             source: comics[i].source,
                             page: comics[i].coverPage,
                             heroTag: comicCoverHeroTag(comics[i]),
+                            placeholderAspectRatio: placeholderAspectRatio,
                           ),
                         ),
                         if (comics[i].coverDate case final date?)
@@ -610,7 +651,11 @@ class ComicGrid extends ConsumerWidget {
                                 ?.copyWith(
                                   fontWeight: FontWeight.bold,
                                   height: 1.1,
-                                  fontSize: isLandscape ? 14.5 : 12,
+                                  fontSize: layoutType == LayoutType.smallGrid
+                                      ? (isLandscape ? 13.5 : 11)
+                                      : isLandscape
+                                      ? 14.5
+                                      : 12,
                                 ),
                           ),
                         ],
