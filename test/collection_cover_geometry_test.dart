@@ -11,6 +11,7 @@ import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/enhanced_work_card.dart';
 import 'package:kikoeru_flutter/src/widgets/history_work_card.dart';
 import 'package:kikoeru_flutter/src/widgets/playlist_card.dart';
+import 'package:kikoeru_flutter/src/widgets/tag_chip.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _work = Work(
@@ -143,6 +144,46 @@ void main() {
       findsOneWidget,
     );
     expect(tester.getSize(find.byType(ClipRRect).first), const Size(80, 60));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('audio list tags use the compact big-cover spacing', (
+    tester,
+  ) async {
+    final work = _work.copyWith(tags: [const Tag(id: 21, name: 'Healing')]);
+    Future<(TagChip, Wrap)> render(bool list) async {
+      await tester.pumpWidget(
+        _testApp(
+          EnhancedWorkCard(
+            work: work,
+            crossAxisCount: list ? 1 : 2,
+            isListLayout: list,
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      final chipFinder = find.byType(TagChip).first;
+      return (
+        tester.widget<TagChip>(chipFinder),
+        tester.widget<Wrap>(
+          find.ancestor(of: chipFinder, matching: find.byType(Wrap)).first,
+        ),
+      );
+    }
+
+    final (gridChip, gridWrap) = await render(false);
+    final (listChip, listWrap) = await render(true);
+    expect(listChip.borderRadius, gridChip.borderRadius);
+    expect(listChip.padding, gridChip.padding);
+    expect(listChip.borderRadius, 6);
+    expect(
+      listChip.padding,
+      const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+    );
+    expect(listWrap.spacing, gridWrap.spacing);
+    expect(listWrap.runSpacing, gridWrap.runSpacing);
+    expect(listWrap.spacing, 3);
+    expect(listWrap.runSpacing, 2);
     expect(tester.takeException(), isNull);
   });
 }

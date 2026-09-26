@@ -44,17 +44,23 @@ class Comic {
   String? get coverDate {
     final value = extra['sourceDate'];
     if (value is String) {
-      final day = RegExp(r'^\d{4}-\d{2}-\d{2}').firstMatch(value)?.group(0);
-      if (day == null) return null;
-      final parsed = DateTime.tryParse(day);
-      if (parsed == null ||
-          '${parsed.year.toString().padLeft(4, '0')}-${parsed.month.toString().padLeft(2, '0')}-${parsed.day.toString().padLeft(2, '0')}' !=
-              day) {
+      final parts = RegExp(
+        r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})',
+      ).firstMatch(value);
+      if (parts == null) return null;
+      final year = int.parse(parts[1]!);
+      final month = int.parse(parts[2]!);
+      final day = int.parse(parts[3]!);
+      final parsed = DateTime.utc(year, month, day);
+      if (parsed.year != year || parsed.month != month || parsed.day != day) {
         return null;
       }
-      return day;
+      return '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
     }
-    if (value is! num || !value.isFinite || value < 0 || value > 253402300799) {
+    if (value is! num ||
+        !value.isFinite ||
+        value <= 0 ||
+        value > 253402300799) {
       return null;
     }
     final date = DateTime.fromMillisecondsSinceEpoch(

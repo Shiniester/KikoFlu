@@ -490,8 +490,8 @@ class ComicGrid extends ConsumerWidget {
                               if (comics[i].tags.isNotEmpty) ...[
                                 const SizedBox(height: 6),
                                 Wrap(
-                                  spacing: 4,
-                                  runSpacing: 4,
+                                  spacing: 3,
+                                  runSpacing: 2,
                                   children: comics[i].tags
                                       .map(
                                         (tag) => IgnorePointer(
@@ -508,10 +508,10 @@ class ComicGrid extends ConsumerWidget {
                                                 MetadataChipTone.primary,
                                             fontSize: isLandscape ? 13 : 11,
                                             padding: const EdgeInsets.symmetric(
-                                              horizontal: 6,
-                                              vertical: 2,
+                                              horizontal: 4,
+                                              vertical: 1,
                                             ),
-                                            borderRadius: 12,
+                                            borderRadius: 6,
                                             fontWeight: FontWeight.w500,
                                           ),
                                         ),

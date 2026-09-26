@@ -119,6 +119,7 @@ void main() {
               'title': 'Book',
               'description': 'Synopsis',
               'created_at': '2023-07-09T12:00:00Z',
+              'updated_at': '2023-08-10T12:00:00Z',
               'thumb': {
                 'fileServer': 'https://img.example',
                 'path': 'cover.jpg',
@@ -149,7 +150,7 @@ void main() {
     addTearDown(source.http.dispose);
     final detail = await source.details('book');
     expect(detail.description, 'Synopsis');
-    expect(detail.coverDate, '2023-07-09');
+    expect(detail.coverDate, '2023-08-10');
     expect(detail.chapters, isEmpty);
     expect(adapter.requests, hasLength(1));
     final chapters = await source.chapters(detail);
@@ -181,24 +182,98 @@ void main() {
   test('EH preserves gallery token and the actual next cursor', () {
     final result = EhSource.parseListing(
       '''<table><tr><td><img src="https://ehgt.org/a.jpg"></td>
-      <td><a href="https://e-hentai.org/g/42/abc123/"><div class="glink">Title</div></a></td></tr></table>
+      <td class="gl2e"><div>
+      <a href="https://e-hentai.org/g/42/abc123/"><div class="glink">Title 2020-01-01</div></a>
+      <div class="gl3e"><div>2024-05-12 14:30</div></div></div></td></tr></table>
       <a id="dnext" href="/?next=42-abc">Next</a>''',
       'https://e-hentai.org',
     );
     expect(result.items.single.id, '42/abc123');
-    expect(result.items.single.title, 'Title');
+    expect(result.items.single.title, 'Title 2020-01-01');
+    expect(result.items.single.coverDate, '2024-05-12');
     expect(result.next, 'https://e-hentai.org/?next=42-abc');
+  });
+  test('EH grid listings keep their source posting date', () {
+    final result = EhSource.parseListing(
+      '''<div class="gl1t"><a href="/g/43/gridtoken/"><div class="glink">Grid book 2021-03-04</div>
+      <img src="/cover.jpg"></a><div class="gl5t"><div><div>2024-05-13 10:00</div></div></div></div>''',
+      'https://e-hentai.org',
+    );
+    expect(result.items.single.coverDate, '2024-05-13');
+  });
+  test('EH minimal listings read date only from metadata', () {
+    final result = EhSource.parseListing(
+      '''<table><tr><td class="gl2m"><div>2024-05-14 08:00</div></td>
+      <td><a href="/g/44/compacttoken/"><div class="glink">Book 2020-01-01</div></a></td></tr></table>''',
+      'https://e-hentai.org',
+    );
+    expect(result.items.single.coverDate, '2024-05-14');
+  });
+  test('EH default compact listings read the posted date', () {
+    final result = EhSource.parseListing(
+      '''<table class="itg gltc"><tr><td class="gl2c">
+      <div class="glthumb"><div><div><div id="postedpop_45">2021-01-01</div></div></div></div>
+      <div><div id="posted_45">2024-05-15 09:00</div></div></td>
+      <td class="gl3c glname"><a href="/g/45/defaulttoken/">
+      <div class="glink">Book 2020-01-01</div></a></td></tr></table>''',
+      'https://e-hentai.org',
+    );
+    expect(result.items.single.title, 'Book 2020-01-01');
+    expect(result.items.single.coverDate, '2024-05-15');
   });
   test('HT online favorites use favorite record IDs, not comic IDs', () {
     final result = HtSource.parseFavorites(
       '''<div class="asTB"><div class="asTBcell thumb"><div><img src="//cdn.example/cover.jpg"></div></div>
       <div class="box_cel u_listcon"><p class="l_title"><a href="/photos-index-aid-42.html">Title</a></p>
+      <p class="l_catg"><span>創建時間：2024/6/7</span></p>
       <p class="alopt"><a onclick="del('/users-fav_del-id-99.html')">Delete</a></p></div></div>''',
       'https://www.wnacg.com',
     );
     expect(result.items.single.id, '42');
     expect(result.items.single.extra['favoriteId'], '99');
+    expect(result.items.single.coverDate, '2024-06-07');
   });
+  test('HT listing keeps its source creation date', () {
+    final result = HtSource.parseListing(
+      '''<div class="gallary_wrap"><ul><li><div class="pic_box">
+      <a href="/photos-index-aid-42.html"><img src="//cdn.example/cover.jpg"></a></div>
+      <div class="info"><div class="title"><a>Title</a></div>
+      <div class="info_col">2024-06-07, 12 pages</div></div></li></ul></div>''',
+      'https://www.wnacg.com',
+    );
+    expect(result.items.single.coverDate, '2024-06-07');
+  });
+  test(
+    'source dates normalize only real calendar dates and survive storage',
+    () {
+      const valid = Comic(
+        source: 'fixture',
+        id: '1',
+        title: 'Dated',
+        extra: {'sourceDate': 'Created: 2024/2/3 09:15'},
+      );
+      expect(valid.coverDate, '2024-02-03');
+      expect(Comic.fromJson(valid.toJson()).coverDate, '2024-02-03');
+      expect(
+        const Comic(
+          source: 'fixture',
+          id: '2',
+          title: 'Invalid',
+          extra: {'sourceDate': '2024-02-30'},
+        ).coverDate,
+        isNull,
+      );
+      expect(
+        const Comic(
+          source: 'fixture',
+          id: '3',
+          title: 'Missing',
+          extra: {'sourceDate': 0},
+        ).coverDate,
+        isNull,
+      );
+    },
+  );
   test('Hitomi IDs are big endian and image shard is derived from gg', () {
     expect(
       HitomiSource.decodeIds(Uint8List.fromList([0, 0, 1, 0, 0, 0, 0, 42])),
@@ -211,6 +286,23 @@ void main() {
       'cdn.example',
     );
     expect(url, 'https://w2.cdn.example/123/3243/$hash.webp');
+  });
+  test('Hitomi listing and detail map source publication dates', () async {
+    final adapter = _Adapter()
+      ..respond = (request) => request.uri.path.endsWith('.nozomi')
+          ? String.fromCharCodes([0, 0, 0, 42])
+          : request.uri.path.endsWith('.html')
+          ? '<h1 class="lillie"><a>Book</a></h1><div class="dj-content"><p>2024-01-02</p></div>'
+          : 'var galleryinfo = {"date":"2024-03-04","files":[],"tags":[]};';
+    final source = HitomiSource(
+      ComicHttp('hitomi', client: Dio()..httpClientAdapter = adapter),
+    );
+    addTearDown(source.http.dispose);
+    final listing = await source.explore();
+    expect(listing.items.single.coverDate, '2024-01-02');
+    final comic = await source.details('42');
+    expect(comic.coverDate, '2024-03-04');
+    expect(adapter.requests, hasLength(4));
   });
   test('JM reconstruction retains remainder rows', () {
     final input = img.Image(width: 2, height: 23);

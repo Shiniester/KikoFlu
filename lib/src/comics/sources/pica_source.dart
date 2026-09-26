@@ -107,7 +107,8 @@ class PicaSource extends ComicSource {
     extra: {
       'isFavorite': c['isFavourite'] ?? false,
       'likes': c['likesCount'],
-      if (c['created_at'] != null) 'sourceDate': c['created_at'],
+      if (c['updated_at'] ?? c['created_at'] case final date?)
+        'sourceDate': date,
     },
   );
   ComicResult _result(dynamic data, int page) {

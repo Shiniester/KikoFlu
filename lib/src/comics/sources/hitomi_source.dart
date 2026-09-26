@@ -62,6 +62,7 @@ class HitomiSource extends ComicSource {
       title: doc.querySelector('h1.lillie a')?.text ?? '$id',
       cover: cover,
       tags: doc.querySelectorAll('.relatedtags a').map((e) => e.text).toList(),
+      extra: {'sourceDate': doc.querySelector('.dj-content > p')?.text.trim()},
     );
   }
 
@@ -136,7 +137,10 @@ class HitomiSource extends ComicSource {
       cover: brief.cover,
       tags: (json['tags'] as List? ?? []).map((t) => '${t['tag']}').toList(),
       chapters: [ComicChapter(id, '1')],
-      extra: {'files': json['files']},
+      extra: {
+        'files': json['files'],
+        if (json['date'] != null) 'sourceDate': json['date'],
+      },
     );
   }
 

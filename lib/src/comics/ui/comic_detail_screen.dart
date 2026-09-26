@@ -82,7 +82,16 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
           .firstWhere((s) => s.key == widget.comic.source)
           .details(widget.comic.id);
       if (!mounted) return;
-      setState(() => _comic = comic);
+      setState(
+        () => _comic = Comic.fromJson({
+          ...comic.toJson(),
+          'extra': {
+            ...comic.extra,
+            if (comic.coverDate == null && _comic.coverDate != null)
+              'sourceDate': _comic.extra['sourceDate'],
+          },
+        }),
+      );
     } catch (error) {
       if (!mounted) return;
       setState(() => _metadataError = error);
@@ -343,18 +352,28 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
             const SizedBox(height: 16),
             LayoutBuilder(
               builder: (context, constraints) => Align(
-                alignment: Alignment.centerLeft,
-                child: SizedBox(
-                  width: math.min(200, constraints.maxWidth),
-                  child: FilledButton(
-                    onPressed: _chapters.isEmpty ? null : () => _read(comic),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.menu_book),
-                        const SizedBox(width: 8),
-                        Expanded(child: Text(s.comicContinue, softWrap: true)),
-                      ],
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: SizedBox(
+                    width: math.min(200, constraints.maxWidth - 8),
+                    child: FilledButton(
+                      onPressed: _chapters.isEmpty ? null : () => _read(comic),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.menu_book),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              s.comicContinue,
+                              textAlign: TextAlign.center,
+                              softWrap: true,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),

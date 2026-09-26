@@ -117,6 +117,7 @@ class _Source extends ComicSource {
 
 class _Library extends ComicLibrary {
   final List<Map<String, dynamic>> savedTasks = [];
+  Comic? lastFavorite;
   @override
   Future<void> saveTask(String id, Map<String, dynamic> task) async {}
   @override
@@ -127,6 +128,7 @@ class _Library extends ComicLibrary {
   @override
   Future<void> favorite(Comic comic, bool value) async {
     favoriteWrites++;
+    lastFavorite = comic;
   }
 
   @override
@@ -504,15 +506,15 @@ void main() {
       ),
     );
     expect(chip.fontSize, 13);
-    expect(chip.borderRadius, 12);
+    expect(chip.borderRadius, 6);
     expect(
       chip.padding,
-      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
     );
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('big comic card shows only a real source date on its cover', (
+  testWidgets('big comic cards show only a real source date inside the cover', (
     tester,
   ) async {
     await StorageService.setBool('comic_grid', true);
@@ -789,13 +791,25 @@ void main() {
           matching: find.byType(FilledButton),
         ),
       );
-      expect(button.left, closeTo(title.left, 0.1));
+      expect(
+        button.right,
+        closeTo(size.width - (size.width == 320 ? 8 : 16) - 8, 0.1),
+      );
       expect(button.top, greaterThan(title.bottom));
       if (size.width == 320) {
         expect(button.top, greaterThan(cover.bottom));
       } else {
         expect(button.left, greaterThan(cover.right));
       }
+      final icon = tester.getRect(
+        find.descendant(
+          of: find.byType(FilledButton),
+          matching: find.byIcon(Icons.menu_book),
+        ),
+      );
+      final label = tester.getRect(find.text('Continue reading'));
+      expect((icon.left + label.right) / 2, closeTo(button.center.dx, 2));
+      expect(icon.center.dy, closeTo(button.center.dy, 2));
       await tester.tap(find.byTooltip('Download'));
       await tester.pumpAndSettle();
       expect(find.byType(CheckboxListTile), findsNWidgets(2));
@@ -894,7 +908,7 @@ void main() {
       ('wide', _widePng, 180 / 100),
       ('tall', _tallPng, 100 / 220),
     ]) {
-      testWidgets('$label detail cover and left-aligned reading at $size', (
+      testWidgets('$label detail cover and right-inset reading at $size', (
         tester,
       ) async {
         tester.view.physicalSize = size;
@@ -924,7 +938,10 @@ void main() {
           ),
         );
         final title = tester.getRect(find.byType(WorkTitleHeader));
-        expect(button.left, closeTo(title.left, 0.1));
+        expect(
+          button.right,
+          closeTo(size.width - (size.width == 320 ? 8 : 16) - 8, 0.1),
+        );
         expect(button.top, greaterThan(title.bottom));
         if (size.width == 320) {
           expect(button.top, greaterThan(cover.bottom));
@@ -997,6 +1014,29 @@ void main() {
       expect(timings.any((message) => message.contains('chapters')), isTrue);
     },
   );
+
+  testWidgets('detail keeps a list-only source date for local favorites', (
+    tester,
+  ) async {
+    const listing = Comic(
+      source: 'fixture',
+      id: 'book',
+      title: 'Fixture book',
+      cover: 'fixture-cover',
+      extra: {'sourceDate': '2024-05-12'},
+    );
+    final library = _Library();
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: listing),
+      library,
+      _Source(),
+    );
+    await tester.tap(find.byTooltip('Favorites'));
+    await tester.pumpAndSettle();
+    expect(library.lastFavorite?.coverDate, '2024-05-12');
+    expect(tester.takeException(), isNull);
+  });
 
   for (final reduceMotion in [false, true]) {
     testWidgets(
@@ -1358,6 +1398,87 @@ void main() {
     );
     expect(find.byType(Image), findsWidgets);
   });
+
+  for (final grid in [false, true]) {
+    testWidgets('dated $grid card keeps its badge rule during Hero flight', (
+      tester,
+    ) async {
+      await StorageService.setBool('comic_grid', grid);
+      const dated = Comic(
+        source: 'fixture',
+        id: 'book',
+        title: 'Fixture book',
+        cover: 'fixture-cover',
+        extra: {'sourceDate': '2024-05-12'},
+      );
+      await pump(
+        tester,
+        const Scaffold(body: ComicGrid(comics: [dated])),
+        _Library(),
+        _Source(),
+        loadImage: (_) async => _widePng,
+      );
+      expect(find.text('2024-05-12'), grid ? findsOneWidget : findsNothing);
+      await tester.tap(find.text('Fixture book'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('2024-05-12'), grid ? findsOneWidget : findsNothing);
+      expectVisibleComicCoverRatio(tester, 180 / 100);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('2024-05-12'), grid ? findsOneWidget : findsNothing);
+      expectVisibleComicCoverRatio(tester, 180 / 100);
+      await tester.pumpAndSettle();
+      expect(find.text('2024-05-12'), grid ? findsOneWidget : findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final size in [const Size(390, 844), const Size(700, 360)]) {
+    testWidgets('reading button centers a longer translation at $size', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await pump(
+        tester,
+        Builder(
+          builder: (context) => Localizations.override(
+            context: context,
+            locale: const Locale('ru'),
+            child: MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(1.4)),
+              child: const ComicDetailScreen(comic: _comic),
+            ),
+          ),
+        ),
+        _Library(),
+        _Source(),
+      );
+      final buttonFinder = find.ancestor(
+        of: find.text('Продолжить чтение'),
+        matching: find.byType(FilledButton),
+      );
+      final button = tester.getRect(buttonFinder);
+      final icon = tester.getRect(
+        find.descendant(
+          of: buttonFinder,
+          matching: find.byIcon(Icons.menu_book),
+        ),
+      );
+      final label = tester.getRect(find.text('Продолжить чтение'));
+      expect(icon.left, greaterThan(button.left));
+      expect(label.right, lessThan(button.right));
+      expect((icon.left + label.right) / 2, closeTo(button.center.dx, 2));
+      expect(icon.center.dy, closeTo(button.center.dy, 2));
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('failed cover keeps its placeholder through flight and retries', (
     tester,

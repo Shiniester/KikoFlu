@@ -53,6 +53,17 @@ class EhSource extends ComicSource {
             .querySelectorAll('.gt,.gtl')
             .map((t) => t.attributes['title'] ?? t.text)
             .toList(),
+        extra: {
+          'sourceDate': card
+              .querySelectorAll(
+                '.gl5t > div > div,.gl2e .gl3e > div,.gl2m > div,.gl2c [id^="posted_"]',
+              )
+              .map((element) => element.text.trim())
+              .firstWhere(
+                (text) => RegExp(r'\d{4}[-/]\d{1,2}[-/]\d{1,2}').hasMatch(text),
+                orElse: () => '',
+              ),
+        },
       );
     }
     final next = doc.querySelector('#dnext')?.attributes['href'];
@@ -102,6 +113,8 @@ class EhSource extends ComicSource {
       extra: {
         'isFavorite':
             doc.querySelector('#favoritelink')?.text != 'Add to Favorites',
+        if (doc.querySelector('#gdd .gdt2')?.text.trim() case final date?)
+          'sourceDate': date,
       },
     );
   }

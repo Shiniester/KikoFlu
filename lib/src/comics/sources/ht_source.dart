@@ -41,6 +41,7 @@ class HtSource extends ComicSource {
               )
               .toString(),
           extra: {
+            'sourceDate': li.querySelector('.info .info_col')?.text.trim(),
             'favoriteId': RegExp(
               r'fav_del-id-(\d+)',
             ).firstMatch(li.outerHtml)?.group(1),
@@ -169,6 +170,7 @@ class HtSource extends ComicSource {
           title: link!.text.trim(),
           cover: Uri.parse(base).resolve(image).toString(),
           extra: {
+            'sourceDate': row.querySelector('p.l_catg span')?.text.trim(),
             'favoriteId': RegExp(
               r'del-id-(\d+)',
             ).firstMatch(row.outerHtml)?.group(1),

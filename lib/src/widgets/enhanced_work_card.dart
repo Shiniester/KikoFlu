@@ -904,14 +904,14 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
 
   Widget _buildTagsWrap(BuildContext context, {required double fontSize}) {
     return Wrap(
-      spacing: 4,
-      runSpacing: 4,
+      spacing: 3,
+      runSpacing: 2,
       children: widget.work.tags!.map((tag) {
         return TagChip(
           tag: tag,
           fontSize: fontSize,
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-          borderRadius: 12,
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+          borderRadius: 6,
           fontWeight: FontWeight.w500,
         );
       }).toList(),
