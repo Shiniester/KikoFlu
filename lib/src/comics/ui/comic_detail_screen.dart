@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:math' as math;
 import '../../../l10n/app_localizations.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../../widgets/scrollable_appbar.dart';
@@ -276,23 +277,24 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final wide = width >= 700;
+        final contentWidth = math.min(width, 1200) - 32;
         final coverWidth = wide
-            ? (width * .27).clamp(180.0, 340.0)
-            : (width * .3).clamp(92.0, 150.0);
-        final cover = SizedBox(
+            ? (contentWidth * .32).clamp(220.0, 360.0)
+            : (contentWidth * .38).clamp(112.0, 180.0);
+        final coverHeight = math.min(
+          MediaQuery.sizeOf(context).height * (wide ? .8 : .7),
+          wide ? 560.0 : 480.0,
+        );
+        final cover = ComicCover(
           key: const ValueKey('comic-detail-cover'),
-          width: coverWidth,
-          height: coverWidth * 1.5,
-          child: WorkCoverHeroFrame(
-            heroTag: comicCoverHeroTag(widget.comic),
-            child: ComicImage(
-              source: widget.comic.source,
-              page: _comic.coverPage.localPath == null
-                  ? widget.comic.coverPage
-                  : _comic.coverPage,
-              fit: BoxFit.contain,
-            ),
-          ),
+          source: widget.comic.source,
+          page: _comic.coverPage.localPath == null
+              ? widget.comic.coverPage
+              : _comic.coverPage,
+          heroTag: comicCoverHeroTag(widget.comic),
+          cornerRadius: workCoverDetailRadius,
+          maxWidth: coverWidth,
+          maxHeight: coverHeight,
         );
         final info = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -315,10 +317,23 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                 ],
               ),
             const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _chapters.isEmpty ? null : () => _read(comic),
-              icon: const Icon(Icons.menu_book),
-              label: Text(s.comicContinue),
+            LayoutBuilder(
+              builder: (context, infoConstraints) => Align(
+                alignment: Alignment.centerRight,
+                child: SizedBox(
+                  width: math.min(200, infoConstraints.maxWidth),
+                  child: FilledButton(
+                    onPressed: _chapters.isEmpty ? null : () => _read(comic),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.menu_book),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(s.comicContinue, softWrap: true)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
           ],
         );

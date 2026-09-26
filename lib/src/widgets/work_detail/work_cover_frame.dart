@@ -16,17 +16,20 @@ class WorkCoverHeroFrame extends StatelessWidget {
     required this.child,
     this.cornerRadius = workCoverDetailRadius,
     this.enabled = true,
+    this.flightChild,
   });
 
   final Object heroTag;
   final Widget child;
   final double cornerRadius;
   final bool enabled;
+  final Widget? flightChild;
 
   @override
   Widget build(BuildContext context) {
     final payload = _WorkCoverHeroPayload(
       cornerRadius: cornerRadius,
+      flightChild: flightChild ?? child,
       child: child,
     );
     if (!enabled || MediaQuery.disableAnimationsOf(context)) return payload;
@@ -43,10 +46,12 @@ class _WorkCoverHeroPayload extends StatelessWidget {
   const _WorkCoverHeroPayload({
     required this.cornerRadius,
     required this.child,
+    required this.flightChild,
   });
 
   final double cornerRadius;
   final Widget child;
+  final Widget flightChild;
 
   @override
   Widget build(BuildContext context) => ClipRRect(
@@ -67,7 +72,7 @@ Widget _workCoverFlightShuttle(
   final to = ((toHeroContext.widget as Hero).child as _WorkCoverHeroPayload);
   return AnimatedBuilder(
     animation: animation,
-    child: from.child,
+    child: from.flightChild,
     builder: (context, child) => ClipRRect(
       borderRadius: BorderRadius.circular(
         Tween<double>(

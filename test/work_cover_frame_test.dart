@@ -105,6 +105,35 @@ void main() {
     expect(clip.borderRadius, BorderRadius.circular(10));
   });
 
+  testWidgets(
+    'flight child snapshots a cover without changing its live child',
+    (tester) async {
+      await tester.pumpWidget(
+        _testApp(
+          const WorkCoverHeroFrame(
+            heroTag: 'snapshot',
+            flightChild: Text('Flight cover'),
+            child: Text('Live cover'),
+          ),
+        ),
+      );
+      expect(find.text('Live cover'), findsOneWidget);
+      final hero = tester.widget<Hero>(find.byType(Hero));
+      final context = tester.element(find.byType(Hero));
+      final shuttle =
+          hero.flightShuttleBuilder!(
+                context,
+                const AlwaysStoppedAnimation<double>(0.5),
+                HeroFlightDirection.push,
+                context,
+                context,
+              )
+              as AnimatedBuilder;
+      expect(shuttle.child, isA<Text>());
+      expect((shuttle.child! as Text).data, 'Flight cover');
+    },
+  );
+
   testWidgets('shows subtitle and age badges and handles tap', (tester) async {
     var tapCount = 0;
 
