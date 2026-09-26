@@ -28,6 +28,7 @@ class ComicSettingsScreen extends ConsumerWidget {
     ref.watch(comicSettingsRevisionProvider);
     final s = S.of(context);
     final layout = ref.watch(comicLayoutProvider);
+    final pageSize = ref.watch(comicPageSizeProvider);
     Future<void> save(String key, bool value) async {
       await StorageService.setBool(key, value);
       ref.read(comicSettingsRevisionProvider.notifier).state++;
@@ -146,6 +147,31 @@ class ComicSettingsScreen extends ConsumerWidget {
                 value:
                     StorageService.getBool('comic_online_favorites') ?? false,
                 onChanged: (v) => save('comic_online_favorites', v),
+              ),
+              SettingsNavigationTile(
+                icon: Icons.format_list_numbered,
+                title: s.pageSizeSettings,
+                subtitle: s.pageSizeCurrent(pageSize),
+                onTap: () async {
+                  final selected = await showDialog<int>(
+                    context: context,
+                    builder: (context) => SimpleDialog(
+                      title: Text(s.pageSizeSettings),
+                      children: [
+                        for (final size in ComicPageSizeNotifier.options)
+                          SimpleDialogOption(
+                            onPressed: () => Navigator.pop(context, size),
+                            child: Text('$size'),
+                          ),
+                      ],
+                    ),
+                  );
+                  if (selected != null) {
+                    ref
+                        .read(comicPageSizeProvider.notifier)
+                        .setPageSize(selected);
+                  }
+                },
               ),
               SettingsNavigationTile(
                 icon: Icons.grid_view,

@@ -6,7 +6,9 @@ import '../../services/storage_service.dart';
 import '../../widgets/floating_feed_toolbar.dart';
 import '../../widgets/library_tab_strip.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
+import '../../widgets/pagination_bar.dart';
 import '../comic_models.dart';
+import '../comic_pagination.dart';
 import '../comic_providers.dart';
 import 'comic_widgets.dart';
 import 'comic_search_screen.dart';
@@ -131,18 +133,20 @@ class _ComicCollection extends ConsumerStatefulWidget {
 
 class _ComicCollectionState extends ConsumerState<_ComicCollection> {
   final _scroll = ScrollController();
-  final _items = <Comic>[];
+  ComicPageBuffer? _buffer;
+  List<Comic> _items = [];
   bool _loading = false;
   bool _online = StorageService.getBool('comic_online_favorites') ?? false;
-  Object? _error;
-  String? _next;
+  Map<String, Object> _errors = {};
+  bool _hasMore = false;
+  int _page = 1;
+  int _pendingPage = 1;
   String? _source;
   int _generation = 0;
   @override
   void initState() {
     super.initState();
-    _scroll.addListener(_onScroll);
-    Future.microtask(() => _load());
+    Future.microtask(() => _loadPage(1, reset: true, clearItems: true));
   }
 
   @override
@@ -180,7 +184,7 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
             .read(comicSourcesProvider)
             .firstWhere((s) => s.key == comic.source);
         await source.setFavorite(comic, false);
-        await _load();
+        await _loadPage(_page, reset: true);
       } else {
         await ref.read(comicLibraryProvider).favorite(comic, false);
       }
@@ -193,15 +197,49 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
     }
   }
 
-  void _onScroll() {
-    if (_scroll.position.extentAfter < 500 && _next != null && !_loading) {
-      _load(more: true);
+  Future<ComicPageBuffer> _createBuffer() async {
+    final library = ref.read(comicLibraryProvider);
+    if (widget.tab == 2) {
+      return ComicPageBuffer.fromItems(
+        (await library.history()).map((progress) => progress.comic).toList(),
+      );
     }
+    if (widget.tab == 3) {
+      final downloads = ref.read(comicDownloadsProvider);
+      await downloads.ready;
+      return ComicPageBuffer.fromItems(downloads.completedComics);
+    }
+    if (widget.tab == 1 && !_online) {
+      return ComicPageBuffer.fromItems(await library.favorites());
+    }
+    if (_source == null) return ComicPageBuffer.fromItems(const []);
+    final source = ref
+        .read(comicSourcesProvider)
+        .firstWhere((source) => source.key == _source);
+    return ComicPageBuffer([
+      ComicPageSource(source.key, (cursor) async {
+        if (_online && (!source.hasRemoteFavorites || !source.isLoggedIn)) {
+          throw const ComicSourceException(
+            'Sign in to this source in comic settings.',
+            loginRequired: true,
+          );
+        }
+        return _online
+            ? source.favorites(cursor: cursor)
+            : source.explore(cursor: cursor);
+      }),
+    ]);
   }
 
-  Future<void> _load({bool more = false}) async {
-    if (!mounted || (more && _loading)) return;
+  Future<void> _loadPage(
+    int page, {
+    bool reset = false,
+    bool clearItems = false,
+    bool retryFailures = false,
+  }) async {
+    if (!mounted || (_loading && !reset)) return;
     final request = ++_generation;
+    final previousPage = _page;
     final sources = ref.read(enabledComicSourcesProvider);
     final selected = ref.read(comicSelectedSourceProvider);
     _source = sources.any((s) => s.key == selected)
@@ -209,53 +247,71 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
         : sources.firstOrNull?.key;
     setState(() {
       _loading = true;
-      _error = null;
-      if (!more) {
-        _items.clear();
-        _next = null;
+      if (!retryFailures) _errors = {};
+      _pendingPage = page;
+      if (clearItems) {
+        _items = [];
+        _page = page;
+        _hasMore = false;
       }
+      if (reset) _buffer = null;
     });
     try {
-      final library = ref.read(comicLibraryProvider);
-      ComicResult result;
-      if (widget.tab == 2) {
-        result = ComicResult(
-          (await library.history()).map((p) => p.comic).toList(),
+      var buffer = _buffer;
+      if (reset || buffer == null) buffer = await _createBuffer();
+      if (!mounted || request != _generation) return;
+      var displayPage = page;
+      var result = await buffer.page(
+        displayPage,
+        ref.read(comicPageSizeProvider),
+        retryFailures: retryFailures,
+      );
+      while (result.items.isEmpty && result.errors.isEmpty && displayPage > 1) {
+        result = await buffer.page(
+          --displayPage,
+          ref.read(comicPageSizeProvider),
         );
-      } else if (widget.tab == 3) {
-        final downloads = ref.read(comicDownloadsProvider);
-        await downloads.ready;
-        result = ComicResult(downloads.completedComics);
-      } else if (widget.tab == 1 && !_online) {
-        result = ComicResult(await library.favorites());
-      } else {
-        if (_source == null) {
-          result = const ComicResult([]);
-        } else {
-          final source = sources.firstWhere((s) => s.key == _source);
-          if (_online && (!source.hasRemoteFavorites || !source.isLoggedIn)) {
-            throw const ComicSourceException(
-              'Sign in to this source in comic settings.',
-              loginRequired: true,
-            );
-          }
-          result = _online
-              ? await source.favorites(cursor: more ? _next : null)
-              : await source.explore(cursor: more ? _next : null);
-        }
       }
       if (!mounted || request != _generation) return;
       setState(() {
-        _items.addAll(
-          result.items.where((item) => !_items.any((c) => c.key == item.key)),
-        );
-        _next = result.next;
+        _buffer = buffer;
+        _errors = result.errors;
+        if (result.errors.isEmpty) {
+          _items = result.items;
+          _page = displayPage;
+          _pendingPage = displayPage;
+          _hasMore = result.hasMore;
+        } else if (_items.isEmpty && result.items.isNotEmpty) {
+          _items = result.items;
+          _page = displayPage;
+          _hasMore = false;
+        }
       });
+      if (result.errors.isEmpty && (reset || displayPage != previousPage)) {
+        _scrollToTop();
+      }
     } catch (e) {
-      if (mounted && request == _generation) setState(() => _error = e);
+      if (mounted && request == _generation) {
+        setState(() => _errors = {_source ?? 'comic': e});
+      }
     } finally {
       if (mounted && request == _generation) setState(() => _loading = false);
     }
+  }
+
+  void _scrollToTop() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      if (MediaQuery.disableAnimationsOf(context)) {
+        _scroll.jumpTo(0);
+      } else {
+        _scroll.animateTo(
+          0,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
   }
 
   Future<void> _select(String key) async {
@@ -289,20 +345,29 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen(comicSelectedSourceProvider, (_, __) => _load());
+    ref.listen(
+      comicSelectedSourceProvider,
+      (_, __) => _loadPage(1, reset: true, clearItems: true),
+    );
     ref.listen(comicSettingsRevisionProvider, (_, __) {
       _online = StorageService.getBool('comic_online_favorites') ?? false;
-      _load();
+      _loadPage(1, reset: true, clearItems: true);
     });
     ref.listen(comicRemoteFavoritesRevisionProvider, (_, __) {
-      if (widget.tab == 1 && _online) _load();
+      if (widget.tab == 1 && _online) _loadPage(_page, reset: true);
     });
     ref.listen(comicLibraryProvider, (_, __) {
-      if ((widget.tab == 1 && !_online) || widget.tab == 2) _load();
+      if ((widget.tab == 1 && !_online) || widget.tab == 2) {
+        _loadPage(_page, reset: true);
+      }
     });
     ref.listen(comicDownloadsProvider, (_, __) {
-      if (widget.tab == 3) _load();
+      if (widget.tab == 3) _loadPage(_page, reset: true);
     });
+    ref.listen(comicPageSizeProvider, (_, __) {
+      _loadPage(1, reset: true, clearItems: true);
+    });
+    final pageSize = ref.watch(comicPageSizeProvider);
     final sources = ref.watch(enabledComicSourcesProvider);
     final s = S.of(context);
     final modes = <FloatingFeedModeAction>[];
@@ -352,31 +417,74 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
     return Stack(
       children: [
         Positioned.fill(
-          child: RefreshIndicator(
-            onRefresh: () => _load(),
-            child: ComicGrid(
-              comics: _items,
-              controller: _scroll,
-              padding: EdgeInsets.fromLTRB(
-                FloatingToolbarLayout.horizontalPadding(context),
-                top,
-                FloatingToolbarLayout.horizontalPadding(context),
-                90,
+          child: Column(
+            children: [
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: () => _loadPage(1, reset: true, clearItems: true),
+                  child: ComicGrid(
+                    comics: _items,
+                    controller: _scroll,
+                    padding: EdgeInsets.fromLTRB(
+                      FloatingToolbarLayout.horizontalPadding(context),
+                      top,
+                      FloatingToolbarLayout.horizontalPadding(context),
+                      16,
+                    ),
+                    onLongPress: widget.tab == 1 || widget.tab == 2
+                        ? _removeFromLibrary
+                        : null,
+                  ),
+                ),
               ),
-              onLongPress: widget.tab == 1 || widget.tab == 2
-                  ? _removeFromLibrary
-                  : null,
-            ),
+              if (_errors.isNotEmpty && _items.isNotEmpty)
+                MaterialBanner(
+                  content: Text(
+                    _errors.entries
+                        .map((entry) {
+                          final source = ref
+                              .read(comicSourcesProvider)
+                              .where((source) => source.key == entry.key)
+                              .firstOrNull;
+                          return '${source?.name ?? entry.key}: ${entry.value}';
+                        })
+                        .join('\n'),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: _loading
+                          ? null
+                          : () => _loadPage(_pendingPage, retryFailures: true),
+                      child: Text(s.retry),
+                    ),
+                  ],
+                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                child: PaginationBar(
+                  currentPage: _page,
+                  pageSize: pageSize,
+                  totalCount: null,
+                  hasMore: _hasMore && _errors.isEmpty,
+                  isLoading: _loading,
+                  onPreviousPage: _page > 1 ? () => _loadPage(_page - 1) : null,
+                  onNextPage: _hasMore && _errors.isEmpty
+                      ? () => _loadPage(_page + 1)
+                      : null,
+                ),
+              ),
+            ],
           ),
         ),
         if (_loading && _items.isEmpty)
           const Center(child: CircularProgressIndicator()),
-        if (_error != null)
+        if (_errors.isNotEmpty && _items.isEmpty)
           Positioned.fill(
             top: top,
             child: ComicErrorView(
-              error: _error!,
-              retry: () => _load(more: _items.isNotEmpty),
+              error: _errors.values.first,
+              retry: () =>
+                  _loadPage(_pendingPage, retryFailures: _buffer != null),
             ),
           ),
         FloatingToolbarPositionFollower(
@@ -397,7 +505,7 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
                   onPressed: () {
                     setState(() => _online = !_online);
                     StorageService.setBool('comic_online_favorites', _online);
-                    _load();
+                    _loadPage(1, reset: true, clearItems: true);
                   },
                 ),
               if (widget.tab == 0)

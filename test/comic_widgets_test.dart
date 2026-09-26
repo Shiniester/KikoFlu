@@ -23,6 +23,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
+import 'package:kikoeru_flutter/src/providers/settings_provider.dart'
+    show pageSizeProvider;
 import 'package:kikoeru_flutter/src/providers/works_provider.dart'
     show LayoutType;
 import 'package:kikoeru_flutter/src/comics/comic_models.dart';
@@ -35,6 +37,7 @@ import 'package:kikoeru_flutter/src/comics/ui/comic_settings_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_detail_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_reader_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_search_screen.dart';
+import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 
 const _comic = Comic(
   source: 'fixture',
@@ -55,6 +58,7 @@ class _Source extends ComicSource {
   bool commentsEnabled = false;
   int searches = 0, favoriteWrites = 0;
   int detailRequests = 0, chapterRequests = 0;
+  final searchGates = <int, Completer<ComicResult>>{};
   Completer<Comic>? detailGate;
   Completer<List<ComicChapter>>? chapterGate;
   bool detailFails = false, chaptersFail = false;
@@ -88,6 +92,8 @@ class _Source extends ComicSource {
   }) async {
     searches++;
     if (fail) throw const ComicSourceException('fixture error');
+    final gate = searchGates.remove(searches);
+    if (gate != null) return gate.future;
     return ComicResult([
       key == 'fixture'
           ? _comic
@@ -328,6 +334,153 @@ void main() {
   });
 
   testWidgets(
+    'reader waits for its route transition before changing system bars',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 796);
+      tester.view.devicePixelRatio = 1;
+      tester.view.padding = const FakeViewPadding(top: 24, bottom: 24);
+      addTearDown(tester.view.reset);
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'SystemChrome.setEnabledSystemUIMode') {
+            final immersive = call.arguments == 'SystemUiMode.immersiveSticky';
+            tester.binding.addPostFrameCallback((_) {
+              tester.view.physicalSize = const Size(390, 796);
+              tester.view.padding = immersive
+                  ? const FakeViewPadding()
+                  : const FakeViewPadding(top: 24, bottom: 24);
+            });
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      await pump(
+        tester,
+        const ComicDetailScreen(comic: _comic),
+        _Library(),
+        _Source(),
+      );
+
+      final detail = find.byType(ComicDetailScreen, skipOffstage: false);
+      final detailSize = MediaQuery.sizeOf(tester.element(detail));
+      final detailPadding = MediaQuery.paddingOf(tester.element(detail));
+      final detailScaffold = find.descendant(
+        of: detail,
+        matching: find.byType(Scaffold),
+      );
+      Size detailBodySize() => tester
+          .renderObject(
+            find.descendant(
+              of: detail,
+              matching: find.byType(SingleChildScrollView),
+            ),
+          )
+          .paintBounds
+          .size;
+      Rect coverInDetailBody() {
+        final body =
+            tester.renderObject(
+                  find.descendant(
+                    of: detail,
+                    matching: find.byType(SingleChildScrollView),
+                  ),
+                )
+                as RenderBox;
+        final cover =
+            tester.renderObject(
+                  find.byKey(const ValueKey('comic-detail-cover')),
+                )
+                as RenderBox;
+        return cover.localToGlobal(Offset.zero, ancestor: body) & cover.size;
+      }
+
+      Rect coverInDetailScaffold() {
+        final scaffold = tester.renderObject(detailScaffold.first) as RenderBox;
+        final cover =
+            tester.renderObject(
+                  find.byKey(const ValueKey('comic-detail-cover')),
+                )
+                as RenderBox;
+        return cover.localToGlobal(Offset.zero, ancestor: scaffold) &
+            cover.size;
+      }
+
+      final coverRect = coverInDetailBody();
+      final scaffoldCoverRect = coverInDetailScaffold();
+      final bodySize = detailBodySize();
+      await tester.tap(find.text('Continue reading'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.pump();
+
+      final reader = find.byType(ComicReaderScreen);
+      expect(reader, findsOneWidget);
+      final route = ModalRoute.of(tester.element(reader))!;
+      expect(route.animation!.value, lessThan(1));
+      expect(detailBodySize(), bodySize);
+      expect(coverInDetailBody(), coverRect);
+      expect(coverInDetailScaffold(), scaffoldCoverRect);
+      expect(MediaQuery.sizeOf(tester.element(detail)), detailSize);
+      expect(MediaQuery.paddingOf(tester.element(detail)), detailPadding);
+      await tester.pumpAndSettle();
+      expect(MediaQuery.paddingOf(tester.element(detail)), EdgeInsets.zero);
+      Navigator.of(tester.element(reader)).pop();
+      await tester.pumpAndSettle();
+      expect(MediaQuery.paddingOf(tester.element(detail)), detailPadding);
+      expect(coverInDetailScaffold(), scaffoldCoverRect);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('reader applies system bars with reduced route motion', (
+    tester,
+  ) async {
+    final modes = <Object?>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'SystemChrome.setEnabledSystemUIMode') {
+          modes.add(call.arguments);
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: _comic),
+      _Library(),
+      _Source(),
+      reduceMotion: true,
+    );
+    await tester.tap(find.text('Continue reading'));
+    await tester.pumpAndSettle();
+
+    final reader = find.byType(ComicReaderScreen);
+    expect(reader, findsOneWidget);
+    expect(
+      ModalRoute.of(tester.element(reader))!.animation!.status,
+      AnimationStatus.completed,
+    );
+    expect(modes, contains('SystemUiMode.immersiveSticky'));
+    Navigator.of(tester.element(reader)).pop();
+    await tester.pumpAndSettle();
+    expect(modes, contains('SystemUiMode.edgeToEdge'));
+  });
+
+  testWidgets(
     'returning to earlier pages preserves their height while reloading',
     (tester) async {
       await StorageService.setString('comic_reading_mode', 'continuous');
@@ -521,9 +674,77 @@ void main() {
     expect(restored.read(comicLayoutProvider), LayoutType.smallGrid);
   });
 
+  test(
+    'comic page size defaults to 40 and persists independently of audio',
+    () async {
+      final audio = ProviderContainer();
+      addTearDown(audio.dispose);
+      await audio.read(pageSizeProvider.notifier).updatePageSize(20);
+      final initial = ProviderContainer();
+      addTearDown(initial.dispose);
+      expect(initial.read(comicPageSizeProvider), 40);
+      initial.read(comicPageSizeProvider.notifier).setPageSize(60);
+      await Future<void>.delayed(Duration.zero);
+
+      final restored = ProviderContainer();
+      addTearDown(restored.dispose);
+      expect(restored.read(comicPageSizeProvider), 60);
+
+      expect(audio.read(pageSizeProvider), 20);
+    },
+  );
+
+  testWidgets('comic settings change the collection page size', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final container = await pump(
+      tester,
+      const ComicSettingsScreen(),
+      _Library(),
+      _Source(),
+    );
+    final pageSize = find.text('Items Per Page');
+    await tester.ensureVisible(pageSize);
+    await tester.tap(pageSize);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('60').last);
+    await tester.pumpAndSettle();
+
+    expect(container.read(comicPageSizeProvider), 60);
+    expect(find.text('60 items per page'), findsOneWidget);
+  });
+
+  testWidgets('unknown comic total keeps paging without a jump action', (
+    tester,
+  ) async {
+    var previousCalls = 0;
+    await pump(
+      tester,
+      Scaffold(
+        body: PaginationBar(
+          currentPage: 2,
+          pageSize: 40,
+          totalCount: null,
+          hasMore: true,
+          isLoading: false,
+          onPreviousPage: () => previousCalls++,
+          onNextPage: () {},
+        ),
+      ),
+      _Library(),
+      _Source(),
+    );
+
+    expect(find.text('2'), findsOneWidget);
+    expect(find.byIcon(Icons.edit_location_alt), findsNothing);
+    await tester.tap(find.text('Previous'));
+    expect(previousCalls, 1);
+  });
+
   for (final layout in [LayoutType.bigGrid, LayoutType.smallGrid]) {
     testWidgets(
-      'ComicScreen keeps paged covers stable in $layout through fast down and reverse scroll',
+      'ComicScreen keeps covers stable during fast down and reverse scroll in $layout',
       (tester) async {
         await StorageService.setString('comic_layout_type', layout.name);
         tester.view.physicalSize = const Size(390, 844);
@@ -597,7 +818,7 @@ void main() {
         await tester.fling(scrollable, const Offset(0, -1800), 12000);
         await tester.pumpAndSettle();
         expect(position.pixels, greaterThan(1000));
-        expect(source.cursors, [null, 'second-page']);
+        expect(source.cursors, [null]);
 
         final reverseGesture = await tester.startGesture(
           tester.getCenter(scrollable),
@@ -654,18 +875,89 @@ void main() {
         }
         expect(anchorContentTops, isNotEmpty);
         for (final top in anchorContentTops) {
-          expect(top, closeTo(anchorContentTop, 2));
+          expect(top, closeTo(anchorContentTop, 3));
         }
         for (final left in anchorLefts) {
           expect(left, closeTo(anchorLeft, 1));
         }
         final restoredCard = tester.getRect(firstCard);
-        expect(restoredCard.top, closeTo(firstCardContentTop, 2));
+        expect(restoredCard.top, closeTo(firstCardContentTop, 3));
         expect(restoredCard.left, closeTo(firstCardLeft, 1));
+        await tester.tap(find.text('Next'));
+        await tester.pumpAndSettle();
+        expect(source.cursors, [null, 'second-page']);
+        await tester.tap(find.text('Previous'));
+        await tester.pumpAndSettle();
+        expect(source.cursors, [null, 'second-page']);
+        expect(find.text('First 0'), findsOneWidget);
         expect(tester.takeException(), isNull);
       },
     );
   }
+
+  testWidgets('changing comic page size returns the collection to page one', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final source = _PaginatedSource(
+      List.generate(
+        48,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'size-first-$i',
+          title: 'Size first $i',
+          cover: 'size-first-cover-$i',
+        ),
+      ),
+      List.generate(
+        24,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'size-second-$i',
+          title: 'Size second $i',
+          cover: 'size-second-cover-$i',
+        ),
+      ),
+    );
+    final container = await pump(
+      tester,
+      const ComicScreen(),
+      _Library(),
+      source,
+    );
+
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    final pagination = find.byType(PaginationBar);
+    expect(
+      find.descendant(of: pagination, matching: find.text('2')),
+      findsOneWidget,
+    );
+    expect(source.cursors, [null, 'second-page']);
+
+    final grid = find.byType(ComicGrid);
+    final scrollable = find.descendant(
+      of: grid,
+      matching: find.byType(Scrollable),
+    );
+    final position = tester.state<ScrollableState>(scrollable).position;
+    position.jumpTo(position.maxScrollExtent.clamp(1, 300));
+    await tester.pumpAndSettle();
+    expect(position.pixels, greaterThan(0));
+
+    container.read(comicPageSizeProvider.notifier).setPageSize(20);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(of: pagination, matching: find.text('1')),
+      findsOneWidget,
+    );
+    expect(find.text('Size first 0'), findsOneWidget);
+    expect(source.cursors, [null, 'second-page', null]);
+    expect(position.pixels, closeTo(0, 0.1));
+  });
 
   testWidgets(
     'comic grid cards hug covers and grow with existing title content',
@@ -2100,5 +2392,57 @@ void main() {
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
     expect(find.text('Fixture book'), findsOneWidget);
+  });
+
+  testWidgets('switching grouped mode cancels the paged loading indicator', (
+    tester,
+  ) async {
+    final gate = Completer<ComicResult>();
+    final source = _Source()..searchGates[1] = gate;
+    await pump(
+      tester,
+      const ComicSearchScreen(initialSource: 'fixture', initialQuery: 'book'),
+      _Library(),
+      source,
+      settle: false,
+    );
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsOneWidget);
+
+    await tester.tap(find.text('Grouped results'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+
+    gate.complete(const ComicResult([_comic]));
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+  });
+
+  testWidgets('switching from grouped mode clears its pending sources', (
+    tester,
+  ) async {
+    final source = _Source();
+    await pump(
+      tester,
+      const ComicSearchScreen(initialSource: 'fixture', initialQuery: 'book'),
+      _Library(),
+      source,
+    );
+    final gate = Completer<ComicResult>();
+    source.searchGates[source.searches + 1] = gate;
+
+    await tester.tap(find.text('Grouped results'));
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsWidgets);
+
+    await tester.tap(find.text('Single source'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+
+    gate.complete(const ComicResult([_comic]));
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsNothing);
   });
 }

@@ -142,6 +142,13 @@ _Avoid_: Comic Screen, source library
   masonry layout, or list. The small grid is the compact-cover view.
 _Avoid_: Comic Reading Mode
 
+**Comic Collection Page (漫画集合分页)**:
+  Comic collections and full comic search present fixed-size groups of 20, 40,
+  60, or 100 items (default 40), with a separate comic page-size preference.
+  Users move between groups with Previous and Next. This is distinct from
+  reader page turns and the masonry card layout.
+_Avoid_: comic reader page, masonry layout
+
 **Comic Source (漫画源)**:
 One built-in provider of comic metadata, chapter images and optional account
 features. Comic identity is sourceKey + comicId; chapter identity adds chapterId.

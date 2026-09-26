@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
+import '../../widgets/pagination_bar.dart';
 import '../comic_models.dart';
+import '../comic_pagination.dart';
 import '../comic_providers.dart';
 import '../comic_source.dart';
 import 'comic_widgets.dart';
@@ -46,16 +48,19 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
   ComicSearchMode _mode = ComicSearchMode.single;
   String? _sort;
   final _results = <String, List<Comic>>{};
-  final _next = <String, String?>{};
   final _errors = <String, Object>{};
   final _pending = <String>{};
+  ComicPageBuffer? _buffer;
+  List<Comic> _pageItems = [];
+  Map<String, Object> _pageErrors = {};
+  bool _pageLoading = false, _hasMore = false;
+  int _page = 1, _pendingPage = 1;
   int _generation = 0;
   bool _submitted = false;
   final _scroll = ScrollController();
   @override
   void initState() {
     super.initState();
-    _scroll.addListener(_onScroll);
     if (widget.initialQuery.isNotEmpty ||
         widget.category != null ||
         widget.libraryTab != null) {
@@ -71,15 +76,6 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
     super.dispose();
   }
 
-  void _onScroll() {
-    if (_scroll.position.extentAfter < 600 &&
-        _mode != ComicSearchMode.grouped &&
-        _pending.isEmpty &&
-        _next.values.any((n) => n != null)) {
-      _search(more: true);
-    }
-  }
-
   List<ComicSource> get _targets {
     final all = ref.read(enabledComicSourcesProvider);
     return _mode == ComicSearchMode.single
@@ -87,93 +83,190 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
         : all;
   }
 
-  Future<void> _search({bool more = false, Set<String>? retrySources}) async {
+  ComicPageBuffer _sourceBuffer(List<ComicSource> sources, String query) {
+    final sort = _sort;
+    final single = _mode == ComicSearchMode.single;
+    return ComicPageBuffer([
+      for (final source in sources)
+        ComicPageSource(source.key, (cursor) async {
+          if (widget.category != null) {
+            return source.category(widget.category!, cursor: cursor);
+          }
+          return source.search(
+            query,
+            cursor: cursor,
+            sort: single ? sort : null,
+          );
+        }),
+    ]);
+  }
+
+  Future<ComicPageBuffer> _createBuffer(String query) async {
+    if (widget.libraryTab != null) {
+      List<Comic> comics;
+      final library = ref.read(comicLibraryProvider);
+      if (widget.libraryTab == 1 && widget.onlineFavorites) {
+        final source = ref
+            .read(comicSourcesProvider)
+            .firstWhere((source) => source.key == _source);
+        return ComicPageBuffer([
+          ComicPageSource(source.key, (cursor) async {
+            final result = await source.favorites(cursor: cursor);
+            final items = _filterLibraryItems(result.items, query);
+            return ComicResult(
+              items,
+              next: result.next,
+              totalPages: result.totalPages,
+            );
+          }),
+        ]);
+      } else if (widget.libraryTab == 1) {
+        comics = await library.favorites();
+      } else if (widget.libraryTab == 2) {
+        comics = (await library.history())
+            .map((progress) => progress.comic)
+            .toList();
+      } else {
+        final downloads = ref.read(comicDownloadsProvider);
+        await downloads.ready;
+        comics = downloads.completedComics;
+      }
+      return ComicPageBuffer.fromItems(_filterLibraryItems(comics, query));
+    }
+    return _sourceBuffer(_targets, query);
+  }
+
+  List<Comic> _filterLibraryItems(List<Comic> comics, String query) {
+    final needle = query.toLowerCase();
+    return comics
+        .where(
+          (comic) => '${comic.title} ${comic.tags.join(' ')}'
+              .toLowerCase()
+              .contains(needle),
+        )
+        .toList();
+  }
+
+  Future<void> _loadPage(
+    int page, {
+    bool reset = false,
+    bool retryFailures = false,
+  }) async {
+    if (!mounted || (_pageLoading && !reset)) return;
+    final generation = ++_generation;
+    final previousPage = _page;
+    final query = _query.text.trim();
+    setState(() {
+      _submitted = true;
+      _pageLoading = true;
+      _pendingPage = page;
+      if (reset) {
+        _buffer = null;
+        _pageItems = [];
+        _pageErrors = {};
+        _errors.clear();
+        _pending.clear();
+        _page = 1;
+        _hasMore = false;
+      }
+    });
+    try {
+      var buffer = _buffer;
+      if (reset || buffer == null) buffer = await _createBuffer(query);
+      if (!mounted || generation != _generation) return;
+      var displayPage = page;
+      var result = await buffer.page(
+        displayPage,
+        ref.read(comicPageSizeProvider),
+        retryFailures: retryFailures,
+      );
+      while (result.items.isEmpty && result.errors.isEmpty && displayPage > 1) {
+        result = await buffer.page(
+          --displayPage,
+          ref.read(comicPageSizeProvider),
+        );
+      }
+      if (!mounted || generation != _generation) return;
+      setState(() {
+        _buffer = buffer;
+        _pageErrors = result.errors;
+        if (result.errors.isEmpty) {
+          _pageItems = result.items;
+          _page = displayPage;
+          _pendingPage = displayPage;
+          _hasMore = result.hasMore;
+        } else if (_pageItems.isEmpty && result.items.isNotEmpty) {
+          _pageItems = result.items;
+          _page = displayPage;
+          _hasMore = false;
+        }
+      });
+      if (result.errors.isEmpty && (reset || displayPage != previousPage)) {
+        _scrollToTop();
+      }
+    } catch (error) {
+      if (mounted && generation == _generation) {
+        setState(() => _pageErrors = {'search': error});
+      }
+    } finally {
+      if (mounted && generation == _generation) {
+        setState(() => _pageLoading = false);
+      }
+    }
+  }
+
+  void _scrollToTop() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      if (MediaQuery.disableAnimationsOf(context)) {
+        _scroll.jumpTo(0);
+      } else {
+        _scroll.animateTo(
+          0,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
+  }
+
+  Future<void> _search({Set<String>? retrySources}) async {
     if (!mounted) return;
-    final append = more || retrySources != null;
+    if (_mode != ComicSearchMode.grouped ||
+        widget.category != null ||
+        widget.libraryTab != null) {
+      await _loadPage(1, reset: true);
+      return;
+    }
+    final append = retrySources != null;
     final generation = append ? _generation : ++_generation;
     final query = _query.text.trim();
     setState(() {
       _submitted = true;
       if (!append) {
+        _pageLoading = false;
+        _pendingPage = 1;
+        _hasMore = false;
         _results.clear();
-        _next.clear();
         _errors.clear();
         _pending.clear();
+        _buffer = null;
+        _pageItems = [];
+        _pageErrors = {};
       }
     });
-    if (widget.libraryTab != null) {
-      const key = 'library';
-      setState(() => _pending.add(key));
-      try {
-        List<Comic> comics;
-        final library = ref.read(comicLibraryProvider);
-        if (widget.libraryTab == 1 && widget.onlineFavorites) {
-          final source = ref
-              .read(comicSourcesProvider)
-              .firstWhere((s) => s.key == _source);
-          comics = [];
-          String? cursor;
-          do {
-            final result = await source.favorites(cursor: cursor);
-            comics.addAll(result.items);
-            cursor = result.next;
-            if (!mounted || generation != _generation) return;
-          } while (cursor != null);
-        } else if (widget.libraryTab == 1) {
-          comics = await library.favorites();
-        } else if (widget.libraryTab == 2) {
-          comics = (await library.history()).map((p) => p.comic).toList();
-        } else {
-          final downloads = ref.read(comicDownloadsProvider);
-          await downloads.ready;
-          comics = downloads.completedComics;
-        }
-        if (mounted && generation == _generation) {
-          setState(
-            () => _results[key] = comics
-                .where(
-                  (c) => '${c.title} ${c.tags.join(' ')}'
-                      .toLowerCase()
-                      .contains(query.toLowerCase()),
-                )
-                .toList(),
-          );
-        }
-      } catch (e) {
-        if (mounted && generation == _generation) {
-          setState(() => _errors[key] = e);
-        }
-      } finally {
-        if (mounted && generation == _generation) {
-          setState(() => _pending.remove(key));
-        }
-      }
-      return;
-    }
     await Future.wait(
       _targets
           .where(
-            (s) => retrySources != null
-                ? retrySources.contains(s.key)
-                : !more || _next[s.key] != null,
+            (s) => retrySources != null ? retrySources.contains(s.key) : true,
           )
           .map((source) async {
             setState(() => _pending.add(source.key));
             try {
-              final result = widget.category != null
-                  ? await source.category(
-                      widget.category!,
-                      cursor: append ? _next[source.key] : null,
-                    )
-                  : await source.search(
-                      query,
-                      cursor: append ? _next[source.key] : null,
-                      sort: _mode == ComicSearchMode.single ? _sort : null,
-                    );
+              final result = await source.search(query);
               if (!mounted || generation != _generation) return;
               setState(() {
                 _results.putIfAbsent(source.key, () => []).addAll(result.items);
-                _next[source.key] = result.next;
                 _errors.remove(source.key);
               });
             } catch (e) {
@@ -289,14 +382,21 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(comicPageSizeProvider, (_, __) {
+      if (_submitted && _mode != ComicSearchMode.grouped) {
+        _loadPage(1, reset: true);
+      }
+    });
+    final pageSize = ref.watch(comicPageSizeProvider);
     final s = S.of(context);
     final sources = ref.watch(enabledComicSourcesProvider);
     final selected = sources.where((s) => s.key == _source).firstOrNull;
-    final items = interleaveComicResults(
+    final groupedItems = interleaveComicResults(
       widget.libraryTab != null
           ? _results.values.toList()
           : _targets.map((s) => _results[s.key] ?? <Comic>[]).toList(),
     );
+    final items = _mode == ComicSearchMode.grouped ? groupedItems : _pageItems;
     final screen = Scaffold(
       appBar: AppBar(title: Text(widget.category?.title ?? s.search)),
       body: Column(
@@ -399,21 +499,8 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                 ],
               ),
             ),
-          if (_pending.isNotEmpty) const LinearProgressIndicator(),
-          if (_errors.isNotEmpty &&
-              _mode != ComicSearchMode.grouped &&
-              items.isNotEmpty)
-            MaterialBanner(
-              content: Text(
-                _errors.entries.map((e) => '${e.key}: ${e.value}').join('\n'),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => _search(retrySources: _errors.keys.toSet()),
-                  child: Text(s.retry),
-                ),
-              ],
-            ),
+          if (_pending.isNotEmpty || _pageLoading)
+            const LinearProgressIndicator(),
           Expanded(
             child: !_submitted
                 ? const SizedBox.shrink()
@@ -423,12 +510,63 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                     padding: const EdgeInsets.all(16),
                     children: _targets.map(_group).toList(),
                   )
-                : _errors.isNotEmpty && items.isEmpty && _pending.isEmpty
-                ? ComicErrorView(
-                    error: _errors.values.first,
-                    retry: () => _search(),
-                  )
-                : ComicGrid(comics: items, controller: _scroll),
+                : Column(
+                    children: [
+                      Expanded(
+                        child: _pageErrors.isNotEmpty && items.isEmpty
+                            ? ComicErrorView(
+                                error: _pageErrors.values.first,
+                                retry: () => _loadPage(
+                                  _pendingPage,
+                                  retryFailures: _buffer != null,
+                                ),
+                              )
+                            : ComicGrid(comics: items, controller: _scroll),
+                      ),
+                      if (_pageErrors.isNotEmpty && items.isNotEmpty)
+                        MaterialBanner(
+                          content: Text(
+                            _pageErrors.entries
+                                .map((entry) {
+                                  final source = sources
+                                      .where(
+                                        (source) => source.key == entry.key,
+                                      )
+                                      .firstOrNull;
+                                  return '${source?.name ?? entry.key}: ${entry.value}';
+                                })
+                                .join('\n'),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: _pageLoading
+                                  ? null
+                                  : () => _loadPage(
+                                      _pendingPage,
+                                      retryFailures: true,
+                                    ),
+                              child: Text(s.retry),
+                            ),
+                          ],
+                        ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                        child: PaginationBar(
+                          currentPage: _page,
+                          pageSize: pageSize,
+                          totalCount: null,
+                          hasMore: _hasMore && _pageErrors.isEmpty,
+                          isLoading: _pageLoading,
+                          onPreviousPage: _page > 1
+                              ? () => _loadPage(_page - 1)
+                              : null,
+                          onNextPage: _hasMore && _pageErrors.isEmpty
+                              ? () => _loadPage(_page + 1)
+                              : null,
+                        ),
+                      ),
+                    ],
+                  ),
           ),
         ],
       ),

@@ -61,6 +61,28 @@ final comicLayoutProvider =
       (ref) => ComicLayoutNotifier(),
     );
 
+final comicPageSizeProvider = StateNotifierProvider<ComicPageSizeNotifier, int>(
+  (ref) => ComicPageSizeNotifier(),
+);
+
+class ComicPageSizeNotifier extends StateNotifier<int> {
+  ComicPageSizeNotifier() : super(_initialPageSize());
+
+  static const preferenceKey = 'comic_page_size_preference';
+  static const options = [20, 40, 60, 100];
+
+  static int _initialPageSize() {
+    final saved = StorageService.getInt(preferenceKey);
+    return options.contains(saved) ? saved! : 40;
+  }
+
+  void setPageSize(int pageSize) {
+    if (!options.contains(pageSize) || state == pageSize) return;
+    state = pageSize;
+    unawaited(StorageService.setInt(preferenceKey, pageSize));
+  }
+}
+
 class ComicLayoutNotifier extends StateNotifier<LayoutType> {
   ComicLayoutNotifier() : super(_initialLayout());
 

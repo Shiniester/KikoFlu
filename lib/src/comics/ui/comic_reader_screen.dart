@@ -54,6 +54,8 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   final Map<int, Future<Uint8List>> _images = {};
   final Map<int, double> _aspectRatios = {};
   Timer? _saveTimer;
+  Animation<double>? _routeAnimation;
+  AnimationStatusListener? _routeStatusListener;
   @override
   void initState() {
     super.initState();
@@ -63,10 +65,41 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _active.state = true;
-        _setBars();
       }
     });
     _loadChapter();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final animation = ModalRoute.of(context)?.animation;
+    if (identical(animation, _routeAnimation)) return;
+    if (_routeAnimation != null && _routeStatusListener != null) {
+      _routeAnimation!.removeStatusListener(_routeStatusListener!);
+    }
+    _routeAnimation = animation;
+    if (animation == null) return;
+    _routeStatusListener = (status) {
+      if (status == AnimationStatus.completed) {
+        _setBarsAfterFrame(animation);
+      }
+    };
+    animation.addStatusListener(_routeStatusListener!);
+    if (animation.status == AnimationStatus.completed) {
+      _setBarsAfterFrame(animation);
+    }
+  }
+
+  void _setBarsAfterFrame(Animation<double> animation) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          !identical(animation, _routeAnimation) ||
+          animation.status != AnimationStatus.completed) {
+        return;
+      }
+      _setBars();
+    });
   }
 
   @override
@@ -78,6 +111,9 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       unawaited(_saveProgress(_chapter.id, _page));
     }
     _positions.itemPositions.removeListener(_scrolled);
+    if (_routeAnimation != null && _routeStatusListener != null) {
+      _routeAnimation!.removeStatusListener(_routeStatusListener!);
+    }
     _pager?.dispose();
     _focus.dispose();
     Future.microtask(() {

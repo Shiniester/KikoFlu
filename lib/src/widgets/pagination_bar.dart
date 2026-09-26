@@ -12,7 +12,7 @@ class PaginationBar extends StatefulWidget {
   final int pageSize;
 
   /// 总条目数
-  final int totalCount;
+  final int? totalCount;
 
   /// 是否有更多数据
   final bool hasMore;
@@ -62,8 +62,9 @@ class _PaginationBarState extends State<PaginationBar> {
     super.dispose();
   }
 
-  int get _maxPage =>
-      widget.totalCount > 0 ? (widget.totalCount / widget.pageSize).ceil() : 1;
+  int get _maxPage => widget.totalCount != null && widget.totalCount! > 0
+      ? (widget.totalCount! / widget.pageSize).ceil()
+      : 1;
 
   /// 构建到底提示
   Widget _buildEndMessage() {
@@ -107,10 +108,9 @@ class _PaginationBarState extends State<PaginationBar> {
       size: 18,
       color: enabled
           ? Theme.of(context).colorScheme.onPrimaryContainer
-          : Theme.of(context)
-              .colorScheme
-              .onSurfaceVariant
-              .withValues(alpha: 0.5),
+          : Theme.of(
+              context,
+            ).colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
     );
 
     final textWidget = Text(
@@ -119,10 +119,9 @@ class _PaginationBarState extends State<PaginationBar> {
         fontSize: 13,
         color: enabled
             ? Theme.of(context).colorScheme.onPrimaryContainer
-            : Theme.of(context)
-                .colorScheme
-                .onSurfaceVariant
-                .withValues(alpha: 0.5),
+            : Theme.of(
+                context,
+              ).colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
       ),
     );
 
@@ -225,7 +224,9 @@ class _PaginationBarState extends State<PaginationBar> {
     final targetPage = int.tryParse(pageStr);
     if (targetPage == null || targetPage < 1 || targetPage > _maxPage) {
       SnackBarUtil.showWarning(
-          context, S.of(context).enterValidPageNumber(_maxPage));
+        context,
+        S.of(context).enterValidPageNumber(_maxPage),
+      );
       return;
     }
 
@@ -242,7 +243,7 @@ class _PaginationBarState extends State<PaginationBar> {
   @override
   Widget build(BuildContext context) {
     // 如果总数小于等于一页的大小，显示到底提示
-    if (widget.totalCount <= widget.pageSize) {
+    if (widget.totalCount != null && widget.totalCount! <= widget.pageSize) {
       return _buildEndMessage();
     }
 
@@ -260,28 +261,35 @@ class _PaginationBarState extends State<PaginationBar> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                S.of(context).pageNOfTotal(widget.currentPage, _maxPage),
+                widget.totalCount == null
+                    ? '${widget.currentPage}'
+                    : S.of(context).pageNOfTotal(widget.currentPage, _maxPage),
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurface,
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerLow,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  S.of(context).totalNItems(widget.totalCount),
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontSize: 11,
+              if (widget.totalCount != null && widget.onGoToPage != null) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    S.of(context).totalNItems(widget.totalCount!),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 11,
+                    ),
                   ),
                 ),
-              ),
+              ],
             ],
           ),
           const SizedBox(height: 12),
@@ -300,8 +308,10 @@ class _PaginationBarState extends State<PaginationBar> {
               const SizedBox(width: 8),
 
               // 跳转输入
-              _buildPageJumpButton(),
-              const SizedBox(width: 8),
+              if (widget.totalCount != null && widget.onGoToPage != null) ...[
+                _buildPageJumpButton(),
+                const SizedBox(width: 8),
+              ],
 
               // 下一页
               _buildPageButton(
