@@ -494,6 +494,66 @@ void main() {
           .first,
     );
     expect(clip.borderRadius, BorderRadius.circular(workCoverCompactRadius));
+    final title = tester.getRect(find.text('Fixture book'));
+    final tag = tester.getRect(find.text('Fixture tag'));
+    expect(tag.top, greaterThanOrEqualTo(title.bottom + 6));
+    final chip = tester.widget<MetadataSearchChip>(
+      find.ancestor(
+        of: find.text('Fixture tag'),
+        matching: find.byType(MetadataSearchChip),
+      ),
+    );
+    expect(chip.fontSize, 13);
+    expect(chip.borderRadius, 12);
+    expect(
+      chip.padding,
+      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('big comic card shows only a real source date on its cover', (
+    tester,
+  ) async {
+    await StorageService.setBool('comic_grid', true);
+    const dated = Comic(
+      source: 'fixture',
+      id: 'dated',
+      title: 'Dated book',
+      cover: 'dated-cover',
+      extra: {'sourceDate': '2024-05-12T09:30:00Z'},
+    );
+    const invalid = Comic(
+      source: 'fixture',
+      id: 'invalid',
+      title: 'Invalid date',
+      cover: 'invalid-cover',
+      extra: {'sourceDate': 'unknown'},
+    );
+    final container = await pump(
+      tester,
+      const Scaffold(body: ComicGrid(comics: [dated, invalid, _comic])),
+      _Library(),
+      _Source(),
+    );
+    expect(find.text('2024-05-12'), findsOneWidget);
+    final badgeFinder = find
+        .ancestor(of: find.text('2024-05-12'), matching: find.byType(Container))
+        .first;
+    final badge = tester.getRect(badgeFinder);
+    final decoration =
+        tester.widget<Container>(badgeFinder).decoration as BoxDecoration;
+    expect(decoration.borderRadius, BorderRadius.circular(4));
+    expect(decoration.color, Colors.black.withValues(alpha: 0.7));
+    final cover = tester.getRect(find.byType(ComicImage).first);
+    expect(badge.right, closeTo(cover.right - 6, 0.1));
+    expect(badge.bottom, closeTo(cover.bottom - 6, 0.1));
+    expect(badge.right, greaterThan(cover.center.dx));
+    expect(find.text('unknown'), findsNothing);
+    expect(find.text('Fixture tag'), findsNothing);
+    container.read(comicGridProvider.notifier).state = false;
+    await tester.pumpAndSettle();
+    expect(find.text('2024-05-12'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -626,7 +686,7 @@ void main() {
             greaterThan(frame.bottom),
           );
         }
-        expect(find.text('Fixture tag'), findsNothing);
+        expect(find.text('Fixture tag'), grid ? findsNothing : findsOneWidget);
         expect(tester.takeException(), isNull);
       });
     }
@@ -729,8 +789,13 @@ void main() {
           matching: find.byType(FilledButton),
         ),
       );
-      expect(button.left, closeTo(size.width == 320 ? 8 : 16, 0.1));
-      expect(button.top, greaterThan(cover.bottom));
+      expect(button.left, closeTo(title.left, 0.1));
+      expect(button.top, greaterThan(title.bottom));
+      if (size.width == 320) {
+        expect(button.top, greaterThan(cover.bottom));
+      } else {
+        expect(button.left, greaterThan(cover.right));
+      }
       await tester.tap(find.byTooltip('Download'));
       await tester.pumpAndSettle();
       expect(find.byType(CheckboxListTile), findsNWidgets(2));
@@ -858,8 +923,14 @@ void main() {
             matching: find.byType(FilledButton),
           ),
         );
-        expect(button.left, closeTo(size.width == 320 ? 8 : 16, 0.1));
-        expect(button.top, greaterThan(cover.bottom));
+        final title = tester.getRect(find.byType(WorkTitleHeader));
+        expect(button.left, closeTo(title.left, 0.1));
+        expect(button.top, greaterThan(title.bottom));
+        if (size.width == 320) {
+          expect(button.top, greaterThan(cover.bottom));
+        } else {
+          expect(button.left, greaterThan(cover.right));
+        }
         expect(tester.takeException(), isNull);
       });
     }
@@ -1209,31 +1280,36 @@ void main() {
     expectVisibleComicCoverRatio(tester, 100 / 160);
   });
 
-  testWidgets('comic cover Hero returns while the image is still loading', (
-    tester,
-  ) async {
-    final image = Completer<Uint8List>();
-    await pump(
+  for (final grid in [false, true]) {
+    testWidgets('comic $grid card and cover appear together at final size', (
       tester,
-      const Scaffold(body: ComicGrid(comics: [_comic])),
-      _Library(),
-      _Source(),
-      loadImage: (_) => image.future,
-      settle: false,
-    );
-    await tester.tap(find.text('Fixture book'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(find.byType(ComicDetailScreen), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.byTooltip('Back'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-    expect(find.byType(ComicDetailScreen), findsNothing);
-    expect(tester.takeException(), isNull);
-    image.complete(_png);
-  });
+    ) async {
+      await StorageService.setBool('comic_grid', grid);
+      final image = Completer<Uint8List>();
+      var loads = 0;
+      await pump(
+        tester,
+        const Scaffold(body: ComicGrid(comics: [_comic])),
+        _Library(),
+        _Source(),
+        loadImage: (_) {
+          loads++;
+          return image.future;
+        },
+        settle: false,
+      );
+      expect(find.byType(Card), findsNothing);
+      expect(find.text('Fixture book'), findsNothing);
+      expect(loads, 1);
+      image.complete(_widePng);
+      await tester.pumpAndSettle();
+      expect(find.byType(Card), findsOneWidget);
+      final cover = tester.getRect(find.byType(ComicImage));
+      expect(cover.width / cover.height, closeTo(180 / 100, 0.001));
+      expect(loads, 1);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('loaded comic cover stays visible throughout Hero push and pop', (
     tester,
@@ -1283,53 +1359,6 @@ void main() {
     expect(find.byType(Image), findsWidgets);
   });
 
-  testWidgets('pending comic cover keeps one request during Hero flight', (
-    tester,
-  ) async {
-    final pending = Completer<Uint8List>();
-    var loads = 0;
-    await pump(
-      tester,
-      const Scaffold(body: ComicGrid(comics: [_comic])),
-      _Library(),
-      _Source(),
-      loadImage: (_) {
-        loads++;
-        return pending.future;
-      },
-      settle: false,
-    );
-    expect(loads, 1);
-    await tester.tap(find.text('Fixture book'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(loads, 1);
-    pending.complete(_widePng);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(find.byType(ComicImage), findsWidgets);
-    expect(
-      find.descendant(
-        of: find.byType(ComicImage),
-        matching: find.byType(CircularProgressIndicator),
-      ),
-      findsWidgets,
-    );
-    final flight = tester.getRect(find.byType(ComicImage).first);
-    expect(flight.width / flight.height, closeTo(2 / 3, 0.001));
-    await tester.pumpAndSettle();
-    expect(
-      find.descendant(
-        of: find.byType(ComicImage),
-        matching: find.byType(CircularProgressIndicator),
-      ),
-      findsNothing,
-    );
-    expect(find.byType(Image), findsWidgets);
-    expectVisibleComicCoverRatio(tester, 180 / 100);
-    expect(tester.takeException(), isNull);
-  });
-
   testWidgets('failed cover keeps its placeholder through flight and retries', (
     tester,
   ) async {
@@ -1343,10 +1372,11 @@ void main() {
       loadImage: (_) => ++loads == 1 ? pending.future : Future.value(_widePng),
       settle: false,
     );
-    await tester.tap(find.text('Fixture book'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byType(Card), findsNothing);
     pending.completeError(StateError('cover failed'));
+    await tester.pumpAndSettle();
+    expect(find.byType(Card), findsOneWidget);
+    await tester.tap(find.text('Fixture book'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     final flight = tester.getRect(find.byType(ComicImage).first);

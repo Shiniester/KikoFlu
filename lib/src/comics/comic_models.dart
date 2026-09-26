@@ -41,6 +41,32 @@ class Comic {
   final Map<String, dynamic> extra;
   ComicPage get coverPage =>
       ComicPage(cover, localPath: extra['localCover'] as String?);
+  String? get coverDate {
+    final value = extra['sourceDate'];
+    if (value is String) {
+      final day = RegExp(r'^\d{4}-\d{2}-\d{2}').firstMatch(value)?.group(0);
+      if (day == null) return null;
+      final parsed = DateTime.tryParse(day);
+      if (parsed == null ||
+          '${parsed.year.toString().padLeft(4, '0')}-${parsed.month.toString().padLeft(2, '0')}-${parsed.day.toString().padLeft(2, '0')}' !=
+              day) {
+        return null;
+      }
+      return day;
+    }
+    if (value is! num || !value.isFinite || value < 0 || value > 253402300799) {
+      return null;
+    }
+    final date = DateTime.fromMillisecondsSinceEpoch(
+      (value * 1000).toInt(),
+      isUtc: true,
+    );
+    final year = date.year.toString().padLeft(4, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
+  }
+
   String get key => jsonEncode([source, id]);
   Comic withChapters(List<ComicChapter> value) => Comic(
     source: source,

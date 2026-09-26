@@ -101,7 +101,10 @@ class NhSource extends ComicSource {
           .map((t) => '${t['type']}:${t['name']}')
           .toList(),
       chapters: [ComicChapter('${c['id']}', '1')],
-      extra: {'pages': c['pages'] ?? []},
+      extra: {
+        'pages': c['pages'] ?? [],
+        if (c['upload_date'] != null) 'sourceDate': c['upload_date'],
+      },
     );
   }
 

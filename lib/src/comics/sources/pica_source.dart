@@ -104,7 +104,11 @@ class PicaSource extends ComicSource {
       ...List<String>.from(c['tags'] ?? []),
     ],
     chapters: chapters,
-    extra: {'isFavorite': c['isFavourite'] ?? false, 'likes': c['likesCount']},
+    extra: {
+      'isFavorite': c['isFavourite'] ?? false,
+      'likes': c['likesCount'],
+      if (c['created_at'] != null) 'sourceDate': c['created_at'],
+    },
   );
   ComicResult _result(dynamic data, int page) {
     final pages = (data['pages'] as num?)?.toInt() ?? page;

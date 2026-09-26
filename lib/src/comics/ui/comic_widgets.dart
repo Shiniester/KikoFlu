@@ -1,5 +1,6 @@
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/work_detail/work_cover_frame.dart';
+import '../../widgets/metadata_search_chip.dart';
 import '../../providers/work_card_display_provider.dart';
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../utils/collection_grid_layout.dart';
@@ -328,6 +329,44 @@ class ComicErrorView extends StatelessWidget {
   }
 }
 
+class _ComicCardWhenReady extends ConsumerStatefulWidget {
+  const _ComicCardWhenReady({
+    required this.source,
+    required this.page,
+    required this.child,
+  });
+
+  final String source;
+  final ComicPage page;
+  final Widget child;
+
+  @override
+  ConsumerState<_ComicCardWhenReady> createState() =>
+      _ComicCardWhenReadyState();
+}
+
+class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady> {
+  bool _shown = false;
+
+  @override
+  void didUpdateWidget(_ComicCardWhenReady oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.source != widget.source ||
+        oldWidget.page.url != widget.page.url) {
+      _shown = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final image = ref.watch(
+      _comicImageBytesProvider(_ComicImageRequest(widget.source, widget.page)),
+    );
+    _shown |= image.valueOrNull != null || image.hasError;
+    return _shown ? widget.child : const SizedBox.shrink();
+  }
+}
+
 class ComicGrid extends ConsumerWidget {
   const ComicGrid({
     super.key,
@@ -399,56 +438,92 @@ class ComicGrid extends ConsumerWidget {
             controller: controller,
             padding: metrics.padding,
             itemCount: comics.length,
-            itemBuilder: (context, i) => Card(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              clipBehavior: Clip.antiAlias,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(workCoverCompactRadius),
-              ),
-              child: InkWell(
-                onTap: () => openComic(
-                  context,
-                  comics[i],
-                  gridCoverWidth: gridCoverWidth,
+            itemBuilder: (context, i) => _ComicCardWhenReady(
+              source: comics[i].source,
+              page: comics[i].coverPage,
+              child: Card(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                clipBehavior: Clip.antiAlias,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(workCoverCompactRadius),
                 ),
-                onLongPress: onLongPress == null
-                    ? null
-                    : () => onLongPress!(comics[i]),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      HeroMode(
-                        enabled: comics
-                            .take(i)
-                            .every((c) => c.key != comics[i].key),
-                        child: ComicCover(
-                          source: comics[i].source,
-                          page: comics[i].coverPage,
-                          heroTag: comicCoverHeroTag(comics[i]),
-                          maxWidth: 80,
+                child: InkWell(
+                  onTap: () => openComic(
+                    context,
+                    comics[i],
+                    gridCoverWidth: gridCoverWidth,
+                  ),
+                  onLongPress: onLongPress == null
+                      ? null
+                      : () => onLongPress!(comics[i]),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        HeroMode(
+                          enabled: comics
+                              .take(i)
+                              .every((c) => c.key != comics[i].key),
+                          child: ComicCover(
+                            source: comics[i].source,
+                            page: comics[i].coverPage,
+                            heroTag: comicCoverHeroTag(comics[i]),
+                            maxWidth: 80,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              comics[i].title,
-                              style: Theme.of(context).textTheme.titleSmall
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    height: 1.3,
-                                    fontSize: isLandscape ? 16 : 14,
-                                  ),
-                            ),
-                          ],
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                comics[i].title,
+                                style: Theme.of(context).textTheme.titleSmall
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      height: 1.3,
+                                      fontSize: isLandscape ? 16 : 14,
+                                    ),
+                              ),
+                              if (comics[i].tags.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Wrap(
+                                  spacing: 4,
+                                  runSpacing: 4,
+                                  children: comics[i].tags
+                                      .map(
+                                        (tag) => IgnorePointer(
+                                          child: MetadataSearchChip(
+                                            label: tag,
+                                            searchKeyword: tag,
+                                            searchTypeLabel: S
+                                                .of(context)
+                                                .searchTypeTag,
+                                            searchParams: const {},
+                                            chipTone:
+                                                MetadataChipTone.secondary,
+                                            customTone:
+                                                MetadataChipTone.primary,
+                                            fontSize: isLandscape ? 13 : 11,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 6,
+                                              vertical: 2,
+                                            ),
+                                            borderRadius: 12,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      )
+                                      .toList(),
+                                ),
+                              ],
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -464,51 +539,85 @@ class ComicGrid extends ConsumerWidget {
           ),
           crossAxisSpacing: metrics.spacing,
           mainAxisSpacing: metrics.spacing,
-          itemBuilder: (context, i) => Card(
-            clipBehavior: Clip.antiAlias,
-            margin: EdgeInsets.zero,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(workCoverCompactRadius),
-            ),
-            child: InkWell(
-              onTap: () =>
-                  openComic(context, comics[i], gridCoverWidth: gridCoverWidth),
-              onLongPress: onLongPress == null
-                  ? null
-                  : () => onLongPress!(comics[i]),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  HeroMode(
-                    enabled: comics
-                        .take(i)
-                        .every((c) => c.key != comics[i].key),
-                    child: ComicCover(
-                      source: comics[i].source,
-                      page: comics[i].coverPage,
-                      heroTag: comicCoverHeroTag(comics[i]),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
+          itemBuilder: (context, i) => _ComicCardWhenReady(
+            source: comics[i].source,
+            page: comics[i].coverPage,
+            child: Card(
+              clipBehavior: Clip.antiAlias,
+              margin: EdgeInsets.zero,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(workCoverCompactRadius),
+              ),
+              child: InkWell(
+                onTap: () => openComic(
+                  context,
+                  comics[i],
+                  gridCoverWidth: gridCoverWidth,
+                ),
+                onLongPress: onLongPress == null
+                    ? null
+                    : () => onLongPress!(comics[i]),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Stack(
                       children: [
-                        Text(
-                          comics[i].title,
-                          style: Theme.of(context).textTheme.titleSmall
-                              ?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                height: 1.1,
-                                fontSize: isLandscape ? 14.5 : 12,
-                              ),
+                        HeroMode(
+                          enabled: comics
+                              .take(i)
+                              .every((c) => c.key != comics[i].key),
+                          child: ComicCover(
+                            source: comics[i].source,
+                            page: comics[i].coverPage,
+                            heroTag: comicCoverHeroTag(comics[i]),
+                          ),
                         ),
+                        if (comics[i].coverDate case final date?)
+                          Positioned(
+                            right: 6,
+                            bottom: 6,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.7),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                date,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: isLandscape ? 13 : 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
                       ],
                     ),
-                  ),
-                ],
+                    Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            comics[i].title,
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  height: 1.1,
+                                  fontSize: isLandscape ? 14.5 : 12,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

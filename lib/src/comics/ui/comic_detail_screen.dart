@@ -340,6 +340,26 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                   Text('${comic.extra['likes']}'),
                 ],
               ),
+            const SizedBox(height: 16),
+            LayoutBuilder(
+              builder: (context, constraints) => Align(
+                alignment: Alignment.centerLeft,
+                child: SizedBox(
+                  width: math.min(200, constraints.maxWidth),
+                  child: FilledButton(
+                    onPressed: _chapters.isEmpty ? null : () => _read(comic),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.menu_book),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(s.comicContinue, softWrap: true)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ],
         );
         return SingleChildScrollView(
@@ -366,12 +386,6 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                         ],
                       ),
                     const SizedBox(height: 16),
-                    FilledButton.icon(
-                      onPressed: _chapters.isEmpty ? null : () => _read(comic),
-                      icon: const Icon(Icons.menu_book),
-                      label: Text(s.comicContinue),
-                    ),
-                    const SizedBox(height: 12),
                     if (_busy) const LinearProgressIndicator(),
                     if (_favoriteError != null)
                       _retryBanner(_favoriteError!, () => _favorite(comic)),

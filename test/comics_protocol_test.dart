@@ -118,6 +118,7 @@ void main() {
               '_id': 'book',
               'title': 'Book',
               'description': 'Synopsis',
+              'created_at': '2023-07-09T12:00:00Z',
               'thumb': {
                 'fileServer': 'https://img.example',
                 'path': 'cover.jpg',
@@ -148,6 +149,7 @@ void main() {
     addTearDown(source.http.dispose);
     final detail = await source.details('book');
     expect(detail.description, 'Synopsis');
+    expect(detail.coverDate, '2023-07-09');
     expect(detail.chapters, isEmpty);
     expect(adapter.requests, hasLength(1));
     final chapters = await source.chapters(detail);
@@ -159,6 +161,7 @@ void main() {
       'id': 42,
       'title': {'english': 'A book'},
       'thumbnail': 'thumb.jpg',
+      'upload_date': 1704067200,
       'tags': [
         {'type': 'language', 'name': 'english'},
       ],
@@ -169,6 +172,7 @@ void main() {
     expect(comic.id, '42');
     expect(comic.title, 'A book');
     expect(comic.cover, 'https://t.nhentai.net/thumb.jpg');
+    expect(comic.coverDate, '2024-01-01');
     expect(
       NhSource.imageUrl((comic.extra['pages'] as List).first['path']),
       'https://i.nhentai.net/42/1.jpg?verify=a',
