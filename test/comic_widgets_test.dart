@@ -497,6 +497,86 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final (
+        size,
+        gridWidth,
+        gridInset,
+        gridGap,
+        listInset,
+        gridFont,
+        listFont,
+      )
+      in [
+        (const Size(320, 640), 304.0, 8.0, 8.0, 24.0, 12.0, 14.0),
+        (const Size(390, 844), 183.0, 8.0, 8.0, 24.0, 12.0, 14.0),
+        (const Size(1000, 600), 904 / 3, 24.0, 24.0, 40.0, 14.5, 16.0),
+      ]) {
+    testWidgets('comic cards match Audio spacing and title at $size', (
+      tester,
+    ) async {
+      await StorageService.setBool('comic_grid', true);
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      const second = Comic(
+        source: 'fixture',
+        id: 'second',
+        title: 'Second book',
+        cover: 'second-cover',
+      );
+      final container = await pump(
+        tester,
+        const Scaffold(body: ComicGrid(comics: [_comic, second])),
+        _Library(),
+        _Source(),
+        loadImage: (_) async => _widePng,
+      );
+      final cards = find.byType(Card);
+      final first = tester.getRect(cards.at(0));
+      final next = tester.getRect(cards.at(1));
+      expect(first.left, closeTo(gridInset, 0.1));
+      expect(first.width, closeTo(gridWidth, 0.1));
+      if (size.width == 320) {
+        expect(next.top - first.bottom, closeTo(gridGap, 0.1));
+      } else {
+        expect(next.left - first.right, closeTo(gridGap, 0.1));
+      }
+      final gridTitle = tester.widget<Text>(find.text('Fixture book'));
+      expect(gridTitle.style?.fontSize, gridFont);
+      expect(gridTitle.style?.fontWeight, FontWeight.bold);
+      expect(
+        gridTitle.style?.letterSpacing,
+        Theme.of(
+          tester.element(find.text('Fixture book')),
+        ).textTheme.titleSmall?.letterSpacing,
+      );
+      expect(find.text('fixture'), findsNothing);
+
+      container.read(comicGridProvider.notifier).state = false;
+      await tester.pumpAndSettle();
+      final listCards = find.byType(Card);
+      final listFirst = tester.getRect(
+        find
+            .descendant(of: listCards.at(0), matching: find.byType(InkWell))
+            .first,
+      );
+      final listNext = tester.getRect(
+        find
+            .descendant(of: listCards.at(1), matching: find.byType(InkWell))
+            .first,
+      );
+      expect(listFirst.left, closeTo(listInset, 0.1));
+      expect(listFirst.right, closeTo(size.width - listInset, 0.1));
+      expect(listNext.top - listFirst.bottom, closeTo(16, 0.1));
+      final listTitle = tester.widget<Text>(find.text('Fixture book'));
+      expect(listTitle.style?.fontSize, listFont);
+      expect(listTitle.style?.fontWeight, FontWeight.bold);
+      expect(listTitle.style?.letterSpacing, gridTitle.style?.letterSpacing);
+      expect(find.text('fixture'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   for (final grid in [false, true]) {
     for (final (label, bytes, ratio) in [
       ('wide', _widePng, 180 / 100),
@@ -624,9 +704,14 @@ void main() {
         find.byKey(const ValueKey('comic-detail-cover')),
       );
       final title = tester.getRect(find.byType(WorkTitleHeader));
-      expect(cover.left, lessThan(title.left));
-      expect((cover.top - title.top).abs(), lessThan(24));
-      expect(cover.width, size.width < 700 ? lessThan(155) : greaterThan(200));
+      if (size.width == 320) {
+        expect(cover.left, closeTo(title.left, 0.1));
+        expect(cover.bottom, lessThan(title.top));
+      } else {
+        expect(cover.left, lessThan(title.left));
+        expect((cover.top - title.top).abs(), lessThan(24));
+      }
+      expect(cover.width, closeTo(size.width == 320 ? 304 : 904 / 3, 0.1));
       expect(
         tester
             .widget<ComicImage>(
@@ -638,10 +723,14 @@ void main() {
             .fit,
         BoxFit.contain,
       );
-      expect(
-        tester.getCenter(find.text('Continue reading')).dx,
-        greaterThan(cover.right),
+      final button = tester.getRect(
+        find.ancestor(
+          of: find.text('Continue reading'),
+          matching: find.byType(FilledButton),
+        ),
       );
+      expect(button.left, closeTo(size.width == 320 ? 8 : 16, 0.1));
+      expect(button.top, greaterThan(cover.bottom));
       await tester.tap(find.byTooltip('Download'));
       await tester.pumpAndSettle();
       expect(find.byType(CheckboxListTile), findsNWidgets(2));
@@ -676,7 +765,9 @@ void main() {
     expect(find.byType(TextField), findsNothing);
   });
 
-  testWidgets('detail cover scales when a window is resized', (tester) async {
+  testWidgets('detail cover follows big grid width when a window is resized', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(320, 640);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -687,12 +778,47 @@ void main() {
       _Source(),
     );
     final cover = find.byKey(const ValueKey('comic-detail-cover'));
-    final compact = tester.getSize(cover).width;
+    expect(tester.getSize(cover).width, closeTo(304, 0.1));
     tester.view.physicalSize = const Size(900, 600);
     await tester.pumpAndSettle();
-    expect(tester.getSize(cover).width, greaterThan(compact));
+    expect(tester.getSize(cover).width, closeTo(268, 0.1));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'detail cover matches a tab grid narrowed by the landscape rail',
+    (tester) async {
+      await StorageService.setBool('comic_grid', true);
+      tester.view.physicalSize = const Size(1000, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await pump(
+        tester,
+        const Scaffold(
+          body: Align(
+            alignment: Alignment.centerRight,
+            child: SizedBox(
+              width: 920,
+              height: 600,
+              child: ComicGrid(comics: [_comic]),
+            ),
+          ),
+        ),
+        _Library(),
+        _Source(),
+      );
+      final cardCover = tester.getSize(find.byType(ComicImage)).width;
+      expect(cardCover, closeTo(824 / 3, 0.1));
+      await tester.tap(find.text('Fixture book'));
+      await tester.pumpAndSettle();
+      final detailCover = find.byKey(const ValueKey('comic-detail-cover'));
+      expect(tester.getSize(detailCover).width, closeTo(cardCover, 0.1));
+      tester.view.physicalSize = const Size(390, 844);
+      await tester.pumpAndSettle();
+      expect(tester.getSize(detailCover).width, closeTo(183, 0.1));
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   for (final size in [
     const Size(320, 640),
@@ -703,7 +829,7 @@ void main() {
       ('wide', _widePng, 180 / 100),
       ('tall', _tallPng, 100 / 220),
     ]) {
-      testWidgets('$label detail cover and right-aligned reading at $size', (
+      testWidgets('$label detail cover and left-aligned reading at $size', (
         tester,
       ) async {
         tester.view.physicalSize = size;
@@ -720,17 +846,20 @@ void main() {
           find.byKey(const ValueKey('comic-detail-cover')),
         );
         expect(cover.width / cover.height, closeTo(ratio, 0.001));
-        if (label == 'wide') {
-          expect(cover.width, greaterThan(size.width < 700 ? 100 : 270));
-        }
+        final expectedWidth = switch (size.width) {
+          320 => 304.0,
+          390 => 183.0,
+          _ => 904 / 3,
+        };
+        expect(cover.width, closeTo(expectedWidth, 0.1));
         final button = tester.getRect(
           find.ancestor(
             of: find.text('Continue reading'),
             matching: find.byType(FilledButton),
           ),
         );
-        expect((button.right - (size.width - 16)).abs(), lessThan(1));
-        expect(button.left, greaterThan(cover.right));
+        expect(button.left, closeTo(size.width == 320 ? 8 : 16, 0.1));
+        expect(button.top, greaterThan(cover.bottom));
         expect(tester.takeException(), isNull);
       });
     }
@@ -1010,7 +1139,11 @@ void main() {
       final destination = tester.getRect(
         find.byKey(const ValueKey('comic-detail-cover')),
       );
-      expect(destination.width, greaterThan(start.width));
+      if (grid) {
+        expect(destination.width, closeTo(start.width, 0.1));
+      } else {
+        expect(destination.width, greaterThan(start.width));
+      }
       await tester.tap(find.byTooltip('Back'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));

@@ -356,7 +356,12 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
             child: ComicGrid(
               comics: _items,
               controller: _scroll,
-              padding: EdgeInsets.fromLTRB(16, top, 16, 90),
+              padding: EdgeInsets.fromLTRB(
+                FloatingToolbarLayout.horizontalPadding(context),
+                top,
+                FloatingToolbarLayout.horizontalPadding(context),
+                90,
+              ),
               onLongPress: widget.tab == 1 || widget.tab == 2
                   ? _removeFromLibrary
                   : null,

@@ -7,6 +7,9 @@ import '../../widgets/scrollable_appbar.dart';
 import '../../widgets/metadata_search_chip.dart';
 import '../../widgets/work_detail/work_cover_frame.dart';
 import '../../widgets/work_detail/work_title_header.dart';
+import '../../providers/work_card_display_provider.dart';
+import '../../providers/works_provider.dart' show LayoutType;
+import '../../utils/collection_grid_layout.dart';
 import '../../utils/system_ui_style.dart';
 import '../../services/log_service.dart';
 import 'comic_search_screen.dart';
@@ -17,8 +20,15 @@ import 'comic_widgets.dart';
 import 'comic_reader_screen.dart';
 
 class ComicDetailScreen extends ConsumerStatefulWidget {
-  const ComicDetailScreen({super.key, required this.comic});
+  const ComicDetailScreen({
+    super.key,
+    required this.comic,
+    this.initialGridCoverWidth,
+    this.initialWindowWidth,
+  });
   final Comic comic;
+  final double? initialGridCoverWidth;
+  final double? initialWindowWidth;
   @override
   ConsumerState<ComicDetailScreen> createState() => _ComicDetailScreenState();
 }
@@ -276,15 +286,30 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final wide = width >= 700;
-        final contentWidth = math.min(width, 1200) - 32;
-        final coverWidth = wide
-            ? (contentWidth * .32).clamp(220.0, 360.0)
-            : (contentWidth * .38).clamp(112.0, 180.0);
-        final coverHeight = math.min(
-          MediaQuery.sizeOf(context).height * (wide ? .8 : .7),
-          wide ? 560.0 : 480.0,
+        final metrics = resolveCollectionGridMetrics(
+          context,
+          layoutType: LayoutType.bigGrid,
+          cardSize: WorkCardSize.normal,
+          availableWidth: width,
+          availableHeight: constraints.maxHeight,
         );
+        final detailPadding = metrics.crossAxisCount == 1
+            ? metrics.padding.left
+            : 16.0;
+        final contentWidth = math.min(width, 1200) - detailPadding * 2;
+        final gridCoverWidth =
+            (width -
+                metrics.padding.horizontal -
+                metrics.spacing * (metrics.crossAxisCount - 1)) /
+            metrics.crossAxisCount;
+        final coverWidth = math.min(
+          widget.initialWindowWidth == MediaQuery.sizeOf(context).width
+              ? widget.initialGridCoverWidth ?? gridCoverWidth
+              : gridCoverWidth,
+          contentWidth,
+        );
+        final stacked =
+            metrics.crossAxisCount == 1 || contentWidth - coverWidth - 16 < 120;
         final cover = ComicCover(
           key: const ValueKey('comic-detail-cover'),
           source: widget.comic.source,
@@ -294,7 +319,6 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
           heroTag: comicCoverHeroTag(widget.comic),
           cornerRadius: workCoverDetailRadius,
           maxWidth: coverWidth,
-          maxHeight: coverHeight,
         );
         final info = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -316,25 +340,6 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                   Text('${comic.extra['likes']}'),
                 ],
               ),
-            const SizedBox(height: 16),
-            LayoutBuilder(
-              builder: (context, infoConstraints) => Align(
-                alignment: Alignment.centerRight,
-                child: SizedBox(
-                  width: math.min(200, infoConstraints.maxWidth),
-                  child: FilledButton(
-                    onPressed: _chapters.isEmpty ? null : () => _read(comic),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.menu_book),
-                        const SizedBox(width: 8),
-                        Expanded(child: Text(s.comicContinue, softWrap: true)),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
           ],
         );
         return SingleChildScrollView(
@@ -342,17 +347,29 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1200),
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.all(detailPadding),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        cover,
-                        const SizedBox(width: 16),
-                        Expanded(child: info),
-                      ],
+                    if (stacked)
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [cover, const SizedBox(height: 16), info],
+                      )
+                    else
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          cover,
+                          const SizedBox(width: 16),
+                          Expanded(child: info),
+                        ],
+                      ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: _chapters.isEmpty ? null : () => _read(comic),
+                      icon: const Icon(Icons.menu_book),
+                      label: Text(s.comicContinue),
                     ),
                     const SizedBox(height: 12),
                     if (_busy) const LinearProgressIndicator(),

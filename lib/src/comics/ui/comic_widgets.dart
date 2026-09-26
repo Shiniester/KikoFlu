@@ -1,5 +1,8 @@
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/work_detail/work_cover_frame.dart';
+import '../../providers/work_card_display_provider.dart';
+import '../../providers/works_provider.dart' show LayoutType;
+import '../../utils/collection_grid_layout.dart';
 import 'dart:typed_data';
 import 'dart:convert';
 import 'dart:math' as math;
@@ -329,50 +332,153 @@ class ComicGrid extends ConsumerWidget {
   const ComicGrid({
     super.key,
     required this.comics,
-    this.padding = const EdgeInsets.all(16),
+    this.padding,
     this.controller,
     this.onLongPress,
   });
   final List<Comic> comics;
-  final EdgeInsets padding;
+  final EdgeInsets? padding;
   final ScrollController? controller;
   final void Function(Comic)? onLongPress;
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (comics.isEmpty) {
-      return ListView(
-        controller: controller,
-        padding: padding,
-        physics: const AlwaysScrollableScrollPhysics(),
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(32),
-            child: Center(child: Text(S.of(context).comicNoResults)),
-          ),
-        ],
-      );
-    }
     final grid = ref.watch(comicGridProvider);
-    if (!grid) {
-      return ListView.builder(
-        controller: controller,
-        padding: padding,
-        itemCount: comics.length,
-        itemBuilder: (context, i) => Card(
-          margin: const EdgeInsets.symmetric(vertical: 6),
-          clipBehavior: Clip.antiAlias,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(workCoverCompactRadius),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final metrics = resolveCollectionGridMetrics(
+          context,
+          layoutType: grid ? LayoutType.bigGrid : LayoutType.list,
+          cardSize: WorkCardSize.normal,
+          padding: padding,
+          availableWidth: constraints.hasBoundedWidth
+              ? constraints.maxWidth
+              : null,
+          availableHeight: constraints.hasBoundedHeight
+              ? constraints.maxHeight
+              : null,
+        );
+        final bigGridMetrics = grid
+            ? metrics
+            : resolveCollectionGridMetrics(
+                context,
+                layoutType: LayoutType.bigGrid,
+                cardSize: WorkCardSize.normal,
+                padding: padding,
+                availableWidth: constraints.hasBoundedWidth
+                    ? constraints.maxWidth
+                    : null,
+                availableHeight: constraints.hasBoundedHeight
+                    ? constraints.maxHeight
+                    : null,
+              );
+        final contentWidth = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : MediaQuery.sizeOf(context).width;
+        final gridCoverWidth =
+            (contentWidth -
+                bigGridMetrics.padding.horizontal -
+                bigGridMetrics.spacing * (bigGridMetrics.crossAxisCount - 1)) /
+            bigGridMetrics.crossAxisCount;
+        if (comics.isEmpty) {
+          return ListView(
+            controller: controller,
+            padding: metrics.padding,
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(32),
+                child: Center(child: Text(S.of(context).comicNoResults)),
+              ),
+            ],
+          );
+        }
+        final isLandscape =
+            MediaQuery.orientationOf(context) == Orientation.landscape;
+        if (!grid) {
+          return ListView.builder(
+            controller: controller,
+            padding: metrics.padding,
+            itemCount: comics.length,
+            itemBuilder: (context, i) => Card(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              clipBehavior: Clip.antiAlias,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(workCoverCompactRadius),
+              ),
+              child: InkWell(
+                onTap: () => openComic(
+                  context,
+                  comics[i],
+                  gridCoverWidth: gridCoverWidth,
+                ),
+                onLongPress: onLongPress == null
+                    ? null
+                    : () => onLongPress!(comics[i]),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      HeroMode(
+                        enabled: comics
+                            .take(i)
+                            .every((c) => c.key != comics[i].key),
+                        child: ComicCover(
+                          source: comics[i].source,
+                          page: comics[i].coverPage,
+                          heroTag: comicCoverHeroTag(comics[i]),
+                          maxWidth: 80,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              comics[i].title,
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    height: 1.3,
+                                    fontSize: isLandscape ? 16 : 14,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+        return MasonryGridView.builder(
+          controller: controller,
+          padding: metrics.padding,
+          itemCount: comics.length,
+          gridDelegate: SliverSimpleGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: metrics.crossAxisCount,
           ),
-          child: InkWell(
-            onTap: () => openComic(context, comics[i]),
-            onLongPress: onLongPress == null
-                ? null
-                : () => onLongPress!(comics[i]),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisSpacing: metrics.spacing,
+          mainAxisSpacing: metrics.spacing,
+          itemBuilder: (context, i) => Card(
+            clipBehavior: Clip.antiAlias,
+            margin: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(workCoverCompactRadius),
+            ),
+            child: InkWell(
+              onTap: () =>
+                  openComic(context, comics[i], gridCoverWidth: gridCoverWidth),
+              onLongPress: onLongPress == null
+                  ? null
+                  : () => onLongPress!(comics[i]),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   HeroMode(
                     enabled: comics
@@ -382,23 +488,22 @@ class ComicGrid extends ConsumerWidget {
                       source: comics[i].source,
                       page: comics[i].coverPage,
                       heroTag: comicCoverHeroTag(comics[i]),
-                      maxWidth: 80,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
+                  Padding(
+                    padding: const EdgeInsets.all(8),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
                           comics[i].title,
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          comics[i].source,
-                          style: Theme.of(context).textTheme.bodySmall,
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                height: 1.1,
+                                fontSize: isLandscape ? 14.5 : 12,
+                              ),
                         ),
                       ],
                     ),
@@ -407,70 +512,26 @@ class ComicGrid extends ConsumerWidget {
               ),
             ),
           ),
-        ),
-      );
-    }
-    return MasonryGridView.builder(
-      controller: controller,
-      padding: padding,
-      itemCount: comics.length,
-      gridDelegate: const SliverSimpleGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 190,
-      ),
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      itemBuilder: (context, i) => Card(
-        clipBehavior: Clip.antiAlias,
-        margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(workCoverCompactRadius),
-        ),
-        child: InkWell(
-          onTap: () => openComic(context, comics[i]),
-          onLongPress: onLongPress == null
-              ? null
-              : () => onLongPress!(comics[i]),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              HeroMode(
-                enabled: comics.take(i).every((c) => c.key != comics[i].key),
-                child: ComicCover(
-                  source: comics[i].source,
-                  page: comics[i].coverPage,
-                  heroTag: comicCoverHeroTag(comics[i]),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      comics[i].title,
-                      style: Theme.of(context).textTheme.labelLarge,
-                    ),
-                    Text(
-                      comics[i].source,
-                      style: Theme.of(context).textTheme.labelSmall,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
 
 String comicCoverHeroTag(Comic comic) => 'comic-cover:${comic.key}';
 
-void openComic(BuildContext context, Comic comic) {
-  pushWorkDetailRoute(context, builder: (_) => ComicDetailScreen(comic: comic));
+void openComic(BuildContext context, Comic comic, {double? gridCoverWidth}) {
+  final windowWidth = gridCoverWidth == null
+      ? null
+      : MediaQuery.sizeOf(context).width;
+  pushWorkDetailRoute(
+    context,
+    builder: (_) => ComicDetailScreen(
+      comic: comic,
+      initialGridCoverWidth: gridCoverWidth,
+      initialWindowWidth: windowWidth,
+    ),
+  );
 }
 
 class ComicKeepAlive extends StatefulWidget {
