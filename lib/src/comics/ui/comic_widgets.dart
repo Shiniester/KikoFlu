@@ -41,8 +41,42 @@ class _ComicCoverPicture {
   final double aspectRatio;
 }
 
+class _ComicCoverRetention {
+  final _entries = <_ComicImageRequest, ({int bytes, VoidCallback release})>{};
+  int _bytes = 0;
+
+  void touch(_ComicImageRequest request) {
+    final entry = _entries.remove(request);
+    if (entry != null) _entries[request] = entry;
+  }
+
+  void retain(_ComicImageRequest request, int bytes, VoidCallback release) {
+    _entries[request] = (bytes: bytes, release: release);
+    _bytes += bytes;
+    // Keep recent cover bytes stable so Flutter can reuse their decoded frames.
+    // Decoded pixels remain governed by Flutter's own bounded ImageCache.
+    while (_entries.length > 200 || _bytes > 32 * 1024 * 1024) {
+      final oldest = _entries.remove(_entries.keys.first)!;
+      _bytes -= oldest.bytes;
+      oldest.release();
+    }
+  }
+
+  void remove(_ComicImageRequest request, VoidCallback release) {
+    final entry = _entries[request];
+    if (entry?.release != release) return;
+    _entries.remove(request);
+    _bytes -= entry!.bytes;
+  }
+}
+
+final _comicCoverRetentionProvider = Provider((ref) => _ComicCoverRetention());
+
 final _comicImageBytesProvider = FutureProvider.autoDispose
     .family<_ComicCoverPicture, _ComicImageRequest>((ref, request) async {
+      final retention = ref.read(_comicCoverRetentionProvider);
+      var disposed = false;
+      ref.onDispose(() => disposed = true);
       final source = ref
           .read(comicSourcesProvider)
           .firstWhere((source) => source.key == request.source);
@@ -54,10 +88,16 @@ final _comicImageBytesProvider = FutureProvider.autoDispose
       try {
         final descriptor = await ui.ImageDescriptor.encoded(buffer);
         try {
-          return _ComicCoverPicture(
+          final picture = _ComicCoverPicture(
             bytes,
             descriptor.width / descriptor.height,
           );
+          if (!disposed) {
+            final release = ref.keepAlive().close;
+            retention.retain(request, bytes.lengthInBytes, release);
+            ref.onDispose(() => retention.remove(request, release));
+          }
+          return picture;
         } finally {
           descriptor.dispose();
         }
@@ -408,11 +448,18 @@ class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady> {
 
   @override
   Widget build(BuildContext context) {
-    final image = ref.watch(
-      _comicImageBytesProvider(_ComicImageRequest(widget.source, widget.page)),
-    );
+    final request = _ComicImageRequest(widget.source, widget.page);
+    final image = ref.watch(_comicImageBytesProvider(request));
+    ref.read(_comicCoverRetentionProvider).touch(request);
     final picture = image.valueOrNull;
-    if (picture != null) widget.onAspectRatio?.call(picture.aspectRatio);
+    if (picture != null) {
+      widget.onAspectRatio?.call(picture.aspectRatio);
+      if (PaintingBinding.instance.imageCache
+          .statusForKey(MemoryImage(picture.bytes))
+          .keepAlive) {
+        _shown = true;
+      }
+    }
     if (image.hasError) {
       widget.onAspectRatio?.call(widget.placeholderAspectRatio ?? 2 / 3);
       _shown = true;

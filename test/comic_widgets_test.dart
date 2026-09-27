@@ -1054,7 +1054,8 @@ void main() {
         recordAnchor();
         await tester.pumpAndSettle();
 
-        expect(firstCoverReloadStarted.isCompleted, isTrue);
+        expect(firstCoverReloadStarted.isCompleted, isFalse);
+        expect(firstCoverRequests, 1);
         expect(anchorWasObserved, isTrue);
         expect(offsets, isNotEmpty);
         for (var i = 1; i < offsets.length; i++) {
@@ -1866,183 +1867,210 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-    'ComicScreen keeps a remounted cached cover hidden until its image frame is ready',
-    (tester) async {
-      tester.view.physicalSize = const Size(390, 844);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      const cachedComic = Comic(
-        source: 'fixture',
-        id: 'cached-cover-book',
-        title: 'Cached cover book',
-        cover: 'cached-cover-image',
-      );
-      final source = _PaginatedSource(
-        [
-          cachedComic,
-          ...List.generate(
-            39,
-            (i) => Comic(
-              source: 'fixture',
-              id: 'cached-first-$i',
-              title: 'Cached first $i',
-              cover: 'cached-first-cover-$i',
-            ),
-          ),
-        ],
-        List.generate(
-          40,
-          (i) => Comic(
+  for (final layout in LayoutType.values) {
+    for (final evictDecoded in [false, true]) {
+      testWidgets(
+        'ComicScreen revisits covers without blank frames ($layout, evicted=$evictDecoded)',
+        (tester) async {
+          await StorageService.setString('comic_layout_type', layout.name);
+          tester.view.physicalSize = const Size(390, 844);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.reset);
+          const cachedComic = Comic(
             source: 'fixture',
-            id: 'cached-second-$i',
-            title: 'Cached second $i',
-            cover: 'cached-second-cover-$i',
-          ),
-        ),
-      );
-      final reload = Completer<Uint8List>();
-      var cachedCoverLoads = 0;
-      await pump(
-        tester,
-        const ComicScreen(),
-        _Library(),
-        source,
-        loadImage: (page) {
-          if (page.url == 'cached-cover-image') {
-            cachedCoverLoads++;
-            if (cachedCoverLoads > 1) return reload.future;
-          }
-          return Future.value(Uint8List.fromList(_widePng));
-        },
-      );
-      final title = find.text('Cached cover book');
-      Finder currentComicImage() {
-        final card = find
-            .ancestor(of: title, matching: find.byType(Card))
-            .first;
-        return find.descendant(of: card, matching: find.byType(ComicImage));
-      }
-
-      Finder currentRawImages() => find.descendant(
-        of: currentComicImage(),
-        matching: find.byType(RawImage),
-      );
-
-      Finder currentMemoryImage() => find.descendant(
-        of: currentComicImage(),
-        matching: find.byType(Image),
-      );
-
-      var memoryImage = currentMemoryImage();
-      for (
-        var frame = 0;
-        frame < 24 && memoryImage.evaluate().isEmpty;
-        frame++
-      ) {
-        await tester.pump(const Duration(milliseconds: 16));
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)),
-        );
-        memoryImage = currentMemoryImage();
-      }
-      expect(memoryImage, findsOneWidget);
-      await waitForDecodedImage(tester, memoryImage);
-      expect(
-        tester
-            .widgetList<RawImage>(currentRawImages())
-            .any((image) => image.image != null),
-        isTrue,
-      );
-
-      final grid = find.byType(ComicGrid);
-      final scrollable = find.descendant(
-        of: grid,
-        matching: find.byType(Scrollable),
-      );
-      final next = find.text('Next');
-      await tester.scrollUntilVisible(
-        next.hitTestable(),
-        400,
-        scrollable: scrollable,
-      );
-      await tester.tap(next);
-      final position = tester.state<ScrollableState>(scrollable).position;
-      for (var frame = 0; frame < 20 && position.pixels > 1; frame++) {
-        await tester.pump(const Duration(milliseconds: 16));
-      }
-      await tester.pump();
-      final previous = find.text('Previous');
-      await tester.scrollUntilVisible(
-        previous.hitTestable(),
-        400,
-        scrollable: scrollable,
-      );
-      await tester.tap(previous);
-      for (var frame = 0; frame < 20 && position.pixels > 1; frame++) {
-        await tester.pump(const Duration(milliseconds: 16));
-      }
-      await tester.pump();
-
-      expect(cachedCoverLoads, greaterThanOrEqualTo(2));
-      final prematureFrames = <String>[];
-      var sawNullRawImage = false;
-      void recordVisibleCoverState(String frame) {
-        if (title.hitTestable().evaluate().isEmpty) return;
-        final rawImage = currentRawImages();
-        final images = tester.widgetList<RawImage>(rawImage).toList();
-        if (images.isEmpty) {
-          prematureFrames.add('$frame: title visible before RawImage exists');
-          return;
-        }
-        final decoded = images.any((image) => image.image != null);
-        if (!decoded) {
-          sawNullRawImage = true;
-          prematureFrames.add(
-            '$frame: title visible with RawImage.image == null',
+            id: 'cached-cover-book',
+            title: 'Cached cover book',
+            cover: 'cached-cover-image',
           );
-        }
-      }
+          final source = _PaginatedSource(
+            [
+              cachedComic,
+              ...List.generate(
+                39,
+                (i) => Comic(
+                  source: 'fixture',
+                  id: 'cached-first-$i',
+                  title: 'Cached first $i',
+                  cover: 'cached-first-cover-$i',
+                ),
+              ),
+            ],
+            List.generate(
+              40,
+              (i) => Comic(
+                source: 'fixture',
+                id: 'cached-second-$i',
+                title: 'Cached second $i',
+                cover: 'cached-second-cover-$i',
+              ),
+            ),
+          );
+          var cachedCoverLoads = 0;
+          await pump(
+            tester,
+            const ComicScreen(),
+            _Library(),
+            source,
+            loadImage: (page) {
+              if (page.url == 'cached-cover-image') {
+                cachedCoverLoads++;
+              }
+              return Future.value(Uint8List.fromList(_widePng));
+            },
+          );
+          final title = find.text('Cached cover book');
+          Finder currentComicImage() {
+            final card = find
+                .ancestor(of: title, matching: find.byType(Card))
+                .first;
+            return find.descendant(of: card, matching: find.byType(ComicImage));
+          }
 
-      recordVisibleCoverState('revisit pending');
-      reload.complete(Uint8List.fromList(_widePng));
-      var reloadedDecoded = false;
-      for (var frame = 0; frame < 24; frame++) {
-        await tester.pump(const Duration(milliseconds: 16));
-        recordVisibleCoverState('frame $frame');
-        final memoryImage = currentMemoryImage();
-        if (memoryImage.evaluate().isNotEmpty) {
-          await waitForDecodedImage(tester, memoryImage.first);
+          Finder currentRawImages() => find.descendant(
+            of: currentComicImage(),
+            matching: find.byType(RawImage),
+          );
+
+          Finder currentMemoryImage() => find.descendant(
+            of: currentComicImage(),
+            matching: find.byType(Image),
+          );
+
+          var memoryImage = currentMemoryImage();
           for (
-            var revealFrame = 0;
-            revealFrame < 5 && title.hitTestable().evaluate().isEmpty;
-            revealFrame++
+            var frame = 0;
+            frame < 24 && memoryImage.evaluate().isEmpty;
+            frame++
           ) {
             await tester.pump(const Duration(milliseconds: 16));
-            recordVisibleCoverState('reveal frame $revealFrame');
+            await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 10)),
+            );
+            memoryImage = currentMemoryImage();
           }
-          reloadedDecoded = tester
-              .widgetList<RawImage>(currentRawImages())
-              .any((image) => image.image != null);
-          break;
-        }
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)),
-        );
-      }
+          expect(memoryImage, findsOneWidget);
+          await waitForDecodedImage(tester, memoryImage);
+          expect(
+            tester
+                .widgetList<RawImage>(currentRawImages())
+                .any((image) => image.image != null),
+            isTrue,
+          );
 
-      expect(reloadedDecoded, isTrue);
-      expect(title.hitTestable(), findsOneWidget);
-      expect(
-        prematureFrames,
-        isEmpty,
-        reason:
-            'A remounted comic title became visible before its decoded cover '
-            'frame. Saw null RawImage: $sawNullRawImage; states: '
-            '$prematureFrames',
+          final grid = find.byType(ComicGrid);
+          final scrollable = find.descendant(
+            of: grid,
+            matching: find.byType(Scrollable),
+          );
+          final next = find.text('Next');
+          await tester.scrollUntilVisible(
+            next.hitTestable(),
+            400,
+            scrollable: scrollable,
+          );
+          await tester.tap(next);
+          final position = tester.state<ScrollableState>(scrollable).position;
+          for (var frame = 0; frame < 20 && position.pixels > 1; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+          }
+          await tester.pump();
+          final previous = find.text('Previous');
+          await tester.scrollUntilVisible(
+            previous.hitTestable(),
+            400,
+            scrollable: scrollable,
+          );
+          if (evictDecoded) {
+            PaintingBinding.instance.imageCache.clear();
+            PaintingBinding.instance.imageCache.clearLiveImages();
+          }
+          await tester.tap(previous);
+          var returned = false;
+          for (var frame = 0; frame < 24; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+            if (tester.widget<ComicGrid>(grid).comics.first.id ==
+                cachedComic.id) {
+              returned = true;
+              if (!evictDecoded) {
+                expect(
+                  title.hitTestable(),
+                  findsOneWidget,
+                  reason:
+                      'The first returning frame must already show the cached cover.',
+                );
+                expect(
+                  tester
+                      .widgetList<RawImage>(currentRawImages())
+                      .any((image) => image.image != null),
+                  isTrue,
+                );
+              }
+              break;
+            }
+          }
+          expect(returned, isTrue);
+          expect(cachedCoverLoads, 1);
+          final prematureFrames = <String>[];
+          var sawNullRawImage = false;
+          void recordVisibleCoverState(String frame) {
+            if (title.hitTestable().evaluate().isEmpty) return;
+            final rawImage = currentRawImages();
+            final images = tester.widgetList<RawImage>(rawImage).toList();
+            if (images.isEmpty) {
+              prematureFrames.add(
+                '$frame: title visible before RawImage exists',
+              );
+              return;
+            }
+            final decoded = images.any((image) => image.image != null);
+            if (!decoded) {
+              sawNullRawImage = true;
+              prematureFrames.add(
+                '$frame: title visible with RawImage.image == null',
+              );
+            }
+          }
+
+          recordVisibleCoverState('revisit pending');
+          var reloadedDecoded = false;
+          for (var frame = 0; frame < 24; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+            recordVisibleCoverState('frame $frame');
+            final memoryImage = currentMemoryImage();
+            if (memoryImage.evaluate().isNotEmpty) {
+              await waitForDecodedImage(tester, memoryImage.first);
+              for (
+                var revealFrame = 0;
+                revealFrame < 5 && title.hitTestable().evaluate().isEmpty;
+                revealFrame++
+              ) {
+                await tester.pump(const Duration(milliseconds: 16));
+                recordVisibleCoverState('reveal frame $revealFrame');
+              }
+              reloadedDecoded = tester
+                  .widgetList<RawImage>(currentRawImages())
+                  .any((image) => image.image != null);
+              break;
+            }
+            await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 10)),
+            );
+          }
+
+          expect(reloadedDecoded, isTrue);
+          expect(title.hitTestable(), findsOneWidget);
+          expect(
+            prematureFrames,
+            isEmpty,
+            reason:
+                'A remounted comic title became visible before its decoded cover '
+                'frame. Saw null RawImage: $sawNullRawImage; states: '
+                '$prematureFrames',
+          );
+        },
       );
-    },
-  );
+    }
+  }
 
   for (final layout in [
     LayoutType.list,
