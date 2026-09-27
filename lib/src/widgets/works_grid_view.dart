@@ -98,6 +98,7 @@ class WorksGridView extends ConsumerWidget {
           sourceKey: (auth.$1, auth.$2, key, pageStorageKey, works),
           builder: (context, coverPrefetch) =>
               VirtualizedSliverCollection<Work>(
+                retainedItemCount: 100,
                 controller: scrollController,
                 pageStorageKey: pageStorageKey,
                 sliversBefore: sliversBefore,

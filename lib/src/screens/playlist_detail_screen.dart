@@ -433,6 +433,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     return WorkCoverPrefetchScope(
       sourceKey: (auth.host, auth.token, widget.playlistId, state.works),
       builder: (context, coverPrefetch) => VirtualizedSliverCollection(
+        retainedItemCount: 100,
         controller: _scrollController,
         items: state.works,
         itemId: (work) => work.id,

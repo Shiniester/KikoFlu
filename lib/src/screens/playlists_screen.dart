@@ -588,6 +588,7 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
           availableHeight: constraints.maxHeight,
         );
         return VirtualizedSliverCollection(
+          retainedItemCount: 100,
           controller: _scrollController,
           items: state.playlists,
           itemId: (playlist) => playlist.id,

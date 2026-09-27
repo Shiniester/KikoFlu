@@ -729,6 +729,7 @@ class _ScopedSearchResultScreenState
           return WorkCoverPrefetchScope(
             sourceKey: (auth, widget.query.scope, widget.query.progressFilter),
             builder: (context, coverPrefetch) => VirtualizedSliverCollection(
+              retainedItemCount: 100,
               key: ValueKey(widget.query.scope),
               items: entries,
               itemId: (entry) => entry.work.id,

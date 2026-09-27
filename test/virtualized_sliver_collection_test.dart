@@ -44,6 +44,37 @@ Widget _list({
 }
 
 void main() {
+  testWidgets('retention stays bounded while scrolling an accumulating feed', (tester) async {
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(_app(VirtualizedSliverCollection<int>(
+      items: List.generate(300, (i) => i), itemId: (i) => i,
+      controller: controller, retainedItemCount: 30,
+      scrollCacheExtent: const ScrollCacheExtent.pixels(0),
+      itemBuilder: (context, item, _) => _IdentityTile(item: item),
+    )));
+    await tester.pump();
+    await tester.pump();
+    final firstState = tester.state(find.byWidgetPredicate((w) => w is _IdentityTile && w.item == 0));
+    for (var index = 10; index < 150; index += 10) {
+      controller.jumpTo(index * 72);
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(_IdentityTile, skipOffstage: false).evaluate().length, lessThanOrEqualTo(45));
+    }
+    expect(firstState.mounted, isFalse);
+    final nearby = find.byWidgetPredicate((w) => w is _IdentityTile && w.item == 140);
+    final nearbyState = tester.state(nearby);
+    controller.jumpTo(145 * 72);
+    await tester.pump();
+    await tester.pump();
+    controller.jumpTo(140 * 72);
+    await tester.pump();
+    expect(tester.state(nearby), same(nearbyState));
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('overscroll waits for the request and programmatic return does not page again', (tester) async {
     final controller = ScrollController();
     addTearDown(controller.dispose);

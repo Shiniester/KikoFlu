@@ -1868,6 +1868,112 @@ void main() {
   });
 
   for (final layout in LayoutType.values) {
+    testWidgets(
+      'seen covers survive fast reverse scrolling under cache pressure ($layout)',
+      (tester) async {
+        await StorageService.setString('comic_layout_type', layout.name);
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final cache = PaintingBinding.instance.imageCache;
+        final oldLimit = cache.maximumSizeBytes;
+        cache.maximumSizeBytes = 100000;
+        addTearDown(() => cache.maximumSizeBytes = oldLimit);
+        final source = _PaginatedSource(
+          List.generate(
+            40,
+            (i) => Comic(
+              source: 'fixture',
+              id: 'pressure-$i',
+              title: 'Pressure $i',
+              cover: 'pressure-$i',
+            ),
+          ),
+          const [
+            Comic(
+              source: 'fixture',
+              id: 'pressure-next',
+              title: 'Pressure next',
+              cover: 'pressure-next',
+            ),
+          ],
+        );
+        final loads = <String, int>{};
+        await pump(
+          tester,
+          const ComicScreen(),
+          _Library(),
+          source,
+          loadImage: (page) {
+            loads.update(page.url, (value) => value + 1, ifAbsent: () => 1);
+            return Future.value(Uint8List.fromList(_png));
+          },
+        );
+        await waitForComicCardImage(tester, 'Pressure 0');
+        final firstCard = comicCardForTitle('Pressure 0');
+        final original = tester
+            .widget<RawImage>(
+              find.descendant(of: firstCard, matching: find.byType(RawImage)),
+            )
+            .image;
+        expect(original, isNotNull);
+        final firstProvider = tester
+            .widget<Image>(
+              find.descendant(of: firstCard, matching: find.byType(Image)),
+            )
+            .image;
+        final grid = find.byType(ComicGrid);
+        final scrollable = find.descendant(
+          of: grid,
+          matching: find.byType(Scrollable),
+        );
+        final position = tester.state<ScrollableState>(scrollable).position;
+        await tester.scrollUntilVisible(
+          find.text('Next').hitTestable(),
+          500,
+          scrollable: scrollable,
+        );
+        await waitForComicCardImage(tester, 'Pressure 39');
+        expect(
+          cache
+              .statusForKey(
+                await firstProvider.obtainKey(ImageConfiguration.empty),
+              )
+              .keepAlive,
+          isFalse,
+        );
+        position.jumpTo(0);
+        await tester.pump();
+        expect(
+          find.text('Pressure 0').hitTestable(),
+          findsOneWidget,
+          reason:
+              'An already displayed cover must paint on the first reverse-scroll frame, even after eviction from the shared decoded cache.',
+        );
+        expect(
+          tester
+              .widget<RawImage>(
+                find.descendant(of: firstCard, matching: find.byType(RawImage)),
+              )
+              .image,
+          same(original),
+        );
+        expect(loads['pressure-0'], 1);
+        await tester.scrollUntilVisible(
+          find.text('Next').hitTestable(),
+          500,
+          scrollable: scrollable,
+        );
+        await tester.tap(find.text('Next'));
+        await pumpFrames(tester);
+        await waitForComicCardImage(tester, 'Pressure next');
+        expect(find.text('Pressure 0', skipOffstage: false), findsNothing);
+        expect(original!.debugDisposed, isTrue);
+      },
+    );
+  }
+
+  for (final layout in LayoutType.values) {
     for (final evictDecoded in [false, true]) {
       testWidgets(
         'ComicScreen revisits covers without blank frames ($layout, evicted=$evictDecoded)',

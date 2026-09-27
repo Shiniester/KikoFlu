@@ -163,6 +163,7 @@ class VirtualizedSliverCollection<T> extends StatefulWidget {
     this.scrollCacheExtent,
     this.physics,
     this.addAutomaticKeepAlives = true,
+    this.retainedItemCount = 0,
     this.addRepaintBoundaries = true,
     this.fillEmptyViewport = true,
     this.collectionTrailingBuilder,
@@ -222,6 +223,9 @@ class VirtualizedSliverCollection<T> extends StatefulWidget {
   final ScrollCacheExtent? scrollCacheExtent;
   final ScrollPhysics? physics;
   final bool addAutomaticKeepAlives;
+
+  /// Maximum nearby built items kept alive for instant cover redisplay.
+  final int retainedItemCount;
   final bool addRepaintBoundaries;
   final bool fillEmptyViewport;
   final WidgetBuilder? collectionTrailingBuilder;
@@ -246,9 +250,15 @@ class _VirtualizedSliverCollectionState<T>
   List<Object> _lastVisibleIds = const [];
   late Map<Object, int> _indexById;
   late int _indexedItemCount;
+  final _retentionWindow = ValueNotifier<(int, int)>((0, 0));
+
+  bool get _retainsItems =>
+      widget.retainedItemCount > 0 && widget.addAutomaticKeepAlives;
 
   bool get _tracksItems =>
-      widget.onVisibleItemsChanged != null || widget.onPrefetch != null;
+      widget.onVisibleItemsChanged != null ||
+      widget.onPrefetch != null ||
+      _retainsItems;
 
   @override
   void initState() {
@@ -275,6 +285,7 @@ class _VirtualizedSliverCollectionState<T>
     }
     widget.collectionController?._attach(_controller);
 
+    if (!_retainsItems) _retentionWindow.value = (0, 0);
     if (!identical(oldWidget.items, widget.items) ||
         _indexedItemCount != widget.items.length) {
       _rebuildIndex();
@@ -297,6 +308,7 @@ class _VirtualizedSliverCollectionState<T>
 
   @override
   void dispose() {
+    _retentionWindow.dispose();
     widget.collectionController?._detach(_controller);
     _clearController();
     super.dispose();
@@ -314,9 +326,11 @@ class _VirtualizedSliverCollectionState<T>
   }
 
   void _handleScroll() {
-    // Visible-item reporting needs frame-level updates. Prefetch-only feeds are
-    // driven by mount changes and one final inspection when scrolling stops.
-    if (widget.onVisibleItemsChanged != null) _scheduleInspection();
+    // Visibility and retention follow each frame. Prefetch-only feeds without
+    // retention inspect mount changes and the end of scrolling instead.
+    if (widget.onVisibleItemsChanged != null || _retainsItems) {
+      _scheduleInspection();
+    }
     if (widget.pagination == null && widget.onLoadMore != null) {
       _maybeLoadMore();
     }
@@ -367,11 +381,11 @@ class _VirtualizedSliverCollectionState<T>
 
   void _inspectVisibleItems() {
     if (!_controller.hasClients || widget.items.isEmpty) return;
-    if (widget.onVisibleItemsChanged == null && widget.onPrefetch == null) {
+    if (!_tracksItems) {
       return;
     }
 
-    if (widget.onVisibleItemsChanged == null) {
+    if (widget.onVisibleItemsChanged == null && !_retainsItems) {
       _prefetchAfterMountedItems();
       return;
     }
@@ -387,13 +401,23 @@ class _VirtualizedSliverCollectionState<T>
       final viewport = RenderAbstractViewport.maybeOf(renderObject);
       if (viewport == null) continue;
       final leading = viewport.getOffsetToReveal(renderObject, 0).offset;
-      final trailing = viewport.getOffsetToReveal(renderObject, 1).offset;
+      final trailing =
+          viewport.getOffsetToReveal(renderObject, 1).offset +
+          position.viewportDimension;
       if (trailing > viewportStart && leading < viewportEnd) {
         visibleIndices.add(entry.key);
       }
     }
 
     visibleIndices.sort();
+    if (_retainsItems && visibleIndices.isNotEmpty) {
+      final count = widget.retainedItemCount.clamp(0, widget.items.length);
+      final start = (visibleIndices.first - count ~/ 2).clamp(
+        0,
+        widget.items.length - count,
+      );
+      _retentionWindow.value = (start, start + count);
+    }
     final visible = <VirtualizedVisibleItem<T>>[];
     for (final index in visibleIndices) {
       if (index < 0 || index >= widget.items.length) continue;
@@ -564,6 +588,7 @@ class _VirtualizedSliverCollectionState<T>
           index: index,
           onMount: _registerItem,
           onUnmount: _unregisterItem,
+          retentionWindow: _retainsItems ? _retentionWindow : null,
           child: child,
         );
       },
@@ -807,22 +832,34 @@ class _TrackedVirtualizedItem extends StatefulWidget {
     required this.onMount,
     required this.onUnmount,
     required this.child,
+    this.retentionWindow,
   });
 
   final int index;
   final void Function(int index, BuildContext context) onMount;
   final void Function(int index, BuildContext context) onUnmount;
   final Widget child;
+  final ValueNotifier<(int, int)>? retentionWindow;
 
   @override
   State<_TrackedVirtualizedItem> createState() =>
       _TrackedVirtualizedItemState();
 }
 
-class _TrackedVirtualizedItemState extends State<_TrackedVirtualizedItem> {
+class _TrackedVirtualizedItemState extends State<_TrackedVirtualizedItem>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive {
+    final window = widget.retentionWindow?.value;
+    return window != null &&
+        widget.index >= window.$1 &&
+        widget.index < window.$2;
+  }
+
   @override
   void initState() {
     super.initState();
+    widget.retentionWindow?.addListener(updateKeepAlive);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) widget.onMount(widget.index, context);
     });
@@ -831,6 +868,11 @@ class _TrackedVirtualizedItemState extends State<_TrackedVirtualizedItem> {
   @override
   void didUpdateWidget(covariant _TrackedVirtualizedItem oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.retentionWindow != widget.retentionWindow) {
+      oldWidget.retentionWindow?.removeListener(updateKeepAlive);
+      widget.retentionWindow?.addListener(updateKeepAlive);
+    }
+    updateKeepAlive();
     if (oldWidget.index != widget.index) {
       oldWidget.onUnmount(oldWidget.index, context);
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -841,10 +883,14 @@ class _TrackedVirtualizedItemState extends State<_TrackedVirtualizedItem> {
 
   @override
   void dispose() {
+    widget.retentionWindow?.removeListener(updateKeepAlive);
     widget.onUnmount(widget.index, context);
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
+  }
 }

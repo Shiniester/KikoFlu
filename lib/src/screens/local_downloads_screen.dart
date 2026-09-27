@@ -660,6 +660,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
                 availableHeight: constraints.maxHeight,
               );
               return VirtualizedSliverCollection<int>(
+                retainedItemCount: 100,
                 collectionController: _collectionController,
                 pageStorageKey: const PageStorageKey('local-downloads-feed'),
                 items: currentPageWorkIds,

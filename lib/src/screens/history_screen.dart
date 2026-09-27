@@ -47,6 +47,7 @@ class HistoryScreen extends ConsumerWidget {
           return WorkCoverPrefetchScope(
             sourceKey: (auth, history),
             builder: (context, coverPrefetch) => VirtualizedSliverCollection(
+              retainedItemCount: 100,
               items: history,
               itemId: (record) => record.work.id,
               layout: layoutType == LayoutType.list

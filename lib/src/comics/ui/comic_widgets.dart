@@ -427,9 +427,13 @@ class _ComicCardWhenReady extends ConsumerStatefulWidget {
       _ComicCardWhenReadyState();
 }
 
-class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady> {
+class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady>
+    with AutomaticKeepAliveClientMixin {
   bool _shown = false;
   int _generation = 0;
+
+  @override
+  bool get wantKeepAlive => _shown;
 
   @override
   void didUpdateWidget(_ComicCardWhenReady oldWidget) {
@@ -438,16 +442,19 @@ class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady> {
         oldWidget.page.url != widget.page.url) {
       _shown = false;
       _generation++;
+      updateKeepAlive();
     }
   }
 
   void _showWhenReady(int generation) {
     if (!mounted || generation != _generation || _shown) return;
     setState(() => _shown = true);
+    updateKeepAlive();
   }
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final request = _ComicImageRequest(widget.source, widget.page);
     final image = ref.watch(_comicImageBytesProvider(request));
     ref.read(_comicCoverRetentionProvider).touch(request);
@@ -464,6 +471,7 @@ class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady> {
       widget.onAspectRatio?.call(widget.placeholderAspectRatio ?? 2 / 3);
       _shown = true;
     }
+    updateKeepAlive();
     final generation = _generation;
     return Visibility(
       visible: _shown,
