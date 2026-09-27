@@ -43,6 +43,8 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   Object? _chaptersError;
   bool _busy = false;
   Object? _favoriteError;
+  MediaQueryData? _readerWindow;
+  bool _readerReturning = false;
   Comic get _readyComic => _comic.withChapters(_chapters);
 
   Future<void> _load() async {
@@ -145,15 +147,20 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
         comic.chapters.where((c) => c.id == progress?.chapterId).firstOrNull ??
         comic.chapters.first;
     if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ComicReaderScreen(
-          comic: comic,
-          chapter: chapter!,
-          initialPage: progress?.chapterId == chapter.id ? progress!.page : 0,
-        ),
+    setState(() {
+      _readerWindow = MediaQuery.of(context);
+      _readerReturning = false;
+    });
+    final route = MaterialPageRoute<void>(
+      builder: (_) => ComicReaderScreen(
+        comic: comic,
+        chapter: chapter!,
+        initialPage: progress?.chapterId == chapter.id ? progress!.page : 0,
       ),
     );
+    await Navigator.of(context).push(route);
+    await route.completed;
+    if (mounted) setState(() => _readerReturning = true);
   }
 
   Future<void> _favorite(Comic comic) async {
@@ -251,6 +258,31 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final current = MediaQuery.of(context);
+    final saved = _readerWindow;
+    if (saved != null &&
+        (current.size != saved.size ||
+            current.devicePixelRatio != saved.devicePixelRatio ||
+            (_readerReturning &&
+                current.padding == saved.padding &&
+                current.viewPadding == saved.viewPadding))) {
+      _readerWindow = null;
+    }
+    final retained = _readerWindow;
+    // Keep the detail's safe area while the reader hides system bars, including
+    // the interval between route removal and the platform's restored insets.
+    return MediaQuery(
+      data: retained == null
+          ? current
+          : current.copyWith(
+              padding: retained.padding,
+              viewPadding: retained.viewPadding,
+            ),
+      child: Builder(builder: _buildDetail),
+    );
+  }
+
+  Widget _buildDetail(BuildContext context) {
     final s = S.of(context);
     return GlobalAudioPlayerWrapper.workDetails(
       child: Scaffold(
