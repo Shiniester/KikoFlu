@@ -55,9 +55,44 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
   Map<String, Object> _pageErrors = {};
   bool _pageLoading = false, _hasMore = false;
   int _page = 1, _pendingPage = 1;
+  final _visitedPages = ComicVisitedPages();
   int _generation = 0;
+  int? _pageTurnRequest;
+  int? _cancelledPageTurnRequest;
+  int? _scrollingRequest;
+  int? _interruptedScrollRequest;
+  ModalRoute<dynamic>? _route;
   bool _submitted = false;
   final _scroll = ScrollController();
+
+  void _routeStatusChanged(AnimationStatus _) {
+    final request = _pageTurnRequest;
+    if (_route?.isCurrent == false && request != null) {
+      _cancelledPageTurnRequest = request;
+    }
+  }
+
+  void _listenToRoute(ModalRoute<dynamic>? route, {required bool add}) {
+    final change = add
+        ? (Animation<double>? animation) =>
+              animation?.addStatusListener(_routeStatusChanged)
+        : (Animation<double>? animation) =>
+              animation?.removeStatusListener(_routeStatusChanged);
+    change(route?.animation);
+    change(route?.secondaryAnimation);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != _route) {
+      _listenToRoute(_route, add: false);
+      _route = route;
+      _listenToRoute(route, add: true);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -71,6 +106,7 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
   @override
   void dispose() {
     _generation++;
+    _listenToRoute(_route, add: false);
     _query.dispose();
     _scroll.dispose();
     super.dispose();
@@ -155,6 +191,14 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
     if (!mounted || (_pageLoading && !reset)) return;
     final generation = ++_generation;
     final previousPage = _page;
+    final pageTurnRequest = !reset && page != previousPage;
+    if (reset) {
+      _pageTurnRequest = null;
+      _cancelledPageTurnRequest = null;
+    } else if (pageTurnRequest) {
+      _pageTurnRequest = generation;
+      _cancelledPageTurnRequest = null;
+    }
     final query = _query.text.trim();
     setState(() {
       _submitted = true;
@@ -168,6 +212,7 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
         _pending.clear();
         _page = 1;
         _hasMore = false;
+        _visitedPages.reset();
       }
     });
     try {
@@ -187,6 +232,31 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
         );
       }
       if (!mounted || generation != _generation) return;
+      if (pageTurnRequest && _isPageTurnCancelled(generation)) {
+        setState(() => _pendingPage = previousPage);
+        return;
+      }
+      if (result.errors.isEmpty && (reset || displayPage != previousPage)) {
+        final pageTurn = pageTurnRequest && displayPage != previousPage;
+        if (pageTurn && ModalRoute.of(context)?.isCurrent == false) {
+          setState(() => _pendingPage = previousPage);
+          return;
+        }
+        final reachedTop = await _scrollBeforePageCommit(
+          generation,
+          requireCurrentPage: pageTurn,
+        );
+        if (!mounted || generation != _generation) return;
+        if (!reachedTop) {
+          setState(() => _pendingPage = previousPage);
+          return;
+        }
+        if (pageTurn && ModalRoute.of(context)?.isCurrent == false) {
+          setState(() => _pendingPage = previousPage);
+          return;
+        }
+      }
+      if (!mounted || generation != _generation) return;
       setState(() {
         _buffer = buffer;
         _pageErrors = result.errors;
@@ -194,6 +264,11 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
           _pageItems = result.items;
           _page = displayPage;
           _pendingPage = displayPage;
+          if (reset) {
+            _visitedPages.reset(maximum: displayPage);
+          } else {
+            _visitedPages.markDisplayed(displayPage);
+          }
           _hasMore = result.hasMore;
         } else if (_pageItems.isEmpty && result.items.isNotEmpty) {
           _pageItems = result.items;
@@ -201,33 +276,53 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
           _hasMore = false;
         }
       });
-      if (result.errors.isEmpty && (reset || displayPage != previousPage)) {
-        _scrollToTop();
-      }
     } catch (error) {
       if (mounted && generation == _generation) {
         setState(() => _pageErrors = {'search': error});
       }
     } finally {
+      if (_pageTurnRequest == generation) _pageTurnRequest = null;
       if (mounted && generation == _generation) {
         setState(() => _pageLoading = false);
       }
     }
   }
 
-  void _scrollToTop() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scroll.hasClients) return;
-      if (MediaQuery.disableAnimationsOf(context)) {
-        _scroll.jumpTo(0);
-      } else {
-        _scroll.animateTo(
-          0,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
-        );
-      }
-    });
+  bool _isPageTurnCancelled(int request) =>
+      _cancelledPageTurnRequest == request ||
+      ModalRoute.of(context)?.isCurrent == false;
+
+  Future<bool> _scrollBeforePageCommit(
+    int request, {
+    required bool requireCurrentPage,
+  }) async {
+    bool isCurrentPage() =>
+        !requireCurrentPage || ModalRoute.of(context)?.isCurrent != false;
+    if (!isCurrentPage()) return false;
+    if (!_scroll.hasClients || _scroll.position.pixels <= 0) {
+      return isCurrentPage();
+    }
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _scroll.jumpTo(0);
+      return isCurrentPage();
+    }
+    _scrollingRequest = request;
+    try {
+      await _scroll.animateTo(
+        0,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+      );
+      return mounted &&
+          request == _generation &&
+          _cancelledPageTurnRequest != request &&
+          _interruptedScrollRequest != request &&
+          isCurrentPage() &&
+          _scroll.hasClients &&
+          _scroll.position.pixels <= 1;
+    } finally {
+      if (_scrollingRequest == request) _scrollingRequest = null;
+    }
   }
 
   Future<void> _search({Set<String>? retrySources}) async {
@@ -510,63 +605,77 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                     padding: const EdgeInsets.all(16),
                     children: _targets.map(_group).toList(),
                   )
-                : ComicGrid(
-                    comics: items,
-                    controller: _scroll,
-                    emptyContent: _pageErrors.isNotEmpty && items.isEmpty
-                        ? ComicErrorView(
-                            error: _pageErrors.values.first,
-                            retry: () => _loadPage(
-                              _pendingPage,
-                              retryFailures: _buffer != null,
-                            ),
-                          )
-                        : null,
-                    footer: Padding(
-                      padding: const EdgeInsets.fromLTRB(8, 8, 8, 24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (_pageErrors.isNotEmpty && items.isNotEmpty)
-                            MaterialBanner(
-                              content: Text(
-                                _pageErrors.entries
-                                    .map((entry) {
-                                      final source = sources
-                                          .where(
-                                            (source) => source.key == entry.key,
-                                          )
-                                          .firstOrNull;
-                                      return '${source?.name ?? entry.key}: ${entry.value}';
-                                    })
-                                    .join('\n'),
+                : NotificationListener<ScrollStartNotification>(
+                    onNotification: (notification) {
+                      final request = _scrollingRequest;
+                      if (notification.dragDetails != null && request != null) {
+                        _interruptedScrollRequest = request;
+                      }
+                      return false;
+                    },
+                    child: ComicGrid(
+                      comics: items,
+                      controller: _scroll,
+                      emptyContent: _pageErrors.isNotEmpty && items.isEmpty
+                          ? ComicErrorView(
+                              error: _pageErrors.values.first,
+                              retry: () => _loadPage(
+                                _pendingPage,
+                                retryFailures: _buffer != null,
                               ),
-                              actions: [
-                                TextButton(
-                                  onPressed: _pageLoading
-                                      ? null
-                                      : () => _loadPage(
-                                          _pendingPage,
-                                          retryFailures: true,
-                                        ),
-                                  child: Text(s.retry),
+                            )
+                          : null,
+                      footer: Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 8, 8, 24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_pageErrors.isNotEmpty && items.isNotEmpty)
+                              MaterialBanner(
+                                content: Text(
+                                  _pageErrors.entries
+                                      .map((entry) {
+                                        final source = sources
+                                            .where(
+                                              (source) =>
+                                                  source.key == entry.key,
+                                            )
+                                            .firstOrNull;
+                                        return '${source?.name ?? entry.key}: ${entry.value}';
+                                      })
+                                      .join('\n'),
                                 ),
-                              ],
+                                actions: [
+                                  TextButton(
+                                    onPressed: _pageLoading
+                                        ? null
+                                        : () => _loadPage(
+                                            _pendingPage,
+                                            retryFailures: true,
+                                          ),
+                                    child: Text(s.retry),
+                                  ),
+                                ],
+                              ),
+                            PaginationBar(
+                              currentPage: _page,
+                              pageSize: pageSize,
+                              totalCount: null,
+                              jumpMaxPage: _visitedPages.maximum,
+                              hasMore: _hasMore && _pageErrors.isEmpty,
+                              isLoading: _pageLoading,
+                              onPreviousPage: _page > 1
+                                  ? () => _loadPage(_page - 1)
+                                  : null,
+                              onNextPage: _hasMore && _pageErrors.isEmpty
+                                  ? () => _loadPage(_page + 1)
+                                  : null,
+                              onGoToPage: _visitedPages.maximum > 1
+                                  ? (page) => _loadPage(page)
+                                  : null,
                             ),
-                          PaginationBar(
-                            currentPage: _page,
-                            pageSize: pageSize,
-                            totalCount: null,
-                            hasMore: _hasMore && _pageErrors.isEmpty,
-                            isLoading: _pageLoading,
-                            onPreviousPage: _page > 1
-                                ? () => _loadPage(_page - 1)
-                                : null,
-                            onNextPage: _hasMore && _pageErrors.isEmpty
-                                ? () => _loadPage(_page + 1)
-                                : null,
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),

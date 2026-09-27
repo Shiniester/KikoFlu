@@ -14,6 +14,9 @@ class PaginationBar extends StatefulWidget {
   /// 总条目数
   final int? totalCount;
 
+  /// Highest page the caller allows the user to visit when the total is unknown.
+  final int? jumpMaxPage;
+
   /// 是否有更多数据
   final bool hasMore;
 
@@ -40,6 +43,7 @@ class PaginationBar extends StatefulWidget {
     required this.currentPage,
     required this.pageSize,
     required this.totalCount,
+    this.jumpMaxPage,
     required this.hasMore,
     required this.isLoading,
     this.onPreviousPage,
@@ -62,9 +66,16 @@ class _PaginationBarState extends State<PaginationBar> {
     super.dispose();
   }
 
-  int get _maxPage => widget.totalCount != null && widget.totalCount! > 0
-      ? (widget.totalCount! / widget.pageSize).ceil()
-      : 1;
+  int get _maxPage =>
+      widget.jumpMaxPage ??
+      (widget.totalCount != null && widget.totalCount! > 0
+          ? (widget.totalCount! / widget.pageSize).ceil()
+          : 1);
+
+  bool get _canJump =>
+      widget.onGoToPage != null &&
+      (widget.jumpMaxPage != null || widget.totalCount != null) &&
+      _maxPage > 1;
 
   /// 构建到底提示
   Widget _buildEndMessage() {
@@ -152,7 +163,7 @@ class _PaginationBarState extends State<PaginationBar> {
       color: Theme.of(context).colorScheme.secondaryContainer,
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
-        onTap: () => _showPageJumpDialog(),
+        onTap: widget.isLoading ? null : () => _showPageJumpDialog(),
         borderRadius: BorderRadius.circular(8),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -215,6 +226,7 @@ class _PaginationBarState extends State<PaginationBar> {
 
   /// 处理跳转
   void _handleJump(BuildContext dialogContext) {
+    if (widget.isLoading) return;
     final pageStr = _pageController.text.trim();
     if (pageStr.isEmpty) {
       SnackBarUtil.showWarning(context, S.of(context).enterPageNumber);
@@ -295,8 +307,10 @@ class _PaginationBarState extends State<PaginationBar> {
           const SizedBox(height: 12),
 
           // 按钮组
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
             children: [
               // 上一页
               _buildPageButton(
@@ -305,13 +319,9 @@ class _PaginationBarState extends State<PaginationBar> {
                 enabled: widget.currentPage > 1 && !widget.isLoading,
                 onPressed: widget.onPreviousPage,
               ),
-              const SizedBox(width: 8),
 
               // 跳转输入
-              if (widget.totalCount != null && widget.onGoToPage != null) ...[
-                _buildPageJumpButton(),
-                const SizedBox(width: 8),
-              ],
+              if (_canJump) _buildPageJumpButton(),
 
               // 下一页
               _buildPageButton(

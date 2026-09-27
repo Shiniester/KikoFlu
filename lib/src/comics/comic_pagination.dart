@@ -21,6 +21,20 @@ class ComicPageSlice {
   final Map<String, Object> errors;
 }
 
+class ComicVisitedPages {
+  int _maximum = 1;
+
+  int get maximum => _maximum;
+
+  void reset({int maximum = 1}) {
+    _maximum = maximum < 1 ? 1 : maximum;
+  }
+
+  void markDisplayed(int page) {
+    if (page > _maximum) _maximum = page;
+  }
+}
+
 class ComicPageBuffer {
   ComicPageBuffer(List<ComicPageSource> sources)
     : _sources = [for (final source in sources) _ComicPageChannel(source)];

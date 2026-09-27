@@ -6,6 +6,18 @@ Comic _comic(String source, int index) =>
     Comic(source: source, id: '$index', title: '$source $index');
 
 void main() {
+  test('visited comic pages advance only when the caller commits a page', () {
+    final visited = ComicVisitedPages();
+
+    expect(visited.maximum, 1);
+    visited.markDisplayed(2);
+    expect(visited.maximum, 2);
+    visited.reset(maximum: 1);
+    expect(visited.maximum, 1);
+    visited.markDisplayed(1);
+    expect(visited.maximum, 1);
+  });
+
   for (final pageSize in [20, 40, 60, 100]) {
     test(
       'cursor buffer supports comic page size $pageSize without prefetching',

@@ -26,7 +26,11 @@ import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart'
     show pageSizeProvider;
 import 'package:kikoeru_flutter/src/providers/works_provider.dart'
-    show LayoutType;
+    show LayoutType, WorksNotifier, worksProvider;
+import 'package:kikoeru_flutter/src/screens/main_screen.dart';
+import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart';
+import 'package:kikoeru_flutter/src/providers/download_provider.dart';
+import 'package:kikoeru_flutter/src/models/download_task_change.dart';
 import 'package:kikoeru_flutter/src/comics/comic_models.dart';
 import 'package:kikoeru_flutter/src/comics/comic_source.dart';
 import 'package:kikoeru_flutter/src/comics/comic_http.dart';
@@ -131,14 +135,26 @@ class _PaginatedSource extends _Source {
   final List<Comic> firstPage;
   final List<Comic> secondPage;
   final cursors = <String?>[];
+  Completer<ComicResult>? secondPageGate;
 
   @override
   Future<ComicResult> explore({String? cursor}) async {
     cursors.add(cursor);
-    return cursor == null
-        ? ComicResult(firstPage, next: 'second-page')
-        : ComicResult(secondPage);
+    if (cursor == null) return ComicResult(firstPage, next: 'second-page');
+    return secondPageGate?.future ?? ComicResult(secondPage);
   }
+}
+
+class _IdleWorks extends WorksNotifier {
+  _IdleWorks(Ref ref) : super(KikoeruApiService(), ref);
+
+  @override
+  Future<void> loadWorks({
+    bool refresh = false,
+    int? targetPage,
+    bool append = false,
+    bool supersede = false,
+  }) async {}
 }
 
 class _PaginatedSearchSource extends _Source {
@@ -214,6 +230,78 @@ void expectVisibleComicCoverRatio(WidgetTester tester, double ratio) {
   }
 }
 
+Future<void> pumpFrames(WidgetTester tester, {int frames = 20}) async {
+  for (var i = 0; i < frames; i++) {
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+}
+
+void expectComicCardHidden(WidgetTester tester) {
+  final visibility = find.ancestor(
+    of: find.byType(Card),
+    matching: find.byType(Visibility),
+  );
+  expect(visibility, findsOneWidget);
+  expect(tester.widget<Visibility>(visibility).visible, isFalse);
+}
+
+Finder comicCardForTitle(String title) =>
+    find.ancestor(of: find.text(title), matching: find.byType(Card));
+
+void expectComicTitleHidden(WidgetTester tester, String title) {
+  final card = comicCardForTitle(title);
+  expect(card, findsOneWidget);
+  final visibility = find.ancestor(of: card, matching: find.byType(Visibility));
+  expect(tester.widget<Visibility>(visibility).visible, isFalse);
+}
+
+void expectComicCardReady(WidgetTester tester, String title) {
+  final card = comicCardForTitle(title);
+  expect(card, findsOneWidget);
+  final visibility = find.ancestor(of: card, matching: find.byType(Visibility));
+  expect(tester.widget<Visibility>(visibility).visible, isTrue);
+  expect(find.text(title).hitTestable(), findsOneWidget);
+  final rawImages = find.descendant(of: card, matching: find.byType(RawImage));
+  expect(rawImages, findsOneWidget);
+  expect(tester.widget<RawImage>(rawImages).image, isNotNull);
+}
+
+Finder memoryImageForBytes(Uint8List bytes) => find.byWidgetPredicate(
+  (widget) =>
+      widget is Image &&
+      widget.image is MemoryImage &&
+      identical((widget.image as MemoryImage).bytes, bytes),
+);
+
+Future<void> waitForCoverBytes(WidgetTester tester, Uint8List bytes) async {
+  final image = memoryImageForBytes(bytes);
+  for (var frame = 0; frame < 24 && image.evaluate().isEmpty; frame++) {
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+  }
+  expect(image, findsOneWidget);
+  await waitForDecodedImage(tester, image);
+  await pumpFrames(tester, frames: 3);
+}
+
+Future<void> waitForComicCardImage(WidgetTester tester, String title) async {
+  final image = find.descendant(
+    of: comicCardForTitle(title),
+    matching: find.byType(Image),
+  );
+  for (var frame = 0; frame < 24 && image.evaluate().isEmpty; frame++) {
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+  }
+  expect(image, findsOneWidget);
+  await waitForDecodedImage(tester, image);
+  await pumpFrames(tester, frames: 3);
+}
+
 void expectComicCoverFlightRadius() {
   expect(
     find.byWidgetPredicate((widget) {
@@ -225,6 +313,26 @@ void expectComicCoverFlightRadius() {
     }),
     findsWidgets,
   );
+}
+
+Future<void> waitForDecodedImage(WidgetTester tester, Finder finder) async {
+  await tester.runAsync(() async {
+    final imageWidget = tester.widget<Image>(finder);
+    final stream = imageWidget.image.resolve(
+      createLocalImageConfiguration(tester.element(finder)),
+    );
+    final decoded = Completer<void>();
+    final listener = ImageStreamListener((_, _) {
+      if (!decoded.isCompleted) decoded.complete();
+    });
+    stream.addListener(listener);
+    try {
+      await decoded.future.timeout(const Duration(seconds: 5));
+    } finally {
+      stream.removeListener(listener);
+    }
+  });
+  await tester.pump();
 }
 
 void main() {
@@ -776,6 +884,51 @@ void main() {
     expect(previousCalls, 1);
   });
 
+  testWidgets('unknown comic total jumps only within visited pages', (
+    tester,
+  ) async {
+    final jumpedPages = <int>[];
+    await pump(
+      tester,
+      Scaffold(
+        body: PaginationBar(
+          currentPage: 2,
+          pageSize: 40,
+          totalCount: null,
+          jumpMaxPage: 5,
+          hasMore: true,
+          isLoading: false,
+          onPreviousPage: () {},
+          onNextPage: () {},
+          onGoToPage: jumpedPages.add,
+        ),
+      ),
+      _Library(),
+      _Source(),
+    );
+
+    await tester.tap(find.byIcon(Icons.edit_location_alt));
+    await tester.pumpAndSettle();
+    expect(find.text('Page (1-5)'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '6');
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('Jump'),
+      ),
+    );
+    expect(jumpedPages, isEmpty);
+    await tester.enterText(find.byType(TextField), '5');
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('Jump'),
+      ),
+    );
+
+    expect(jumpedPages, [5]);
+  });
+
   for (final layout in [LayoutType.bigGrid, LayoutType.smallGrid]) {
     testWidgets(
       'ComicScreen keeps covers stable during fast down and reverse scroll in $layout',
@@ -926,7 +1079,8 @@ void main() {
         );
         expect(next.hitTestable(), findsOneWidget);
         await tester.tap(next);
-        await tester.pumpAndSettle();
+        await pumpFrames(tester);
+        expect(tester.widget<ComicGrid>(grid).comics.first.id, 'first-40');
         expect(source.cursors, [null, 'second-page']);
         final previous = find.text('Previous');
         expect(previous.hitTestable(), findsNothing);
@@ -935,8 +1089,13 @@ void main() {
           400,
           scrollable: scrollable,
         );
+        expect(
+          tester.widget<PaginationBar>(find.byType(PaginationBar)).isLoading,
+          isFalse,
+        );
         await tester.tap(previous);
-        await tester.pumpAndSettle();
+        await pumpFrames(tester);
+        expect(tester.widget<ComicGrid>(grid).comics.first.id, 'first-0');
         expect(source.cursors, [null, 'second-page']);
         expect(find.text('First 0'), findsOneWidget);
         expect(tester.takeException(), isNull);
@@ -992,7 +1151,8 @@ void main() {
     );
     expect(next.hitTestable(), findsOneWidget);
     await tester.tap(next);
-    await tester.pumpAndSettle();
+    await pumpFrames(tester);
+    expect(tester.widget<ComicGrid>(grid).comics.first.id, 'size-first-40');
     expect(find.text('Previous').hitTestable(), findsNothing);
     final position = tester.state<ScrollableState>(scrollable).position;
     expect(position.pixels, closeTo(0, 0.1));
@@ -1003,6 +1163,7 @@ void main() {
       400,
       scrollable: scrollable,
     );
+    expect(tester.widget<PaginationBar>(pagination).isLoading, isFalse);
     expect(
       find.descendant(of: pagination, matching: find.text('2')),
       findsOneWidget,
@@ -1016,7 +1177,8 @@ void main() {
     container.read(comicPageSizeProvider.notifier).setPageSize(20);
     await tester.pumpAndSettle();
 
-    expect(position.pixels, closeTo(0, 0.1));
+    final resetPosition = tester.state<ScrollableState>(scrollable).position;
+    expect(resetPosition.pixels, closeTo(0, 0.1));
     expect(find.text('Size first 0'), findsOneWidget);
     final pageOne = find.descendant(of: pagination, matching: find.text('1'));
     await tester.scrollUntilVisible(
@@ -1025,7 +1187,207 @@ void main() {
       scrollable: scrollable,
     );
     expect(pageOne, findsOneWidget);
+    expect(find.byIcon(Icons.edit_location_alt), findsNothing);
     expect(source.cursors, [null, 'second-page', null]);
+  });
+
+  testWidgets('comic jump returns to a page that was already displayed', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final source = _PaginatedSource(
+      List.generate(
+        48,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'jump-first-$i',
+          title: 'Jump first $i',
+          cover: 'jump-first-cover-$i',
+        ),
+      ),
+      List.generate(
+        24,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'jump-second-$i',
+          title: 'Jump second $i',
+          cover: 'jump-second-cover-$i',
+        ),
+      ),
+    );
+    await pump(tester, const ComicScreen(), _Library(), source);
+
+    final grid = find.byType(ComicGrid);
+    final scrollable = find.descendant(
+      of: grid,
+      matching: find.byType(Scrollable),
+    );
+    expect(find.byIcon(Icons.edit_location_alt), findsNothing);
+    final next = find.text('Next');
+    await tester.scrollUntilVisible(
+      next.hitTestable(),
+      400,
+      scrollable: scrollable,
+    );
+    expect(find.byIcon(Icons.edit_location_alt), findsNothing);
+    await tester.tap(next);
+    await pumpFrames(tester);
+    expect(tester.widget<ComicGrid>(grid).comics.first.id, 'jump-first-40');
+
+    final previous = find.text('Previous');
+    await tester.scrollUntilVisible(
+      previous.hitTestable(),
+      400,
+      scrollable: scrollable,
+    );
+    expect(find.byIcon(Icons.edit_location_alt).hitTestable(), findsOneWidget);
+    await tester.tap(previous);
+    await pumpFrames(tester);
+    expect(tester.widget<ComicGrid>(grid).comics.first.id, 'jump-first-0');
+
+    final jump = find.byIcon(Icons.edit_location_alt);
+    await tester.scrollUntilVisible(
+      jump.hitTestable(),
+      400,
+      scrollable: scrollable,
+    );
+    await tester.tap(jump);
+    await tester.pumpAndSettle();
+    expect(find.text('Page (1-2)'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), '2');
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('Jump'),
+      ),
+    );
+    await pumpFrames(tester);
+
+    expect(tester.widget<ComicGrid>(grid).comics.first.id, 'jump-first-40');
+    expect(source.cursors, [null, 'second-page']);
+    await tester.scrollUntilVisible(
+      previous.hitTestable(),
+      400,
+      scrollable: scrollable,
+    );
+    expect(
+      tester.widget<PaginationBar>(find.byType(PaginationBar)).isLoading,
+      isFalse,
+    );
+  });
+
+  testWidgets('ComicScreen does not show a new page at the old scroll offset', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final source = _PaginatedSource(
+      List.generate(
+        40,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'transition-first-$i',
+          title: 'Transition first $i',
+          cover: 'transition-first-cover-$i',
+        ),
+      ),
+      List.generate(
+        40,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'transition-second-$i',
+          title: 'Transition second $i',
+          cover: i >= 35
+              ? 'transition-first-cover-${35 + (i - 35) % 5}'
+              : 'transition-second-cover-$i',
+        ),
+      ),
+    );
+    final slowFirstCover = Completer<Uint8List>();
+    await pump(
+      tester,
+      const ComicScreen(),
+      _Library(),
+      source,
+      loadImage: (page) => page.url == 'transition-second-cover-0'
+          ? slowFirstCover.future
+          : Future.value(Uint8List.fromList(_png)),
+    );
+
+    final grid = find.byType(ComicGrid);
+    final scrollable = find.descendant(
+      of: grid,
+      matching: find.byType(Scrollable),
+    );
+    final next = find.text('Next');
+    await tester.scrollUntilVisible(
+      next.hitTestable(),
+      400,
+      scrollable: scrollable,
+    );
+    final position = tester.state<ScrollableState>(scrollable).position;
+    final previousOffset = position.pixels;
+    expect(previousOffset, greaterThan(0));
+
+    final gesture = await tester.startGesture(tester.getCenter(next));
+    await gesture.up();
+    await tester.pump(Duration.zero);
+
+    final pageTwoTitles = find.byWidgetPredicate(
+      (widget) =>
+          widget is Text &&
+          widget.data?.startsWith('Transition second ') == true,
+    );
+    final displacedFrames = <String>[];
+    void recordDisplacedPage() {
+      final titles = pageTwoTitles.hitTestable().evaluate().toList();
+      final gridItems = tester.widget<ComicGrid>(grid).comics;
+      final isPageTwo = gridItems.first.id.startsWith('transition-second-');
+      if (isPageTwo && position.pixels > 1) {
+        displacedFrames.add(
+          'offset=${position.pixels.toStringAsFixed(1)}, '
+          'page=${gridItems.first.id}, '
+          'visible=${titles.map((element) => (element.widget as Text).data).toList()}',
+        );
+      }
+    }
+
+    recordDisplacedPage();
+    for (var frame = 0; frame < 20 && position.pixels > 1; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      recordDisplacedPage();
+    }
+
+    expect(source.cursors, [null, 'second-page']);
+    expect(
+      displacedFrames,
+      isEmpty,
+      reason:
+          'New-page rows must not replace the old page until the existing '
+          'scroll offset $previousOffset has reached the top. Observed: '
+          '$displacedFrames',
+    );
+    expect(position.pixels, closeTo(0, 1));
+    if (!slowFirstCover.isCompleted) slowFirstCover.complete(_png);
+    await tester.pump();
+    await waitForComicCardImage(tester, 'Transition second 0');
+    expectComicCardReady(tester, 'Transition second 0');
+    await tester.scrollUntilVisible(
+      next.hitTestable(),
+      400,
+      scrollable: scrollable,
+    );
+    expect(
+      tester.widget<PaginationBar>(find.byType(PaginationBar)).isLoading,
+      isFalse,
+    );
+    expect(
+      tester.widget<ComicGrid>(grid).comics.first.id,
+      'transition-second-0',
+    );
   });
 
   testWidgets('full comic search places list pagination at the scroll end', (
@@ -1079,11 +1441,677 @@ void main() {
     );
     expect(next.hitTestable(), findsOneWidget);
     await tester.tap(next);
-    await tester.pumpAndSettle();
+    await pumpFrames(tester);
+    expect(tester.widget<ComicGrid>(grid).comics.first.id, 'search-first-40');
 
     expect(source.cursors, [null, 'search-next']);
     expect(find.text('Previous').hitTestable(), findsNothing);
+    await tester.scrollUntilVisible(
+      find.text('Previous').hitTestable(),
+      400,
+      scrollable: scrollable,
+    );
+    expect(
+      tester.widget<PaginationBar>(find.byType(PaginationBar)).isLoading,
+      isFalse,
+    );
   });
+
+  testWidgets('full comic search commits a new page only at the top', (
+    tester,
+  ) async {
+    await StorageService.setString(
+      ComicLayoutNotifier.preferenceKey,
+      LayoutType.list.name,
+    );
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final source = _PaginatedSearchSource(
+      List.generate(
+        40,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'search-transition-first-$i',
+          title: 'Search transition first $i',
+          cover: 'search-transition-cover-$i',
+        ),
+      ),
+      List.generate(
+        40,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'search-transition-second-$i',
+          title: 'Search transition second $i',
+          cover: 'search-transition-cover-$i',
+        ),
+      ),
+    );
+    await pump(
+      tester,
+      const ComicSearchScreen(initialSource: 'fixture', initialQuery: 'book'),
+      _Library(),
+      source,
+    );
+
+    final grid = find.byType(ComicGrid);
+    final scrollable = find.descendant(
+      of: grid,
+      matching: find.byType(Scrollable),
+    );
+    final next = find.text('Next');
+    await tester.scrollUntilVisible(
+      next.hitTestable(),
+      400,
+      scrollable: scrollable,
+    );
+    final position = tester.state<ScrollableState>(scrollable).position;
+    expect(position.pixels, greaterThan(0));
+    final gesture = await tester.startGesture(tester.getCenter(next));
+    await gesture.up();
+    await tester.pump(Duration.zero);
+
+    final displacedPages = <String>[];
+    void recordPageAtOffset() {
+      final comics = tester.widget<ComicGrid>(grid).comics;
+      if (comics.first.id.startsWith('search-transition-second-') &&
+          position.pixels > 1) {
+        final visibleTitles = find
+            .byWidgetPredicate(
+              (widget) =>
+                  widget is Text &&
+                  widget.data?.startsWith('Search transition second ') == true,
+            )
+            .hitTestable()
+            .evaluate()
+            .map((element) => (element.widget as Text).data)
+            .toList();
+        displacedPages.add(
+          'offset=${position.pixels.toStringAsFixed(1)}, '
+          'visible=$visibleTitles',
+        );
+      }
+    }
+
+    recordPageAtOffset();
+    for (var frame = 0; frame < 20 && position.pixels > 1; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      recordPageAtOffset();
+    }
+
+    expect(source.cursors, [null, 'search-next']);
+    expect(
+      displacedPages,
+      isEmpty,
+      reason:
+          'The complete search should keep its old page during the top scroll. '
+          'Observed: $displacedPages',
+    );
+    expect(position.pixels, closeTo(0, 1));
+  });
+
+  testWidgets('leaving a comic route cancels its pending page turn', (
+    tester,
+  ) async {
+    await StorageService.setString(
+      ComicLayoutNotifier.preferenceKey,
+      LayoutType.list.name,
+    );
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final source = _PaginatedSource(
+      List.generate(
+        48,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'route-first-$i',
+          title: 'Route first $i',
+          cover: 'route-first-cover-$i',
+        ),
+      ),
+      List.generate(
+        24,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'route-second-$i',
+          title: 'Route second $i',
+          cover: 'route-second-cover-$i',
+        ),
+      ),
+    )..secondPageGate = Completer<ComicResult>();
+    await pump(tester, const ComicScreen(), _Library(), source);
+
+    final grid = find.byType(ComicGrid);
+    final scrollable = find.descendant(
+      of: grid,
+      matching: find.byType(Scrollable),
+    );
+    final next = find.text('Next');
+    await tester.scrollUntilVisible(
+      next.hitTestable(),
+      400,
+      scrollable: scrollable,
+    );
+    await tester.tap(next);
+    await tester.pump();
+    expect(source.cursors, [null, 'second-page']);
+
+    final position = tester.state<ScrollableState>(scrollable).position;
+    position.jumpTo(0);
+    await tester.pump();
+    await waitForComicCardImage(tester, 'Route first 0');
+    expect(find.text('Route first 0').hitTestable(), findsOneWidget);
+    await tester.tap(find.text('Route first 0'));
+    await pumpFrames(tester);
+    expect(find.byType(ComicDetailScreen), findsOneWidget);
+
+    source.secondPageGate!.complete(ComicResult(source.secondPage));
+    await tester.pump();
+    await pumpFrames(tester, frames: 3);
+    expect(find.byType(ComicDetailScreen), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Back'));
+    await pumpFrames(tester);
+    expect(tester.widget<ComicGrid>(grid).comics.first.id, 'route-first-0');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('main navigation cancels a pending comic page turn', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final source = _PaginatedSource(
+      List.generate(
+        40,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'main-first-$i',
+          title: 'Main first $i',
+          cover: 'main-first-$i',
+        ),
+      ),
+      List.generate(
+        40,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'main-second-$i',
+          title: 'Main second $i',
+          cover: 'main-second-$i',
+        ),
+      ),
+    )..secondPageGate = Completer<ComicResult>();
+    await pump(
+      tester,
+      ProviderScope(
+        overrides: [
+          worksProvider.overrideWith((ref) => _IdleWorks(ref)),
+          downloadSummaryProvider.overrideWith(
+            (ref) => Stream.value(const DownloadTaskSummary.empty()),
+          ),
+          downloadTaskIdsProvider.overrideWith(
+            (ref) => Stream.value(<String>[]),
+          ),
+        ],
+        child: const MainScreen(),
+      ),
+      _Library(),
+      source,
+    );
+    final navigation = find.byType(NavigationBar);
+    Future<void> select(String label) async {
+      await tester.tap(
+        find.descendant(of: navigation, matching: find.text(label)),
+      );
+      await pumpFrames(tester, frames: 25);
+    }
+
+    await select('Comics');
+    final grid = find
+        .descendant(
+          of: find.byType(ComicScreen),
+          matching: find.byType(ComicGrid),
+        )
+        .first;
+    final scrollable = find.descendant(
+      of: grid,
+      matching: find.byType(Scrollable),
+    );
+    final next = find.descendant(of: grid, matching: find.text('Next'));
+    await tester.scrollUntilVisible(
+      next.hitTestable(),
+      400,
+      scrollable: scrollable,
+    );
+    await tester.tap(next);
+    await tester.pump();
+    expect(source.cursors, [null, 'second-page']);
+    final position = tester.state<ScrollableState>(scrollable).position;
+    final oldOffset = position.pixels;
+    await select('Audio');
+    await select('Comics');
+    source.secondPageGate!.complete(ComicResult(source.secondPage));
+    await pumpFrames(tester, frames: 25);
+    expect(tester.widget<ComicGrid>(grid).comics.first.id, 'main-first-0');
+    expect(position.pixels, closeTo(oldOffset, 1));
+    var bar = tester.widget<PaginationBar>(
+      find.descendant(of: grid, matching: find.byType(PaginationBar)),
+    );
+    expect(bar.currentPage, 1);
+    expect(bar.jumpMaxPage, 1);
+    expect(bar.isLoading, isFalse);
+    await tester.tap(next);
+    await pumpFrames(tester, frames: 25);
+    expect(tester.widget<ComicGrid>(grid).comics.first.id, 'main-second-0');
+    expect(source.cursors, [null, 'second-page']);
+    position.jumpTo(position.maxScrollExtent);
+    await pumpFrames(tester);
+    bar = tester.widget<PaginationBar>(
+      find.descendant(of: grid, matching: find.byType(PaginationBar)),
+    );
+    expect(bar.currentPage, 2);
+    expect(bar.jumpMaxPage, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('switching tabs cancels a pending comic page turn', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final source = _PaginatedSource(
+      List.generate(
+        48,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'tab-first-$i',
+          title: 'Tab first $i',
+          cover: 'tab-first-cover-$i',
+        ),
+      ),
+      List.generate(
+        24,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'tab-second-$i',
+          title: 'Tab second $i',
+          cover: 'tab-second-cover-$i',
+        ),
+      ),
+    )..secondPageGate = Completer<ComicResult>();
+    await pump(tester, const ComicScreen(), _Library(), source);
+
+    final grid = find.byType(ComicGrid).first;
+    final scrollable = find.descendant(
+      of: grid,
+      matching: find.byType(Scrollable),
+    );
+    final next = find.text('Next');
+    await tester.scrollUntilVisible(
+      next.hitTestable(),
+      400,
+      scrollable: scrollable,
+    );
+    await tester.tap(next);
+    await tester.pump();
+    expect(source.cursors, [null, 'second-page']);
+
+    final position = tester.state<ScrollableState>(scrollable).position;
+    final tabView = find.byType(TabBarView).first;
+    for (var index = 1; index <= 2; index++) {
+      await tester.drag(tabView, const Offset(-400, 0));
+      await pumpFrames(tester, frames: 25);
+      expect(
+        tester.widget<TabBar>(find.byType(TabBar)).controller?.index,
+        index,
+      );
+    }
+    for (var index = 1; index >= 0; index--) {
+      await tester.drag(tabView, const Offset(400, 0));
+      await pumpFrames(tester, frames: 25);
+      expect(
+        tester.widget<TabBar>(find.byType(TabBar)).controller?.index,
+        index,
+      );
+    }
+    source.secondPageGate!.complete(ComicResult(source.secondPage));
+    await tester.pump();
+    await pumpFrames(tester, frames: 3);
+
+    expect(tester.widget<ComicGrid>(grid).comics.first.id, 'tab-first-0');
+    position.jumpTo(position.maxScrollExtent);
+    await pumpFrames(tester, frames: 3);
+    expect(
+      tester
+          .widget<PaginationBar>(
+            find.descendant(of: grid, matching: find.byType(PaginationBar)),
+          )
+          .isLoading,
+      isFalse,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('dragging during page scroll cancels the page commit', (
+    tester,
+  ) async {
+    await StorageService.setString(
+      ComicLayoutNotifier.preferenceKey,
+      LayoutType.list.name,
+    );
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final source = _PaginatedSource(
+      List.generate(
+        48,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'drag-first-$i',
+          title: 'Drag first $i',
+          cover: 'drag-first-cover-$i',
+        ),
+      ),
+      List.generate(
+        24,
+        (i) => Comic(
+          source: 'fixture',
+          id: 'drag-second-$i',
+          title: 'Drag second $i',
+          cover: 'drag-second-cover-$i',
+        ),
+      ),
+    );
+    await pump(tester, const ComicScreen(), _Library(), source);
+
+    final grid = find.byType(ComicGrid);
+    final scrollable = find.descendant(
+      of: grid,
+      matching: find.byType(Scrollable),
+    );
+    final next = find.text('Next');
+    await tester.scrollUntilVisible(
+      next.hitTestable(),
+      400,
+      scrollable: scrollable,
+    );
+    final tapNext = await tester.startGesture(tester.getCenter(next));
+    await tapNext.up();
+    await tester.pump(Duration.zero);
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(source.cursors, [null, 'second-page']);
+
+    final drag = await tester.startGesture(tester.getCenter(scrollable));
+    await drag.moveBy(const Offset(0, 32));
+    await tester.pump(const Duration(milliseconds: 16));
+    await drag.up();
+    await pumpFrames(tester);
+
+    expect(tester.widget<ComicGrid>(grid).comics.first.id, 'drag-first-0');
+    final position = tester.state<ScrollableState>(scrollable).position;
+    expect(position.pixels, greaterThan(0));
+    await tester.scrollUntilVisible(
+      next.hitTestable(),
+      400,
+      scrollable: scrollable,
+    );
+    expect(find.byIcon(Icons.edit_location_alt), findsNothing);
+    expect(
+      tester.widget<PaginationBar>(find.byType(PaginationBar)).isLoading,
+      isFalse,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'ComicScreen keeps a remounted cached cover hidden until its image frame is ready',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      const cachedComic = Comic(
+        source: 'fixture',
+        id: 'cached-cover-book',
+        title: 'Cached cover book',
+        cover: 'cached-cover-image',
+      );
+      final source = _PaginatedSource(
+        [
+          cachedComic,
+          ...List.generate(
+            39,
+            (i) => Comic(
+              source: 'fixture',
+              id: 'cached-first-$i',
+              title: 'Cached first $i',
+              cover: 'cached-first-cover-$i',
+            ),
+          ),
+        ],
+        List.generate(
+          40,
+          (i) => Comic(
+            source: 'fixture',
+            id: 'cached-second-$i',
+            title: 'Cached second $i',
+            cover: 'cached-second-cover-$i',
+          ),
+        ),
+      );
+      final reload = Completer<Uint8List>();
+      var cachedCoverLoads = 0;
+      await pump(
+        tester,
+        const ComicScreen(),
+        _Library(),
+        source,
+        loadImage: (page) {
+          if (page.url == 'cached-cover-image') {
+            cachedCoverLoads++;
+            if (cachedCoverLoads > 1) return reload.future;
+          }
+          return Future.value(Uint8List.fromList(_widePng));
+        },
+      );
+      final title = find.text('Cached cover book');
+      Finder currentComicImage() {
+        final card = find
+            .ancestor(of: title, matching: find.byType(Card))
+            .first;
+        return find.descendant(of: card, matching: find.byType(ComicImage));
+      }
+
+      Finder currentRawImages() => find.descendant(
+        of: currentComicImage(),
+        matching: find.byType(RawImage),
+      );
+
+      Finder currentMemoryImage() => find.descendant(
+        of: currentComicImage(),
+        matching: find.byType(Image),
+      );
+
+      var memoryImage = currentMemoryImage();
+      for (
+        var frame = 0;
+        frame < 24 && memoryImage.evaluate().isEmpty;
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 16));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        memoryImage = currentMemoryImage();
+      }
+      expect(memoryImage, findsOneWidget);
+      await waitForDecodedImage(tester, memoryImage);
+      expect(
+        tester
+            .widgetList<RawImage>(currentRawImages())
+            .any((image) => image.image != null),
+        isTrue,
+      );
+
+      final grid = find.byType(ComicGrid);
+      final scrollable = find.descendant(
+        of: grid,
+        matching: find.byType(Scrollable),
+      );
+      final next = find.text('Next');
+      await tester.scrollUntilVisible(
+        next.hitTestable(),
+        400,
+        scrollable: scrollable,
+      );
+      await tester.tap(next);
+      final position = tester.state<ScrollableState>(scrollable).position;
+      for (var frame = 0; frame < 20 && position.pixels > 1; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.pump();
+      final previous = find.text('Previous');
+      await tester.scrollUntilVisible(
+        previous.hitTestable(),
+        400,
+        scrollable: scrollable,
+      );
+      await tester.tap(previous);
+      for (var frame = 0; frame < 20 && position.pixels > 1; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.pump();
+
+      expect(cachedCoverLoads, greaterThanOrEqualTo(2));
+      final prematureFrames = <String>[];
+      var sawNullRawImage = false;
+      void recordVisibleCoverState(String frame) {
+        if (title.hitTestable().evaluate().isEmpty) return;
+        final rawImage = currentRawImages();
+        final images = tester.widgetList<RawImage>(rawImage).toList();
+        if (images.isEmpty) {
+          prematureFrames.add('$frame: title visible before RawImage exists');
+          return;
+        }
+        final decoded = images.any((image) => image.image != null);
+        if (!decoded) {
+          sawNullRawImage = true;
+          prematureFrames.add(
+            '$frame: title visible with RawImage.image == null',
+          );
+        }
+      }
+
+      recordVisibleCoverState('revisit pending');
+      reload.complete(Uint8List.fromList(_widePng));
+      var reloadedDecoded = false;
+      for (var frame = 0; frame < 24; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        recordVisibleCoverState('frame $frame');
+        final memoryImage = currentMemoryImage();
+        if (memoryImage.evaluate().isNotEmpty) {
+          await waitForDecodedImage(tester, memoryImage.first);
+          for (
+            var revealFrame = 0;
+            revealFrame < 5 && title.hitTestable().evaluate().isEmpty;
+            revealFrame++
+          ) {
+            await tester.pump(const Duration(milliseconds: 16));
+            recordVisibleCoverState('reveal frame $revealFrame');
+          }
+          reloadedDecoded = tester
+              .widgetList<RawImage>(currentRawImages())
+              .any((image) => image.image != null);
+          break;
+        }
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+      }
+
+      expect(reloadedDecoded, isTrue);
+      expect(title.hitTestable(), findsOneWidget);
+      expect(
+        prematureFrames,
+        isEmpty,
+        reason:
+            'A remounted comic title became visible before its decoded cover '
+            'frame. Saw null RawImage: $sawNullRawImage; states: '
+            '$prematureFrames',
+      );
+    },
+  );
+
+  for (final layout in [
+    LayoutType.list,
+    LayoutType.smallGrid,
+    LayoutType.bigGrid,
+  ]) {
+    testWidgets(
+      '$layout keeps comic card space while cover frames resolve in reverse order',
+      (tester) async {
+        await StorageService.setString('comic_layout_type', layout.name);
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final stablePng = Uint8List.fromList(
+          img.encodePng(img.Image(width: 100, height: 150)),
+        );
+        final imageBytes = List.generate(
+          12,
+          (_) => Uint8List.fromList(stablePng),
+        );
+        final gates = {
+          for (var i = 0; i < 12; i++)
+            'reverse-cover-$i': Completer<Uint8List>(),
+        };
+        final comics = List.generate(
+          12,
+          (i) => Comic(
+            source: 'fixture',
+            id: 'reverse-$i',
+            title: 'Reverse $i',
+            cover: 'reverse-cover-$i',
+          ),
+        );
+        await pump(
+          tester,
+          Scaffold(body: ComicGrid(comics: comics)),
+          _Library(),
+          _Source(),
+          loadImage: (page) => gates[page.url]!.future,
+          settle: false,
+        );
+
+        final grid = find.byType(ComicGrid);
+        final scrollable = find.descendant(
+          of: grid,
+          matching: find.byType(Scrollable),
+        );
+        final position = tester.state<ScrollableState>(scrollable).position;
+        final anchor = comicCardForTitle('Reverse 3');
+        expect(anchor, findsOneWidget);
+        final anchorContentTop = tester.getRect(anchor).top + position.pixels;
+        for (var i = 0; i < 3; i++) {
+          expectComicTitleHidden(tester, 'Reverse $i');
+        }
+
+        for (final i in [2, 1, 0]) {
+          gates['reverse-cover-$i']!.complete(imageBytes[i]);
+          await tester.pump();
+          await waitForCoverBytes(tester, imageBytes[i]);
+          expectComicCardReady(tester, 'Reverse $i');
+          expect(
+            tester.getRect(anchor).top + position.pixels,
+            closeTo(anchorContentTop, 1),
+          );
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets(
     'comic grid cards hug covers and grow with existing title content',
@@ -2023,8 +3051,9 @@ void main() {
         },
         settle: false,
       );
-      expect(find.byType(Card), findsNothing);
-      expect(find.text('Fixture book'), findsNothing);
+      expect(find.byType(Card), findsOneWidget);
+      expectComicCardHidden(tester);
+      expect(find.text('Fixture book'), findsOneWidget);
       expect(loads, 1);
       image.complete(_widePng);
       await tester.pumpAndSettle();
@@ -2178,7 +3207,8 @@ void main() {
       loadImage: (_) => ++loads == 1 ? pending.future : Future.value(_widePng),
       settle: false,
     );
-    expect(find.byType(Card), findsNothing);
+    expect(find.byType(Card), findsOneWidget);
+    expectComicCardHidden(tester);
     pending.completeError(StateError('cover failed'));
     await tester.pumpAndSettle();
     expect(find.byType(Card), findsOneWidget);

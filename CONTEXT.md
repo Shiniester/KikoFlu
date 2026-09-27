@@ -149,6 +149,11 @@ _Avoid_: Comic Reading Mode
   reader page turns and the masonry card layout.
 _Avoid_: comic reader page, masonry layout
 
+**Visited Comic Collection Page (已访问漫画集合页)**:
+  A numbered group already displayed in the current collection or search
+  results. Page-number jumps can target only these groups.
+_Avoid_: comic reader page, fetched page
+
 **Comic Source (漫画源)**:
 One built-in provider of comic metadata, chapter images and optional account
 features. Comic identity is sourceKey + comicId; chapter identity adds chapterId.

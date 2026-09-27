@@ -67,24 +67,54 @@ final _comicImageBytesProvider = FutureProvider.autoDispose
     });
 
 class ComicImage extends StatelessWidget {
-  const ComicImage._(this.page, this._picture, this.failed, {this.onRetry});
+  const ComicImage._(
+    this.page,
+    this._picture,
+    this.failed, {
+    this.onRetry,
+    this.onFirstFrameReady,
+  });
 
   final ComicPage page;
   final _ComicCoverPicture? _picture;
   final bool failed;
   final VoidCallback? onRetry;
+  final VoidCallback? onFirstFrameReady;
   BoxFit get fit => BoxFit.contain;
 
   @override
   Widget build(BuildContext context) {
     final currentPicture = _picture;
     if (currentPicture != null) {
+      var notified = false;
+      void notifyReady() {
+        if (notified || onFirstFrameReady == null) return;
+        notified = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          onFirstFrameReady!();
+        });
+      }
+
       return Image.memory(
         currentPicture.bytes,
         fit: fit,
         gaplessPlayback: true,
-        errorBuilder: (_, __, ___) =>
-            const Center(child: Icon(Icons.broken_image_outlined)),
+        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+          if (frame == 0) notifyReady();
+          return child;
+        },
+        errorBuilder: (context, error, stackTrace) {
+          notifyReady();
+          return Center(
+            child: onRetry == null
+                ? const Icon(Icons.broken_image_outlined)
+                : IconButton(
+                    tooltip: S.of(context).retry,
+                    icon: const Icon(Icons.broken_image_outlined),
+                    onPressed: onRetry,
+                  ),
+          );
+        },
       );
     }
     if (failed) {
@@ -116,6 +146,7 @@ class ComicCover extends ConsumerStatefulWidget {
     this.maxHeight,
     this.placeholderAspectRatio,
     this.cornerRadius = workCoverCompactRadius,
+    this.onFirstFrameReady,
   });
 
   final String source;
@@ -125,6 +156,7 @@ class ComicCover extends ConsumerStatefulWidget {
   final double? maxHeight;
   final double? placeholderAspectRatio;
   final double cornerRadius;
+  final VoidCallback? onFirstFrameReady;
 
   @override
   ConsumerState<ComicCover> createState() => _ComicCoverState();
@@ -215,6 +247,7 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
       final oldRatio =
           _layoutPicture?.aspectRatio ?? widget.placeholderAspectRatio ?? 2 / 3;
       final revealAfterResize =
+          widget.onFirstFrameReady == null &&
           _hasVisibleState &&
           _visiblePicture == null &&
           nextPicture != null &&
@@ -248,6 +281,7 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
       picture,
       failed,
       onRetry: () => ref.invalidate(_comicImageBytesProvider(request)),
+      onFirstFrameReady: widget.onFirstFrameReady,
     );
     final flightContent = ComicImage._(widget.page, picture, failed);
     return LayoutBuilder(
@@ -337,14 +371,14 @@ class _ComicCardWhenReady extends ConsumerStatefulWidget {
   const _ComicCardWhenReady({
     required this.source,
     required this.page,
-    required this.child,
+    required this.buildChild,
     this.placeholderAspectRatio,
     this.onAspectRatio,
   });
 
   final String source;
   final ComicPage page;
-  final Widget child;
+  final Widget Function(VoidCallback onFirstFrameReady) buildChild;
   final double? placeholderAspectRatio;
   final ValueChanged<double>? onAspectRatio;
 
@@ -355,6 +389,7 @@ class _ComicCardWhenReady extends ConsumerStatefulWidget {
 
 class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady> {
   bool _shown = false;
+  int _generation = 0;
 
   @override
   void didUpdateWidget(_ComicCardWhenReady oldWidget) {
@@ -362,7 +397,13 @@ class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady> {
     if (oldWidget.source != widget.source ||
         oldWidget.page.url != widget.page.url) {
       _shown = false;
+      _generation++;
     }
+  }
+
+  void _showWhenReady(int generation) {
+    if (!mounted || generation != _generation || _shown) return;
+    setState(() => _shown = true);
   }
 
   @override
@@ -374,11 +415,16 @@ class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady> {
     if (picture != null) widget.onAspectRatio?.call(picture.aspectRatio);
     if (image.hasError) {
       widget.onAspectRatio?.call(widget.placeholderAspectRatio ?? 2 / 3);
+      _shown = true;
     }
-    _shown |= image.valueOrNull != null || image.hasError;
-    return _shown || widget.placeholderAspectRatio != null
-        ? widget.child
-        : const SizedBox.shrink();
+    final generation = _generation;
+    return Visibility(
+      visible: _shown,
+      maintainSize: true,
+      maintainAnimation: true,
+      maintainState: true,
+      child: widget.buildChild(() => _showWhenReady(generation)),
+    );
   }
 }
 
@@ -406,7 +452,10 @@ class ComicGrid extends ConsumerStatefulWidget {
 class _ComicGridState extends ConsumerState<ComicGrid> {
   final _coverAspectRatios = <String, double>{};
 
-  Widget _readyCard(Comic comic, Widget Function(double?) buildCard) {
+  Widget _readyCard(
+    Comic comic,
+    Widget Function(double?, VoidCallback) buildCard,
+  ) {
     final page = comic.coverPage;
     final request = _ComicImageRequest(comic.source, page);
     final placeholderAspectRatio = _coverAspectRatios[request.key];
@@ -415,7 +464,8 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
       page: page,
       placeholderAspectRatio: placeholderAspectRatio,
       onAspectRatio: (ratio) => _coverAspectRatios[request.key] = ratio,
-      child: buildCard(placeholderAspectRatio),
+      buildChild: (onFirstFrameReady) =>
+          buildCard(placeholderAspectRatio, onFirstFrameReady),
     );
   }
 
@@ -494,7 +544,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                   delegate: SliverChildBuilderDelegate(
                     (context, i) => _readyCard(
                       comics[i],
-                      (placeholderAspectRatio) => Card(
+                      (placeholderAspectRatio, onFirstFrameReady) => Card(
                         margin: const EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: 8,
@@ -530,6 +580,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                                     maxWidth: 80,
                                     placeholderAspectRatio:
                                         placeholderAspectRatio,
+                                    onFirstFrameReady: onFirstFrameReady,
                                   ),
                                 ),
                                 const SizedBox(width: 12),
@@ -615,7 +666,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                 mainAxisSpacing: metrics.spacing,
                 itemBuilder: (context, i) => _readyCard(
                   comics[i],
-                  (placeholderAspectRatio) => Card(
+                  (placeholderAspectRatio, onFirstFrameReady) => Card(
                     clipBehavior: Clip.antiAlias,
                     margin: EdgeInsets.zero,
                     shape: RoundedRectangleBorder(
@@ -648,6 +699,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                                   heroTag: comicCoverHeroTag(comics[i]),
                                   placeholderAspectRatio:
                                       placeholderAspectRatio,
+                                  onFirstFrameReady: onFirstFrameReady,
                                 ),
                               ),
                               if (comics[i].coverDate case final date?)

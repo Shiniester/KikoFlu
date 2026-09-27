@@ -16,7 +16,8 @@ import 'comic_download_screen.dart';
 import 'comic_settings_screen.dart';
 
 class ComicScreen extends ConsumerStatefulWidget {
-  const ComicScreen({super.key});
+  const ComicScreen({super.key, this.active = true});
+  final bool active;
   @override
   ConsumerState<ComicScreen> createState() => _ComicScreenState();
 }
@@ -69,13 +70,15 @@ class _ComicScreenState extends ConsumerState<ComicScreen>
                       key: ValueKey('comic-tab-$i'),
                       child: AnimatedBuilder(
                         animation: _tabs,
-                        builder: (context, child) =>
-                            HeroMode(enabled: _tabs.index == i, child: child!),
-                        child: _ComicCollection(
-                          tab: i,
-                          toolbarTop: top + kTextTabBarHeight + 8,
-                          collapsedTop: top,
-                          visible: _visible,
+                        builder: (context, child) => HeroMode(
+                          enabled: _tabs.index == i,
+                          child: _ComicCollection(
+                            active: widget.active && _tabs.index == i,
+                            tab: i,
+                            toolbarTop: top + kTextTabBarHeight + 8,
+                            collapsedTop: top,
+                            visible: _visible,
+                          ),
                         ),
                       ),
                     ),
@@ -119,11 +122,13 @@ class _ComicScreenState extends ConsumerState<ComicScreen>
 
 class _ComicCollection extends ConsumerStatefulWidget {
   const _ComicCollection({
+    required this.active,
     required this.tab,
     required this.toolbarTop,
     required this.collapsedTop,
     required this.visible,
   });
+  final bool active;
   final int tab;
   final double toolbarTop, collapsedTop;
   final ValueNotifier<bool> visible;
@@ -141,8 +146,52 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
   bool _hasMore = false;
   int _page = 1;
   int _pendingPage = 1;
+  final _visitedPages = ComicVisitedPages();
   String? _source;
   int _generation = 0;
+  int? _pageTurnRequest;
+  int? _cancelledPageTurnRequest;
+  int? _scrollingRequest;
+  int? _interruptedScrollRequest;
+  ModalRoute<dynamic>? _route;
+
+  void _routeStatusChanged(AnimationStatus _) {
+    final request = _pageTurnRequest;
+    if (_route?.isCurrent == false && request != null) {
+      _cancelledPageTurnRequest = request;
+    }
+  }
+
+  void _listenToRoute(ModalRoute<dynamic>? route, {required bool add}) {
+    final change = add
+        ? (Animation<double>? animation) =>
+              animation?.addStatusListener(_routeStatusChanged)
+        : (Animation<double>? animation) =>
+              animation?.removeStatusListener(_routeStatusChanged);
+    change(route?.animation);
+    change(route?.secondaryAnimation);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != _route) {
+      _listenToRoute(_route, add: false);
+      _route = route;
+      _listenToRoute(route, add: true);
+    }
+  }
+
+  @override
+  void didUpdateWidget(_ComicCollection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.active && !widget.active && _pageTurnRequest != null) {
+      _cancelledPageTurnRequest = _pageTurnRequest;
+      _interruptedScrollRequest = _scrollingRequest;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -152,6 +201,7 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
   @override
   void dispose() {
     _generation++;
+    _listenToRoute(_route, add: false);
     _scroll.dispose();
     super.dispose();
   }
@@ -240,6 +290,14 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
     if (!mounted || (_loading && !reset)) return;
     final request = ++_generation;
     final previousPage = _page;
+    final pageTurnRequest = !reset && page != previousPage;
+    if (reset) {
+      _pageTurnRequest = null;
+      _cancelledPageTurnRequest = null;
+    } else if (pageTurnRequest) {
+      _pageTurnRequest = request;
+      _cancelledPageTurnRequest = null;
+    }
     final sources = ref.read(enabledComicSourcesProvider);
     final selected = ref.read(comicSelectedSourceProvider);
     _source = sources.any((s) => s.key == selected)
@@ -254,7 +312,14 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
         _page = page;
         _hasMore = false;
       }
-      if (reset) _buffer = null;
+      if (reset) {
+        _buffer = null;
+        _visitedPages.reset(
+          maximum: clearItems || page < _visitedPages.maximum
+              ? page
+              : _visitedPages.maximum,
+        );
+      }
     });
     try {
       var buffer = _buffer;
@@ -273,6 +338,33 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
         );
       }
       if (!mounted || request != _generation) return;
+      if (pageTurnRequest && _isPageTurnCancelled(request)) {
+        setState(() => _pendingPage = previousPage);
+        return;
+      }
+      if (result.errors.isEmpty && (reset || displayPage != previousPage)) {
+        final pageTurn = pageTurnRequest && displayPage != previousPage;
+        if (pageTurn &&
+            (!widget.active || ModalRoute.of(context)?.isCurrent == false)) {
+          setState(() => _pendingPage = previousPage);
+          return;
+        }
+        final reachedTop = await _scrollBeforePageCommit(
+          request,
+          requireCurrentPage: pageTurn,
+        );
+        if (!mounted || request != _generation) return;
+        if (!reachedTop) {
+          setState(() => _pendingPage = previousPage);
+          return;
+        }
+        if (pageTurn &&
+            (!widget.active || ModalRoute.of(context)?.isCurrent == false)) {
+          setState(() => _pendingPage = previousPage);
+          return;
+        }
+      }
+      if (!mounted || request != _generation) return;
       setState(() {
         _buffer = buffer;
         _errors = result.errors;
@@ -280,6 +372,11 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
           _items = result.items;
           _page = displayPage;
           _pendingPage = displayPage;
+          if (reset) {
+            _visitedPages.reset(maximum: displayPage);
+          } else {
+            _visitedPages.markDisplayed(displayPage);
+          }
           _hasMore = result.hasMore;
         } else if (_items.isEmpty && result.items.isNotEmpty) {
           _items = result.items;
@@ -287,31 +384,53 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
           _hasMore = false;
         }
       });
-      if (result.errors.isEmpty && (reset || displayPage != previousPage)) {
-        _scrollToTop();
-      }
     } catch (e) {
       if (mounted && request == _generation) {
         setState(() => _errors = {_source ?? 'comic': e});
       }
     } finally {
+      if (_pageTurnRequest == request) _pageTurnRequest = null;
       if (mounted && request == _generation) setState(() => _loading = false);
     }
   }
 
-  void _scrollToTop() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scroll.hasClients) return;
-      if (MediaQuery.disableAnimationsOf(context)) {
-        _scroll.jumpTo(0);
-      } else {
-        _scroll.animateTo(
-          0,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
-        );
-      }
-    });
+  bool _isPageTurnCancelled(int request) =>
+      _cancelledPageTurnRequest == request ||
+      !widget.active ||
+      ModalRoute.of(context)?.isCurrent == false;
+
+  Future<bool> _scrollBeforePageCommit(
+    int request, {
+    required bool requireCurrentPage,
+  }) async {
+    bool isCurrentPage() =>
+        !requireCurrentPage ||
+        (widget.active && ModalRoute.of(context)?.isCurrent != false);
+    if (!isCurrentPage()) return false;
+    if (!_scroll.hasClients || _scroll.position.pixels <= 0) {
+      return isCurrentPage();
+    }
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _scroll.jumpTo(0);
+      return isCurrentPage();
+    }
+    _scrollingRequest = request;
+    try {
+      await _scroll.animateTo(
+        0,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+      );
+      return mounted &&
+          request == _generation &&
+          _cancelledPageTurnRequest != request &&
+          _interruptedScrollRequest != request &&
+          (!requireCurrentPage || isCurrentPage()) &&
+          _scroll.hasClients &&
+          _scroll.position.pixels <= 1;
+    } finally {
+      if (_scrollingRequest == request) _scrollingRequest = null;
+    }
   }
 
   Future<void> _select(String key) async {
@@ -445,11 +564,15 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
             currentPage: _page,
             pageSize: pageSize,
             totalCount: null,
+            jumpMaxPage: _visitedPages.maximum,
             hasMore: _hasMore && _errors.isEmpty,
             isLoading: _loading,
             onPreviousPage: _page > 1 ? () => _loadPage(_page - 1) : null,
             onNextPage: _hasMore && _errors.isEmpty
                 ? () => _loadPage(_page + 1)
+                : null,
+            onGoToPage: _visitedPages.maximum > 1
+                ? (page) => _loadPage(page)
                 : null,
           ),
         ],
@@ -458,21 +581,30 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
     return Stack(
       children: [
         Positioned.fill(
-          child: RefreshIndicator(
-            onRefresh: () => _loadPage(1, reset: true, clearItems: true),
-            child: ComicGrid(
-              comics: _items,
-              controller: _scroll,
-              padding: EdgeInsets.fromLTRB(
-                FloatingToolbarLayout.horizontalPadding(context),
-                top,
-                FloatingToolbarLayout.horizontalPadding(context),
-                16,
+          child: NotificationListener<ScrollStartNotification>(
+            onNotification: (notification) {
+              final request = _scrollingRequest;
+              if (notification.dragDetails != null && request != null) {
+                _interruptedScrollRequest = request;
+              }
+              return false;
+            },
+            child: RefreshIndicator(
+              onRefresh: () => _loadPage(1, reset: true, clearItems: true),
+              child: ComicGrid(
+                comics: _items,
+                controller: _scroll,
+                padding: EdgeInsets.fromLTRB(
+                  FloatingToolbarLayout.horizontalPadding(context),
+                  top,
+                  FloatingToolbarLayout.horizontalPadding(context),
+                  16,
+                ),
+                onLongPress: widget.tab == 1 || widget.tab == 2
+                    ? _removeFromLibrary
+                    : null,
+                footer: footer,
               ),
-              onLongPress: widget.tab == 1 || widget.tab == 2
-                  ? _removeFromLibrary
-                  : null,
-              footer: footer,
             ),
           ),
         ),

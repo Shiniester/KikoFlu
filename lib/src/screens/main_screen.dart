@@ -35,10 +35,16 @@ class _MainScreenState extends ConsumerState<MainScreen>
   @override
   void initState() {
     super.initState();
-    _screens = const [
-      AudioScreen(key: PageStorageKey('audio_screen')),
-      ComicScreen(key: PageStorageKey('comic_screen')),
-      SettingsScreen(key: PageStorageKey('settings_screen')),
+    _screens = [
+      const AudioScreen(key: PageStorageKey('audio_screen')),
+      ValueListenableBuilder<int>(
+        valueListenable: _selection,
+        builder: (context, index, child) => ComicScreen(
+          key: const PageStorageKey('comic_screen'),
+          active: index == 1,
+        ),
+      ),
+      const SettingsScreen(key: PageStorageKey('settings_screen')),
     ];
   }
 
