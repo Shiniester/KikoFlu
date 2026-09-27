@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../models/history_record.dart';
 import '../models/download_task.dart';
 import '../providers/auth_provider.dart';
@@ -13,7 +12,6 @@ import '../services/log_service.dart';
 import '../services/audio_file_url_resolver.dart';
 import '../services/audio_track_queue_builder.dart';
 import '../screens/work_detail_screen.dart';
-import '../services/storage_service.dart';
 import '../utils/string_utils.dart';
 import '../utils/work_cover_prefetch.dart';
 import '../utils/snackbar_util.dart';
@@ -26,6 +24,7 @@ import '../../l10n/app_localizations.dart';
 import 'privacy_blur_cover.dart';
 import 'work_detail/work_cover_frame.dart';
 import 'app_bottom_dock_transition.dart';
+import 'work_cover_image.dart';
 import 'age_rating_chip.dart';
 
 final _log = LogService.instance;
@@ -50,7 +49,6 @@ class HistoryWorkCard extends ConsumerWidget {
     final work = record.work;
     final showAgeRating = ref.watch(workCardDisplayProvider).showAgeRating;
 
-    final httpHeaders = StorageService.serverCookieHeaders;
     final initialCoverImageProvider = host.isEmpty
         ? null
         : createWorkCoverImageProvider(work: work, host: host, token: token);
@@ -73,19 +71,20 @@ class HistoryWorkCard extends ConsumerWidget {
                 child: Material(
                   color: Colors.transparent,
                   child: PrivacyBlurCover(
-                    child: CachedNetworkImage(
-                      imageUrl: work.getCoverImageUrl(host, token: token),
-                      httpHeaders: httpHeaders,
-                      cacheKey: 'work_cover_${work.id}',
-                      useOldImageOnUrlChange: true,
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => Container(
+                    child: WorkCoverImage(
+                      image: createWorkCoverImageProvider(
+                        work: work,
+                        host: host,
+                        token: token,
+                      ),
+                      fadeInDuration: const Duration(milliseconds: 500),
+                      placeholder: (context) => Container(
                         color: Colors.grey[200],
                         child: const Center(
                           child: Icon(Icons.image, color: Colors.grey),
                         ),
                       ),
-                      errorWidget: (context, url, error) => Container(
+                      errorBuilder: (context, error, stack) => Container(
                         color: Colors.grey[200],
                         child: const Center(
                           child: Icon(Icons.broken_image, color: Colors.grey),

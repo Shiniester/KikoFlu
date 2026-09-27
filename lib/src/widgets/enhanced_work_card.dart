@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../models/work.dart';
 import '../providers/auth_provider.dart';
 import '../providers/work_card_display_provider.dart';
@@ -22,6 +21,7 @@ import 'work_bookmark_manager.dart';
 import 'privacy_blur_cover.dart';
 import 'work_detail/work_cover_frame.dart';
 import 'app_bottom_dock_transition.dart';
+import 'work_cover_image.dart';
 
 class EnhancedWorkCard extends ConsumerStatefulWidget {
   final Work work;
@@ -729,6 +729,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
           child: RepaintBoundary(
             child: Image.file(
               File(localCoverPath),
+              gaplessPlayback: true,
               width: double.infinity,
               height: double.infinity,
               fit: BoxFit.cover,
@@ -746,7 +747,6 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
       return _buildPlaceholder(context);
     }
 
-    final url = widget.work.getCoverImageUrl(host, token: token);
     final targetWidth = resolveWorkCoverCacheWidth(
       context,
       crossAxisCount: widget.crossAxisCount,
@@ -760,21 +760,18 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
       cornerRadius: cornerRadius,
       child: PrivacyBlurCover(
         child: RepaintBoundary(
-          child: CachedNetworkImage(
-            imageUrl: url,
-            httpHeaders: httpHeaders,
-            cacheKey: 'work_cover_${widget.work.id}',
-            useOldImageOnUrlChange: true,
-            memCacheWidth: targetWidth, // 降低解码分辨率，减少 GPU / CPU 压力
+          child: WorkCoverImage(
+            image: createWorkCoverImageProvider(
+              work: widget.work,
+              host: host,
+              token: token,
+              headers: httpHeaders,
+              cacheWidth: targetWidth,
+            ),
             width: double.infinity,
             height: double.infinity,
-            fit: BoxFit.cover,
-            filterQuality: FilterQuality.low,
-            fadeInDuration: const Duration(milliseconds: 120),
-            fadeOutDuration: const Duration(milliseconds: 90),
-            placeholderFadeInDuration: const Duration(milliseconds: 80),
-            placeholder: (context, _) => _buildPlaceholder(context),
-            errorWidget: (context, _, __) => _buildPlaceholder(context),
+            placeholder: _buildPlaceholder,
+            errorBuilder: (context, _, __) => _buildPlaceholder(context),
           ),
         ),
       ),

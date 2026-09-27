@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../providers/playlist_detail_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/playlist_display_provider.dart';
@@ -19,6 +18,7 @@ import '../widgets/enhanced_work_card.dart';
 import '../widgets/work_detail/work_cover_frame.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 import '../widgets/app_bottom_dock_transition.dart';
+import '../widgets/work_cover_image.dart';
 import '../utils/work_cover_prefetch.dart';
 import '../utils/scroll_optimization.dart';
 import '../utils/collection_grid_layout.dart';
@@ -631,15 +631,17 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
               heroTag: 'work_cover_${work.id}',
               cornerRadius: workCoverCompactRadius,
               child: PrivacyBlurCover(
-                child: CachedNetworkImage(
-                  imageUrl: work.getCoverImageUrl(host, token: token),
-                  httpHeaders: httpHeaders,
-                  cacheKey: 'work_cover_${work.id}',
-                  useOldImageOnUrlChange: true,
+                child: WorkCoverImage(
+                  image: createWorkCoverImageProvider(
+                    work: work,
+                    host: host,
+                    token: token,
+                    headers: httpHeaders,
+                  ),
                   width: 56,
                   height: 56,
-                  fit: BoxFit.cover,
-                  placeholder: (context, url) => Container(
+                  fadeInDuration: const Duration(milliseconds: 500),
+                  placeholder: (context) => Container(
                     color: colorScheme.surfaceContainerHighest,
                     child: Center(
                       child: Icon(
@@ -649,7 +651,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                       ),
                     ),
                   ),
-                  errorWidget: (context, url, error) => Container(
+                  errorBuilder: (context, error, stack) => Container(
                     color: colorScheme.surfaceContainerHighest,
                     child: Center(
                       child: Icon(

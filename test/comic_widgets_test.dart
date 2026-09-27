@@ -3199,6 +3199,69 @@ void main() {
     });
   }
 
+  for (final layout in LayoutType.values) {
+    testWidgets(
+      'unselected comic cover remains visible on detail return ($layout)',
+      (tester) async {
+        await StorageService.setString('comic_layout_type', layout.name);
+        const other = Comic(
+          source: 'fixture',
+          id: 'other',
+          title: 'Other comic',
+          cover: 'other-cover',
+        );
+        var loads = 0;
+        await pump(
+          tester,
+          const Scaffold(body: ComicGrid(comics: [_comic, other])),
+          _Library(),
+          _Source(),
+          loadImage: (_) {
+            loads++;
+            return Future.value(Uint8List.fromList(_widePng));
+          },
+        );
+        await waitForComicCardImage(tester, 'Fixture book');
+        await waitForComicCardImage(tester, 'Other comic');
+        final cover = find.byWidgetPredicate(
+          (widget) =>
+              widget is ComicCover &&
+              widget.heroTag == comicCoverHeroTag(other),
+        );
+        final raw = find.descendant(of: cover, matching: find.byType(RawImage));
+        expect(tester.widget<RawImage>(raw).image, isNotNull);
+        final image = tester.widget<Image>(
+          find.descendant(of: cover, matching: find.byType(Image)),
+        );
+        final cacheKey = await image.image.obtainKey(ImageConfiguration.empty);
+        final originalState = tester.state(cover);
+        await tester.tap(find.text('Fixture book'));
+        await tester.pumpAndSettle();
+        PaintingBinding.instance.imageCache.clear();
+        final cacheStatus = PaintingBinding.instance.imageCache.statusForKey(
+          cacheKey,
+        );
+        expect(cacheStatus.live, isFalse);
+        expect(cacheStatus.keepAlive, isFalse);
+        expect(cacheStatus.pending, isFalse);
+        await tester.tap(find.byTooltip('Back'));
+        await tester.pump();
+        for (var frame = 0; frame < 30; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          expect(tester.state(cover), same(originalState));
+          expect(raw, findsOneWidget, reason: 'frame=$frame');
+          expect(
+            tester.widget<RawImage>(raw).image,
+            isNotNull,
+            reason: 'frame=$frame',
+          );
+        }
+        expect(loads, 2);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('loaded comic cover stays visible throughout Hero push and pop', (
     tester,
   ) async {

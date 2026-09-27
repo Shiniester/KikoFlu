@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../models/work.dart';
 import '../../providers/auth_provider.dart';
@@ -10,6 +9,7 @@ import '../../screens/work_detail_screen.dart';
 import '../../utils/work_cover_prefetch.dart';
 import '../../widgets/privacy_blur_cover.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
+import '../work_cover_image.dart';
 import 'work_cover_frame.dart';
 import '../../../l10n/app_localizations.dart';
 
@@ -249,22 +249,20 @@ class _RecommendationCard extends ConsumerWidget {
       return _buildPlaceholder(context);
     }
 
-    final url = work.getCoverImageUrl(host, token: token);
-
     return WorkCoverHeroFrame(
       heroTag: 'rec_work_cover_${work.id}',
       cornerRadius: workCoverCompactRadius,
       child: PrivacyBlurCover(
-        child: CachedNetworkImage(
-          imageUrl: url,
-          cacheKey: 'work_cover_${work.id}',
-          useOldImageOnUrlChange: true,
-          memCacheWidth: (120 * MediaQuery.of(context).devicePixelRatio)
-              .round(),
-          fadeInDuration: const Duration(milliseconds: 120),
-          fit: BoxFit.cover,
-          placeholder: (context, _) => _buildPlaceholder(context),
-          errorWidget: (context, _, __) => _buildPlaceholder(context),
+        child: WorkCoverImage(
+          image: createWorkCoverImageProvider(
+            work: work,
+            host: host,
+            token: token,
+            headers: const {},
+            cacheWidth: (120 * MediaQuery.of(context).devicePixelRatio).round(),
+          ),
+          placeholder: _buildPlaceholder,
+          errorBuilder: (context, _, __) => _buildPlaceholder(context),
         ),
       ),
     );
