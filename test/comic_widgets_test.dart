@@ -463,167 +463,203 @@ void main() {
     );
   });
 
-  for (final reduceMotion in [false, true]) {
-    for (final withAudio in [false, true]) {
-      testWidgets(
-        'reader keeps detail stable across system bars (reduced: $reduceMotion, audio: $withAudio)',
-        (tester) async {
-          tester.view.physicalSize = const Size(390, 796);
-          tester.view.devicePixelRatio = 1;
-          tester.view.padding = const FakeViewPadding(top: 24, bottom: 24);
-          tester.view.viewPadding = const FakeViewPadding(top: 24, bottom: 24);
-          addTearDown(tester.view.reset);
-          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-            SystemChannels.platform,
-            (call) async {
-              if (call.method == 'SystemChrome.setEnabledSystemUIMode') {
-                final immersive =
-                    call.arguments == 'SystemUiMode.immersiveSticky';
-                void deliverInsets(int remainingFrames) {
-                  tester.binding.addPostFrameCallback((_) {
-                    if (remainingFrames > 0) {
-                      deliverInsets(remainingFrames - 1);
-                      tester.binding.scheduleFrame();
-                      return;
-                    }
-                    final insets = immersive
-                        ? const FakeViewPadding()
-                        : const FakeViewPadding(top: 24, bottom: 24);
-                    tester.view.padding = insets;
-                    tester.view.viewPadding = insets;
-                  });
+  for (final resizeWindow in [false, true]) {
+    for (final reduceMotion in [false, true]) {
+      for (final withAudio in [false, true]) {
+        testWidgets(
+          'reader keeps detail stable across system bars (resize: $resizeWindow, reduced: $reduceMotion, audio: $withAudio)',
+          (tester) async {
+            tester.view.physicalSize = const Size(390, 796);
+            tester.view.devicePixelRatio = 1;
+            tester.view.padding = const FakeViewPadding(top: 24, bottom: 24);
+            tester.view.viewPadding = const FakeViewPadding(
+              top: 24,
+              bottom: 24,
+            );
+            addTearDown(tester.view.reset);
+            tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+              SystemChannels.platform,
+              (call) async {
+                if (call.method == 'SystemChrome.setEnabledSystemUIMode') {
+                  final immersive =
+                      call.arguments == 'SystemUiMode.immersiveSticky';
+                  void deliverInsets(int remainingFrames) {
+                    tester.binding.addPostFrameCallback((_) {
+                      if (remainingFrames > 0) {
+                        deliverInsets(remainingFrames - 1);
+                        tester.binding.scheduleFrame();
+                        return;
+                      }
+                      final insets = immersive
+                          ? const FakeViewPadding()
+                          : const FakeViewPadding(top: 24, bottom: 24);
+                      tester.view.padding = insets;
+                      tester.view.viewPadding = insets;
+                      if (resizeWindow) {
+                        tester.view.physicalSize = immersive
+                            ? const Size(390, 844)
+                            : const Size(390, 796);
+                      }
+                    });
+                  }
+
+                  deliverInsets(immersive ? 0 : 3);
                 }
-
-                deliverInsets(immersive ? 0 : 3);
-              }
-              return null;
-            },
-          );
-          addTearDown(
-            () => tester.binding.defaultBinaryMessenger
-                .setMockMethodCallHandler(SystemChannels.platform, null),
-          );
-          await pump(
-            tester,
-            const ComicDetailScreen(comic: _comic),
-            _Library(),
-            _Source(),
-            reduceMotion: reduceMotion,
-            track: withAudio
-                ? const AudioTrack(
-                    id: 'return-track',
-                    title: 'Audio',
-                    url: 'https://example.invalid/audio.mp3',
-                  )
-                : null,
-          );
-
-          final detail = find.byType(ComicDetailScreen, skipOffstage: false);
-          final detailSize = MediaQuery.sizeOf(tester.element(detail));
-          final detailPadding = MediaQuery.paddingOf(tester.element(detail));
-          final detailScaffold = find.descendant(
-            of: detail,
-            matching: find.byType(Scaffold),
-          );
-          Size detailBodySize() => tester
-              .renderObject(
-                find.descendant(
-                  of: detail,
-                  matching: find.byType(SingleChildScrollView),
-                ),
-              )
-              .paintBounds
-              .size;
-          Rect coverInDetailBody() {
-            final body =
-                tester.renderObject(
-                      find.descendant(
-                        of: detail,
-                        matching: find.byType(SingleChildScrollView),
-                      ),
+                return null;
+              },
+            );
+            addTearDown(
+              () => tester.binding.defaultBinaryMessenger
+                  .setMockMethodCallHandler(SystemChannels.platform, null),
+            );
+            await pump(
+              tester,
+              const Scaffold(body: ComicGrid(comics: [_comic])),
+              _Library(),
+              _Source(),
+              reduceMotion: reduceMotion,
+              track: withAudio
+                  ? const AudioTrack(
+                      id: 'return-track',
+                      title: 'Audio',
+                      url: 'https://example.invalid/audio.mp3',
                     )
-                    as RenderBox;
-            final cover =
-                tester.renderObject(
+                  : null,
+            );
+            await waitForComicCardImage(tester, 'Fixture book');
+            await tester.tap(find.text('Fixture book'));
+            await tester.pumpAndSettle();
+
+            final detail = find.byType(ComicDetailScreen, skipOffstage: false);
+            final detailSize = MediaQuery.sizeOf(tester.element(detail));
+            final detailPadding = MediaQuery.paddingOf(tester.element(detail));
+            final detailScaffold = find.descendant(
+              of: detail,
+              matching: find.byType(Scaffold),
+            );
+            Size detailBodySize() => tester
+                .renderObject(
+                  find.descendant(
+                    of: detail,
+                    matching: find.byType(SingleChildScrollView),
+                  ),
+                )
+                .paintBounds
+                .size;
+            Rect coverInDetailBody() {
+              final body =
+                  tester.renderObject(
+                        find.descendant(
+                          of: detail,
+                          matching: find.byType(SingleChildScrollView),
+                        ),
+                      )
+                      as RenderBox;
+              final cover =
+                  tester.renderObject(
+                        find.byKey(const ValueKey('comic-detail-cover')),
+                      )
+                      as RenderBox;
+              return cover.localToGlobal(Offset.zero, ancestor: body) &
+                  cover.size;
+            }
+
+            Rect rectInDetailScaffold(Finder target) {
+              final scaffold =
+                  tester.renderObject(detailScaffold.first) as RenderBox;
+              final cover = tester.renderObject(target) as RenderBox;
+              return cover.localToGlobal(Offset.zero, ancestor: scaffold) &
+                  cover.size;
+            }
+
+            Rect coverInDetailScaffold() => rectInDetailScaffold(
+              find.byKey(const ValueKey('comic-detail-cover')),
+            );
+            final title = find.descendant(
+              of: detail,
+              matching: find.byType(WorkTitleHeader),
+            );
+            final miniPlayer = find.descendant(
+              of: detail,
+              matching: find.byType(MiniPlayer),
+            );
+
+            final coverRect = coverInDetailBody();
+            final scaffoldCoverRect = coverInDetailScaffold();
+            final globalCoverTop = tester
+                .getTopLeft(find.byKey(const ValueKey('comic-detail-cover')))
+                .dy;
+            final bodySize = detailBodySize();
+            final titleRect = rectInDetailScaffold(title);
+            final miniPlayerRect = withAudio
+                ? rectInDetailScaffold(miniPlayer)
+                : null;
+            await tester.tap(find.text('Continue reading'));
+            await tester.pump();
+            await tester.pump(const Duration(milliseconds: 60));
+            await tester.pump();
+
+            final reader = find.byType(ComicReaderScreen);
+            expect(reader, findsOneWidget);
+            final route = ModalRoute.of(tester.element(reader))!;
+            if (!reduceMotion) expect(route.animation!.value, lessThan(1));
+            expect(detailBodySize(), bodySize);
+            expect(coverInDetailBody(), coverRect);
+            expect(coverInDetailScaffold(), scaffoldCoverRect);
+            expect(MediaQuery.sizeOf(tester.element(detail)), detailSize);
+            if (!reduceMotion) {
+              expect(
+                MediaQuery.paddingOf(tester.element(detail)),
+                detailPadding,
+              );
+            }
+            await tester.pumpAndSettle();
+            expect(
+              MediaQuery.paddingOf(tester.element(detail)),
+              EdgeInsets.zero,
+            );
+            Navigator.of(tester.element(reader)).pop();
+            for (var frame = 0; frame < 40; frame++) {
+              await tester.pump(const Duration(milliseconds: 16));
+              expect(
+                coverInDetailScaffold(),
+                scaffoldCoverRect,
+                reason: 'detail cover moved on return frame $frame',
+              );
+              expect(detailBodySize(), bodySize);
+              expect(
+                tester
+                    .getTopLeft(
                       find.byKey(const ValueKey('comic-detail-cover')),
                     )
-                    as RenderBox;
-            return cover.localToGlobal(Offset.zero, ancestor: body) &
-                cover.size;
-          }
-
-          Rect rectInDetailScaffold(Finder target) {
-            final scaffold =
-                tester.renderObject(detailScaffold.first) as RenderBox;
-            final cover = tester.renderObject(target) as RenderBox;
-            return cover.localToGlobal(Offset.zero, ancestor: scaffold) &
-                cover.size;
-          }
-
-          Rect coverInDetailScaffold() => rectInDetailScaffold(
-            find.byKey(const ValueKey('comic-detail-cover')),
-          );
-          final title = find.descendant(
-            of: detail,
-            matching: find.byType(WorkTitleHeader),
-          );
-          final miniPlayer = find.descendant(
-            of: detail,
-            matching: find.byType(MiniPlayer),
-          );
-
-          final coverRect = coverInDetailBody();
-          final scaffoldCoverRect = coverInDetailScaffold();
-          final bodySize = detailBodySize();
-          final titleRect = rectInDetailScaffold(title);
-          final miniPlayerRect = withAudio
-              ? rectInDetailScaffold(miniPlayer)
-              : null;
-          await tester.tap(find.text('Continue reading'));
-          await tester.pump();
-          await tester.pump(const Duration(milliseconds: 60));
-          await tester.pump();
-
-          final reader = find.byType(ComicReaderScreen);
-          expect(reader, findsOneWidget);
-          final route = ModalRoute.of(tester.element(reader))!;
-          if (!reduceMotion) expect(route.animation!.value, lessThan(1));
-          expect(detailBodySize(), bodySize);
-          expect(coverInDetailBody(), coverRect);
-          expect(coverInDetailScaffold(), scaffoldCoverRect);
-          expect(MediaQuery.sizeOf(tester.element(detail)), detailSize);
-          if (!reduceMotion) {
-            expect(MediaQuery.paddingOf(tester.element(detail)), detailPadding);
-          }
-          await tester.pumpAndSettle();
-          expect(MediaQuery.paddingOf(tester.element(detail)), EdgeInsets.zero);
-          Navigator.of(tester.element(reader)).pop();
-          for (var frame = 0; frame < 40; frame++) {
-            await tester.pump(const Duration(milliseconds: 16));
-            expect(
-              coverInDetailScaffold(),
-              scaffoldCoverRect,
-              reason: 'detail cover moved on return frame $frame',
-            );
-            expect(detailBodySize(), bodySize);
-            expect(rectInDetailScaffold(title), titleRect);
-            if (withAudio) {
-              expect(rectInDetailScaffold(miniPlayer), miniPlayerRect);
+                    .dy,
+                closeTo(globalCoverTop, 0.01),
+                reason: 'detail cover shifted on screen at return frame $frame',
+              );
+              expect(rectInDetailScaffold(title), titleRect);
+              if (withAudio) {
+                expect(rectInDetailScaffold(miniPlayer), miniPlayerRect);
+              }
             }
-          }
-          await tester.pumpAndSettle();
-          expect(MediaQuery.paddingOf(tester.element(detail)), detailPadding);
-          expect(coverInDetailScaffold(), scaffoldCoverRect);
-          tester.view.padding = const FakeViewPadding(top: 30, bottom: 20);
-          tester.view.viewPadding = const FakeViewPadding(top: 30, bottom: 20);
-          await tester.pump();
-          expect(
-            MediaQuery.paddingOf(tester.element(detailScaffold.first)),
-            const EdgeInsets.only(top: 30, bottom: 20),
-          );
-          expect(tester.takeException(), isNull);
-        },
-      );
+            await tester.pumpAndSettle();
+            expect(MediaQuery.paddingOf(tester.element(detail)), detailPadding);
+            expect(coverInDetailScaffold(), scaffoldCoverRect);
+            tester.view.padding = const FakeViewPadding(top: 30, bottom: 20);
+            tester.view.viewPadding = const FakeViewPadding(
+              top: 30,
+              bottom: 20,
+            );
+            tester.view.physicalSize = const Size(390, 820);
+            await tester.pump();
+            expect(tester.getSize(detailScaffold.first), const Size(390, 820));
+            expect(
+              MediaQuery.paddingOf(tester.element(detailScaffold.first)),
+              const EdgeInsets.only(top: 30, bottom: 20),
+            );
+            expect(tester.takeException(), isNull);
+          },
+        );
+      }
     }
   }
 

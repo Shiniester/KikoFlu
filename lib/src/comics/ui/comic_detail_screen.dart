@@ -261,7 +261,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
     final current = MediaQuery.of(context);
     final saved = _readerWindow;
     if (saved != null &&
-        (current.size != saved.size ||
+        (current.size.width != saved.size.width ||
             current.devicePixelRatio != saved.devicePixelRatio ||
             (_readerReturning &&
                 current.padding == saved.padding &&
@@ -269,16 +269,24 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
       _readerWindow = null;
     }
     final retained = _readerWindow;
-    // Keep the detail's safe area while the reader hides system bars, including
-    // the interval between route removal and the platform's restored insets.
+    // Keep both the detail's viewport and safe area while the reader hides
+    // system bars, until the platform restores the insets after route removal.
     return MediaQuery(
       data: retained == null
           ? current
           : current.copyWith(
+              size: retained.size,
               padding: retained.padding,
               viewPadding: retained.viewPadding,
             ),
-      child: Builder(builder: _buildDetail),
+      child: OverflowBox(
+        alignment: Alignment.topLeft,
+        minWidth: retained?.size.width,
+        maxWidth: retained?.size.width,
+        minHeight: retained?.size.height,
+        maxHeight: retained?.size.height,
+        child: Builder(builder: _buildDetail),
+      ),
     );
   }
 
