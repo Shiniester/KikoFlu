@@ -7,6 +7,8 @@ import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_title_header.dart';
 import 'package:kikoeru_flutter/src/services/log_service.dart';
 import 'dart:async';
+import 'dart:ui' as ui;
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:image/image.dart' as img;
@@ -395,7 +397,10 @@ void main() {
             data: MediaQuery.of(
               context,
             ).copyWith(disableAnimations: reduceMotion),
-            child: child!,
+            child: RepaintBoundary(
+              key: const ValueKey('app-paint'),
+              child: child!,
+            ),
           ),
           locale: const Locale('en'),
           localizationsDelegates: S.localizationsDelegates,
@@ -663,6 +668,159 @@ void main() {
     }
   }
 
+  for (final systemGesture in [false, true]) {
+    testWidgets(
+      'reader return keeps the painted cover at its original height (gesture: $systemGesture)',
+      (tester) async {
+        final modes = <Object?>[];
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        tester.view.padding = const FakeViewPadding(top: 24, bottom: 24);
+        tester.view.viewPadding = const FakeViewPadding(top: 24, bottom: 24);
+        addTearDown(tester.view.reset);
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          (call) async {
+            if (call.method != 'SystemChrome.setEnabledSystemUIMode') {
+              return null;
+            }
+            modes.add(call.arguments);
+            final immersive = call.arguments == 'SystemUiMode.immersiveSticky';
+            void deliverInsets(int step) {
+              tester.binding.addPostFrameCallback((_) {
+                final padding = immersive ? 0.0 : step * 4.0;
+                tester.view.padding = FakeViewPadding(
+                  top: padding,
+                  bottom: padding,
+                );
+                tester.view.viewPadding = FakeViewPadding(
+                  top: padding,
+                  bottom: padding,
+                );
+                tester.view.physicalSize = Size(390, 892 - padding * 2);
+                if (!immersive && step < 6) deliverInsets(step + 1);
+                tester.binding.scheduleFrame();
+              });
+            }
+
+            deliverInsets(0);
+            return null;
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            SystemChannels.platform,
+            null,
+          ),
+        );
+        final marker = img.Image(width: 100, height: 160);
+        img.fill(marker, color: img.ColorRgb8(255, 0, 255));
+        final bytes = Uint8List.fromList(img.encodePng(marker));
+        await pump(
+          tester,
+          const Scaffold(body: ComicGrid(comics: [_comic])),
+          _Library(),
+          _Source(),
+          loadImage: (page) async => page.url == 'fixture-cover' ? bytes : _png,
+        );
+        await waitForComicCardImage(tester, 'Fixture book');
+        await tester.tap(find.text('Fixture book'));
+        await tester.pumpAndSettle();
+
+        Future<int?> paintedCoverTop() async {
+          final boundary = tester.renderObject<RenderRepaintBoundary>(
+            find.byKey(const ValueKey('app-paint')),
+          );
+          return tester.runAsync<int?>(() async {
+            final image = await boundary.toImage();
+            final data = (await image.toByteData(
+              format: ui.ImageByteFormat.rawRgba,
+            ))!;
+            final width = image.width;
+            final height = image.height;
+            image.dispose();
+            for (var y = 0; y < height; y++) {
+              var matching = 0;
+              for (var x = 0; x < width; x++) {
+                final offset = (y * width + x) * 4;
+                final r = data.getUint8(offset);
+                final g = data.getUint8(offset + 1);
+                final b = data.getUint8(offset + 2);
+                if (r > 80 && b > 80 && r > g * 2 && b > g * 2) matching++;
+              }
+              if (matching > 20) return y;
+            }
+            return null;
+          });
+        }
+
+        final top = await paintedCoverTop();
+        expect(top, isNotNull);
+        await tester.tap(find.text('Continue reading'));
+        await tester.pumpAndSettle();
+        if (systemGesture) {
+          Future<void> backEvent(
+            String method, [
+            Map<String, Object>? arguments,
+          ]) => tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+            'flutter/backgesture',
+            const StandardMethodCodec().encodeMethodCall(
+              MethodCall(method, arguments),
+            ),
+            (_) {},
+          );
+          await backEvent('startBackGesture', {
+            'touchOffset': [5.0, 300.0],
+            'progress': 0.0,
+            'swipeEdge': 0,
+          });
+          await tester.pump();
+          expect(
+            ModalRoute.of(
+              tester.element(find.byType(ComicReaderScreen)),
+            )!.popGestureInProgress,
+            isTrue,
+          );
+          await backEvent('updateBackGestureProgress', {
+            'touchOffset': [100.0, 340.0],
+            'progress': 0.35,
+            'swipeEdge': 0,
+          });
+          await tester.pumpAndSettle();
+          await backEvent('commitBackGesture');
+        } else {
+          Navigator.of(tester.element(find.byType(ComicReaderScreen))).pop();
+        }
+        var visibleFrames = 0;
+        for (var frame = 0; frame < 40; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          if (frame == 0) {
+            expect(find.byType(ComicReaderScreen), findsOneWidget);
+            expect(
+              modes.last,
+              'SystemUiMode.edgeToEdge',
+              reason: 'restore bars while the reader is still leaving',
+            );
+          }
+          final actual = await paintedCoverTop();
+          if (actual != null) {
+            visibleFrames++;
+            expect(
+              actual,
+              closeTo(top!, 1),
+              reason: 'painted return frame $frame',
+            );
+          }
+        }
+        expect(visibleFrames, greaterThan(10));
+        expect(
+          modes.where((mode) => mode == 'SystemUiMode.edgeToEdge'),
+          hasLength(1),
+        );
+      },
+    );
+  }
+
   testWidgets('reader applies system bars with reduced route motion', (
     tester,
   ) async {
@@ -702,6 +860,49 @@ void main() {
     Navigator.of(tester.element(reader)).pop();
     await tester.pumpAndSettle();
     expect(modes, contains('SystemUiMode.edgeToEdge'));
+  });
+
+  testWidgets('cancelled reader return restores immersive reading', (
+    tester,
+  ) async {
+    final modes = <Object?>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'SystemChrome.setEnabledSystemUIMode') {
+          modes.add(call.arguments);
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: _comic),
+      _Library(),
+      _Source(),
+    );
+    await tester.tap(find.text('Continue reading'));
+    await tester.pumpAndSettle();
+    final reader = find.byType(ComicReaderScreen);
+    final route = ModalRoute.of(tester.element(reader))! as PageRoute<void>;
+    route.handleStartBackGesture(progress: 1);
+    route.handleUpdateBackGestureProgress(progress: 0.5);
+    await tester.pump();
+    route.handleCancelBackGesture();
+    await tester.pumpAndSettle();
+    expect(reader, findsOneWidget);
+    expect(route.animation!.status, AnimationStatus.completed);
+    expect(modes.last, 'SystemUiMode.immersiveSticky');
+    Navigator.of(tester.element(reader)).pop();
+    await tester.pump();
+    expect(modes.last, 'SystemUiMode.edgeToEdge');
+    await tester.pumpAndSettle();
   });
 
   testWidgets(

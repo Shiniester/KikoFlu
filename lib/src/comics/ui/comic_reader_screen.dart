@@ -56,6 +56,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   Timer? _saveTimer;
   Animation<double>? _routeAnimation;
   AnimationStatusListener? _routeStatusListener;
+  bool _immersiveBarsRequested = false;
   @override
   void initState() {
     super.initState();
@@ -83,6 +84,11 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     _routeStatusListener = (status) {
       if (status == AnimationStatus.completed) {
         _setBarsAfterFrame(animation);
+      } else if (status == AnimationStatus.reverse ||
+          status == AnimationStatus.dismissed) {
+        // Restore the window while the reader is leaving, before exposing
+        // the detail page to the platform's system-bar animation.
+        _restoreBars();
       }
     };
     animation.addStatusListener(_routeStatusListener!);
@@ -119,7 +125,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     Future.microtask(() {
       if (_active.mounted) _active.state = false;
     });
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    _restoreBars();
     super.dispose();
   }
 
@@ -132,7 +138,14 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   }
 
   void _setBars() {
+    _immersiveBarsRequested = true;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  }
+
+  void _restoreBars() {
+    if (!_immersiveBarsRequested) return;
+    _immersiveBarsRequested = false;
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   void _toggle() {
