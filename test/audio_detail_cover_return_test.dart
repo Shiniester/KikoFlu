@@ -154,8 +154,7 @@ void main() {
                         builder: (_) => Scaffold(
                           appBar: AppBar(),
                           body: Center(
-                            child: WorkCoverHeroFrame(
-                              heroTag: 'work_cover_$id',
+                            child: WorkCoverClip(
                               child: Image(
                                 image: kind == 'local'
                                     ? FileImage(localFile(id))

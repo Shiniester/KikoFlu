@@ -223,43 +223,54 @@ void main() {
     expect(find.byKey(_page), findsNothing);
   });
 
-  testWidgets('cover Hero flies independently of the page translation', (
+  testWidgets('cover moves with the page without a Hero on push and pop', (
     tester,
   ) async {
     final navigator = GlobalKey<NavigatorState>();
-    const artwork = ValueKey('flying-artwork');
-    Widget cover(double size) => WorkCoverHeroFrame(
-      heroTag: 'work',
-      flightChild: const ColoredBox(key: artwork, color: Colors.red),
-      child: SizedBox.square(dimension: size),
+    const source = ValueKey('source-cover');
+    const target = ValueKey('target-cover');
+    Widget cover(Key key, double size) => WorkCoverClip(
+      child: SizedBox.square(key: key, dimension: size),
     );
     await tester.pumpWidget(
       MaterialApp(
         navigatorKey: navigator,
         theme: AppTheme.lightTheme(null),
         home: Scaffold(
-          body: Align(alignment: Alignment.topLeft, child: cover(80)),
+          body: Align(alignment: Alignment.topLeft, child: cover(source, 80)),
         ),
       ),
     );
     navigator.currentState!.push(
       MaterialPageRoute<void>(
-        builder: (_) => Scaffold(body: Center(child: cover(200))),
+        builder: (_) => Scaffold(
+          key: _page,
+          body: Center(child: cover(target, 200)),
+        ),
       ),
     );
     await tester.pump();
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
-    final rect = tester.getRect(find.byKey(artwork));
-    expect(rect.left, inExclusiveRange(0, 300));
-    expect(rect.top, inExclusiveRange(0, 200));
-    expect(rect.width, inExclusiveRange(80, 200));
+    void expectCoverAttached() {
+      expect(find.byType(Hero), findsNothing);
+      final rect = tester.getRect(find.byKey(target));
+      expect(rect.left, closeTo(300 + _x(tester, _page), .01));
+      expect(rect.top, 200);
+      expect(rect.size, const Size(200, 200));
+      expect(
+        tester.getRect(find.byKey(source)),
+        const Rect.fromLTWH(0, 0, 80, 80),
+      );
+    }
+
+    expectCoverAttached();
     await tester.pumpAndSettle();
     navigator.currentState!.pop();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
-    final reverse = tester.getRect(find.byKey(artwork));
-    expect(reverse.left, inExclusiveRange(0, 300));
-    expect(reverse.width, inExclusiveRange(80, 200));
+    expectCoverAttached();
     await tester.pumpAndSettle();
+    expect(find.byKey(target), findsNothing);
   });
 }

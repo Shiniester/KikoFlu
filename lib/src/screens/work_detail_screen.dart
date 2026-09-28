@@ -43,13 +43,11 @@ import '../widgets/image_gallery_screen.dart';
 
 class WorkDetailScreen extends ConsumerStatefulWidget {
   final Work work;
-  final String? heroTag;
   final ImageProvider<Object>? initialCoverImageProvider;
 
   const WorkDetailScreen({
     super.key,
     required this.work,
-    this.heroTag,
     this.initialCoverImageProvider,
   });
 
@@ -83,7 +81,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     _currentProgress = widget.work.progress;
     _currentRating = widget.work.userRating;
     _loadWorkDetail();
-    // Hero 动画结束后开始预加载高清图
+    // 页面转场结束后开始预加载高清图
     Future.delayed(const Duration(milliseconds: 400), () {
       if (mounted) {
         _preloadHDImage();
@@ -546,7 +544,6 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     final work = _detailedWork ?? widget.work;
 
     // 封面图片组件
-    final effectiveHeroTag = widget.heroTag ?? 'work_cover_${widget.work.id}';
     final coverUrl = work.getCoverImageUrl(host, token: token);
     final displaySettings = ref.watch(workDetailDisplayProvider);
     final showSubtitleBadge =
@@ -649,7 +646,6 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       onRefresh: _refreshWorkDetail,
       coverBuilder: (context, isLandscape) {
         return WorkCoverFrame(
-          heroTag: effectiveHeroTag,
           isLandscape: isLandscape,
           showSubtitleBadge: showSubtitleBadge,
           showAgeRating: displaySettings.showAgeRating,

@@ -29,7 +29,6 @@ class EnhancedWorkCard extends ConsumerStatefulWidget {
   final int crossAxisCount;
   final bool? isListLayout;
   final String? localCoverPath;
-  final Object? coverHeroTag;
 
   const EnhancedWorkCard({
     super.key,
@@ -38,7 +37,6 @@ class EnhancedWorkCard extends ConsumerStatefulWidget {
     this.crossAxisCount = 2,
     this.isListLayout,
     this.localCoverPath,
-    this.coverHeroTag,
   });
 
   @override
@@ -722,8 +720,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
   }) {
     final localCoverPath = widget.localCoverPath;
     if (localCoverPath != null && File(localCoverPath).existsSync()) {
-      return WorkCoverHeroFrame(
-        heroTag: widget.coverHeroTag ?? 'work_cover_${widget.work.id}',
+      return WorkCoverClip(
         cornerRadius: cornerRadius,
         child: PrivacyBlurCover(
           child: RepaintBoundary(
@@ -755,8 +752,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
 
     final httpHeaders = StorageService.serverCookieHeaders;
 
-    return WorkCoverHeroFrame(
-      heroTag: widget.coverHeroTag ?? 'work_cover_${widget.work.id}',
+    return WorkCoverClip(
       cornerRadius: cornerRadius,
       child: PrivacyBlurCover(
         child: RepaintBoundary(

@@ -365,7 +365,6 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
           page: _comic.coverPage.localPath == null
               ? widget.comic.coverPage
               : _comic.coverPage,
-          heroTag: comicCoverHeroTag(widget.comic),
           cornerRadius: workCoverDetailRadius,
           maxWidth: coverWidth,
         );

@@ -626,9 +626,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // 封面图 - 使用 Hero 动画和统一的图片源
-            WorkCoverHeroFrame(
-              heroTag: 'work_cover_${work.id}',
+            // 封面图使用统一的图片源
+            WorkCoverClip(
               cornerRadius: workCoverCompactRadius,
               child: PrivacyBlurCover(
                 child: WorkCoverImage(

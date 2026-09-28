@@ -315,9 +315,6 @@ void main() {
     final playerCover = File(
       'lib/src/widgets/player/player_cover_widget.dart',
     ).readAsStringSync();
-    final workCover = File(
-      'lib/src/widgets/work_detail/work_cover_frame.dart',
-    ).readAsStringSync();
 
     expect(RegExp(r'\.showSnackBar\(').allMatches(appSources), hasLength(1));
     expect(noticeSource, contains('SnackBarBehavior.floating'));
@@ -326,8 +323,6 @@ void main() {
     expect(playerCover, contains('enum PlayerArtworkFlightTarget'));
     expect(playerCover, contains('class PlayerCompactArtwork'));
     expect(playerCover, contains('Tween<double>('));
-    expect(workCover, contains('class WorkCoverHeroFrame'));
-    expect(workCover, contains('Tween<double>('));
   });
 }
 

@@ -190,7 +190,6 @@ class _RecommendationCard extends ConsumerWidget {
             context,
             builder: (context) => WorkDetailScreen(
               work: work,
-              heroTag: 'rec_work_cover_${work.id}',
               initialCoverImageProvider: initialCoverImageProvider,
             ),
           );
@@ -249,8 +248,7 @@ class _RecommendationCard extends ConsumerWidget {
       return _buildPlaceholder(context);
     }
 
-    return WorkCoverHeroFrame(
-      heroTag: 'rec_work_cover_${work.id}',
+    return WorkCoverClip(
       cornerRadius: workCoverCompactRadius,
       child: PrivacyBlurCover(
         child: WorkCoverImage(

@@ -181,7 +181,6 @@ class ComicCover extends ConsumerStatefulWidget {
     super.key,
     required this.source,
     required this.page,
-    required this.heroTag,
     this.maxWidth,
     this.maxHeight,
     this.placeholderAspectRatio,
@@ -191,7 +190,6 @@ class ComicCover extends ConsumerStatefulWidget {
 
   final String source;
   final ComicPage page;
-  final Object heroTag;
   final double? maxWidth;
   final double? maxHeight;
   final double? placeholderAspectRatio;
@@ -323,7 +321,6 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
       onRetry: () => ref.invalidate(_comicImageBytesProvider(request)),
       onFirstFrameReady: widget.onFirstFrameReady,
     );
-    final flightContent = ComicImage._(widget.page, picture, failed);
     return LayoutBuilder(
       builder: (context, constraints) {
         final availableWidth = widget.maxWidth ?? constraints.maxWidth;
@@ -334,10 +331,8 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
         final cover = SizedBox(
           width: coverWidth,
           height: coverWidth / ratio,
-          child: WorkCoverHeroFrame(
-            heroTag: widget.heroTag,
+          child: WorkCoverClip(
             cornerRadius: widget.cornerRadius,
-            flightChild: flightContent,
             child: content,
           ),
         );
@@ -624,19 +619,13 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                HeroMode(
-                                  enabled: comics
-                                      .take(i)
-                                      .every((c) => c.key != comics[i].key),
-                                  child: ComicCover(
-                                    source: comics[i].source,
-                                    page: comics[i].coverPage,
-                                    heroTag: comicCoverHeroTag(comics[i]),
-                                    maxWidth: 80,
-                                    placeholderAspectRatio:
-                                        placeholderAspectRatio,
-                                    onFirstFrameReady: onFirstFrameReady,
-                                  ),
+                                ComicCover(
+                                  source: comics[i].source,
+                                  page: comics[i].coverPage,
+                                  maxWidth: 80,
+                                  placeholderAspectRatio:
+                                      placeholderAspectRatio,
+                                  onFirstFrameReady: onFirstFrameReady,
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
@@ -744,18 +733,11 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                         children: [
                           Stack(
                             children: [
-                              HeroMode(
-                                enabled: comics
-                                    .take(i)
-                                    .every((c) => c.key != comics[i].key),
-                                child: ComicCover(
-                                  source: comics[i].source,
-                                  page: comics[i].coverPage,
-                                  heroTag: comicCoverHeroTag(comics[i]),
-                                  placeholderAspectRatio:
-                                      placeholderAspectRatio,
-                                  onFirstFrameReady: onFirstFrameReady,
-                                ),
+                              ComicCover(
+                                source: comics[i].source,
+                                page: comics[i].coverPage,
+                                placeholderAspectRatio: placeholderAspectRatio,
+                                onFirstFrameReady: onFirstFrameReady,
                               ),
                               if (comics[i].coverDate case final date?)
                                 Positioned(
@@ -822,8 +804,6 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
     );
   }
 }
-
-String comicCoverHeroTag(Comic comic) => 'comic-cover:${comic.key}';
 
 void openComic(BuildContext context, Comic comic, {double? gridCoverWidth}) {
   final windowWidth = gridCoverWidth == null

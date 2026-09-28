@@ -9,49 +9,15 @@ const double _coverBadgeInset = 12;
 const double workCoverDetailRadius = 12;
 const double workCoverCompactRadius = 8;
 
-class WorkCoverHeroFrame extends StatelessWidget {
-  const WorkCoverHeroFrame({
+class WorkCoverClip extends StatelessWidget {
+  const WorkCoverClip({
     super.key,
-    required this.heroTag,
     required this.child,
     this.cornerRadius = workCoverDetailRadius,
-    this.enabled = true,
-    this.flightChild,
   });
 
-  final Object heroTag;
   final Widget child;
   final double cornerRadius;
-  final bool enabled;
-  final Widget? flightChild;
-
-  @override
-  Widget build(BuildContext context) {
-    final payload = _WorkCoverHeroPayload(
-      cornerRadius: cornerRadius,
-      flightChild: flightChild ?? child,
-      child: child,
-    );
-    if (!enabled || MediaQuery.disableAnimationsOf(context)) return payload;
-    return Hero(
-      tag: heroTag,
-      createRectTween: (begin, end) => RectTween(begin: begin, end: end),
-      flightShuttleBuilder: _workCoverFlightShuttle,
-      child: payload,
-    );
-  }
-}
-
-class _WorkCoverHeroPayload extends StatelessWidget {
-  const _WorkCoverHeroPayload({
-    required this.cornerRadius,
-    required this.child,
-    required this.flightChild,
-  });
-
-  final double cornerRadius;
-  final Widget child;
-  final Widget flightChild;
 
   @override
   Widget build(BuildContext context) => ClipRRect(
@@ -60,35 +26,9 @@ class _WorkCoverHeroPayload extends StatelessWidget {
   );
 }
 
-Widget _workCoverFlightShuttle(
-  BuildContext flightContext,
-  Animation<double> animation,
-  HeroFlightDirection direction,
-  BuildContext fromHeroContext,
-  BuildContext toHeroContext,
-) {
-  final from =
-      ((fromHeroContext.widget as Hero).child as _WorkCoverHeroPayload);
-  final to = ((toHeroContext.widget as Hero).child as _WorkCoverHeroPayload);
-  return AnimatedBuilder(
-    animation: animation,
-    child: from.flightChild,
-    builder: (context, child) => ClipRRect(
-      borderRadius: BorderRadius.circular(
-        Tween<double>(
-          begin: from.cornerRadius,
-          end: to.cornerRadius,
-        ).evaluate(animation),
-      ),
-      child: child,
-    ),
-  );
-}
-
 class WorkCoverFrame extends StatelessWidget {
   const WorkCoverFrame({
     super.key,
-    required this.heroTag,
     required this.isLandscape,
     required this.layers,
     this.showSubtitleBadge = false,
@@ -97,7 +37,6 @@ class WorkCoverFrame extends StatelessWidget {
     this.onTap,
   });
 
-  final Object heroTag;
   final bool isLandscape;
   final List<Widget> layers;
   final bool showSubtitleBadge;
@@ -113,8 +52,7 @@ class WorkCoverFrame extends StatelessWidget {
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        child: WorkCoverHeroFrame(
-          heroTag: heroTag,
+        child: WorkCoverClip(
           cornerRadius: workCoverDetailRadius,
           child: Material(
             color: Colors.transparent,

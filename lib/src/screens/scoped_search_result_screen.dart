@@ -590,7 +590,6 @@ class _ScopedSearchResultScreenState
           crossAxisCount: metrics.crossAxisCount,
           isListLayout: isList,
           localCoverPath: snapshot.data,
-          coverHeroTag: 'offline_work_cover_${work.id}',
           onTap: () => _openEntry(context, entry),
         ),
       );

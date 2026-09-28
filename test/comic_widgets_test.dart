@@ -305,16 +305,11 @@ Future<void> waitForComicCardImage(WidgetTester tester, String title) async {
   await pumpFrames(tester, frames: 3);
 }
 
-void expectComicCoverFlightRadius() {
+void expectComicCoversAttached() {
+  expect(find.byType(WorkCoverClip), findsWidgets);
   expect(
-    find.byWidgetPredicate((widget) {
-      if (widget is! ClipRRect || widget.borderRadius is! BorderRadius) {
-        return false;
-      }
-      final radius = (widget.borderRadius as BorderRadius).topLeft.x;
-      return radius > workCoverCompactRadius && radius < workCoverDetailRadius;
-    }),
-    findsWidgets,
+    find.ancestor(of: find.byType(WorkCoverClip), matching: find.byType(Hero)),
+    findsNothing,
   );
 }
 
@@ -2886,7 +2881,7 @@ void main() {
           _Source(),
           loadImage: (_) async => bytes,
         );
-        final frame = tester.getRect(find.byType(WorkCoverHeroFrame));
+        final frame = tester.getRect(find.byType(WorkCoverClip));
         final image = tester.getRect(find.byType(ComicImage));
         expect(frame, image);
         expect(frame.width / frame.height, closeTo(ratio, 0.001));
@@ -2939,12 +2934,8 @@ void main() {
       Scaffold(
         body: ValueListenableBuilder<ComicPage>(
           valueListenable: page,
-          builder: (context, value, _) => ComicCover(
-            source: 'fixture',
-            page: value,
-            heroTag: 'replacement-cover',
-            maxWidth: 120,
-          ),
+          builder: (context, value, _) =>
+              ComicCover(source: 'fixture', page: value, maxWidth: 120),
         ),
       ),
       _Library(),
@@ -3457,51 +3448,54 @@ void main() {
   });
 
   for (final layout in LayoutType.values) {
-    testWidgets('comic $layout cover heroes into detail and returns', (
-      tester,
-    ) async {
-      await StorageService.setString('comic_layout_type', layout.name);
-      await pump(
-        tester,
-        const Scaffold(body: ComicGrid(comics: [_comic])),
-        _Library(),
-        _Source(),
-        loadImage: (_) async => _widePng,
-      );
-      final hero = find.byWidgetPredicate(
-        (widget) => widget is Hero && widget.tag == comicCoverHeroTag(_comic),
-      );
-      expect(hero, findsOneWidget);
-      final start = tester.getRect(find.byType(ComicImage).first);
-      await tester.tap(find.text('Fixture book'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(find.byType(ComicDetailScreen), findsOneWidget);
-      expect(hero, findsWidgets);
-      expectVisibleComicCoverRatio(tester, 180 / 100);
-      expectComicCoverFlightRadius();
-      await tester.pumpAndSettle();
-      final destination = tester.getRect(
-        find.byKey(const ValueKey('comic-detail-cover')),
-      );
-      if (layout != LayoutType.list) {
-        expect(destination.width, closeTo(start.width, 0.1));
-      } else {
-        expect(destination.width, greaterThan(start.width));
-      }
-      await tester.tap(find.byTooltip('Back'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      expectVisibleComicCoverRatio(tester, 180 / 100);
-      expectComicCoverFlightRadius();
-      await tester.pumpAndSettle();
-      expect(find.byType(ComicDetailScreen), findsNothing);
-      expect(tester.getRect(find.byType(ComicImage).first), start);
-      expect(tester.takeException(), isNull);
-    });
+    testWidgets(
+      'comic $layout cover stays with its page into detail and returns',
+      (tester) async {
+        await StorageService.setString('comic_layout_type', layout.name);
+        await pump(
+          tester,
+          const Scaffold(body: ComicGrid(comics: [_comic])),
+          _Library(),
+          _Source(),
+          loadImage: (_) async => _widePng,
+        );
+        await waitForComicCardImage(tester, 'Fixture book');
+        final hero = find.descendant(
+          of: find.byType(ComicCover),
+          matching: find.byType(Hero),
+        );
+        expect(hero, findsNothing);
+        final start = tester.getRect(find.byType(ComicImage).first);
+        await tester.tap(find.text('Fixture book'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(find.byType(ComicDetailScreen), findsOneWidget);
+        expect(hero, findsNothing);
+        expectVisibleComicCoverRatio(tester, 180 / 100);
+        expectComicCoversAttached();
+        await tester.pumpAndSettle();
+        final destination = tester.getRect(
+          find.byKey(const ValueKey('comic-detail-cover')),
+        );
+        if (layout != LayoutType.list) {
+          expect(destination.width, closeTo(start.width, 0.1));
+        } else {
+          expect(destination.width, greaterThan(start.width));
+        }
+        await tester.tap(find.byTooltip('Back'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expectVisibleComicCoverRatio(tester, 180 / 100);
+        expectComicCoversAttached();
+        await tester.pumpAndSettle();
+        expect(find.byType(ComicDetailScreen), findsNothing);
+        expect(tester.getRect(find.byType(ComicImage).first), start);
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
-  testWidgets('search cover also heroes to detail', (tester) async {
+  testWidgets('search cover stays with its page into detail', (tester) async {
     await pump(
       tester,
       const ComicSearchScreen(initialSource: 'fixture', initialQuery: 'book'),
@@ -3511,27 +3505,28 @@ void main() {
     );
     await tester.tap(find.text('Grouped results'));
     await tester.pumpAndSettle();
-    final hero = find.byWidgetPredicate(
-      (widget) => widget is Hero && widget.tag == comicCoverHeroTag(_comic),
+    final hero = find.descendant(
+      of: find.byType(ComicCover),
+      matching: find.byType(Hero),
     );
-    expect(hero, findsOneWidget);
-    final start = tester.getRect(find.byType(WorkCoverHeroFrame));
+    expect(hero, findsNothing);
+    final start = tester.getRect(find.byType(WorkCoverClip));
     expect(start.width / start.height, closeTo(180 / 100, 0.001));
     await tester.tap(find.text('Fixture book'));
     await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expectVisibleComicCoverRatio(tester, 180 / 100);
-    expectComicCoverFlightRadius();
+    expectComicCoversAttached();
     await tester.pumpAndSettle();
     expect(find.byType(ComicDetailScreen), findsOneWidget);
     await tester.tap(find.byTooltip('Back'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expectVisibleComicCoverRatio(tester, 180 / 100);
-    expectComicCoverFlightRadius();
+    expectComicCoversAttached();
     await tester.pumpAndSettle();
-    expect(hero, findsOneWidget);
+    expect(hero, findsNothing);
   });
 
   testWidgets('reduced motion omits the comic cover Hero', (tester) async {
@@ -3542,8 +3537,9 @@ void main() {
       _Source(),
       reduceMotion: true,
     );
-    final hero = find.byWidgetPredicate(
-      (widget) => widget is Hero && widget.tag == comicCoverHeroTag(_comic),
+    final hero = find.descendant(
+      of: find.byType(ComicCover),
+      matching: find.byType(Hero),
     );
     expect(hero, findsNothing);
     expectVisibleComicCoverRatio(tester, 100 / 160);
@@ -3613,7 +3609,8 @@ void main() {
         final cover = find.byWidgetPredicate(
           (widget) =>
               widget is ComicCover &&
-              widget.heroTag == comicCoverHeroTag(other),
+              widget.source == other.source &&
+              widget.page.url == other.cover,
         );
         final raw = find.descendant(of: cover, matching: find.byType(RawImage));
         expect(tester.widget<RawImage>(raw).image, isNotNull);
@@ -3649,7 +3646,7 @@ void main() {
     );
   }
 
-  testWidgets('loaded comic cover stays visible throughout Hero push and pop', (
+  testWidgets('loaded comic cover stays visible throughout page push and pop', (
     tester,
   ) async {
     var loads = 0;
@@ -3671,7 +3668,7 @@ void main() {
     expect(loads, 1);
     expect(find.byType(ComicImage), findsWidgets);
     expectVisibleComicCoverRatio(tester, 180 / 100);
-    expectComicCoverFlightRadius();
+    expectComicCoversAttached();
     expect(
       find.descendant(
         of: find.byType(ComicImage),
@@ -3687,7 +3684,7 @@ void main() {
     expect(loads, 1);
     expect(find.byType(ComicImage), findsWidgets);
     expectVisibleComicCoverRatio(tester, 180 / 100);
-    expectComicCoverFlightRadius();
+    expectComicCoversAttached();
     expect(
       find.descendant(
         of: find.byType(ComicImage),
@@ -3699,40 +3696,41 @@ void main() {
   });
 
   for (final grid in [false, true]) {
-    testWidgets('dated $grid card keeps its badge rule during Hero flight', (
-      tester,
-    ) async {
-      await StorageService.setBool('comic_grid', grid);
-      const dated = Comic(
-        source: 'fixture',
-        id: 'book',
-        title: 'Fixture book',
-        cover: 'fixture-cover',
-        extra: {'sourceDate': '2024-05-12'},
-      );
-      await pump(
-        tester,
-        const Scaffold(body: ComicGrid(comics: [dated])),
-        _Library(),
-        _Source(),
-        loadImage: (_) async => _widePng,
-      );
-      expect(find.text('2024-05-12'), grid ? findsOneWidget : findsNothing);
-      await tester.tap(find.text('Fixture book'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('2024-05-12'), grid ? findsOneWidget : findsNothing);
-      expectVisibleComicCoverRatio(tester, 180 / 100);
-      await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Back'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(find.text('2024-05-12'), grid ? findsOneWidget : findsNothing);
-      expectVisibleComicCoverRatio(tester, 180 / 100);
-      await tester.pumpAndSettle();
-      expect(find.text('2024-05-12'), grid ? findsOneWidget : findsNothing);
-      expect(tester.takeException(), isNull);
-    });
+    testWidgets(
+      'dated $grid card keeps its badge rule during page transitions',
+      (tester) async {
+        await StorageService.setBool('comic_grid', grid);
+        const dated = Comic(
+          source: 'fixture',
+          id: 'book',
+          title: 'Fixture book',
+          cover: 'fixture-cover',
+          extra: {'sourceDate': '2024-05-12'},
+        );
+        await pump(
+          tester,
+          const Scaffold(body: ComicGrid(comics: [dated])),
+          _Library(),
+          _Source(),
+          loadImage: (_) async => _widePng,
+        );
+        expect(find.text('2024-05-12'), grid ? findsOneWidget : findsNothing);
+        await tester.tap(find.text('Fixture book'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(find.text('2024-05-12'), grid ? findsOneWidget : findsNothing);
+        expectVisibleComicCoverRatio(tester, 180 / 100);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Back'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(find.text('2024-05-12'), grid ? findsOneWidget : findsNothing);
+        expectVisibleComicCoverRatio(tester, 180 / 100);
+        await tester.pumpAndSettle();
+        expect(find.text('2024-05-12'), grid ? findsOneWidget : findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   for (final size in [const Size(390, 844), const Size(700, 360)]) {
@@ -3779,38 +3777,40 @@ void main() {
     });
   }
 
-  testWidgets('failed cover keeps its placeholder through flight and retries', (
-    tester,
-  ) async {
-    final pending = Completer<Uint8List>();
-    var loads = 0;
-    await pump(
-      tester,
-      const Scaffold(body: ComicGrid(comics: [_comic])),
-      _Library(),
-      _Source(),
-      loadImage: (_) => ++loads == 1 ? pending.future : Future.value(_widePng),
-      settle: false,
-    );
-    expect(find.byType(Card), findsOneWidget);
-    expectComicCardHidden(tester);
-    pending.completeError(StateError('cover failed'));
-    await tester.pumpAndSettle();
-    expect(find.byType(Card), findsOneWidget);
-    await tester.tap(find.text('Fixture book'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    final flight = tester.getRect(find.byType(ComicImage).first);
-    expect(flight.width / flight.height, closeTo(2 / 3, 0.001));
-    expectComicCoverFlightRadius();
-    await tester.pumpAndSettle();
-    expect(find.byTooltip('Retry'), findsWidgets);
-    await tester.tap(find.byTooltip('Retry').last);
-    await tester.pumpAndSettle();
-    expect(loads, 2);
-    expectVisibleComicCoverRatio(tester, 180 / 100);
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets(
+    'failed cover keeps its placeholder through page transitions and retries',
+    (tester) async {
+      final pending = Completer<Uint8List>();
+      var loads = 0;
+      await pump(
+        tester,
+        const Scaffold(body: ComicGrid(comics: [_comic])),
+        _Library(),
+        _Source(),
+        loadImage: (_) =>
+            ++loads == 1 ? pending.future : Future.value(_widePng),
+        settle: false,
+      );
+      expect(find.byType(Card), findsOneWidget);
+      expectComicCardHidden(tester);
+      pending.completeError(StateError('cover failed'));
+      await tester.pumpAndSettle();
+      expect(find.byType(Card), findsOneWidget);
+      await tester.tap(find.text('Fixture book'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      final cover = tester.getRect(find.byType(ComicImage).first);
+      expect(cover.width / cover.height, closeTo(2 / 3, 0.001));
+      expectComicCoversAttached();
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Retry'), findsWidgets);
+      await tester.tap(find.byTooltip('Retry').last);
+      await tester.pumpAndSettle();
+      expect(loads, 2);
+      expectVisibleComicCoverRatio(tester, 180 / 100);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'comic detail route hands off both dock parts and restores them on return',

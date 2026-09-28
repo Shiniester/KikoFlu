@@ -431,7 +431,6 @@ class _OfflineWorkDetailScreenState
     return WorkDetailResponsiveLayout(
       coverBuilder: (context, isLandscape) {
         return WorkCoverFrame(
-          heroTag: 'offline_work_cover_${widget.work.id}',
           isLandscape: isLandscape,
           showAgeRating: displaySettings.showAgeRating,
           age: work.age,

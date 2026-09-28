@@ -70,15 +70,12 @@ class _ComicScreenState extends ConsumerState<ComicScreen>
                       key: ValueKey('comic-tab-$i'),
                       child: AnimatedBuilder(
                         animation: _tabs,
-                        builder: (context, child) => HeroMode(
-                          enabled: _tabs.index == i,
-                          child: _ComicCollection(
-                            active: widget.active && _tabs.index == i,
-                            tab: i,
-                            toolbarTop: top + kTextTabBarHeight + 8,
-                            collapsedTop: top,
-                            visible: _visible,
-                          ),
+                        builder: (context, child) => _ComicCollection(
+                          active: widget.active && _tabs.index == i,
+                          tab: i,
+                          toolbarTop: top + kTextTabBarHeight + 8,
+                          collapsedTop: top,
+                          visible: _visible,
                         ),
                       ),
                     ),

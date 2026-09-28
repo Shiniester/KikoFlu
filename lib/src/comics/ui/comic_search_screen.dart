@@ -444,17 +444,11 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                           Expanded(
                             child: Align(
                               alignment: Alignment.topCenter,
-                              child: HeroMode(
-                                enabled: items
-                                    .take(i)
-                                    .every((c) => c.key != items[i].key),
-                                child: ComicCover(
-                                  source: source.key,
-                                  page: items[i].coverPage,
-                                  heroTag: comicCoverHeroTag(items[i]),
-                                  maxWidth: 120,
-                                  maxHeight: 160,
-                                ),
+                              child: ComicCover(
+                                source: source.key,
+                                page: items[i].coverPage,
+                                maxWidth: 120,
+                                maxHeight: 160,
                               ),
                             ),
                           ),

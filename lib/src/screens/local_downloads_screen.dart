@@ -1229,8 +1229,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
               final localCoverPath = DownloadService.instance
                   .localCoverPathForMetadata(snapshot.data!, task.workMetadata);
               if (localCoverPath != null && File(localCoverPath).existsSync()) {
-                return WorkCoverHeroFrame(
-                  heroTag: 'offline_work_cover_$workId',
+                return WorkCoverClip(
                   cornerRadius: cornerRadius,
                   child: PrivacyBlurCover(
                     child: Image.file(
@@ -1255,8 +1254,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
 
     // 降级使用网络封面
     if (work != null && host.isNotEmpty) {
-      return WorkCoverHeroFrame(
-        heroTag: 'offline_work_cover_$workId',
+      return WorkCoverClip(
         cornerRadius: cornerRadius,
         child: PrivacyBlurCover(
           child: CachedNetworkImage(

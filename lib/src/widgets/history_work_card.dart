@@ -65,8 +65,7 @@ class HistoryWorkCard extends ConsumerWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              WorkCoverHeroFrame(
-                heroTag: 'work_cover_${work.id}',
+              WorkCoverClip(
                 cornerRadius: cornerRadius,
                 child: Material(
                   color: Colors.transparent,
