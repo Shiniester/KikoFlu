@@ -1,10 +1,19 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../providers/theme_provider.dart';
+import 'page_transitions.dart';
 
 class AppTheme {
-  // iOS 使用 Cupertino 转场以支持侧滑返回
-  static const _pageTransitionsTheme = PageTransitionsTheme();
+  static const _pageTransitionsTheme = PageTransitionsTheme(
+    builders: {
+      TargetPlatform.android: AppPageTransitionsBuilder(),
+      TargetPlatform.iOS: AppPageTransitionsBuilder(),
+      TargetPlatform.macOS: AppPageTransitionsBuilder(),
+      TargetPlatform.windows: AppPageTransitionsBuilder(),
+      TargetPlatform.linux: AppPageTransitionsBuilder(),
+      TargetPlatform.fuchsia: AppPageTransitionsBuilder(),
+    },
+  );
 
   /// Apple 平台对应语言的原生 CJK 字体。
   ///

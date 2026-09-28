@@ -1,4 +1,5 @@
 import 'package:kikoeru_flutter/src/comics/comic_downloads.dart';
+import 'package:kikoeru_flutter/src/utils/theme.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_widgets.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
@@ -357,6 +358,7 @@ void main() {
     Future<Uint8List> Function(ComicPage)? loadImage,
     bool settle = true,
     bool reduceMotion = false,
+    ThemeData? theme,
   }) async {
     final container = ProviderContainer(
       overrides: [
@@ -393,6 +395,7 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
+          theme: theme,
           builder: (context, child) => MediaQuery(
             data: MediaQuery.of(
               context,
@@ -417,6 +420,43 @@ void main() {
       }
     }
     return container;
+  }
+
+  for (final reduceMotion in [false, true]) {
+    testWidgets(
+      'reader route slides and restores details; reduced motion $reduceMotion',
+      (tester) async {
+        final library = _Library()
+          ..last = ComicProgress(_comic, 'one', 3, DateTime.now());
+        await pump(
+          tester,
+          const ComicDetailScreen(comic: _comic),
+          library,
+          _Source(),
+          theme: AppTheme.lightTheme(null),
+          reduceMotion: reduceMotion,
+        );
+        await tester.tap(find.text('Continue reading'));
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 150));
+        final reader = find.byType(ComicReaderScreen);
+        final route = ModalRoute.of(tester.element(reader))!;
+        expect(route.transitionDuration, const Duration(milliseconds: 300));
+        expect(tester.widget<ComicReaderScreen>(reader).initialPage, 3);
+        expect(
+          tester.getTopLeft(reader).dx,
+          reduceMotion ? 0 : closeTo(800 * (1 - Curves.ease.transform(.5)), .1),
+        );
+        await tester.pumpAndSettle();
+        Navigator.of(tester.element(reader)).pop();
+        await tester.pumpAndSettle();
+        expect(find.byType(ComicReaderScreen), findsNothing);
+        expect(find.byType(ComicDetailScreen), findsOneWidget);
+        expect(library.last?.chapterId, 'one');
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   testWidgets('reader controls do not resize comic pages', (tester) async {

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
+import 'package:kikoeru_flutter/src/utils/theme.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
@@ -115,6 +116,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.lightTheme(null),
         navigatorKey: navigatorKey,
         home: AppBottomDockTransitionScope(
           child: Scaffold(
@@ -165,9 +167,10 @@ void main() {
     await tester.tap(find.text('Open work details'));
     await tester.pump();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 225));
+    await tester.pump(const Duration(milliseconds: 150));
 
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dy, closeTo(743, 0.1));
+    expect(tester.getTopLeft(find.byKey(targetMiniKey)).dx, 0);
     expect(tester.getTopLeft(find.byKey(tabBarKey)).dy, closeTo(815, 0.1));
 
     await tester.pumpAndSettle();
@@ -176,9 +179,10 @@ void main() {
 
     navigatorKey.currentState!.pop();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 225));
+    await tester.pump(const Duration(milliseconds: 150));
 
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dy, closeTo(743, 0.1));
+    expect(tester.getTopLeft(find.byKey(targetMiniKey)).dx, 0);
     expect(tester.getTopLeft(find.byKey(tabBarKey)).dy, closeTo(815, 0.1));
 
     await tester.pumpAndSettle();
@@ -198,6 +202,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.lightTheme(null),
         navigatorKey: navigatorKey,
         home: AppBottomDockTransitionScope(
           child: Scaffold(
@@ -242,9 +247,10 @@ void main() {
     await tester.tap(find.text('Open from main navigation'));
     await tester.pump();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 225));
+    await tester.pump(const Duration(milliseconds: 150));
 
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dy, closeTo(743, 0.1));
+    expect(tester.getTopLeft(find.byKey(targetMiniKey)).dx, 0);
     expect(tester.getTopLeft(find.byType(NavigationBar)).dy, closeTo(815, 0.1));
 
     navigatorKey.currentState!.pop();
@@ -271,6 +277,7 @@ void main() {
           ),
         ),
         child: MaterialApp(
+          theme: AppTheme.lightTheme(null),
           navigatorKey: navigatorKey,
           localizationsDelegates: S.localizationsDelegates,
           supportedLocales: S.supportedLocales,
@@ -402,6 +409,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.lightTheme(null),
         home: AppBottomDockTransitionScope(
           child: Scaffold(
             body: Builder(
@@ -508,6 +516,7 @@ void main() {
       ProviderScope(
         overrides: _playerOverrides(track),
         child: MaterialApp(
+          theme: AppTheme.lightTheme(null),
           navigatorKey: navigatorKey,
           localizationsDelegates: S.localizationsDelegates,
           supportedLocales: S.supportedLocales,
@@ -543,7 +552,7 @@ void main() {
     await tester.tap(find.text('Open from bottom-only page'));
     await tester.pump();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 225));
+    await tester.pump(const Duration(milliseconds: 150));
 
     expect(tester.getTopLeft(miniPlayer).dy, 772);
     expect(
@@ -565,6 +574,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.lightTheme(null),
         home: AppBottomDockTransitionScope(
           child: Scaffold(
             body: Builder(
@@ -603,7 +613,7 @@ void main() {
     await tester.tap(find.text('Open without playback'));
     await tester.pump();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 225));
+    await tester.pump(const Duration(milliseconds: 150));
 
     expect(find.byType(AppBottomDockMiniPlayerHero), findsNothing);
     expect(tester.getTopLeft(find.byType(NavigationBar)).dy, closeTo(815, 0.1));
@@ -621,6 +631,7 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: AppTheme.lightTheme(null),
         home: AppBottomDockTransitionScope(
           child: Scaffold(
             body: Builder(
@@ -697,10 +708,11 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: _playerOverrides(track),
-        child: const MaterialApp(
+        child: MaterialApp(
+          theme: AppTheme.lightTheme(null),
           localizationsDelegates: S.localizationsDelegates,
           supportedLocales: S.supportedLocales,
-          home: GlobalAudioPlayerWrapper.workDetails(
+          home: const GlobalAudioPlayerWrapper.workDetails(
             child: Scaffold(body: Text('Landed work details')),
           ),
         ),
