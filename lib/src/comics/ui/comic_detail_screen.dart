@@ -151,12 +151,19 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
       _readerWindow = MediaQuery.of(context);
       _readerReturning = false;
     });
-    final route = MaterialPageRoute<void>(
-      builder: (_) => ComicReaderScreen(
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 200);
+    final route = PageRouteBuilder<void>(
+      transitionDuration: duration,
+      reverseTransitionDuration: duration,
+      pageBuilder: (_, animation, secondaryAnimation) => ComicReaderScreen(
         comic: comic,
         chapter: chapter!,
         initialPage: progress?.chapterId == chapter.id ? progress!.page : 0,
       ),
+      transitionsBuilder: (_, animation, secondaryAnimation, child) =>
+          FadeTransition(opacity: animation, child: child),
     );
     await Navigator.of(context).push(route);
     await route.completed;

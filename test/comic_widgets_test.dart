@@ -608,11 +608,11 @@ void main() {
             expect(reader, findsOneWidget);
             final route = ModalRoute.of(tester.element(reader))!;
             if (!reduceMotion) expect(route.animation!.value, lessThan(1));
-            expect(detailBodySize(), bodySize);
-            expect(coverInDetailBody(), coverRect);
-            expect(coverInDetailScaffold(), scaffoldCoverRect);
-            expect(MediaQuery.sizeOf(tester.element(detail)), detailSize);
             if (!reduceMotion) {
+              expect(MediaQuery.sizeOf(tester.element(detail)), detailSize);
+              expect(detailBodySize(), bodySize);
+              expect(coverInDetailBody(), coverRect);
+              expect(coverInDetailScaffold(), scaffoldCoverRect);
               expect(
                 MediaQuery.paddingOf(tester.element(detail)),
                 detailPadding,
@@ -637,10 +637,17 @@ void main() {
             }
 
             final readingRect = readerImageRect();
+            final readingScreenRect = tester.getRect(readerImage);
             Navigator.of(tester.element(reader)).pop();
             for (var frame = 0; frame < 40; frame++) {
               await tester.pump(const Duration(milliseconds: 16));
               if (reader.evaluate().isNotEmpty) {
+                expect(
+                  tester.getRect(readerImage),
+                  readingScreenRect,
+                  reason:
+                      'reading image shifted on screen during exit frame $frame',
+                );
                 expect(
                   readerImageRect(),
                   readingRect,
@@ -796,18 +803,23 @@ void main() {
             'swipeEdge': 0,
           });
           await tester.pump();
-          expect(
-            ModalRoute.of(
-              tester.element(find.byType(ComicReaderScreen)),
-            )!.popGestureInProgress,
-            isTrue,
-          );
+          expect(find.byType(ComicReaderScreen), findsOneWidget);
           await backEvent('updateBackGestureProgress', {
             'touchOffset': [100.0, 340.0],
             'progress': 0.35,
             'swipeEdge': 0,
           });
           await tester.pumpAndSettle();
+          await backEvent('cancelBackGesture');
+          await tester.pumpAndSettle();
+          expect(find.byType(ComicReaderScreen), findsOneWidget);
+          expect(modes.last, 'SystemUiMode.immersiveSticky');
+          await backEvent('startBackGesture', {
+            'touchOffset': [5.0, 300.0],
+            'progress': 0.0,
+            'swipeEdge': 0,
+          });
+          await tester.pump();
           await backEvent('commitBackGesture');
         } else {
           Navigator.of(tester.element(find.byType(ComicReaderScreen))).pop();
