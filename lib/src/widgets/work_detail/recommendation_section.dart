@@ -25,30 +25,56 @@ class RecommendationSection extends ConsumerStatefulWidget {
 }
 
 class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
+  bool _activated = false;
+  bool _attempted = false;
+
   @override
-  void initState() {
-    super.initState();
-    // 延迟加载，不阻塞详情页渲染
+  void didUpdateWidget(RecommendationSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.work.id != widget.work.id) {
+      _activated = false;
+      _attempted = false;
+    }
+  }
+
+  void _loadWhenVisible() {
+    if (_attempted) return;
+    _attempted = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final notifier = ref.read(
-        recommendationProvider(widget.work.id).notifier,
-      );
+      if (!mounted) return;
+      if (!ref.read(workDetailDisplayProvider).showRecommendations) {
+        _attempted = false;
+        return;
+      }
       final state = ref.read(recommendationProvider(widget.work.id));
       if (state.recommendations.isEmpty && !state.isLoading) {
-        notifier.loadRecommendations(widget.work);
+        ref
+            .read(recommendationProvider(widget.work.id).notifier)
+            .loadRecommendations(widget.work);
       }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final settings = ref.watch(workDetailDisplayProvider);
-    if (!settings.showRecommendations) {
-      return const SizedBox.shrink();
-    }
-
+    final visible = ref.watch(
+      workDetailDisplayProvider.select((s) => s.showRecommendations),
+    );
+    if (!visible) return const SliverToBoxAdapter(child: SizedBox.shrink());
     final state = ref.watch(recommendationProvider(widget.work.id));
+    return SliverLayoutBuilder(
+      builder: (context, constraints) {
+        if (!_activated && constraints.remainingCacheExtent <= 0) {
+          return const SliverToBoxAdapter(child: SizedBox.shrink());
+        }
+        _activated = true;
+        _loadWhenVisible();
+        return SliverToBoxAdapter(child: _buildContent(context, state));
+      },
+    );
+  }
 
+  Widget _buildContent(BuildContext context, RecommendationState state) {
     // 加载中：显示占位骨架
     if (state.isLoading) {
       return _buildSection(

@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
@@ -23,7 +24,55 @@ Widget _testApp(Widget child) {
   );
 }
 
+class _CountedItems extends ListBase<dynamic> {
+  _CountedItems(this.items);
+  final List<dynamic> items;
+  int reads = 0;
+  @override
+  int get length => items.length;
+  @override
+  set length(int value) => items.length = value;
+  @override
+  dynamic operator [](int index) {
+    reads++;
+    return items[index];
+  }
+
+  @override
+  void operator []=(int index, dynamic value) => items[index] = value;
+}
+
 void main() {
+  testWidgets(
+    'status updates reuse expanded nodes, expansion and data invalidate them',
+    (tester) async {
+      final items = _CountedItems(
+        List.generate(1000, (i) => fileItem('track-$i.mp3')),
+      );
+      final roots = [folderItem('Disc', items)];
+      final expanded = <String>{'Disc'};
+      Widget view(List<dynamic> tree) => _testApp(
+        FileTreeView(
+          items: tree,
+          expandedFolders: expanded,
+          onToggleFolder: (_) {},
+          onFileTap: (_, __, ___) {},
+        ),
+      );
+      await tester.pumpWidget(view(roots));
+      final reads = items.reads;
+      await tester.pumpWidget(view(roots));
+      expect(items.reads, reads);
+      expanded.clear();
+      await tester.pumpWidget(view(roots));
+      expect(find.text('track-0.mp3'), findsNothing);
+      expanded.add('Disc');
+      await tester.pumpWidget(view(roots));
+      expect(find.text('track-0.mp3'), findsOneWidget);
+      await tester.pumpWidget(view([fileItem('replacement.mp3')]));
+      expect(find.text('replacement.mp3'), findsOneWidget);
+    },
+  );
   testWidgets('expanded files only build metadata near the viewport', (
     tester,
   ) async {

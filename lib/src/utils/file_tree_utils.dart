@@ -388,11 +388,12 @@ class FileTreeUtils {
 
   static List<String> collectNames(List<dynamic> items) {
     final names = <String>[];
+    final seen = <String>{};
 
     void collect(List<dynamic> currentItems) {
       for (final item in currentItems) {
         final title = titleOf(item);
-        if (title.isNotEmpty && !names.contains(title)) {
+        if (title.isNotEmpty && seen.add(title)) {
           names.add(title);
         }
 

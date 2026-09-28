@@ -64,6 +64,43 @@ void main() {
       expect(result.score, 0.0);
     });
 
+    test('prepared matcher preserves results and scores', () {
+      const pairs = [
+        ('track01.lrc', 'track01.mp3'),
+        ('track01.mp3.srt', 'track01.mp3'),
+        ('第01話(SEなし).vtt', '第01話.mp3'),
+        ('トラック2.lrc', 'トラック２SEなし.wav'),
+        ('different-name.json', 'track01.mp3'),
+      ];
+
+      for (final (subtitle, audio) in pairs) {
+        final prepared = SubtitleMatcher.checkPrepared(
+          SubtitleMatcher.prepareSubtitle(subtitle),
+          SubtitleMatcher.prepareAudio(audio),
+        );
+        final direct = SubtitleMatcher.check(subtitle, audio);
+
+        expect(prepared.toRecord(), direct.toRecord());
+      }
+    });
+
+    test('keeps exact fuzzy scores on both sides of the threshold', () {
+      for (final (subtitle, score, matches) in [
+        ('abcdefghijklmnopqxyz.srt', 0.85, true),
+        ('abcdefghijklmnopwxyz.srt', 0.8, false),
+      ]) {
+        const audio = 'abcdefghijklmnopqrst.mp3';
+        final direct = SubtitleMatcher.check(subtitle, audio);
+        final prepared = SubtitleMatcher.checkPrepared(
+          SubtitleMatcher.prepareSubtitle(subtitle),
+          SubtitleMatcher.prepareAudio(audio),
+        );
+        expect(direct.score, closeTo(score, 1e-12));
+        expect(direct.isMatch, matches);
+        expect(prepared.toRecord(), direct.toRecord());
+      }
+    });
+
     test('removeAudioExtension keeps non-audio names unchanged', () {
       expect(SubtitleMatcher.removeAudioExtension('track01.mp3'), 'track01');
       expect(

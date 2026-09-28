@@ -10,6 +10,23 @@ class SubtitleMatchResult {
   (bool, double) toRecord() => (isMatch, score);
 }
 
+class PreparedAudioName {
+  const PreparedAudioName({required this.baseName, required this.normalized});
+
+  final String baseName;
+  final String normalized;
+}
+
+class PreparedSubtitleName {
+  const PreparedSubtitleName({
+    required this.baseName,
+    required this.normalized,
+  });
+
+  final String baseName;
+  final String normalized;
+}
+
 class SubtitleMatcher {
   static const _subtitleExtensions = ['.vtt', '.srt', '.txt', '.lrc'];
   static const _audioExtensions = [
@@ -29,32 +46,75 @@ class SubtitleMatcher {
     String subtitleFileName,
     String audioFileName,
   ) {
-    final lowerSubtitle = subtitleFileName.toLowerCase();
-    final lowerAudio = audioFileName.toLowerCase();
-
-    String? subtitleContentName;
-    for (final ext in _subtitleExtensions) {
-      if (lowerSubtitle.endsWith(ext)) {
-        subtitleContentName =
-            lowerSubtitle.substring(0, lowerSubtitle.length - ext.length);
-        break;
-      }
-    }
-
-    if (subtitleContentName == null) {
+    final subtitleBaseName = _subtitleBaseName(subtitleFileName);
+    if (subtitleBaseName == null) {
       return const SubtitleMatchResult(isMatch: false, score: 0.0);
     }
 
-    final audioBaseName = removeAudioExtension(lowerAudio);
-    final subtitleBaseName = removeAudioExtension(subtitleContentName);
-
+    final audioBaseName = removeAudioExtension(audioFileName.toLowerCase());
     if (audioBaseName == subtitleBaseName) {
       return const SubtitleMatchResult(isMatch: true, score: 1.0);
     }
 
-    final normalizedAudio = normalizeForMatching(audioBaseName);
-    final normalizedSubtitle = normalizeForMatching(subtitleBaseName);
+    return _checkNormalized(
+      normalizeForMatching(subtitleBaseName),
+      normalizeForMatching(audioBaseName),
+    );
+  }
 
+  static PreparedAudioName prepareAudio(String audioFileName) {
+    final audioBaseName = removeAudioExtension(audioFileName.toLowerCase());
+    return PreparedAudioName(
+      baseName: audioBaseName,
+      normalized: normalizeForMatching(audioBaseName),
+    );
+  }
+
+  static PreparedSubtitleName? prepareSubtitle(String subtitleFileName) {
+    final subtitleBaseName = _subtitleBaseName(subtitleFileName);
+    if (subtitleBaseName == null) return null;
+    return PreparedSubtitleName(
+      baseName: subtitleBaseName,
+      normalized: normalizeForMatching(subtitleBaseName),
+    );
+  }
+
+  static String? _subtitleBaseName(String subtitleFileName) {
+    final lowerSubtitle = subtitleFileName.toLowerCase();
+    String? subtitleContentName;
+    for (final ext in _subtitleExtensions) {
+      if (lowerSubtitle.endsWith(ext)) {
+        subtitleContentName = lowerSubtitle.substring(
+          0,
+          lowerSubtitle.length - ext.length,
+        );
+        break;
+      }
+    }
+
+    if (subtitleContentName == null) return null;
+    return removeAudioExtension(subtitleContentName);
+  }
+
+  static SubtitleMatchResult checkPrepared(
+    PreparedSubtitleName? subtitle,
+    PreparedAudioName audio,
+  ) {
+    if (subtitle == null) {
+      return const SubtitleMatchResult(isMatch: false, score: 0.0);
+    }
+
+    if (audio.baseName == subtitle.baseName) {
+      return const SubtitleMatchResult(isMatch: true, score: 1.0);
+    }
+
+    return _checkNormalized(subtitle.normalized, audio.normalized);
+  }
+
+  static SubtitleMatchResult _checkNormalized(
+    String normalizedSubtitle,
+    String normalizedAudio,
+  ) {
     if (normalizedAudio.isEmpty || normalizedSubtitle.isEmpty) {
       return const SubtitleMatchResult(isMatch: false, score: 0.0);
     }
@@ -63,8 +123,10 @@ class SubtitleMatcher {
       return const SubtitleMatchResult(isMatch: true, score: 1.0);
     }
 
-    final similarity =
-        _calculateSimilarity(normalizedAudio, normalizedSubtitle);
+    final similarity = _calculateSimilarity(
+      normalizedAudio,
+      normalizedSubtitle,
+    );
     final threshold = normalizedAudio.length < 10 ? 0.9 : 0.85;
 
     return SubtitleMatchResult(
@@ -171,8 +233,12 @@ class SubtitleMatcher {
 
       for (var j = 0; j < s2.length; j++) {
         final cost = s1.codeUnitAt(i) == s2.codeUnitAt(j) ? 0 : 1;
-        v1[j + 1] = [v1[j] + 1, v0[j + 1] + 1, v0[j] + cost]
-            .reduce((curr, next) => curr < next ? curr : next);
+        final deletion = v1[j] + 1;
+        final insertion = v0[j + 1] + 1;
+        final substitution = v0[j] + cost;
+        v1[j + 1] = deletion < insertion
+            ? (deletion < substitution ? deletion : substitution)
+            : (insertion < substitution ? insertion : substitution);
       }
 
       for (var j = 0; j <= s2.length; j++) {

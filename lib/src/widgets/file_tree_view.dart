@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/services.dart';
 
 import '../../l10n/app_localizations.dart';
@@ -40,7 +41,7 @@ class FileTreeEntry {
   final int level;
 }
 
-class FileTreeView extends StatelessWidget {
+class FileTreeView extends StatefulWidget {
   const FileTreeView({
     super.key,
     required this.items,
@@ -71,25 +72,52 @@ class FileTreeView extends StatelessWidget {
   final bool fadeDownloadedItems;
 
   @override
-  Widget build(BuildContext context) {
-    final visible = <({dynamic item, String parent, int level})>[];
+  State<FileTreeView> createState() => _FileTreeViewState();
+}
+
+class _FileTreeViewState extends State<FileTreeView> {
+  final _visible = <({dynamic item, String parent, int level})>[];
+  Set<String> _expanded = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _collectVisible();
+  }
+
+  @override
+  void didUpdateWidget(FileTreeView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(widget.items, oldWidget.items) ||
+        !setEquals(_expanded, widget.expandedFolders)) {
+      _collectVisible();
+    }
+  }
+
+  void _collectVisible() {
+    _expanded = Set.of(widget.expandedFolders);
+    _visible.clear();
     void collect(List<dynamic> items, String parent, int level) {
       for (final item in items) {
-        visible.add((item: item, parent: parent, level: level));
+        _visible.add((item: item, parent: parent, level: level));
         if (!FileTreeUtils.isFolder(item)) continue;
         final path = FileTreeUtils.itemPath(parent, item);
         final children = FileTreeUtils.childrenOf(item);
-        if (expandedFolders.contains(path) && children != null) {
+        if (_expanded.contains(path) && children != null) {
           collect(children, path, level + 1);
         }
       }
     }
 
-    collect(items, '', 0);
+    collect(widget.items, '', 0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return SliverList.builder(
-      itemCount: visible.length,
+      itemCount: _visible.length,
       itemBuilder: (context, index) {
-        final node = visible[index];
+        final node = _visible[index];
         final item = node.item;
         final originalTitle = FileTreeUtils.titleOf(
           item,
@@ -101,25 +129,26 @@ class FileTreeView extends StatelessWidget {
           parentPath: node.parent,
           itemPath: itemPath,
           originalTitle: originalTitle,
-          displayTitle: displayNameFor?.call(originalTitle) ?? originalTitle,
+          displayTitle:
+              widget.displayNameFor?.call(originalTitle) ?? originalTitle,
           isFolder: FileTreeUtils.isFolder(item),
-          isExpanded: expandedFolders.contains(itemPath),
+          isExpanded: widget.expandedFolders.contains(itemPath),
           children: FileTreeUtils.childrenOf(item),
           level: node.level,
         );
         return _FileTreeRow(
           entry: entry,
-          metadata: metadataBuilder?.call(context, entry),
-          trailing: trailingBuilder?.call(context, entry),
+          metadata: widget.metadataBuilder?.call(context, entry),
+          trailing: widget.trailingBuilder?.call(context, entry),
           downloaded: _isDownloaded(entry),
-          showDownloadedBadge: showDownloadedBadge,
-          fadeDownloadedItems: fadeDownloadedItems,
-          hasLibrarySubtitle: audioWithLibrarySubtitles.contains(
+          showDownloadedBadge: widget.showDownloadedBadge,
+          fadeDownloadedItems: widget.fadeDownloadedItems,
+          hasLibrarySubtitle: widget.audioWithLibrarySubtitles.contains(
             entry.originalTitle,
           ),
-          onToggleFolder: onToggleFolder,
-          onFileTap: onFileTap,
-          onFileLongPress: onFileLongPress,
+          onToggleFolder: widget.onToggleFolder,
+          onFileTap: widget.onFileTap,
+          onFileLongPress: widget.onFileLongPress,
         );
       },
     );
@@ -129,7 +158,7 @@ class FileTreeView extends StatelessWidget {
     if (entry.isFolder) return false;
 
     final hash = FileTreeUtils.property(entry.item, 'hash')?.toString();
-    return hash != null && (downloadedFiles[hash] ?? false);
+    return hash != null && (widget.downloadedFiles[hash] ?? false);
   }
 }
 

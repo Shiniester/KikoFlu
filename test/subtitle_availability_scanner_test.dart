@@ -73,6 +73,7 @@ void main() {
         final tree = [
           folderItem('Main', [
             fileItem('track01.flac'),
+            folderItem('Mirror', [fileItem('track01.flac')]),
             fileItem('track02.wav'),
           ]),
         ];

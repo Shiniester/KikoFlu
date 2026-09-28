@@ -143,6 +143,25 @@ void main() {
       );
     });
 
+    test(
+      'collectNames preserves first occurrence and drops duplicate titles',
+      () {
+        final tree = [
+          fileItem('track01.mp3'),
+          folderItem('Disc 2', [
+            fileItem('track01.mp3'),
+            fileItem('track02.mp3'),
+          ]),
+        ];
+
+        expect(FileTreeUtils.collectNames(tree), [
+          'track01.mp3',
+          'Disc 2',
+          'track02.mp3',
+        ]);
+      },
+    );
+
     test('finds nested relative path by hash', () {
       final tree = [
         {

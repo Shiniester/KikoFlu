@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import '../utils/file_tree_utils.dart';
 import 'subtitle_library_service.dart';
+import 'subtitle_matching.dart';
 
 class SubtitleAvailabilityScanner {
   const SubtitleAvailabilityScanner();
@@ -17,8 +18,13 @@ class SubtitleAvailabilityScanner {
       return {};
     }
 
-    final audioTitles = collectAudioTitles(fileTree);
-    if (audioTitles.isEmpty) {
+    final unmatchedAudio = collectAudioTitles(fileTree)
+        .map(
+          (title) =>
+              (title: title, prepared: SubtitleMatcher.prepareAudio(title)),
+        )
+        .toList();
+    if (unmatchedAudio.isEmpty) {
       return {};
     }
 
@@ -35,12 +41,20 @@ class SubtitleAvailabilityScanner {
       await for (final entity in folder.list(recursive: true)) {
         if (entity is! File) continue;
 
-        final fileName = p.basename(entity.path);
-        for (final audioTitle in audioTitles) {
-          if (SubtitleLibraryService.isSubtitleForAudio(fileName, audioTitle)) {
-            matchedAudioTitles.add(audioTitle);
+        final subtitle = SubtitleMatcher.prepareSubtitle(
+          p.basename(entity.path),
+        );
+        if (subtitle == null) continue;
+
+        for (var index = unmatchedAudio.length - 1; index >= 0; index--) {
+          final audio = unmatchedAudio[index];
+          if (SubtitleMatcher.checkPrepared(subtitle, audio.prepared).isMatch) {
+            matchedAudioTitles.add(audio.title);
+            unmatchedAudio.removeAt(index);
           }
         }
+
+        if (unmatchedAudio.isEmpty) return matchedAudioTitles;
       }
     }
 

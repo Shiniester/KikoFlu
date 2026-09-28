@@ -75,15 +75,24 @@ class FileExplorerController {
 
 class FileExplorerWidget extends ConsumerStatefulWidget {
   final Work work;
+  final Work Function()? currentWork;
+  final VoidCallback? onLoadCompleted;
   final FileExplorerController? controller;
 
-  const FileExplorerWidget({super.key, required this.work, this.controller});
+  const FileExplorerWidget({
+    super.key,
+    required this.work,
+    this.currentWork,
+    this.onLoadCompleted,
+    this.controller,
+  });
 
   @override
   ConsumerState<FileExplorerWidget> createState() => _FileExplorerWidgetState();
 }
 
 class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
+  Work get _work => widget.currentWork?.call() ?? widget.work;
   List<dynamic> _rootFiles = [];
   final Set<String> _expandedFolders = {}; // 记录展开的文件夹路径
   final Map<String, bool> _downloadedFiles = {}; // hash -> downloaded
@@ -168,8 +177,8 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     ) {
       final isReset = change.type == DownloadTaskChangeType.reset;
       final affectsCurrentWork =
-          change.task?.workId == widget.work.id ||
-          change.previousTask?.workId == widget.work.id;
+          change.task?.workId == _work.id ||
+          change.previousTask?.workId == _work.id;
       final statusChanged = change.previousTask?.status != change.task?.status;
       if (isReset ||
           (affectsCurrentWork && (change.isStructural || statusChanged))) {
@@ -192,7 +201,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     try {
       final apiService = ref.read(kikoeruApiServiceProvider);
       final files = await apiService.getWorkTracks(
-        widget.work.id,
+        _work.id,
         forceRefresh: forceRefresh,
       );
       if (!_isCurrentLoad(generation)) return;
@@ -226,6 +235,8 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
         _isLoading = false;
       });
       if (propagateError) rethrow;
+    } finally {
+      if (_isCurrentLoad(generation)) widget.onLoadCompleted?.call();
     }
   }
 
@@ -239,7 +250,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
         _downloadScanRequested = false;
         final generation = _loadGeneration;
         final result = await _downloadedFileScanner.scan(
-          workId: widget.work.id,
+          workId: _work.id,
           fileTree: _rootFiles,
           fileRelativePaths: _fileRelativePaths,
         );
@@ -261,7 +272,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   Future<void> _checkLibrarySubtitles(int generation) async {
     try {
       final matches = await _subtitleMatchLoader.loadMatches(
-        workId: widget.work.id,
+        workId: _work.id,
         fileTree: _rootFiles,
       );
       if (!_isCurrentLoad(generation)) return;
@@ -323,18 +334,18 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     final token = authState.token ?? '';
     final coverUrl = host.isEmpty
         ? null
-        : widget.work.getCoverImageUrl(host, token: token);
+        : _work.getCoverImageUrl(host, token: token);
     final title = FileTreeUtils.titleOf(audioFile, defaultValue: l10n.unknown);
 
     // 获取当前作品的完整文件树（用于字幕查找）
     try {
       final apiService = ref.read(kikoeruApiServiceProvider);
-      final allFiles = await apiService.getWorkTracks(widget.work.id);
+      final allFiles = await apiService.getWorkTracks(_work.id);
 
       // 只在播放音频时更新全局文件列表，这样字幕才能正确关联
       ref
           .read(fileListControllerProvider.notifier)
-          .updateFiles(allFiles, workId: widget.work.id);
+          .updateFiles(allFiles, workId: _work.id);
     } catch (e) {
       _log.captureOutput('获取完整文件树失败 $e');
       // 即使获取失败也继续播放，只是可能没有字幕
@@ -352,13 +363,13 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       selectedFile: audioFile,
       resolveUrl: (file) => _audioUrlResolver.resolveOnline(
         file: file,
-        workId: widget.work.id,
+        workId: _work.id,
         host: host,
         token: token,
         downloadedFiles: _downloadedFiles,
         fileRelativePaths: _fileRelativePaths,
       ),
-      work: widget.work,
+      work: _work,
       unknownTitle: l10n.unknown,
       artworkUrl: coverUrl,
       playlistMode: playlistMode,
@@ -392,7 +403,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
               .playTracks(
                 queue.tracks,
                 startIndex: queue.startIndex,
-                work: widget.work,
+                work: _work,
                 playlistMode: playlistMode,
               );
           if (mounted && playlistMode != AudioTapPlaylistMode.replaceQueue) {
@@ -453,18 +464,18 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       return;
     }
 
-    final workMetadata = Map<String, dynamic>.from(widget.work.toJson());
+    final workMetadata = Map<String, dynamic>.from(_work.toJson());
     final annotatedTree =
         DownloadFilePathService.annotateFileTreeWithLocalPaths(_rootFiles);
     if (annotatedTree.isNotEmpty) workMetadata['children'] = annotatedTree;
     final size = FileTreeUtils.property(file, 'size');
     final coverUrl = host.isEmpty
         ? null
-        : widget.work.getCoverImageUrl(host, token: token);
+        : _work.getCoverImageUrl(host, token: token);
     try {
       await DownloadService.instance.addTask(
-        workId: widget.work.id,
-        workTitle: widget.work.title,
+        workId: _work.id,
+        workTitle: _work.title,
         fileName: title,
         relativePath: parentPath,
         downloadUrl: downloadUrl,
@@ -588,7 +599,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     await runManualSubtitleLoadFlow(
       context,
       file: file,
-      workId: widget.work.id,
+      workId: _work.id,
       subtitleTitle: title,
       currentAudioTitle: currentTrack?.title,
       loadSubtitle: (file, {required workId}) {
@@ -611,7 +622,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     final result = await _previewResolver.buildOnlineImageGalleryTarget(
       selectedFile: file,
       imageFiles: _getImageFilesFromCurrentDirectory(),
-      workId: widget.work.id,
+      workId: _work.id,
       host: host,
       token: token,
       downloadedFiles: _downloadedFiles,
@@ -664,7 +675,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     final l10n = S.of(context);
     final result = await _previewResolver.resolveOnlineDocumentTarget(
       file: file,
-      workId: widget.work.id,
+      workId: _work.id,
       host: host,
       token: token,
       downloadedFiles: _downloadedFiles,
@@ -684,7 +695,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
                 return PdfPreviewScreen(
                   pdfUrl: target.url,
                   title: target.title,
-                  workId: widget.work.id,
+                  workId: _work.id,
                   hash: target.hash,
                 );
               }
@@ -692,7 +703,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
               return TextPreviewScreen(
                 textUrl: target.url,
                 title: target.title,
-                workId: widget.work.id,
+                workId: _work.id,
                 hash: target.hash,
               );
             },
@@ -723,7 +734,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
 
     final targetResult = await _previewResolver.resolveOnlineVideoTarget(
       file: videoFile,
-      workId: widget.work.id,
+      workId: _work.id,
       host: host,
       token: token,
       downloadedFiles: _downloadedFiles,
