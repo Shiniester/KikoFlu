@@ -52,36 +52,45 @@ class FileExplorerTreePanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FileExplorerStatusView(
-      isLoading: isLoading,
-      errorMessage: errorMessage,
-      empty: empty,
-      emptyMessage: emptyMessage,
-      onRetry: onRetry,
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            FileExplorerHeader(title: title, trailing: trailing),
-            if (progressMessage != null && progressMessage!.isNotEmpty)
-              FileExplorerProgressBanner(message: progressMessage!),
-            FileTreeView(
-              items: items,
-              expandedFolders: expandedFolders,
-              onToggleFolder: onToggleFolder,
-              onFileTap: onFileTap,
-              onFileLongPress: onFileLongPress,
-              displayNameFor: displayNameFor,
-              metadataBuilder: metadataBuilder,
-              trailingBuilder: trailingBuilder,
-              downloadedFiles: downloadedFiles,
-              audioWithLibrarySubtitles: audioWithLibrarySubtitles,
-              showDownloadedBadge: showDownloadedBadge,
-              fadeDownloadedItems: fadeDownloadedItems,
-            ),
-          ],
+    if (isLoading || errorMessage != null || empty) {
+      return SliverToBoxAdapter(
+        child: FileExplorerStatusView(
+          isLoading: isLoading,
+          errorMessage: errorMessage,
+          empty: empty,
+          emptyMessage: emptyMessage,
+          onRetry: onRetry,
+          child: const SizedBox.shrink(),
         ),
-      ),
+      );
+    }
+    return SliverMainAxisGroup(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              FileExplorerHeader(title: title, trailing: trailing),
+              if (progressMessage != null && progressMessage!.isNotEmpty)
+                FileExplorerProgressBanner(message: progressMessage!),
+            ],
+          ),
+        ),
+        FileTreeView(
+          items: items,
+          expandedFolders: expandedFolders,
+          onToggleFolder: onToggleFolder,
+          onFileTap: onFileTap,
+          onFileLongPress: onFileLongPress,
+          displayNameFor: displayNameFor,
+          metadataBuilder: metadataBuilder,
+          trailingBuilder: trailingBuilder,
+          downloadedFiles: downloadedFiles,
+          audioWithLibrarySubtitles: audioWithLibrarySubtitles,
+          showDownloadedBadge: showDownloadedBadge,
+          fadeDownloadedItems: fadeDownloadedItems,
+        ),
+      ],
     );
   }
 }

@@ -36,16 +36,10 @@ class DownloadedFileStateScanner {
   Future<DownloadedFileState> scan({
     required int workId,
     required List<dynamic> fileTree,
+    Map<String, String>? fileRelativePaths,
   }) async {
-    final downloadedFiles = <String, bool>{};
-    final fileRelativePaths = <String, String>{};
-
-    _collectFilePaths(
-      fileTree,
-      '',
-      downloadedFiles: downloadedFiles,
-      fileRelativePaths: fileRelativePaths,
-    );
+    final paths = fileRelativePaths ?? collectFilePaths(fileTree);
+    final downloadedFiles = {for (final hash in paths.keys) hash: false};
 
     final rootPath = await downloadRootPath();
 
@@ -56,7 +50,7 @@ class DownloadedFileStateScanner {
         continue;
       }
 
-      final relativePath = fileRelativePaths[hash];
+      final relativePath = paths[hash];
       if (relativePath == null) continue;
 
       final localPath = DownloadFilePathService.localPathForWorkRelativePath(
@@ -72,14 +66,19 @@ class DownloadedFileStateScanner {
 
     return DownloadedFileState(
       downloadedFiles: downloadedFiles,
-      fileRelativePaths: fileRelativePaths,
+      fileRelativePaths: paths,
     );
+  }
+
+  static Map<String, String> collectFilePaths(List<dynamic> fileTree) {
+    final paths = <String, String>{};
+    _collectFilePaths(fileTree, '', fileRelativePaths: paths);
+    return paths;
   }
 
   static void _collectFilePaths(
     List<dynamic> items,
     String parentPath, {
-    required Map<String, bool> downloadedFiles,
     required Map<String, String> fileRelativePaths,
   }) {
     for (final item in items) {
@@ -87,7 +86,6 @@ class DownloadedFileStateScanner {
       final hash = FileTreeUtils.property(item, 'hash')?.toString();
 
       if (!isFolder && hash != null) {
-        downloadedFiles[hash] = false;
         fileRelativePaths[hash] = FileTreeUtils.localRelativePathOf(
           item,
           parentPath,
@@ -103,7 +101,6 @@ class DownloadedFileStateScanner {
       _collectFilePaths(
         children,
         nextPath,
-        downloadedFiles: downloadedFiles,
         fileRelativePaths: fileRelativePaths,
       );
     }

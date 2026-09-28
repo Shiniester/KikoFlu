@@ -10,8 +10,8 @@ The Main Screen owns a Bottom Dock containing the Mini Player and App Tab Bar, w
 
 ## Decision
 
-All online and offline Work Details navigation goes through `pushWorkDetailRoute`. The entry temporarily arms the source Bottom Dock for the lifetime of the route and uses two route-level Hero channels driven by the route animation: one hands off the complete Mini Player, and one moves the App Tab Bar to an equal-size endpoint below the viewport. Work Details screens expose matching endpoints, while pages that already contain only a Mini Player keep its rectangle unchanged. The Mini Player disables its full-player artwork Hero during this handoff and restores that Hero only while opening the full player.
+All online and offline Work Details navigation goes through `pushWorkDetailRoute`, which delegates to `pushBottomDockRoute`. Other pages that retain the Mini Player, including search results, comic categories and comic downloads, use `pushBottomDockRoute` directly. The entry temporarily arms the source Bottom Dock for the lifetime of the route and uses two route-level Hero channels driven by the route animation: one hands off the complete Mini Player, and one moves the App Tab Bar to an equal-size endpoint below the viewport. Work Details screens and `GlobalAudioPlayerWrapper` pages receiving handoff metrics expose matching endpoints, while pages that already contain only a Mini Player keep its rectangle unchanged. The Mini Player disables its full-player artwork Hero during this handoff and restores that Hero only while opening the full player.
 
 ## Consequences
 
-New Work Details entry points must use the centralized navigation function. Ordinary routes, landscape NavigationRail layouts, and the platform page transition remain independent of the Bottom Dock handoff.
+New entry points to pages retaining the Mini Player must use the centralized navigation functions, with a context below the source Dock scope. Routes without a Mini Player, landscape NavigationRail layouts, and the platform page transition remain independent of the Bottom Dock handoff.

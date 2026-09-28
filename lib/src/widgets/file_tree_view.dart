@@ -72,37 +72,42 @@ class FileTreeView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(children: _buildEntries(context, items, '', level: 0));
-  }
+    final visible = <({dynamic item, String parent, int level})>[];
+    void collect(List<dynamic> items, String parent, int level) {
+      for (final item in items) {
+        visible.add((item: item, parent: parent, level: level));
+        if (!FileTreeUtils.isFolder(item)) continue;
+        final path = FileTreeUtils.itemPath(parent, item);
+        final children = FileTreeUtils.childrenOf(item);
+        if (expandedFolders.contains(path) && children != null) {
+          collect(children, path, level + 1);
+        }
+      }
+    }
 
-  List<Widget> _buildEntries(
-    BuildContext context,
-    List<dynamic> currentItems,
-    String parentPath, {
-    required int level,
-  }) {
-    final widgets = <Widget>[];
-
-    for (final item in currentItems) {
-      final originalTitle = FileTreeUtils.titleOf(
-        item,
-        defaultValue: S.of(context).unknown,
-      );
-      final itemPath = FileTreeUtils.itemPath(parentPath, item);
-      final entry = FileTreeEntry(
-        item: item,
-        parentPath: parentPath,
-        itemPath: itemPath,
-        originalTitle: originalTitle,
-        displayTitle: displayNameFor?.call(originalTitle) ?? originalTitle,
-        isFolder: FileTreeUtils.isFolder(item),
-        isExpanded: expandedFolders.contains(itemPath),
-        children: FileTreeUtils.childrenOf(item),
-        level: level,
-      );
-
-      widgets.add(
-        _FileTreeRow(
+    collect(items, '', 0);
+    return SliverList.builder(
+      itemCount: visible.length,
+      itemBuilder: (context, index) {
+        final node = visible[index];
+        final item = node.item;
+        final originalTitle = FileTreeUtils.titleOf(
+          item,
+          defaultValue: S.of(context).unknown,
+        );
+        final itemPath = FileTreeUtils.itemPath(node.parent, item);
+        final entry = FileTreeEntry(
+          item: item,
+          parentPath: node.parent,
+          itemPath: itemPath,
+          originalTitle: originalTitle,
+          displayTitle: displayNameFor?.call(originalTitle) ?? originalTitle,
+          isFolder: FileTreeUtils.isFolder(item),
+          isExpanded: expandedFolders.contains(itemPath),
+          children: FileTreeUtils.childrenOf(item),
+          level: node.level,
+        );
+        return _FileTreeRow(
           entry: entry,
           metadata: metadataBuilder?.call(context, entry),
           trailing: trailingBuilder?.call(context, entry),
@@ -115,21 +120,9 @@ class FileTreeView extends StatelessWidget {
           onToggleFolder: onToggleFolder,
           onFileTap: onFileTap,
           onFileLongPress: onFileLongPress,
-        ),
-      );
-
-      final children = entry.children;
-      if (entry.isFolder &&
-          entry.isExpanded &&
-          children != null &&
-          children.isNotEmpty) {
-        widgets.addAll(
-          _buildEntries(context, children, itemPath, level: level + 1),
         );
-      }
-    }
-
-    return widgets;
+      },
+    );
   }
 
   bool _isDownloaded(FileTreeEntry entry) {

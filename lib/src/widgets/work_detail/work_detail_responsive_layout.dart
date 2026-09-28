@@ -7,12 +7,12 @@ class WorkDetailResponsiveLayout extends StatelessWidget {
   const WorkDetailResponsiveLayout({
     super.key,
     required this.coverBuilder,
-    required this.info,
+    required this.infoSliver,
     this.onRefresh,
   });
 
   final WorkDetailCoverBuilder coverBuilder;
-  final Widget info;
+  final Widget infoSliver;
   final RefreshCallback? onRefresh;
 
   @override
@@ -26,25 +26,21 @@ class WorkDetailResponsiveLayout extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(flex: 2, child: Center(child: cover)),
-          Expanded(flex: 3, child: _buildScrollable(context, info)),
+          Expanded(flex: 3, child: _buildScrollable(context, [infoSliver])),
         ],
       );
     }
 
-    return _buildScrollable(
-      context,
-      Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [cover, info],
-      ),
-    );
+    return _buildScrollable(context, [
+      SliverToBoxAdapter(child: cover),
+      infoSliver,
+    ]);
   }
 
-  Widget _buildScrollable(BuildContext context, Widget child) {
-    final scrollable = SingleChildScrollView(
-      padding: EdgeInsets.zero,
+  Widget _buildScrollable(BuildContext context, List<Widget> slivers) {
+    final scrollable = CustomScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
-      child: child,
+      slivers: slivers,
     );
 
     if (onRefresh == null) return scrollable;

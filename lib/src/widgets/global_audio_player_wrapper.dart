@@ -39,7 +39,8 @@ class _GlobalAudioPlayerWrapperState
   Widget build(BuildContext context) {
     final currentTrack = ref.watch(currentTrackProvider);
     final isWorkDetailsTarget =
-        widget.bottomDockRole == AppBottomDockRole.workDetailsTarget;
+        widget.bottomDockRole == AppBottomDockRole.workDetailsTarget ||
+        AppBottomDockTransitionScope.handoffBottomInsetOf(context) != null;
 
     final rawMiniPlayer = currentTrack.when(
       data: (track) => track != null

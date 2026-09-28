@@ -60,6 +60,50 @@ Future<void> _backEvent(
 );
 
 void main() {
+  testWidgets('page translation reuses static layout and paint', (
+    tester,
+  ) async {
+    final navigator = await _app(tester);
+    var builds = 0;
+    var layouts = 0;
+    var paints = 0;
+    navigator.currentState!.push(
+      MaterialPageRoute<void>(
+        builder: (_) => Builder(
+          builder: (_) {
+            builds++;
+            return LayoutBuilder(
+              builder: (_, __) {
+                layouts++;
+                return CustomPaint(
+                  painter: _PaintProbe(() => paints++),
+                  child: const SizedBox.expand(),
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    final initial = (builds, layouts, paints);
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect((builds, layouts, paints), initial);
+    await tester.pumpAndSettle();
+    navigator.currentState!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    final returning = (builds, layouts, paints);
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect((builds, layouts, paints), returning);
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('300ms push and pop move only the top page with ease', (
     tester,
   ) async {
@@ -273,4 +317,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(target), findsNothing);
   });
+}
+
+class _PaintProbe extends CustomPainter {
+  _PaintProbe(this.onPaint);
+  final VoidCallback onPaint;
+  @override
+  void paint(Canvas canvas, Size size) {
+    onPaint();
+    canvas.drawRect(Offset.zero & size, Paint()..color = Colors.blue);
+  }
+
+  @override
+  bool shouldRepaint(covariant _PaintProbe oldDelegate) => false;
 }

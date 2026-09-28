@@ -1,3 +1,11 @@
+import 'package:dio/dio.dart';
+import 'package:kikoeru_flutter/src/models/work.dart';
+import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
+import 'package:kikoeru_flutter/src/providers/subtitle_library_provider.dart';
+import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+    show KikoeruApiService;
+import 'package:kikoeru_flutter/src/screens/search_result_screen.dart';
+import 'package:kikoeru_flutter/src/widgets/enhanced_work_card.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -97,6 +105,31 @@ double _settledDockGap(WidgetTester tester) {
   return icon.top - mini.bottom;
 }
 
+class _TagApi extends KikoeruApiService {
+  @override
+  Future<Map<String, dynamic>> getWorksByTag({
+    required int tagId,
+    int page = 1,
+    int pageSize = 40,
+    String? order,
+    String? sort,
+    int? subtitle,
+    int? seed,
+    CancelToken? cancelToken,
+  }) async => {'works': []};
+}
+
+class _TagAuth extends AuthNotifier {
+  _TagAuth() : super(_TagApi()) {
+    state = const AuthState();
+  }
+}
+
+class _NoSubtitles extends SubtitleLibraryNotifier {
+  @override
+  Future<void> refresh() async {}
+}
+
 void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
@@ -104,6 +137,114 @@ void main() {
       preferences: await SharedPreferences.getInstance(),
     );
   });
+  for (final isList in [false, true]) {
+    testWidgets('audio tag keeps Dock vertical in list layout $isList', (
+      tester,
+    ) async {
+      _configurePhoneViewport(tester);
+      const track = AudioTrack(
+        id: 'tag-track',
+        title: 'Audio',
+        url: 'https://example.invalid/audio.mp3',
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            ..._playerOverrides(track),
+            authProvider.overrideWith((ref) => _TagAuth()),
+            kikoeruApiServiceProvider.overrideWithValue(_TagApi()),
+            subtitleLibraryProvider.overrideWith((ref) => _NoSubtitles()),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.lightTheme(null),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: AppBottomDockTransitionScope(
+              child: Scaffold(
+                body: SingleChildScrollView(
+                  child: EnhancedWorkCard(
+                    work: const Work(
+                      id: 1,
+                      title: 'Tagged work',
+                      tags: [Tag(id: 999999, name: 'Navigation tag')],
+                    ),
+                    crossAxisCount: 1,
+                    isListLayout: isList,
+                  ),
+                ),
+                bottomNavigationBar: AppBottomDock(
+                  selectedIndex: 0,
+                  onDestinationSelected: (_) {},
+                  miniPlayer: const MiniPlayer(),
+                  destinations: const [
+                    NavigationDestination(
+                      icon: Icon(Icons.library_music),
+                      label: 'Audio',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.menu_book),
+                      label: 'Comics',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.settings),
+                      label: 'Settings',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final sourceRect = tester.getRect(find.byType(MiniPlayer));
+      await tester.ensureVisible(find.text('Navigation tag'));
+      await tester.tap(find.text('Navigation tag'));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      final flight = _dockFlightRect(tester);
+      expect(flight.left, sourceRect.left);
+      expect(flight.width, sourceRect.width);
+      expect(flight.bottom, greaterThan(sourceRect.bottom));
+      expect(flight.bottom, lessThan(844));
+      expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('player-artwork-flight-frame')),
+        findsNothing,
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(SearchResultScreen), findsOneWidget);
+      final navigator = Navigator.of(
+        tester.element(find.byType(SearchResultScreen)),
+      );
+      await tester.tap(find.byKey(const ValueKey('mini-player-artwork-frame')));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(
+        find.byKey(const ValueKey('player-artwork-flight-frame')),
+        findsOneWidget,
+      );
+      await tester.pumpAndSettle();
+      navigator.pop();
+      await tester.pumpAndSettle();
+      Navigator.of(tester.element(find.byType(SearchResultScreen))).pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(_dockFlightRect(tester), flight);
+      expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('player-artwork-flight-frame')),
+        findsNothing,
+      );
+      await tester.pumpAndSettle();
+      expect(tester.getRect(find.byType(MiniPlayer)), sourceRect);
+      expect(tester.takeException(), isNull);
+      debugDefaultTargetPlatformOverride = null;
+    });
+  }
+
   testWidgets('main bottom dock moves together into work details', (
     tester,
   ) async {

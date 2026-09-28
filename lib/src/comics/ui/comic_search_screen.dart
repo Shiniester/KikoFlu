@@ -1,3 +1,4 @@
+import '../../widgets/app_bottom_dock_transition.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/app_localizations.dart';
@@ -399,11 +400,12 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ListTile(
-            title: Text(source.name),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
+          Builder(
+            builder: (context) => ListTile(
+              title: Text(source.name),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => pushBottomDockRoute(
+                context,
                 builder: (_) => ComicSearchScreen(
                   initialSource: source.key,
                   initialQuery: _query.text,
@@ -728,12 +730,11 @@ class _ComicCategoryScreenState extends ConsumerState<ComicCategoryScreen> {
                 ListTile(
                   title: Text(category.title),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => ComicSearchScreen(
-                        initialSource: widget.sourceKey,
-                        category: category,
-                      ),
+                  onTap: () => pushBottomDockRoute(
+                    context,
+                    builder: (_) => ComicSearchScreen(
+                      initialSource: widget.sourceKey,
+                      category: category,
                     ),
                   ),
                 ),

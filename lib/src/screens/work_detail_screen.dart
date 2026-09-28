@@ -58,8 +58,7 @@ class WorkDetailScreen extends ConsumerStatefulWidget {
 class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   Work? _detailedWork;
   String? _errorMessage;
-  bool _showHDImage = false; // 控制是否显示高清图片
-  ImageProvider? _hdImageProvider; // 预加载的高清图片
+  final _hdImageProvider = ValueNotifier<ImageProvider?>(null);
   String? _currentProgress; // 当前收藏状态
   int? _currentRating; // 当前评分
   bool _isUpdatingProgress = false; // 是否正在更新状态
@@ -91,6 +90,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
   @override
   void dispose() {
+    _hdImageProvider.dispose();
     final lease = _hdPreloadLease;
     _hdPreloadLease = null;
     if (lease != null) unawaited(lease.release());
@@ -135,10 +135,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       await precacheImage(imageProvider, context);
       // 图片完全加载后才切换显示
       if (mounted) {
-        setState(() {
-          _hdImageProvider = imageProvider;
-          _showHDImage = true;
-        });
+        _hdImageProvider.value = imageProvider;
       }
     } catch (e) {
       // 预加载失败，保持使用缓存图片
@@ -550,94 +547,106 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         displaySettings.showSubtitleTag && work.hasSubtitle == true;
 
     // 信息内容组件
-    final infoWidget = Padding(
+    final infoWidget = SliverPadding(
       padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 标题（可长按复制）+ 内联字幕图标（紧跟标题最后一个字，不换行）
-          Consumer(
-            builder: (context, ref, _) {
-              final displaySettings = ref.watch(workDetailDisplayProvider);
-              return WorkTitleHeader(
-                title: work.title,
-                translatedTitle: _translatedTitle,
-                showTranslation: _showTranslation,
-                showTranslateButton: displaySettings.showTranslateButton,
-                isTranslating: _isTranslating,
-                showExternalLink:
-                    displaySettings.showExternalLinks && work.sourceUrl != null,
-                onTranslate: _translateTitle,
-                onOpenExternalLink: work.sourceUrl == null
-                    ? null
-                    : () => _openSourceUrl(work.sourceUrl!),
-                onCopy: (title) =>
-                    _copyToClipboard(title, S.of(context).titleLabel),
-              );
-            },
-          ),
-          const SizedBox(height: 8),
-
-          WorkDetailErrorBanner(
-            message: _errorMessage,
-            onRetry: _loadWorkDetail,
-          ),
-
-          // 评分信息、价格、时长和销量
-          Consumer(
-            builder: (context, ref, _) {
-              final displaySettings = ref.watch(workDetailDisplayProvider);
-              return WorkStatsSection(
-                work: work,
-                currentRating: _currentRating,
-                showRating: displaySettings.showRating,
-                showPrice: displaySettings.showPrice,
-                showDuration: displaySettings.showDuration,
-                showSales: displaySettings.showSales,
-                onShowRatingDetails: () => _showRatingDetailDialog(work),
-                onShowProgress: _showProgressDialog,
-              );
-            },
-          ),
-
-          const SizedBox(height: 16),
-
-          WorkCreatorChipsSection(work: work, onCopy: _copyToClipboard),
-
-          WorkTagChipsSection(
-            tags: work.tags,
-            onTagLongPress: _showTagInfo,
-            onTagSecondaryTap: _showTagInfo,
-            onAddTag: _showAddTagDialog,
-          ),
-
-          Consumer(
-            builder: (context, ref, _) {
-              final displaySettings = ref.watch(workDetailDisplayProvider);
-              return WorkReleaseDateSection(
-                release: work.release,
-                visible: displaySettings.showReleaseDate,
-              );
-            },
-          ),
-
-          OtherLanguageEditionsSection(
-            editions: work.otherLanguageEditions,
-            onEditionSelected: (edition) {
-              pushWorkDetailRoute(
-                context,
-                builder: (context) => WorkDetailScreen(
-                  work: Work(id: edition.id, title: edition.title),
+      sliver: SliverMainAxisGroup(
+        slivers: [
+          SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 标题（可长按复制）+ 内联字幕图标（紧跟标题最后一个字，不换行）
+                Consumer(
+                  builder: (context, ref, _) {
+                    final displaySettings = ref.watch(
+                      workDetailDisplayProvider,
+                    );
+                    return WorkTitleHeader(
+                      title: work.title,
+                      translatedTitle: _translatedTitle,
+                      showTranslation: _showTranslation,
+                      showTranslateButton: displaySettings.showTranslateButton,
+                      isTranslating: _isTranslating,
+                      showExternalLink:
+                          displaySettings.showExternalLinks &&
+                          work.sourceUrl != null,
+                      onTranslate: _translateTitle,
+                      onOpenExternalLink: work.sourceUrl == null
+                          ? null
+                          : () => _openSourceUrl(work.sourceUrl!),
+                      onCopy: (title) =>
+                          _copyToClipboard(title, S.of(context).titleLabel),
+                    );
+                  },
                 ),
-              );
-            },
-          ),
+                const SizedBox(height: 8),
 
+                WorkDetailErrorBanner(
+                  message: _errorMessage,
+                  onRetry: _loadWorkDetail,
+                ),
+
+                // 评分信息、价格、时长和销量
+                Consumer(
+                  builder: (context, ref, _) {
+                    final displaySettings = ref.watch(
+                      workDetailDisplayProvider,
+                    );
+                    return WorkStatsSection(
+                      work: work,
+                      currentRating: _currentRating,
+                      showRating: displaySettings.showRating,
+                      showPrice: displaySettings.showPrice,
+                      showDuration: displaySettings.showDuration,
+                      showSales: displaySettings.showSales,
+                      onShowRatingDetails: () => _showRatingDetailDialog(work),
+                      onShowProgress: _showProgressDialog,
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 16),
+
+                WorkCreatorChipsSection(work: work, onCopy: _copyToClipboard),
+
+                WorkTagChipsSection(
+                  tags: work.tags,
+                  onTagLongPress: _showTagInfo,
+                  onTagSecondaryTap: _showTagInfo,
+                  onAddTag: _showAddTagDialog,
+                ),
+
+                Consumer(
+                  builder: (context, ref, _) {
+                    final displaySettings = ref.watch(
+                      workDetailDisplayProvider,
+                    );
+                    return WorkReleaseDateSection(
+                      release: work.release,
+                      visible: displaySettings.showReleaseDate,
+                    );
+                  },
+                ),
+
+                OtherLanguageEditionsSection(
+                  editions: work.otherLanguageEditions,
+                  onEditionSelected: (edition) {
+                    pushWorkDetailRoute(
+                      context,
+                      builder: (context) => WorkDetailScreen(
+                        work: Work(id: edition.id, title: edition.title),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
           // 文件浏览器组件 - 移除固定高度，让它自由展开
           FileExplorerWidget(work: work, controller: _fileExplorerController),
 
           // 相关推荐
-          RecommendationSection(work: work),
+          SliverToBoxAdapter(child: RecommendationSection(work: work)),
         ],
       ),
     );
@@ -679,18 +688,22 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
               fadeOutDuration: Duration.zero,
               placeholderFadeInDuration: Duration.zero,
             ),
-            if (_showHDImage && _hdImageProvider != null)
-              Image(
-                image: _hdImageProvider!,
-                fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) {
-                  return const SizedBox.shrink();
-                },
-              ),
+            ValueListenableBuilder<ImageProvider?>(
+              valueListenable: _hdImageProvider,
+              builder: (context, provider, _) => provider == null
+                  ? const SizedBox.shrink()
+                  : Image(
+                      image: provider,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const SizedBox.shrink();
+                      },
+                    ),
+            ),
           ],
         );
       },
-      info: infoWidget,
+      infoSliver: infoWidget,
     );
   }
 

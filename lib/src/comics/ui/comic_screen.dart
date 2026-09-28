@@ -51,8 +51,9 @@ class _ComicScreenState extends ConsumerState<ComicScreen>
           : FloatingActionButton(
               heroTag: 'comic-downloads',
               tooltip: s.downloadTasks,
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const ComicDownloadScreen()),
+              onPressed: () => pushBottomDockRoute(
+                context,
+                builder: (_) => const ComicDownloadScreen(),
               ),
               child: const Icon(Icons.download_outlined),
             ),
@@ -452,10 +453,9 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
     final source = ref
         .read(comicSourcesProvider)
         .firstWhere((s) => s.key == _source);
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ComicCategoryScreen(sourceKey: source.key),
-      ),
+    await pushBottomDockRoute(
+      context,
+      builder: (_) => ComicCategoryScreen(sourceKey: source.key),
     );
   }
 

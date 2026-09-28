@@ -110,6 +110,10 @@ class _Source extends ComicSource {
   }
 
   @override
+  Future<List<ComicCategory>> categories() async => const [
+    ComicCategory('fixture-category', 'Fixture category'),
+  ];
+  @override
   Future<Comic> details(String id) async {
     detailRequests++;
     if (detailFails) throw const ComicSourceException('detail unavailable');
@@ -3178,6 +3182,61 @@ void main() {
     }
   }
 
+  testWidgets('chapter response during push only mounts nearby rows', (
+    tester,
+  ) async {
+    final source = _Source()..chapterGate = Completer<List<ComicChapter>>();
+    await pump(
+      tester,
+      const Scaffold(body: Text('Origin')),
+      _Library(),
+      source,
+      theme: AppTheme.lightTheme(null),
+    );
+    final navigator = Navigator.of(tester.element(find.text('Origin')));
+    final route = MaterialPageRoute<void>(
+      builder: (_) => const ComicDetailScreen(comic: _comic),
+    );
+    navigator.push(route);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(route.animation!.status, AnimationStatus.forward);
+    source.chapterGate!.complete(
+      List.generate(
+        1000,
+        (index) => ComicChapter('chapter-$index', 'Loaded chapter $index'),
+      ),
+    );
+    await tester.pump();
+    final rows = find.byWidgetPredicate(
+      (widget) =>
+          widget is ListTile &&
+          widget.title is Text &&
+          ((widget.title! as Text).data?.startsWith('Loaded chapter ') ??
+              false),
+    );
+    expect(rows.evaluate().length, lessThan(30));
+    await tester.pumpAndSettle();
+    final scrollable = find
+        .descendant(
+          of: find.byType(ComicDetailScreen),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(
+      find.text('Loaded chapter 999'),
+      4000,
+      scrollable: scrollable,
+      maxScrolls: 50,
+    );
+    expect(find.text('Loaded chapter 999'), findsOneWidget);
+    expect(rows.evaluate().length, lessThan(30));
+    navigator.pop();
+    await tester.pumpAndSettle();
+    expect(find.text('Origin'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'detail paints listing data before metadata and chapters finish',
     (tester) async {
@@ -3940,6 +3999,109 @@ void main() {
       expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
       await tester.pumpAndSettle();
       expect(find.byType(ComicSearchScreen), findsNothing);
+      expect(find.byType(MiniPlayer), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'comic categories and nested results hand off the Dock without artwork flights',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await pump(
+        tester,
+        AppBottomDockTransitionScope(
+          child: Scaffold(
+            body: const ComicScreen(),
+            bottomNavigationBar: AppBottomDock(
+              selectedIndex: 1,
+              onDestinationSelected: (_) {},
+              miniPlayer: const MiniPlayer(),
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.library_music),
+                  label: 'Audio',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.menu_book),
+                  label: 'Comics',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.settings),
+                  label: 'Settings',
+                ),
+              ],
+            ),
+          ),
+        ),
+        _Library(),
+        _Source(),
+        track: const AudioTrack(
+          id: 'search-track',
+          title: 'Audio',
+          url: 'https://example.invalid/audio.mp3',
+        ),
+      );
+      await tester.tap(find.byTooltip('Categories').first);
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.byKey(appBottomDockMiniPlayerFlightRootKey)).dx,
+        0,
+      );
+      expect(
+        find.byKey(const ValueKey('player-artwork-flight-frame')),
+        findsNothing,
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(ComicCategoryScreen), findsOneWidget);
+      expect(find.byType(MiniPlayer), findsOneWidget);
+      await tester.tap(find.text('Fixture category'));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      final nestedDock = tester.getRect(
+        find.byKey(appBottomDockMiniPlayerFlightRootKey),
+      );
+      expect(nestedDock.left, 0);
+      expect(nestedDock.bottom, 844);
+      expect(
+        find.byKey(const ValueKey('player-artwork-flight-frame')),
+        findsNothing,
+      );
+      await tester.pumpAndSettle();
+      Navigator.of(tester.element(find.byType(ComicSearchScreen))).pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        tester.getRect(find.byKey(appBottomDockMiniPlayerFlightRootKey)),
+        nestedDock,
+      );
+      expect(
+        find.byKey(const ValueKey('player-artwork-flight-frame')),
+        findsNothing,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.byKey(appBottomDockMiniPlayerFlightRootKey)).dx,
+        0,
+      );
+      expect(
+        find.byKey(const ValueKey('player-artwork-flight-frame')),
+        findsNothing,
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(ComicCategoryScreen), findsNothing);
       expect(find.byType(MiniPlayer), findsOneWidget);
       expect(tester.takeException(), isNull);
     },

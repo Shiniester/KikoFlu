@@ -382,33 +382,38 @@ class _OfflineWorkDetailScreenState
     final displaySettings = ref.watch(workDetailDisplayProvider);
 
     // 信息内容组件
-    final infoWidget = Padding(
+    final infoWidget = SliverPadding(
       padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 标题（可长按复制）+ 翻译按钮
-          WorkTitleHeader(
-            title: work.title,
-            translatedTitle: _translatedTitle,
-            showTranslation: _showTranslation,
-            isTranslating: _isTranslating,
-            onTranslate: _translateTitle,
-            onCopy: (title) =>
-                _copyToClipboard(title, S.of(context).titleLabel),
+      sliver: SliverMainAxisGroup(
+        slivers: [
+          SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 标题（可长按复制）+ 翻译按钮
+                WorkTitleHeader(
+                  title: work.title,
+                  translatedTitle: _translatedTitle,
+                  showTranslation: _showTranslation,
+                  isTranslating: _isTranslating,
+                  onTranslate: _translateTitle,
+                  onCopy: (title) =>
+                      _copyToClipboard(title, S.of(context).titleLabel),
+                ),
+                const SizedBox(height: 16),
+
+                WorkCreatorChipsSection(work: work, onCopy: _copyToClipboard),
+
+                WorkTagChipsSection(
+                  tags: work.tags,
+                  onTagLongPress: (tag) =>
+                      _copyToClipboard(tag.name, S.of(context).tagLabel),
+                ),
+
+                WorkReleaseDateSection(release: work.release),
+              ],
+            ),
           ),
-          const SizedBox(height: 16),
-
-          WorkCreatorChipsSection(work: work, onCopy: _copyToClipboard),
-
-          WorkTagChipsSection(
-            tags: work.tags,
-            onTagLongPress: (tag) =>
-                _copyToClipboard(tag.name, S.of(context).tagLabel),
-          ),
-
-          WorkReleaseDateSection(release: work.release),
-
           // 文件浏览器
           OfflineFileExplorerWidget(
             work: work,
@@ -468,7 +473,7 @@ class _OfflineWorkDetailScreenState
           ],
         );
       },
-      info: infoWidget,
+      infoSliver: infoWidget,
     );
   }
 }

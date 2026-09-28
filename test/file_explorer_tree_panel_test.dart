@@ -8,13 +8,14 @@ Widget _testApp(Widget child) {
     locale: const Locale('en'),
     localizationsDelegates: S.localizationsDelegates,
     supportedLocales: S.supportedLocales,
-    home: Scaffold(body: child),
+    home: Scaffold(body: CustomScrollView(slivers: [child])),
   );
 }
 
 void main() {
-  testWidgets('renders header, progress, and file tree when ready',
-      (tester) async {
+  testWidgets('renders header, progress, and file tree when ready', (
+    tester,
+  ) async {
     String? tappedTitle;
     String? toggledPath;
 
@@ -35,11 +36,7 @@ void main() {
               'type': 'folder',
               'title': 'Disc 1',
               'children': [
-                {
-                  'type': 'text',
-                  'title': 'script.txt',
-                  'hash': 'text',
-                },
+                {'type': 'text', 'title': 'script.txt', 'hash': 'text'},
               ],
             },
           ],

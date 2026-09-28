@@ -665,15 +665,14 @@ class _ScopedSearchResultScreenState
       metadata,
     );
     if (!context.mounted) return;
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => OfflineWorkDetailScreen(
-          work: entry.work,
-          localCoverPath: localCoverPath,
-          localCoverRelativePath: relativeCoverPath,
-          localWorkDirPath: directory.path,
-          fileTree: metadata?['children'] as List<dynamic>?,
-        ),
+    pushWorkDetailRoute(
+      context,
+      builder: (_) => OfflineWorkDetailScreen(
+        work: entry.work,
+        localCoverPath: localCoverPath,
+        localCoverRelativePath: relativeCoverPath,
+        localWorkDirPath: directory.path,
+        fileTree: metadata?['children'] as List<dynamic>?,
       ),
     );
   }

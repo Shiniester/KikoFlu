@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -8,6 +9,7 @@ import '../models/audio_tap_playlist_mode.dart';
 import '../models/work.dart';
 import '../models/download_task_change.dart';
 import '../providers/auth_provider.dart';
+import '../providers/download_provider.dart';
 import '../providers/audio_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/settings_provider.dart';
@@ -41,6 +43,14 @@ import 'video_open_failure_dialog.dart';
 import 'translation_toggle_button.dart';
 
 final _log = LogService.instance;
+
+final downloadedFileStateScannerProvider = Provider((ref) {
+  final service = DownloadService.instance;
+  return DownloadedFileStateScanner(
+    resolveDownloadedPath: service.getDownloadedFilePath,
+    downloadRootPath: () async => (await service.getDownloadDirectory()).path,
+  );
+});
 
 class FileExplorerController {
   _FileExplorerWidgetState? _state;
@@ -77,14 +87,15 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   List<dynamic> _rootFiles = [];
   final Set<String> _expandedFolders = {}; // 记录展开的文件夹路径
   final Map<String, bool> _downloadedFiles = {}; // hash -> downloaded
-  final Map<String, String> _fileRelativePaths = {}; // hash -> relative path
+  Map<String, String> _fileRelativePaths = {}; // hash -> relative path
   final Set<String> _audioWithLibrarySubtitles = {}; // 存储在字幕库中有匹配字幕的音频文件名
   bool _isLoading = false;
   String? _errorMessage;
   String? _mainFolderPath; // 主文件夹路径
   StreamSubscription<DownloadTaskChange>? _downloadTasksSubscription;
   int _loadGeneration = 0;
-  int _downloadScanGeneration = 0;
+  bool _downloadScanRunning = false;
+  bool _downloadScanRequested = false;
 
   FilePreviewResolver get _previewResolver => FilePreviewResolver(
     downloadRootPath: () async {
@@ -93,16 +104,8 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     },
   );
 
-  DownloadedFileStateScanner get _downloadedFileScanner {
-    final downloadService = DownloadService.instance;
-    return DownloadedFileStateScanner(
-      resolveDownloadedPath: downloadService.getDownloadedFilePath,
-      downloadRootPath: () async {
-        final downloadDir = await downloadService.getDownloadDirectory();
-        return downloadDir.path;
-      },
-    );
-  }
+  DownloadedFileStateScanner get _downloadedFileScanner =>
+      ref.read(downloadedFileStateScannerProvider);
 
   AudioFileUrlResolver get _audioUrlResolver {
     final downloadService = DownloadService.instance;
@@ -148,7 +151,6 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   void dispose() {
     widget.controller?._detach(this);
     _loadGeneration++;
-    _downloadScanGeneration++;
     _translationController.dispose();
     _downloadTasksSubscription?.cancel();
     super.dispose();
@@ -160,7 +162,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
 
   // 监听下载任务变化，当有任务完成或被删除时重新检测
   void _listenToDownloadTasks() {
-    final downloadService = DownloadService.instance;
+    final downloadService = ref.read(downloadServiceProvider);
     _downloadTasksSubscription = downloadService.taskChangesStream.listen((
       change,
     ) {
@@ -200,6 +202,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
 
       setState(() {
         _rootFiles = files;
+        _fileRelativePaths = DownloadedFileStateScanner.collectFilePaths(files);
         _isLoading = false;
       });
 
@@ -228,22 +231,30 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
 
   // 检查已下载的文件
   Future<void> _checkDownloadedFiles() async {
-    final generation = ++_downloadScanGeneration;
-    final result = await _downloadedFileScanner.scan(
-      workId: widget.work.id,
-      fileTree: _rootFiles,
-    );
-
-    if (!mounted || generation != _downloadScanGeneration) return;
-
-    setState(() {
-      _downloadedFiles
-        ..clear()
-        ..addAll(result.downloadedFiles);
-      _fileRelativePaths
-        ..clear()
-        ..addAll(result.fileRelativePaths);
-    });
+    _downloadScanRequested = true;
+    if (_downloadScanRunning) return;
+    _downloadScanRunning = true;
+    try {
+      while (mounted && _downloadScanRequested) {
+        _downloadScanRequested = false;
+        final generation = _loadGeneration;
+        final result = await _downloadedFileScanner.scan(
+          workId: widget.work.id,
+          fileTree: _rootFiles,
+          fileRelativePaths: _fileRelativePaths,
+        );
+        if (!mounted) return;
+        if (generation != _loadGeneration || _downloadScanRequested) continue;
+        if (mapEquals(_downloadedFiles, result.downloadedFiles)) continue;
+        setState(() {
+          _downloadedFiles
+            ..clear()
+            ..addAll(result.downloadedFiles);
+        });
+      }
+    } finally {
+      _downloadScanRunning = false;
+    }
   }
 
   // 检查字幕库中哪些音频文件有匹配的字幕

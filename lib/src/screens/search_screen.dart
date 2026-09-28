@@ -1,3 +1,4 @@
+import '../widgets/app_bottom_dock_transition.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -238,15 +239,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         salesRange: _salesRange,
         progressFilter: widget.progressFilter,
       );
-      Navigator.push(
+      pushBottomDockRoute(
         context,
-        MaterialPageRoute<void>(
-          builder: (_) => GlobalAudioPlayerWrapper(
-            child: ScopedSearchResultScreen(
-              query: query,
-              session: _scopeSession,
-            ),
-          ),
+        builder: (_) => GlobalAudioPlayerWrapper(
+          child: ScopedSearchResultScreen(query: query, session: _scopeSession),
         ),
       );
       return;
@@ -322,14 +318,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
 
     // 跳转到搜索结果页面
     if (mounted) {
-      Navigator.push(
+      pushBottomDockRoute(
         context,
-        MaterialPageRoute(
-          builder: (context) => SearchResultScreen(
-            keyword: searchKeyword,
-            searchTypeLabel: null, // 不使用单一标签
-            searchParams: searchParams,
-          ),
+        builder: (context) => SearchResultScreen(
+          keyword: searchKeyword,
+          searchTypeLabel: null, // 不使用单一标签
+          searchParams: searchParams,
         ),
       );
     }
@@ -337,14 +331,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
 
   /// 从历史记录执行搜索
   void _searchFromHistory(SearchHistoryItem historyItem) {
-    Navigator.push(
+    pushBottomDockRoute(
       context,
-      MaterialPageRoute(
-        builder: (context) => SearchResultScreen(
-          keyword: historyItem.keyword,
-          searchTypeLabel: null,
-          searchParams: historyItem.searchParams,
-        ),
+      builder: (context) => SearchResultScreen(
+        keyword: historyItem.keyword,
+        searchTypeLabel: null,
+        searchParams: historyItem.searchParams,
       ),
     );
   }

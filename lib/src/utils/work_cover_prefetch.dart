@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:collection';
-import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -157,7 +156,6 @@ class WorkCoverPrefetchController {
           url: work.getCoverImageUrl(host, token: token),
           cacheKey: 'work_cover_${work.id}',
           headers: headers ?? StorageService.serverCookieHeaders,
-          targetWidth: targetWidth,
         ),
       );
     }
@@ -282,14 +280,10 @@ class WorkCoverPrefetchController {
     final configuration = createLocalImageConfiguration(task.context);
     final future = () async {
       try {
-        final file = await lease.file;
+        await lease.file;
         if (cancelled) return;
-        final provider = ResizeImage.resizeIfNeeded(
-          task.targetWidth,
-          null,
-          FileImage(File(file.path)),
-        );
-        decode = _imageListenerPrecacheOperation(provider, configuration);
+        // Warm the same decode key used by visible cards and detail entry.
+        decode = _imageListenerPrecacheOperation(task.provider, configuration);
         if (cancelled) decode!.cancel();
         await decode!.future;
       } finally {
@@ -434,7 +428,6 @@ class _CoverPrefetchTask {
     required this.url,
     required this.cacheKey,
     required this.headers,
-    required this.targetWidth,
   });
 
   final BuildContext context;
@@ -444,7 +437,6 @@ class _CoverPrefetchTask {
   final String url;
   final String cacheKey;
   final Map<String, String> headers;
-  final int targetWidth;
   void Function()? cancel;
   bool restartAfterPause = false;
 }

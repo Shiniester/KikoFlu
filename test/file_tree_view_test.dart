@@ -19,11 +19,44 @@ Widget _testApp(Widget child) {
   return MaterialApp(
     localizationsDelegates: S.localizationsDelegates,
     supportedLocales: S.supportedLocales,
-    home: Scaffold(body: child),
+    home: Scaffold(body: CustomScrollView(slivers: [child])),
   );
 }
 
 void main() {
+  testWidgets('expanded files only build metadata near the viewport', (
+    tester,
+  ) async {
+    var metadataBuilds = 0;
+    await tester.pumpWidget(
+      _testApp(
+        FileTreeView(
+          items: [
+            folderItem(
+              'Disc',
+              List.generate(1000, (i) => fileItem('track-$i.mp3')),
+            ),
+          ],
+          expandedFolders: const {'Disc'},
+          metadataBuilder: (_, __) {
+            metadataBuilds++;
+            return null;
+          },
+          onToggleFolder: (_) {},
+          onFileTap: (_, __, ___) {},
+        ),
+      ),
+    );
+    expect(metadataBuilds, lessThan(40));
+    await tester.scrollUntilVisible(
+      find.text('track-999.mp3'),
+      2000,
+      maxScrolls: 50,
+    );
+    expect(find.text('track-999.mp3'), findsOneWidget);
+    expect(find.byType(InkWell).evaluate().length, lessThan(40));
+  });
+
   testWidgets('FileTreeView expands folders and passes file tap context', (
     tester,
   ) async {

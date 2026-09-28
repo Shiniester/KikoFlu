@@ -219,6 +219,13 @@ class _AppBottomDockHandoffMetrics extends InheritedWidget {
 Future<void> pushWorkDetailRoute(
   BuildContext context, {
   required WidgetBuilder builder,
+}) => pushBottomDockRoute(context, builder: builder);
+
+/// Hands off the Bottom Dock to a page containing a Mini Player, retaining
+/// the source endpoints until the destination has finished returning.
+Future<void> pushBottomDockRoute(
+  BuildContext context, {
+  required WidgetBuilder builder,
 }) async {
   final sourceScope = AppBottomDockTransitionScope._maybeStateOf(context);
   final view = View.of(context);

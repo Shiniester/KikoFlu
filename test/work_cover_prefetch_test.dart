@@ -1,12 +1,92 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
+import 'package:kikoeru_flutter/src/services/cache_service.dart';
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/utils/work_cover_prefetch.dart';
 
 void main() {
+  testWidgets('production prefetch warms the displayed cover decode', (
+    tester,
+  ) async {
+    final directory = Directory.systemTemp.createTempSync('cover-precache-');
+    const channel = MethodChannel('plugins.flutter.io/path_provider');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      channel,
+      (_) async => directory.path,
+    );
+    SharedPreferences.setMockInitialValues({});
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
+    final previousCache = CachedNetworkImageProvider.defaultCacheManager;
+    CacheService.installImageCacheManager();
+    final controller = WorkCoverPrefetchController();
+    addTearDown(() async {
+      controller.dispose();
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+      CachedNetworkImageProvider.defaultCacheManager = previousCache;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        channel,
+        null,
+      );
+      await directory.delete(recursive: true);
+    });
+    const work = Work(id: 123456, title: 'Prefetched');
+    const host = 'https://covers.invalid';
+    await tester.runAsync(() async {
+      await CacheService.imageCacheManager.putFile(
+        work.getCoverImageUrl(host, token: ''),
+        img.encodePng(img.Image(width: 400, height: 300)),
+        key: 'work_cover_${work.id}',
+        fileExtension: 'image',
+      );
+    });
+    late BuildContext coverContext;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            coverContext = context;
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+    await tester.runAsync(() async {
+      controller.prefetch(
+        coverContext,
+        const [work],
+        host: host,
+        token: '',
+        crossAxisCount: 2,
+      );
+      await controller.whenIdle().timeout(const Duration(seconds: 10));
+    });
+    await tester.pump();
+    final provider = createWorkCoverImageProvider(
+      work: work,
+      host: host,
+      token: '',
+      cacheWidth: resolveWorkCoverCacheWidth(coverContext, crossAxisCount: 2),
+    );
+    final key = await provider.obtainKey(
+      createLocalImageConfiguration(coverContext),
+    );
+    expect(
+      PaintingBinding.instance.imageCache.statusForKey(key).keepAlive,
+      isTrue,
+    );
+  });
+
   group('calculateWorkCoverCacheWidth', () {
     test('matches a two-column portrait masonry card', () {
       expect(

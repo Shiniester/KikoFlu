@@ -47,6 +47,17 @@ class _Source extends ComicSource {
 }
 
 const chapter = ComicChapter('chapter', 'Chapter');
+
+class _CountedChapter extends ComicChapter {
+  _CountedChapter(super.id, super.title);
+  int serializations = 0;
+  @override
+  Map<String, dynamic> toJson() {
+    serializations++;
+    return super.toJson();
+  }
+}
+
 const book = Comic(
   source: 'fixture',
   id: 'book',
@@ -89,6 +100,39 @@ void main() {
     library.dispose();
     source.http.dispose();
     await root.delete(recursive: true);
+  });
+
+  test('completed comics reuse chapter data across downloaded tasks', () async {
+    final chapters = List.generate(
+      1000,
+      (i) => _CountedChapter('$i', 'Chapter $i'),
+    );
+    final comic = Comic(
+      source: 'fixture',
+      id: 'large',
+      title: 'Large',
+      chapters: chapters,
+    );
+    final downloads = ComicDownloads(library, (_) => source);
+    addTearDown(downloads.dispose);
+    await downloads.ready;
+    downloads.tasks.addAll([
+      for (final chapter in chapters)
+        ComicDownloadTask(
+          comic: comic,
+          chapter: chapter,
+          directory: root.path,
+          status: ComicDownloadStatus.complete,
+          coverPath: '${chapter.id}.png',
+        ),
+    ]);
+    final completed = downloads.completedComics;
+    expect(completed.single.coverPage.localPath, '999.png');
+    expect(completed.single.chapters.length, 1000);
+    expect(
+      chapters.fold<int>(0, (count, chapter) => count + chapter.serializations),
+      0,
+    );
   });
 
   test(

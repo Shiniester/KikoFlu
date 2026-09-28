@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../screens/search_result_screen.dart';
+import 'app_bottom_dock_transition.dart';
 
 enum MetadataChipTone {
   primary,
@@ -163,14 +164,12 @@ class MetadataSearchChip extends StatelessWidget {
       debugPrint('[MetadataSearchChip] Clicked $logName: $label, id: $logId');
     }
 
-    Navigator.push(
+    pushBottomDockRoute(
       context,
-      MaterialPageRoute(
-        builder: (context) => SearchResultScreen(
-          keyword: searchKeyword,
-          searchTypeLabel: searchTypeLabel,
-          searchParams: searchParams,
-        ),
+      builder: (context) => SearchResultScreen(
+        keyword: searchKeyword,
+        searchTypeLabel: searchTypeLabel,
+        searchParams: searchParams,
       ),
     );
   }

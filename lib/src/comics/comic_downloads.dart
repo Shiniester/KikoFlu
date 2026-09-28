@@ -283,18 +283,30 @@ class ComicDownloads extends ChangeNotifier {
     return null;
   }
 
-  List<Comic> get completedComics => {
-    for (final t in tasks.where(
-      (t) => t.status == ComicDownloadStatus.complete,
-    ))
-      t.comic.key: Comic.fromJson({
-        ...t.comic.toJson(),
-        'extra': {
-          ...t.comic.extra,
-          if (t.coverPath != null) 'localCover': t.coverPath,
-        },
-      }),
-  }.values.toList();
+  List<Comic> get completedComics {
+    final completed = <String, ComicDownloadTask>{
+      for (final task in tasks)
+        if (task.status == ComicDownloadStatus.complete) task.comic.key: task,
+    };
+    return [
+      for (final task in completed.values)
+        Comic(
+          source: task.comic.source,
+          id: task.comic.id,
+          title: task.comic.title,
+          cover: task.comic.cover,
+          description: task.comic.description,
+          tags: task.comic.tags,
+          chapters: task.comic.chapters,
+          rating: task.comic.rating,
+          extra: {
+            ...task.comic.extra,
+            if (task.coverPath != null) 'localCover': task.coverPath,
+          },
+        ),
+    ];
+  }
+
   @override
   void dispose() {
     _disposed = true;

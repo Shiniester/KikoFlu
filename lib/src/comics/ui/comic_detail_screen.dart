@@ -1,3 +1,4 @@
+import '../../widgets/app_bottom_dock_transition.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:math' as math;
@@ -420,101 +421,126 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
             ),
           ],
         );
-        return SingleChildScrollView(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 1200),
-              child: Padding(
-                padding: EdgeInsets.all(detailPadding),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (stacked)
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [cover, const SizedBox(height: 16), info],
-                      )
-                    else
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          cover,
-                          const SizedBox(width: 16),
-                          Expanded(child: info),
-                        ],
-                      ),
-                    const SizedBox(height: 16),
-                    if (_busy) const LinearProgressIndicator(),
-                    if (_favoriteError != null)
-                      _retryBanner(_favoriteError!, () => _favorite(comic)),
-                    if (_metadataLoading) const LinearProgressIndicator(),
-                    if (_metadataError != null)
-                      _retryBanner(_metadataError!, _loadMetadata),
-                    const SizedBox(height: 16),
-                    SelectableText(comic.description),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 4,
-                      runSpacing: 4,
-                      children: comic.tags
-                          .map(
-                            (tag) => MetadataSearchChip(
-                              label: tag,
-                              searchKeyword: tag,
-                              searchTypeLabel: s.tagLabel,
-                              searchParams: const {},
-                              chipTone: MetadataChipTone.primary,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
+        return Center(
+          child: SizedBox(
+            width: math.min(width, 1200),
+            child: CustomScrollView(
+              slivers: [
+                SliverPadding(
+                  padding: EdgeInsets.all(detailPadding),
+                  sliver: SliverMainAxisGroup(
+                    slivers: [
+                      SliverToBoxAdapter(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (stacked)
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  cover,
+                                  const SizedBox(height: 16),
+                                  info,
+                                ],
+                              )
+                            else
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  cover,
+                                  const SizedBox(width: 16),
+                                  Expanded(child: info),
+                                ],
                               ),
-                              borderRadius: 6,
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => ComicSearchScreen(
-                                    initialSource: comic.source,
-                                    initialQuery: tag,
-                                  ),
-                                ),
+                            const SizedBox(height: 16),
+                            if (_busy) const LinearProgressIndicator(),
+                            if (_favoriteError != null)
+                              _retryBanner(
+                                _favoriteError!,
+                                () => _favorite(comic),
                               ),
+                            if (_metadataLoading)
+                              const LinearProgressIndicator(),
+                            if (_metadataError != null)
+                              _retryBanner(_metadataError!, _loadMetadata),
+                            const SizedBox(height: 16),
+                            SelectableText(comic.description),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 4,
+                              runSpacing: 4,
+                              children: comic.tags
+                                  .map(
+                                    (tag) => MetadataSearchChip(
+                                      label: tag,
+                                      searchKeyword: tag,
+                                      searchTypeLabel: s.tagLabel,
+                                      searchParams: const {},
+                                      chipTone: MetadataChipTone.primary,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      borderRadius: 6,
+                                      onTap: () => pushBottomDockRoute(
+                                        context,
+                                        builder: (_) => ComicSearchScreen(
+                                          initialSource: comic.source,
+                                          initialQuery: tag,
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
                             ),
-                          )
-                          .toList(),
-                    ),
-                    if (ref
-                        .read(comicSourcesProvider)
-                        .firstWhere((source) => source.key == comic.source)
-                        .hasComments) ...[
-                      const SizedBox(height: 16),
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(
-                          s.comicComments,
-                          style: Theme.of(context).textTheme.titleMedium,
+                            if (ref
+                                .read(comicSourcesProvider)
+                                .firstWhere(
+                                  (source) => source.key == comic.source,
+                                )
+                                .hasComments) ...[
+                              const SizedBox(height: 16),
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(
+                                  s.comicComments,
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.titleMedium,
+                                ),
+                                trailing: const Icon(Icons.chevron_right),
+                                onTap: () => _comments(comic),
+                              ),
+                            ],
+                            const SizedBox(height: 16),
+                            Text(
+                              s.comicChapters,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                            if (_chaptersLoading)
+                              const LinearProgressIndicator(),
+                            if (_chaptersError != null)
+                              _retryBanner(_chaptersError!, _loadChapters),
+                          ],
                         ),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => _comments(comic),
+                      ),
+                      SliverList.builder(
+                        itemCount: _chapters.length,
+                        itemBuilder: (context, index) {
+                          final chapter = _chapters[index];
+                          return ListTile(
+                            title: Text(chapter.title),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () => _read(comic, chapter: chapter),
+                          );
+                        },
                       ),
                     ],
-                    const SizedBox(height: 16),
-                    Text(
-                      s.comicChapters,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    if (_chaptersLoading) const LinearProgressIndicator(),
-                    if (_chaptersError != null)
-                      _retryBanner(_chaptersError!, _loadChapters),
-                    for (final chapter in _chapters)
-                      ListTile(
-                        title: Text(chapter.title),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => _read(comic, chapter: chapter),
-                      ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
         );
