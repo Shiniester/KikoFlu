@@ -57,6 +57,9 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   Animation<double>? _routeAnimation;
   AnimationStatusListener? _routeStatusListener;
   bool _immersiveBarsRequested = false;
+  MediaQueryData? _exitWindow;
+  Size? _exitViewport;
+  Size _viewport = Size.zero;
   @override
   void initState() {
     super.initState();
@@ -86,6 +89,12 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
         _setBarsAfterFrame(animation);
       } else if (status == AnimationStatus.reverse ||
           status == AnimationStatus.dismissed) {
+        if (_immersiveBarsRequested) {
+          setState(() {
+            _exitWindow = MediaQuery.of(context);
+            _exitViewport = _viewport;
+          });
+        }
         // Restore the window while the reader is leaving, before exposing
         // the detail page to the platform's system-bar animation.
         _restoreBars();
@@ -475,8 +484,45 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     ref.listen(comicReadingModeProvider, (_, __) {
       if (mounted) setState(_resetLayout);
     });
-    final s = S.of(context);
     final hasAudio = ref.watch(currentTrackProvider).valueOrNull != null;
+    final current = MediaQuery.of(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final saved = _exitWindow;
+        if (saved != null &&
+            (current.size.width != saved.size.width ||
+                current.devicePixelRatio != saved.devicePixelRatio ||
+                (_routeAnimation?.status == AnimationStatus.completed &&
+                    current.padding == saved.padding &&
+                    current.viewPadding == saved.viewPadding))) {
+          _exitWindow = null;
+          _exitViewport = null;
+        }
+        _viewport = constraints.biggest;
+        // Keep the outgoing canvas in place as system bars resize the window.
+        return MediaQuery(
+          data: _exitWindow ?? current,
+          child: OverflowBox(
+            alignment: Alignment.topLeft,
+            minWidth: _exitViewport?.width,
+            maxWidth: _exitViewport?.width,
+            minHeight: _exitViewport?.height,
+            maxHeight: _exitViewport?.height,
+            child: Builder(
+              builder: (context) => _buildReader(context, mode, hasAudio),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildReader(
+    BuildContext context,
+    ComicReadingMode mode,
+    bool hasAudio,
+  ) {
+    final s = S.of(context);
     return Scaffold(
       backgroundColor: Colors.black,
       body: KeyboardListener(

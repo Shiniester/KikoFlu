@@ -623,9 +623,30 @@ void main() {
               MediaQuery.paddingOf(tester.element(detail)),
               EdgeInsets.zero,
             );
+            final readerImage = find
+                .descendant(of: reader, matching: find.byType(Image))
+                .first;
+            final readerScaffold = find
+                .descendant(of: reader, matching: find.byType(Scaffold))
+                .first;
+            Rect readerImageRect() {
+              final image = tester.renderObject<RenderBox>(readerImage);
+              final scaffold = tester.renderObject<RenderBox>(readerScaffold);
+              return image.localToGlobal(Offset.zero, ancestor: scaffold) &
+                  image.size;
+            }
+
+            final readingRect = readerImageRect();
             Navigator.of(tester.element(reader)).pop();
             for (var frame = 0; frame < 40; frame++) {
               await tester.pump(const Duration(milliseconds: 16));
+              if (reader.evaluate().isNotEmpty) {
+                expect(
+                  readerImageRect(),
+                  readingRect,
+                  reason: 'reading image moved during exit frame $frame',
+                );
+              }
               expect(
                 coverInDetailScaffold(),
                 scaffoldCoverRect,
@@ -865,12 +886,23 @@ void main() {
   testWidgets('cancelled reader return restores immersive reading', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(390, 796);
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(top: 24, bottom: 24);
+    tester.view.viewPadding = const FakeViewPadding(top: 24, bottom: 24);
+    addTearDown(tester.view.reset);
     final modes = <Object?>[];
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
       SystemChannels.platform,
       (call) async {
         if (call.method == 'SystemChrome.setEnabledSystemUIMode') {
           modes.add(call.arguments);
+          final immersive = call.arguments == 'SystemUiMode.immersiveSticky';
+          tester.view.physicalSize = Size(390, immersive ? 844 : 796);
+          tester.view.padding = immersive
+              ? const FakeViewPadding()
+              : const FakeViewPadding(top: 24, bottom: 24);
+          tester.view.viewPadding = tester.view.padding;
         }
         return null;
       },
@@ -892,13 +924,21 @@ void main() {
     final reader = find.byType(ComicReaderScreen);
     final route = ModalRoute.of(tester.element(reader))! as PageRoute<void>;
     route.handleStartBackGesture(progress: 1);
-    route.handleUpdateBackGestureProgress(progress: 0.5);
+    route.handleUpdateBackGestureProgress(progress: 0);
     await tester.pump();
     route.handleCancelBackGesture();
     await tester.pumpAndSettle();
     expect(reader, findsOneWidget);
     expect(route.animation!.status, AnimationStatus.completed);
     expect(modes.last, 'SystemUiMode.immersiveSticky');
+    tester.view.physicalSize = const Size(390, 900);
+    await tester.pump();
+    expect(
+      tester.getSize(
+        find.descendant(of: reader, matching: find.byType(Scaffold)),
+      ),
+      const Size(390, 900),
+    );
     Navigator.of(tester.element(reader)).pop();
     await tester.pump();
     expect(modes.last, 'SystemUiMode.edgeToEdge');
