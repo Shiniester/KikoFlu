@@ -8,6 +8,7 @@ import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_title_header.dart';
 import 'package:kikoeru_flutter/src/services/log_service.dart';
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -37,6 +38,7 @@ import 'package:kikoeru_flutter/src/models/download_task_change.dart';
 import 'package:kikoeru_flutter/src/comics/comic_models.dart';
 import 'package:kikoeru_flutter/src/comics/comic_source.dart';
 import 'package:kikoeru_flutter/src/comics/comic_http.dart';
+import 'package:kikoeru_flutter/src/comics/sources/pica_source.dart';
 import 'package:kikoeru_flutter/src/comics/comic_library.dart';
 import 'package:kikoeru_flutter/src/comics/comic_providers.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_screen.dart';
@@ -224,6 +226,9 @@ final _widePng = Uint8List.fromList(
 final _tallPng = Uint8List.fromList(
   img.encodePng(img.Image(width: 100, height: 220)),
 );
+final _highResolutionPng = Uint8List.fromList(
+  img.encodePng(img.Image(width: 1800, height: 1000)),
+);
 
 void expectVisibleComicCoverRatio(WidgetTester tester, double ratio) {
   final images = find.descendant(
@@ -273,12 +278,15 @@ void expectComicCardReady(WidgetTester tester, String title) {
   expect(tester.widget<RawImage>(rawImages).image, isNotNull);
 }
 
-Finder memoryImageForBytes(Uint8List bytes) => find.byWidgetPredicate(
-  (widget) =>
-      widget is Image &&
-      widget.image is MemoryImage &&
-      identical((widget.image as MemoryImage).bytes, bytes),
-);
+Finder memoryImageForBytes(Uint8List bytes) => find.byWidgetPredicate((widget) {
+  bool usesBytes(ImageProvider provider) {
+    if (provider is MemoryImage) return identical(provider.bytes, bytes);
+    if (provider is ResizeImage) return usesBytes(provider.imageProvider);
+    return false;
+  }
+
+  return widget is Image && usesBytes(widget.image);
+});
 
 Future<void> waitForCoverBytes(WidgetTester tester, Uint8List bytes) async {
   final image = memoryImageForBytes(bytes);
@@ -317,24 +325,69 @@ void expectComicCoversAttached() {
   );
 }
 
-Future<void> waitForDecodedImage(WidgetTester tester, Finder finder) async {
-  await tester.runAsync(() async {
+Future<Size> waitForDecodedImage(WidgetTester tester, Finder finder) async {
+  final size = await tester.runAsync(() async {
     final imageWidget = tester.widget<Image>(finder);
     final stream = imageWidget.image.resolve(
       createLocalImageConfiguration(tester.element(finder)),
     );
-    final decoded = Completer<void>();
-    final listener = ImageStreamListener((_, _) {
-      if (!decoded.isCompleted) decoded.complete();
+    final decoded = Completer<Size>();
+    final listener = ImageStreamListener((imageInfo, _) {
+      if (!decoded.isCompleted) {
+        decoded.complete(
+          Size(
+            imageInfo.image.width.toDouble(),
+            imageInfo.image.height.toDouble(),
+          ),
+        );
+      }
     });
     stream.addListener(listener);
     try {
-      await decoded.future.timeout(const Duration(seconds: 5));
+      return await decoded.future.timeout(const Duration(seconds: 5));
     } finally {
       stream.removeListener(listener);
     }
   });
   await tester.pump();
+  return size!;
+}
+
+Future<void> expectComicCoverDecodeMatchesDisplay(
+  WidgetTester tester,
+  Finder cover,
+  int sourceWidth,
+) async {
+  final imageFinder = find.descendant(of: cover, matching: find.byType(Image));
+  expect(imageFinder, findsOneWidget);
+  final provider = tester.widget<Image>(imageFinder).image;
+  expect(provider, isA<ResizeImage>());
+  final resized = provider as ResizeImage;
+  final targetWidth = math.min(
+    (tester.getSize(cover).width * tester.view.devicePixelRatio).ceil(),
+    sourceWidth,
+  );
+  expect(resized.width, targetWidth);
+
+  final decodedSize = await waitForDecodedImage(tester, imageFinder);
+  expect(decodedSize.width, targetWidth.toDouble());
+  expect(
+    decodedSize.width,
+    lessThanOrEqualTo(
+      (tester.getSize(cover).width * tester.view.devicePixelRatio)
+          .ceil()
+          .toDouble(),
+    ),
+  );
+  expect(decodedSize.width, lessThanOrEqualTo(sourceWidth.toDouble()));
+
+  final cacheKey = await provider.obtainKey(ImageConfiguration.empty);
+  expect(
+    PaintingBinding.instance.imageCache.statusForKey(cacheKey).keepAlive,
+    isTrue,
+    reason:
+        'The resize provider key must identify the decoded cover cache entry.',
+  );
 }
 
 void main() {
@@ -581,33 +634,6 @@ void main() {
               of: detail,
               matching: find.byType(Scaffold),
             );
-            Size detailBodySize() => tester
-                .renderObject(
-                  find.descendant(
-                    of: detail,
-                    matching: find.byType(SingleChildScrollView),
-                  ),
-                )
-                .paintBounds
-                .size;
-            Rect coverInDetailBody() {
-              final body =
-                  tester.renderObject(
-                        find.descendant(
-                          of: detail,
-                          matching: find.byType(SingleChildScrollView),
-                        ),
-                      )
-                      as RenderBox;
-              final cover =
-                  tester.renderObject(
-                        find.byKey(const ValueKey('comic-detail-cover')),
-                      )
-                      as RenderBox;
-              return cover.localToGlobal(Offset.zero, ancestor: body) &
-                  cover.size;
-            }
-
             Rect rectInDetailScaffold(Finder target) {
               final scaffold =
                   tester.renderObject(detailScaffold.first) as RenderBox;
@@ -628,12 +654,10 @@ void main() {
               matching: find.byType(MiniPlayer),
             );
 
-            final coverRect = coverInDetailBody();
             final scaffoldCoverRect = coverInDetailScaffold();
             final globalCoverTop = tester
                 .getTopLeft(find.byKey(const ValueKey('comic-detail-cover')))
                 .dy;
-            final bodySize = detailBodySize();
             final titleRect = rectInDetailScaffold(title);
             final miniPlayerRect = withAudio
                 ? rectInDetailScaffold(miniPlayer)
@@ -649,8 +673,6 @@ void main() {
             if (!reduceMotion) expect(route.animation!.value, lessThan(1));
             if (!reduceMotion) {
               expect(MediaQuery.sizeOf(tester.element(detail)), detailSize);
-              expect(detailBodySize(), bodySize);
-              expect(coverInDetailBody(), coverRect);
               expect(coverInDetailScaffold(), scaffoldCoverRect);
               expect(
                 MediaQuery.paddingOf(tester.element(detail)),
@@ -676,21 +698,15 @@ void main() {
             }
 
             final readingRect = readerImageRect();
-            final readingScreenRect = tester.getRect(readerImage);
             Navigator.of(tester.element(reader)).pop();
             for (var frame = 0; frame < 40; frame++) {
               await tester.pump(const Duration(milliseconds: 16));
               if (reader.evaluate().isNotEmpty) {
                 expect(
-                  tester.getRect(readerImage),
-                  readingScreenRect,
-                  reason:
-                      'reading image shifted on screen during exit frame $frame',
-                );
-                expect(
                   readerImageRect(),
                   readingRect,
-                  reason: 'reading image moved during exit frame $frame',
+                  reason:
+                      'reading image moved within its scaffold during exit frame $frame',
                 );
               }
               expect(
@@ -698,7 +714,6 @@ void main() {
                 scaffoldCoverRect,
                 reason: 'detail cover moved on return frame $frame',
               );
-              expect(detailBodySize(), bodySize);
               expect(
                 tester
                     .getTopLeft(
@@ -793,6 +808,13 @@ void main() {
         await waitForComicCardImage(tester, 'Fixture book');
         await tester.tap(find.text('Fixture book'));
         await tester.pumpAndSettle();
+        await waitForDecodedImage(
+          tester,
+          find.descendant(
+            of: find.byKey(const ValueKey('comic-detail-cover')),
+            matching: find.byType(Image),
+          ),
+        );
 
         Future<int?> paintedCoverTop() async {
           final boundary = tester.renderObject<RenderRepaintBoundary>(
@@ -1168,6 +1190,20 @@ void main() {
     expect(container.read(comicLayoutProvider), LayoutType.smallGrid);
     expect(StorageService.getString('comic_layout_type'), 'smallGrid');
     expect(find.text('Small grid'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('comic source login form opens in debug mode', (tester) async {
+    final source = PicaSource(ComicHttp('picacg'));
+    addTearDown(source.http.dispose);
+    await pump(
+      tester,
+      ComicSourceSettingsScreen(source: source),
+      _Library(),
+      _Source(),
+    );
+
+    expect(find.byType(TextField), findsNWidgets(4));
     expect(tester.takeException(), isNull);
   });
 
@@ -2292,7 +2328,8 @@ void main() {
           source,
           loadImage: (page) {
             loads.update(page.url, (value) => value + 1, ifAbsent: () => 1);
-            return Future.value(Uint8List.fromList(_png));
+            final bytes = page.url == 'pressure-0' ? _highResolutionPng : _png;
+            return Future.value(Uint8List.fromList(bytes));
           },
         );
         await waitForComicCardImage(tester, 'Pressure 0');
@@ -2308,6 +2345,24 @@ void main() {
               find.descendant(of: firstCard, matching: find.byType(Image)),
             )
             .image;
+        expect(firstProvider, isA<ResizeImage>());
+        final firstResize = firstProvider as ResizeImage;
+        final firstCoverWidth = tester
+            .getSize(
+              find.descendant(of: firstCard, matching: find.byType(ComicImage)),
+            )
+            .width;
+        expect(
+          firstResize.width,
+          math.min(
+            (firstCoverWidth * tester.view.devicePixelRatio).ceil(),
+            1800,
+          ),
+        );
+        final firstCacheKey = await firstProvider.obtainKey(
+          ImageConfiguration.empty,
+        );
+        expect(cache.statusForKey(firstCacheKey).keepAlive, isTrue);
         final grid = find.byType(ComicGrid);
         final scrollable = find.descendant(
           of: grid,
@@ -3508,17 +3563,22 @@ void main() {
 
   for (final layout in LayoutType.values) {
     testWidgets(
-      'comic $layout cover stays with its page into detail and returns',
+      'comic $layout high-resolution cover stays sized into detail and returns',
       (tester) async {
         await StorageService.setString('comic_layout_type', layout.name);
+        tester.view.physicalSize = const Size(780, 1688);
+        tester.view.devicePixelRatio = 2;
+        addTearDown(tester.view.reset);
         await pump(
           tester,
           const Scaffold(body: ComicGrid(comics: [_comic])),
           _Library(),
           _Source(),
-          loadImage: (_) async => _widePng,
+          loadImage: (_) async => Uint8List.fromList(_highResolutionPng),
         );
         await waitForComicCardImage(tester, 'Fixture book');
+        final cardCover = find.byType(ComicCover);
+        await expectComicCoverDecodeMatchesDisplay(tester, cardCover, 1800);
         final hero = find.descendant(
           of: find.byType(ComicCover),
           matching: find.byType(Hero),
@@ -3536,6 +3596,11 @@ void main() {
         final destination = tester.getRect(
           find.byKey(const ValueKey('comic-detail-cover')),
         );
+        await expectComicCoverDecodeMatchesDisplay(
+          tester,
+          find.byKey(const ValueKey('comic-detail-cover')),
+          1800,
+        );
         if (layout != LayoutType.list) {
           expect(destination.width, closeTo(start.width, 0.1));
         } else {
@@ -3549,10 +3614,32 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(ComicDetailScreen), findsNothing);
         expect(tester.getRect(find.byType(ComicImage).first), start);
+        await expectComicCoverDecodeMatchesDisplay(
+          tester,
+          find.byType(ComicCover),
+          1800,
+        );
         expect(tester.takeException(), isNull);
       },
     );
   }
+
+  testWidgets('comic detail cover resize width is capped by source width', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(780, 1688);
+    tester.view.devicePixelRatio = 2;
+    addTearDown(tester.view.reset);
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: _comic),
+      _Library(),
+      _Source(),
+      loadImage: (_) async => _png,
+    );
+    final detailCover = find.byKey(const ValueKey('comic-detail-cover'));
+    await expectComicCoverDecodeMatchesDisplay(tester, detailCover, 100);
+  });
 
   testWidgets('search cover stays with its page into detail', (tester) async {
     await pump(

@@ -302,6 +302,7 @@ class _ComicSourceSettingsScreenState
         padding: const EdgeInsets.all(16),
         children: [
           SettingsSwitchTile(
+            icon: Icons.public,
             title: s.comicEnabled,
             value:
                 StorageService.getBool('comic_${source.key}_enabled') ?? true,

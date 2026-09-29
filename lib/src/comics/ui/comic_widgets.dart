@@ -35,10 +35,22 @@ class _ComicImageRequest {
 }
 
 class _ComicCoverPicture {
-  const _ComicCoverPicture(this.bytes, this.aspectRatio);
+  const _ComicCoverPicture(this.bytes, this.aspectRatio, this.sourceWidth);
 
   final Uint8List bytes;
   final double aspectRatio;
+  final int sourceWidth;
+}
+
+int _comicCoverCacheWidth(
+  BuildContext context,
+  double logicalWidth,
+  int sourceWidth,
+) {
+  final displayWidth = (logicalWidth * MediaQuery.devicePixelRatioOf(context))
+      .ceil();
+  if (displayWidth < 1) return 1;
+  return displayWidth < sourceWidth ? displayWidth : sourceWidth;
 }
 
 class _ComicCoverRetention {
@@ -91,6 +103,7 @@ final _comicImageBytesProvider = FutureProvider.autoDispose
           final picture = _ComicCoverPicture(
             bytes,
             descriptor.width / descriptor.height,
+            descriptor.width,
           );
           if (!disposed) {
             final release = ref.keepAlive().close;
@@ -111,6 +124,7 @@ class ComicImage extends StatelessWidget {
     this.page,
     this._picture,
     this.failed, {
+    this.cacheWidth,
     this.onRetry,
     this.onFirstFrameReady,
   });
@@ -118,6 +132,7 @@ class ComicImage extends StatelessWidget {
   final ComicPage page;
   final _ComicCoverPicture? _picture;
   final bool failed;
+  final int? cacheWidth;
   final VoidCallback? onRetry;
   final VoidCallback? onFirstFrameReady;
   BoxFit get fit => BoxFit.contain;
@@ -137,6 +152,7 @@ class ComicImage extends StatelessWidget {
 
       return Image.memory(
         currentPicture.bytes,
+        cacheWidth: cacheWidth,
         fit: fit,
         gaplessPlayback: true,
         frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
@@ -314,13 +330,6 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
     final failed = _visibleFailed;
     final ratio =
         _layoutPicture?.aspectRatio ?? widget.placeholderAspectRatio ?? 2 / 3;
-    final content = ComicImage._(
-      widget.page,
-      picture,
-      failed,
-      onRetry: () => ref.invalidate(_comicImageBytesProvider(request)),
-      onFirstFrameReady: widget.onFirstFrameReady,
-    );
     return LayoutBuilder(
       builder: (context, constraints) {
         final availableWidth = widget.maxWidth ?? constraints.maxWidth;
@@ -328,6 +337,16 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
         final coverWidth = widget.maxHeight == null
             ? width
             : math.min(width, widget.maxHeight! * ratio);
+        final content = ComicImage._(
+          widget.page,
+          picture,
+          failed,
+          cacheWidth: picture == null
+              ? null
+              : _comicCoverCacheWidth(context, coverWidth, picture.sourceWidth),
+          onRetry: () => ref.invalidate(_comicImageBytesProvider(request)),
+          onFirstFrameReady: widget.onFirstFrameReady,
+        );
         final cover = SizedBox(
           width: coverWidth,
           height: coverWidth / ratio,
@@ -407,6 +426,7 @@ class _ComicCardWhenReady extends ConsumerStatefulWidget {
     required this.source,
     required this.page,
     required this.buildChild,
+    required this.coverWidth,
     this.placeholderAspectRatio,
     this.onAspectRatio,
   });
@@ -414,6 +434,7 @@ class _ComicCardWhenReady extends ConsumerStatefulWidget {
   final String source;
   final ComicPage page;
   final Widget Function(VoidCallback onFirstFrameReady) buildChild;
+  final double coverWidth;
   final double? placeholderAspectRatio;
   final ValueChanged<double>? onAspectRatio;
 
@@ -456,9 +477,15 @@ class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady>
     final picture = image.valueOrNull;
     if (picture != null) {
       widget.onAspectRatio?.call(picture.aspectRatio);
-      if (PaintingBinding.instance.imageCache
-          .statusForKey(MemoryImage(picture.bytes))
-          .keepAlive) {
+      final resizeImage = ResizeImage(
+        MemoryImage(picture.bytes),
+        width: _comicCoverCacheWidth(
+          context,
+          widget.coverWidth,
+          picture.sourceWidth,
+        ),
+      );
+      if (_comicCoverImageIsCached(resizeImage, context)) {
         _shown = true;
       }
     }
@@ -476,6 +503,17 @@ class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady>
       child: widget.buildChild(() => _showWhenReady(generation)),
     );
   }
+}
+
+bool _comicCoverImageIsCached(ResizeImage image, BuildContext context) {
+  Object? cacheKey;
+  // Comic covers use MemoryImage, whose ResizeImage key is available immediately.
+  image
+      .obtainKey(createLocalImageConfiguration(context))
+      .then((key) => cacheKey = key);
+  final key = cacheKey;
+  return key != null &&
+      PaintingBinding.instance.imageCache.statusForKey(key).keepAlive;
 }
 
 class ComicGrid extends ConsumerStatefulWidget {
@@ -504,14 +542,16 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
 
   Widget _readyCard(
     Comic comic,
-    Widget Function(double?, VoidCallback) buildCard,
-  ) {
+    Widget Function(double?, VoidCallback) buildCard, {
+    required double coverWidth,
+  }) {
     final page = comic.coverPage;
     final request = _ComicImageRequest(comic.source, page);
     final placeholderAspectRatio = _coverAspectRatios[request.key];
     return _ComicCardWhenReady(
       source: comic.source,
       page: page,
+      coverWidth: coverWidth,
       placeholderAspectRatio: placeholderAspectRatio,
       onAspectRatio: (ratio) => _coverAspectRatios[request.key] = ratio,
       buildChild: (onFirstFrameReady) =>
@@ -688,6 +728,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                           ),
                         ),
                       ),
+                      coverWidth: 80,
                     ),
                     childCount: comics.length,
                   ),
@@ -793,6 +834,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                       ),
                     ),
                   ),
+                  coverWidth: gridCoverWidth,
                 ),
               ),
             ),
