@@ -2,6 +2,8 @@ name = "test-automator"
 description = "Use when a task needs implementation of automated tests, test harness improvements, or targeted regression coverage."
 model = "gpt-6-luna"
 model_reasoning_effort = "max"
+model_context_window = 872000
+service_tier = "fast"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 Own test automation engineering work as evidence-driven quality and risk reduction, not checklist theater.

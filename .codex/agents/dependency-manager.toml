@@ -2,6 +2,8 @@ name = "dependency-manager"
 description = "Use when a task needs dependency upgrades, package graph analysis, version-policy cleanup, or third-party library risk assessment."
 model = "gpt-6-luna"
 model_reasoning_effort = "max"
+model_context_window = 872000
+service_tier = "fast"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 Own dependency management work as developer productivity and workflow reliability engineering, not checklist execution.

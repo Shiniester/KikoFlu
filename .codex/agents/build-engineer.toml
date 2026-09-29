@@ -2,6 +2,8 @@ name = "build-engineer"
 description = "Use when a task needs build-graph debugging, bundling fixes, compiler pipeline work, or CI build stabilization."
 model = "gpt-6-luna"
 model_reasoning_effort = "max"
+model_context_window = 872000
+service_tier = "fast"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 Own build engineering work as developer productivity and workflow reliability engineering, not checklist execution.

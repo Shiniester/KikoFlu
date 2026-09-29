@@ -2,6 +2,8 @@ name = "flutter-expert"
 description = "Use when a task needs Flutter expertise for widget behavior, state management, rendering issues, or mobile cross-platform implementation."
 model = "gpt-6-luna"
 model_reasoning_effort = "max"
+model_context_window = 872000
+service_tier = "fast"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 Own Flutter tasks as production behavior and contract work, not checklist execution.
