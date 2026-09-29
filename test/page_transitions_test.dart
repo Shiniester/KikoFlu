@@ -104,6 +104,53 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets(
+    'page shadow stays on the clipped page edge during push and pop',
+    (tester) async {
+      final navigator = await _app(tester);
+      _push(navigator, _page);
+
+      void expectEdge() {
+        final page = find.byKey(_page);
+        final pageRect = tester.getRect(page);
+        final translation = find.ancestor(
+          of: page,
+          matching: find.byType(FractionalTranslation),
+        );
+        final shadow = find.descendant(
+          of: translation,
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is PhysicalModel &&
+                widget.color == Colors.transparent &&
+                widget.elevation == 6,
+          ),
+        );
+        expect(shadow, findsOneWidget);
+        expect(
+          tester.getRect(shadow),
+          Rect.fromLTWH(pageRect.left, pageRect.top, 24, pageRect.height),
+        );
+        final pageClip = find.ancestor(
+          of: page,
+          matching: find.byType(ClipRect),
+        );
+        expect(tester.getRect(pageClip.first), pageRect);
+      }
+
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      expectEdge();
+      await tester.pumpAndSettle();
+      navigator.currentState!.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      expectEdge();
+      await tester.pumpAndSettle();
+    },
+  );
+
   testWidgets('300ms push and pop move only the top page with ease', (
     tester,
   ) async {

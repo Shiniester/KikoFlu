@@ -179,11 +179,23 @@ class _PageTransitionState extends State<_PageTransition>
                 : Curves.ease.transform(widget.animation.value);
             return FractionalTranslation(
               translation: Offset(1 - progress, 0),
-              child: PhysicalModel(
-                color: Colors.transparent,
-                elevation: 6,
-                clipBehavior: Clip.hardEdge,
-                child: child,
+              child: Stack(
+                fit: StackFit.passthrough,
+                clipBehavior: Clip.none,
+                children: [
+                  const Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: 24,
+                    child: PhysicalModel(
+                      color: Colors.transparent,
+                      elevation: 6,
+                      child: SizedBox.expand(),
+                    ),
+                  ),
+                  ClipRect(child: child),
+                ],
               ),
             );
           },
