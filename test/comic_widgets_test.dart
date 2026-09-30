@@ -71,6 +71,7 @@ class _Source extends ComicSource {
   final searchGates = <int, Completer<ComicResult>>{};
   Completer<Comic>? detailGate;
   Completer<List<ComicChapter>>? chapterGate;
+  Comic? detailResult;
   bool detailFails = false, chaptersFail = false;
   @override
   bool get isLoggedIn => loggedIn;
@@ -119,7 +120,7 @@ class _Source extends ComicSource {
   Future<Comic> details(String id) async {
     detailRequests++;
     if (detailFails) throw const ComicSourceException('detail unavailable');
-    return detailGate?.future ?? _comic;
+    return detailGate?.future ?? detailResult ?? _comic;
   }
 
   @override
@@ -3045,6 +3046,17 @@ void main() {
       final favorite = tester.getCenter(find.byTooltip('Favorites'));
       expect(download.dx, lessThan(favorite.dx));
       expect(download.dy, favorite.dy);
+      final scrollable = find
+          .descendant(
+            of: find.byType(ComicDetailScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      await tester.scrollUntilVisible(
+        find.text('Fixture tag'),
+        300,
+        scrollable: scrollable,
+      );
       expect(find.byType(MetadataSearchChip), findsOneWidget);
       final cover = tester.getRect(
         find.byKey(const ValueKey('comic-detail-cover')),
@@ -3111,6 +3123,8 @@ void main() {
       _Library(),
       source,
     );
+    await tester.ensureVisible(find.text('Fixture tag'));
+    await tester.pumpAndSettle();
     final labels = S.of(tester.element(find.byType(ComicDetailScreen)));
     final comments = find.text(labels.comicComments);
     expect(
@@ -3126,6 +3140,42 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Existing comment'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
+  });
+
+  testWidgets('offscreen detail tags are built only when scrolled into view', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 480);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final listing = Comic(
+      source: 'fixture',
+      id: 'book',
+      title: 'Fixture book',
+      cover: 'fixture-cover',
+      tags: List.generate(40, (index) => 'Tag $index'),
+    );
+    final source = _Source()..detailResult = listing;
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: _comic),
+      _Library(),
+      source,
+    );
+    expect(find.byType(MetadataSearchChip), findsNothing);
+    final scrollable = find
+        .descendant(
+          of: find.byType(ComicDetailScreen),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(
+      find.text('Tag 39'),
+      320,
+      scrollable: scrollable,
+    );
+    expect(find.text('Tag 39'), findsOneWidget);
+    expect(find.byType(MetadataSearchChip), findsWidgets);
   });
 
   testWidgets('detail cover follows big grid width when a window is resized', (
@@ -3240,7 +3290,15 @@ void main() {
   testWidgets('chapter response during push only mounts nearby rows', (
     tester,
   ) async {
-    final source = _Source()..chapterGate = Completer<List<ComicChapter>>();
+    final source = _Source()
+      ..chapterGate = Completer<List<ComicChapter>>()
+      ..detailResult = const Comic(
+        source: 'fixture',
+        id: 'book',
+        title: 'Loaded metadata',
+        cover: 'fixture-cover',
+        chapters: [ComicChapter('one', 'Chapter 1')],
+      );
     await pump(
       tester,
       const Scaffold(body: Text('Origin')),
@@ -3256,6 +3314,34 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(route.animation!.status, AnimationStatus.forward);
+    expect(source.detailRequests, 1);
+    expect(source.chapterRequests, 1);
+    expect(
+      tester.widget<WorkTitleHeader>(find.byType(WorkTitleHeader)).title,
+      'Fixture book',
+    );
+    expect(
+      tester
+          .widget<IconButton>(
+            find.ancestor(
+              of: find.byTooltip('Download'),
+              matching: find.byType(IconButton),
+            ),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.ancestor(
+              of: find.text('Continue reading'),
+              matching: find.byType(FilledButton),
+            ),
+          )
+          .onPressed,
+      isNull,
+    );
     source.chapterGate!.complete(
       List.generate(
         1000,
@@ -3270,8 +3356,14 @@ void main() {
           ((widget.title! as Text).data?.startsWith('Loaded chapter ') ??
               false),
     );
-    expect(rows.evaluate().length, lessThan(30));
+    expect(rows, findsNothing);
+    expect(find.text('Loaded chapter 999'), findsNothing);
     await tester.pumpAndSettle();
+    expect(
+      tester.widget<WorkTitleHeader>(find.byType(WorkTitleHeader)).title,
+      'Loaded metadata',
+    );
+    expect(rows.evaluate().length, lessThan(30));
     final scrollable = find
         .descendant(
           of: find.byType(ComicDetailScreen),
@@ -3353,6 +3445,88 @@ void main() {
       expect(timings.any((message) => message.contains('chapters')), isTrue);
     },
   );
+
+  testWidgets('metadata and chapter failures wait for the entry route', (
+    tester,
+  ) async {
+    final source = _Source()
+      ..detailFails = true
+      ..chapterGate = Completer<List<ComicChapter>>();
+    await pump(
+      tester,
+      const Scaffold(body: Text('Origin')),
+      _Library(),
+      source,
+      settle: false,
+    );
+    final navigator = Navigator.of(tester.element(find.text('Origin')));
+    final route = MaterialPageRoute<void>(
+      builder: (_) => const ComicDetailScreen(comic: _comic),
+    );
+    navigator.push(route);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(source.detailRequests, 1);
+    expect(source.chapterRequests, 1);
+    expect(find.text('detail unavailable'), findsNothing);
+    expect(find.text('chapters unavailable'), findsNothing);
+    expect(find.text('Chapter 1'), findsNothing);
+
+    source.chapterGate!.complete(_comic.chapters);
+    await tester.pump();
+    expect(find.text('detail unavailable'), findsNothing);
+    expect(find.text('Chapter 1'), findsNothing);
+
+    await tester.pumpAndSettle();
+    expect(find.text('detail unavailable'), findsOneWidget);
+    expect(find.text('chapters unavailable'), findsNothing);
+    final scrollable = find
+        .descendant(
+          of: find.byType(ComicDetailScreen),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(
+      find.text('Chapter 1'),
+      400,
+      scrollable: scrollable,
+    );
+    expect(find.text('Chapter 1'), findsOneWidget);
+    navigator.pop();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('popping detail before metadata returns drops the late result', (
+    tester,
+  ) async {
+    final source = _Source()..detailGate = Completer<Comic>();
+    await pump(
+      tester,
+      const Scaffold(body: Text('Origin')),
+      _Library(),
+      source,
+      settle: false,
+    );
+    final navigator = Navigator.of(tester.element(find.text('Origin')));
+    final route = MaterialPageRoute<void>(
+      builder: (_) => const ComicDetailScreen(comic: _comic),
+    );
+    navigator.push(route);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(source.detailRequests, 1);
+    navigator.pop();
+    await tester.pumpAndSettle();
+
+    source.detailGate!.complete(
+      const Comic(source: 'fixture', id: 'book', title: 'Late metadata'),
+    );
+    await tester.pump();
+    expect(find.text('Origin'), findsOneWidget);
+    expect(find.text('Late metadata'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('detail keeps a list-only source date for local favorites', (
     tester,
@@ -3538,17 +3712,22 @@ void main() {
     final source = _Source();
     await pump(
       tester,
-      const ComicDetailScreen(
-        comic: Comic(
-          source: 'fixture',
-          id: 'book',
-          title: 'Fixture book',
-          cover: 'fixture-cover',
-        ),
-      ),
+      const Scaffold(body: Text('Origin')),
       library,
       source,
+      settle: false,
     );
+    final navigator = Navigator.of(tester.element(find.text('Origin')));
+    final route = MaterialPageRoute<void>(
+      builder: (_) => const ComicDetailScreen(comic: _comic),
+    );
+    navigator.push(route);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Chapter 1'), findsNothing);
+    expect(source.detailRequests, 0);
+    expect(source.chapterRequests, 0);
+    await tester.pumpAndSettle();
     expect(find.text('Chapter 1'), findsOneWidget);
     expect(source.detailRequests, 0);
     expect(source.chapterRequests, 0);
@@ -3559,6 +3738,8 @@ void main() {
       ),
     );
     expect(cover.page.localPath, 'offline-cover');
+    navigator.pop();
+    await tester.pumpAndSettle();
   });
 
   for (final layout in LayoutType.values) {
@@ -3579,6 +3760,14 @@ void main() {
         await waitForComicCardImage(tester, 'Fixture book');
         final cardCover = find.byType(ComicCover);
         await expectComicCoverDecodeMatchesDisplay(tester, cardCover, 1800);
+        final sourceImage = find.descendant(
+          of: cardCover,
+          matching: find.byType(Image),
+        );
+        final sourceProvider = tester.widget<Image>(sourceImage).image;
+        final sourceKey = await sourceProvider.obtainKey(
+          ImageConfiguration.empty,
+        );
         final hero = find.descendant(
           of: find.byType(ComicCover),
           matching: find.byType(Hero),
@@ -3592,6 +3781,37 @@ void main() {
         expect(hero, findsNothing);
         expectVisibleComicCoverRatio(tester, 180 / 100);
         expectComicCoversAttached();
+        final detailCoverFinder = find.byKey(
+          const ValueKey('comic-detail-cover'),
+        );
+        final route = ModalRoute.of(tester.element(detailCoverFinder))!;
+        expect(route.animation!.status, AnimationStatus.forward);
+        for (
+          var frame = 0;
+          frame < 20 && route.animation!.status != AnimationStatus.completed;
+          frame++
+        ) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        expect(route.animation!.status, AnimationStatus.completed);
+        final detailImageFinder = find.descendant(
+          of: detailCoverFinder,
+          matching: find.byType(Image),
+        );
+        final heldProvider = tester.widget<Image>(detailImageFinder).image;
+        expect(
+          await heldProvider.obtainKey(ImageConfiguration.empty),
+          sourceKey,
+        );
+        await tester.pump();
+        final upgradedProvider = tester.widget<Image>(detailImageFinder).image;
+        expect(upgradedProvider, isA<ResizeImage>());
+        final upgradedWidth = (upgradedProvider as ResizeImage).width!;
+        final sourceWidth = (sourceProvider as ResizeImage).width!;
+        expect(
+          upgradedWidth,
+          layout == LayoutType.list ? greaterThan(sourceWidth) : sourceWidth,
+        );
         await tester.pumpAndSettle();
         final destination = tester.getRect(
           find.byKey(const ValueKey('comic-detail-cover')),
@@ -3639,6 +3859,105 @@ void main() {
     );
     final detailCover = find.byKey(const ValueKey('comic-detail-cover'));
     await expectComicCoverDecodeMatchesDisplay(tester, detailCover, 100);
+  });
+
+  testWidgets('detail cover stays loaded while the reader covers and returns', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: _comic),
+      _Library(),
+      _Source(),
+      loadImage: (_) async => _widePng,
+    );
+    final detailCover = find.byKey(const ValueKey('comic-detail-cover'));
+    final detailImage = find.descendant(
+      of: detailCover,
+      matching: find.byType(Image),
+    );
+    await waitForDecodedImage(tester, detailImage);
+    final initialProvider = tester.widget<Image>(detailImage).image;
+    final initialKey = await initialProvider.obtainKey(
+      ImageConfiguration.empty,
+    );
+
+    await tester.tap(find.text('Continue reading'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    final coveredDetail = find.byKey(
+      const ValueKey('comic-detail-cover'),
+      skipOffstage: false,
+    );
+    final coveredImage = find.descendant(
+      of: coveredDetail,
+      matching: find.byType(Image),
+      skipOffstage: false,
+    );
+    expect(coveredImage, findsOneWidget);
+    expect(
+      await tester
+          .widget<Image>(coveredImage)
+          .image
+          .obtainKey(ImageConfiguration.empty),
+      initialKey,
+    );
+
+    await tester.pumpAndSettle();
+    Navigator.of(tester.element(find.byType(ComicReaderScreen))).pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(
+      await tester
+          .widget<Image>(coveredImage)
+          .image
+          .obtainKey(ImageConfiguration.empty),
+      initialKey,
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('failed replacement cover keeps the decoded listing image', (
+    tester,
+  ) async {
+    final updated = Comic(
+      source: 'fixture',
+      id: 'book',
+      title: 'Fixture book',
+      cover: 'changed-cover',
+      chapters: _comic.chapters,
+    );
+    final source = _Source()..detailGate = Completer<Comic>();
+    final loadedPages = <String?>[];
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: _comic),
+      _Library(),
+      source,
+      settle: false,
+      loadImage: (page) {
+        loadedPages.add(page.url);
+        if (page.url == 'changed-cover') {
+          return Future.error(StateError('replacement unavailable'));
+        }
+        return Future.value(_widePng);
+      },
+    );
+    await waitForCoverBytes(tester, _widePng);
+    source.detailGate!.complete(updated);
+    await tester.pumpAndSettle();
+    expect(loadedPages, contains('changed-cover'));
+    expect(memoryImageForBytes(_widePng), findsOneWidget);
+    final raw = find.descendant(
+      of: find.byKey(const ValueKey('comic-detail-cover')),
+      matching: find.byType(RawImage),
+    );
+    expect(tester.widget<RawImage>(raw).image, isNotNull);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('search cover stays with its page into detail', (tester) async {

@@ -127,6 +127,7 @@ class ComicImage extends StatelessWidget {
     this.cacheWidth,
     this.onRetry,
     this.onFirstFrameReady,
+    this.deferImage = false,
   });
 
   final ComicPage page;
@@ -135,10 +136,22 @@ class ComicImage extends StatelessWidget {
   final int? cacheWidth;
   final VoidCallback? onRetry;
   final VoidCallback? onFirstFrameReady;
+  final bool deferImage;
   BoxFit get fit => BoxFit.contain;
 
   @override
   Widget build(BuildContext context) {
+    if (deferImage) {
+      return const RepaintBoundary(
+        child: Center(
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
     final currentPicture = _picture;
     if (currentPicture != null) {
       var notified = false;
@@ -182,11 +195,13 @@ class ComicImage extends StatelessWidget {
         ),
       );
     }
-    return const Center(
-      child: SizedBox(
-        width: 24,
-        height: 24,
-        child: CircularProgressIndicator(strokeWidth: 2),
+    return const RepaintBoundary(
+      child: Center(
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
       ),
     );
   }
@@ -202,6 +217,10 @@ class ComicCover extends ConsumerStatefulWidget {
     this.placeholderAspectRatio,
     this.cornerRadius = workCoverCompactRadius,
     this.onFirstFrameReady,
+    this.initialCacheWidth,
+    this.initialAspectRatio,
+    this.deferCacheUpgradeUntilRouteCompleted = false,
+    this.preservePreviousImage = false,
   });
 
   final String source;
@@ -211,6 +230,10 @@ class ComicCover extends ConsumerStatefulWidget {
   final double? placeholderAspectRatio;
   final double cornerRadius;
   final VoidCallback? onFirstFrameReady;
+  final int? initialCacheWidth;
+  final double? initialAspectRatio;
+  final bool deferCacheUpgradeUntilRouteCompleted;
+  final bool preservePreviousImage;
 
   @override
   ConsumerState<ComicCover> createState() => _ComicCoverState();
@@ -225,6 +248,8 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
   bool _animateSize = true;
   bool _visibleFailed = false;
   bool _hasVisibleState = false;
+  bool _initialUpgradeReleased = false;
+  bool _initialUpgradeScheduled = false;
   ModalRoute<dynamic>? _route;
 
   bool get _routeMoving {
@@ -239,6 +264,7 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
 
   void _routeStatusChanged(AnimationStatus _) {
     if (mounted && !_routeMoving) {
+      _scheduleInitialUpgradeRelease();
       setState(() {
         if (_sizeSettled && _pendingReveal != null) {
           _visiblePicture = _pendingReveal;
@@ -267,6 +293,29 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
       _route = route;
       _listenToRoute(route, add: true);
     }
+    _scheduleInitialUpgradeRelease();
+  }
+
+  void _scheduleInitialUpgradeRelease() {
+    if (!widget.deferCacheUpgradeUntilRouteCompleted ||
+        _initialUpgradeReleased ||
+        _initialUpgradeScheduled) {
+      return;
+    }
+    final animation = _route?.animation;
+    if (animation != null && animation.status != AnimationStatus.completed) {
+      return;
+    }
+    _initialUpgradeScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initialUpgradeScheduled = false;
+      if (!mounted ||
+          (_route?.animation != null &&
+              _route!.animation!.status != AnimationStatus.completed)) {
+        return;
+      }
+      setState(() => _initialUpgradeReleased = true);
+    });
   }
 
   @override
@@ -274,14 +323,26 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.source != widget.source ||
         oldWidget.page.url != widget.page.url) {
-      _lastPicture = null;
-      _layoutPicture = null;
-      _visiblePicture = null;
-      _pendingReveal = null;
-      _sizeSettled = true;
-      _animateSize = true;
-      _visibleFailed = false;
-      _hasVisibleState = false;
+      final previous = _visiblePicture ?? _lastPicture;
+      if (widget.preservePreviousImage && previous != null) {
+        _lastPicture = previous;
+        _layoutPicture = previous;
+        _visiblePicture = previous;
+        _pendingReveal = null;
+        _sizeSettled = true;
+        _animateSize = false;
+        _visibleFailed = false;
+        _hasVisibleState = true;
+      } else {
+        _lastPicture = null;
+        _layoutPicture = null;
+        _visiblePicture = null;
+        _pendingReveal = null;
+        _sizeSettled = true;
+        _animateSize = true;
+        _visibleFailed = false;
+        _hasVisibleState = false;
+      }
     }
   }
 
@@ -328,8 +389,14 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
     }
     final picture = _visiblePicture;
     final failed = _visibleFailed;
+    final holdForRoute =
+        widget.deferCacheUpgradeUntilRouteCompleted && !_initialUpgradeReleased;
+    final hasInitialDecode = holdForRoute && widget.initialCacheWidth != null;
     final ratio =
-        _layoutPicture?.aspectRatio ?? widget.placeholderAspectRatio ?? 2 / 3;
+        _layoutPicture?.aspectRatio ??
+        widget.initialAspectRatio ??
+        widget.placeholderAspectRatio ??
+        2 / 3;
     return LayoutBuilder(
       builder: (context, constraints) {
         final availableWidth = widget.maxWidth ?? constraints.maxWidth;
@@ -343,9 +410,12 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
           failed,
           cacheWidth: picture == null
               ? null
+              : hasInitialDecode
+              ? widget.initialCacheWidth
               : _comicCoverCacheWidth(context, coverWidth, picture.sourceWidth),
           onRetry: () => ref.invalidate(_comicImageBytesProvider(request)),
           onFirstFrameReady: widget.onFirstFrameReady,
+          deferImage: holdForRoute && !hasInitialDecode,
         );
         final cover = SizedBox(
           width: coverWidth,
@@ -650,6 +720,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                             context,
                             comics[i],
                             gridCoverWidth: gridCoverWidth,
+                            initialCoverWidth: 80,
                           ),
                           onLongPress: onLongPress == null
                               ? null
@@ -764,6 +835,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                         context,
                         comics[i],
                         gridCoverWidth: gridCoverWidth,
+                        initialCoverWidth: gridCoverWidth,
                       ),
                       onLongPress: onLongPress == null
                           ? null
@@ -847,16 +919,56 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
   }
 }
 
-void openComic(BuildContext context, Comic comic, {double? gridCoverWidth}) {
+({int cacheWidth, double aspectRatio})? _comicCoverHandoff(
+  BuildContext context,
+  Comic comic, {
+  required double? coverWidth,
+  double? maxHeight,
+}) {
+  if (coverWidth == null) return null;
+  final request = _ComicImageRequest(comic.source, comic.coverPage);
+  final picture = ProviderScope.containerOf(
+    context,
+    listen: false,
+  ).read(_comicImageBytesProvider(request)).valueOrNull;
+  if (picture == null) return null;
+  final displayWidth = maxHeight == null
+      ? coverWidth
+      : math.min(coverWidth, maxHeight * picture.aspectRatio);
+  return (
+    cacheWidth: _comicCoverCacheWidth(
+      context,
+      displayWidth,
+      picture.sourceWidth,
+    ),
+    aspectRatio: picture.aspectRatio,
+  );
+}
+
+void openComic(
+  BuildContext context,
+  Comic comic, {
+  double? gridCoverWidth,
+  double? initialCoverWidth,
+  double? initialCoverMaxHeight,
+}) {
   final windowWidth = gridCoverWidth == null
       ? null
       : MediaQuery.sizeOf(context).width;
+  final handoff = _comicCoverHandoff(
+    context,
+    comic,
+    coverWidth: initialCoverWidth,
+    maxHeight: initialCoverMaxHeight,
+  );
   pushWorkDetailRoute(
     context,
     builder: (_) => ComicDetailScreen(
       comic: comic,
       initialGridCoverWidth: gridCoverWidth,
       initialWindowWidth: windowWidth,
+      initialCoverCacheWidth: handoff?.cacheWidth,
+      initialCoverAspectRatio: handoff?.aspectRatio,
     ),
   );
 }

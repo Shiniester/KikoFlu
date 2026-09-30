@@ -438,7 +438,12 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                 itemBuilder: (context, i) => SizedBox(
                   width: 136,
                   child: InkWell(
-                    onTap: () => openComic(context, items[i]),
+                    onTap: () => openComic(
+                      context,
+                      items[i],
+                      initialCoverWidth: 120,
+                      initialCoverMaxHeight: 160,
+                    ),
                     child: Padding(
                       padding: const EdgeInsets.all(8),
                       child: Column(
