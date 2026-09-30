@@ -21,18 +21,25 @@ class AppPageTransitionsBuilder extends PageTransitionsBuilder {
     Animation<double> animation,
     Animation<double> secondaryAnimation,
     Widget child,
-  ) => _PageTransition(route: route, animation: animation, child: child);
+  ) => _PageTransition(
+    route: route,
+    animation: animation,
+    secondaryAnimation: secondaryAnimation,
+    child: child,
+  );
 }
 
 class _PageTransition extends StatefulWidget {
   const _PageTransition({
     required this.route,
     required this.animation,
+    required this.secondaryAnimation,
     required this.child,
   });
 
   final PageRoute<dynamic> route;
   final Animation<double> animation;
+  final Animation<double> secondaryAnimation;
   final Widget child;
 
   @override
@@ -41,11 +48,14 @@ class _PageTransition extends StatefulWidget {
 
 class _PageTransitionState extends State<_PageTransition>
     with WidgetsBindingObserver {
+  final SnapshotController _snapshotController = SnapshotController();
   late final HorizontalDragGestureRecognizer _edgeDrag;
   NavigatorState? _gestureNavigator;
   Animation<double>? _settlingAnimation;
   bool _dragging = false;
   bool _completionScheduled = false;
+  bool _semanticsRestored = false;
+  bool _semanticsRestoreScheduled = false;
 
   @override
   void initState() {
@@ -78,6 +88,18 @@ class _PageTransitionState extends State<_PageTransition>
   }
 
   bool get _enabled => widget.route.isCurrent && widget.route.popGestureEnabled;
+
+  bool _isSnapshotFrame(Animation<double> animation) =>
+      (animation.status == AnimationStatus.forward ||
+          animation.status == AnimationStatus.reverse) &&
+      animation.value > 0 &&
+      animation.value < 1;
+
+  bool get _pageStopped =>
+      widget.animation.status == AnimationStatus.completed &&
+      widget.secondaryAnimation.status == AnimationStatus.dismissed &&
+      widget.secondaryAnimation.value == 0 &&
+      !widget.route.popGestureInProgress;
 
   void _startGesture({double progress = 1}) {
     if (!_enabled) return;
@@ -165,13 +187,39 @@ class _PageTransitionState extends State<_PageTransition>
       });
     }
     final platform = Theme.of(context).platform;
-    return Stack(
+    final transition = Stack(
       fit: StackFit.passthrough,
       children: [
         AnimatedBuilder(
-          animation: widget.animation,
-          child: widget.child,
+          animation: Listenable.merge([
+            widget.animation,
+            widget.secondaryAnimation,
+          ]),
+          child: SnapshotWidget(
+            controller: _snapshotController,
+            mode: SnapshotMode.permissive,
+            autoresize: true,
+            child: widget.child,
+          ),
           builder: (context, child) {
+            _snapshotController.allowSnapshotting =
+                platform == TargetPlatform.android &&
+                !reduceMotion &&
+                widget.route.allowSnapshotting &&
+                (widget.route.popGestureInProgress ||
+                    _isSnapshotFrame(widget.animation) ||
+                    _isSnapshotFrame(widget.secondaryAnimation));
+            final pageStopped = _pageStopped;
+            if (!pageStopped) {
+              _semanticsRestored = false;
+            } else if (!_semanticsRestored && !_semanticsRestoreScheduled) {
+              _semanticsRestoreScheduled = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _semanticsRestoreScheduled = false;
+                if (!mounted || !_pageStopped) return;
+                setState(() => _semanticsRestored = true);
+              });
+            }
             final progress = reduceMotion
                 ? 1.0
                 : widget.route.popGestureInProgress
@@ -194,7 +242,11 @@ class _PageTransitionState extends State<_PageTransition>
                       child: SizedBox.expand(),
                     ),
                   ),
-                  ClipRect(child: child),
+                  ExcludeSemantics(
+                    // Restore semantics after the final moving frame.
+                    excluding: !reduceMotion && !_semanticsRestored,
+                    child: ClipRect(child: child),
+                  ),
                 ],
               ),
             );
@@ -215,6 +267,10 @@ class _PageTransitionState extends State<_PageTransition>
           ),
       ],
     );
+    return ClipRect(
+      clipper: _ExposedPageClipper(widget.secondaryAnimation, widget.route),
+      child: transition,
+    );
   }
 
   @override
@@ -222,6 +278,26 @@ class _PageTransitionState extends State<_PageTransition>
     WidgetsBinding.instance.removeObserver(this);
     _edgeDrag.dispose();
     _stopGesture();
+    _snapshotController.dispose();
     super.dispose();
   }
+}
+
+class _ExposedPageClipper extends CustomClipper<Rect> {
+  _ExposedPageClipper(this.animation, this.route) : super(reclip: animation);
+
+  final Animation<double> animation;
+  final PageRoute<dynamic> route;
+
+  @override
+  Rect getClip(Size size) {
+    final progress = route.navigator?.userGestureInProgress == true
+        ? animation.value
+        : Curves.ease.transform(animation.value);
+    return Rect.fromLTWH(0, 0, size.width * (1 - progress), size.height);
+  }
+
+  @override
+  bool shouldReclip(_ExposedPageClipper oldClipper) =>
+      animation != oldClipper.animation || route != oldClipper.route;
 }

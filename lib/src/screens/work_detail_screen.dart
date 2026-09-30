@@ -63,6 +63,8 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   Work? _detailedWork;
   final _metadataChanges = ValueNotifier(0);
   final _fileTreeReady = ValueNotifier(false);
+  final _initialContentReady = Completer<void>();
+  int _metadataLoadGeneration = 0;
   Work get _currentWork => _detailedWork ?? widget.work;
   String? _errorMessage;
   final _hdImageProvider = ValueNotifier<ImageProvider?>(null);
@@ -82,6 +84,8 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   int _hdGeneration = 0;
   bool _hdScheduled = false;
   bool _hdAttempted = false;
+  final _showDetailCover = ValueNotifier(false);
+  bool _detailCoverScheduled = false;
   Size? _hdPixelSize;
 
   Size get _coverPixelSize {
@@ -138,6 +142,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       animation?.addStatusListener(_onRouteStatus);
       animation?.addListener(_onRouteFrame);
     }
+    _scheduleDetailCover();
     _scheduleHDImage();
   }
 
@@ -153,8 +158,31 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         status == AnimationStatus.dismissed) {
       _cancelHDImage();
     } else if (status == AnimationStatus.completed) {
+      _scheduleDetailCover();
       _scheduleHDImage();
     }
+  }
+
+  void _scheduleDetailCover() {
+    if (_detailCoverScheduled) return;
+    final animation = _routeAnimation;
+    if (animation == null) {
+      _completeInitialContentReady();
+      return;
+    }
+    if (animation.status != AnimationStatus.completed) return;
+
+    _detailCoverScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _detailCoverScheduled = false;
+      if (mounted && _routeAnimation?.status == AnimationStatus.completed) {
+        _completeInitialContentReady();
+      }
+    });
+  }
+
+  void _completeInitialContentReady() {
+    if (!_initialContentReady.isCompleted) _initialContentReady.complete();
   }
 
   void _scheduleHDImage() {
@@ -238,8 +266,10 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
   @override
   void dispose() {
+    _completeInitialContentReady();
     _metadataChanges.dispose();
     _fileTreeReady.dispose();
+    _showDetailCover.dispose();
     _hdImageProvider.dispose();
     _routeAnimation?.removeStatusListener(_onRouteStatus);
     _routeAnimation?.removeListener(_onRouteFrame);
@@ -296,6 +326,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     } catch (e) {
       // 预加载失败，保持使用缓存图片
       if (active()) {
+        _showDetailCoverFallback();
         debugPrint('HD image preload failed: $e');
         if (reportFailure) rethrow;
       }
@@ -303,6 +334,12 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     } finally {
       if (identical(_hdPreloadLease, lease)) _hdPreloadLease = null;
       await lease.release();
+    }
+  }
+
+  void _showDetailCoverFallback() {
+    if (widget.initialCoverImageProvider != null && !_showDetailCover.value) {
+      _showDetailCover.value = true;
     }
   }
 
@@ -526,6 +563,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   }
 
   Future<void> _loadWorkDetail() async {
+    final generation = ++_metadataLoadGeneration;
     try {
       _updateMetadata(() {
         _errorMessage = null;
@@ -533,18 +571,19 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
       final apiService = ref.read(kikoeruApiServiceProvider);
       final response = await apiService.getWork(widget.work.id);
+      await _initialContentReady.future;
+      if (!mounted || generation != _metadataLoadGeneration) return;
       final detailedWork = Work.fromJson(response);
 
-      if (mounted) {
-        _updateMetadata(() {
-          _detailedWork = detailedWork;
-          // 更新收藏状态（从API响应中获取最新状态）
-          _currentProgress = detailedWork.progress;
-          _currentRating = detailedWork.userRating;
-        });
-      }
+      _updateMetadata(() {
+        _detailedWork = detailedWork;
+        // 更新收藏状态（从API响应中获取最新状态）
+        _currentProgress = detailedWork.progress;
+        _currentRating = detailedWork.userRating;
+      });
     } catch (e) {
-      if (mounted) {
+      await _initialContentReady.future;
+      if (mounted && generation == _metadataLoadGeneration) {
         _updateMetadata(() {
           _errorMessage = S.of(context).loadFailedWithError(e.toString());
         });
@@ -554,6 +593,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
   // 下拉刷新：强制从网络获取最新数据
   Future<void> _refreshWorkDetail() async {
+    final generation = ++_metadataLoadGeneration;
     try {
       _updateMetadata(() {
         _errorMessage = null;
@@ -571,13 +611,14 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
           reportFailure: true,
         ),
       ]);
+      if (!mounted || generation != _metadataLoadGeneration) return;
       if (refreshResults.last != true) {
         throw StateError('Cover refresh cancelled');
       }
       final response = refreshResults.first as Map<String, dynamic>;
       final detailedWork = Work.fromJson(response);
 
-      if (mounted) {
+      if (mounted && generation == _metadataLoadGeneration) {
         _updateMetadata(() {
           _detailedWork = detailedWork;
           _currentProgress = detailedWork.progress;
@@ -592,7 +633,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         );
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && generation == _metadataLoadGeneration) {
         _updateMetadata(() {
           _errorMessage = S.of(context).refreshFailed(e.toString());
         });
@@ -719,11 +760,9 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       padding: const EdgeInsets.all(16),
       sliver: SliverMainAxisGroup(
         slivers: [
-          SliverToBoxAdapter(
-            child: ListenableBuilder(
-              listenable: _metadataChanges,
-              builder: (context, _) => _buildMetadata(_currentWork),
-            ),
+          ListenableBuilder(
+            listenable: _metadataChanges,
+            builder: (context, _) => _buildMetadata(_currentWork),
           ),
           // 文件浏览器组件 - 移除固定高度，让它自由展开
           FileExplorerWidget(
@@ -731,6 +770,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
             currentWork: () => _currentWork,
             onLoadCompleted: () => _fileTreeReady.value = true,
             controller: _fileExplorerController,
+            initialLoadReady: _initialContentReady.future,
           ),
 
           // 相关推荐
@@ -774,32 +814,70 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
               );
             },
             layers: [
-              Image(
-                image: _sizedCover(
-                  CachedNetworkImageProvider(
-                    coverUrl,
-                    cacheKey: 'work_cover_${widget.work.id}',
-                  ),
-                ),
-                fit: BoxFit.contain,
-                gaplessPlayback: true,
-                frameBuilder: (context, child, frame, _) =>
-                    frame == null ? _buildCoverPlaceholder() : child,
-                errorBuilder: (context, error, stack) =>
-                    _buildCoverPlaceholder(),
-              ),
-              ValueListenableBuilder<ImageProvider?>(
-                valueListenable: _hdImageProvider,
-                builder: (context, provider, _) => provider == null
-                    ? const SizedBox.shrink()
-                    : Image(
-                        image: provider,
-                        fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) {
-                          return const SizedBox.shrink();
+              if (widget.initialCoverImageProvider != null)
+                ValueListenableBuilder<bool>(
+                  valueListenable: _showDetailCover,
+                  builder: (context, showDetailCover, _) =>
+                      ValueListenableBuilder<ImageProvider?>(
+                        valueListenable: _hdImageProvider,
+                        builder: (context, hdImageProvider, _) {
+                          final imageProvider =
+                              hdImageProvider ??
+                              (showDetailCover
+                                  ? _sizedCover(
+                                      CachedNetworkImageProvider(
+                                        coverUrl,
+                                        cacheKey:
+                                            'work_cover_${widget.work.id}',
+                                      ),
+                                    )
+                                  : widget.initialCoverImageProvider!);
+                          return Image(
+                            image: imageProvider,
+                            fit: BoxFit.contain,
+                            gaplessPlayback: true,
+                            frameBuilder: (context, child, frame, _) =>
+                                frame == null &&
+                                    !identical(
+                                      imageProvider,
+                                      widget.initialCoverImageProvider,
+                                    )
+                                ? _buildCoverPlaceholder()
+                                : child,
+                            errorBuilder: (context, error, stack) =>
+                                _buildCoverPlaceholder(),
+                          );
                         },
                       ),
-              ),
+                )
+              else
+                Image(
+                  image: _sizedCover(
+                    CachedNetworkImageProvider(
+                      coverUrl,
+                      cacheKey: 'work_cover_${widget.work.id}',
+                    ),
+                  ),
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                  frameBuilder: (context, child, frame, _) =>
+                      frame == null ? _buildCoverPlaceholder() : child,
+                  errorBuilder: (context, error, stack) =>
+                      _buildCoverPlaceholder(),
+                ),
+              if (widget.initialCoverImageProvider == null)
+                ValueListenableBuilder<ImageProvider?>(
+                  valueListenable: _hdImageProvider,
+                  builder: (context, provider, _) => provider == null
+                      ? const SizedBox.shrink()
+                      : Image(
+                          image: provider,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) {
+                            return const SizedBox.shrink();
+                          },
+                        ),
+                ),
             ],
           ),
         );
@@ -809,8 +887,8 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   }
 
   Widget _buildMetadata(Work work) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return SliverList.list(
+      addSemanticIndexes: false,
       children: [
         // 标题（可长按复制）+ 内联字幕图标（紧跟标题最后一个字，不换行）
         Consumer(

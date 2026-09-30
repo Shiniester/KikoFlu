@@ -95,6 +95,14 @@ Rect _dockFlightRect(WidgetTester tester) {
   return tester.getRect(find.byKey(appBottomDockMiniPlayerFlightRootKey));
 }
 
+SnapshotController _snapshotControllerFor(WidgetTester tester, Key key) {
+  final snapshot = find.ancestor(
+    of: find.byKey(key, skipOffstage: false),
+    matching: find.byType(SnapshotWidget, skipOffstage: false),
+  );
+  return tester.widget<SnapshotWidget>(snapshot.first).controller;
+}
+
 double _settledDockGap(WidgetTester tester) {
   final mini = tester.getRect(
     find.byKey(const ValueKey('real-gap-source-mini')),
@@ -254,6 +262,8 @@ void main() {
     const sourceMiniKey = ValueKey('source-mini-player');
     const targetMiniKey = ValueKey('target-mini-player');
     const tabBarKey = ValueKey('source-app-tab-bar');
+    const homeScaffoldKey = ValueKey('dock-home-route');
+    const detailScaffoldKey = ValueKey('dock-detail-route');
 
     await tester.pumpWidget(
       MaterialApp(
@@ -261,6 +271,7 @@ void main() {
         navigatorKey: navigatorKey,
         home: AppBottomDockTransitionScope(
           child: Scaffold(
+            key: homeScaffoldKey,
             body: Builder(
               builder: (context) => Center(
                 child: FilledButton(
@@ -270,6 +281,7 @@ void main() {
                         context,
                         builder: (_) => const _WorkDetailsTarget(
                           miniPlayerKey: targetMiniKey,
+                          scaffoldKey: detailScaffoldKey,
                         ),
                       ),
                     );
@@ -307,8 +319,15 @@ void main() {
 
     await tester.tap(find.text('Open work details'));
     await tester.pump();
+    final homeSnapshot = _snapshotControllerFor(tester, homeScaffoldKey);
+    expect(homeSnapshot.allowSnapshotting, isFalse);
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 150));
+    final detailSnapshot = _snapshotControllerFor(tester, detailScaffoldKey);
+    expect(detailSnapshot.allowSnapshotting, isFalse);
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(homeSnapshot.allowSnapshotting, isTrue);
+    expect(detailSnapshot.allowSnapshotting, isTrue);
+    await tester.pump(const Duration(milliseconds: 134));
 
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dy, closeTo(743, 0.1));
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dx, 0);
@@ -316,11 +335,18 @@ void main() {
 
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dy, 772);
+    expect(homeSnapshot.allowSnapshotting, isFalse);
+    expect(detailSnapshot.allowSnapshotting, isFalse);
     expect(find.byKey(tabBarKey), findsNothing);
 
     navigatorKey.currentState!.pop();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 150));
+    expect(homeSnapshot.allowSnapshotting, isFalse);
+    expect(detailSnapshot.allowSnapshotting, isFalse);
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(homeSnapshot.allowSnapshotting, isTrue);
+    expect(detailSnapshot.allowSnapshotting, isTrue);
+    await tester.pump(const Duration(milliseconds: 134));
 
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dy, closeTo(743, 0.1));
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dx, 0);
@@ -329,6 +355,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(find.byKey(sourceMiniKey)).dy, 714);
     expect(tester.getTopLeft(find.byKey(tabBarKey)).dy, 786);
+    expect(homeSnapshot.allowSnapshotting, isFalse);
     debugDefaultTargetPlatformOverride = null;
   });
 
@@ -963,13 +990,15 @@ void main() {
 }
 
 class _WorkDetailsTarget extends StatelessWidget {
-  const _WorkDetailsTarget({required this.miniPlayerKey});
+  const _WorkDetailsTarget({required this.miniPlayerKey, this.scaffoldKey});
 
   final Key? miniPlayerKey;
+  final Key? scaffoldKey;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: scaffoldKey,
       body: Stack(
         clipBehavior: Clip.none,
         fit: StackFit.expand,

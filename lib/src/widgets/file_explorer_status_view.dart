@@ -26,7 +26,7 @@ class FileExplorerStatusView extends StatelessWidget {
   Widget build(BuildContext context) {
     if (isLoading) {
       return const AsyncStateView(
-        icon: CircularProgressIndicator(),
+        icon: RepaintBoundary(child: CircularProgressIndicator()),
         padding: EdgeInsets.zero,
       );
     }

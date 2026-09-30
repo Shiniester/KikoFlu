@@ -78,6 +78,7 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
   final Work Function()? currentWork;
   final VoidCallback? onLoadCompleted;
   final FileExplorerController? controller;
+  final Future<void>? initialLoadReady;
 
   const FileExplorerWidget({
     super.key,
@@ -85,6 +86,7 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
     this.currentWork,
     this.onLoadCompleted,
     this.controller,
+    this.initialLoadReady,
   });
 
   @override
@@ -193,6 +195,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   }) async {
     final generation = ++_loadGeneration;
     final preserveCurrentTree = forceRefresh && _rootFiles.isNotEmpty;
+    final initialLoadReady = forceRefresh ? null : widget.initialLoadReady;
     setState(() {
       _isLoading = !preserveCurrentTree;
       _errorMessage = null;
@@ -204,6 +207,8 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
         _work.id,
         forceRefresh: forceRefresh,
       );
+      if (!_isCurrentLoad(generation)) return;
+      await initialLoadReady;
       if (!_isCurrentLoad(generation)) return;
 
       // 注意：不要在这里更新全局文件列表
@@ -227,6 +232,8 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
         _identifyAndExpandMainFolder();
       });
     } catch (e) {
+      if (!_isCurrentLoad(generation)) return;
+      await initialLoadReady;
       if (!_isCurrentLoad(generation)) return;
       setState(() {
         if (!preserveCurrentTree) {
