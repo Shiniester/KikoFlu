@@ -5,6 +5,7 @@ import '../../providers/works_provider.dart' show LayoutType;
 import '../../services/storage_service.dart';
 import '../../widgets/floating_feed_toolbar.dart';
 import '../../widgets/library_tab_strip.dart';
+import '../../widgets/tab_page_motion.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/pagination_bar.dart';
 import '../comic_models.dart';
@@ -24,11 +25,65 @@ class ComicScreen extends ConsumerStatefulWidget {
 
 class _ComicScreenState extends ConsumerState<ComicScreen>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabs = TabController(length: 4, vsync: this);
+  late final TabController _tabs = TabController(
+    length: 4,
+    vsync: this,
+    animationDuration: Duration.zero,
+  );
+  final _pages = PageController();
+  final _pageTarget = ValueNotifier<int?>(null);
+  int _pageRequest = 0;
+  bool _reduceMotion = false;
   final _visible = ValueNotifier(true);
+
+  @override
+  void initState() {
+    super.initState();
+    _pages.addListener(_handlePagePosition);
+  }
+
+  void _handlePagePosition() => syncTabWithPage(_tabs, _pages);
+
+  void _selectTab(int index) {
+    _pageTarget.value = index;
+    _handlePagePosition();
+    final request = ++_pageRequest;
+    moveToTabPage(_pages, index, reduceMotion: _reduceMotion).then((_) {
+      if (!mounted || request != _pageRequest) return;
+      _pageTarget.value = null;
+      _handlePagePosition();
+    });
+  }
+
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (notification.depth == 0 &&
+        notification.metrics.axis == Axis.horizontal &&
+        notification is ScrollStartNotification &&
+        notification.dragDetails != null) {
+      _pageRequest++;
+      _pageTarget.value = null;
+    }
+    return updateLibraryToolbarVisibility(notification, _visible);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (reduceMotion &&
+        !_reduceMotion &&
+        _pageTarget.value != null &&
+        _pages.hasClients) {
+      _pages.jumpToPage(_pageTarget.value!);
+    }
+    _reduceMotion = reduceMotion;
+  }
+
   @override
   void dispose() {
     _tabs.dispose();
+    _pages.dispose();
+    _pageTarget.dispose();
     _visible.dispose();
     super.dispose();
   }
@@ -61,14 +116,17 @@ class _ComicScreenState extends ConsumerState<ComicScreen>
         children: [
           Positioned.fill(
             child: NotificationListener<ScrollNotification>(
-              onNotification: (n) =>
-                  updateLibraryToolbarVisibility(n, _visible),
-              child: TabBarView(
-                controller: _tabs,
+              onNotification: _handleScrollNotification,
+              child: PageView(
+                key: const ValueKey('comic-tab-pages'),
+                controller: _pages,
                 children: [
                   for (var i = 0; i < 4; i++)
-                    ComicKeepAlive(
+                    LazyTabPage(
                       key: ValueKey('comic-tab-$i'),
+                      index: i,
+                      target: _pageTarget,
+                      pages: _pages,
                       child: AnimatedBuilder(
                         animation: _tabs,
                         builder: (context, child) => _ComicCollection(
@@ -96,6 +154,7 @@ class _ComicScreenState extends ConsumerState<ComicScreen>
             right: horizontal,
             child: LibraryTabStrip(
               controller: _tabs,
+              onTap: _selectTab,
               visible: _visible,
               tabs: [
                 for (var i = 0; i < 4; i++)

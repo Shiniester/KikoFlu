@@ -972,21 +972,3 @@ void openComic(
     ),
   );
 }
-
-class ComicKeepAlive extends StatefulWidget {
-  const ComicKeepAlive({super.key, required this.child});
-  final Widget child;
-  @override
-  State<ComicKeepAlive> createState() => _ComicKeepAliveState();
-}
-
-class _ComicKeepAliveState extends State<ComicKeepAlive>
-    with AutomaticKeepAliveClientMixin {
-  @override
-  bool get wantKeepAlive => true;
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    return widget.child;
-  }
-}

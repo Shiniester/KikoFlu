@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -28,6 +29,7 @@ import '../widgets/work_detail/work_metadata_sections.dart';
 import '../widgets/work_detail/work_extra_sections.dart';
 import '../widgets/work_detail/work_cover_frame.dart';
 import '../widgets/work_detail/work_detail_responsive_layout.dart';
+import '../widgets/work_detail_route_readiness.dart';
 
 /// 离线作品详情页 - 使用下载时保存的元数据展示作品信息
 /// 不依赖网络请求，完全离线可用
@@ -56,6 +58,35 @@ class OfflineWorkDetailScreen extends ConsumerStatefulWidget {
 
 class _OfflineWorkDetailScreenState
     extends ConsumerState<OfflineWorkDetailScreen> {
+  final _deferredContentReady = ValueNotifier(false);
+  final _routeReadiness = WorkDetailRouteReadiness();
+  bool _deferredContentScheduled = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _routeReadiness.bind(
+      route: ModalRoute.of(context),
+      navigator: Navigator.maybeOf(context),
+    );
+    if (!_deferredContentScheduled) {
+      _deferredContentScheduled = true;
+      unawaited(_showDeferredContentWhenIdle());
+    }
+  }
+
+  Future<void> _showDeferredContentWhenIdle() async {
+    final ready = await _routeReadiness.waitForIdle();
+    if (mounted && ready) _deferredContentReady.value = true;
+  }
+
+  @override
+  void dispose() {
+    _routeReadiness.dispose();
+    _deferredContentReady.dispose();
+    super.dispose();
+  }
+
   // 翻译相关状态
   String? _translatedTitle; // 翻译后的标题
   bool _showTranslation = false; // 是否显示翻译
@@ -401,33 +432,36 @@ class _OfflineWorkDetailScreenState
                       _copyToClipboard(title, S.of(context).titleLabel),
                 ),
                 const SizedBox(height: 16),
-
                 WorkCreatorChipsSection(work: work, onCopy: _copyToClipboard),
-
                 WorkTagChipsSection(
                   tags: work.tags,
                   onTagLongPress: (tag) =>
                       _copyToClipboard(tag.name, S.of(context).tagLabel),
                 ),
-
                 WorkReleaseDateSection(release: work.release),
               ],
             ),
           ),
           // 文件浏览器
-          OfflineFileExplorerWidget(
-            work: work,
-            localWorkDirPath: widget.localWorkDirPath,
-            localCoverRelativePath: widget.localCoverRelativePath,
-            fileTree:
-                widget.fileTree ??
-                work.children?.map((e) {
-                  if (e is Map<String, dynamic>) {
-                    return e;
-                  }
-                  // 如果是 AudioFile 对象，转换为 Map
-                  return e.toJson();
-                }).toList(),
+          ValueListenableBuilder<bool>(
+            valueListenable: _deferredContentReady,
+            builder: (context, ready, _) => ready
+                ? OfflineFileExplorerWidget(
+                    work: work,
+                    localWorkDirPath: widget.localWorkDirPath,
+                    localCoverRelativePath: widget.localCoverRelativePath,
+                    initialLoadReady: _routeReadiness.waitForIdle,
+                    fileTree:
+                        widget.fileTree ??
+                        work.children?.map((e) {
+                          if (e is Map<String, dynamic>) {
+                            return e;
+                          }
+                          // 如果是 AudioFile 对象，转换为 Map
+                          return e.toJson();
+                        }).toList(),
+                  )
+                : const SliverToBoxAdapter(child: SizedBox.shrink()),
           ),
         ],
       ),

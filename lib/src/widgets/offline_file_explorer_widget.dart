@@ -44,6 +44,7 @@ class OfflineFileExplorerWidget extends ConsumerStatefulWidget {
   final List<dynamic>? fileTree; // 从 work_metadata.json 中读取的文件树
   final String? localWorkDirPath;
   final String? localCoverRelativePath;
+  final Future<bool> Function()? initialLoadReady;
 
   const OfflineFileExplorerWidget({
     super.key,
@@ -51,6 +52,7 @@ class OfflineFileExplorerWidget extends ConsumerStatefulWidget {
     this.fileTree,
     this.localWorkDirPath,
     this.localCoverRelativePath,
+    this.initialLoadReady,
   });
 
   @override
@@ -126,32 +128,41 @@ class _OfflineFileExplorerWidgetState
     return mounted && generation == _loadGeneration;
   }
 
+  Future<bool> _waitForLoadReady() async {
+    return await widget.initialLoadReady?.call() ?? true;
+  }
+
   // 加载本地存在的文件
   Future<void> _loadLocalFiles() async {
-    if (widget.fileTree == null) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = S.of(context).noFileTreeInfo;
-      });
-      return;
-    }
-
     final generation = ++_loadGeneration;
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
 
     try {
+      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) return;
+      if (widget.fileTree == null) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = S.of(context).noFileTreeInfo;
+        });
+        return;
+      }
+
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+
       final downloadDir = await DownloadPathService.getDownloadDirectory();
       if (!_isCurrentLoad(generation)) return;
+      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) return;
 
       final workDir = widget.localWorkDirPath != null
           ? Directory(widget.localWorkDirPath!)
           : Directory(p.join(downloadDir.path, widget.work.id.toString()));
 
-      if (!await workDir.exists()) {
-        if (!_isCurrentLoad(generation)) return;
+      final workDirectoryExists = await workDir.exists();
+      if (!_isCurrentLoad(generation)) return;
+      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) return;
+      if (!workDirectoryExists) {
         setState(() {
           _isLoading = false;
           _errorMessage = S.of(context).workFolderNotExist;
@@ -159,24 +170,27 @@ class _OfflineFileExplorerWidgetState
         return;
       }
 
+      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) return;
       final scanResult = await const OfflineLocalFileScanner().scan(
         fileTree: widget.fileTree!,
         workDirPath: workDir.path,
       );
       if (!_isCurrentLoad(generation)) return;
+      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) return;
 
       _workDirPath = workDir.path;
       _localFiles = scanResult.files;
+
+      // 检查字幕库中的匹配项
+      if (!await _checkLibrarySubtitles(generation)) return;
+      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) return;
+
       // 更新全局文件列表供字幕自动加载使用
       _fileListController.updateFiles(
         List<dynamic>.from(_localFiles),
         workId: widget.work.id,
         subtitleWorkDirPath: workDir.path,
       );
-
-      // 检查字幕库中的匹配项
-      await _checkLibrarySubtitles(generation);
-      if (!_isCurrentLoad(generation)) return;
 
       // 识别主文件夹并自动展开（需要在检查字幕库后执行）
       _identifyAndExpandMainFolder();
@@ -186,6 +200,7 @@ class _OfflineFileExplorerWidgetState
       });
     } catch (e) {
       if (!_isCurrentLoad(generation)) return;
+      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) return;
       setState(() {
         _isLoading = false;
         _errorMessage = S.of(context).loadFilesFailed(e.toString());
@@ -194,13 +209,19 @@ class _OfflineFileExplorerWidgetState
   }
 
   // 检查字幕库中哪些音频文件有匹配的字幕
-  Future<void> _checkLibrarySubtitles(int generation) async {
+  Future<bool> _checkLibrarySubtitles(int generation) async {
     try {
+      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) {
+        return false;
+      }
       final matches = await _subtitleMatchLoader.loadMatches(
         workId: widget.work.id,
         fileTree: _localFiles,
       );
-      if (!_isCurrentLoad(generation)) return;
+      if (!_isCurrentLoad(generation)) return false;
+      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) {
+        return false;
+      }
 
       _audioWithLibrarySubtitles
         ..clear()
@@ -209,8 +230,10 @@ class _OfflineFileExplorerWidgetState
       _log.captureOutput(
         '[OfflineFileExplorer] 字幕库匹配: ${_audioWithLibrarySubtitles.length} 个音频文件有字幕',
       );
+      return true;
     } catch (e) {
       _log.captureOutput('[OfflineFileExplorer] 检查字幕库失败: $e');
+      return _isCurrentLoad(generation);
     }
   }
 

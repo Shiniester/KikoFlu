@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/my_reviews_provider.dart';
@@ -14,6 +15,7 @@ import '../widgets/works_grid_view.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 import '../widgets/floating_feed_toolbar.dart';
 import '../widgets/library_tab_strip.dart';
+import '../widgets/tab_page_motion.dart';
 import '../widgets/audio_account_prompt.dart';
 import '../widgets/download_fab.dart';
 import '../providers/download_provider.dart';
@@ -46,6 +48,10 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     with AutomaticKeepAliveClientMixin, TickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
   late TabController _tabController;
+  final _pages = PageController();
+  final _pageTarget = ValueNotifier<int?>(null);
+  int _pageRequest = 0;
+  bool _reduceMotion = false;
   final ValueNotifier<bool> _tabSwitcherVisible = ValueNotifier(true);
   int _lastTabIndex = 0;
   String _selectedTabId = 'home';
@@ -173,8 +179,13 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 1, vsync: this);
+    _tabController = TabController(
+      length: 1,
+      vsync: this,
+      animationDuration: Duration.zero,
+    );
     _tabController.addListener(_handleTabChanged);
+    _pages.addListener(_handlePagePosition);
     // 只在首次加载时获取数据，如果已有数据则不重新加载
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final notifier = ref.read(myReviewsProvider.notifier);
@@ -191,6 +202,8 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   void dispose() {
     _tabController.removeListener(_handleTabChanged);
     _tabController.dispose();
+    _pages.dispose();
+    _pageTarget.dispose();
     _tabSwitcherVisible.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -205,10 +218,38 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   void _handleTabChanged() {
     if (_tabController.index == _lastTabIndex) return;
     _lastTabIndex = _tabController.index;
-    if (_tabController.index < _tabIds.length) {
+    if (_pageTarget.value == null && _tabController.index < _tabIds.length) {
       _selectedTabId = _tabIds[_tabController.index];
     }
     _tabSwitcherVisible.value = true;
+  }
+
+  void _handlePagePosition() => syncTabWithPage(_tabController, _pages);
+
+  void _selectTab(int index) {
+    _pageTarget.value = index;
+    _selectedTabId = _tabIds[index];
+    _tabSwitcherVisible.value = true;
+    _handlePagePosition();
+    final request = ++_pageRequest;
+    moveToTabPage(_pages, index, reduceMotion: _reduceMotion).then((_) {
+      if (!mounted || request != _pageRequest) return;
+      _pageTarget.value = null;
+      _handlePagePosition();
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (reduceMotion &&
+        !_reduceMotion &&
+        _pageTarget.value != null &&
+        _pages.hasClients) {
+      _pages.jumpToPage(_pageTarget.value!);
+    }
+    _reduceMotion = reduceMotion;
   }
 
   void _openSearch({required SearchScope scope, String? progressFilter}) {
@@ -277,8 +318,17 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     );
   }
 
-  bool _handleScrollNotification(ScrollNotification notification) =>
-      updateLibraryToolbarVisibility(notification, _tabSwitcherVisible);
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (notification.depth == 0 &&
+        notification.metrics.axis == Axis.horizontal &&
+        notification is ScrollStartNotification &&
+        notification.dragDetails != null) {
+      _pageRequest++;
+      _pageTarget.value = null;
+      _selectedTabId = _tabIds[_tabController.index];
+    }
+    return updateLibraryToolbarVisibility(notification, _tabSwitcherVisible);
+  }
 
   IconData _getFilterIcon(MyReviewFilter filter) {
     switch (filter) {
@@ -334,28 +384,25 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       collapsedToolbarTop: collapsedToolbarTop,
     );
 
-    final tabDuration = MediaQuery.disableAnimationsOf(context)
-        ? Duration.zero
-        : kTabScrollDuration;
-    // 更换控制器会让 TabBarView 停止滚动并保留当前目标页。
     var selectedIndex = tabs.indexWhere((tab) => tab.id == _selectedTabId);
     if (selectedIndex < 0) {
       selectedIndex = 0;
       _selectedTabId = tabs.first.id;
     }
-    _tabIds = tabs.map((tab) => tab.id).toList(growable: false);
-
-    if (_tabController.length != tabs.length ||
-        _tabController.animationDuration != tabDuration ||
-        _tabController.index != selectedIndex) {
+    final tabIds = tabs.map((tab) => tab.id).toList(growable: false);
+    if (!listEquals(_tabIds, tabIds)) {
+      _pageRequest++;
+      _pageTarget.value = null;
       _tabController.removeListener(_handleTabChanged);
       _tabController.dispose();
       _tabController = TabController(
         length: tabs.length,
         vsync: this,
         initialIndex: selectedIndex,
-        animationDuration: tabDuration,
+        animationDuration: Duration.zero,
       );
+      _tabIds = tabIds;
+      if (_pages.hasClients) _pages.jumpToPage(selectedIndex);
       _tabController.addListener(_handleTabChanged);
       _lastTabIndex = _tabController.index;
     }
@@ -385,16 +432,23 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
             Positioned.fill(
               child: NotificationListener<ScrollNotification>(
                 onNotification: _handleScrollNotification,
-                child: TabBarView(
-                  controller: _tabController,
-                  children: tabs
-                      .map(
-                        (tab) => _AudioTabPage(
-                          key: ValueKey(tab.id),
-                          child: tab.widget,
-                        ),
-                      )
-                      .toList(),
+                child: PageView.builder(
+                  key: const ValueKey('audio-tab-pages'),
+                  controller: _pages,
+                  itemCount: tabs.length,
+                  findChildIndexCallback: (key) {
+                    final index = tabs.indexWhere(
+                      (tab) => ValueKey(tab.id) == key,
+                    );
+                    return index < 0 ? null : index;
+                  },
+                  itemBuilder: (context, index) => LazyTabPage(
+                    key: ValueKey(tabs[index].id),
+                    index: index,
+                    target: _pageTarget,
+                    pages: _pages,
+                    child: tabs[index].widget,
+                  ),
                 ),
               ),
             ),
@@ -410,6 +464,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
               right: horizontalPadding,
               child: LibraryTabStrip(
                 controller: _tabController,
+                onTap: _selectTab,
                 visible: _tabSwitcherVisible,
                 motionKey: const ValueKey('my-tab-switcher'),
                 tabs: tabs
@@ -586,27 +641,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
           ? EdgeInsets.fromLTRB(24, topPadding + 8, 24, 24)
           : EdgeInsets.fromLTRB(8, topPadding + 8, 8, 8),
     );
-  }
-}
-
-class _AudioTabPage extends StatefulWidget {
-  const _AudioTabPage({super.key, required this.child});
-
-  final Widget child;
-
-  @override
-  State<_AudioTabPage> createState() => _AudioTabPageState();
-}
-
-class _AudioTabPageState extends State<_AudioTabPage>
-    with AutomaticKeepAliveClientMixin {
-  @override
-  bool get wantKeepAlive => true;
-
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    return widget.child;
   }
 }
 

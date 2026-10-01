@@ -38,6 +38,7 @@ import '../widgets/work_detail/work_cover_frame.dart';
 import '../widgets/work_detail/work_detail_responsive_layout.dart';
 import '../widgets/work_detail/work_detail_error_banner.dart';
 import '../widgets/work_detail/work_progress_action_button.dart';
+import '../widgets/work_detail_route_readiness.dart';
 
 import '../widgets/image_gallery_screen.dart';
 
@@ -63,7 +64,10 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   Work? _detailedWork;
   final _metadataChanges = ValueNotifier(0);
   final _fileTreeReady = ValueNotifier(false);
-  final _initialContentReady = Completer<void>();
+  final _deferredContentReady = ValueNotifier(false);
+  final _routeReadiness = WorkDetailRouteReadiness();
+  bool _initialLoadStarted = false;
+  bool _deferredContentScheduled = false;
   int _metadataLoadGeneration = 0;
   Work get _currentWork => _detailedWork ?? widget.work;
   String? _errorMessage;
@@ -85,7 +89,6 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   bool _hdScheduled = false;
   bool _hdAttempted = false;
   final _showDetailCover = ValueNotifier(false);
-  bool _detailCoverScheduled = false;
   Size? _hdPixelSize;
 
   Size get _coverPixelSize {
@@ -122,7 +125,6 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     // 初始化收藏状态（从传入的work中获取）
     _currentProgress = widget.work.progress;
     _currentRating = widget.work.userRating;
-    _loadWorkDetail();
   }
 
   @override
@@ -134,6 +136,10 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       _hdImageProvider.value = null;
     }
     _hdPixelSize = size;
+    _routeReadiness.bind(
+      route: ModalRoute.of(context),
+      navigator: Navigator.maybeOf(context),
+    );
     final animation = ModalRoute.of(context)?.animation;
     if (_routeAnimation != animation) {
       _routeAnimation?.removeStatusListener(_onRouteStatus);
@@ -142,7 +148,11 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       animation?.addStatusListener(_onRouteStatus);
       animation?.addListener(_onRouteFrame);
     }
-    _scheduleDetailCover();
+    if (!_initialLoadStarted) {
+      _initialLoadStarted = true;
+      unawaited(_loadWorkDetail());
+    }
+    _scheduleDeferredContent();
     _scheduleHDImage();
   }
 
@@ -158,52 +168,51 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         status == AnimationStatus.dismissed) {
       _cancelHDImage();
     } else if (status == AnimationStatus.completed) {
-      _scheduleDetailCover();
       _scheduleHDImage();
     }
   }
 
-  void _scheduleDetailCover() {
-    if (_detailCoverScheduled) return;
-    final animation = _routeAnimation;
-    if (animation == null) {
-      _completeInitialContentReady();
-      return;
-    }
-    if (animation.status != AnimationStatus.completed) return;
-
-    _detailCoverScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _detailCoverScheduled = false;
-      if (mounted && _routeAnimation?.status == AnimationStatus.completed) {
-        _completeInitialContentReady();
-      }
-    });
+  void _scheduleDeferredContent() {
+    if (_deferredContentScheduled || _deferredContentReady.value) return;
+    _deferredContentScheduled = true;
+    unawaited(_showDeferredContentWhenIdle());
   }
 
-  void _completeInitialContentReady() {
-    if (!_initialContentReady.isCompleted) _initialContentReady.complete();
+  Future<void> _showDeferredContentWhenIdle() async {
+    final ready = await _routeReadiness.waitForIdle();
+    if (!mounted || !ready) return;
+    _deferredContentReady.value = true;
+    _scheduleHDImage();
   }
 
   void _scheduleHDImage() {
-    if (_hdAttempted ||
+    if (!_deferredContentReady.value ||
+        _hdAttempted ||
         _hdScheduled ||
-        _hdImageProvider.value != null ||
-        (_routeAnimation != null &&
-            _routeAnimation!.status != AnimationStatus.completed)) {
+        _hdImageProvider.value != null) {
       return;
     }
     _hdScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _hdScheduled = false;
-      if (!mounted ||
-          (_routeAnimation != null &&
-              _routeAnimation!.status != AnimationStatus.completed)) {
-        return;
-      }
-      _hdAttempted = true;
-      unawaited(_preloadHDImage());
+      if (!mounted || !_deferredContentReady.value) return;
+      unawaited(_preloadHDImageWhenIdle());
     });
+  }
+
+  Future<void> _preloadHDImageWhenIdle() async {
+    await Future<void>.delayed(Duration.zero);
+    if (!_routeReadiness.isIdle && !await _routeReadiness.waitForIdle()) {
+      return;
+    }
+    if (!mounted ||
+        !_deferredContentReady.value ||
+        _hdAttempted ||
+        _hdImageProvider.value != null) {
+      return;
+    }
+    _hdAttempted = true;
+    await _preloadHDImage();
   }
 
   void _cancelDecode() {
@@ -266,11 +275,12 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
   @override
   void dispose() {
-    _completeInitialContentReady();
     _metadataChanges.dispose();
     _fileTreeReady.dispose();
+    _deferredContentReady.dispose();
     _showDetailCover.dispose();
     _hdImageProvider.dispose();
+    _routeReadiness.dispose();
     _routeAnimation?.removeStatusListener(_onRouteStatus);
     _routeAnimation?.removeListener(_onRouteFrame);
     _cancelHDImage();
@@ -315,17 +325,19 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
     try {
       final file = await lease.file;
-      if (!active()) return false;
+      if (!await _routeReadiness.waitForIdle() || !active()) return false;
       final imageProvider = _sizedCover(FileImage(File(file.path)));
       if (forceRevalidate) await imageProvider.evict();
-      if (!active()) return false;
+      if (!await _routeReadiness.waitForIdle() || !active()) return false;
       final decoded = await _decodeHDImage(imageProvider);
-      if (!decoded || !active()) return false;
+      if (!decoded || !await _routeReadiness.waitForIdle() || !active()) {
+        return false;
+      }
       _hdImageProvider.value = imageProvider;
       return true;
     } catch (e) {
       // 预加载失败，保持使用缓存图片
-      if (active()) {
+      if (await _routeReadiness.waitForIdle() && active()) {
         _showDetailCoverFallback();
         debugPrint('HD image preload failed: $e');
         if (reportFailure) rethrow;
@@ -565,15 +577,23 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   Future<void> _loadWorkDetail() async {
     final generation = ++_metadataLoadGeneration;
     try {
+      if (!await _routeReadiness.waitForIdle() ||
+          !mounted ||
+          generation != _metadataLoadGeneration) {
+        return;
+      }
       _updateMetadata(() {
         _errorMessage = null;
       });
 
       final apiService = ref.read(kikoeruApiServiceProvider);
       final response = await apiService.getWork(widget.work.id);
-      await _initialContentReady.future;
-      if (!mounted || generation != _metadataLoadGeneration) return;
-      final detailedWork = Work.fromJson(response);
+      if (!await _routeReadiness.waitForIdle() ||
+          !mounted ||
+          generation != _metadataLoadGeneration) {
+        return;
+      }
+      final detailedWork = _workFromDetailResponse(response);
 
       _updateMetadata(() {
         _detailedWork = detailedWork;
@@ -582,8 +602,9 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         _currentRating = detailedWork.userRating;
       });
     } catch (e) {
-      await _initialContentReady.future;
-      if (mounted && generation == _metadataLoadGeneration) {
+      if (await _routeReadiness.waitForIdle() &&
+          mounted &&
+          generation == _metadataLoadGeneration) {
         _updateMetadata(() {
           _errorMessage = S.of(context).loadFailedWithError(e.toString());
         });
@@ -595,9 +616,36 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   Future<void> _refreshWorkDetail() async {
     final generation = ++_metadataLoadGeneration;
     try {
+      if (!await _routeReadiness.waitForIdle() ||
+          !mounted ||
+          generation != _metadataLoadGeneration) {
+        return;
+      }
+      if (!_deferredContentReady.value) {
+        _deferredContentReady.value = true;
+        await WidgetsBinding.instance.endOfFrame;
+      }
+      if (!await _routeReadiness.waitForIdle() ||
+          !mounted ||
+          generation != _metadataLoadGeneration) {
+        return;
+      }
+      if (!_fileExplorerController.isAttached) {
+        _deferredContentReady.value = true;
+        await WidgetsBinding.instance.endOfFrame;
+        if (!await _routeReadiness.waitForIdle() ||
+            !mounted ||
+            generation != _metadataLoadGeneration) {
+          return;
+        }
+      }
+      if (!_fileExplorerController.isAttached) {
+        throw StateError('Work file list is not attached');
+      }
       _updateMetadata(() {
         _errorMessage = null;
       });
+      _hdAttempted = true;
 
       final apiService = ref.read(kikoeruApiServiceProvider);
 
@@ -612,11 +660,16 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         ),
       ]);
       if (!mounted || generation != _metadataLoadGeneration) return;
+      if (!await _routeReadiness.waitForIdle() ||
+          !mounted ||
+          generation != _metadataLoadGeneration) {
+        return;
+      }
       if (refreshResults.last != true) {
         throw StateError('Cover refresh cancelled');
       }
       final response = refreshResults.first as Map<String, dynamic>;
-      final detailedWork = Work.fromJson(response);
+      final detailedWork = _workFromDetailResponse(response);
 
       if (mounted && generation == _metadataLoadGeneration) {
         _updateMetadata(() {
@@ -633,7 +686,9 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         );
       }
     } catch (e) {
-      if (mounted && generation == _metadataLoadGeneration) {
+      if (await _routeReadiness.waitForIdle() &&
+          mounted &&
+          generation == _metadataLoadGeneration) {
         _updateMetadata(() {
           _errorMessage = S.of(context).refreshFailed(e.toString());
         });
@@ -645,6 +700,21 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         );
       }
     }
+  }
+
+  Work _workFromDetailResponse(Map<String, dynamic> response) {
+    final currentWork = _currentWork;
+    return Work.fromJson(response).copyWith(
+      circleId: response.containsKey('circle_id') ? null : currentWork.circleId,
+      name: response.containsKey('name') ? null : currentWork.name,
+      vas: response.containsKey('vas') ? null : currentWork.vas,
+      tags: response.containsKey('tags') ? null : currentWork.tags,
+      release: response.containsKey('release') ? null : currentWork.release,
+      otherLanguageEditions:
+          response.containsKey('other_language_editions_in_db')
+          ? null
+          : currentWork.otherLanguageEditions,
+    );
   }
 
   // 显示收藏状态选择对话框
@@ -765,12 +835,17 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
             builder: (context, _) => _buildMetadata(_currentWork),
           ),
           // 文件浏览器组件 - 移除固定高度，让它自由展开
-          FileExplorerWidget(
-            work: widget.work,
-            currentWork: () => _currentWork,
-            onLoadCompleted: () => _fileTreeReady.value = true,
-            controller: _fileExplorerController,
-            initialLoadReady: _initialContentReady.future,
+          ValueListenableBuilder<bool>(
+            valueListenable: _deferredContentReady,
+            builder: (context, ready, _) => ready
+                ? FileExplorerWidget(
+                    work: widget.work,
+                    currentWork: () => _currentWork,
+                    onLoadCompleted: () => _fileTreeReady.value = true,
+                    controller: _fileExplorerController,
+                    initialLoadReady: _routeReadiness.waitForIdle,
+                  )
+                : const SliverToBoxAdapter(child: SizedBox.shrink()),
           ),
 
           // 相关推荐
@@ -912,9 +987,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
           },
         ),
         const SizedBox(height: 8),
-
         WorkDetailErrorBanner(message: _errorMessage, onRetry: _loadWorkDetail),
-
         // 评分信息、价格、时长和销量
         Consumer(
           builder: (context, ref, _) {
@@ -931,18 +1004,14 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
             );
           },
         ),
-
         const SizedBox(height: 16),
-
         WorkCreatorChipsSection(work: work, onCopy: _copyToClipboard),
-
         WorkTagChipsSection(
           tags: work.tags,
           onTagLongPress: _showTagInfo,
           onTagSecondaryTap: _showTagInfo,
           onAddTag: _showAddTagDialog,
         ),
-
         Consumer(
           builder: (context, ref, _) {
             final displaySettings = ref.watch(workDetailDisplayProvider);
@@ -952,17 +1021,18 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
             );
           },
         ),
-
-        OtherLanguageEditionsSection(
-          editions: work.otherLanguageEditions,
-          onEditionSelected: (edition) {
-            pushWorkDetailRoute(
-              context,
-              builder: (context) => WorkDetailScreen(
-                work: Work(id: edition.id, title: edition.title),
-              ),
-            );
-          },
+        Builder(
+          builder: (context) => OtherLanguageEditionsSection(
+            editions: work.otherLanguageEditions,
+            onEditionSelected: (edition) {
+              pushWorkDetailRoute(
+                context,
+                builder: (context) => WorkDetailScreen(
+                  work: Work(id: edition.id, title: edition.title),
+                ),
+              );
+            },
+          ),
         ),
       ],
     );

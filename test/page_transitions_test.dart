@@ -12,11 +12,11 @@ import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
 const _root = ValueKey('root');
 const _page = ValueKey('page');
 
-class _Cupertino300msBuilder extends CupertinoPageTransitionsBuilder {
-  const _Cupertino300msBuilder();
+class _Cupertino400msBuilder extends CupertinoPageTransitionsBuilder {
+  const _Cupertino400msBuilder();
 
   @override
-  Duration get transitionDuration => const Duration(milliseconds: 300);
+  Duration get transitionDuration => const Duration(milliseconds: 400);
 
   @override
   Duration get reverseTransitionDuration => transitionDuration;
@@ -92,14 +92,14 @@ void main() {
   testWidgets('return during entry follows stock Cupertino without a jump', (
     tester,
   ) async {
-    for (final entryMilliseconds in [150, 240, 270, 294]) {
+    for (final entryMilliseconds in [200, 320, 360, 392]) {
       Future<List<double>> sample({required bool stock}) async {
         await tester.pumpWidget(const SizedBox.shrink());
         final navigator = await _app(
           tester,
           transitions: stock
               ? const PageTransitionsTheme(
-                  builders: {TargetPlatform.android: _Cupertino300msBuilder()},
+                  builders: {TargetPlatform.android: _Cupertino400msBuilder()},
                 )
               : null,
         );
@@ -130,7 +130,7 @@ void main() {
           reason: 'return at ${entryMilliseconds}ms, position sample $i',
         );
       }
-      if (entryMilliseconds >= 240) {
+      if (entryMilliseconds >= 320) {
         final firstTravel = stock[2] - stock[0];
         final secondTravel = stock[4] - stock[2];
         expect(firstTravel, lessThan(secondTravel));
@@ -138,7 +138,7 @@ void main() {
     }
   });
 
-  testWidgets('snapshot wrapper preserves Cupertino motion at 300ms', (
+  testWidgets('snapshot wrapper preserves Cupertino motion at 400ms', (
     tester,
   ) async {
     Future<List<double>> sample({required bool stock}) async {
@@ -147,7 +147,7 @@ void main() {
         tester,
         transitions: stock
             ? const PageTransitionsTheme(
-                builders: {TargetPlatform.android: _Cupertino300msBuilder()},
+                builders: {TargetPlatform.android: _Cupertino400msBuilder()},
               )
             : null,
       );
@@ -161,11 +161,11 @@ void main() {
 
       _push(navigator, _page);
       await tester.pump();
-      await record([30, 30, 90, 90, 54]);
+      await record([40, 40, 120, 120, 72]);
       await tester.pumpAndSettle();
       navigator.currentState!.pop();
       await tester.pump();
-      await record([30, 30, 90, 90, 54]);
+      await record([40, 40, 120, 120, 72]);
       await tester.pumpAndSettle();
 
       _push(navigator, _page);
@@ -282,17 +282,17 @@ void main() {
     },
   );
 
-  testWidgets('300ms Cupertino push and pop include secondary parallax', (
+  testWidgets('400ms Cupertino push and pop include secondary parallax', (
     tester,
   ) async {
     final navigator = await _app(tester);
     final route = _push(navigator, _page);
     await tester.pump();
-    expect(route.transitionDuration, const Duration(milliseconds: 300));
-    expect(route.reverseTransitionDuration, const Duration(milliseconds: 300));
+    expect(route.transitionDuration, const Duration(milliseconds: 400));
+    expect(route.reverseTransitionDuration, const Duration(milliseconds: 400));
     await tester.pump();
     expect(_x(tester, _page), 800);
-    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump(const Duration(milliseconds: 200));
     expect(
       _x(tester, _page),
       closeTo(800 * (1 - Curves.fastEaseInToSlowEaseOut.transform(.5)), .01),
@@ -306,7 +306,7 @@ void main() {
     const next = ValueKey('next');
     _push(navigator, next);
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump(const Duration(milliseconds: 200));
     expect(
       _x(tester, _page),
       closeTo(-800 / 3 * Curves.linearToEaseOut.transform(.5), .01),
@@ -314,7 +314,7 @@ void main() {
     await tester.pumpAndSettle();
     navigator.currentState!.pop();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump(const Duration(milliseconds: 200));
     expect(
       _x(tester, next),
       closeTo(
@@ -497,7 +497,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
     expect(find.bySemanticsLabel('detail content'), findsNothing);
-    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump(const Duration(milliseconds: 250));
     await tester.pump(const Duration(milliseconds: 16));
     expect(route.animation!.status, AnimationStatus.completed);
     expect(find.bySemanticsLabel('detail content'), findsNothing);

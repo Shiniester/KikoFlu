@@ -34,11 +34,13 @@ class LibraryTabStrip extends StatelessWidget {
     required this.controller,
     required this.visible,
     required this.tabs,
+    this.onTap,
     this.motionKey,
   });
   final TabController controller;
   final ValueListenable<bool> visible;
   final List<Widget> tabs;
+  final ValueChanged<int>? onTap;
   final Key? motionKey;
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<bool>(
@@ -71,6 +73,7 @@ class LibraryTabStrip extends StatelessWidget {
         height: 40,
         child: TabBar(
           controller: controller,
+          onTap: onTap,
           isScrollable: true,
           tabAlignment: TabAlignment.start,
           dividerColor: Colors.transparent,
