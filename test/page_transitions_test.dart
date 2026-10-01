@@ -12,16 +12,6 @@ import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
 const _root = ValueKey('root');
 const _page = ValueKey('page');
 
-class _Cupertino400msBuilder extends CupertinoPageTransitionsBuilder {
-  const _Cupertino400msBuilder();
-
-  @override
-  Duration get transitionDuration => const Duration(milliseconds: 400);
-
-  @override
-  Duration get reverseTransitionDuration => transitionDuration;
-}
-
 Future<GlobalKey<NavigatorState>> _app(
   WidgetTester tester, {
   TargetPlatform platform = TargetPlatform.android,
@@ -99,7 +89,9 @@ void main() {
           tester,
           transitions: stock
               ? const PageTransitionsTheme(
-                  builders: {TargetPlatform.android: _Cupertino400msBuilder()},
+                  builders: {
+                    TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+                  },
                 )
               : null,
         );
@@ -138,7 +130,7 @@ void main() {
     }
   });
 
-  testWidgets('snapshot wrapper preserves Cupertino motion at 400ms', (
+  testWidgets('snapshot wrapper preserves default Cupertino motion', (
     tester,
   ) async {
     Future<List<double>> sample({required bool stock}) async {
@@ -147,7 +139,9 @@ void main() {
         tester,
         transitions: stock
             ? const PageTransitionsTheme(
-                builders: {TargetPlatform.android: _Cupertino400msBuilder()},
+                builders: {
+                  TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+                },
               )
             : null,
       );
@@ -161,11 +155,11 @@ void main() {
 
       _push(navigator, _page);
       await tester.pump();
-      await record([40, 40, 120, 120, 72]);
+      await record([50, 50, 150, 150, 90]);
       await tester.pumpAndSettle();
       navigator.currentState!.pop();
       await tester.pump();
-      await record([40, 40, 120, 120, 72]);
+      await record([50, 50, 150, 150, 90]);
       await tester.pumpAndSettle();
 
       _push(navigator, _page);
@@ -282,17 +276,18 @@ void main() {
     },
   );
 
-  testWidgets('400ms Cupertino push and pop include secondary parallax', (
+  testWidgets('default Cupertino push and pop include secondary parallax', (
     tester,
   ) async {
     final navigator = await _app(tester);
     final route = _push(navigator, _page);
     await tester.pump();
-    expect(route.transitionDuration, const Duration(milliseconds: 400));
-    expect(route.reverseTransitionDuration, const Duration(milliseconds: 400));
+    const defaults = CupertinoPageTransitionsBuilder();
+    expect(route.transitionDuration, defaults.transitionDuration);
+    expect(route.reverseTransitionDuration, defaults.reverseTransitionDuration);
     await tester.pump();
     expect(_x(tester, _page), 800);
-    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump(route.transitionDuration ~/ 2);
     expect(
       _x(tester, _page),
       closeTo(800 * (1 - Curves.fastEaseInToSlowEaseOut.transform(.5)), .01),
@@ -306,7 +301,7 @@ void main() {
     const next = ValueKey('next');
     _push(navigator, next);
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump(route.transitionDuration ~/ 2);
     expect(
       _x(tester, _page),
       closeTo(-800 / 3 * Curves.linearToEaseOut.transform(.5), .01),
@@ -314,7 +309,7 @@ void main() {
     await tester.pumpAndSettle();
     navigator.currentState!.pop();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump(route.reverseTransitionDuration ~/ 2);
     expect(
       _x(tester, next),
       closeTo(
@@ -497,7 +492,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
     expect(find.bySemanticsLabel('detail content'), findsNothing);
-    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump(
+      route.transitionDuration - const Duration(milliseconds: 150),
+    );
     await tester.pump(const Duration(milliseconds: 16));
     expect(route.animation!.status, AnimationStatus.completed);
     expect(find.bySemanticsLabel('detail content'), findsNothing);

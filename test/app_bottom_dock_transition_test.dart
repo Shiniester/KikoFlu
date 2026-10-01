@@ -210,7 +210,7 @@ void main() {
       await tester.tap(find.text('Navigation tag'));
       await tester.pump();
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pump(const Duration(milliseconds: 250));
       final flight = _dockFlightRect(tester);
       expect(flight.left, sourceRect.left);
       expect(flight.width, sourceRect.width);
@@ -239,7 +239,7 @@ void main() {
       await tester.pumpAndSettle();
       Navigator.of(tester.element(find.byType(SearchResultScreen))).pop();
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pump(const Duration(milliseconds: 250));
       expect(_dockFlightRect(tester), flight);
       expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
       expect(
@@ -310,17 +310,17 @@ void main() {
         await tester.pump();
         await tester.pump();
         expect(find.byKey(secondKey, skipOffstage: false), findsNothing);
-        await tester.pump(Duration(milliseconds: 401 - returnElapsed));
+        await tester.pump(Duration(milliseconds: 501 - returnElapsed));
         await tester.pump();
         await tester.pump();
         await tester.pump();
         expect(find.byKey(firstKey, skipOffstage: false), findsNothing);
         expect(find.byKey(secondKey, skipOffstage: false), findsOneWidget);
         var elapsed = 0;
-        for (final sample in [80, 200, 360]) {
+        for (final sample in [100, 250, 450]) {
           await tester.pump(Duration(milliseconds: sample - elapsed));
           elapsed = sample;
-          final progress = sample / 400;
+          final progress = sample / 500;
           expect(
             tester.getTopLeft(find.byKey(homeKey, skipOffstage: false)).dx,
             closeTo(
@@ -421,7 +421,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 16));
     expect(homeSnapshot.allowSnapshotting, isTrue);
     expect(detailSnapshot.allowSnapshotting, isTrue);
-    await tester.pump(const Duration(milliseconds: 184));
+    await tester.pump(const Duration(milliseconds: 234));
 
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dy, closeTo(743, 0.1));
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dx, 0);
@@ -440,7 +440,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 16));
     expect(homeSnapshot.allowSnapshotting, isTrue);
     expect(detailSnapshot.allowSnapshotting, isTrue);
-    await tester.pump(const Duration(milliseconds: 184));
+    await tester.pump(const Duration(milliseconds: 234));
 
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dy, closeTo(743, 0.1));
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dx, 0);
@@ -509,7 +509,7 @@ void main() {
     await tester.tap(find.text('Open from main navigation'));
     await tester.pump();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump(const Duration(milliseconds: 250));
 
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dy, closeTo(743, 0.1));
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dx, 0);
@@ -875,7 +875,7 @@ void main() {
     await tester.tap(find.text('Open without playback'));
     await tester.pump();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump(const Duration(milliseconds: 250));
 
     expect(find.byType(AppBottomDockMiniPlayerHero), findsNothing);
     expect(tester.getTopLeft(find.byType(NavigationBar)).dy, closeTo(815, 0.1));

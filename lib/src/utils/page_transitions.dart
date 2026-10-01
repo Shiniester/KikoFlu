@@ -7,12 +7,6 @@ class AppPageTransitionsBuilder extends CupertinoPageTransitionsBuilder {
   const AppPageTransitionsBuilder();
 
   @override
-  Duration get transitionDuration => const Duration(milliseconds: 400);
-
-  @override
-  Duration get reverseTransitionDuration => transitionDuration;
-
-  @override
   Widget buildTransitions<T>(
     PageRoute<T> route,
     BuildContext context,

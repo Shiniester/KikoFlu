@@ -257,7 +257,9 @@ void main() {
     debugOnRebuildDirtyWidget = (element, built) {
       if (element.widget is WorkDetailScreen) detailBuilds++;
     };
-    await tester.pump(const Duration(milliseconds: 270));
+    await tester.pump(
+      route.transitionDuration - const Duration(milliseconds: 149),
+    );
     expect(displayedCover(), same(initialCover));
     await tester.pump();
     expect(route.animation!.status, AnimationStatus.completed);
@@ -343,7 +345,7 @@ void main() {
         .image;
 
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
     await _pumpUntil(tester, () => cache.requests > 0);
     expect(cache.requests, 1);
@@ -409,7 +411,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
     await _pumpFrames(tester);
     expect(
@@ -472,7 +474,7 @@ void main() {
           ),
         );
         await tester.pump();
-        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pump(const Duration(milliseconds: 600));
         await tester.pump();
         await _pumpUntil(tester, () => cache.requests > 0);
         cache.lease.completed.complete(cover);
@@ -494,7 +496,7 @@ void main() {
             .state<RefreshIndicatorState>(find.byType(RefreshIndicator))
             .show();
         await tester.pump();
-        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pump(const Duration(milliseconds: 600));
         expect(cache.requests, 2);
         final refreshLease = cache.lease;
         final gesture = await tester.startGesture(const Offset(1, 300));
@@ -506,7 +508,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 200));
         await gesture.up();
         await tester.pump();
-        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pump(const Duration(milliseconds: 600));
         expect(find.byType(WorkDetailScreen), findsOneWidget);
         expect(cache.requests, 2);
         api.metadata.complete({'id': 99, 'title': 'Work'});
@@ -534,12 +536,12 @@ void main() {
         expect(find.text(l10n.refreshComplete), findsNothing);
         expect(find.byIcon(Icons.error_outline), findsWidgets);
         expect(hdVisible(), isTrue);
-        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pump(const Duration(milliseconds: 600));
         final retry = tester
             .state<RefreshIndicatorState>(find.byType(RefreshIndicator))
             .show();
         await tester.pump();
-        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pump(const Duration(milliseconds: 600));
         expect(cache.requests, 3);
         cache.lease.completed.complete(cover);
         var retryCompleted = false;
@@ -607,7 +609,7 @@ void main() {
         )
         .image;
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
     await _pumpUntil(tester, () => cache.requests > 0);
     expect(cache.requests, 1);
@@ -626,7 +628,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
     await gesture.up();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
     await _pumpUntil(tester, () => cache.requests > 1);
     expect(find.byType(WorkDetailScreen), findsOneWidget);
@@ -1085,7 +1087,9 @@ void main() {
           .any((image) => identical(image.image, initialCover)),
       isTrue,
     );
-    await tester.pump(const Duration(milliseconds: 251));
+    await tester.pump(
+      route.transitionDuration - const Duration(milliseconds: 149),
+    );
     await tester.pump();
     expect(route.animation!.status, AnimationStatus.completed);
     final metadataSliver = tester.widget<SliverList>(
@@ -1258,7 +1262,7 @@ void main() {
           expect(find.text('loaded-file.txt'), findsNothing);
         }
 
-        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pump(const Duration(milliseconds: 400));
         await tester.pump();
         await _pumpUntil(tester, () => api.trackRequests > 0);
         expect(api.workRequests, 1);
@@ -1532,7 +1536,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 450));
+    await tester.pump(const Duration(milliseconds: 550));
     for (var i = 0; i < 4 && api.trackRequests == 0; i++) {
       await tester.pump();
     }
@@ -1616,7 +1620,7 @@ void main() {
         );
         navigator.currentState!.push(route);
         await tester.pump();
-        await tester.pump(const Duration(milliseconds: 450));
+        await tester.pump(const Duration(milliseconds: 550));
         for (var i = 0; i < 3 && api.trackRequests == 0; i++) {
           await tester.pump();
         }
@@ -1748,7 +1752,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 450));
+    await tester.pump(const Duration(milliseconds: 550));
     for (var i = 0; i < 3 && api.trackRequests == 0; i++) {
       await tester.pump();
     }
@@ -1821,7 +1825,7 @@ void main() {
     debugOnRebuildDirtyWidget = (element, built) {
       if (element.widget is FileExplorerWidget) explorerBuilds++;
     };
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 600));
     bool hdVisible() => tester
         .widgetList<Image>(find.byType(Image))
         .any(

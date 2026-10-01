@@ -132,7 +132,7 @@ void main() {
       expect(find.text('Known circle'), findsOneWidget);
       expect(find.text('Known VA'), findsOneWidget);
       expect(container.read(fileListControllerProvider).workId, isNull);
-      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 351));
       await tester.pump();
       await tester.pump();
 
