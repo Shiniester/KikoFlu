@@ -253,6 +253,100 @@ void main() {
     });
   }
 
+  for (final (returnElapsed, landscape) in [
+    (60, false),
+    (120, false),
+    (240, false),
+    (120, true),
+  ]) {
+    testWidgets(
+      'work reentry waits for return at ${returnElapsed}ms (landscape: $landscape)',
+      (tester) async {
+        _configurePhoneViewport(tester);
+        if (landscape) tester.view.physicalSize = const Size(844, 390);
+        final width = landscape ? 844.0 : 390.0;
+        final navigator = GlobalKey<NavigatorState>();
+        const homeKey = ValueKey('reentry-home');
+        const firstKey = ValueKey('reentry-first');
+        const secondKey = ValueKey('reentry-second');
+        late BuildContext sourceContext;
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.lightTheme(null),
+            navigatorKey: navigator,
+            home: AppBottomDockTransitionScope(
+              sourceHasAppTabBar: !landscape,
+              child: Scaffold(
+                key: homeKey,
+                body: Builder(
+                  builder: (context) {
+                    sourceContext = context;
+                    return const SizedBox.expand();
+                  },
+                ),
+              ),
+            ),
+          ),
+        );
+        unawaited(
+          pushWorkDetailRoute(
+            sourceContext,
+            builder: (_) => const Scaffold(key: firstKey),
+          ),
+        );
+        await tester.pumpAndSettle();
+        navigator.currentState!.pop();
+        await tester.pump();
+        await tester.pump(Duration(milliseconds: returnElapsed));
+        // Two rapid taps must start only one new route after the return.
+        for (var tap = 0; tap < 2; tap++) {
+          unawaited(
+            pushWorkDetailRoute(
+              sourceContext,
+              builder: (_) => const Scaffold(key: secondKey),
+            ),
+          );
+        }
+        await tester.pump();
+        await tester.pump();
+        expect(find.byKey(secondKey, skipOffstage: false), findsNothing);
+        await tester.pump(Duration(milliseconds: 301 - returnElapsed));
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
+        expect(find.byKey(firstKey, skipOffstage: false), findsNothing);
+        expect(find.byKey(secondKey, skipOffstage: false), findsOneWidget);
+        var elapsed = 0;
+        for (final sample in [60, 150, 270]) {
+          await tester.pump(Duration(milliseconds: sample - elapsed));
+          elapsed = sample;
+          final progress = sample / 300;
+          expect(
+            tester.getTopLeft(find.byKey(homeKey, skipOffstage: false)).dx,
+            closeTo(
+              -width / 3 * Curves.linearToEaseOut.transform(progress),
+              0.1,
+            ),
+          );
+          expect(
+            tester.getTopLeft(find.byKey(secondKey)).dx,
+            closeTo(
+              width * (1 - Curves.fastEaseInToSlowEaseOut.transform(progress)),
+              0.1,
+            ),
+          );
+        }
+        await tester.pumpAndSettle();
+        navigator.currentState!.pop();
+        await tester.pumpAndSettle();
+        expect(find.byKey(homeKey), findsOneWidget);
+        expect(find.byKey(secondKey, skipOffstage: false), findsNothing);
+        expect(tester.takeException(), isNull);
+        debugDefaultTargetPlatformOverride = null;
+      },
+    );
+  }
+
   testWidgets('main bottom dock moves together into work details', (
     tester,
   ) async {
@@ -335,13 +429,13 @@ void main() {
 
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dy, 772);
-    expect(homeSnapshot.allowSnapshotting, isFalse);
+    expect(homeSnapshot.allowSnapshotting, isTrue);
     expect(detailSnapshot.allowSnapshotting, isFalse);
     expect(find.byKey(tabBarKey), findsNothing);
 
     navigatorKey.currentState!.pop();
     await tester.pump();
-    expect(homeSnapshot.allowSnapshotting, isFalse);
+    expect(homeSnapshot.allowSnapshotting, isTrue);
     expect(detailSnapshot.allowSnapshotting, isFalse);
     await tester.pump(const Duration(milliseconds: 16));
     expect(homeSnapshot.allowSnapshotting, isTrue);

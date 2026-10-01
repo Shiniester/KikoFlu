@@ -1,11 +1,9 @@
-import 'dart:math' as math;
-
-import 'package:flutter/gestures.dart';
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// Slides only the entering/leaving page; shared elements fly in the overlay.
-class AppPageTransitionsBuilder extends PageTransitionsBuilder {
+/// Uses Cupertino page transitions while retaining Android route snapshots.
+class AppPageTransitionsBuilder extends CupertinoPageTransitionsBuilder {
   const AppPageTransitionsBuilder();
 
   @override
@@ -48,8 +46,10 @@ class _PageTransition extends StatefulWidget {
 
 class _PageTransitionState extends State<_PageTransition>
     with WidgetsBindingObserver {
+  static const _dismissedAnimation = AlwaysStoppedAnimation<double>(0);
+  static const _completedAnimation = AlwaysStoppedAnimation<double>(1);
+
   final SnapshotController _snapshotController = SnapshotController();
-  late final HorizontalDragGestureRecognizer _edgeDrag;
   NavigatorState? _gestureNavigator;
   Animation<double>? _settlingAnimation;
   bool _dragging = false;
@@ -61,30 +61,6 @@ class _PageTransitionState extends State<_PageTransition>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _edgeDrag = HorizontalDragGestureRecognizer(debugOwner: this)
-      ..onStart = (_) {
-        _startGesture();
-      }
-      ..onUpdate = (details) {
-        if (!_dragging) return;
-        widget.route.handleUpdateBackGestureProgress(
-          progress:
-              (widget.animation.value -
-                      details.primaryDelta! / MediaQuery.sizeOf(context).width)
-                  .clamp(0.0, 1.0),
-        );
-      }
-      ..onEnd = (details) {
-        final velocity =
-            details.velocity.pixelsPerSecond.dx /
-            MediaQuery.sizeOf(context).width;
-        _endGesture(
-          commit: velocity.abs() >= 1
-              ? velocity > 0
-              : widget.animation.value < 0.5,
-        );
-      }
-      ..onCancel = () => _endGesture(commit: false);
   }
 
   bool get _enabled => widget.route.isCurrent && widget.route.popGestureEnabled;
@@ -100,6 +76,13 @@ class _PageTransitionState extends State<_PageTransition>
       widget.secondaryAnimation.status == AnimationStatus.dismissed &&
       widget.secondaryAnimation.value == 0 &&
       !widget.route.popGestureInProgress;
+
+  Animation<double> _animationWithoutMotion(
+    Animation<double> animation,
+  ) => switch (animation.status) {
+    AnimationStatus.forward || AnimationStatus.completed => _completedAnimation,
+    AnimationStatus.reverse || AnimationStatus.dismissed => _dismissedAnimation,
+  };
 
   void _startGesture({double progress = 1}) {
     if (!_enabled) return;
@@ -187,117 +170,66 @@ class _PageTransitionState extends State<_PageTransition>
       });
     }
     final platform = Theme.of(context).platform;
-    final transition = Stack(
-      fit: StackFit.passthrough,
-      children: [
-        AnimatedBuilder(
-          animation: Listenable.merge([
-            widget.animation,
-            widget.secondaryAnimation,
-          ]),
-          child: SnapshotWidget(
-            controller: _snapshotController,
-            mode: SnapshotMode.permissive,
-            autoresize: true,
-            child: widget.child,
-          ),
-          builder: (context, child) {
-            _snapshotController.allowSnapshotting =
-                platform == TargetPlatform.android &&
-                !reduceMotion &&
-                widget.route.allowSnapshotting &&
-                (widget.route.popGestureInProgress ||
-                    _isSnapshotFrame(widget.animation) ||
-                    _isSnapshotFrame(widget.secondaryAnimation));
-            final pageStopped = _pageStopped;
-            if (!pageStopped) {
-              _semanticsRestored = false;
-            } else if (!_semanticsRestored && !_semanticsRestoreScheduled) {
-              _semanticsRestoreScheduled = true;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                _semanticsRestoreScheduled = false;
-                if (!mounted || !_pageStopped) return;
-                setState(() => _semanticsRestored = true);
-              });
-            }
-            final progress = reduceMotion
-                ? 1.0
-                : widget.route.popGestureInProgress
-                ? widget.animation.value
-                : Curves.ease.transform(widget.animation.value);
-            return FractionalTranslation(
-              translation: Offset(1 - progress, 0),
-              child: Stack(
-                fit: StackFit.passthrough,
-                clipBehavior: Clip.none,
-                children: [
-                  const Positioned(
-                    left: 0,
-                    top: 0,
-                    bottom: 0,
-                    width: 24,
-                    child: PhysicalModel(
-                      color: Colors.transparent,
-                      elevation: 6,
-                      child: SizedBox.expand(),
-                    ),
-                  ),
-                  ExcludeSemantics(
-                    // Restore semantics after the final moving frame.
-                    excluding: !reduceMotion && !_semanticsRestored,
-                    child: ClipRect(child: child),
-                  ),
-                ],
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        widget.animation,
+        widget.secondaryAnimation,
+      ]),
+      child: SnapshotWidget(
+        controller: _snapshotController,
+        mode: SnapshotMode.permissive,
+        autoresize: true,
+        child: widget.child,
+      ),
+      builder: (context, child) {
+        _snapshotController.allowSnapshotting =
+            platform == TargetPlatform.android &&
+            !reduceMotion &&
+            widget.route.allowSnapshotting &&
+            (widget.route.popGestureInProgress ||
+                _isSnapshotFrame(widget.animation) ||
+                // Reuse the covered page's snapshot until its reveal finishes.
+                widget.secondaryAnimation.value > 0);
+        final pageStopped = _pageStopped;
+        if (!pageStopped) {
+          _semanticsRestored = false;
+        } else if (!_semanticsRestored && !_semanticsRestoreScheduled) {
+          _semanticsRestoreScheduled = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _semanticsRestoreScheduled = false;
+            if (!mounted || !_pageStopped) return;
+            setState(() => _semanticsRestored = true);
+          });
+        }
+
+        final primaryAnimation = reduceMotion
+            ? _animationWithoutMotion(widget.animation)
+            : widget.animation;
+        final secondaryAnimation = reduceMotion
+            ? _dismissedAnimation
+            : widget.secondaryAnimation;
+        return const CupertinoPageTransitionsBuilder()
+            .buildTransitions<dynamic>(
+              widget.route,
+              context,
+              primaryAnimation,
+              secondaryAnimation,
+              ExcludeSemantics(
+                // Restore semantics after the final moving frame.
+                excluding: !reduceMotion && !_semanticsRestored,
+                child: ClipRect(child: child!),
               ),
             );
-          },
-        ),
-        if (platform == TargetPlatform.iOS || platform == TargetPlatform.macOS)
-          Positioned(
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: math.max(20, MediaQuery.paddingOf(context).left),
-            child: Listener(
-              behavior: HitTestBehavior.translucent,
-              onPointerDown: (event) {
-                if (_enabled) _edgeDrag.addPointer(event);
-              },
-            ),
-          ),
-      ],
-    );
-    return ClipRect(
-      clipper: _ExposedPageClipper(widget.secondaryAnimation, widget.route),
-      child: transition,
+      },
     );
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _edgeDrag.dispose();
     _stopGesture();
+    _snapshotController.allowSnapshotting = false;
     _snapshotController.dispose();
     super.dispose();
   }
-}
-
-class _ExposedPageClipper extends CustomClipper<Rect> {
-  _ExposedPageClipper(this.animation, this.route) : super(reclip: animation);
-
-  final Animation<double> animation;
-  final PageRoute<dynamic> route;
-
-  @override
-  Rect getClip(Size size) {
-    final progress = route.navigator?.userGestureInProgress == true
-        ? animation.value
-        : Curves.ease.transform(animation.value);
-    return Rect.fromLTWH(0, 0, size.width * (1 - progress), size.height);
-  }
-
-  @override
-  bool shouldReclip(_ExposedPageClipper oldClipper) =>
-      animation != oldClipper.animation || route != oldClipper.route;
 }

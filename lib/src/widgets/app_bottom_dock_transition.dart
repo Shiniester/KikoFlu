@@ -97,8 +97,16 @@ class _AppBottomDockTransitionScopeState
 
   bool get sourceHasAppTabBar => widget.sourceHasAppTabBar;
 
-  _AppBottomDockTransitionLease arm(double bottomInset) {
-    final handoff = _AppBottomDockHandoff(bottomInset);
+  PageRoute<void>? get returningRoute {
+    for (final handoff in _handoffs.reversed) {
+      final route = handoff.route;
+      if (route.navigator != null && !route.isActive) return route;
+    }
+    return null;
+  }
+
+  _AppBottomDockTransitionLease arm(double bottomInset, PageRoute<void> route) {
+    final handoff = _AppBottomDockHandoff(bottomInset, route);
     setState(() => _handoffs.add(handoff));
     return _AppBottomDockTransitionLease(this, handoff);
   }
@@ -139,9 +147,10 @@ class _AppBottomDockTransitionScopeState
 }
 
 class _AppBottomDockHandoff {
-  const _AppBottomDockHandoff(this.bottomInset);
+  const _AppBottomDockHandoff(this.bottomInset, this.route);
 
   final double bottomInset;
+  final PageRoute<void> route;
 }
 
 class _AppBottomDockTransitionLease {
@@ -228,17 +237,15 @@ Future<void> pushBottomDockRoute(
   required WidgetBuilder builder,
 }) async {
   final sourceScope = AppBottomDockTransitionScope._maybeStateOf(context);
+  final sourceRoute = ModalRoute.of(context);
+  final returningRoute = sourceScope?.returningRoute;
+  if (returningRoute != null) {
+    // Cupertino's secondary animation must finish reversing before a new push.
+    await returningRoute.completed;
+    if (!context.mounted) return;
+  }
   final view = View.of(context);
   final capturedBottomInset = view.viewPadding.bottom / view.devicePixelRatio;
-  final lease = sourceScope?.arm(capturedBottomInset);
-  if (lease != null) {
-    await WidgetsBinding.instance.endOfFrame;
-  }
-  if (!context.mounted) {
-    lease?.release();
-    return;
-  }
-
   final route = MaterialPageRoute<void>(
     builder: (_) => AppBottomDockTransitionScope._withHandoffMetrics(
       bottomInset: capturedBottomInset,
@@ -247,7 +254,13 @@ Future<void> pushBottomDockRoute(
       child: Builder(builder: builder),
     ),
   );
+  final lease = sourceScope?.arm(capturedBottomInset, route);
   try {
+    if (lease != null) {
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    // A second tap can finish waiting after the first has already pushed.
+    if (!context.mounted || sourceRoute?.isCurrent == false) return;
     await Navigator.of(context).push<void>(route);
     await route.completed;
   } finally {

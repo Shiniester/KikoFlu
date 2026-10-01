@@ -281,7 +281,10 @@ class _MainScreenState extends ConsumerState<MainScreen>
           ],
         ),
       );
-      return landscapeScaffold;
+      return AppBottomDockTransitionScope(
+        sourceHasAppTabBar: false,
+        child: landscapeScaffold,
+      );
     }
 
     // 竖屏布局：播放条和应用标签栏共同组成底部 Dock。
