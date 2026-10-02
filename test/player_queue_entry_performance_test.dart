@@ -14,6 +14,7 @@ import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -26,6 +27,9 @@ Future<void> openQueue(
   bool reduceMotion = false,
 }) async {
   SharedPreferences.setMockInitialValues({'lyric_hint_has_shown': true});
+  await StorageService.initCritical(
+    preferences: await SharedPreferences.getInstance(),
+  );
   tester.view.devicePixelRatio = 3;
   tester.view.physicalSize = const Size(1170, 2532);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -196,18 +200,19 @@ void main() {
           await tester.pump(const Duration(milliseconds: 16));
           if (queue.evaluate().isEmpty || row.evaluate().isEmpty) continue;
           final routeY = tester.widget<Transform>(route).transform.storage[13];
-          final queueY = tester
-              .widget<Transform>(
-                find.byKey(const ValueKey('compact-queue-stage-transform')),
-              )
-              .transform
-              .storage[13];
+          final queuePages = tester.widget<PageView>(
+            find.byKey(const ValueKey('compact-vertical-player-pages')),
+          );
           final scroll = tester.state<ScrollableState>(
             find.descendant(of: queue, matching: find.byType(Scrollable)),
           );
           final localY = tester.getTopLeft(row).dy - routeY;
           rowLocalY ??= localY;
-          expect(queueY, 0, reason: 'Queue must not add a second slide');
+          expect(
+            queuePages.controller!.page,
+            0,
+            reason: 'Direct queue must remain on its single route-owned page',
+          );
           expect(
             tester
                 .getTopLeft(

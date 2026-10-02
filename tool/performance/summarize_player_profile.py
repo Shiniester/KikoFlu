@@ -8,7 +8,8 @@ import statistics
 
 
 SCENES = ['expandCold', 'expandCollapse', 'dragRebound', 'dragHandoff',
-          'pageSwitch', 'lyricFollow', 'lyricScroll',
+          'pageSwitch', 'queuePageSwitch', 'queueEdgeHandoff',
+          'queueContinuousHandoff', 'lyricFollow', 'lyricScroll',
           'rapidTrackPresentation', 'galleryDoubleTap']
 
 
@@ -21,12 +22,34 @@ def distribution(values):
                 p95=round(percentile(values, .95), 3))
 
 
-def summarize(root, label):
-    reports = [json.loads(path.read_text(encoding='utf-8'))
-               for path in sorted(root.glob(label + '_*.json'))
-               if not path.name.endswith('_environment.json')]
-    if not reports:
-        raise ValueError(f'No reports for {label}')
+def summarize(root, label, start, rounds):
+    reports = []
+    for number in range(start, start + rounds):
+        path = root / f'{label}_{number}.json'
+        report = json.loads(path.read_text(encoding='utf-8'))
+        if (report['control']['label'] != label or
+                report['control']['run'] != number or report['run']['run'] != number):
+            raise ValueError(f'Report identity does not match {path.name}')
+        if any(check['case'] == 'harnessFailure' for check in report['checks']):
+            raise ValueError(f'Harness failed in {path.name}')
+        metric = report['run']['metrics']
+        if report['control']['ui']:
+            required_scenes = [scene for scene in SCENES if scene != 'queueContinuousHandoff']
+            if report['control'].get('continuousHandoff'):
+                required_scenes.append('queueContinuousHandoff')
+                checks = [check for check in report['checks']
+                          if check['case'] == 'queueContinuousHandoff']
+                if len(checks) != 1 or checks[0].get('passed') is not True:
+                    raise ValueError(f'Continuous handoff check is missing or failed in {path.name}')
+            for scene in required_scenes:
+                for suffix in ['UiP95Ms', 'RasterP95Ms', 'FrameP95Ms', 'FrameBudgetMs',
+                               'JankyFrames', 'FrameCount']:
+                    value = metric.get(scene + suffix)
+                    if value is None or not math.isfinite(value) or value < 0:
+                        raise ValueError(f'Missing or invalid {scene + suffix} in {path.name}')
+                if metric[scene + 'FrameCount'] == 0 or metric[scene + 'FrameBudgetMs'] == 0:
+                    raise ValueError(f'No measured frames or frame budget for {scene} in {path.name}')
+        reports.append(report)
     metrics = [report['run']['metrics'] for report in reports]
     result = dict(runs=len(reports), ui={}, outgoing={}, requests={})
     for scene in SCENES:
@@ -66,8 +89,13 @@ def main():
     parser.add_argument('labels', nargs='+')
     parser.add_argument('--reports', type=Path, default=Path('build/player_performance/reports'))
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--start', type=int, default=1)
+    parser.add_argument('--rounds', type=int, default=5)
     args = parser.parse_args()
-    result = {label: summarize(args.reports, label) for label in args.labels}
+    if args.start < 1 or args.rounds < 1:
+        parser.error('--start and --rounds must be positive')
+    result = {label: summarize(args.reports, label, args.start, args.rounds)
+              for label in args.labels}
     encoded = json.dumps(result, ensure_ascii=False, indent=2)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

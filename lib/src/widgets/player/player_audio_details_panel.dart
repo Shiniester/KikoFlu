@@ -10,21 +10,18 @@ import '../tag_chip.dart';
 import '../va_chip.dart';
 import 'player_glass_surface.dart';
 import 'player_action_icons.dart';
-import 'player_vertical_gestures.dart';
 
 class PlayerAudioDetailsPanel extends ConsumerStatefulWidget {
   const PlayerAudioDetailsPanel({
     super.key,
     this.onOpenWork,
     this.isActive = true,
-    this.onShowQueue,
-    this.showQueueDrag,
+    this.scrollController,
   });
 
   final ValueChanged<Work>? onOpenWork;
   final bool isActive;
-  final VoidCallback? onShowQueue;
-  final PlayerVerticalDragCallbacks? showQueueDrag;
+  final ScrollController? scrollController;
 
   @override
   ConsumerState<PlayerAudioDetailsPanel> createState() =>
@@ -61,11 +58,7 @@ class _PlayerAudioDetailsPanelState
   }
 
   Widget _wrapStaticState(Widget child) {
-    return PlayerVerticalSwipeRegion(
-      onSwipeUp: widget.onShowQueue,
-      swipeUpDrag: widget.showQueueDrag,
-      child: child,
-    );
+    return child;
   }
 
   Widget _buildDetails(BuildContext context, PlayerWorkDetailsData details) {
@@ -80,10 +73,10 @@ class _PlayerAudioDetailsPanelState
 
     final content = RepaintBoundary(
       key: const ValueKey('player-audio-details-panel'),
-      child: PlayerScrollEdgeActions(
-        onPushUpAtBottom: widget.onShowQueue,
-        pushUpDrag: widget.showQueueDrag,
+      child: KeyedSubtree(
+        key: const PageStorageKey('player-audio-details-scroll'),
         child: CustomScrollView(
+          controller: widget.scrollController,
           physics: const AlwaysScrollableScrollPhysics(
             parent: ClampingScrollPhysics(),
           ),
@@ -332,7 +325,6 @@ class _PlayerAudioDetailsPanelState
         ),
       ),
     );
-    if (widget.showQueueDrag == null) return content;
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(overscroll: false),
       child: content,

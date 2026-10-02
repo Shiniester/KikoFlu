@@ -14,6 +14,7 @@ import 'player_glass_surface.dart';
 import 'player_cover_widget.dart';
 import 'player_action_icons.dart';
 import 'player_vertical_gestures.dart';
+import 'player_scroll_drag_handoff.dart';
 
 const List<AudioTapPlaylistMode> _playlistModeMenuOrder = [
   AudioTapPlaylistMode.addToQueue,
@@ -51,6 +52,8 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
     this.onClear,
     this.onDismissRequested,
     this.dismissDrag,
+    this.scrollController,
+    this.pageDragCoordinator,
     this.showCloseButton = false,
     this.horizontalPadding = 8,
   });
@@ -60,6 +63,8 @@ class PlayerQueueSurface extends ConsumerStatefulWidget {
   final Future<void> Function()? onClear;
   final VoidCallback? onDismissRequested;
   final PlayerVerticalDragCallbacks? dismissDrag;
+  final ScrollController? scrollController;
+  final PlayerScrollDragHandoffCoordinator? pageDragCoordinator;
   final bool showCloseButton;
   final double horizontalPadding;
 
@@ -140,6 +145,61 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
       ),
       child: Text(S.of(context).clear, style: queueMetaStyle),
     );
+    final queueList = KeyedSubtree(
+      key: const PageStorageKey('player-queue-scroll'),
+      child: tracks.isEmpty
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Text(S.of(context).playlistEmpty),
+              ),
+            )
+          : ReorderableListView.builder(
+              key: const ValueKey('player-queue-list'),
+              scrollController: widget.scrollController,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              physics: const AlwaysScrollableScrollPhysics(
+                parent: ClampingScrollPhysics(),
+              ),
+              itemCount: tracks.length,
+              buildDefaultDragHandles: false,
+              proxyDecorator: (child, index, animation) => child,
+              onReorderItem: (oldIndex, newIndex) {
+                ref
+                    .read(audioPlayerControllerProvider.notifier)
+                    .moveTrack(oldIndex, newIndex);
+              },
+              itemBuilder: (context, index) {
+                final track = tracks[index];
+                final isCurrentTrack = track.id == currentTrack?.id;
+                final coverUrl = _resolveCoverUrl(
+                  track,
+                  host: authState.host,
+                  token: authState.token,
+                );
+                return ReorderableDelayedDragStartListener(
+                  key: ValueKey(track.id),
+                  index: index,
+                  child: _QueueTrackTile(
+                    track: track,
+                    horizontalPadding: widget.horizontalPadding,
+                    coverUrl: coverUrl,
+                    isCurrentTrack: isCurrentTrack,
+                    metadataHeight: trackMetadataHeight,
+                    onTap: () async {
+                      await ref
+                          .read(audioPlayerControllerProvider.notifier)
+                          .skipToIndex(index);
+                      widget.onTrackSelected?.call();
+                    },
+                    onRemove: () => ref
+                        .read(audioPlayerControllerProvider.notifier)
+                        .removeTrackAt(index),
+                  ),
+                );
+              },
+            ),
+    );
 
     return RepaintBoundary(
       child: Column(
@@ -149,6 +209,7 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
             PlayerVerticalSwipeRegion(
               onSwipeDown: widget.onDismissRequested,
               swipeDownDrag: widget.dismissDrag,
+              pageDragCoordinator: widget.pageDragCoordinator,
               child: _NowPlayingQueueHeader(
                 track: currentTrack,
                 horizontalPadding: widget.horizontalPadding,
@@ -164,6 +225,7 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
             key: const ValueKey('player-queue-title-dismiss-surface'),
             onSwipeDown: widget.onDismissRequested,
             swipeDownDrag: widget.dismissDrag,
+            pageDragCoordinator: widget.pageDragCoordinator,
             child: Padding(
               key: const ValueKey('player-queue-title-bar'),
               padding: EdgeInsets.fromLTRB(
@@ -233,60 +295,12 @@ class _PlayerQueueSurfaceState extends ConsumerState<PlayerQueueSurface> {
             ),
           ),
           Expanded(
-            child: tracks.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Text(S.of(context).playlistEmpty),
-                    ),
-                  )
+            child: widget.pageDragCoordinator != null || tracks.isEmpty
+                ? queueList
                 : PlayerScrollEdgeActions(
                     onPullDownAtTop: widget.onDismissRequested,
                     pullDownDrag: widget.dismissDrag,
-                    child: ReorderableListView.builder(
-                      key: const ValueKey('player-queue-list'),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      physics: const AlwaysScrollableScrollPhysics(
-                        parent: ClampingScrollPhysics(),
-                      ),
-                      itemCount: tracks.length,
-                      buildDefaultDragHandles: false,
-                      proxyDecorator: (child, index, animation) => child,
-                      onReorderItem: (oldIndex, newIndex) {
-                        ref
-                            .read(audioPlayerControllerProvider.notifier)
-                            .moveTrack(oldIndex, newIndex);
-                      },
-                      itemBuilder: (context, index) {
-                        final track = tracks[index];
-                        final isCurrentTrack = track.id == currentTrack?.id;
-                        final coverUrl = _resolveCoverUrl(
-                          track,
-                          host: authState.host,
-                          token: authState.token,
-                        );
-                        return ReorderableDelayedDragStartListener(
-                          key: ValueKey(track.id),
-                          index: index,
-                          child: _QueueTrackTile(
-                            track: track,
-                            horizontalPadding: widget.horizontalPadding,
-                            coverUrl: coverUrl,
-                            isCurrentTrack: isCurrentTrack,
-                            metadataHeight: trackMetadataHeight,
-                            onTap: () async {
-                              await ref
-                                  .read(audioPlayerControllerProvider.notifier)
-                                  .skipToIndex(index);
-                              widget.onTrackSelected?.call();
-                            },
-                            onRemove: () => ref
-                                .read(audioPlayerControllerProvider.notifier)
-                                .removeTrackAt(index),
-                          ),
-                        );
-                      },
-                    ),
+                    child: queueList,
                   ),
           ),
           Padding(

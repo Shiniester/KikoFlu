@@ -24,6 +24,11 @@ import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/image_gallery_screen.dart';
 
+const _profilePackage = String.fromEnvironment(
+  'KIKOFLU_PROFILE_PACKAGE',
+  defaultValue: 'com.meteor.kikoeruflutter',
+);
+
 /// Uses the production widgets, route and audio backend. Files and run controls
 /// are supplied through the test application's external-files directory.
 void main() {
@@ -33,11 +38,16 @@ void main() {
 
   testWidgets('Android player Profile', (tester) async {
     const root =
-        '/sdcard/Android/data/com.meteor.kikoeruflutter/files/'
-        'player_performance';
+        '/sdcard/Android/data/$_profilePackage/files/player_performance';
     final control =
         jsonDecode(await File('$root/control.json').readAsString())
             as Map<String, dynamic>;
+    if (control['package'] != _profilePackage) {
+      throw StateError(
+        'Profile package mismatch: APK=$_profilePackage, '
+        'runner=${control['package']}',
+      );
+    }
     final runNumber = (control['run'] as num).toInt();
     final label = control['label'] as String;
     final reportFile = File('$root/${label}_$runNumber.json');
@@ -78,6 +88,15 @@ void main() {
         url: 'file://$root/fixtures/small_a.wav',
         artworkUrl: cover.uri.toString(),
       );
+      final queueTracks = List<AudioTrack>.generate(
+        40,
+        (index) => index == 0
+            ? visualTrack
+            : visualTrack.copyWith(
+                id: 'profile-queue-${index + 1}',
+                title: 'Queue item ${index + 1}',
+              ),
+      );
       tracks.add(visualTrack);
       final otherCover = File('$root/other_cover.png');
       await otherCover.writeAsBytes(coverBytes.buffer.asUint8List());
@@ -114,7 +133,7 @@ void main() {
             playerStateProvider.overrideWith(
               (ref) => Stream.value(PlayerState(true, ProcessingState.ready)),
             ),
-            queueProvider.overrideWith((ref) => Stream.value([visualTrack])),
+            queueProvider.overrideWith((ref) => Stream.value(queueTracks)),
             manualSkipAvailabilityProvider.overrideWith(
               (ref) => Stream.value(ManualSkipAvailability.unavailable),
             ),
@@ -154,6 +173,81 @@ void main() {
         recorder
           ..setRefreshRate(refreshRate ?? tester.view.display.refreshRate)
           ..beginScenario(name);
+      }
+
+      final queueButton = find.byIcon(Icons.queue_music);
+      final queueList = find.byKey(const ValueKey('player-queue-list'));
+
+      Future<void> openQueue() async {
+        final visibleQueueButtons = queueButton.hitTestable();
+        if (visibleQueueButtons.evaluate().isEmpty) {
+          throw StateError('Player queue button is not visible');
+        }
+        await tester.tap(visibleQueueButtons.first);
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+
+      Future<void> returnFromQueue() async {
+        await tester.sendKeyEvent(
+          LogicalKeyboardKey.escape,
+          physicalKey: PhysicalKeyboardKey.escape,
+        );
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+
+      Future<void> waitForQueueEdgeReturn() async {
+        await tester.pump(const Duration(milliseconds: 650));
+        final pageViewFinder = find.byKey(
+          const ValueKey('compact-vertical-player-pages'),
+        );
+        if (pageViewFinder.evaluate().isEmpty) {
+          // The original implementation uses a fixed-duration transition.
+          return;
+        }
+        final pageView = tester.widget<PageView>(pageViewFinder.first);
+        final controller = pageView.controller;
+        if (controller == null ||
+            !controller.hasClients ||
+            controller.positions.length != 1) {
+          throw StateError('Compact player PageView is not attached');
+        }
+        var waitedMilliseconds = 0;
+        while (controller.position.isScrollingNotifier.value &&
+            waitedMilliseconds < 3000) {
+          await tester.pump(const Duration(milliseconds: 16));
+          waitedMilliseconds += 16;
+        }
+        if (controller.position.isScrollingNotifier.value) {
+          throw StateError('Queue edge page did not become idle within 3s');
+        }
+        final page = controller.page;
+        if (page == null || page.abs() > 0.01) {
+          throw StateError('Queue edge returned to page $page instead of 0');
+        }
+      }
+
+      void expectPlayerQueueButtonVisible() {
+        if (queueButton.evaluate().isEmpty) {
+          throw StateError('Queue edge drag did not return to the player');
+        }
+        final viewSize =
+            tester.view.physicalSize / tester.view.devicePixelRatio;
+        if (!tester
+            .getRect(queueButton.first)
+            .overlaps(Offset.zero & viewSize)) {
+          throw StateError('Player queue button is outside the visible stage');
+        }
+      }
+
+      ScrollableState queueScrollableState() {
+        final scrollables = find.descendant(
+          of: queueList,
+          matching: find.byType(Scrollable),
+        );
+        if (scrollables.evaluate().isEmpty) {
+          throw StateError('Player queue list is not built');
+        }
+        return tester.state<ScrollableState>(scrollables.first);
       }
 
       if (control['ui'] != false) {
@@ -203,6 +297,89 @@ void main() {
         recorder.endScenario();
         await tester.tap(launcher);
         await tester.pump(const Duration(milliseconds: 650));
+
+        await openQueue();
+        final edgePosition = queueScrollableState().position;
+        edgePosition.jumpTo(edgePosition.minScrollExtent);
+        await tester.pump();
+        final verticalStage = find.byKey(
+          const ValueKey('compact-player-vertical-pages'),
+        );
+        final edgeDragDistance = tester.getSize(verticalStage).height * 0.75;
+        await beginScene('queueEdgeHandoff');
+        for (var i = 0; i < cycles; i++) {
+          await tester.drag(queueList, Offset(0, edgeDragDistance));
+          await waitForQueueEdgeReturn();
+          expectPlayerQueueButtonVisible();
+          if (i < cycles - 1) {
+            await openQueue();
+            final position = queueScrollableState().position;
+            position.jumpTo(position.minScrollExtent);
+            await tester.pump();
+          }
+        }
+        recorder.endScenario();
+
+        await beginScene('queuePageSwitch');
+        for (var i = 0; i < cycles; i++) {
+          await openQueue();
+          await returnFromQueue();
+        }
+        recorder.endScenario();
+
+        if (control['continuousHandoff'] == true) {
+          await openQueue();
+          final queuePosition = queueScrollableState().position;
+          if (queuePosition.maxScrollExtent <= 0) {
+            throw StateError('The 40-item queue is not scrollable');
+          }
+          queuePosition.jumpTo(queuePosition.maxScrollExtent / 2);
+          await tester.pump();
+          final initialExtentBefore = queuePosition.extentBefore;
+          final initialQueueTop = tester.getTopLeft(queueList).dy;
+          if (initialExtentBefore <= 0 || queuePosition.extentAfter <= 0) {
+            throw StateError('Queue handoff must begin in the list interior');
+          }
+
+          await beginScene('queueContinuousHandoff');
+          final gesture = await tester.startGesture(
+            tester.getCenter(queueList),
+          );
+          await gesture.moveBy(const Offset(0, 20));
+          await tester.pump(const Duration(milliseconds: 16));
+          final remainingToEdge = queueScrollableState().position.extentBefore;
+          await gesture.moveBy(Offset(0, remainingToEdge + 180));
+          await tester.pump(const Duration(milliseconds: 16));
+          final handoffQueueTop = tester.getTopLeft(queueList).dy;
+          await gesture.moveBy(const Offset(0, -260));
+          await tester.pump(const Duration(milliseconds: 16));
+          await gesture.up();
+          await tester.pump(const Duration(milliseconds: 650));
+          recorder.endScenario();
+
+          final returnedExtentBefore =
+              queueScrollableState().position.extentBefore;
+          final returnedQueueTop = tester.getTopLeft(queueList).dy;
+          final pageMoved = handoffQueueTop - initialQueueTop;
+          final pageReturned = (returnedQueueTop - initialQueueTop).abs();
+          final passed =
+              pageMoved >= 80 &&
+              pageReturned <= 5 &&
+              returnedExtentBefore >= 40 &&
+              returnedExtentBefore < initialExtentBefore;
+          checks.add({
+            'case': 'queueContinuousHandoff',
+            'passed': passed,
+            'initialExtentBefore': initialExtentBefore,
+            'returnedExtentBefore': returnedExtentBefore,
+            'pageMovedPx': pageMoved,
+            'pageReturnErrorPx': pageReturned,
+          });
+          if (!passed) {
+            throw StateError('Continuous queue handoff failed');
+          }
+          await returnFromQueue();
+        }
 
         await beginScene('rapidTrackPresentation');
         for (var i = 0; i < 40; i++) {

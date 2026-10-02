@@ -9,11 +9,13 @@ Android 的 Media3 固定为 1.8.0，包含空 FLAC seek table 的上游修复�
 
 需要保留手机上的正式版、仅验证播放器打开交互时，使用
 [独立 Debug 真机回归流程](android-device-testing.md)。该流程的 Debug 帧耗时
-不用于本页的 Profile 性能验收；以下 Profile 场景仍使用正式版包名。
+不用于本页的 Profile 性能验收。Profile 包名默认是正式包名；建议使用独立的
+测试包名，避免替换设备上的正式安装。
 
-构建前确认 USB 设备、可用空间和原始素材。测试包名为
-`com.meteor.kikoeruflutter`；同包名已有安装时，测试会修改其播放队列和缓存，
-应使用专用测试安装。测试不会修改素材原文件。
+构建前确认 USB 设备、可用空间和原始素材。默认包名为
+`com.meteor.kikoeruflutter`。报告目录中的包名可通过 Dart define 覆盖；运行脚本的
+`--package` 必须传入同一个 application id。入口 Activity 使用完整类名
+`com.meteor.kikoeruflutter.MainActivity`。
 
 ```powershell
 fvm flutter build apk --profile --no-pub `
@@ -22,8 +24,42 @@ fvm flutter build apk --profile --no-pub `
 adb -s <device> install -r build/app/outputs/flutter-apk/app-profile.apk
 ```
 
-设备素材目录：
-`/sdcard/Android/data/com.meteor.kikoeruflutter/files/player_performance/fixtures`。
+独立包在临时 Gradle init script 中设置 Profile 后缀和测试签名，不修改正式
+构建配置。Dart define 只设置报告目录，不能单独改变 Android 包名：
+
+```powershell
+New-Item -ItemType Directory -Force build | Out-Null
+$profileInit = Join-Path (Get-Location) 'build/player-profile-isolation.gradle'
+@'
+gradle.beforeProject { project ->
+    project.pluginManager.withPlugin('com.android.application') {
+        project.extensions.getByName('androidComponents').finalizeDsl { android ->
+            android.buildTypes.named('profile') {
+                applicationIdSuffix = '.profile'
+                signingConfig = android.signingConfigs.getByName('debug')
+            }
+        }
+    }
+}
+'@ | Set-Content -LiteralPath $profileInit -Encoding utf8
+$profileDefines = @(
+  'KIKOFLU_PERFORMANCE=true',
+  'KIKOFLU_PROFILE_PACKAGE=com.meteor.kikoeruflutter.profile'
+) | ForEach-Object { [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($_)) }
+Push-Location android
+try {
+  .\gradlew.bat --init-script $profileInit `
+    -Ptarget=../integration_test/player_profile_test.dart `
+    -Ptarget-platform=android-arm64 "-Pdart-defines=$($profileDefines -join ',')" `
+    -Ptrack-widget-creation=false -Ptree-shake-icons=false assembleProfile
+} finally { Pop-Location }
+adb -s <device> install -r build/app/outputs/flutter-apk/app-profile.apk
+python tool/performance/run_player_profile.py baseline `
+  --device <device> --package com.meteor.kikoeruflutter.profile --no-audio
+```
+
+设备素材目录为
+`/sdcard/Android/data/<profile-package>/files/player_performance/fixtures`。
 将 `manifest.json` 与素材放在这个目录。清单中的相对路径基于清单目录解析，
 绝对路径可直接指向已获授权的设备音频。公共报告使用匿名 `id/title`，
 真实文件路径清单保存在被忽略的 `build/` 下。
@@ -70,9 +106,23 @@ python tool/performance/run_player_profile.py candidate_checks --device <device>
   --rounds 1 --no-ui --races --audio-repeats 4 --soak 120 --soak-index 1
 python tool/performance/run_player_profile.py candidate_seeks --device <device> `
   --rounds 1 --no-ui --seeks
+python tool/performance/run_player_profile.py candidate_handoff --device <device> `
+  --rounds 1 --no-audio --continuous-handoff
 python tool/performance/summarize_player_profile.py baseline candidate baseline_audio candidate_audio candidate_stop `
   --output build/player_performance/summary.json
 ```
+
+独立包的运行命令均传入 `--package com.meteor.kikoeruflutter.profile`，与构建时的
+`KIKOFLU_PROFILE_PACKAGE` 一致。内部分页使用固定 40 项可滚动假队列，
+`--no-audio` 无需外部素材。`queuePageSwitch` 测量队列按钮进入及 Escape 返回；
+`queueEdgeHandoff` 从队列列表顶端下拉，等待原生分页完成吸附后再打开队列。
+基线与候选使用同一份测量代码，各采集五轮。
+
+`--continuous-handoff` 仅用于候选：从队列中段开始，在同一次手势中越过列表
+边缘、反向拖回原分页，再验证剩余位移交回同一列表。单独采集其
+`queueContinuousHandoff` 场景及检查，不混入共同场景的五轮对比。
+汇总器默认要求第 1–5 轮完整报告，按 `--start`、`--rounds` 指定其他轮次；
+缺失报告、场景或交接检查会失败，避免诊断轮次混入正式结果。
 
 四轮音频循环与取消用例合计超过 50 次实际源切换；当前曲目重复选择不计换源。
 `--races` 在大文件加载中连续请求
@@ -101,6 +151,31 @@ A/B/C，校验最终曲目、发布事件、错误和完整缓存是否保留。
   just_audio 的位置包含时间外推，不等价于扬声器首个音频采样；25ms 检查周期也会引入量化误差。
 - 每种离开场景五轮共 10 个样本，当前 P95 算法为 `ceil((n-1)*0.95)`，
   在 n=10 时等于最大值。取消请求标记 incomplete，不混入正常加载统计。
+
+## 内部分页交互契约
+
+窄屏横向页为音频详情、封面、字幕，默认封面；纵向页为播放器主体、队列。
+宽屏左栏为音频详情、封面，右栏横向为控制、字幕，纵向为控制／字幕区域、
+队列。左右栏独立，队列期间的左栏操作及滚动位置保留。
+
+点击统一使用 `PageController.animateToPage`，时长 300ms、曲线
+`Curves.easeOutCubic`；减少动态效果时直接定位。拖动和松手使用默认
+`PageView` 物理及原始松手速度。播放器路由关闭及切歌视觉继续使用原有行为。
+
+详情、完整字幕、宽屏控制和队列列表保持 Clamping 滚动。播放器专用控制器
+包装内层真实 `Drag`，通过公开的 `ScrollPosition.drag` 交接给纵向分页：列表
+先消费，到边缘仅转发剩余位移；反向先回到原页，再把剩余位移交回原列表。
+当前所有者收到原始结束事件，另一方取消；指针取消、活动替换、尺寸变化和
+销毁均清理两条拖动。自动滚动和惯性到边缘不触发分页。
+
+标题、封面和操作栏由单一纵向识别器区分上滑分页与下拉关闭。进度条优先
+处理横向拖动，队列长按排序保留；宽屏左栏不参与右栏纵向交接。普通队列
+下拉只返回原分页，同一手势不会继续关闭路由；直接队列入口保留关闭播放器
+行为。
+
+尺寸变化时，点击过渡保留最新目标，手势保留占比最大的页面，恰好各半时
+保留该次拖动的原页；清理拖动后立即定位，并恢复列表偏移。页面按需挂载、
+保持状态，不可见页停用 ticker。队列挂载后的切换仅更新相关区域。
 
 ## 验收与回归
 

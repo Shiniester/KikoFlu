@@ -7,11 +7,15 @@ import re
 import subprocess
 import time
 
+DEFAULT_PACKAGE = 'com.meteor.kikoeruflutter'
+ACTIVITY_CLASS = 'com.meteor.kikoeruflutter.MainActivity'
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('label')
     parser.add_argument('--device', required=True)
+    parser.add_argument('--package', default=DEFAULT_PACKAGE)
     parser.add_argument('--output', type=Path, default=Path('build/player_performance'))
     parser.add_argument('--start', type=int, default=1)
     parser.add_argument('--rounds', type=int, default=5)
@@ -20,13 +24,20 @@ def main():
     parser.add_argument('--stop', action='store_true')
     parser.add_argument('--races', action='store_true')
     parser.add_argument('--seeks', action='store_true')
+    parser.add_argument('--continuous-handoff', action='store_true')
     parser.add_argument('--soak', type=int, default=0)
     parser.add_argument('--soak-index', type=int, default=0)
     parser.add_argument('--audio-repeats', type=int, default=2)
     args = parser.parse_args()
     if not re.fullmatch(r'[a-zA-Z0-9_-]+', args.label):
         parser.error('label must contain only letters, digits, _ or -')
-    package = 'com.meteor.kikoeruflutter'
+    if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+', args.package):
+        parser.error('package must be a dotted Android application id')
+    if args.continuous_handoff and (
+        args.no_ui or not args.label.startswith('candidate')
+    ):
+        parser.error('--continuous-handoff requires a candidate UI run')
+    package = args.package
     remote = f'/sdcard/Android/data/{package}/files/player_performance'
     reports = args.output / 'reports'
     reports.mkdir(parents=True, exist_ok=True)
@@ -43,9 +54,11 @@ def main():
     for number in range(args.start, args.start + args.rounds):
         control = dict(
             label=args.label, run=number, cycles=4, audioRepeats=args.audio_repeats,
+            package=package,
             ui=not args.no_ui, audio=not args.no_audio, stopBeforeSwitch=args.stop,
             raceChecks=args.races, enforceLatest=args.races and args.label.startswith('candidate'),
             seekChecks=args.seeks,
+            continuousHandoff=args.continuous_handoff,
             soakSeconds=args.soak, soakIndex=args.soak_index,
         )
         environment = {
@@ -62,6 +75,7 @@ def main():
         control_file.write_text(json.dumps(control), encoding='utf-8')
         report_name = f'{args.label}_{number}.json'
         output = f'{remote}/{report_name}'
+        adb('shell', 'mkdir', '-p', remote)
         # Create a readable output before the app writes it on external storage.
         empty_file = args.output / '.empty-report'
         empty_file.write_text('', encoding='utf-8')
@@ -69,7 +83,7 @@ def main():
         adb('shell', 'chmod', '666', output)
         adb('push', str(control_file), f'{remote}/control.json')
         adb('shell', 'am', 'force-stop', package)
-        adb('shell', 'am', 'start', '-n', package + '/.MainActivity')
+        adb('shell', 'am', 'start', '-n', package + '/' + ACTIVITY_CLASS)
         print(f'{args.label} {number}: started', flush=True)
         started = time.monotonic()
         try:
@@ -83,11 +97,23 @@ def main():
                 (reports / report_name).write_text(
                     json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8',
                 )
+                if (report['control'] != control or report['run']['run'] != number):
+                    raise RuntimeError('Profile report does not match the requested run')
+                if args.continuous_handoff:
+                    checks = [check for check in report['checks']
+                              if check['case'] == 'queueContinuousHandoff']
+                    if len(checks) != 1 or checks[0].get('passed') is not True:
+                        raise RuntimeError('Continuous queue handoff check is missing or failed')
+                    if report['run']['metrics'].get('queueContinuousHandoffFrameCount', 0) <= 0:
+                        raise RuntimeError('Continuous queue handoff did not record any frames')
                 for check in report['checks']:
                     if check['case'] == 'harnessFailure':
                         raise RuntimeError(check['error'])
                     if check['case'].startswith('seek-') and not check['passed']:
                         raise RuntimeError(f'Seek playback check failed: {check}')
+                    if (check['case'] == 'queueContinuousHandoff' and
+                            not check['passed']):
+                        raise RuntimeError(f'Queue handoff check failed: {check}')
                     if control['enforceLatest'] and 'expected' in check:
                         if (check['actual'] != check['expected'] or
                                 check['published'] != [check['expected']] or

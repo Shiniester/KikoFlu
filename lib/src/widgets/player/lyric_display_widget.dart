@@ -990,6 +990,7 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
     this.isLocked = false,
     this.onLongPress,
     this.controller,
+    this.scrollController,
     this.suspendAutoScroll = false,
     this.searchMode = false,
     this.searchQuery = '',
@@ -1011,6 +1012,7 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
   final bool isLocked;
   final VoidCallback? onLongPress;
   final FullLyricDisplayController? controller;
+  final ScrollController? scrollController;
   final bool suspendAutoScroll;
   final bool searchMode;
   final String searchQuery;
@@ -1031,7 +1033,9 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
 
 class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     with SingleTickerProviderStateMixin {
-  final ScrollController _scrollController = ScrollController();
+  final ScrollController _ownedScrollController = ScrollController();
+  ScrollController get _scrollController =>
+      widget.scrollController ?? _ownedScrollController;
   final GlobalKey _viewportKey = GlobalKey();
   final Map<int, GlobalKey> _itemKeys = {};
   final Map<int, GlobalKey> _textKeys = {};
@@ -1043,6 +1047,8 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
   int? _pendingTapOriginIndex;
   bool _autoScroll = true;
   bool _userScrollInProgress = false;
+  bool _checkedStoredScrollOffset = false;
+  bool _hasStoredScrollOffset = false;
   Timer? _resumeAutoScrollTimer;
   Timer? _tapFeedbackClearTimer;
   Timer? _tapFeedbackDedupeTimer;
@@ -1072,6 +1078,15 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       _tapFeedbackController,
     );
     widget.controller?._attach(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_checkedStoredScrollOffset) return;
+    _checkedStoredScrollOffset = true;
+    _hasStoredScrollOffset =
+        PageStorage.maybeOf(context)?.readState(context) is double;
   }
 
   @override
@@ -1141,7 +1156,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     _resumeAutoScrollTimer?.cancel();
     _clearTapFeedbackState(notify: false);
     _tapFeedbackController.dispose();
-    _scrollController.dispose();
+    if (widget.scrollController == null) _ownedScrollController.dispose();
     _itemKeys.clear();
     _textKeys.clear();
     super.dispose();
@@ -1802,17 +1817,21 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
     if (currentIndex != _currentLyricIndex && currentIndex >= 0) {
       final previous = _currentLyricIndex;
       _currentLyricIndex = currentIndex;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _scrollToLyric(
-          currentIndex,
-          animate:
-              widget.isActive &&
-              widget.seekingPosition == null &&
-              !(widget.snapToCurrentOnFirstLayout && previous == null),
-          force: previous == null || (currentIndex - previous).abs() > 5,
-        );
-      });
+      final restoredFirstLayout = previous == null && _hasStoredScrollOffset;
+      if (restoredFirstLayout) _hasStoredScrollOffset = false;
+      if (!restoredFirstLayout) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _scrollToLyric(
+            currentIndex,
+            animate:
+                widget.isActive &&
+                widget.seekingPosition == null &&
+                !(widget.snapToCurrentOnFirstLayout && previous == null),
+            force: previous == null || (currentIndex - previous).abs() > 5,
+          );
+        });
+      }
     }
 
     return GestureDetector(

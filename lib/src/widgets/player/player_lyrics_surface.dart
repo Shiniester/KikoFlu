@@ -9,7 +9,6 @@ import '../../providers/player_lyric_style_provider.dart';
 import 'lyric_display_widget.dart';
 import 'player_glass_surface.dart';
 import 'player_subtitle_picker_sheet.dart';
-import 'player_vertical_gestures.dart';
 
 class PlayerLyricsSurface extends ConsumerStatefulWidget {
   const PlayerLyricsSurface({
@@ -21,8 +20,7 @@ class PlayerLyricsSurface extends ConsumerStatefulWidget {
     this.seekingPosition,
     this.onDownload,
     this.onLongPress,
-    this.onShowQueue,
-    this.showQueueDrag,
+    this.scrollController,
     this.lyricContentWidth,
     this.actionWidth,
     this.searchWidth,
@@ -36,8 +34,7 @@ class PlayerLyricsSurface extends ConsumerStatefulWidget {
   final bool isActive;
   final VoidCallback? onDownload;
   final VoidCallback? onLongPress;
-  final VoidCallback? onShowQueue;
-  final PlayerVerticalDragCallbacks? showQueueDrag;
+  final ScrollController? scrollController;
   final double? lyricContentWidth;
   final double? actionWidth;
   final double? searchWidth;
@@ -118,7 +115,6 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
     final selectedMatch = _matchCursor >= 0 && _matchCursor < _matches.length
         ? _matches[_matchCursor]
         : null;
-    final queueDrag = _queueDragCallbacks;
     final baseVisibleBottomInset =
         controlsBottom + actionRowHeight + viewportClearance;
     _completeSearchCloseWhenSettled(keyboardInset);
@@ -150,7 +146,9 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                   fit: StackFit.expand,
                   children: [
                     FullLyricDisplay(
+                      key: const PageStorageKey('player-full-lyrics-scroll'),
                       controller: _displayController,
+                      scrollController: widget.scrollController,
                       seekingPosition: widget.seekingPosition,
                       isActive: widget.isActive,
                       isPortrait: !widget.isWide,
@@ -304,18 +302,7 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                     child: Transform.translate(
                       key: const ValueKey('lyric-keyboard-controls-transform'),
                       offset: Offset(0, -keyboardLift),
-                      child: RepaintBoundary(
-                        child: PlayerVerticalSwipeRegion(
-                          key: const ValueKey(
-                            'lyric-bottom-queue-swipe-surface',
-                          ),
-                          onSwipeUp: widget.onShowQueue == null
-                              ? null
-                              : _showQueue,
-                          swipeUpDrag: queueDrag,
-                          child: bottomControls,
-                        ),
-                      ),
+                      child: RepaintBoundary(child: bottomControls),
                     ),
                   ),
                 ],
@@ -334,25 +321,6 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
       lyrics.length,
       Object.hashAll(lyrics.map((line) => line.text)),
     );
-  }
-
-  PlayerVerticalDragCallbacks? get _queueDragCallbacks {
-    final drag = widget.showQueueDrag;
-    if (drag == null) return null;
-    return PlayerVerticalDragCallbacks(
-      onStart: () {
-        _searchFocusNode.unfocus();
-        drag.onStart();
-      },
-      onUpdate: drag.onUpdate,
-      onEnd: drag.onEnd,
-      onCancel: drag.onCancel,
-    );
-  }
-
-  void _showQueue() {
-    _searchFocusNode.unfocus();
-    widget.onShowQueue?.call();
   }
 
   Widget _buildSearchBar(BuildContext context, LyricState state) {

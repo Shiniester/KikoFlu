@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'player_scroll_drag_handoff.dart';
+
 enum PlayerInitialSurface { main, queue }
 
 enum PlayerDismissVisualMode { main, secondary }
@@ -63,7 +65,7 @@ class PlayerVerticalDragCallbacks {
     required this.onCancel,
   });
 
-  final VoidCallback onStart;
+  final bool Function() onStart;
   final ValueChanged<double> onUpdate;
   final void Function(double distance, double velocity) onEnd;
   final VoidCallback onCancel;
@@ -129,7 +131,7 @@ class PlayerVerticalDismissCoordinator {
     _playerRouteForModeSync?.setDismissVisualMode(currentVisualMode());
   }
 
-  void _begin(
+  bool _begin(
     BuildContext gestureContext, {
     required bool mainBodyOnly,
     required bool allowDirectQueue,
@@ -142,23 +144,25 @@ class PlayerVerticalDismissCoordinator {
           mainBodyOnly: mainBodyOnly,
           allowDirectQueue: allowDirectQueue,
         )) {
-      return;
+      return false;
     }
     final mode = currentVisualMode();
     releaseTextInputFocus();
     final route = ModalRoute.of(gestureContext);
-    if (route is! PlayerInteractiveDismissRoute) return;
+    if (route is! PlayerInteractiveDismissRoute) return false;
     final dismissRoute = route as PlayerInteractiveDismissRoute;
     dismissRoute.setDismissVisualMode(mode);
     if (MediaQuery.disableAnimationsOf(gestureContext)) {
       _reduceMotionDismissDrag = true;
       _activeDismissRoute = dismissRoute;
-      return;
+      return true;
     }
     if (dismissRoute.beginVerticalDismissGesture(mode)) {
       _routeDismissDragAccepted = true;
       _activeDismissRoute = dismissRoute;
+      return true;
     }
+    return false;
   }
 
   void _update(BuildContext gestureContext, double distance) {
@@ -224,6 +228,7 @@ class PlayerVerticalSwipeRegion extends StatefulWidget {
     this.onSwipeDown,
     this.swipeUpDrag,
     this.swipeDownDrag,
+    this.pageDragCoordinator,
     this.minimumDistance = 36,
   });
 
@@ -232,6 +237,7 @@ class PlayerVerticalSwipeRegion extends StatefulWidget {
   final VoidCallback? onSwipeDown;
   final PlayerVerticalDragCallbacks? swipeUpDrag;
   final PlayerVerticalDragCallbacks? swipeDownDrag;
+  final PlayerScrollDragHandoffCoordinator? pageDragCoordinator;
   final double minimumDistance;
 
   @override
@@ -242,30 +248,89 @@ class PlayerVerticalSwipeRegion extends StatefulWidget {
 class _PlayerVerticalSwipeRegionState extends State<PlayerVerticalSwipeRegion> {
   double _distance = 0;
   int _progressiveDirection = 0;
+  DragStartDetails? _dragStartDetails;
+  bool _pageForwardedInitialDelta = false;
+  PlayerVerticalPageDragForwarder? _pageForwarder;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageForwarder = widget.pageDragCoordinator?.createPageForwarder();
+  }
+
+  @override
+  void didUpdateWidget(covariant PlayerVerticalSwipeRegion oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.pageDragCoordinator != widget.pageDragCoordinator) {
+      _pageForwarder?.cancel();
+      _pageForwarder = widget.pageDragCoordinator?.createPageForwarder();
+    }
+  }
+
+  @override
+  void dispose() {
+    _pageForwarder?.cancel();
+    super.dispose();
+  }
+
+  DragUpdateDetails _withAccumulatedVerticalDelta(DragUpdateDetails details) =>
+      DragUpdateDetails(
+        sourceTimeStamp: details.sourceTimeStamp,
+        delta: Offset(0, _distance),
+        primaryDelta: _distance,
+        globalPosition: details.globalPosition,
+        localPosition: details.localPosition,
+        kind: details.kind,
+      );
 
   @override
   Widget build(BuildContext context) {
+    if (widget.onSwipeUp == null &&
+        widget.onSwipeDown == null &&
+        widget.swipeUpDrag == null &&
+        widget.swipeDownDrag == null &&
+        widget.pageDragCoordinator == null) {
+      return widget.child;
+    }
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onVerticalDragStart: (_) {
+      onVerticalDragStart: (details) {
         _distance = 0;
         _progressiveDirection = 0;
+        _dragStartDetails = details;
       },
       onVerticalDragUpdate: (details) {
         _distance += details.delta.dy;
         if (_progressiveDirection == 0 && _distance.abs() >= 8) {
-          if (_distance > 0 && widget.swipeDownDrag != null) {
-            _progressiveDirection = 1;
-            widget.swipeDownDrag!.onStart();
-          } else if (_distance < 0 && widget.swipeUpDrag != null) {
-            _progressiveDirection = -1;
-            widget.swipeUpDrag!.onStart();
+          final down = _distance > 0;
+          final drag = down ? widget.swipeDownDrag : widget.swipeUpDrag;
+          if (drag != null) {
+            if (drag.onStart()) {
+              _progressiveDirection = down ? 1 : -1;
+            } else if (_pageForwarder != null) {
+              _pageForwarder!.start(_dragStartDetails!);
+              _progressiveDirection = 2;
+              _pageForwardedInitialDelta = false;
+            } else {
+              _progressiveDirection = 3;
+            }
+          } else if (_pageForwarder != null) {
+            _pageForwarder!.start(_dragStartDetails!);
+            _progressiveDirection = 2;
+            _pageForwardedInitialDelta = false;
           }
         }
         if (_progressiveDirection == 1) {
           widget.swipeDownDrag?.onUpdate(_distance.clamp(0, double.infinity));
         } else if (_progressiveDirection == -1) {
           widget.swipeUpDrag?.onUpdate((-_distance).clamp(0, double.infinity));
+        } else if (_progressiveDirection == 2) {
+          _pageForwarder?.update(
+            _pageForwardedInitialDelta
+                ? details
+                : _withAccumulatedVerticalDelta(details),
+          );
+          _pageForwardedInitialDelta = true;
         }
       },
       onVerticalDragCancel: () {
@@ -273,16 +338,29 @@ class _PlayerVerticalSwipeRegionState extends State<PlayerVerticalSwipeRegion> {
           widget.swipeDownDrag?.onCancel();
         } else if (_progressiveDirection == -1) {
           widget.swipeUpDrag?.onCancel();
+        } else if (_progressiveDirection == 2) {
+          _pageForwarder?.cancel();
         }
         _distance = 0;
         _progressiveDirection = 0;
+        _dragStartDetails = null;
+        _pageForwardedInitialDelta = false;
       },
       onVerticalDragEnd: (details) {
         final distance = _distance;
         _distance = 0;
         final velocity = details.primaryVelocity ?? 0;
+        if (_progressiveDirection == 2) {
+          _progressiveDirection = 0;
+          _dragStartDetails = null;
+          _pageForwardedInitialDelta = false;
+          _pageForwarder?.end(details);
+          return;
+        }
         if (_progressiveDirection == 1) {
           _progressiveDirection = 0;
+          _dragStartDetails = null;
+          _pageForwardedInitialDelta = false;
           widget.swipeDownDrag?.onEnd(
             distance.clamp(0, double.infinity),
             velocity,
@@ -290,12 +368,18 @@ class _PlayerVerticalSwipeRegionState extends State<PlayerVerticalSwipeRegion> {
           return;
         } else if (_progressiveDirection == -1) {
           _progressiveDirection = 0;
+          _dragStartDetails = null;
           widget.swipeUpDrag?.onEnd(
             (-distance).clamp(0, double.infinity),
             velocity,
           );
           return;
         }
+        final dragDirectionWasRejected = _progressiveDirection == 3;
+        _progressiveDirection = 0;
+        _dragStartDetails = null;
+        _pageForwardedInitialDelta = false;
+        if (dragDirectionWasRejected) return;
         if (distance.abs() < 14) return;
         if (distance.abs() < widget.minimumDistance && velocity.abs() < 650) {
           return;

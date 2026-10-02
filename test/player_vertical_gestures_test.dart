@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_scroll_drag_handoff.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
 
 void main() {
@@ -97,13 +98,19 @@ void main() {
             body: PlayerVerticalSwipeRegion(
               key: const ValueKey('progressive-region'),
               swipeUpDrag: PlayerVerticalDragCallbacks(
-                onStart: () => upStarts++,
+                onStart: () {
+                  upStarts++;
+                  return true;
+                },
                 onUpdate: upUpdates.add,
                 onEnd: (_, __) => upEnds++,
                 onCancel: () {},
               ),
               swipeDownDrag: PlayerVerticalDragCallbacks(
-                onStart: () => downStarts++,
+                onStart: () {
+                  downStarts++;
+                  return true;
+                },
                 onUpdate: (_) {},
                 onEnd: (_, __) {},
                 onCancel: () {},
@@ -139,7 +146,10 @@ void main() {
         home: Scaffold(
           body: PlayerScrollEdgeActions(
             pullDownDrag: PlayerVerticalDragCallbacks(
-              onStart: () => starts++,
+              onStart: () {
+                starts++;
+                return true;
+              },
               onUpdate: updates.add,
               onEnd: (_, __) => ends++,
               onCancel: () {},
@@ -174,4 +184,174 @@ void main() {
     expect(starts, 1);
     expect(ends, 1);
   });
+
+  testWidgets('list and page return residual delta during one pointer drag', (
+    tester,
+  ) async {
+    final pageController = PageController();
+    final coordinator = PlayerScrollDragHandoffCoordinator(pageController);
+    final listController = coordinator.createScrollController();
+    await tester.pumpWidget(_handoffHarness(pageController, listController));
+    await tester.pumpAndSettle();
+
+    final listPosition = listController.position;
+    final startPixels = listPosition.maxScrollExtent - 80;
+    listController.jumpTo(startPixels);
+    await tester.pump();
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('handoff-list'))),
+    );
+    await gesture.moveBy(
+      const Offset(0, -20),
+      timeStamp: const Duration(milliseconds: 10),
+    );
+    await tester.pump();
+    await gesture.moveBy(
+      const Offset(0, -140),
+      timeStamp: const Duration(milliseconds: 30),
+    );
+    await tester.pump();
+    expect(pageController.page, greaterThan(0));
+    expect(listController.offset, closeTo(listPosition.maxScrollExtent, 0.5));
+
+    await gesture.moveBy(
+      const Offset(0, 220),
+      timeStamp: const Duration(milliseconds: 50),
+    );
+    await tester.pump();
+    expect(pageController.page, closeTo(0, 0.001));
+    expect(listController.offset, lessThan(startPixels));
+
+    await gesture.up(timeStamp: const Duration(milliseconds: 60));
+    await tester.pumpAndSettle();
+    expect(pageController.page, closeTo(0, 0.001));
+    expect(listController.hasClients, isTrue);
+
+    listController.dispose();
+    pageController.dispose();
+  });
+
+  testWidgets('handoff page receives the original pointer end velocity', (
+    tester,
+  ) async {
+    final pageController = PageController();
+    final coordinator = PlayerScrollDragHandoffCoordinator(pageController);
+    final listController = coordinator.createScrollController();
+    await tester.pumpWidget(_handoffHarness(pageController, listController));
+    await tester.pumpAndSettle();
+    listController.jumpTo(listController.position.maxScrollExtent - 24);
+    await tester.pump();
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('handoff-list'))),
+    );
+    await gesture.moveBy(
+      const Offset(0, -20),
+      timeStamp: const Duration(milliseconds: 10),
+    );
+    await tester.pump();
+    await gesture.moveBy(
+      const Offset(0, -64),
+      timeStamp: const Duration(milliseconds: 18),
+    );
+    await gesture.up(timeStamp: const Duration(milliseconds: 19));
+    await tester.pumpAndSettle();
+
+    expect(pageController.page, closeTo(1, 0.001));
+
+    listController.dispose();
+    pageController.dispose();
+  });
+
+  testWidgets('cancelled handoff settles and accepts a later drag', (
+    tester,
+  ) async {
+    final pageController = PageController();
+    final coordinator = PlayerScrollDragHandoffCoordinator(pageController);
+    final listController = coordinator.createScrollController();
+    await tester.pumpWidget(_handoffHarness(pageController, listController));
+    await tester.pumpAndSettle();
+    listController.jumpTo(listController.position.maxScrollExtent - 24);
+    await tester.pump();
+
+    final firstGesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('handoff-list'))),
+    );
+    await firstGesture.moveBy(
+      const Offset(0, -20),
+      timeStamp: const Duration(milliseconds: 10),
+    );
+    await tester.pump();
+    await firstGesture.moveBy(
+      const Offset(0, -100),
+      timeStamp: const Duration(milliseconds: 20),
+    );
+    await tester.pump();
+    expect(pageController.page, greaterThan(0));
+    expect(pageController.page, lessThan(0.5));
+    await firstGesture.cancel(timeStamp: const Duration(milliseconds: 30));
+    await tester.pumpAndSettle();
+    expect(
+      (pageController.page! - pageController.page!.round()).abs(),
+      lessThan(0.001),
+    );
+
+    pageController.jumpToPage(0);
+    await tester.pumpAndSettle();
+    expect(listController.hasClients, isTrue);
+    listController.jumpTo(listController.position.maxScrollExtent - 24);
+    await tester.pump();
+
+    final nextGesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('handoff-list'))),
+    );
+    await nextGesture.moveBy(
+      const Offset(0, -20),
+      timeStamp: const Duration(milliseconds: 40),
+    );
+    await tester.pump();
+    await nextGesture.moveBy(
+      const Offset(0, -60),
+      timeStamp: const Duration(milliseconds: 50),
+    );
+    await tester.pump();
+    expect(pageController.page, greaterThan(0));
+    await nextGesture.cancel(timeStamp: const Duration(milliseconds: 60));
+    await tester.pumpAndSettle();
+
+    listController.dispose();
+    pageController.dispose();
+  });
+}
+
+Widget _handoffHarness(
+  PageController pageController,
+  ScrollController listController,
+) {
+  return MaterialApp(
+    home: Scaffold(
+      body: PageView(
+        key: const ValueKey('handoff-pages'),
+        controller: pageController,
+        scrollDirection: Axis.vertical,
+        children: [
+          ListView.builder(
+            key: const ValueKey('handoff-list'),
+            controller: listController,
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: ClampingScrollPhysics(),
+            ),
+            itemCount: 40,
+            itemExtent: 48,
+            itemBuilder: (context, index) => Text('row $index'),
+          ),
+          const ColoredBox(
+            key: ValueKey('handoff-queue-page'),
+            color: Colors.blue,
+          ),
+        ],
+      ),
+    ),
+  );
 }
