@@ -222,65 +222,97 @@ Media3 1.6.1 下的五轮动画、加载及换源性能结果。
 
 ## 2026-10-02 播放器内部分页
 
-窄屏队列和宽屏右栏队列使用纵向 `PageView`，横向页顺序与手势统一为框架
-分页能力。点击为 300ms / `easeOutCubic`，减少动态效果时直接定位；拖动及
-吸附保留默认物理和实际松手速度。列表边缘交接、反向剩余位移、队列返回页、
-宽屏左栏独立操作及尺寸变化恢复均由真实组件回归验证。
+三个内部场景均通过原性能门槛。队列点击和顶端交接的 UI P95 分别改善
+54.62%、67.83%，横向分页的 raster P95 改善 7.93%。
+横向分页 UI P95 增加 2.82%，在 5% 回退门槛内。
 
-测量使用 Flutter 3.44.7、Android arm64 Profile，独立包名
-`com.meteor.kikoeruflutter.profile`。基线为 `9bcacab`，与候选使用同一份测量
-入口、固定 40 项假队列及本地封面，无外部音频素材。华为 ABR-AL60、Android
-12，场景刷新率为 60Hz，帧预算 16.667ms；两组各五轮，开始时 thermal status
-均为 1，电池温度分别为 34.1–34.6°C、34.5–34.9°C。
+完整播放器背景使用原有线性渐变，删除整层径向渐变。换色仍为 280ms /
+`easeInOutCubic`，减少动态效果时为零时长。内部点击分页仍为 300ms /
+`easeOutCubic`；拖动、吸附和实际松手速度保留默认物理。
 
-表中线程 P95 为五个单轮 P95 的中位数，卡顿比例合并五轮帧数计算。
+窄屏横向 `PageView.custom` 使用
+`SliverChildListDelegate(addRepaintBoundaries: false)`，封面主页保留整页
+`RepaintBoundary`，详情和字幕复用自身边界；纵向与宽屏分页使用框架默认边界。
+字幕遮罩限制到可见视口，渐变终点与遮罩矩形底部重合，复用框架 fast gradient。
+顶部和底部淡出长度保持相同；可见高度低于全高的 2% 时沿用原坐标路径，
+保留渐变 helper 的最小终点规则。键盘、搜索和边缘淡出保持一致。
+页面保活、TickerMode、语义、控制器、缓存及裁剪保持一致。
+
+独立 GPU 捕获确认完整字幕遮罩使用 `v_color` 插值 shader，不含通用
+`colors[256] / stop_pairs[128]` 循环。诊断与正式测量分开，注入设置在采样前清除。
+
+测量使用 Flutter 3.44.7、Android arm64 Profile，基线为 `9bcacab`，候选为
+`75b1560` 上的上述修改。独立包名为
+`com.meteor.kikoeruflutter.profile.baseline` 与
+`com.meteor.kikoeruflutter.profile.candidate`，两组使用同一测量入口、40 项假队列
+和本地封面，无外部音频素材。快速切歌轨道使用 null `workId`，避免虚构在线作品
+ID 触发进度、文件树和详情加载，与随后分页重叠。
+
+华为 ABR-AL60、Android 12、Adreno 642L / OpenGL ES 3.2，场景为 60Hz，帧预算
+16.667ms。两组各预热一次后，固定交错执行 B1/C1、C2/B2、B3/C3、C4/B4、B5/C5；
+每轮重启测试进程。十轮开始时 thermal status 均为 0，电池温度为
+33.4–34.1°C。预热及连续交接检查不计入正式结果。
+
+线程 P95 为五个单轮 P95 的中位数，卡顿比例合并五轮帧数计算。基线线程已在
+预算内时，候选回退最多 5%；超预算时，候选须回到预算内或改善至少 25%；
+卡顿比例不得增加。
 
 | 场景 | UI P95 基线 → 候选（ms） | raster P95 基线 → 候选（ms） | 卡顿比例基线 → 候选 | 验收 |
 |---|---:|---:|---:|---|
-| 横向分页 | 2.107 → 2.231 | 12.292 → 12.977 | 2.201% → 2.193% | 未通过 |
-| 队列点击切换 | 32.830 → 15.538 | 11.525 → 12.201 | 9.143% → 5.994% | 未通过 |
-| 队列顶端交接 | 23.431 → 8.404 | 10.498 → 10.358 | 7.686% → 3.088% | 通过 |
+| 横向分页 | 2.093 → 2.152 | 14.824 → 13.648 | 3.466% → 2.261% | 通过 |
+| 队列点击切换 | 31.901 → 14.478 | 12.192 → 11.341 | 9.560% → 5.263% | 通过 |
+| 队列顶端交接 | 25.508 → 8.206 | 12.737 → 9.474 | 7.699% → 2.933% | 通过 |
 
-队列点击和边缘交接的 UI P95 分别改善 52.67%、64.13%。表中线程 P95 均在
-设备预算内，三个场景的卡顿比例均下降；横向 UI / raster 分别回退 5.89%、
-5.57%，队列点击 raster 回退 5.87%，仍未达到已达预算场景回退不超过 5%
-的门槛。总体性能验收保留未通过状态。
+卡顿帧：横向分页 66 / 1904 → 43 / 1902；队列点击切换 100 / 1046 → 56 / 1064；队列顶端交接 87 / 1130 → 40 / 1364。
+队列点击总帧 P95 为 17.175ms，仍高于 16.667ms 帧预算。
 
-单独的连续交接真机检查通过：从列表中段开始，同一手势越过顶端后分页移动
-180px，反向回原页误差 0px，剩余位移让同一列表滚动至 80px。该轮 UI / raster
-P95 为 5.848 / 11.726ms，44 帧中 2 帧超过预算；此单轮检查不混入五轮比较。
+连续交接检查通过：同一手势从列表中段越过顶端后，分页移动
+180px，反向回原页误差 0px，剩余位移让同一列表滚动至
+80px。该次 UI / raster P95 为
+6.272 / 12.262ms，
+45 帧中 0 帧超过预算。
 
 验证与限制：
 
-- 169 项播放器布局、原生 Drag、队列入口、路由、Hero、切歌、字幕和响应式
-  测试通过，12 个修改 Dart 文件静态分析无问题，格式化及差异检查通过。
-- 黄金图中点通过；四项布局黄金图在原基线也失败，前后实际生成图逐像素一致。
-  保留原黄金图，未更新基准文件。
-- 汇总工具拒绝缺失轮次、场景及连续交接检查，诊断报告不混入正式五轮结果。
-- Android 隔离配置只存在于临时构建中。正式版 `4.7.3` / versionCode `2001`
-  的安装及更新时间前后一致；未修改正式构建、依赖、播放业务或播放器路由。
-  测量结束后已恢复设备原有的 USB 常亮设置。
-- 当前数据只覆盖这台 Android 手机；横向及队列的轻微栅格回退仍需进一步
-  时间线定位，现有帧统计不能直接确定具体绘制调用。
+- 147 项布局、真实手势、队列入口、Hero 及路由过渡回归通过；修改的 Dart 文件
+  静态分析无问题，隔离 Profile 构建通过，手机安装产物与构建 APK 字节一致。
+- 七个路由关键帧通过，其中四张基准图更新为线性背景；封面切换中点通过。
+  四项布局 golden 在原基线也失败，当前实际图与仅删除径向背景的对照版逐像素
+  一致，保留旧布局基准。字幕在窄屏和宽屏的搜索、键盘、突出显示等 12 个状态
+  与原遮罩的最大单通道差为 1/255，淡出位置相同，差异来自浮点及栅格取整。
+- 数据仅覆盖这台 Android 手机及本地 UI 场景，不包含在线作品元数据和音频加载。
+  汇总工具校验完整轮次、场景及交接结果，诊断与正式采样分别保存。
+- Android 隔离配置只用于临时构建。正式版 `4.7.3` / versionCode `2001` 的安装
+  及更新时间保持一致；原有 USB 常亮值 0 在采集后恢复，临时 GPU 工具已移除。
 
-本地证据：`build/player_performance/reports/baseline_1..5.json`、
-`candidate_native_clip_1..5.json`、`candidate_final_checks_1.json`，汇总为
-`build/player_performance/final_summary.json` 和 `continuous_summary.json`。
+本地证据：`build/player_performance/reports/baseline_paired_fast_gradient_1..5.json`、
+`candidate_paired_fast_gradient_1..5.json`，汇总为
+`build/player_performance/paired_fast_gradient_summary.json`，验收为
+`paired_fast_gradient_gates.json`；连续交接为
+`candidate_fast_gradient_warmup_1.json`。
+GPU 证据为 `fast_gradient_gpu_0.rdc` 及 `renderdoc-fast-gradient-replay.json`。
 
 交接记录：
 
-- `task_brief`：重构播放器内部分页及必要手势衔接，保留路由、播放业务和切歌视觉。
-- `dispatch`：`read_only` 为手势、测试／隔离、分页复核和局部性能顾问；
-  `writer_sequence` 为 `gesture_handoff` → 主任务，串行完成；当前 `writer`
-  为主任务。`skipped`：无平台、依赖和发布改动，其他角色与已有职责重复。
-- `agents`：`gesture_handoff` 负责公开 Drag 生命周期及实施，结果为原生分页及
-  列表交接；`tests_profile` 确认真实组件覆盖与独立包测量；`paging_review`
-  复核分页状态与交接；`paging_perf_diagnosis` 复核队列重建及状态订阅边界。
-  共同 `risks` 为轻微性能回退和单设备覆盖，`next_step` 为沿相同口径定位尾部帧。
-- `implementation_plan`：测试及同机基线 → 原生分页与 Drag 交接 → 状态恢复
-  及重建范围 → 静态分析、回归及候选五轮测量。
-- `verification`：以上测试、真机交接检查及逐场景性能门槛。
-- `dependency_risks`：无新增依赖，Flutter 3.44.7 与现有锁定版本保持一致。
+- `task_brief`：删除完整播放器径向背景，保持线性换色、内部 300ms 分页、默认
+  手势物理，解决内部动画性能回退；主任务完成局部修改和验收。
+- `dispatch`：`read_only` 为 `rendering_facts`、`measurement_facts`、`boundary_review`、`paging_gpu_consult`；
+  `writer` 与 `writer_sequence` 均为主任务。
+  `skipped`：无依赖、发布或跨业务模块改动，其他角色与当前职责重复。
+- `agents`：
+  - `name: rendering_facts`；`focus`：框架渲染与绘制范围；`result`：确认整页边界
+    可复用，遮罩应限制可见范围；`risks`：单设备 GPU 证据；`next_step`：后续设备回归。
+  - `name: measurement_facts`；`focus`：五对交错测量与门槛；`result`：确认采样及
+    汇总口径；`risks`：本地 UI 场景；`next_step`：沿用相同入口和门槛。
+  - `name: boundary_review`；`focus`：背景删除及渐变坐标；`result`：
+    确认淡出绝对位置等价，极小高度保留原逻辑，未发现问题；`risks`：布局基准已有差异；
+    `next_step`：后续保持局部改动。
+  - `name: paging_gpu_consult`；`focus`：横向 GPU 工作；`result`：定位渐变终点
+    与遮罩范围不匹配，恢复框架 fast gradient；`risks`：不同后端的取整差异；`next_step`：其他设备验证。
+- `implementation_plan`：本地测量输入 → 分页边界与字幕可见遮罩 → 删除径向背景
+  → 可见范围内重参数化字幕渐变 → 真实组件回归、视觉对照、隔离构建及固定五对测量。
+- `verification`：以上测试、像素对照、构建、三个场景门槛及连续交接检查均完成。
+- `dependency_risks`：无新增依赖，Flutter 3.44.7 和现有锁定版本保持一致。
 - `conflicts`：`[]`。
-- `handoff`：分页代码、回归测试和测量工具已在工作区；部分线程回退门槛尚未
-  通过，后续需要栅格时间线证据，整体性能验收保留待完成状态。
+- `handoff`：`what` 为局部源码、路由基准及完整报告；`why` 为三个内部场景均
+  达标；`next` 为按相同口径扩展其他设备验证。

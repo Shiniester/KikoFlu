@@ -114,7 +114,8 @@ python tool/performance/summarize_player_profile.py baseline candidate baseline_
 
 独立包的运行命令均传入 `--package com.meteor.kikoeruflutter.profile`，与构建时的
 `KIKOFLU_PROFILE_PACKAGE` 一致。内部分页使用固定 40 项可滚动假队列，
-`--no-audio` 无需外部素材。`queuePageSwitch` 测量队列按钮进入及 Escape 返回；
+`--no-audio` 无需外部素材。快速切歌使用无在线作品 ID 的本地轨道，避免作品详情
+缓存或网络加载与随后分页场景重叠。`queuePageSwitch` 测量队列按钮进入及 Escape 返回；
 `queueEdgeHandoff` 从队列列表顶端下拉，等待原生分页完成吸附后再打开队列。
 基线与候选使用同一份测量代码，各采集五轮。
 

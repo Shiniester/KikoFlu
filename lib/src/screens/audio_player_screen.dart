@@ -557,13 +557,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                             decoration: BoxDecoration(
                               gradient: palette.backgroundGradient,
                             ),
-                            child: AnimatedContainer(
-                              duration: motionDuration,
-                              curve: Curves.easeInOutCubic,
-                              decoration: BoxDecoration(
-                                gradient: palette.accentGradient,
-                              ),
-                            ),
                           ),
                         ),
                       ),
@@ -1277,7 +1270,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                                       _compactPageController,
                                       vertical: false,
                                     ),
-                                child: PageView(
+                                child: PageView.custom(
                                   key: const ValueKey('compact-player-pages'),
                                   controller: _compactPageController,
                                   physics: progressGestureActive
@@ -1285,7 +1278,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                                       : null,
                                   allowImplicitScrolling: true,
                                   onPageChanged: _onCompactPageChanged,
-                                  children: [
+                                  childrenDelegate: SliverChildListDelegate([
                                     _PlayerPageBoundary(
                                       key: const ValueKey(
                                         'compact-details-page-boundary',
@@ -1344,7 +1337,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                                         isWide: false,
                                       ),
                                     ),
-                                  ],
+                                  ], addRepaintBoundaries: false),
                                 ),
                               ),
                         ),
@@ -1599,7 +1592,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     );
     return KeyedSubtree(
       key: const ValueKey('compact-main-page'),
-      child: content,
+      child: RepaintBoundary(child: content),
     );
   }
 
@@ -3488,9 +3481,6 @@ class _PlayerPageBoundaryState extends State<_PlayerPageBoundary>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return TickerMode(
-      enabled: _visible,
-      child: RepaintBoundary(child: widget.child),
-    );
+    return TickerMode(enabled: _visible, child: widget.child);
   }
 }

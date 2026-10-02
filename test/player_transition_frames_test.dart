@@ -20,7 +20,7 @@ const track = AudioTrack(
 );
 
 void main() {
-  testWidgets('real player expansion keyframes match v4.4.16', (tester) async {
+  testWidgets('real player expansion and partial page keyframes', (tester) async {
     await pumpPlayer(tester);
     await tester.tap(find.byKey(const ValueKey('mini-player-upward-launcher')));
     await tester.pump();
@@ -42,7 +42,7 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('interactive open reversal and handoff match v4.4.16', (
+  testWidgets('interactive open reversal and handoff keyframes', (
     tester,
   ) async {
     await pumpPlayer(tester);

@@ -389,7 +389,6 @@ void main() {
               id: 'visual-$i',
               title: 'Track $i - animated presentation',
               artworkUrl: (i.isEven ? cover : otherCover).uri.toString(),
-              workId: 10000 + i,
             ),
           );
           await tester.pump(const Duration(milliseconds: 45));

@@ -268,26 +268,40 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                     top: 0,
                     right: 0,
                     bottom: lyricViewportBottom,
-                    child: ClipRect(
-                      key: const ValueKey('lyric-keyboard-safe-viewport'),
-                      child: OverflowBox(
-                        alignment: Alignment.topCenter,
-                        minWidth: constraints.maxWidth,
-                        maxWidth: constraints.maxWidth,
-                        minHeight: constraints.maxHeight,
-                        maxHeight: constraints.maxHeight,
-                        child: SizedBox(
-                          width: constraints.maxWidth,
-                          height: constraints.maxHeight,
-                          child: RepaintBoundary(
-                            child: ShaderMask(
-                              key: const ValueKey('lyric-edge-fade-mask'),
-                              blendMode: BlendMode.dstIn,
-                              shaderCallback: (bounds) =>
-                                  playerLyricEdgeFadeGradient(
-                                    bounds,
-                                    visibleBottomInset: lyricViewportBottom,
-                                  ).createShader(bounds),
+                    child: RepaintBoundary(
+                      child: ShaderMask(
+                        key: const ValueKey('lyric-edge-fade-mask'),
+                        blendMode: BlendMode.dstIn,
+                        shaderCallback: (bounds) {
+                          // Matching endpoints to the mask enables the native
+                          // fast gradient; retain the helper's 2% minimum below.
+                          if (bounds.height >= constraints.maxHeight * 0.02) {
+                            return playerLyricEdgeFadeGradient(
+                              bounds,
+                            ).createShader(bounds);
+                          }
+                          final fullBounds = Rect.fromLTWH(
+                            bounds.left,
+                            bounds.top,
+                            bounds.width,
+                            constraints.maxHeight,
+                          );
+                          return playerLyricEdgeFadeGradient(
+                            fullBounds,
+                            visibleBottomInset: lyricViewportBottom,
+                          ).createShader(fullBounds);
+                        },
+                        child: ClipRect(
+                          key: const ValueKey('lyric-keyboard-safe-viewport'),
+                          child: OverflowBox(
+                            alignment: Alignment.topCenter,
+                            minWidth: constraints.maxWidth,
+                            maxWidth: constraints.maxWidth,
+                            minHeight: constraints.maxHeight,
+                            maxHeight: constraints.maxHeight,
+                            child: SizedBox(
+                              width: constraints.maxWidth,
+                              height: constraints.maxHeight,
                               child: lyricList,
                             ),
                           ),
