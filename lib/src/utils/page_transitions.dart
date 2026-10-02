@@ -2,6 +2,8 @@ import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../widgets/app_bottom_dock_transition.dart';
+
 /// Uses Cupertino page transitions while retaining Android route snapshots.
 class AppPageTransitionsBuilder extends CupertinoPageTransitionsBuilder {
   const AppPageTransitionsBuilder();
@@ -50,6 +52,19 @@ class _PageTransitionState extends State<_PageTransition>
   bool _completionScheduled = false;
   bool _semanticsRestored = false;
   bool _semanticsRestoreScheduled = false;
+  bool _dockSnapshotSwitching = false;
+
+  bool _onDockSnapshotChanged(AppBottomDockSnapshotNotification notification) {
+    _snapshotController.clear();
+    _snapshotController.allowSnapshotting = false;
+    if (_dockSnapshotSwitching) return true;
+    _dockSnapshotSwitching = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() => _dockSnapshotSwitching = false);
+    });
+    return true;
+  }
 
   @override
   void initState() {
@@ -164,57 +179,61 @@ class _PageTransitionState extends State<_PageTransition>
       });
     }
     final platform = Theme.of(context).platform;
-    return AnimatedBuilder(
-      animation: Listenable.merge([
-        widget.animation,
-        widget.secondaryAnimation,
-      ]),
-      child: SnapshotWidget(
-        controller: _snapshotController,
-        mode: SnapshotMode.permissive,
-        autoresize: true,
-        child: widget.child,
-      ),
-      builder: (context, child) {
-        _snapshotController.allowSnapshotting =
-            platform == TargetPlatform.android &&
-            !reduceMotion &&
-            widget.route.allowSnapshotting &&
-            (widget.route.popGestureInProgress ||
-                _isSnapshotFrame(widget.animation) ||
-                // Reuse the covered page's snapshot until its reveal finishes.
-                widget.secondaryAnimation.value > 0);
-        final pageStopped = _pageStopped;
-        if (!pageStopped) {
-          _semanticsRestored = false;
-        } else if (!_semanticsRestored && !_semanticsRestoreScheduled) {
-          _semanticsRestoreScheduled = true;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _semanticsRestoreScheduled = false;
-            if (!mounted || !_pageStopped) return;
-            setState(() => _semanticsRestored = true);
-          });
-        }
+    return NotificationListener<AppBottomDockSnapshotNotification>(
+      onNotification: _onDockSnapshotChanged,
+      child: AnimatedBuilder(
+        animation: Listenable.merge([
+          widget.animation,
+          widget.secondaryAnimation,
+        ]),
+        child: SnapshotWidget(
+          controller: _snapshotController,
+          mode: SnapshotMode.permissive,
+          autoresize: true,
+          child: widget.child,
+        ),
+        builder: (context, child) {
+          _snapshotController.allowSnapshotting =
+              platform == TargetPlatform.android &&
+              !reduceMotion &&
+              !_dockSnapshotSwitching &&
+              widget.route.allowSnapshotting &&
+              (widget.route.popGestureInProgress ||
+                  _isSnapshotFrame(widget.animation) ||
+                  // Reuse the covered page's snapshot until its reveal finishes.
+                  widget.secondaryAnimation.value > 0);
+          final pageStopped = _pageStopped;
+          if (!pageStopped) {
+            _semanticsRestored = false;
+          } else if (!_semanticsRestored && !_semanticsRestoreScheduled) {
+            _semanticsRestoreScheduled = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _semanticsRestoreScheduled = false;
+              if (!mounted || !_pageStopped) return;
+              setState(() => _semanticsRestored = true);
+            });
+          }
 
-        final primaryAnimation = reduceMotion
-            ? _animationWithoutMotion(widget.animation)
-            : widget.animation;
-        final secondaryAnimation = reduceMotion
-            ? _dismissedAnimation
-            : widget.secondaryAnimation;
-        return const CupertinoPageTransitionsBuilder()
-            .buildTransitions<dynamic>(
-              widget.route,
-              context,
-              primaryAnimation,
-              secondaryAnimation,
-              ExcludeSemantics(
-                // Restore semantics after the final moving frame.
-                excluding: !reduceMotion && !_semanticsRestored,
-                child: ClipRect(child: child!),
-              ),
-            );
-      },
+          final primaryAnimation = reduceMotion
+              ? _animationWithoutMotion(widget.animation)
+              : widget.animation;
+          final secondaryAnimation = reduceMotion
+              ? _dismissedAnimation
+              : widget.secondaryAnimation;
+          return const CupertinoPageTransitionsBuilder()
+              .buildTransitions<dynamic>(
+                widget.route,
+                context,
+                primaryAnimation,
+                secondaryAnimation,
+                ExcludeSemantics(
+                  // Restore semantics after the final moving frame.
+                  excluding: !reduceMotion && !_semanticsRestored,
+                  child: ClipRect(child: child!),
+                ),
+              );
+        },
+      ),
     );
   }
 

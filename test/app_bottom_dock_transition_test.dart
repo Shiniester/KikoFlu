@@ -82,17 +82,19 @@ Rect _flightChildRect(
 }
 
 double _dockFlightGap(WidgetTester tester) {
-  final mini = tester.getRect(find.byKey(appBottomDockMiniPlayerFlightRootKey));
+  final mini = tester.getRect(
+    find.byKey(appBottomDockMiniPlayerHandoffRootKey),
+  );
   final icon = _flightChildRect(
     tester,
-    flightRootKey: appBottomDockTabBarFlightRootKey,
+    flightRootKey: appBottomDockTabBarHandoffRootKey,
     childKey: const ValueKey('real-gap-navigation-icon'),
   );
   return icon.top - mini.bottom;
 }
 
 Rect _dockFlightRect(WidgetTester tester) {
-  return tester.getRect(find.byKey(appBottomDockMiniPlayerFlightRootKey));
+  return tester.getRect(find.byKey(appBottomDockMiniPlayerHandoffRootKey));
 }
 
 SnapshotController _snapshotControllerFor(WidgetTester tester, Key key) {
@@ -144,6 +146,347 @@ void main() {
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
     );
+  });
+
+  for (final inset in [0.0, 34.0]) {
+    testWidgets('Dock follows route easing and live height with inset $inset', (
+      tester,
+    ) async {
+      _configurePhoneViewport(
+        tester,
+        bottomInset: inset,
+        devicePixelRatio: inset == 0 ? 1 : 3,
+      );
+      final height = ValueNotifier<double>(72);
+      addTearDown(height.dispose);
+      final navigator = GlobalKey<NavigatorState>();
+      const sourceKey = ValueKey('easing-source');
+      const targetKey = ValueKey('easing-target');
+      const iconKey = ValueKey('easing-icon');
+      late BuildContext sourceContext;
+      Widget mini(Key key) => ValueListenableBuilder<double>(
+        valueListenable: height,
+        builder: (_, value, __) =>
+            SizedBox(key: key, width: double.infinity, height: value),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.lightTheme(null),
+          navigatorKey: navigator,
+          home: AppBottomDockTransitionScope(
+            child: Scaffold(
+              body: Builder(
+                builder: (context) {
+                  sourceContext = context;
+                  return const SizedBox.expand();
+                },
+              ),
+              bottomNavigationBar: AppBottomDock(
+                selectedIndex: 0,
+                onDestinationSelected: (_) {},
+                miniPlayer: mini(sourceKey),
+                destinations: const [
+                  NavigationDestination(
+                    icon: Icon(Icons.home, key: iconKey),
+                    label: 'Home',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.search),
+                    label: 'Search',
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      final sourceRect = tester.getRect(find.byKey(sourceKey));
+      final gap = tester.getRect(find.byKey(iconKey)).top - sourceRect.bottom;
+      unawaited(
+        pushBottomDockRoute(
+          sourceContext,
+          builder: (_) => Scaffold(
+            body: Column(
+              children: [
+                const Expanded(child: SizedBox()),
+                AppBottomDockMiniPlayer.target(child: mini(targetKey)),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+      final targetState = tester.state(
+        find.ancestor(
+          of: find.byKey(targetKey),
+          matching: find.byType(ValueListenableBuilder<double>),
+        ),
+      );
+      final route =
+          ModalRoute.of(tester.element(find.byKey(targetKey)))!
+              as PageRoute<void>;
+      var elapsed = 0;
+      for (final sample in [100, 250, 400]) {
+        await tester.pump(Duration(milliseconds: sample - elapsed));
+        elapsed = sample;
+        final progress = sample / route.transitionDuration.inMilliseconds;
+        final rect = tester.getRect(find.byKey(targetKey));
+        expect(rect.left, sourceRect.left);
+        expect(rect.width, sourceRect.width);
+        expect(
+          rect.bottom,
+          closeTo(
+            sourceRect.bottom +
+                (58 + inset) * Curves.easeInOutCubic.transform(progress),
+            .01,
+          ),
+        );
+        expect(
+          tester.getRect(find.byKey(iconKey)).top - rect.bottom,
+          closeTo(gap, .01),
+        );
+        if (sample == 250) {
+          height.value = 88;
+          await tester.pump();
+          expect(tester.getSize(find.byKey(targetKey)).height, 88);
+          expect(
+            tester.getRect(find.byKey(iconKey)).top -
+                tester.getRect(find.byKey(targetKey)).bottom,
+            closeTo(gap, .01),
+          );
+        }
+      }
+      await tester.pumpAndSettle();
+      expect(tester.getRect(find.byKey(targetKey)).bottom, 844);
+      expect(
+        tester.state(
+          find.ancestor(
+            of: find.byKey(targetKey),
+            matching: find.byType(ValueListenableBuilder<double>),
+          ),
+        ),
+        same(targetState),
+      );
+      navigator.currentState!.pop();
+      await tester.pumpAndSettle();
+      expect(tester.getSize(find.byKey(sourceKey)).height, 88);
+      expect(tester.takeException(), isNull);
+      debugDefaultTargetPlatformOverride = null;
+    });
+  }
+
+  testWidgets('reduced motion keeps the Dock static through push and return', (
+    tester,
+  ) async {
+    _configurePhoneViewport(tester, bottomInset: 34);
+    final navigator = GlobalKey<NavigatorState>();
+    late BuildContext sourceContext;
+    const sourceKey = ValueKey('reduced-source-mini');
+    const targetKey = ValueKey('reduced-target-mini');
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme(null),
+        navigatorKey: navigator,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(disableAnimations: true),
+          child: child!,
+        ),
+        home: AppBottomDockTransitionScope(
+          child: Scaffold(
+            body: Builder(
+              builder: (context) {
+                sourceContext = context;
+                return const SizedBox.expand();
+              },
+            ),
+            bottomNavigationBar: AppBottomDock(
+              selectedIndex: 0,
+              onDestinationSelected: (_) {},
+              miniPlayer: const SizedBox(key: sourceKey, height: 72),
+              destinations: const [
+                NavigationDestination(icon: Icon(Icons.home), label: 'Home'),
+                NavigationDestination(
+                  icon: Icon(Icons.search),
+                  label: 'Search',
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    final sourceRect = tester.getRect(find.byKey(sourceKey));
+    unawaited(
+      pushBottomDockRoute(
+        sourceContext,
+        builder: (_) => const Scaffold(
+          body: Column(
+            children: [
+              Expanded(child: SizedBox()),
+              AppBottomDockMiniPlayer.target(
+                child: SizedBox(key: targetKey, height: 72),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.getRect(find.byKey(targetKey)).bottom, 844);
+    expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsNothing);
+    expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsNothing);
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(tester.getRect(find.byKey(sourceKey)), sourceRect);
+    expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsNothing);
+    expect(tester.takeException(), isNull);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('portrait handoff switches to static landscape before return', (
+    tester,
+  ) async {
+    _configurePhoneViewport(tester);
+    final navigator = GlobalKey<NavigatorState>();
+    late BuildContext sourceContext;
+    const tabKey = ValueKey('rotating-source-tab');
+    const targetKey = ValueKey('rotating-target-mini');
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme(null),
+        navigatorKey: navigator,
+        home: Builder(
+          builder: (context) {
+            final landscape =
+                MediaQuery.orientationOf(context) == Orientation.landscape;
+            return AppBottomDockTransitionScope(
+              sourceHasAppTabBar: !landscape,
+              child: Scaffold(
+                body: Builder(
+                  builder: (context) {
+                    sourceContext = context;
+                    return const SizedBox.expand();
+                  },
+                ),
+                bottomNavigationBar: landscape
+                    ? null
+                    : const Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AppBottomDockMiniPlayer.source(
+                            child: SizedBox(height: 72),
+                          ),
+                          AppBottomDockTabBar.source(
+                            child: SizedBox(key: tabKey, height: 58),
+                          ),
+                        ],
+                      ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    unawaited(
+      pushBottomDockRoute(
+        sourceContext,
+        builder: (_) => const _WorkDetailsTarget(miniPlayerKey: targetKey),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
+    tester.view.physicalSize = const Size(844, 390);
+    await tester.pumpAndSettle();
+    expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsNothing);
+    expect(find.byKey(tabKey, skipOffstage: false), findsNothing);
+    navigator.currentState!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsNothing);
+    expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsNothing);
+    expect(find.byKey(tabKey, skipOffstage: false), findsNothing);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('nested Mini-only routes retain their own source scope', (
+    tester,
+  ) async {
+    _configurePhoneViewport(tester);
+    const track = AudioTrack(
+      id: 'nested-track',
+      title: 'Audio',
+      url: 'https://example.invalid/audio.mp3',
+    );
+    final navigator = GlobalKey<NavigatorState>();
+    late BuildContext sourceContext;
+    late BuildContext middleContext;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: _playerOverrides(track),
+        child: MaterialApp(
+          theme: AppTheme.lightTheme(null),
+          navigatorKey: navigator,
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: GlobalAudioPlayerWrapper(
+            child: Builder(
+              builder: (context) {
+                sourceContext = context;
+                return const Scaffold(body: Text('Source'));
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final sourceRect = tester.getRect(find.byType(MiniPlayer));
+    unawaited(
+      pushBottomDockRoute(
+        sourceContext,
+        builder: (_) => GlobalAudioPlayerWrapper.workDetails(
+          child: Builder(
+            builder: (context) {
+              middleContext = context;
+              return const Scaffold(body: Text('Middle'));
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    unawaited(
+      pushBottomDockRoute(
+        middleContext,
+        builder: (_) => const GlobalAudioPlayerWrapper.workDetails(
+          child: Scaffold(body: Text('Nested')),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(_dockFlightRect(tester), sourceRect);
+    expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsNothing);
+    await tester.pumpAndSettle();
+    navigator.currentState!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(_dockFlightRect(tester), sourceRect);
+    await tester.pumpAndSettle();
+    expect(find.text('Middle'), findsOneWidget);
+    expect(tester.getRect(find.byType(MiniPlayer)), sourceRect);
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(tester.getRect(find.byType(MiniPlayer)), sourceRect);
+    expect(tester.takeException(), isNull);
+    debugDefaultTargetPlatformOverride = null;
   });
   for (final isList in [false, true]) {
     testWidgets('audio tag keeps Dock vertical in list layout $isList', (
@@ -216,7 +559,7 @@ void main() {
       expect(flight.width, sourceRect.width);
       expect(flight.bottom, greaterThan(sourceRect.bottom));
       expect(flight.bottom, lessThan(844));
-      expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
       expect(
         find.byKey(const ValueKey('player-artwork-flight-frame')),
         findsNothing,
@@ -241,7 +584,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 250));
       expect(_dockFlightRect(tester), flight);
-      expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
       expect(
         find.byKey(const ValueKey('player-artwork-flight-frame')),
         findsNothing,
@@ -387,14 +730,14 @@ void main() {
             bottomNavigationBar: const Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                AppBottomDockMiniPlayerHero.source(
+                AppBottomDockMiniPlayer.source(
                   child: SizedBox(
                     key: sourceMiniKey,
                     width: double.infinity,
                     height: 72,
                   ),
                 ),
-                AppBottomDockTabBarHero.source(
+                AppBottomDockTabBar.source(
                   child: SizedBox(
                     key: tabBarKey,
                     width: double.infinity,
@@ -418,14 +761,21 @@ void main() {
     await tester.pump();
     final detailSnapshot = _snapshotControllerFor(tester, detailScaffoldKey);
     expect(detailSnapshot.allowSnapshotting, isFalse);
+    await tester.pump();
     await tester.pump(const Duration(milliseconds: 16));
     expect(homeSnapshot.allowSnapshotting, isTrue);
     expect(detailSnapshot.allowSnapshotting, isTrue);
     await tester.pump(const Duration(milliseconds: 234));
 
-    expect(tester.getTopLeft(find.byKey(targetMiniKey)).dy, closeTo(743, 0.1));
+    expect(
+      tester.getTopLeft(find.byKey(targetMiniKey)).dy,
+      closeTo(714 + 58 * Curves.easeInOutCubic.transform(0.5), 0.1),
+    );
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dx, 0);
-    expect(tester.getTopLeft(find.byKey(tabBarKey)).dy, closeTo(815, 0.1));
+    expect(
+      tester.getTopLeft(find.byKey(tabBarKey)).dy,
+      closeTo(786 + 58 * Curves.easeInOutCubic.transform(0.5), 0.1),
+    );
 
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dy, 772);
@@ -435,16 +785,22 @@ void main() {
 
     navigatorKey.currentState!.pop();
     await tester.pump();
-    expect(homeSnapshot.allowSnapshotting, isTrue);
+    expect(homeSnapshot.allowSnapshotting, isFalse);
     expect(detailSnapshot.allowSnapshotting, isFalse);
     await tester.pump(const Duration(milliseconds: 16));
     expect(homeSnapshot.allowSnapshotting, isTrue);
     expect(detailSnapshot.allowSnapshotting, isTrue);
     await tester.pump(const Duration(milliseconds: 234));
 
-    expect(tester.getTopLeft(find.byKey(targetMiniKey)).dy, closeTo(743, 0.1));
+    expect(
+      tester.getTopLeft(find.byKey(targetMiniKey)).dy,
+      closeTo(714 + 58 * Curves.easeInOutCubic.transform(0.5), 0.1),
+    );
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dx, 0);
-    expect(tester.getTopLeft(find.byKey(tabBarKey)).dy, closeTo(815, 0.1));
+    expect(
+      tester.getTopLeft(find.byKey(tabBarKey)).dy,
+      closeTo(786 + 58 * Curves.easeInOutCubic.transform(0.5), 0.1),
+    );
 
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(find.byKey(sourceMiniKey)).dy, 714);
@@ -511,9 +867,15 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
 
-    expect(tester.getTopLeft(find.byKey(targetMiniKey)).dy, closeTo(743, 0.1));
+    expect(
+      tester.getTopLeft(find.byKey(targetMiniKey)).dy,
+      closeTo(714 + 58 * Curves.easeInOutCubic.transform(0.5), 0.1),
+    );
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dx, 0);
-    expect(tester.getTopLeft(find.byType(NavigationBar)).dy, closeTo(815, 0.1));
+    expect(
+      tester.getTopLeft(find.byType(NavigationBar)).dy,
+      closeTo(786 + 58 * Curves.easeInOutCubic.transform(0.5), 0.1),
+    );
 
     navigatorKey.currentState!.pop();
     await tester.pumpAndSettle();
@@ -603,14 +965,17 @@ void main() {
     tester.view.padding = const FakeViewPadding();
     Rect lastPushMiniRect = firstPushMiniRect;
     for (var frame = 0; frame < 600; frame++) {
-      if (find.byKey(appBottomDockMiniPlayerFlightRootKey).evaluate().isEmpty) {
+      if (find
+          .byKey(appBottomDockMiniPlayerHandoffRootKey)
+          .evaluate()
+          .isEmpty) {
         break;
       }
       lastPushMiniRect = _dockFlightRect(tester);
       pushGaps.add(_dockFlightGap(tester));
       await tester.pump(const Duration(milliseconds: 1));
     }
-    expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsNothing);
+    expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsNothing);
     expect(
       pushGaps.reduce(math.max) - pushGaps.reduce(math.min),
       lessThan(1),
@@ -637,14 +1002,17 @@ void main() {
     final popGaps = <double>[_dockFlightGap(tester)];
     Rect lastPopMiniRect = firstPopMiniRect;
     for (var frame = 0; frame < 600; frame++) {
-      if (find.byKey(appBottomDockMiniPlayerFlightRootKey).evaluate().isEmpty) {
+      if (find
+          .byKey(appBottomDockMiniPlayerHandoffRootKey)
+          .evaluate()
+          .isEmpty) {
         break;
       }
       lastPopMiniRect = _dockFlightRect(tester);
       popGaps.add(_dockFlightGap(tester));
       await tester.pump(const Duration(milliseconds: 1));
     }
-    expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsNothing);
+    expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsNothing);
     expect(
       popGaps.reduce(math.max) - popGaps.reduce(math.min),
       lessThan(1),
@@ -724,7 +1092,15 @@ void main() {
             as PageRoute<void>;
     tester.view.padding = const FakeViewPadding();
 
+    final targetSnapshot = _snapshotControllerFor(tester, targetMiniKey);
+    final settledTarget = tester.getRect(find.byKey(targetMiniKey));
     route.handleStartBackGesture(progress: 1);
+    await tester.pump();
+    expect(route.animation!.value, 1);
+    expect(targetSnapshot.allowSnapshotting, isFalse);
+    expect(_dockFlightRect(tester), settledTarget);
+    await tester.pump();
+    expect(targetSnapshot.allowSnapshotting, isTrue);
     final cancelledGaps = <double>[];
     for (final progress in [0.99, 0.75, 0.5, 0.25]) {
       route.handleUpdateBackGestureProgress(progress: progress);
@@ -871,14 +1247,17 @@ void main() {
       ),
     );
 
-    expect(find.byType(AppBottomDockMiniPlayerHero), findsNothing);
+    expect(find.byType(AppBottomDockMiniPlayer), findsNothing);
     await tester.tap(find.text('Open without playback'));
     await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
 
-    expect(find.byType(AppBottomDockMiniPlayerHero), findsNothing);
-    expect(tester.getTopLeft(find.byType(NavigationBar)).dy, closeTo(815, 0.1));
+    expect(find.byType(AppBottomDockMiniPlayer), findsNothing);
+    expect(
+      tester.getTopLeft(find.byType(NavigationBar)).dy,
+      closeTo(786 + 58 * Curves.easeInOutCubic.transform(0.5), 0.1),
+    );
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     debugDefaultTargetPlatformOverride = null;
@@ -916,14 +1295,14 @@ void main() {
             bottomNavigationBar: const Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                AppBottomDockMiniPlayerHero.source(
+                AppBottomDockMiniPlayer.source(
                   child: SizedBox(
                     key: sourceMiniKey,
                     width: double.infinity,
                     height: 72,
                   ),
                 ),
-                AppBottomDockTabBarHero.source(
+                AppBottomDockTabBar.source(
                   child: SizedBox(width: double.infinity, height: 58),
                 ),
               ],
@@ -1052,12 +1431,13 @@ void main() {
     await finalClosing.moveBy(const Offset(0, 200));
     await finalClosing.up();
     await tester.pumpAndSettle();
+    expect(find.byType(AppBottomDockMiniPlayer), findsOneWidget);
     expect(
       find.byWidgetPredicate(
         (widget) =>
             widget is Hero && widget.tag == 'app-bottom-dock-mini-player',
       ),
-      findsOneWidget,
+      findsNothing,
     );
     expect(find.text('Landed work details'), findsOneWidget);
     if (dragEntry.currentValue!) {
@@ -1075,7 +1455,7 @@ void main() {
           (widget) =>
               widget is Hero && widget.tag == 'app-bottom-dock-mini-player',
         ),
-        findsOneWidget,
+        findsNothing,
       );
     }
     expect(tester.takeException(), isNull);
@@ -1101,7 +1481,7 @@ class _WorkDetailsTarget extends StatelessWidget {
           if (miniPlayerKey case final miniPlayerKey?)
             Align(
               alignment: Alignment.bottomCenter,
-              child: AppBottomDockMiniPlayerHero.target(
+              child: AppBottomDockMiniPlayer.target(
                 child: SizedBox(
                   key: miniPlayerKey,
                   width: double.infinity,
@@ -1109,12 +1489,6 @@ class _WorkDetailsTarget extends StatelessWidget {
                 ),
               ),
             ),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: AppBottomDockTabBarHero.offstageTarget(
-              height: AppBottomDock.layoutExtent(context),
-            ),
-          ),
         ],
       ),
     );

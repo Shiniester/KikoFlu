@@ -4347,10 +4347,10 @@ void main() {
       await tester.pump();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
-      expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
       expect(
-        tester.getRect(find.byKey(appBottomDockMiniPlayerFlightRootKey)).top,
+        tester.getRect(find.byKey(appBottomDockMiniPlayerHandoffRootKey)).top,
         greaterThan(sourceRect.top),
       );
       await tester.pumpAndSettle();
@@ -4359,8 +4359,8 @@ void main() {
       await tester.tap(find.byTooltip('Back'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
-      expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
       await tester.pumpAndSettle();
       expect(tester.getRect(find.byType(MiniPlayer)), sourceRect);
       expect(tester.takeException(), isNull);
@@ -4411,16 +4411,16 @@ void main() {
       await tester.pump();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
-      expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
       await tester.pumpAndSettle();
       expect(find.byType(ComicSearchScreen), findsOneWidget);
       expect(find.byType(MiniPlayer), findsOneWidget);
       await tester.tap(find.byTooltip('Back'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
-      expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
       await tester.pumpAndSettle();
       expect(find.byType(ComicSearchScreen), findsNothing);
       expect(find.byType(MiniPlayer), findsOneWidget);
@@ -4472,10 +4472,10 @@ void main() {
       await tester.pump();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
-      expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
       expect(
-        tester.getTopLeft(find.byKey(appBottomDockMiniPlayerFlightRootKey)).dx,
+        tester.getTopLeft(find.byKey(appBottomDockMiniPlayerHandoffRootKey)).dx,
         0,
       );
       expect(
@@ -4490,7 +4490,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       final nestedDock = tester.getRect(
-        find.byKey(appBottomDockMiniPlayerFlightRootKey),
+        find.byKey(appBottomDockMiniPlayerHandoffRootKey),
       );
       expect(nestedDock.left, 0);
       expect(nestedDock.bottom, 844);
@@ -4503,7 +4503,7 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       expect(
-        tester.getRect(find.byKey(appBottomDockMiniPlayerFlightRootKey)),
+        tester.getRect(find.byKey(appBottomDockMiniPlayerHandoffRootKey)),
         nestedDock,
       );
       expect(
@@ -4514,10 +4514,10 @@ void main() {
       await tester.tap(find.byTooltip('Back'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
-      expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsOneWidget);
+      expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
       expect(
-        tester.getTopLeft(find.byKey(appBottomDockMiniPlayerFlightRootKey)).dx,
+        tester.getTopLeft(find.byKey(appBottomDockMiniPlayerHandoffRootKey)).dx,
         0,
       );
       expect(

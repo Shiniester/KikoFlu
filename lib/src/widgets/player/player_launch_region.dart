@@ -145,7 +145,7 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
       cornerRadius: PlayerCompactArtwork.cornerRadius,
       enabled:
           widget.artworkHeroEnabled &&
-          AppBottomDockMiniPlayerHero.artworkHeroEnabledOf(context),
+          AppBottomDockTransitionScope.artworkHeroEnabledOf(context),
       child: widget.artworkBuilder(context),
     );
     return KeyedSubtree(

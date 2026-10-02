@@ -16,8 +16,15 @@ import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
 
 void main() {
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({'lyric_hint_has_shown': true});
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
+  });
   test('shared artwork tween preserves the player cover aspect ratio', () {
     final tween = createPlayerArtworkRectTween(
       const Rect.fromLTWH(16, 16, 64, 48),
@@ -38,7 +45,6 @@ void main() {
   testWidgets(
     'mini player upward drag opens the canonical player route',
     (tester) async {
-      SharedPreferences.setMockInitialValues({'lyric_hint_has_shown': true});
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(390, 844);
       addTearDown(tester.view.resetDevicePixelRatio);
@@ -214,7 +220,6 @@ void main() {
   testWidgets(
     'mini player keeps artwork and controls fixed while title swipes',
     (tester) async {
-      SharedPreferences.setMockInitialValues({'lyric_hint_has_shown': true});
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(390, 844);
       addTearDown(tester.view.resetDevicePixelRatio);
@@ -423,7 +428,6 @@ void main() {
   testWidgets('mini player alignment stays finite at a narrow width', (
     tester,
   ) async {
-    SharedPreferences.setMockInitialValues({'lyric_hint_has_shown': true});
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(224, 844);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -477,7 +481,6 @@ void main() {
   testWidgets('mini artwork retains and cross-fades the cached image', (
     tester,
   ) async {
-    SharedPreferences.setMockInitialValues({'lyric_hint_has_shown': true});
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(390, 844);
     addTearDown(tester.view.resetDevicePixelRatio);
