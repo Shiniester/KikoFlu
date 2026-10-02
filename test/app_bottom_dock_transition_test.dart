@@ -362,7 +362,6 @@ void main() {
             final landscape =
                 MediaQuery.orientationOf(context) == Orientation.landscape;
             return AppBottomDockTransitionScope(
-              sourceHasAppTabBar: !landscape,
               child: Scaffold(
                 body: Builder(
                   builder: (context) {
@@ -618,7 +617,6 @@ void main() {
             theme: AppTheme.lightTheme(null),
             navigatorKey: navigator,
             home: AppBottomDockTransitionScope(
-              sourceHasAppTabBar: !landscape,
               child: Scaffold(
                 key: homeKey,
                 body: Builder(

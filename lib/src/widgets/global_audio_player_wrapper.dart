@@ -66,9 +66,6 @@ class _GlobalAudioPlayerWrapperState
         if (widget.showMiniPlayer) miniPlayer,
       ],
     );
-    return AppBottomDockTransitionScope(
-      sourceHasAppTabBar: false,
-      child: Scaffold(body: content),
-    );
+    return AppBottomDockTransitionScope(child: Scaffold(body: content));
   }
 }

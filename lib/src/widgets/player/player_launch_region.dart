@@ -38,7 +38,6 @@ class PlayerLaunchRegion extends StatefulWidget {
     required this.artworkBuilder,
     required this.artworkHeroEnabled,
     required this.initialArtworkFlightTarget,
-    required this.onArtworkHeroActivationChanged,
     required this.builder,
   });
 
@@ -47,7 +46,6 @@ class PlayerLaunchRegion extends StatefulWidget {
   final WidgetBuilder artworkBuilder;
   final bool artworkHeroEnabled;
   final PlayerArtworkFlightTarget initialArtworkFlightTarget;
-  final ValueChanged<bool>? onArtworkHeroActivationChanged;
   final PlayerLaunchRegionBuilder builder;
 
   @override
@@ -174,9 +172,6 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
         ? PlayerArtworkFlightTarget.none
         : PlayerArtworkFlightTarget.main;
     if (_artworkFlightTarget != target && mounted) {
-      if (target == PlayerArtworkFlightTarget.main) {
-        widget.onArtworkHeroActivationChanged?.call(true);
-      }
       setState(() => _artworkFlightTarget = target);
       await WidgetsBinding.instance.endOfFrame;
     }
@@ -187,7 +182,6 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
       return;
     }
     setState(() => _artworkFlightTarget = widget.initialArtworkFlightTarget);
-    widget.onArtworkHeroActivationChanged?.call(false);
   }
 
   void _handlePointerDown(PointerDownEvent event) {

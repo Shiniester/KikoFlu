@@ -18,13 +18,8 @@ enum _DockPart { miniPlayer, tabBar }
 
 /// Owns outgoing Dock handoffs without owning playback or app navigation.
 class AppBottomDockTransitionScope extends StatefulWidget {
-  const AppBottomDockTransitionScope({
-    super.key,
-    required this.child,
-    this.sourceHasAppTabBar = true,
-  });
+  const AppBottomDockTransitionScope({super.key, required this.child});
   final Widget child;
-  final bool sourceHasAppTabBar;
   @override
   State<AppBottomDockTransitionScope> createState() => _DockScopeState();
   static _DockScopeState? _maybeStateOf(BuildContext context) =>
@@ -37,8 +32,6 @@ class AppBottomDockTransitionScope extends StatefulWidget {
   static double bottomInsetOf(BuildContext context) =>
       _DockMetrics.maybeOf(context)?.bottomInset ??
       MediaQuery.viewPaddingOf(context).bottom;
-  static bool sourceHasAppTabBarOf(BuildContext context) =>
-      _DockMetrics.maybeOf(context)?.sourceHasAppTabBar ?? false;
   static bool artworkHeroEnabledOf(BuildContext context) =>
       context
           .dependOnInheritedWidgetOfExactType<_DockArtworkHeroMode>()
@@ -87,9 +80,6 @@ class _DockScopeState extends State<AppBottomDockTransitionScope> {
           inherited?.bottomInset ??
           MediaQuery.viewPaddingOf(context).bottom,
       frozen: session != null || (inherited?.frozen ?? false),
-      sourceHasAppTabBar: session != null
-          ? widget.sourceHasAppTabBar
-          : inherited?.sourceHasAppTabBar ?? widget.sourceHasAppTabBar,
       // Incoming and outgoing handoffs are independent for nested routes.
       incoming: inherited?.incoming,
       child: _DockHost(state: this, outgoing: session, child: widget.child),
@@ -122,13 +112,11 @@ class _DockMetrics extends InheritedWidget {
   const _DockMetrics({
     required this.bottomInset,
     required this.frozen,
-    required this.sourceHasAppTabBar,
     required this.incoming,
     required super.child,
   });
   final double bottomInset;
   final bool frozen;
-  final bool sourceHasAppTabBar;
   final _DockSession? incoming;
   static _DockMetrics? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<_DockMetrics>();
@@ -136,7 +124,6 @@ class _DockMetrics extends InheritedWidget {
   bool updateShouldNotify(_DockMetrics oldWidget) =>
       bottomInset != oldWidget.bottomInset ||
       frozen != oldWidget.frozen ||
-      sourceHasAppTabBar != oldWidget.sourceHasAppTabBar ||
       incoming != oldWidget.incoming;
 }
 
@@ -179,7 +166,6 @@ Future<void> pushBottomDockRoute(
     builder: (_) => _DockMetrics(
       bottomInset: bottomInset,
       frozen: true,
-      sourceHasAppTabBar: sourceScope?.widget.sourceHasAppTabBar ?? false,
       incoming: session,
       child: Builder(builder: builder),
     ),
@@ -378,7 +364,6 @@ class _DockTransitionLayerState extends State<_DockTransitionLayer> {
                                   child: _DockMetrics(
                                     bottomInset: session.bottomInset,
                                     frozen: true,
-                                    sourceHasAppTabBar: tab != null,
                                     incoming: session,
                                     child: dock,
                                   ),
