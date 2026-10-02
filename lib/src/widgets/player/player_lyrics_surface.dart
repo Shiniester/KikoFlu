@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -8,6 +9,7 @@ import '../../providers/lyric_provider.dart';
 import '../../providers/player_lyric_style_provider.dart';
 import 'lyric_display_widget.dart';
 import 'player_glass_surface.dart';
+import 'player_seek_preview.dart';
 import 'player_subtitle_picker_sheet.dart';
 
 class PlayerLyricsSurface extends ConsumerStatefulWidget {
@@ -18,6 +20,7 @@ class PlayerLyricsSurface extends ConsumerStatefulWidget {
     required this.translateButton,
     this.isActive = true,
     this.seekingPosition,
+    this.seekingPositionListenable,
     this.onDownload,
     this.onLongPress,
     this.scrollController,
@@ -29,6 +32,7 @@ class PlayerLyricsSurface extends ConsumerStatefulWidget {
 
   final bool isWide;
   final Duration? seekingPosition;
+  final ValueListenable<PlayerSeekPreview?>? seekingPositionListenable;
   final VoidCallback onFullscreen;
   final Widget translateButton;
   final bool isActive;
@@ -150,6 +154,8 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                       controller: _displayController,
                       scrollController: widget.scrollController,
                       seekingPosition: widget.seekingPosition,
+                      seekingPositionListenable:
+                          widget.seekingPositionListenable,
                       isActive: widget.isActive,
                       isPortrait: !widget.isWide,
                       onLongPress: widget.onLongPress,

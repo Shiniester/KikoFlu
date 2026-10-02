@@ -1,4 +1,5 @@
 import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
@@ -15,6 +16,7 @@ import 'sleep_timer_button.dart';
 import 'sleep_timer_dialog.dart';
 import 'playlist_dialog.dart';
 import 'player_glass_surface.dart';
+import 'player_seek_preview.dart';
 import '../../../l10n/app_localizations.dart';
 
 /// 播放器控制组件
@@ -26,6 +28,7 @@ class PlayerControlsWidget extends ConsumerStatefulWidget {
   final ValueChanged<double> onSeekEnd;
   final ValueChanged<bool>? onSeekInteractionChanged;
   final Duration? seekingPosition;
+  final ValueListenable<PlayerSeekPreview?>? seekingPositionListenable;
   final int? workId;
   final String? currentProgress;
   final VoidCallback? onMarkPressed;
@@ -47,6 +50,7 @@ class PlayerControlsWidget extends ConsumerStatefulWidget {
     required this.onSeekEnd,
     this.onSeekInteractionChanged,
     this.seekingPosition,
+    this.seekingPositionListenable,
     this.workId,
     this.currentProgress,
     this.onMarkPressed,
@@ -647,6 +651,7 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
           onSeekChanged: widget.onSeekChanged,
           onSeekEnd: widget.onSeekEnd,
           onInteractionChanged: widget.onSeekInteractionChanged,
+          seekingPositionListenable: widget.seekingPositionListenable,
           debugOnBuild: widget.debugOnProgressBuild,
         ),
         SizedBox(height: widget.isLandscape ? 18 : 10),
@@ -819,6 +824,7 @@ class PlayerProgressSection extends ConsumerWidget {
     required this.onSeekChanged,
     required this.onSeekEnd,
     this.onInteractionChanged,
+    this.seekingPositionListenable,
     this.debugOnBuild,
   });
 
@@ -827,6 +833,7 @@ class PlayerProgressSection extends ConsumerWidget {
   final ValueChanged<double> onSeekChanged;
   final ValueChanged<double> onSeekEnd;
   final ValueChanged<bool>? onInteractionChanged;
+  final ValueListenable<PlayerSeekPreview?>? seekingPositionListenable;
   final VoidCallback? debugOnBuild;
 
   @override
@@ -834,13 +841,49 @@ class PlayerProgressSection extends ConsumerWidget {
     debugOnBuild?.call();
     final pos = ref.watch(positionProvider).value ?? Duration.zero;
     final dur = ref.watch(durationProvider).value ?? Duration.zero;
+    final isTrackLoading =
+        ref.watch(isTrackLoadingProvider).valueOrNull ?? false;
+    final seekingPositionListenable = this.seekingPositionListenable;
+    if (seekingPositionListenable != null) {
+      return ValueListenableBuilder<PlayerSeekPreview?>(
+        valueListenable: seekingPositionListenable,
+        builder: (context, seekPreview, _) => _buildProgressSection(
+          context,
+          pos: pos,
+          dur: dur,
+          isTrackLoading: isTrackLoading,
+          isSeekingManually: seekPreview?.isSeekingManually ?? false,
+          seekValue: seekPreview?.seekValue ?? 0,
+          displayPos: seekPreview?.position ?? pos,
+        ),
+      );
+    }
     final displayPos = isSeekingManually
         ? Duration(milliseconds: (seekValue * dur.inMilliseconds).round())
         : pos;
+    return _buildProgressSection(
+      context,
+      pos: pos,
+      dur: dur,
+      isTrackLoading: isTrackLoading,
+      isSeekingManually: isSeekingManually,
+      seekValue: seekValue,
+      displayPos: displayPos,
+    );
+  }
 
+  Widget _buildProgressSection(
+    BuildContext context, {
+    required Duration pos,
+    required Duration dur,
+    required bool isTrackLoading,
+    required bool isSeekingManually,
+    required double seekValue,
+    required Duration displayPos,
+  }) {
     return IgnorePointer(
       key: const ValueKey('player-progress-loading-guard'),
-      ignoring: ref.watch(isTrackLoadingProvider).valueOrNull ?? false,
+      ignoring: isTrackLoading,
       child: RepaintBoundary(
         child: Column(
           children: [

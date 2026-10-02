@@ -301,23 +301,28 @@ class _PlayerVerticalSwipeRegionState extends State<PlayerVerticalSwipeRegion> {
       },
       onVerticalDragUpdate: (details) {
         _distance += details.delta.dy;
-        if (_progressiveDirection == 0 && _distance.abs() >= 8) {
+        if (_progressiveDirection == 0) {
           final down = _distance > 0;
           final drag = down ? widget.swipeDownDrag : widget.swipeUpDrag;
-          if (drag != null) {
-            if (drag.onStart()) {
-              _progressiveDirection = down ? 1 : -1;
+          final startDistance = drag == null && _pageForwarder != null
+              ? 6.0
+              : 8.0;
+          if (_distance.abs() >= startDistance) {
+            if (drag != null) {
+              if (drag.onStart()) {
+                _progressiveDirection = down ? 1 : -1;
+              } else if (_pageForwarder != null) {
+                _pageForwarder!.start(_dragStartDetails!);
+                _progressiveDirection = 2;
+                _pageForwardedInitialDelta = false;
+              } else {
+                _progressiveDirection = 3;
+              }
             } else if (_pageForwarder != null) {
               _pageForwarder!.start(_dragStartDetails!);
               _progressiveDirection = 2;
               _pageForwardedInitialDelta = false;
-            } else {
-              _progressiveDirection = 3;
             }
-          } else if (_pageForwarder != null) {
-            _pageForwarder!.start(_dragStartDetails!);
-            _progressiveDirection = 2;
-            _pageForwardedInitialDelta = false;
           }
         }
         if (_progressiveDirection == 1) {

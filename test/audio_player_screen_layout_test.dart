@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -30,6 +31,7 @@ import 'package:kikoeru_flutter/src/widgets/player/player_controls_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_page_scroll_physics.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
 import 'package:kikoeru_flutter/src/widgets/cover_preview_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1307,6 +1309,110 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'compact page starts before device slop and keeps its drag distance 1:1',
+    (tester) async {
+      await _pumpPlayer(
+        tester,
+        const Size(390, 844),
+        workDetails: _longPlayerWorkDetails(),
+      );
+      final screenContext = tester.element(find.byType(AudioPlayerScreen));
+      final baseGestureSettings = MediaQuery.gestureSettingsOf(screenContext);
+      final touchSlop = baseGestureSettings.touchSlop ?? kTouchSlop;
+      final dragDistance = touchSlop * 0.9;
+      final pagesFinder = find.byKey(const ValueKey('compact-player-pages'));
+      final pages = tester.widget<PageView>(pagesFinder);
+      final viewportDimension = pages.controller!.position.viewportDimension;
+      final gesture = await tester.startGesture(tester.getCenter(pagesFinder));
+      await gesture.moveBy(Offset(-dragDistance, 0));
+      await tester.pump();
+      expect(pages.controller!.page, closeTo(1, 0.001));
+      await gesture.moveBy(const Offset(-1, 0));
+      await tester.pump();
+
+      expect(pages.controller!.page, closeTo(1 + 1 / viewportDimension, 0.002));
+      await gesture.moveBy(const Offset(-8, 0));
+      await tester.pump();
+      expect(pages.controller!.page, closeTo(1 + 9 / viewportDimension, 0.002));
+      await gesture.cancel();
+      await tester.pumpAndSettle();
+
+      pages.controller!.jumpToPage(0);
+      await tester.pumpAndSettle();
+      final detailsPane = find.byKey(
+        const ValueKey('compact-audio-details-pane'),
+      );
+      final detailsScrollable = find.descendant(
+        of: detailsPane,
+        matching: find.byType(Scrollable),
+      );
+      final detailsPosition = tester
+          .state<ScrollableState>(detailsScrollable)
+          .position;
+      expect(detailsPosition.maxScrollExtent, greaterThan(200));
+      expect(
+        MediaQuery.gestureSettingsOf(tester.element(detailsScrollable)),
+        baseGestureSettings,
+      );
+
+      final beforeInnerDrag = detailsPosition.pixels;
+      final innerGesture = await tester.startGesture(
+        tester.getCenter(detailsPane),
+      );
+      await innerGesture.moveBy(Offset(0, -dragDistance));
+      await tester.pump();
+      expect(detailsPosition.pixels, beforeInnerDrag);
+      await innerGesture.cancel();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('player page click transitions keep their cubic timing', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(1280, 720));
+    final rightController = tester
+        .widget<PageView>(find.byKey(const ValueKey('wide-right-pages')))
+        .controller!;
+
+    await tester.tap(find.byKey(const ValueKey('player-cover-lyric-preview')));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(
+      rightController.page,
+      closeTo(Curves.easeOutCubic.transform(0.5), 0.02),
+    );
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(rightController.page, closeTo(1, 0.001));
+
+    rightController.jumpToPage(0);
+    await tester.pumpAndSettle();
+    final verticalController = tester
+        .widget<PageView>(
+          find.byKey(const ValueKey('wide-vertical-player-pages')),
+        )
+        .controller!;
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('controls-pane-wide')),
+        matching: find.byIcon(Icons.queue_music),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(
+      verticalController.page,
+      closeTo(Curves.easeOutCubic.transform(0.5), 0.02),
+    );
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(verticalController.page, closeTo(1, 0.001));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('repeated lyric clicks retain the latest target on resize', (
     tester,
   ) async {
@@ -2460,6 +2566,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(pageView.controller!.page, closeTo(1, 0.001));
 
+    final canceledGesture = await tester.startGesture(
+      Offset(targetRect.left + targetRect.width * 0.2, targetRect.top + 2),
+    );
+    await tester.pump();
+    await canceledGesture.moveBy(Offset(targetRect.width * 0.3, 0));
+    await tester.pump();
+    expect(
+      tester
+          .widget<PageView>(find.byKey(const ValueKey('compact-player-pages')))
+          .physics,
+      isA<NeverScrollableScrollPhysics>(),
+    );
+    await canceledGesture.cancel();
+    await tester.pump();
+    expect(
+      tester
+          .widget<PageView>(find.byKey(const ValueKey('compact-player-pages')))
+          .physics,
+      isA<PlayerPageScrollPhysics>(),
+    );
+
     await tester.drag(
       find.byKey(const ValueKey('compact-player-pages')),
       const Offset(320, 0),
@@ -2468,6 +2595,86 @@ void main() {
     expect(pageView.controller!.page, closeTo(0, 0.001));
     expect(tester.takeException(), isNull);
   });
+
+  for (final layout in [
+    (name: 'compact', size: const Size(390, 844)),
+    (name: 'wide', size: const Size(1280, 720)),
+  ]) {
+    testWidgets('progress drag keeps the ${layout.name} shell stable', (
+      tester,
+    ) async {
+      final seekPositions = <Duration>[];
+      await _pumpPlayer(tester, layout.size, onSeek: seekPositions.add);
+
+      final stableFinders = [
+        find.byKey(const ValueKey('player-palette-background')),
+        find.byKey(const ValueKey('player-cover-artwork-track-1')),
+        find.byKey(const ValueKey('player-track-title-content-track-1')),
+        find.byKey(const ValueKey('player-skip-previous-button')),
+      ];
+      final stableWidgets = [
+        for (final finder in stableFinders) tester.widget(finder),
+      ];
+      void expectStableShell() {
+        for (var index = 0; index < stableFinders.length; index++) {
+          expect(
+            tester.widget(stableFinders[index]),
+            same(stableWidgets[index]),
+          );
+        }
+      }
+
+      final progressSection = find.byType(PlayerProgressSection);
+      List<String?> progressText() => [
+        for (final text in tester.widgetList<Text>(
+          find.descendant(
+            of: progressSection,
+            matching: find.byType(Text),
+          ),
+        ))
+          text.data,
+      ];
+      final elapsedBefore = progressText().first;
+      final targetRect = tester.getRect(
+        find.byKey(const ValueKey('player-progress-gesture-target')),
+      );
+      final gesture = await tester.startGesture(
+        Offset(targetRect.left + targetRect.width * 0.2, targetRect.top + 2),
+      );
+      await tester.pump();
+      expectStableShell();
+
+      await gesture.moveBy(Offset(targetRect.width * 0.55, 0));
+      await tester.pump();
+      expect(
+        tester
+            .widget<Slider>(
+              find.byKey(const ValueKey('player-progress-slider')),
+            )
+            .value,
+        greaterThan(0.6),
+      );
+      expect(progressText().first, isNot(elapsedBefore));
+      expectStableShell();
+
+      await gesture.up();
+      await tester.pump();
+      expect(seekPositions, hasLength(1));
+      expect(seekPositions.single, greaterThan(const Duration(minutes: 2)));
+      expectStableShell();
+
+      await tester.pump(const Duration(milliseconds: 101));
+      expect(
+        tester
+            .widget<Slider>(
+              find.byKey(const ValueKey('player-progress-slider')),
+            )
+            .value,
+        0,
+      );
+      expectStableShell();
+    });
+  }
 
   testWidgets('compact header and five bottom action glyphs align', (
     tester,
@@ -3982,6 +4189,7 @@ Future<void> _pumpPlayer(
   bool settleEntry = true,
   bool disableThemeArtwork = false,
   void Function(int oldIndex, int newIndex)? onQueueReorder,
+  void Function(Duration position)? onSeek,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -3992,7 +4200,11 @@ Future<void> _pumpPlayer(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        if (onQueueReorder != null)
+        if (onSeek != null)
+          audioPlayerControllerProvider.overrideWith(
+            (ref) => _SeekingAudioController(ref, onSeek),
+          )
+        else if (onQueueReorder != null)
           audioPlayerControllerProvider.overrideWith(
             (ref) => _ReorderingAudioController(ref, onQueueReorder),
           ),
@@ -4087,6 +4299,18 @@ class _ReorderingAudioController extends AudioPlayerController {
   @override
   Future<void> moveTrack(int oldIndex, int newIndex) async {
     onReorder(oldIndex, newIndex);
+  }
+}
+
+class _SeekingAudioController extends AudioPlayerController {
+  _SeekingAudioController(Ref ref, this.onSeek)
+    : super(ref.read(audioPlayerServiceProvider), ref);
+
+  final void Function(Duration position) onSeek;
+
+  @override
+  Future<void> seekAndPersist(Duration position) async {
+    onSeek(position);
   }
 }
 

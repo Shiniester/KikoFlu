@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart'
     show kDoubleTapTimeout, kLongPressTimeout, kTouchSlop;
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart'
     show RenderBox, RenderParagraph, ScrollCacheExtent, ScrollDirection;
@@ -12,6 +13,7 @@ import '../../models/lyric.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/lyric_provider.dart';
 import '../../providers/player_lyric_style_provider.dart';
+import 'player_seek_preview.dart';
 import '../../../l10n/app_localizations.dart';
 
 const _lyricTapFeedbackDuration = Duration(milliseconds: 500);
@@ -985,6 +987,7 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
   const FullLyricDisplay({
     super.key,
     this.seekingPosition,
+    this.seekingPositionListenable,
     this.isActive = true,
     this.isPortrait = false,
     this.isLocked = false,
@@ -1007,6 +1010,7 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
   }) : assert(playbackAnchorFraction > 0 && playbackAnchorFraction < 1);
 
   final Duration? seekingPosition;
+  final ValueListenable<PlayerSeekPreview?>? seekingPositionListenable;
   final bool isActive;
   final bool isPortrait;
   final bool isLocked;
@@ -1767,6 +1771,18 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
 
   @override
   Widget build(BuildContext context) {
+    final seekingPositionListenable = widget.seekingPositionListenable;
+    if (seekingPositionListenable != null) {
+      return ValueListenableBuilder<PlayerSeekPreview?>(
+        valueListenable: seekingPositionListenable,
+        builder: (context, seekPreview, _) =>
+            _buildDisplay(context, seekPreview?.position),
+      );
+    }
+    return _buildDisplay(context, widget.seekingPosition);
+  }
+
+  Widget _buildDisplay(BuildContext context, Duration? seekingPosition) {
     final lyrics = ref.watch(
       lyricControllerProvider.select((state) => state.displayLyrics),
     );
@@ -1795,17 +1811,15 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       _layoutFingerprint = null;
       _layoutIndex = null;
     }
-    final seekingIndex = widget.seekingPosition == null
+    final seekingIndex = seekingPosition == null
         ? null
-        : _indexForPosition(widget.seekingPosition!, lyrics);
-    final pendingIndex = widget.seekingPosition == null
-        ? _pendingTappedIndex
-        : null;
+        : _indexForPosition(seekingPosition, lyrics);
+    final pendingIndex = seekingPosition == null ? _pendingTappedIndex : null;
     final currentIndex = seekingIndex ?? pendingIndex ?? playbackIndex;
     if (_pendingTappedIndex case final requestedIndex?) {
       final originIndex = _pendingTapOriginIndex;
       final requestSettled =
-          widget.seekingPosition != null ||
+          seekingPosition != null ||
           playbackIndex == requestedIndex ||
           (playbackIndex >= 0 && playbackIndex != originIndex);
       if (requestSettled) {
@@ -1826,7 +1840,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             currentIndex,
             animate:
                 widget.isActive &&
-                widget.seekingPosition == null &&
+                seekingPosition == null &&
                 !(widget.snapToCurrentOnFirstLayout && previous == null),
             force: previous == null || (currentIndex - previous).abs() > 5,
           );

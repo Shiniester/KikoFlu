@@ -11,6 +11,7 @@ import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/widgets/player/lyric_display_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_seek_preview.dart';
 
 void main() {
   final lyrics = List.generate(
@@ -177,6 +178,62 @@ void main() {
     expect(
       tester.getCenter(find.text('lyric 3')).dy,
       closeTo(upperSettledCenter, 0.1),
+    );
+  });
+
+  testWidgets('seek preview highlights lyrics and clearing follows playback', (
+    tester,
+  ) async {
+    final seekPreview = ValueNotifier<PlayerSeekPreview?>(null);
+    addTearDown(seekPreview.dispose);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          positionProvider.overrideWith(
+            (ref) => Stream.value(const Duration(seconds: 2)),
+          ),
+          lyricControllerProvider.overrideWith(
+            (ref) =>
+                LyricController(ref, initialState: LyricState(lyrics: lyrics)),
+          ),
+        ],
+        child: MaterialApp(
+          theme: ThemeData.dark(useMaterial3: true),
+          home: Scaffold(
+            body: FullLyricDisplay(
+              isPortrait: true,
+              seekingPositionListenable: seekPreview,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<Text>(find.text('matching lyric 2')).style?.fontWeight,
+      FontWeight.w700,
+    );
+
+    seekPreview.value = (
+      isSeekingManually: true,
+      seekValue: 0.5,
+      position: const Duration(seconds: 5),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<Text>(find.text('lyric 5')).style?.fontWeight,
+      FontWeight.w700,
+    );
+    expect(
+      tester.widget<Text>(find.text('matching lyric 2')).style?.color?.a,
+      lessThan(0.4),
+    );
+
+    seekPreview.value = null;
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<Text>(find.text('matching lyric 2')).style?.fontWeight,
+      FontWeight.w700,
     );
   });
 

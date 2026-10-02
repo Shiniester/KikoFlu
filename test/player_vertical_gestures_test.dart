@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_scroll_drag_handoff.dart';
@@ -134,6 +135,62 @@ void main() {
       expect(upUpdates.first, greaterThan(upUpdates.last));
     },
   );
+
+  testWidgets('page-only vertical forwarding starts after six drag pixels', (
+    tester,
+  ) async {
+    final pageController = PageController();
+    final coordinator = PlayerScrollDragHandoffCoordinator(pageController);
+    final mediaQuery = MediaQueryData.fromView(
+      tester.view,
+    ).copyWith(gestureSettings: const DeviceGestureSettings(touchSlop: 1));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              Expanded(
+                child: PageView(
+                  controller: pageController,
+                  scrollDirection: Axis.vertical,
+                  children: const [
+                    ColoredBox(color: Colors.red),
+                    ColoredBox(color: Colors.blue),
+                  ],
+                ),
+              ),
+              SizedBox(
+                height: 100,
+                child: MediaQuery(
+                  data: mediaQuery,
+                  child: PlayerVerticalSwipeRegion(
+                    key: const ValueKey('page-forward-region'),
+                    pageDragCoordinator: coordinator,
+                    child: const SizedBox.expand(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('page-forward-region'))),
+    );
+    await gesture.moveBy(const Offset(0, -5));
+    await tester.pump();
+    expect(pageController.page, closeTo(0, 0.001));
+    await gesture.moveBy(const Offset(0, -1));
+    await tester.pump();
+    expect(pageController.page, greaterThan(0));
+    await gesture.cancel();
+    await tester.pumpAndSettle();
+    pageController.dispose();
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('edge drag keeps ownership and reverses monotonically', (
     tester,
