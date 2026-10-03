@@ -296,6 +296,63 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets(
+    'cold detail cover waits for entrance and falls back after failure',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      await StorageService.initCritical(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      final cache = _CoverCache();
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authProvider.overrideWith((ref) => _Auth()),
+            kikoeruApiServiceProvider.overrideWithValue(_Api()),
+            currentTrackProvider.overrideWith((ref) => Stream.value(null)),
+            workDetailCoverCacheProvider.overrideWithValue(cache),
+          ],
+          child: MaterialApp(
+            navigatorKey: navigator,
+            theme: AppTheme.lightTheme(null),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: const Scaffold(body: Text('Home')),
+          ),
+        ),
+      );
+      final route = MaterialPageRoute<void>(
+        builder: (_) =>
+            const WorkDetailScreen(work: Work(id: 99, title: 'Work')),
+      );
+      unawaited(navigator.currentState!.push(route));
+      final coverImages = find.descendant(
+        of: find.byType(WorkCoverFrame),
+        matching: find.byType(Image),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(route.animation!.status, AnimationStatus.forward);
+      expect(coverImages, findsNothing);
+      expect(cache.requests, 0);
+      await tester.pump(route.transitionDuration);
+      await _pumpUntil(tester, () => cache.requests > 0);
+      expect(cache.requests, 1);
+      expect(coverImages, findsNothing);
+      cache.lease.completed.completeError(
+        const HttpException('HD unavailable'),
+      );
+      await _pumpUntil(tester, () => coverImages.evaluate().isNotEmpty);
+      expect(coverImages, findsOneWidget);
+      final provider = tester.widget<Image>(coverImages).image as ResizeImage;
+      expect(provider.imageProvider, isA<CachedNetworkImageProvider>());
+      expect(tester.takeException(), isNull);
+      await _pumpFrames(tester);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
   testWidgets('initial cover falls back to detail image after HD failure', (
     tester,
   ) async {
@@ -1845,7 +1902,7 @@ void main() {
         .map((image) => image.image)
         .whereType<ResizeImage>()
         .toList();
-    expect(sizedImages.length, 2);
+    expect(sizedImages.length, 1);
     expect(sizedImages.every((p) => p.policy == ResizeImagePolicy.fit), isTrue);
     final hd = sizedImages.firstWhere((p) => p.imageProvider is FileImage);
     final media = MediaQuery.of(tester.element(find.byType(WorkDetailScreen)));

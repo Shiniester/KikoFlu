@@ -350,7 +350,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   }
 
   void _showDetailCoverFallback() {
-    if (widget.initialCoverImageProvider != null && !_showDetailCover.value) {
+    if (!_showDetailCover.value) {
       _showDetailCover.value = true;
     }
   }
@@ -889,70 +889,43 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
               );
             },
             layers: [
-              if (widget.initialCoverImageProvider != null)
-                ValueListenableBuilder<bool>(
-                  valueListenable: _showDetailCover,
-                  builder: (context, showDetailCover, _) =>
-                      ValueListenableBuilder<ImageProvider?>(
-                        valueListenable: _hdImageProvider,
-                        builder: (context, hdImageProvider, _) {
-                          final imageProvider =
-                              hdImageProvider ??
-                              (showDetailCover
-                                  ? _sizedCover(
-                                      CachedNetworkImageProvider(
-                                        coverUrl,
-                                        cacheKey:
-                                            'work_cover_${widget.work.id}',
-                                      ),
-                                    )
-                                  : widget.initialCoverImageProvider!);
-                          return Image(
-                            image: imageProvider,
-                            fit: BoxFit.contain,
-                            gaplessPlayback: true,
-                            frameBuilder: (context, child, frame, _) =>
-                                frame == null &&
-                                    !identical(
-                                      imageProvider,
-                                      widget.initialCoverImageProvider,
-                                    )
-                                ? _buildCoverPlaceholder()
-                                : child,
-                            errorBuilder: (context, error, stack) =>
-                                _buildCoverPlaceholder(),
-                          );
-                        },
-                      ),
-                )
-              else
-                Image(
-                  image: _sizedCover(
-                    CachedNetworkImageProvider(
-                      coverUrl,
-                      cacheKey: 'work_cover_${widget.work.id}',
-                    ),
-                  ),
-                  fit: BoxFit.contain,
-                  gaplessPlayback: true,
-                  frameBuilder: (context, child, frame, _) =>
-                      frame == null ? _buildCoverPlaceholder() : child,
-                  errorBuilder: (context, error, stack) =>
-                      _buildCoverPlaceholder(),
-                ),
-              if (widget.initialCoverImageProvider == null)
-                ValueListenableBuilder<ImageProvider?>(
-                  valueListenable: _hdImageProvider,
-                  builder: (context, provider, _) => provider == null
-                      ? const SizedBox.shrink()
-                      : Image(
-                          image: provider,
+              ValueListenableBuilder<bool>(
+                valueListenable: _showDetailCover,
+                builder: (context, showDetailCover, _) =>
+                    ValueListenableBuilder<ImageProvider?>(
+                      valueListenable: _hdImageProvider,
+                      builder: (context, hdImageProvider, _) {
+                        final imageProvider =
+                            hdImageProvider ??
+                            (showDetailCover
+                                ? _sizedCover(
+                                    CachedNetworkImageProvider(
+                                      coverUrl,
+                                      cacheKey: 'work_cover_${widget.work.id}',
+                                    ),
+                                  )
+                                : widget.initialCoverImageProvider);
+                        if (imageProvider == null) {
+                          return _buildCoverPlaceholder();
+                        }
+                        return Image(
+                          image: imageProvider,
                           fit: BoxFit.contain,
-                          errorBuilder: (context, error, stackTrace) {
-                            return const SizedBox.shrink();
-                          },
-                        ),
-                ),
+                          gaplessPlayback: true,
+                          frameBuilder: (context, child, frame, _) =>
+                              frame == null &&
+                                  !identical(
+                                    imageProvider,
+                                    widget.initialCoverImageProvider,
+                                  )
+                              ? _buildCoverPlaceholder()
+                              : child,
+                          errorBuilder: (context, error, stack) =>
+                              _buildCoverPlaceholder(),
+                        );
+                      },
+                    ),
+              ),
             ],
           ),
         );

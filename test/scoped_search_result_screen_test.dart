@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
@@ -9,6 +11,8 @@ import 'package:kikoeru_flutter/src/models/search_query.dart';
 import 'package:kikoeru_flutter/src/models/search_scope_session.dart';
 import 'package:kikoeru_flutter/src/models/search_type.dart';
 import 'package:kikoeru_flutter/src/screens/scoped_search_result_screen.dart';
+import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
+import 'package:kikoeru_flutter/src/widgets/work_cover_image.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
@@ -133,12 +137,29 @@ class _ScopeApi extends KikoeruApiService {
   }
 }
 
+class _CoverAuth extends AuthNotifier {
+  _CoverAuth() : super(_ScopeApi()) {
+    state = const AuthState(host: 'https://covers.invalid');
+  }
+}
+
+class _NoImageCache extends Fake implements BaseCacheManager {
+  @override
+  Stream<FileResponse> getFileStream(
+    String url, {
+    String? key,
+    Map<String, String>? headers,
+    bool withProgress = false,
+  }) => const Stream.empty();
+}
+
 Future<void> _pumpSearch(
   WidgetTester tester, {
   required _ScopeApi api,
   required SearchQuery query,
   SearchScopeSession? session,
   Widget? home,
+  bool withCovers = false,
 }) async {
   SharedPreferences.setMockInitialValues({});
   await StorageService.initCritical(
@@ -147,6 +168,7 @@ Future<void> _pumpSearch(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        if (withCovers) authProvider.overrideWith((ref) => _CoverAuth()),
         kikoeruApiServiceProvider.overrideWith((ref) => api),
         currentTrackProvider.overrideWith((ref) => Stream.value(null)),
       ],
@@ -177,6 +199,42 @@ SearchQuery _query(
 );
 
 void main() {
+  testWidgets('online scoped results pass their displayed cover to details', (
+    tester,
+  ) async {
+    final previousCache = CachedNetworkImageProvider.defaultCacheManager;
+    CachedNetworkImageProvider.defaultCacheManager = _NoImageCache();
+    addTearDown(() {
+      CachedNetworkImageProvider.defaultCacheManager = previousCache;
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+    });
+    await _pumpSearch(
+      tester,
+      api: _ScopeApi()..singleMark = true,
+      query: _query(SearchScope.onlineMarks, SearchType.keyword, 'Need'),
+      withCovers: true,
+    );
+    await tester.pumpAndSettle();
+    final cover = tester
+        .widget<WorkCoverImage>(find.byType(WorkCoverImage))
+        .image;
+    await tester.tap(find.text('Need page one'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    final detail = tester.widget<WorkDetailScreen>(
+      find.byType(WorkDetailScreen),
+    );
+    expect(
+      await detail.initialCoverImageProvider!.obtainKey(
+        ImageConfiguration.empty,
+      ),
+      await cover.obtainKey(ImageConfiguration.empty),
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets(
     'online mark search passes its selected state and reads every page',
     (tester) async {

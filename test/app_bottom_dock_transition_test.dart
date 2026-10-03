@@ -218,6 +218,14 @@ void main() {
       await tester.pump();
       await tester.pump();
       await tester.pump();
+      await tester.pump();
+      var layerBuilds = 0;
+      debugOnRebuildDirtyWidget = (element, built) {
+        if (element.widget.runtimeType.toString() == '_DockTransitionLayer') {
+          layerBuilds++;
+        }
+      };
+      addTearDown(() => debugOnRebuildDirtyWidget = null);
       final targetState = tester.state(
         find.ancestor(
           of: find.byKey(targetKey),
@@ -247,6 +255,7 @@ void main() {
           tester.getRect(find.byKey(iconKey)).top - rect.bottom,
           closeTo(gap, .01),
         );
+        if (sample <= 250) expect(layerBuilds, 0);
         if (sample == 250) {
           height.value = 88;
           await tester.pump();
@@ -276,6 +285,108 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
     });
   }
+
+  testWidgets('moving Dock refreshes payload, theme and removed endpoints', (
+    tester,
+  ) async {
+    _configurePhoneViewport(tester, bottomInset: 34);
+    final content = ValueNotifier<int>(0);
+    addTearDown(content.dispose);
+    late BuildContext sourceContext;
+    const targetKey = ValueKey('dynamic-target');
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme(null),
+        home: AppBottomDockTransitionScope(
+          child: Scaffold(
+            body: Builder(
+              builder: (context) {
+                sourceContext = context;
+                return const SizedBox.expand();
+              },
+            ),
+            bottomNavigationBar: const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AppBottomDockMiniPlayer.source(child: SizedBox(height: 72)),
+                AppBottomDockTabBar.source(child: SizedBox(height: 92)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    unawaited(
+      pushBottomDockRoute(
+        sourceContext,
+        builder: (_) => Scaffold(
+          body: ValueListenableBuilder<int>(
+            valueListenable: content,
+            builder: (context, value, _) => Theme(
+              data: Theme.of(context).copyWith(
+                colorScheme: Theme.of(context).colorScheme.copyWith(
+                  primary: value == 0 ? Colors.blue : Colors.purple,
+                ),
+              ),
+              child: Column(
+                children: [
+                  const Expanded(child: SizedBox()),
+                  if (value < 2)
+                    AppBottomDockMiniPlayer.target(
+                      child: Builder(
+                        builder: (context) => SizedBox(
+                          key: targetKey,
+                          height: value == 0 ? 72 : 88,
+                          child: Text(
+                            'Mini',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    for (var i = 0; i < 4; i++) {
+      await tester.pump();
+    }
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.widget<Text>(find.text('Mini')).style!.color, Colors.blue);
+    content.value = 1;
+    for (var i = 0; i < 4; i++) {
+      await tester.pump();
+    }
+    expect(tester.getSize(find.byKey(targetKey)).height, 88);
+    expect(
+      tester
+          .getSize(
+            find.byWidgetPredicate(
+              (widget) =>
+                  widget is AppBottomDockMiniPlayer && widget.child is Builder,
+            ),
+          )
+          .height,
+      88,
+    );
+    expect(tester.widget<Text>(find.text('Mini')).style!.color, Colors.purple);
+    content.value = 2;
+    await tester.pump();
+    await tester.pump();
+    expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsNothing);
+    expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpAndSettle();
+    Navigator.of(sourceContext).pop();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    debugDefaultTargetPlatformOverride = null;
+  });
 
   testWidgets('reduced motion keeps the Dock static through push and return', (
     tester,

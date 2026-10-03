@@ -201,6 +201,7 @@ class _DockSession extends ChangeNotifier with WidgetsBindingObserver {
   ValueNotifier<bool>? _gesture;
   bool _ready = false;
   bool _disposed = false;
+  bool _payloadRefreshScheduled = false;
   bool inTransit = false;
   bool sourceCovered = false;
   double get distance =>
@@ -229,6 +230,16 @@ class _DockSession extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _onStatus(AnimationStatus _) => _sync();
+
+  void refreshPayloadAfterLayout() {
+    if (_disposed || !inTransit || _payloadRefreshScheduled) return;
+    _payloadRefreshScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _payloadRefreshScheduled = false;
+      if (!_disposed && inTransit) notifyListeners();
+    });
+  }
+
   @override
   void didChangeMetrics() => _sync();
 
@@ -264,6 +275,7 @@ class _DockSession extends ChangeNotifier with WidgetsBindingObserver {
 class _DockPageRoute extends MaterialPageRoute<void> {
   _DockPageRoute({required super.builder, required this.session});
   final _DockSession? session;
+  Widget? _dockTransitionLayer;
   @override
   Widget buildTransitions(
     BuildContext context,
@@ -284,7 +296,10 @@ class _DockPageRoute extends MaterialPageRoute<void> {
       fit: StackFit.expand,
       children: [
         page,
-        _DockTransitionLayer(session: handoff, animation: animation),
+        _dockTransitionLayer ??= _DockTransitionLayer(
+          session: handoff,
+          animation: animation,
+        ),
       ],
     );
   }
@@ -334,12 +349,12 @@ class _DockTransitionLayerState extends State<_DockTransitionLayer> {
               if (mini != null)
                 KeyedSubtree(
                   key: appBottomDockMiniPlayerHandoffRootKey,
-                  child: mini.payload(inOverlay: true),
+                  child: RepaintBoundary(child: mini.payload(inOverlay: true)),
                 ),
               if (tab != null)
                 KeyedSubtree(
                   key: appBottomDockTabBarHandoffRootKey,
-                  child: tab.payload(inOverlay: true),
+                  child: RepaintBoundary(child: tab.payload(inOverlay: true)),
                 ),
             ],
           );
@@ -419,7 +434,15 @@ class _DockEndpointState extends State<_DockEndpoint> {
   _DockSession? _incoming;
   _DockSession? _outgoing;
   CapturedThemes? _themes;
+  ThemeData? _theme;
+  bool _wasInLayer = false;
+  bool _wasCovered = false;
+  Size _wasExtent = Size.zero;
   Size extent = Size.zero;
+  bool get _movesIntoLayer =>
+      ((_incoming?.inTransit ?? false) &&
+          widget.part == _DockPart.miniPlayer) ||
+      ((_outgoing?.inTransit ?? false) && widget.part == _DockPart.tabBar);
   void measure() {
     final box = _payloadKey.currentContext?.findRenderObject();
     if (box is RenderBox && box.hasSize) extent = box.size;
@@ -432,10 +455,23 @@ class _DockEndpointState extends State<_DockEndpoint> {
   }
 
   @override
+  void didUpdateWidget(_DockEndpoint oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.child != widget.child) {
+      _incoming?.refreshPayloadAfterLayout();
+      _outgoing?.refreshPayloadAfterLayout();
+    }
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final theme = Theme.of(context);
+    final themeChanged = _theme != null && _theme != theme;
+    _theme = theme;
     final host = context.dependOnInheritedWidgetOfExactType<_DockHost>();
     final owner = host?.state;
+    final registrationChanged = owner?._endpoints[widget.part] != this;
     if (_owner != owner) {
       _owner?._endpoints.remove(widget.part);
       _owner = owner;
@@ -444,6 +480,10 @@ class _DockEndpointState extends State<_DockEndpoint> {
     final incoming = _DockMetrics.maybeOf(context)?.incoming;
     final target = incoming?.route == ModalRoute.of(context) ? incoming : null;
     final outgoing = host?.outgoing;
+    final refreshPayload =
+        themeChanged ||
+        (registrationChanged &&
+            ((target?.inTransit ?? false) || (outgoing?.inTransit ?? false)));
     if (_incoming != target || _outgoing != outgoing) {
       _incoming?.removeListener(_onSessionChanged);
       _outgoing?.removeListener(_onSessionChanged);
@@ -463,26 +503,34 @@ class _DockEndpointState extends State<_DockEndpoint> {
       if (!mounted) return;
       measure();
       target?.prepareAfterLayout();
+      if (refreshPayload) {
+        _incoming?.refreshPayloadAfterLayout();
+        _outgoing?.refreshPayloadAfterLayout();
+      }
     });
   }
 
   void _onSessionChanged() {
     if (!mounted) return;
     measure();
+    if (_wasInLayer == _movesIntoLayer &&
+        _wasCovered == (_outgoing?.sourceCovered ?? false) &&
+        _wasExtent == extent) {
+      return;
+    }
     setState(() {});
     const AppBottomDockSnapshotNotification().dispatch(context);
   }
 
   @override
   Widget build(BuildContext context) {
-    final movesIntoLayer =
-        ((_incoming?.inTransit ?? false) &&
-            widget.part == _DockPart.miniPlayer) ||
-        ((_outgoing?.inTransit ?? false) && widget.part == _DockPart.tabBar);
-    if (movesIntoLayer) {
+    _wasInLayer = _movesIntoLayer;
+    _wasCovered = _outgoing?.sourceCovered ?? false;
+    _wasExtent = extent;
+    if (_wasInLayer) {
       return SizedBox(width: double.infinity, height: extent.height);
     }
-    final covered = _outgoing?.sourceCovered ?? false;
+    final covered = _wasCovered;
     return _DockArtworkHeroMode(
       enabled: !covered,
       child: HeroMode(
@@ -506,6 +554,8 @@ class _DockEndpointState extends State<_DockEndpoint> {
     if (_owner?._endpoints[widget.part] == this) {
       _owner?._endpoints.remove(widget.part);
     }
+    _incoming?.refreshPayloadAfterLayout();
+    _outgoing?.refreshPayloadAfterLayout();
     super.dispose();
   }
 }

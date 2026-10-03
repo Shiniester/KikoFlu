@@ -567,10 +567,6 @@ class _ScopedSearchResultScreenState
         key: ValueKey(work.id),
         record: entry.historyRecord!,
         layoutType: layoutType,
-        onTap: () => pushWorkDetailRoute(
-          context,
-          builder: (_) => WorkDetailScreen(work: work),
-        ),
       );
     }
 
@@ -579,7 +575,9 @@ class _ScopedSearchResultScreenState
       work: work,
       crossAxisCount: metrics.crossAxisCount,
       isListLayout: isList,
-      onTap: () => _openEntry(context, entry),
+      onTap: widget.query.scope == SearchScope.downloads
+          ? () => _openEntry(context, entry)
+          : null,
     );
     if (widget.query.scope == SearchScope.downloads) {
       card = FutureBuilder<String?>(
