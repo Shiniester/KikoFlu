@@ -11,6 +11,7 @@ SCENES = ['expandCold', 'expandCollapse', 'dragRebound', 'dragHandoff',
           'pageSwitch', 'queuePageSwitch', 'queueEdgeHandoff',
           'queueContinuousHandoff', 'lyricFollow', 'lyricScroll',
           'rapidTrackPresentation', 'galleryDoubleTap']
+HORIZONTAL_SCENES = ['pageDrag', 'pageRelease', 'pageSwitch']
 
 
 def percentile(values, fraction):
@@ -22,7 +23,7 @@ def distribution(values):
                 p95=round(percentile(values, .95), 3))
 
 
-def summarize(root, label, start, rounds):
+def summarize(root, label, start, rounds, horizontal_only=False):
     reports = []
     for number in range(start, start + rounds):
         path = root / f'{label}_{number}.json'
@@ -34,7 +35,28 @@ def summarize(root, label, start, rounds):
             raise ValueError(f'Harness failed in {path.name}')
         metric = report['run']['metrics']
         if report['control']['ui']:
-            required_scenes = [scene for scene in SCENES if scene != 'queueContinuousHandoff']
+            if horizontal_only or report['control'].get('horizontalOnly'):
+                windows = report['run']['frameSamples']
+                for phase in ['pageDrag', 'pageRelease']:
+                    for swipe in range(report['control']['cycles'] * 4):
+                        if not windows.get(f'{phase}{swipe}'):
+                            raise ValueError(f'Missing {phase}{swipe} frames in {path.name}')
+                for scene in HORIZONTAL_SCENES:
+                    prefix = 'page' if scene == 'pageSwitch' else scene
+                    frames = [frame for name, samples in windows.items()
+                              if name.startswith(prefix) for frame in samples]
+                    budget = metric['frameBudgetMs']
+                    metric.update({
+                        scene + 'UiP95Ms': percentile([frame[0] for frame in frames], .95),
+                        scene + 'RasterP95Ms': percentile([frame[1] for frame in frames], .95),
+                        scene + 'FrameP95Ms': percentile([max(frame) for frame in frames], .95),
+                        scene + 'FrameBudgetMs': budget,
+                        scene + 'JankyFrames': sum(max(frame) > budget for frame in frames),
+                        scene + 'FrameCount': len(frames),
+                    })
+                required_scenes = HORIZONTAL_SCENES
+            else:
+                required_scenes = [scene for scene in SCENES if scene != 'queueContinuousHandoff']
             if report['control'].get('continuousHandoff'):
                 required_scenes.append('queueContinuousHandoff')
                 checks = [check for check in report['checks']
@@ -52,7 +74,7 @@ def summarize(root, label, start, rounds):
         reports.append(report)
     metrics = [report['run']['metrics'] for report in reports]
     result = dict(runs=len(reports), ui={}, outgoing={}, requests={})
-    for scene in SCENES:
+    for scene in SCENES + ['pageDrag', 'pageRelease']:
         if any(scene + 'FrameP95Ms' not in metric for metric in metrics):
             continue
         summary = {
@@ -91,10 +113,12 @@ def main():
     parser.add_argument('--output', type=Path)
     parser.add_argument('--start', type=int, default=1)
     parser.add_argument('--rounds', type=int, default=5)
+    parser.add_argument('--horizontal-only', action='store_true')
     args = parser.parse_args()
     if args.start < 1 or args.rounds < 1:
         parser.error('--start and --rounds must be positive')
-    result = {label: summarize(args.reports, label, args.start, args.rounds)
+    result = {label: summarize(args.reports, label, args.start, args.rounds,
+                               horizontal_only=args.horizontal_only)
               for label in args.labels}
     encoded = json.dumps(result, ensure_ascii=False, indent=2)
     if args.output:

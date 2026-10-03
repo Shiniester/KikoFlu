@@ -316,3 +316,66 @@ GPU 证据为 `fast_gradient_gpu_0.rdc` 及 `renderdoc-fast-gradient-replay.json
 - `conflicts`：`[]`。
 - `handoff`：`what` 为局部源码、路由基准及完整报告；`why` 为三个内部场景均
   达标；`next` 为按相同口径扩展其他设备验证。
+
+## 2026-10-03 横向拖动与松手
+
+静止的播放器背景通过 Flutter `SnapshotWidget` 复用为纹理。调色变化时关闭
+快照，保留 280ms / `easeInOutCubic` 插值，动画完成后重新捕获；零时长立即
+更新，尺寸和 DPR 变化由框架刷新快照，离开播放器时释放图像。Web 保留原始
+实时渐变。快照只包含背景，封面、字幕、详情、控制及其输入仍实时更新。
+页面布局、拖动规则和分页物理保持一致。
+
+华为 ABR-AL60、Android 12，Flutter 3.44.7 / arm64 Profile。基线为任务开始时
+的工作区播放器，候选为上述背景替换。使用相同真实组件和分阶段手势，各先
+运行诊断轮次，再固定交错采集 B1/C1、C2/B2、B3/C3、C4/B4、B5/C5。
+每轮重启进程，thermal status 均为 1，电池温度 33.6–33.9°C。
+入场查询刷新率为 60Hz，预算为 16.667ms。P95 为五轮单轮 P95 的中位数；
+卡顿比例合并帧数计算。
+
+| 阶段 | UI P95 基线 → 候选（ms） | raster P95 基线 → 候选（ms） | 超预算帧基线 → 候选 | 卡顿比例基线 → 候选 |
+|---|---:|---:|---:|---:|
+| 拖动 | 2.391 → 2.248 | 12.169 → 12.557 | 48 / 1919 → 37 / 1919 | 2.501% → 1.928% |
+| 松手 | 1.711 → 1.505 | 11.464 → 11.599 | 6 / 1997 → 7 / 1996 | 0.300% → 0.351% |
+| 横向合计 | 1.822 → 1.707 | 11.939 → 12.135 | 54 / 3916 → 44 / 3915 | 1.379% → 1.124% |
+
+整体卡顿比例降低约 18.5%，拖动降低约 22.9%。整体 UI / raster P95 均在
+预算内，raster 回退 1.64%，符合原横向场景的 5% 回退门槛；卡顿比例降低。
+松手子阶段超预算帧增加一帧，不满足单独的卡顿比例不增加门槛，未证实改善。
+
+验证与限制：
+
+- 115 项布局、真实手势、返回、路由关键帧和背景像素检查通过；修改的 Dart
+  文件静态分析无问题，完整原始场景的隔离 Profile 构建及手机运行通过。
+  原始完整场景横向仍有 6 / 384 帧超预算，UI / raster P95 为 2.108 / 12.702ms。
+- 七个路由关键帧中四张基准更新；与原图的最大单通道差为 1/255，另外三张
+  完全一致。实际像素检查覆盖调色打断、零时长、尺寸和 DPR 变化。
+- 单张全分辨率 RGBA 背景约 12.6MiB。数据仅覆盖这台手机、本地封面、500 行
+  字幕及空详情状态；不覆盖在线元数据和音频加载。每轮只在入场读取一次刷新率，
+  未逐窗口测量自适应刷新率。仍存在拖动和松手的尾部帧。
+- 手机正式版的版本、安装和更新时间保持一致；测试安装仅操作隔离 Profile 包。
+
+本地证据：`build/player_performance/reports/baseline_horizontal_snapshot_paired_1..5.json`
+及 `candidate_horizontal_snapshot_paired_1..5.json`；汇总为
+`build/player_performance/horizontal_snapshot_summary.json`，分阶段门槛为
+`horizontal_snapshot_paired_gates.json`，完整复现为
+`candidate_horizontal_full_validation_1.json`。临时诊断入口和帧追踪保存在
+被忽略的 `build/`；正式分阶段入口及汇总工具已纳入仓库。
+
+交接记录：
+
+- `task_brief`：保留播放器布局、手势和实时字幕，优化 Android 横向分页绘制。
+- `dispatch`：`read_only` 为 `paging_path_facts`、`paging_repro_facts`、
+  `background_cache_review`；`writer` 与 `writer_sequence` 为主任务。
+  `skipped`：未新增依赖或改变发布、音频、跨模块接口，其他角色无独立问题。
+- `agents`：`paging_path_facts` 定位横向路径与 GLES 绘制耗时，指出整页快照会
+  冻结实时字幕；`paging_repro_facts` 确认分阶段手势与计时窗口；
+  `background_cache_review` 核对缓存生命周期、调色更新、缺窗拒绝和汇总口径。
+  风险为单设备与空详情覆盖，下一步为其他设备及实际元数据测量。
+- `implementation_plan`：真实组件分阶段复现 → 静止背景缓存 → 像素和手势回归
+  → 五对交错测量 → 原始完整场景复验。
+- `verification`：上述测试、静态分析、构建、完整场景和整体门槛已完成；
+  松手子阶段卡顿比例门槛未通过。
+- `dependency_risks`：无新增依赖，使用锁定 Flutter 的公共 API。
+- `conflicts`：`[]`。
+- `handoff`：`what` 为背景实现、分阶段性能入口及证据；`why` 为减少拖动阶段
+  超预算帧；`next` 为定位尚未改善的松手尾部帧。

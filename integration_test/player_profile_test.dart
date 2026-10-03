@@ -250,7 +250,33 @@ void main() {
         return tester.state<ScrollableState>(scrollables.first);
       }
 
-      if (control['ui'] != false) {
+      if (control['ui'] != false && control['horizontalOnly'] == true) {
+        await tester.tap(launcher);
+        await tester.pump(const Duration(milliseconds: 650));
+        final refreshRate = await const MethodChannel(
+          'com.meteor.kikoeruflutter/performance',
+        ).invokeMethod<double>('getDisplayRefreshRate');
+        recorder.setRefreshRate(refreshRate ?? tester.view.display.refreshRate);
+        var swipe = 0;
+        for (var i = 0; i < cycles; i++) {
+          for (final dx in [-300.0, 300.0, 300.0, -300.0]) {
+            recorder.beginScenario('pageDrag$swipe');
+            final gesture = await tester.startGesture(tester.getCenter(pages));
+            for (var step = 0; step < 12; step++) {
+              await gesture.moveBy(Offset(dx / 12, 0));
+              await tester.pump(const Duration(milliseconds: 16));
+            }
+            recorder.endScenario();
+            recorder.beginScenario('pageRelease$swipe');
+            await gesture.up();
+            await tester.pump(const Duration(milliseconds: 400));
+            recorder.endScenario();
+            swipe++;
+          }
+        }
+        navigator.currentState!.pop();
+        await tester.pump(const Duration(milliseconds: 650));
+      } else if (control['ui'] != false) {
         await beginScene('expandCold');
         await tester.tap(launcher);
         await tester.pump(const Duration(milliseconds: 650));

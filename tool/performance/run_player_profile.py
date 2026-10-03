@@ -21,6 +21,8 @@ def main():
     parser.add_argument('--rounds', type=int, default=5)
     parser.add_argument('--no-ui', action='store_true')
     parser.add_argument('--no-audio', action='store_true')
+    parser.add_argument('--horizontal-only', action='store_true',
+                        help='Measure horizontal dragging and release separately')
     parser.add_argument('--stop', action='store_true')
     parser.add_argument('--races', action='store_true')
     parser.add_argument('--seeks', action='store_true')
@@ -59,6 +61,7 @@ def main():
             raceChecks=args.races, enforceLatest=args.races and args.label.startswith('candidate'),
             seekChecks=args.seeks,
             continuousHandoff=args.continuous_handoff,
+            horizontalOnly=args.horizontal_only,
             soakSeconds=args.soak, soakIndex=args.soak_index,
         )
         environment = {

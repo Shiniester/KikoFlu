@@ -1799,6 +1799,177 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final predictiveBack in [false, true]) {
+    testWidgets(
+      'Android back stays responsive after repeated queue swipes (predictive: $predictiveBack)',
+      (tester) async {
+        var hostTaps = 0;
+        await _pumpPlayer(
+          tester,
+          const Size(390, 844),
+          pushedRoute: true,
+          platform: TargetPlatform.android,
+          onHostTap: () => hostTaps++,
+        );
+        for (var round = 0; round < 5; round++) {
+          await tester.fling(
+            find.byKey(const ValueKey('compact-header-dismiss-surface')),
+            const Offset(0, -300),
+            1000,
+          );
+          await tester.pumpAndSettle();
+          expect(_compactQueueProgress(tester), closeTo(1, 0.001));
+          await tester.fling(
+            find.byKey(const ValueKey('player-queue-title-dismiss-surface')),
+            const Offset(0, 300),
+            1000,
+          );
+          await tester.pumpAndSettle();
+          expect(_compactQueueProgress(tester), closeTo(0, 0.001));
+        }
+
+        if (predictiveBack) {
+          for (final method in ['startBackGesture', 'commitBackGesture']) {
+            await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+              'flutter/backgesture',
+              const StandardMethodCodec().encodeMethodCall(
+                MethodCall(
+                  method,
+                  method == 'startBackGesture'
+                      ? <String, dynamic>{
+                          'touchOffset': <double>[5, 300],
+                          'progress': 0.0,
+                          'swipeEdge': 0,
+                        }
+                      : null,
+                ),
+              ),
+              (_) {},
+            );
+          }
+        } else {
+          await tester.binding.handlePopRoute();
+        }
+        await tester.pumpAndSettle();
+        expect(find.byType(AudioPlayerScreen), findsNothing);
+        await tester.tap(find.text('mini-player-host'));
+        await tester.pump();
+        expect(hostTaps, 1);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  for (final waitForReturn in [false, true]) {
+    testWidgets(
+      'Android back stays responsive after queue list handoffs (settled: $waitForReturn)',
+      (tester) async {
+        var hostTaps = 0;
+        final tracks = List.generate(
+          40,
+          (index) => AudioTrack(
+            id: 'back-queue-$index',
+            title: 'Queue track $index',
+            url: 'https://example.invalid/$index.mp3',
+          ),
+        );
+        await _pumpPlayer(
+          tester,
+          const Size(390, 844),
+          pushedRoute: true,
+          platform: TargetPlatform.android,
+          queueStream: Stream.value(tracks),
+          onHostTap: () => hostTaps++,
+        );
+        for (var round = 0; round < 5; round++) {
+          await tester.fling(
+            find.byKey(const ValueKey('compact-main-cover-dismiss-surface')),
+            const Offset(0, -300),
+            1000,
+          );
+          await tester.pumpAndSettle();
+          expect(_compactQueueProgress(tester), closeTo(1, 0.001));
+          await tester.fling(
+            find.byKey(const ValueKey('player-queue-list')),
+            const Offset(0, 300),
+            1000,
+          );
+          if (round < 4 || waitForReturn) {
+            await tester.pumpAndSettle();
+            expect(_compactQueueProgress(tester), closeTo(0, 0.001));
+          } else {
+            await tester.pump(const Duration(milliseconds: 16));
+          }
+        }
+        final route = ModalRoute.of(
+          tester.element(find.byType(AudioPlayerScreen)),
+        )!;
+        await tester.binding.handlePopRoute();
+        if (waitForReturn) {
+          await tester.pumpAndSettle();
+        } else {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        if (route.isCurrent) {
+          if (!waitForReturn) {
+            expect(_compactQueueProgress(tester), lessThan(0.5));
+            expect(
+              tester
+                  .widget<PageView>(
+                    find.byKey(const ValueKey('compact-vertical-player-pages')),
+                  )
+                  .controller!
+                  .position
+                  .isScrollingNotifier
+                  .value,
+              isTrue,
+            );
+          }
+          await tester.binding.handlePopRoute();
+        }
+        await tester.pumpAndSettle();
+        expect(find.byType(AudioPlayerScreen), findsNothing);
+        await tester.tap(find.text('mini-player-host'));
+        await tester.pump();
+        expect(hostTaps, 1);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets(
+    'Android back stays responsive during an interrupted queue swipe',
+    (tester) async {
+      var hostTaps = 0;
+      await _pumpPlayer(
+        tester,
+        const Size(390, 844),
+        pushedRoute: true,
+        platform: TargetPlatform.android,
+        onHostTap: () => hostTaps++,
+      );
+      final gesture = await tester.startGesture(
+        tester.getCenter(
+          find.byKey(const ValueKey('compact-main-cover-dismiss-surface')),
+        ),
+      );
+      await gesture.moveBy(const Offset(0, -20));
+      await tester.pump(const Duration(milliseconds: 16));
+      await gesture.moveBy(const Offset(0, -80));
+      await tester.pump(const Duration(milliseconds: 16));
+      await gesture.cancel();
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(_compactQueueProgress(tester), inExclusiveRange(0, 0.5));
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(AudioPlayerScreen), findsNothing);
+      await tester.tap(find.text('mini-player-host'));
+      await tester.pump();
+      expect(hostTaps, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('wide queue preserves scroll and the latest left page', (
     tester,
   ) async {
@@ -4190,6 +4361,7 @@ Future<void> _pumpPlayer(
   bool disableThemeArtwork = false,
   void Function(int oldIndex, int newIndex)? onQueueReorder,
   void Function(Duration position)? onSeek,
+  VoidCallback? onHostTap,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -4269,7 +4441,12 @@ Future<void> _pumpPlayer(
           child: child!,
         ),
         home: pushedRoute
-            ? const Scaffold(body: Text('mini-player-host'))
+            ? Scaffold(
+                body: TextButton(
+                  onPressed: onHostTap,
+                  child: const Text('mini-player-host'),
+                ),
+              )
             : AudioPlayerScreen(initialSurface: initialSurface),
       ),
     ),

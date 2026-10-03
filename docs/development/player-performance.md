@@ -139,6 +139,24 @@ A/B/C，校验最终曲目、发布事件、错误和完整缓存是否保留。
 
 ## 计时口径
 
+只检查封面、音频详情、字幕之间的横向切换时，使用分阶段模式：
+
+```powershell
+python tool/performance/run_player_profile.py baseline_horizontal `
+  --device <device> --package <baseline-package> --no-audio --horizontal-only
+python tool/performance/run_player_profile.py candidate_horizontal `
+  --device <device> --package <candidate-package> --no-audio --horizontal-only
+python tool/performance/summarize_player_profile.py baseline_horizontal candidate_horizontal `
+  --horizontal-only --output build/player_performance/horizontal_summary.json
+```
+
+两组均构建同一 `integration_test/player_profile_test.dart`。四个循环依次执行
+封面→字幕→封面→音频详情→封面；每次拖动分为 12 个 25px 位移，每步
+`pump(16ms)`，松手后 `pump(400ms)`。每次拖动及松手使用独立计时窗口，
+汇总器合并窗口内的原始帧后计算该轮 P95，再取五轮中位数；缺少任一窗口
+会失败。`pageSwitch` 为两个阶段合计，`pageDrag`、`pageRelease` 为阶段统计。
+该模式不包含其他 UI 场景；省略参数仍执行原始完整场景。
+
 - 每个 UI 场景从 Android 当前 Display 查询刷新率，以 `1000 / Hz` 计算预算。
   某些自适应刷新率设备的 Flutter Display 仍保留启动时数值，因此不能仅使用该值。
 - 分别记录 UI、raster 和 `max(UI, raster)` 的 P95；卡顿帧使用后者超过预算判断。

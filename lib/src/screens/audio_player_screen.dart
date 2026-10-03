@@ -30,6 +30,7 @@ import '../widgets/player/player_audio_details_panel.dart';
 import '../widgets/player/player_lyrics_surface.dart';
 import '../widgets/player/player_glass_surface.dart';
 import '../widgets/player/player_visual_palette.dart';
+import '../widgets/player/player_palette_background.dart';
 import '../widgets/player/player_vertical_gestures.dart';
 import '../widgets/player/player_scroll_drag_handoff.dart';
 import '../widgets/player/player_page_scroll_physics.dart';
@@ -554,12 +555,9 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                       Positioned.fill(
                         child: RepaintBoundary(
                           key: const ValueKey('player-palette-background'),
-                          child: AnimatedContainer(
+                          child: PlayerPaletteBackground(
                             duration: motionDuration,
-                            curve: Curves.easeInOutCubic,
-                            decoration: BoxDecoration(
-                              gradient: palette.backgroundGradient,
-                            ),
+                            gradient: palette.backgroundGradient,
                           ),
                         ),
                       ),
@@ -1997,7 +1995,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   void _dismissPlayer() {
     _dismissCoordinator.syncVisualMode(context);
     _releaseTextInputFocus();
-    Navigator.of(context).maybePop();
+    Navigator.of(context).pop();
   }
 
   void _commitSemanticPage(VoidCallback update) {
