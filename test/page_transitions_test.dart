@@ -1,8 +1,3 @@
-import 'package:flutter/cupertino.dart'
-    show
-        CupertinoPageTransition,
-        CupertinoFullscreenDialogTransition,
-        CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,15 +11,12 @@ Future<GlobalKey<NavigatorState>> _app(
   WidgetTester tester, {
   TargetPlatform platform = TargetPlatform.android,
   bool reduced = false,
-  PageTransitionsTheme? transitions,
 }) async {
   final navigator = GlobalKey<NavigatorState>();
   await tester.pumpWidget(
     MaterialApp(
       navigatorKey: navigator,
-      theme: AppTheme.lightTheme(
-        null,
-      ).copyWith(platform: platform, pageTransitionsTheme: transitions),
+      theme: AppTheme.lightTheme(null).copyWith(platform: platform),
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context).copyWith(disableAnimations: reduced),
         child: child!,
@@ -78,8 +70,8 @@ void _expectExposedPageClipTracks(
   final foregroundBounds = tester.getRect(
     find.byKey(foregroundPage, skipOffstage: false),
   );
-  final isRtl = Directionality.of(tester.element(exposedClip)) ==
-      TextDirection.rtl;
+  final isRtl =
+      Directionality.of(tester.element(exposedClip)) == TextDirection.rtl;
   final viewportEdge = isRtl
       ? foregroundBounds.right.clamp(clipBounds.left, clipBounds.right)
       : foregroundBounds.left.clamp(clipBounds.left, clipBounds.right);
@@ -127,120 +119,6 @@ Future<void> _backEvent(
 );
 
 void main() {
-  testWidgets('return during entry follows stock Cupertino without a jump', (
-    tester,
-  ) async {
-    for (final entryMilliseconds in [200, 320, 360, 392]) {
-      Future<List<double>> sample({required bool stock}) async {
-        await tester.pumpWidget(const SizedBox.shrink());
-        final navigator = await _app(
-          tester,
-          transitions: stock
-              ? const PageTransitionsTheme(
-                  builders: {
-                    TargetPlatform.android: CupertinoPageTransitionsBuilder(),
-                  },
-                )
-              : null,
-        );
-        final route = _push(navigator, _page);
-        await tester.pump();
-        await tester.pump(Duration(milliseconds: entryMilliseconds));
-        expect(route.animation!.status, AnimationStatus.forward);
-        final beforePop = _x(tester, _page);
-        navigator.currentState!.pop();
-        await tester.pump();
-        expect(_x(tester, _page), closeTo(beforePop, .01));
-        final positions = <double>[beforePop, _x(tester, _root)];
-        for (var elapsed = 30; elapsed < entryMilliseconds; elapsed += 30) {
-          await tester.pump(const Duration(milliseconds: 30));
-          positions.addAll([_x(tester, _page), _x(tester, _root)]);
-        }
-        await tester.pumpAndSettle();
-        expect(find.byKey(_page), findsNothing);
-        return positions;
-      }
-
-      final stock = await sample(stock: true);
-      final wrapped = await sample(stock: false);
-      for (var i = 0; i < stock.length; i++) {
-        expect(
-          wrapped[i],
-          closeTo(stock[i], .01),
-          reason: 'return at ${entryMilliseconds}ms, position sample $i',
-        );
-      }
-      if (entryMilliseconds >= 320) {
-        final firstTravel = stock[2] - stock[0];
-        final secondTravel = stock[4] - stock[2];
-        expect(firstTravel, lessThan(secondTravel));
-      }
-    }
-  });
-
-  testWidgets('snapshot wrapper preserves default Cupertino motion', (
-    tester,
-  ) async {
-    Future<List<double>> sample({required bool stock}) async {
-      await tester.pumpWidget(const SizedBox.shrink());
-      final navigator = await _app(
-        tester,
-        transitions: stock
-            ? const PageTransitionsTheme(
-                builders: {
-                  TargetPlatform.android: CupertinoPageTransitionsBuilder(),
-                },
-              )
-            : null,
-      );
-      final positions = <double>[];
-      Future<void> record(List<int> intervals) async {
-        for (final milliseconds in intervals) {
-          await tester.pump(Duration(milliseconds: milliseconds));
-          positions.addAll([_x(tester, _page), _x(tester, _root)]);
-        }
-      }
-
-      _push(navigator, _page);
-      await tester.pump();
-      await record([50, 50, 150, 150, 90]);
-      await tester.pumpAndSettle();
-      navigator.currentState!.pop();
-      await tester.pump();
-      await record([50, 50, 150, 150, 90]);
-      await tester.pumpAndSettle();
-
-      _push(navigator, _page);
-      await tester.pumpAndSettle();
-      for (final distance in [100.0, 600.0]) {
-        final gesture = await tester.startGesture(const Offset(1, 300));
-        await gesture.moveBy(const Offset(30, 0));
-        await tester.pump();
-        await gesture.moveBy(Offset(distance, 0));
-        await tester.pump(const Duration(milliseconds: 100));
-        await gesture.up();
-        await tester.pump();
-        await record([50, 50, 75, 125, 40]);
-        expect(navigator.currentState!.userGestureInProgress, isTrue);
-        await tester.pump(const Duration(milliseconds: 11));
-        expect(navigator.currentState!.userGestureInProgress, isFalse);
-        await tester.pumpAndSettle();
-        expect(
-          find.byKey(_page),
-          distance > 400 ? findsNothing : findsOneWidget,
-        );
-      }
-      return positions;
-    }
-
-    final stock = await sample(stock: true);
-    final wrapped = await sample(stock: false);
-    expect(wrapped, hasLength(stock.length));
-    for (var i = 0; i < stock.length; i++) {
-      expect(wrapped[i], closeTo(stock[i], .01), reason: 'position sample $i');
-    }
-  });
-
   testWidgets('page translation reuses static layout and paint', (
     tester,
   ) async {
@@ -285,92 +163,106 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets(
-    'Cupertino shadow stays attached to the clipped page during push and pop',
-    (tester) async {
-      final navigator = await _app(tester);
-      _push(navigator, _page);
+  testWidgets('page shadow stays on the exposed edge during push and pop', (
+    tester,
+  ) async {
+    final navigator = await _app(tester);
+    _push(navigator, _page);
 
-      void expectEdge() {
-        final page = find.byKey(_page);
-        final pageRect = tester.getRect(page);
-        final transition = find.ancestor(
-          of: page,
-          matching: find.byType(CupertinoPageTransition),
-        );
-        final shadow = find.descendant(
-          of: transition.first,
-          matching: find.byType(DecoratedBoxTransition),
-        );
-        expect(shadow, findsOneWidget);
-        expect(tester.getRect(shadow), pageRect);
-        final pageClip = find.ancestor(
-          of: page,
-          matching: find.byType(ClipRect),
-        );
-        expect(tester.getRect(pageClip.first), pageRect);
-      }
+    void expectEdge() {
+      final page = find.byKey(_page);
+      final pageRect = tester.getRect(page);
+      final translation = find.ancestor(
+        of: page,
+        matching: find.byType(FractionalTranslation),
+      );
+      final shadow = find.descendant(
+        of: translation.first,
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is PhysicalModel &&
+              widget.color == Colors.transparent &&
+              widget.elevation == 6,
+        ),
+      );
+      expect(shadow, findsOneWidget);
+      expect(
+        tester.getRect(shadow),
+        Rect.fromLTWH(pageRect.left, pageRect.top, 24, pageRect.height),
+      );
+      final pageClip = find.ancestor(of: page, matching: find.byType(ClipRect));
+      expect(tester.getRect(pageClip.first), pageRect);
+    }
 
-      await tester.pump();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 150));
-      expectEdge();
-      await tester.pumpAndSettle();
-      navigator.currentState!.pop();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 150));
-      expectEdge();
-      await tester.pumpAndSettle();
-    },
-  );
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expectEdge();
+    await tester.pumpAndSettle();
+    navigator.currentState!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expectEdge();
+    await tester.pumpAndSettle();
+  });
 
-  testWidgets('default Cupertino push and pop include secondary parallax', (
+  testWidgets('300ms ease push and pop move only the foreground page', (
     tester,
   ) async {
     final navigator = await _app(tester);
     final route = _push(navigator, _page);
     await tester.pump();
-    const defaults = CupertinoPageTransitionsBuilder();
-    expect(route.transitionDuration, defaults.transitionDuration);
-    expect(route.reverseTransitionDuration, defaults.reverseTransitionDuration);
+    expect(route.transitionDuration, const Duration(milliseconds: 300));
+    expect(route.reverseTransitionDuration, const Duration(milliseconds: 300));
     await tester.pump();
     expect(_x(tester, _page), 800);
-    await tester.pump(route.transitionDuration ~/ 2);
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(route.animation!.value, closeTo(.5, .01));
     expect(
       _x(tester, _page),
-      closeTo(800 * (1 - Curves.fastEaseInToSlowEaseOut.transform(.5)), .01),
+      closeTo(800 * (1 - Curves.ease.transform(route.animation!.value)), .01),
     );
-    expect(
-      _x(tester, _root),
-      closeTo(-800 / 3 * Curves.linearToEaseOut.transform(.5), .01),
-    );
+    expect(_x(tester, _root), 0);
+    _expectExposedPageClipTracks(tester, _root, _page);
     await tester.pumpAndSettle();
     expect(_x(tester, _page), 0);
+
     const next = ValueKey('next');
-    _push(navigator, next);
+    final nextRoute = _push(navigator, next);
     await tester.pump();
-    await tester.pump(route.transitionDuration ~/ 2);
-    expect(
-      _x(tester, _page),
-      closeTo(-800 / 3 * Curves.linearToEaseOut.transform(.5), .01),
-    );
-    await tester.pumpAndSettle();
-    navigator.currentState!.pop();
-    await tester.pump();
-    await tester.pump(route.reverseTransitionDuration ~/ 2);
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(nextRoute.transitionDuration, const Duration(milliseconds: 300));
     expect(
       _x(tester, next),
-      closeTo(
-        800 * (1 - Curves.fastEaseInToSlowEaseOut.flipped.transform(.5)),
-        .01,
-      ),
+      closeTo(800 * (1 - Curves.ease.transform(.5)), .01),
     );
+    expect(_x(tester, _page), 0);
+    expect(_x(tester, _root), 0);
+    _expectExposedPageClipTracks(tester, _root, _page);
+    _expectExposedPageClipTracks(tester, _page, next);
+    await tester.pumpAndSettle();
+
+    navigator.currentState!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(
+      _x(tester, next),
+      closeTo(800 * (1 - Curves.ease.transform(.5)), .01),
+    );
+    expect(_x(tester, _page), 0);
+    expect(_x(tester, _root), 0);
+    _expectExposedPageClipTracks(tester, _page, next);
+    await tester.pumpAndSettle();
+
+    navigator.currentState!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
     expect(
       _x(tester, _page),
-      closeTo(-800 / 3 * Curves.easeInToLinear.transform(.5), .01),
+      closeTo(800 * (1 - Curves.ease.transform(.5)), .01),
     );
-    await tester.pumpAndSettle();
-    navigator.currentState!.pop();
+    expect(_x(tester, _root), 0);
+    _expectExposedPageClipTracks(tester, _root, _page);
     await tester.pumpAndSettle();
     expect(find.byKey(_root), findsOneWidget);
   });
@@ -740,7 +632,7 @@ void main() {
         await tester.pump();
         expect(navigator.currentState!.userGestureInProgress, isTrue);
         expect(_x(tester, _page), closeTo(320, .01));
-        expect(_x(tester, _root), closeTo(-160, .01));
+        expect(_x(tester, _root), 0);
         _expectExposedPageClipTracks(tester, _root, _page);
         await _backEvent(
           tester,
@@ -754,11 +646,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(navigator.currentState!.userGestureInProgress, isFalse);
         expect(find.byKey(_page), commit ? findsNothing : findsOneWidget);
-        _expectExposedPageClipWidth(
-          tester,
-          _root,
-          commit ? 800 : 0,
-        );
+        _expectExposedPageClipWidth(tester, _root, commit ? 800 : 0);
       }
     },
   );
@@ -775,10 +663,8 @@ void main() {
       await gesture.moveBy(Offset(distance, 0));
       await tester.pump();
       expect(_x(tester, _page), closeTo(startX + distance, .01));
-      expect(
-        _x(tester, _root),
-        closeTo(-800 / 3 * (1 - (startX + distance) / 800), .01),
-      );
+      expect(_x(tester, _root), 0);
+      _expectExposedPageClipTracks(tester, _root, _page);
       await tester.pump(const Duration(milliseconds: 100));
       await gesture.up();
       await tester.pump();
@@ -835,10 +721,8 @@ void main() {
           await tester.pump();
           expect(navigator.currentState!.userGestureInProgress, isTrue);
           expect(_x(tester, _page), closeTo(startX + distance, .01));
-          expect(
-            _x(tester, _root),
-            closeTo(-800 / 3 * (1 - (startX + distance) / 800), .01),
-          );
+          expect(_x(tester, _root), 0);
+          _expectExposedPageClipTracks(tester, _root, _page);
           expect(scrollable.position.pixels, closeTo(800, .01));
           await tester.pump(const Duration(milliseconds: 100));
           await gesture.up();
@@ -871,21 +755,23 @@ void main() {
     expect(find.byKey(_page), findsNothing);
   });
 
-  testWidgets('fullscreen dialogs use the Cupertino vertical transition', (
+  testWidgets('fullscreen dialogs use the horizontal app transition', (
     tester,
   ) async {
     final navigator = await _app(tester);
-    navigator.currentState!.push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => const Scaffold(key: _page, body: SizedBox.expand()),
-      ),
+    final route = MaterialPageRoute<void>(
+      fullscreenDialog: true,
+      builder: (_) => const Scaffold(key: _page, body: SizedBox.expand()),
     );
+    navigator.currentState!.push(route);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
-    expect(find.byType(CupertinoFullscreenDialogTransition), findsOneWidget);
-    expect(_x(tester, _page), 0);
-    expect(tester.getTopLeft(find.byKey(_page)).dy, greaterThan(0));
+    expect(route.transitionDuration, const Duration(milliseconds: 300));
+    expect(
+      _x(tester, _page),
+      closeTo(800 * (1 - Curves.ease.transform(.5)), .01),
+    );
+    expect(tester.getTopLeft(find.byKey(_page)).dy, 0);
     expect(_x(tester, _root), 0);
     await tester.pumpAndSettle();
     navigator.currentState!.pop();

@@ -236,7 +236,7 @@ void main() {
           ModalRoute.of(tester.element(find.byKey(targetKey)))!
               as PageRoute<void>;
       var elapsed = 0;
-      for (final sample in [100, 250, 400]) {
+      for (final sample in [60, 150, 240]) {
         await tester.pump(Duration(milliseconds: sample - elapsed));
         elapsed = sample;
         final progress = sample / route.transitionDuration.inMilliseconds;
@@ -255,8 +255,8 @@ void main() {
           tester.getRect(find.byKey(iconKey)).top - rect.bottom,
           closeTo(gap, .01),
         );
-        if (sample <= 250) expect(layerBuilds, 0);
-        if (sample == 250) {
+        if (sample <= 150) expect(layerBuilds, 0);
+        if (sample == 150) {
           height.value = 88;
           await tester.pump();
           expect(tester.getSize(find.byKey(targetKey)).height, 88);
@@ -663,7 +663,7 @@ void main() {
       await tester.tap(find.text('Navigation tag'));
       await tester.pump();
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 250));
+      await tester.pump(const Duration(milliseconds: 150));
       final flight = _dockFlightRect(tester);
       expect(flight.left, sourceRect.left);
       expect(flight.width, sourceRect.width);
@@ -692,7 +692,7 @@ void main() {
       await tester.pumpAndSettle();
       Navigator.of(tester.element(find.byType(SearchResultScreen))).pop();
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 250));
+      await tester.pump(const Duration(milliseconds: 150));
       expect(_dockFlightRect(tester), flight);
       expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
       expect(
@@ -762,30 +762,27 @@ void main() {
         await tester.pump();
         await tester.pump();
         expect(find.byKey(secondKey, skipOffstage: false), findsNothing);
-        await tester.pump(Duration(milliseconds: 501 - returnElapsed));
+        await tester.pump(Duration(milliseconds: 301 - returnElapsed));
         await tester.pump();
         await tester.pump();
         await tester.pump();
         expect(find.byKey(firstKey, skipOffstage: false), findsNothing);
         expect(find.byKey(secondKey, skipOffstage: false), findsOneWidget);
+        final route =
+            ModalRoute.of(tester.element(find.byKey(secondKey)))!
+                as PageRoute<void>;
         var elapsed = 0;
-        for (final sample in [100, 250, 450]) {
+        for (final sample in [100, 150, 250]) {
           await tester.pump(Duration(milliseconds: sample - elapsed));
           elapsed = sample;
-          final progress = sample / 500;
+          final progress = sample / route.transitionDuration.inMilliseconds;
           expect(
             tester.getTopLeft(find.byKey(homeKey, skipOffstage: false)).dx,
-            closeTo(
-              -width / 3 * Curves.linearToEaseOut.transform(progress),
-              0.1,
-            ),
+            0,
           );
           expect(
             tester.getTopLeft(find.byKey(secondKey)).dx,
-            closeTo(
-              width * (1 - Curves.fastEaseInToSlowEaseOut.transform(progress)),
-              0.1,
-            ),
+            closeTo(width * (1 - Curves.ease.transform(progress)), 0.1),
           );
         }
         await tester.pumpAndSettle();
@@ -874,7 +871,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 16));
     expect(homeSnapshot.allowSnapshotting, isTrue);
     expect(detailSnapshot.allowSnapshotting, isTrue);
-    await tester.pump(const Duration(milliseconds: 234));
+    await tester.pump(const Duration(milliseconds: 134));
 
     expect(
       tester.getTopLeft(find.byKey(targetMiniKey)).dy,
@@ -899,7 +896,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 16));
     expect(homeSnapshot.allowSnapshotting, isTrue);
     expect(detailSnapshot.allowSnapshotting, isTrue);
-    await tester.pump(const Duration(milliseconds: 234));
+    await tester.pump(const Duration(milliseconds: 134));
 
     expect(
       tester.getTopLeft(find.byKey(targetMiniKey)).dy,
@@ -974,7 +971,7 @@ void main() {
     await tester.tap(find.text('Open from main navigation'));
     await tester.pump();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump(const Duration(milliseconds: 150));
 
     expect(
       tester.getTopLeft(find.byKey(targetMiniKey)).dy,
@@ -1360,7 +1357,7 @@ void main() {
     await tester.tap(find.text('Open without playback'));
     await tester.pump();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump(const Duration(milliseconds: 150));
 
     expect(find.byType(AppBottomDockMiniPlayer), findsNothing);
     expect(

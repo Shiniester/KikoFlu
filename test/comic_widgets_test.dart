@@ -15,7 +15,6 @@ import 'package:flutter/services.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:image/image.dart' as img;
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
@@ -504,20 +503,12 @@ void main() {
         await tester.pump();
         final reader = find.byType(ComicReaderScreen);
         final route = ModalRoute.of(tester.element(reader))!;
-        expect(
-          route.transitionDuration,
-          const CupertinoPageTransitionsBuilder().transitionDuration,
-        );
+        expect(route.transitionDuration, const Duration(milliseconds: 300));
         await tester.pump(route.transitionDuration ~/ 2);
         expect(tester.widget<ComicReaderScreen>(reader).initialPage, 3);
         expect(
           tester.getTopLeft(reader).dx,
-          reduceMotion
-              ? 0
-              : closeTo(
-                  800 * (1 - Curves.fastEaseInToSlowEaseOut.transform(.5)),
-                  .1,
-                ),
+          reduceMotion ? 0 : closeTo(800 * (1 - Curves.ease.transform(.5)), .1),
         );
         await tester.pumpAndSettle();
         Navigator.of(tester.element(reader)).pop();

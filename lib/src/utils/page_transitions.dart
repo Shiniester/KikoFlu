@@ -1,12 +1,20 @@
-import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
+import 'dart:math' as math;
+
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../widgets/app_bottom_dock_transition.dart';
 
-/// Uses Cupertino page transitions while retaining Android route snapshots.
-class AppPageTransitionsBuilder extends CupertinoPageTransitionsBuilder {
+/// Slides only the entering/leaving page; shared elements fly in the overlay.
+class AppPageTransitionsBuilder extends PageTransitionsBuilder {
   const AppPageTransitionsBuilder();
+
+  @override
+  Duration get transitionDuration => const Duration(milliseconds: 300);
+
+  @override
+  Duration get reverseTransitionDuration => transitionDuration;
 
   @override
   Widget buildTransitions<T>(
@@ -43,10 +51,9 @@ class _PageTransition extends StatefulWidget {
 class _PageTransitionState extends State<_PageTransition>
     with WidgetsBindingObserver {
   static const _dismissedAnimation = AlwaysStoppedAnimation<double>(0);
-  static const _completedAnimation = AlwaysStoppedAnimation<double>(1);
 
   final SnapshotController _snapshotController = SnapshotController();
-  late CurvedAnimation _secondaryTransitionCurve;
+  late final HorizontalDragGestureRecognizer _edgeDrag;
   NavigatorState? _gestureNavigator;
   Animation<double>? _settlingAnimation;
   bool _dragging = false;
@@ -70,29 +77,31 @@ class _PageTransitionState extends State<_PageTransition>
   @override
   void initState() {
     super.initState();
-    _secondaryTransitionCurve = _createSecondaryTransitionCurve(
-      widget.secondaryAnimation,
-    );
     WidgetsBinding.instance.addObserver(this);
-  }
-
-  // This follows the next page's primary motion, not this page's secondary parallax.
-  CurvedAnimation _createSecondaryTransitionCurve(Animation<double> animation) =>
-      CurvedAnimation(
-        parent: animation,
-        curve: Curves.fastEaseInToSlowEaseOut,
-        reverseCurve: Curves.fastEaseInToSlowEaseOut.flipped,
-      );
-
-  @override
-  void didUpdateWidget(covariant _PageTransition oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.secondaryAnimation != widget.secondaryAnimation) {
-      _secondaryTransitionCurve.dispose();
-      _secondaryTransitionCurve = _createSecondaryTransitionCurve(
-        widget.secondaryAnimation,
-      );
-    }
+    _edgeDrag = HorizontalDragGestureRecognizer(debugOwner: this)
+      ..onStart = (_) {
+        _startGesture();
+      }
+      ..onUpdate = (details) {
+        if (!_dragging) return;
+        widget.route.handleUpdateBackGestureProgress(
+          progress:
+              (widget.animation.value -
+                      details.primaryDelta! / MediaQuery.sizeOf(context).width)
+                  .clamp(0.0, 1.0),
+        );
+      }
+      ..onEnd = (details) {
+        final velocity =
+            details.velocity.pixelsPerSecond.dx /
+            MediaQuery.sizeOf(context).width;
+        _endGesture(
+          commit: velocity.abs() >= 1
+              ? velocity > 0
+              : widget.animation.value < 0.5,
+        );
+      }
+      ..onCancel = () => _endGesture(commit: false);
   }
 
   bool get _enabled => widget.route.isCurrent && widget.route.popGestureEnabled;
@@ -108,13 +117,6 @@ class _PageTransitionState extends State<_PageTransition>
       widget.secondaryAnimation.status == AnimationStatus.dismissed &&
       widget.secondaryAnimation.value == 0 &&
       !widget.route.popGestureInProgress;
-
-  Animation<double> _animationWithoutMotion(
-    Animation<double> animation,
-  ) => switch (animation.status) {
-    AnimationStatus.forward || AnimationStatus.completed => _completedAnimation,
-    AnimationStatus.reverse || AnimationStatus.dismissed => _dismissedAnimation,
-  };
 
   void _startGesture({double progress = 1}) {
     if (!_enabled) return;
@@ -205,17 +207,10 @@ class _PageTransitionState extends State<_PageTransition>
     final secondaryAnimation = reduceMotion
         ? _dismissedAnimation
         : widget.secondaryAnimation;
-    return NotificationListener<AppBottomDockSnapshotNotification>(
-      onNotification: _onDockSnapshotChanged,
-      child: ClipRect(
-        clipper: _ExposedPageClipper(
-          curvedAnimation: _secondaryTransitionCurve,
-          linearAnimation: secondaryAnimation,
-          route: widget.route,
-          textDirection: Directionality.of(context),
-          reduceMotion: reduceMotion,
-        ),
-        child: AnimatedBuilder(
+    final transition = Stack(
+      fit: StackFit.passthrough,
+      children: [
+        AnimatedBuilder(
           animation: Listenable.merge([
             widget.animation,
             widget.secondaryAnimation,
@@ -248,23 +243,58 @@ class _PageTransitionState extends State<_PageTransition>
               });
             }
 
-            final primaryAnimation = reduceMotion
-                ? _animationWithoutMotion(widget.animation)
-                : widget.animation;
-            return const CupertinoPageTransitionsBuilder()
-                .buildTransitions<dynamic>(
-                  widget.route,
-                  context,
-                  primaryAnimation,
-                  secondaryAnimation,
+            final progress = reduceMotion
+                ? 1.0
+                : widget.route.popGestureInProgress
+                ? widget.animation.value
+                : Curves.ease.transform(widget.animation.value);
+            return FractionalTranslation(
+              translation: Offset(1 - progress, 0),
+              child: Stack(
+                fit: StackFit.passthrough,
+                clipBehavior: Clip.none,
+                children: [
+                  const Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: 24,
+                    child: PhysicalModel(
+                      color: Colors.transparent,
+                      elevation: 6,
+                      child: SizedBox.expand(),
+                    ),
+                  ),
                   ExcludeSemantics(
                     // Restore semantics after the final moving frame.
                     excluding: !reduceMotion && !_semanticsRestored,
                     child: ClipRect(child: child!),
                   ),
-                );
+                ],
+              ),
+            );
           },
         ),
+        if (platform == TargetPlatform.iOS || platform == TargetPlatform.macOS)
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: math.max(20, MediaQuery.paddingOf(context).left),
+            child: Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (event) {
+                if (_enabled) _edgeDrag.addPointer(event);
+              },
+            ),
+          ),
+      ],
+    );
+    return NotificationListener<AppBottomDockSnapshotNotification>(
+      onNotification: _onDockSnapshotChanged,
+      child: ClipRect(
+        clipper: _ExposedPageClipper(secondaryAnimation, widget.route),
+        child: transition,
       ),
     );
   }
@@ -272,8 +302,8 @@ class _PageTransitionState extends State<_PageTransition>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _edgeDrag.dispose();
     _stopGesture();
-    _secondaryTransitionCurve.dispose();
     _snapshotController.allowSnapshotting = false;
     _snapshotController.dispose();
     super.dispose();
@@ -281,43 +311,20 @@ class _PageTransitionState extends State<_PageTransition>
 }
 
 class _ExposedPageClipper extends CustomClipper<Rect> {
-  _ExposedPageClipper({
-    required this.curvedAnimation,
-    required this.linearAnimation,
-    required this.route,
-    required this.textDirection,
-    required this.reduceMotion,
-  }) : super(reclip: curvedAnimation);
+  _ExposedPageClipper(this.animation, this.route) : super(reclip: animation);
 
-  final CurvedAnimation curvedAnimation;
-  final Animation<double> linearAnimation;
+  final Animation<double> animation;
   final PageRoute<dynamic> route;
-  final TextDirection textDirection;
-  final bool reduceMotion;
 
   @override
   Rect getClip(Size size) {
-    final progress = reduceMotion
-        ? 0.0
-        : route.popGestureInProgress
-        ? linearAnimation.value
-        : curvedAnimation.value;
-    if (textDirection == TextDirection.rtl) {
-      return Rect.fromLTRB(
-        size.width * progress,
-        0,
-        size.width,
-        size.height,
-      );
-    }
+    final progress = route.navigator?.userGestureInProgress == true
+        ? animation.value
+        : Curves.ease.transform(animation.value);
     return Rect.fromLTWH(0, 0, size.width * (1 - progress), size.height);
   }
 
   @override
   bool shouldReclip(_ExposedPageClipper oldClipper) =>
-      curvedAnimation != oldClipper.curvedAnimation ||
-      linearAnimation != oldClipper.linearAnimation ||
-      route != oldClipper.route ||
-      textDirection != oldClipper.textDirection ||
-      reduceMotion != oldClipper.reduceMotion;
+      animation != oldClipper.animation || route != oldClipper.route;
 }
