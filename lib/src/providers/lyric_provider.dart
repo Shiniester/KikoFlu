@@ -50,6 +50,8 @@ class LyricSourceDescriptor {
 
 // 字幕状态
 class LyricState {
+  List<LyricLine>? _cachedDisplayLyrics;
+
   final List<LyricLine> lyrics;
   final bool isLoading;
   final String? error;
@@ -92,7 +94,7 @@ class LyricState {
     String? translatedSubtitlePath,
     LyricSourceDescriptor? source,
   }) {
-    return LyricState(
+    final nextState = LyricState(
       lyrics: lyrics ?? this.lyrics,
       isLoading: isLoading ?? this.isLoading,
       error: error ?? this.error,
@@ -107,7 +109,20 @@ class LyricState {
           translatedSubtitlePath ?? this.translatedSubtitlePath,
       source: source ?? this.source,
     );
+
+    final cachedDisplayLyrics = _cachedDisplayLyrics;
+    if (cachedDisplayLyrics != null &&
+        nextState.showTranslated == this.showTranslated &&
+        nextState.timelineOffset == this.timelineOffset &&
+        identical(_displayLyricsSource, nextState._displayLyricsSource)) {
+      nextState._cachedDisplayLyrics = cachedDisplayLyrics;
+    }
+
+    return nextState;
   }
+
+  List<LyricLine> get _displayLyricsSource =>
+      (showTranslated && translatedLyrics != null) ? translatedLyrics! : lyrics;
 
   /// 获取应用了时间轴偏移后的字幕列表
   List<LyricLine> get adjustedLyrics {
@@ -122,11 +137,15 @@ class LyricState {
 
   /// 用于显示的歌词列表（翻译后 > 原文，均应用时间轴偏移）
   List<LyricLine> get displayLyrics {
-    final source = (showTranslated && translatedLyrics != null)
-        ? translatedLyrics!
-        : lyrics;
-    if (timelineOffset == Duration.zero) return source;
-    return source.map((lyric) => lyric.applyOffset(timelineOffset)).toList();
+    final cachedDisplayLyrics = _cachedDisplayLyrics;
+    if (cachedDisplayLyrics != null) return cachedDisplayLyrics;
+
+    final source = _displayLyricsSource;
+    final displayLyrics = timelineOffset == Duration.zero
+        ? source
+        : source.map((lyric) => lyric.applyOffset(timelineOffset)).toList();
+    _cachedDisplayLyrics = displayLyrics;
+    return displayLyrics;
   }
 
   /// 判断歌词是否需要翻译（大部分字符已经是当前语言则不需要）
