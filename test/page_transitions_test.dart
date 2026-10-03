@@ -57,6 +57,54 @@ SnapshotController _snapshotController(WidgetTester tester, Key key) {
   return tester.widget<SnapshotWidget>(snapshot.first).controller;
 }
 
+Finder _exposedPageClip(Key sourcePage) => find.ancestor(
+  of: find.byKey(sourcePage, skipOffstage: false),
+  matching: find.byWidgetPredicate(
+    (widget) => widget is ClipRect && widget.clipper != null,
+    skipOffstage: false,
+  ),
+);
+
+void _expectExposedPageClipTracks(
+  WidgetTester tester,
+  Key sourcePage,
+  Key foregroundPage,
+) {
+  final exposedClip = _exposedPageClip(sourcePage);
+  expect(exposedClip, findsOneWidget);
+  final clipWidget = tester.widget<ClipRect>(exposedClip);
+  final clipBounds = tester.getRect(exposedClip);
+  final clip = clipWidget.clipper!.getClip(clipBounds.size);
+  final foregroundBounds = tester.getRect(
+    find.byKey(foregroundPage, skipOffstage: false),
+  );
+  final isRtl = Directionality.of(tester.element(exposedClip)) ==
+      TextDirection.rtl;
+  final viewportEdge = isRtl
+      ? foregroundBounds.right.clamp(clipBounds.left, clipBounds.right)
+      : foregroundBounds.left.clamp(clipBounds.left, clipBounds.right);
+  expect(
+    clipBounds.left + (isRtl ? clip.left : clip.right),
+    closeTo(viewportEdge, .01),
+    reason: '$sourcePage clip edge should meet $foregroundPage',
+  );
+}
+
+void _expectExposedPageClipWidth(
+  WidgetTester tester,
+  Key sourcePage,
+  double expectedWidth,
+) {
+  final exposedClip = _exposedPageClip(sourcePage);
+  expect(exposedClip, findsOneWidget);
+  final clipWidget = tester.widget<ClipRect>(exposedClip);
+  final clipBounds = tester.getRect(exposedClip);
+  expect(
+    clipWidget.clipper!.getClip(clipBounds.size).width,
+    closeTo(expectedWidth, .01),
+  );
+}
+
 Future<void> _backEvent(
   WidgetTester tester,
   String method, [
@@ -325,6 +373,68 @@ void main() {
     navigator.currentState!.pop();
     await tester.pumpAndSettle();
     expect(find.byKey(_root), findsOneWidget);
+  });
+
+  testWidgets('source clip meets the foreground through stacked push and pop', (
+    tester,
+  ) async {
+    final navigator = await _app(tester);
+    const middle = ValueKey('middle');
+    const top = ValueKey('top');
+
+    _push(navigator, _page);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+    _expectExposedPageClipTracks(tester, _root, _page);
+    await tester.pumpAndSettle();
+    _expectExposedPageClipWidth(tester, _root, 0);
+
+    _push(navigator, middle);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+    _expectExposedPageClipTracks(tester, _page, middle);
+    await tester.pumpAndSettle();
+
+    _push(navigator, top);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+    _expectExposedPageClipTracks(tester, _root, _page);
+    _expectExposedPageClipTracks(tester, _page, middle);
+    _expectExposedPageClipTracks(tester, middle, top);
+
+    navigator.currentState!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 180));
+    _expectExposedPageClipTracks(tester, _page, middle);
+    await tester.pumpAndSettle();
+    _expectExposedPageClipWidth(tester, _page, 0);
+
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    _expectExposedPageClipWidth(tester, _root, 0);
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    _expectExposedPageClipWidth(tester, _root, 800);
+  });
+
+  testWidgets('source clip follows the foreground when entry reverses early', (
+    tester,
+  ) async {
+    final navigator = await _app(tester);
+    _push(navigator, _page);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    _expectExposedPageClipTracks(tester, _root, _page);
+    final beforePop = _x(tester, _page);
+
+    navigator.currentState!.pop();
+    await tester.pump();
+    expect(_x(tester, _page), closeTo(beforePop, .01));
+    _expectExposedPageClipTracks(tester, _root, _page);
+    await tester.pump(const Duration(milliseconds: 40));
+    _expectExposedPageClipTracks(tester, _root, _page);
+    await tester.pumpAndSettle();
+    _expectExposedPageClipWidth(tester, _root, 800);
   });
 
   testWidgets('Android snapshots a moving page and releases it when settled', (
@@ -631,15 +741,24 @@ void main() {
         expect(navigator.currentState!.userGestureInProgress, isTrue);
         expect(_x(tester, _page), closeTo(320, .01));
         expect(_x(tester, _root), closeTo(-160, .01));
+        _expectExposedPageClipTracks(tester, _root, _page);
         await _backEvent(
           tester,
           commit ? 'commitBackGesture' : 'cancelBackGesture',
         );
         await tester.pump();
         expect(_x(tester, _page), closeTo(320, .01));
+        _expectExposedPageClipTracks(tester, _root, _page);
+        await tester.pump(const Duration(milliseconds: 100));
+        _expectExposedPageClipTracks(tester, _root, _page);
         await tester.pumpAndSettle();
         expect(navigator.currentState!.userGestureInProgress, isFalse);
         expect(find.byKey(_page), commit ? findsNothing : findsOneWidget);
+        _expectExposedPageClipWidth(
+          tester,
+          _root,
+          commit ? 800 : 0,
+        );
       }
     },
   );
