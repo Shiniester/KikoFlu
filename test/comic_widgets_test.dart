@@ -3305,10 +3305,20 @@ void main() {
     }
   }
 
-  testWidgets('chapter response during push only mounts nearby rows', (
+  testWidgets('detail metadata appears during push while chapter rows wait', (
     tester,
   ) async {
+    const listing = Comic(
+      source: 'fixture',
+      id: 'book',
+      title: 'Fixture book',
+      cover: 'fixture-cover',
+      description: 'Listing synopsis',
+      tags: ['Fixture tag'],
+      chapters: [ComicChapter('one', 'Chapter 1')],
+    );
     final source = _Source()
+      ..commentsEnabled = true
       ..chapterGate = Completer<List<ComicChapter>>()
       ..detailResult = const Comic(
         source: 'fixture',
@@ -3326,7 +3336,7 @@ void main() {
     );
     final navigator = Navigator.of(tester.element(find.text('Origin')));
     final route = MaterialPageRoute<void>(
-      builder: (_) => const ComicDetailScreen(comic: _comic),
+      builder: (_) => const ComicDetailScreen(comic: listing),
     );
     navigator.push(route);
     await tester.pump();
@@ -3334,6 +3344,12 @@ void main() {
     expect(route.animation!.status, AnimationStatus.forward);
     expect(source.detailRequests, 1);
     expect(source.chapterRequests, 1);
+    expect(find.text('Listing synopsis'), findsOneWidget);
+    expect(find.text('Fixture tag'), findsOneWidget);
+    final labels = S.of(tester.element(find.byType(ComicDetailScreen)));
+    expect(find.text(labels.comicComments), findsOneWidget);
+    expect(find.text(labels.comicChapters), findsOneWidget);
+    expect(find.text('Chapter 1'), findsNothing);
     expect(
       tester.widget<WorkTitleHeader>(find.byType(WorkTitleHeader)).title,
       'Fixture book',

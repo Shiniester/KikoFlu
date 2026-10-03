@@ -562,9 +562,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                         ),
                       ),
                       SliverList.builder(
-                        itemCount: _initialContentVisible
-                            ? (hasComments ? 4 : 3)
-                            : 0,
+                        itemCount: hasComments ? 4 : 3,
                         itemBuilder: (context, index) {
                           if (index == 0) {
                             return Padding(

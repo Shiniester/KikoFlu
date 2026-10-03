@@ -131,6 +131,11 @@ The app page containing Home, Favorites, History, and Downloaded tabs. It shares
 floating navigation and toolbar behavior with the Audio Screen.
 _Avoid_: Works Home Tab, discovery page
 
+**Comic Details Screen (漫画详情页)**:
+The page describing one comic's synopsis, tags, chapters, and available actions.
+It is distinct from the Comic Screen and Comic Reader.
+_Avoid_: Comic Screen, Comic Reader
+
 **Comic Home Tab (漫画主页)**:
 The first Comic Screen tab, showing recommendations and categories for the
 selected enabled Comic Source.
