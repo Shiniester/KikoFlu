@@ -8,6 +8,7 @@ import 'package:kikoeru_flutter/src/screens/search_result_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/enhanced_work_card.dart';
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -798,7 +799,7 @@ void main() {
   testWidgets('main bottom dock moves together into work details', (
     tester,
   ) async {
-    _configurePhoneViewport(tester);
+    _configurePhoneViewport(tester, devicePixelRatio: 3);
 
     final navigatorKey = GlobalKey<NavigatorState>();
     const sourceMiniKey = ValueKey('source-mini-player');
@@ -859,6 +860,14 @@ void main() {
     expect(tester.getTopLeft(find.byKey(sourceMiniKey)).dy, 714);
     expect(tester.getTopLeft(find.byKey(tabBarKey)).dy, 786);
 
+    var rasters = 0;
+    final onCreate = ui.Image.onCreate;
+    ui.Image.onCreate = (image) {
+      onCreate?.call(image);
+      if (image.width == 1170 && image.height == 2532) rasters++;
+    };
+    addTearDown(() => ui.Image.onCreate = onCreate);
+
     await tester.tap(find.text('Open work details'));
     await tester.pump();
     final homeSnapshot = _snapshotControllerFor(tester, homeScaffoldKey);
@@ -868,7 +877,7 @@ void main() {
     expect(detailSnapshot.allowSnapshotting, isFalse);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 16));
-    expect(homeSnapshot.allowSnapshotting, isTrue);
+    expect(homeSnapshot.allowSnapshotting, isFalse);
     expect(detailSnapshot.allowSnapshotting, isTrue);
     await tester.pump(const Duration(milliseconds: 134));
 
@@ -884,16 +893,18 @@ void main() {
 
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dy, 772);
-    expect(homeSnapshot.allowSnapshotting, isTrue);
+    expect(homeSnapshot.allowSnapshotting, isFalse);
     expect(detailSnapshot.allowSnapshotting, isFalse);
     expect(find.byKey(tabBarKey), findsNothing);
+    expect(rasters, 1, reason: 'Dock handoff must not rasterize the source.');
+    final beforePop = rasters;
 
     navigatorKey.currentState!.pop();
     await tester.pump();
     expect(homeSnapshot.allowSnapshotting, isFalse);
     expect(detailSnapshot.allowSnapshotting, isFalse);
     await tester.pump(const Duration(milliseconds: 16));
-    expect(homeSnapshot.allowSnapshotting, isTrue);
+    expect(homeSnapshot.allowSnapshotting, isFalse);
     expect(detailSnapshot.allowSnapshotting, isTrue);
     await tester.pump(const Duration(milliseconds: 134));
 
@@ -911,6 +922,7 @@ void main() {
     expect(tester.getTopLeft(find.byKey(sourceMiniKey)).dy, 714);
     expect(tester.getTopLeft(find.byKey(tabBarKey)).dy, 786);
     expect(homeSnapshot.allowSnapshotting, isFalse);
+    expect(rasters - beforePop, 1);
     debugDefaultTargetPlatformOverride = null;
   });
 
@@ -1197,6 +1209,19 @@ void main() {
             as PageRoute<void>;
     tester.view.padding = const FakeViewPadding();
 
+    final sourceSnapshot = _snapshotControllerFor(tester, sourceMiniKey);
+    var sourceRasters = 0;
+    final onCreate = ui.Image.onCreate;
+    ui.Image.onCreate = (image) {
+      onCreate?.call(image);
+      if (sourceSnapshot.allowSnapshotting &&
+          image.width == 390 &&
+          image.height == 844) {
+        sourceRasters++;
+      }
+    };
+    addTearDown(() => ui.Image.onCreate = onCreate);
+
     final targetSnapshot = _snapshotControllerFor(tester, targetMiniKey);
     final settledTarget = tester.getRect(find.byKey(targetMiniKey));
     route.handleStartBackGesture(progress: 1);
@@ -1221,6 +1246,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(targetMiniKey), findsOneWidget);
     expect(find.byKey(sourceMiniKey), findsNothing);
+    expect(sourceRasters, 0);
 
     route.handleStartBackGesture(progress: 1);
     final committedGaps = <double>[];
@@ -1235,10 +1261,20 @@ void main() {
       reason: 'Predictive-back commit gaps: $committedGaps',
     );
     route.handleCommitBackGesture();
+    await tester.pump();
+    for (var frame = 0; frame < 30; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(sourceSnapshot.allowSnapshotting, isFalse);
+    }
     await tester.pumpAndSettle();
     expect(find.byKey(sourceMiniKey), findsOneWidget);
     expect(find.byKey(targetMiniKey), findsNothing);
     expect(_settledDockGap(tester), closeTo(settledGap, 1));
+    expect(
+      sourceRasters,
+      0,
+      reason: 'Dock gesture settling must not rasterize the source.',
+    );
     expect(tester.takeException(), isNull);
     debugDefaultTargetPlatformOverride = null;
   });
