@@ -136,6 +136,22 @@ The page describing one comic's synopsis, tags, chapters, and available actions.
 It is distinct from the Comic Screen and Comic Reader.
 _Avoid_: Comic Screen, Comic Reader
 
+**Comic Reader (漫画阅读器)**:
+The full-screen reading surface for a comic chapter, including paged, spread,
+and continuous reading modes.
+_Avoid_: Comic Details Screen, image gallery
+
+**Reader Controls (阅读控制层)**:
+The Comic Reader's toolbar, chapter and page controls, and shared Mini Player
+shown over the reading surface.
+_Avoid_: Bottom Dock, App Tab Bar
+
+**Reader Zoom (阅读器缩放)**:
+The magnification of the current Comic Reader view: one page, one spread, or
+the entire continuous strip. Images within that view share the same transform.
+It is independent of the Reader Controls and the Cover Preview.
+_Avoid_: Cover Preview, image gallery
+
 **Comic Home Tab (漫画主页)**:
 The first Comic Screen tab, showing recommendations and categories for the
 selected enabled Comic Source.
