@@ -6894,6 +6894,12 @@ abstract class S {
   /// **'Reader'**
   String get comicReader;
 
+  /// Title and entry label for the shared comic reader settings page.
+  ///
+  /// In en, this message translates to:
+  /// **'Reader settings'**
+  String get comicReaderSettings;
+
   /// No description provided for @comicSearchTargets.
   ///
   /// In en, this message translates to:

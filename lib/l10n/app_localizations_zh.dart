@@ -3742,6 +3742,9 @@ class SZh extends S {
   String get comicReader => '阅读器';
 
   @override
+  String get comicReaderSettings => '阅读器设置';
+
+  @override
   String get comicSearchTargets => '搜索目标';
 
   @override
@@ -7664,6 +7667,9 @@ class SZhHant extends SZh {
 
   @override
   String get comicReader => '閱讀器';
+
+  @override
+  String get comicReaderSettings => '閱讀器設定';
 
   @override
   String get comicSearchTargets => '搜尋範圍';

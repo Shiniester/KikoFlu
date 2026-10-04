@@ -3869,6 +3869,9 @@ class SEn extends S {
   String get comicReader => 'Reader';
 
   @override
+  String get comicReaderSettings => 'Reader settings';
+
+  @override
   String get comicSearchTargets => 'Search targets';
 
   @override

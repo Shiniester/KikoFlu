@@ -1130,9 +1130,10 @@ void main() {
 
   for (final systemGesture in [false, true]) {
     testWidgets(
-      'reader return keeps the painted cover at its original height (gesture: $systemGesture)',
+      'reader return keeps painted pages and cover at their original height (gesture: $systemGesture)',
       (tester) async {
         final modes = <Object?>[];
+        final prematureRestores = <double>[];
         tester.view.physicalSize = const Size(390, 844);
         tester.view.devicePixelRatio = 1;
         tester.view.padding = const FakeViewPadding(top: 24, bottom: 24);
@@ -1146,6 +1147,15 @@ void main() {
             }
             modes.add(call.arguments);
             final immersive = call.arguments == 'SystemUiMode.immersiveSticky';
+            if (!immersive) {
+              final reader = find.byType(ComicReaderScreen);
+              if (reader.evaluate().isNotEmpty) {
+                final progress = ModalRoute.of(
+                  tester.element(reader),
+                )!.animation!.value;
+                if (progress > 0) prematureRestores.add(progress);
+              }
+            }
             void deliverInsets(int step) {
               tester.binding.addPostFrameCallback((_) {
                 final padding = immersive ? 0.0 : step * 4.0;
@@ -1176,12 +1186,17 @@ void main() {
         final marker = img.Image(width: 100, height: 160);
         img.fill(marker, color: img.ColorRgb8(255, 0, 255));
         final bytes = Uint8List.fromList(img.encodePng(marker));
+        final pageMarker = img.Image(width: 100, height: 160);
+        img.fill(pageMarker, color: img.ColorRgb8(0, 255, 0));
+        final pageBytes = Uint8List.fromList(img.encodePng(pageMarker));
         await pump(
           tester,
           const Scaffold(body: ComicGrid(comics: [_comic])),
           _Library(),
           _Source(),
-          loadImage: (page) async => page.url == 'fixture-cover' ? bytes : _png,
+          loadImage: (page) async =>
+              page.url == 'fixture-cover' ? bytes : pageBytes,
+          theme: AppTheme.lightTheme(null),
         );
         await waitForComicCardImage(tester, 'Fixture book');
         await tester.tap(find.text('Fixture book'));
@@ -1194,7 +1209,7 @@ void main() {
           ),
         );
 
-        Future<int?> paintedCoverTop() async {
+        Future<int?> paintedCoverTop({bool reader = false}) async {
           final boundary = tester.renderObject<RenderRepaintBoundary>(
             find.byKey(const ValueKey('app-paint')),
           );
@@ -1213,7 +1228,11 @@ void main() {
                 final r = data.getUint8(offset);
                 final g = data.getUint8(offset + 1);
                 final b = data.getUint8(offset + 2);
-                if (r > 80 && b > 80 && r > g * 2 && b > g * 2) matching++;
+                if (reader
+                    ? g > 80 && g > r * 2 && g > b * 2
+                    : r > 80 && b > 80 && r > g * 2 && b > g * 2) {
+                  matching++;
+                }
               }
               if (matching > 20) return y;
             }
@@ -1225,6 +1244,17 @@ void main() {
         expect(top, isNotNull);
         await tester.tap(find.text('Continue reading'));
         await tester.pumpAndSettle();
+        await waitForDecodedImage(
+          tester,
+          find
+              .descendant(
+                of: find.byType(ComicReaderScreen),
+                matching: find.byType(Image),
+              )
+              .first,
+        );
+        final readerTop = await paintedCoverTop(reader: true);
+        expect(readerTop, isNotNull);
         if (systemGesture) {
           Future<void> backEvent(
             String method, [
@@ -1268,13 +1298,17 @@ void main() {
           await tester.pump(const Duration(milliseconds: 16));
           if (frame == 0) {
             expect(find.byType(ComicReaderScreen), findsOneWidget);
-            expect(
-              modes.last,
-              'SystemUiMode.edgeToEdge',
-              reason: 'restore bars while the reader is still leaving',
-            );
           }
           final actual = await paintedCoverTop();
+          final actualReader = await paintedCoverTop(reader: true);
+          if (actualReader != null) {
+            expect(
+              actualReader,
+              closeTo(readerTop!, 1),
+              reason:
+                  'painted reader shifted vertically at return frame $frame',
+            );
+          }
           if (actual != null) {
             visibleFrames++;
             expect(
@@ -1285,6 +1319,12 @@ void main() {
           }
         }
         expect(visibleFrames, greaterThan(10));
+        expect(
+          prematureRestores,
+          isEmpty,
+          reason:
+              'native window mode must stay unchanged while the reader is visible',
+        );
         expect(
           modes.where((mode) => mode == 'SystemUiMode.edgeToEdge'),
           hasLength(1),
@@ -1349,11 +1389,14 @@ void main() {
         if (call.method == 'SystemChrome.setEnabledSystemUIMode') {
           modes.add(call.arguments);
           final immersive = call.arguments == 'SystemUiMode.immersiveSticky';
-          tester.view.physicalSize = Size(390, immersive ? 844 : 796);
-          tester.view.padding = immersive
-              ? const FakeViewPadding()
-              : const FakeViewPadding(top: 24, bottom: 24);
-          tester.view.viewPadding = tester.view.padding;
+          tester.binding.addPostFrameCallback((_) {
+            tester.view.physicalSize = Size(390, immersive ? 844 : 796);
+            tester.view.padding = immersive
+                ? const FakeViewPadding()
+                : const FakeViewPadding(top: 24, bottom: 24);
+            tester.view.viewPadding = tester.view.padding;
+          });
+          tester.binding.scheduleFrame();
         }
         return null;
       },
@@ -1382,6 +1425,7 @@ void main() {
     expect(reader, findsOneWidget);
     expect(route.animation!.status, AnimationStatus.completed);
     expect(modes.last, 'SystemUiMode.immersiveSticky');
+    expect(modes, isNot(contains('SystemUiMode.edgeToEdge')));
     tester.view.physicalSize = const Size(390, 900);
     await tester.pump();
     expect(
@@ -1392,8 +1436,9 @@ void main() {
     );
     Navigator.of(tester.element(reader)).pop();
     await tester.pump();
-    expect(modes.last, 'SystemUiMode.edgeToEdge');
+    expect(modes.last, 'SystemUiMode.immersiveSticky');
     await tester.pumpAndSettle();
+    expect(modes.last, 'SystemUiMode.edgeToEdge');
   });
 
   testWidgets(
@@ -1545,6 +1590,134 @@ void main() {
     expect(container.read(comicLayoutProvider), LayoutType.bigGrid);
     await tester.pump();
     expect(StorageService.getString('comic_layout_type'), 'bigGrid');
+  });
+
+  testWidgets('comic settings opens and persists reader settings', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final container = await pump(
+      tester,
+      const ComicSettingsScreen(),
+      _Library(),
+      _Source(),
+    );
+
+    await tester.tap(find.text('Reader settings'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ComicReaderSettingsScreen), findsOneWidget);
+    await tester.tap(find.text('Reading mode'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Left to right'));
+    await tester.pumpAndSettle();
+    expect(
+      container.read(comicReadingModeProvider),
+      ComicReadingMode.leftToRight,
+    );
+    expect(StorageService.getString('comic_reading_mode'), 'leftToRight');
+
+    for (final (title, key) in [
+      ('Tap edges to turn pages', 'comic_tap_to_turn'),
+      ('Double-tap to zoom', 'comic_double_tap_zoom'),
+      ('Keep awake while reading', 'comic_keep_awake'),
+    ]) {
+      await tester.tap(find.text(title));
+      await tester.pumpAndSettle();
+      expect(StorageService.getBool(key), isFalse);
+    }
+    await tester.tap(find.text('Preload pages'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('5'));
+    await tester.pumpAndSettle();
+    expect(StorageService.getInt('comic_preload'), 5);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Reader settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('Left to right'), findsOneWidget);
+    expect(find.text('5'), findsOneWidget);
+    expect(
+      tester
+          .widgetList<SwitchListTile>(find.byType(SwitchListTile))
+          .every((tile) => !tile.value),
+      isTrue,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('reader settings apply gestures without losing the page', (
+    tester,
+  ) async {
+    await StorageService.setString('comic_reading_mode', 'leftToRight');
+    await StorageService.setBool('comic_double_tap_zoom', false);
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pump(
+      tester,
+      const ComicReaderScreen(
+        comic: _comic,
+        chapter: ComicChapter('one', 'Chapter 1'),
+        initialPage: 3,
+      ),
+      _Library(),
+      _Source(),
+    );
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    expect(find.text('4/8'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Reader settings'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ComicReaderSettingsScreen), findsOneWidget);
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.widgetWithText(SwitchListTile, 'Double-tap to zoom'),
+          )
+          .value,
+      isFalse,
+    );
+    await tester.tap(find.text('Double-tap to zoom'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Tap edges to turn pages'));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('4/8'), findsOneWidget);
+
+    final view = find.byKey(const ValueKey('comic-page-zoom-3'));
+    final transform = tester
+        .widget<InteractiveViewer>(
+          find.descendant(of: view, matching: find.byType(InteractiveViewer)),
+        )
+        .transformationController!;
+    await doubleTapAt(tester, tester.getCenter(view));
+    await tester.pumpAndSettle();
+    expect(transform.value.getMaxScaleOnAxis(), greaterThan(1));
+    expect(StorageService.getBool('comic_double_tap_zoom'), isTrue);
+
+    await tester.tapAt(const Offset(25, 420));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(find.text('4/8'), findsOneWidget);
+    expect(
+      tester
+          .widget<AnimatedSlide>(
+            find.byKey(const ValueKey('comic-reader-top-controls')),
+          )
+          .offset,
+      const Offset(0, -1),
+    );
+    expect(StorageService.getBool('comic_tap_to_turn'), isFalse);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('comic settings selects the shared small-grid preference', (
