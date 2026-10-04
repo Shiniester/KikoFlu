@@ -262,6 +262,71 @@ void main() {
     expect(ticking('lyrics'), isTrue);
   });
 
+  for (final scenario in [
+    (size: const Size(390, 844), pageKey: 'compact-player-pages', dx: -240.0),
+    (size: const Size(390, 844), pageKey: 'compact-player-pages', dx: 240.0),
+    (size: const Size(1280, 720), pageKey: 'wide-left-pages', dx: 450.0),
+  ]) {
+    testWidgets(
+      'horizontal page drag retains cover image state at ${scenario.size} ${scenario.dx}',
+      (tester) async {
+        const coveredTrack = AudioTrack(
+          id: 'page-drag-cover',
+          title: 'Covered track',
+          url: 'https://example.invalid/audio.mp3',
+          artworkUrl: 'file://assets/icons/app_icon_opaque.png',
+        );
+        await _pumpPlayer(
+          tester,
+          scenario.size,
+          track: coveredTrack,
+          disableThemeArtwork: true,
+        );
+        final artwork = find.byKey(
+          const ValueKey('player-cover-artwork-page-drag-cover'),
+          skipOffstage: false,
+        );
+        final image = find.descendant(
+          of: artwork,
+          matching: find.byType(Image, skipOffstage: false),
+          skipOffstage: false,
+        );
+        final imageState = tester.state(image);
+        final imageElement = tester.element(image);
+        final rawImage = find.descendant(
+          of: artwork,
+          matching: find.byType(RawImage, skipOffstage: false),
+          skipOffstage: false,
+        );
+        final imageRenderObject = tester.renderObject(rawImage);
+        final pages = tester.widget<PageView>(
+          find.byKey(ValueKey(scenario.pageKey)),
+        );
+        final gesture = await tester.startGesture(tester.getCenter(artwork));
+        await gesture.moveBy(Offset(scenario.dx.sign * 20, 0));
+        for (var step = 0; step < 6; step++) {
+          await gesture.moveBy(Offset(scenario.dx / 6, 0));
+          await tester.pump(const Duration(milliseconds: 16));
+          expect(tester.state(image), same(imageState));
+          expect(tester.element(image), same(imageElement));
+          expect(tester.renderObject(rawImage), same(imageRenderObject));
+        }
+        expect((pages.controller!.page! - 1).abs(), greaterThan(0.5));
+        await gesture.up();
+        await tester.pumpAndSettle();
+        expect(tester.state(image), same(imageState));
+        await tester.drag(
+          find.byKey(ValueKey(scenario.pageKey)),
+          Offset(-scenario.dx, 0),
+        );
+        await tester.pumpAndSettle();
+        expect(pages.controller!.page, closeTo(1, 0.001));
+        expect(tester.state(image), same(imageState));
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('compact player keeps twelve pixels below the title region', (
     tester,
   ) async {
@@ -1856,11 +1921,15 @@ void main() {
     await openQueue();
     expect(identical(tester.widget(background), widget), isTrue);
     expect(_compactQueueProgress(tester), closeTo(1, 0.001));
-    expect(_mainArtworkHero(), findsNothing);
+    final artworkHeroMode = find.ancestor(
+      of: _mainArtworkHero(),
+      matching: find.byType(HeroMode, skipOffstage: false),
+    );
+    expect(tester.widget<HeroMode>(artworkHeroMode).enabled, isFalse);
     await closeQueue();
     expect(identical(tester.widget(background), widget), isTrue);
     expect(_compactQueueProgress(tester), closeTo(0, 0.001));
-    expect(_mainArtworkHero(), findsOneWidget);
+    expect(tester.widget<HeroMode>(artworkHeroMode).enabled, isTrue);
     expect(tester.takeException(), isNull);
   });
 
@@ -4377,7 +4446,15 @@ HeroMode _playerRouteHeroMode(WidgetTester tester) => tester.widget<HeroMode>(
 );
 
 void _expectMainArtworkHeroState(WidgetTester tester, {required bool enabled}) {
-  expect(_mainArtworkHero(), enabled ? findsOneWidget : findsNothing);
+  expect(_mainArtworkHero(), findsOneWidget);
+  final modes = tester.widgetList<HeroMode>(
+    find.ancestor(
+      of: _mainArtworkHero(),
+      matching: find.byType(HeroMode, skipOffstage: false),
+    ),
+  );
+  expect(modes.isNotEmpty, isTrue);
+  expect(modes.every((mode) => mode.enabled), enabled);
   expect(_playerRouteHeroMode(tester).enabled, enabled);
 }
 
