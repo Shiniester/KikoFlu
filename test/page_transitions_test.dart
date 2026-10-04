@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -119,6 +121,39 @@ Future<void> _backEvent(
 );
 
 void main() {
+  testWidgets('source parallax does not allocate a full-screen raster', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 3;
+    tester.view.physicalSize = const Size(1170, 2532);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final navigator = await _app(tester);
+    await tester.pumpAndSettle();
+
+    var rasters = 0;
+    final onCreate = ui.Image.onCreate;
+    ui.Image.onCreate = (image) {
+      onCreate?.call(image);
+      if (image.width == 1170 && image.height == 2532) rasters++;
+    };
+    addTearDown(() => ui.Image.onCreate = onCreate);
+
+    _push(navigator, _page);
+    await tester.pump();
+    for (var frame = 0; frame < 20; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(rasters, 1, reason: 'Only the foreground page needs a raster.');
+    final beforePop = rasters;
+    navigator.currentState!.pop();
+    await tester.pump();
+    for (var frame = 0; frame < 20; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(rasters - beforePop, 1);
+  });
+
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     testWidgets(
       'page translation reuses static layout and paint on $platform',
@@ -400,7 +435,7 @@ void main() {
   });
 
   testWidgets(
-    'snapshots follow secondary motion but skip dialogs and opt-outs',
+    'source pages retain paint layers while dialogs and opt-outs skip snapshots',
     (tester) async {
       final navigator = await _app(tester);
       await tester.pump();
@@ -413,9 +448,9 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 16));
       expect(first.secondaryAnimation!.status, AnimationStatus.forward);
-      expect(firstController.allowSnapshotting, isTrue);
+      expect(firstController.allowSnapshotting, isFalse);
       await tester.pumpAndSettle();
-      expect(firstController.allowSnapshotting, isTrue);
+      expect(firstController.allowSnapshotting, isFalse);
       expect(_snapshotController(tester, next).allowSnapshotting, isFalse);
 
       navigator.currentState!.push<void>(
@@ -456,7 +491,7 @@ void main() {
     },
   );
 
-  testWidgets('covered background snapshot is reused through the return', (
+  testWidgets('covered source paints changed content once on return', (
     tester,
   ) async {
     final navigator = GlobalKey<NavigatorState>();
@@ -477,10 +512,10 @@ void main() {
     final controller = _snapshotController(tester, _root);
     _push(navigator, _page);
     await tester.pumpAndSettle();
-    expect(controller.allowSnapshotting, isTrue);
+    expect(controller.allowSnapshotting, isFalse);
     final capturedPaints = paints;
 
-    // A covered page can receive content updates while its image is retained.
+    // A covered page can receive content updates while its layer is retained.
     tester
         .renderObject(
           find.byWidgetPredicate(
@@ -493,11 +528,13 @@ void main() {
     navigator.currentState!.pop();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
-    expect(controller.allowSnapshotting, isTrue);
-    expect(paints, capturedPaints);
+    expect(controller.allowSnapshotting, isFalse);
+    expect(paints, capturedPaints + 1);
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(paints, capturedPaints + 1);
     await tester.pumpAndSettle();
     expect(controller.allowSnapshotting, isFalse);
-    expect(paints, greaterThan(capturedPaints));
+    expect(paints, capturedPaints + 1);
   });
 
   testWidgets('non-Android routes keep live child rendering', (tester) async {

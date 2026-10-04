@@ -227,10 +227,10 @@ class _PageTransitionState extends State<_PageTransition>
                 !reduceMotion &&
                 !_dockSnapshotSwitching &&
                 widget.route.allowSnapshotting &&
-                (widget.route.popGestureInProgress ||
-                    _isSnapshotFrame(widget.animation) ||
-                    // Reuse the covered page's snapshot until its reveal finishes.
-                    widget.secondaryAnimation.value > 0);
+                // Source parallax reuses its paint layer without a new bitmap.
+                ((widget.route.isCurrent &&
+                        widget.route.popGestureInProgress) ||
+                    _isSnapshotFrame(widget.animation));
             final pageStopped = _pageStopped;
             if (!pageStopped) {
               _semanticsRestored = false;
