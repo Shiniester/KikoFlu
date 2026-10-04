@@ -178,7 +178,7 @@ python tool/performance/summarize_player_profile.py baseline_horizontal candidat
 队列。左右栏独立，队列期间的左栏操作及滚动位置保留。
 
 点击统一使用 `PageController.animateToPage`，时长 300ms、曲线
-`Curves.easeOutCubic`；减少动态效果时直接定位。拖动和松手使用默认
+`Curves.ease`；减少动态效果时直接定位。拖动和松手使用默认
 `PageView` 物理及原始松手速度。播放器路由关闭及切歌视觉继续使用原有行为。
 
 详情、完整字幕、宽屏控制和队列列表保持 Clamping 滚动。播放器专用控制器

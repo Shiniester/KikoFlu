@@ -84,7 +84,7 @@ class AudioPlayerScreen extends ConsumerStatefulWidget {
 class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   static const _lyricTranslationConfirmKey = 'lyric_translation_confirmed_once';
   static const Duration _pageTransitionDuration = Duration(milliseconds: 300);
-  static const Curve _pageTransitionCurve = Curves.easeOutCubic;
+  static const Curve _pageTransitionCurve = Curves.ease;
 
   final ValueNotifier<String?> _workProgress = ValueNotifier(null);
   String? get _currentProgress => _workProgress.value;

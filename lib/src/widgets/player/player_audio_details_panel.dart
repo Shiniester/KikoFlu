@@ -442,9 +442,6 @@ class _AudioVariantTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
     final secondary = colorScheme.onSurfaceVariant;
-    final titleColor = enabled
-        ? colorScheme.onSurface
-        : colorScheme.onSurface.withValues(alpha: 0.38);
     return Material(
       key: ValueKey('player-audio-variant-${variant.fullPath}'),
       color: Colors.transparent,
@@ -463,7 +460,7 @@ class _AudioVariantTile extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: titleColor,
+                        color: colorScheme.onSurface,
                         fontSize: 12.5,
                         height: 1.12,
                         fontWeight: FontWeight.w600,
@@ -474,9 +471,7 @@ class _AudioVariantTile extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: enabled
-                            ? secondary
-                            : secondary.withValues(alpha: 0.38),
+                        color: secondary,
                         fontSize: 10.5,
                         height: 1.15,
                       ),

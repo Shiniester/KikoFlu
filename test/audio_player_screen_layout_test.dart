@@ -1369,7 +1369,7 @@ void main() {
     },
   );
 
-  testWidgets('player page click transitions keep their cubic timing', (
+  testWidgets('player page click transitions use ease over 300ms', (
     tester,
   ) async {
     await _pumpPlayer(tester, const Size(1280, 720));
@@ -1381,10 +1381,7 @@ void main() {
     await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
-    expect(
-      rightController.page,
-      closeTo(Curves.easeOutCubic.transform(0.5), 0.02),
-    );
+    expect(rightController.page, closeTo(Curves.ease.transform(0.5), 0.02));
     await tester.pump(const Duration(milliseconds: 150));
     expect(rightController.page, closeTo(1, 0.001));
 
@@ -1404,10 +1401,7 @@ void main() {
     await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));
-    expect(
-      verticalController.page,
-      closeTo(Curves.easeOutCubic.transform(0.5), 0.02),
-    );
+    expect(verticalController.page, closeTo(Curves.ease.transform(0.5), 0.02));
     await tester.pump(const Duration(milliseconds: 150));
     expect(verticalController.page, closeTo(1, 0.001));
     expect(tester.takeException(), isNull);

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -54,6 +56,111 @@ final _tree = <dynamic>[
 ];
 
 void main() {
+  for (final tapAction in [false, true]) {
+    testWidgets(
+      'keeps audio list stable while queueing via ${tapAction ? 'action' : 'row'}',
+      (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(500, 400);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.view.resetPhysicalSize);
+        final variants = const PlayerAudioVariantClassifier().scan(_tree);
+        final enqueueCompleter = Completer<PlayerEnqueueVariantResult>();
+        final queueController = _PendingVariantQueueController(
+          enqueueCompleter,
+        );
+        final scrollController = ScrollController();
+        addTearDown(scrollController.dispose);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              playerWorkDetailsProvider.overrideWith(
+                (ref) async => PlayerWorkDetailsData(
+                  track: _track,
+                  work: _work,
+                  fileTree: _tree,
+                  variants: variants,
+                  fileTreeId: 'queue-fixture',
+                ),
+              ),
+              playerAudioVariantQueueControllerProvider.overrideWith(
+                (ref) => queueController,
+              ),
+            ],
+            child: MaterialApp(
+              theme: ThemeData.dark(useMaterial3: true),
+              localizationsDelegates: S.localizationsDelegates,
+              supportedLocales: S.supportedLocales,
+              home: Scaffold(
+                body: PlayerBackdropGroup(
+                  child: PlayerAudioDetailsPanel(
+                    scrollController: scrollController,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final firstVariant = find.byKey(
+          ValueKey('player-audio-variant-${variants.first.fullPath}'),
+        );
+        final secondVariant = find.byKey(
+          ValueKey('player-audio-variant-${variants[1].fullPath}'),
+        );
+        await tester.ensureVisible(secondVariant);
+        await tester.pumpAndSettle();
+        expect(scrollController.offset, greaterThan(0));
+        final initialOffset = scrollController.offset;
+        final initialElements = [
+          tester.element(firstVariant),
+          tester.element(secondVariant),
+        ];
+        List<Color?> textColors() => [
+          for (final row in [firstVariant, secondVariant])
+            ...tester
+                .widgetList<Text>(
+                  find.descendant(of: row, matching: find.byType(Text)),
+                )
+                .map((text) => text.style?.color),
+        ];
+        final initialColors = textColors();
+        final tapTarget = tapAction
+            ? find.descendant(
+                of: firstVariant,
+                matching: find.byType(PlayerCompactAction),
+              )
+            : firstVariant;
+
+        await tester.tap(tapTarget);
+        await tester.pump();
+
+        expect(queueController.callCount, 1);
+        expect(textColors(), initialColors);
+        expect(tester.element(firstVariant), same(initialElements[0]));
+        expect(tester.element(secondVariant), same(initialElements[1]));
+        expect(scrollController.offset, initialOffset);
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+        await tester.tap(tapTarget);
+        await tester.tap(secondVariant);
+        await tester.pump();
+        expect(queueController.callCount, 1);
+
+        enqueueCompleter.complete(
+          const PlayerEnqueueVariantResult(PlayerEnqueueVariantStatus.queued),
+        );
+        await tester.pump();
+        expect(textColors(), initialColors);
+        expect(scrollController.offset, initialOffset);
+        await tester.tap(tapTarget);
+        await tester.pump();
+        expect(queueController.callCount, 2);
+      },
+    );
+  }
+
   testWidgets('details use dense requested order and existing search chips', (
     tester,
   ) async {
@@ -213,4 +320,24 @@ void main() {
     final keywordField = tester.widget<TextField>(find.byType(TextField));
     expect(keywordField.decoration?.isDense, isTrue);
   });
+}
+
+class _PendingVariantQueueController
+    implements PlayerAudioVariantQueueController {
+  _PendingVariantQueueController(this.enqueueCompleter);
+
+  final Completer<PlayerEnqueueVariantResult> enqueueCompleter;
+  int callCount = 0;
+
+  @override
+  Future<PlayerEnqueueVariantResult> enqueueNext({
+    required PlayerWorkDetailsData details,
+    required PlayerAudioVariant variant,
+  }) {
+    callCount++;
+    return enqueueCompleter.future;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
