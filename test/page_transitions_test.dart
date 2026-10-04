@@ -227,7 +227,7 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('300ms ease push and pop include 40 percent source parallax', (
+  testWidgets('300ms ease push and pop include one third source parallax', (
     tester,
   ) async {
     final navigator = await _app(tester);
@@ -245,7 +245,7 @@ void main() {
     );
     expect(
       _x(tester, _root),
-      closeTo(-800 * .4 * Curves.ease.transform(route.animation!.value), .01),
+      closeTo(-800 / 3 * Curves.ease.transform(route.animation!.value), .01),
     );
     _expectExposedPageClipTracks(tester, _root, _page);
     await tester.pumpAndSettle();
@@ -262,9 +262,9 @@ void main() {
     );
     expect(
       _x(tester, _page),
-      closeTo(-800 * .4 * Curves.ease.transform(.5), .01),
+      closeTo(-800 / 3 * Curves.ease.transform(.5), .01),
     );
-    expect(_x(tester, _root), -800 * .4);
+    expect(_x(tester, _root), closeTo(-800 / 3, .01));
     _expectExposedPageClipTracks(tester, _root, _page);
     _expectExposedPageClipTracks(tester, _page, next);
     await tester.pumpAndSettle();
@@ -278,9 +278,9 @@ void main() {
     );
     expect(
       _x(tester, _page),
-      closeTo(-800 * .4 * Curves.ease.transform(.5), .01),
+      closeTo(-800 / 3 * Curves.ease.transform(.5), .01),
     );
-    expect(_x(tester, _root), -800 * .4);
+    expect(_x(tester, _root), closeTo(-800 / 3, .01));
     _expectExposedPageClipTracks(tester, _page, next);
     await tester.pumpAndSettle();
 
@@ -293,7 +293,7 @@ void main() {
     );
     expect(
       _x(tester, _root),
-      closeTo(-800 * .4 * Curves.ease.transform(.5), .01),
+      closeTo(-800 / 3 * Curves.ease.transform(.5), .01),
     );
     _expectExposedPageClipTracks(tester, _root, _page);
     await tester.pumpAndSettle();
@@ -665,7 +665,7 @@ void main() {
         await tester.pump();
         expect(navigator.currentState!.userGestureInProgress, isTrue);
         expect(_x(tester, _page), closeTo(320, .01));
-        expect(_x(tester, _root), closeTo(-800 * .4 * .6, .01));
+        expect(_x(tester, _root), closeTo(-800 / 3 * .6, .01));
         _expectExposedPageClipTracks(tester, _root, _page);
         await _backEvent(
           tester,
@@ -696,7 +696,7 @@ void main() {
       await gesture.moveBy(Offset(distance, 0));
       await tester.pump();
       expect(_x(tester, _page), closeTo(startX + distance, .01));
-      expect(_x(tester, _root), closeTo(-.4 * (800 - _x(tester, _page)), .01));
+      expect(_x(tester, _root), closeTo(-(800 - _x(tester, _page)) / 3, .01));
       _expectExposedPageClipTracks(tester, _root, _page);
       await tester.pump(const Duration(milliseconds: 100));
       await gesture.up();
@@ -756,7 +756,7 @@ void main() {
           expect(_x(tester, _page), closeTo(startX + distance, .01));
           expect(
             _x(tester, _root),
-            closeTo(-.4 * (800 - _x(tester, _page)), .01),
+            closeTo(-(800 - _x(tester, _page)) / 3, .01),
           );
           _expectExposedPageClipTracks(tester, _root, _page);
           expect(scrollable.position.pixels, closeTo(800, .01));

@@ -252,7 +252,7 @@ class _PageTransitionState extends State<_PageTransition>
                 ? secondaryAnimation.value
                 : Curves.ease.transform(secondaryAnimation.value);
             return FractionalTranslation(
-              translation: Offset(1 - progress - .4 * secondaryProgress, 0),
+              translation: Offset(1 - progress - secondaryProgress / 3, 0),
               child: Stack(
                 fit: StackFit.passthrough,
                 clipBehavior: Clip.none,
