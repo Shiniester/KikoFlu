@@ -735,7 +735,7 @@ void main() {
   ) async {
     await _pumpPlayer(tester, const Size(390, 844));
 
-    await tester.tap(find.byIcon(Icons.more_horiz));
+    await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pumpAndSettle();
     expect(find.text('Keep Screen Awake'), findsOneWidget);
     expect(find.text('Fullscreen lyrics'), findsOneWidget);
@@ -797,7 +797,7 @@ void main() {
   for (final size in [const Size(390, 844), const Size(1280, 720)]) {
     testWidgets('more opens standard player dialogs at $size', (tester) async {
       await _pumpPlayer(tester, size);
-      await tester.tap(find.byIcon(Icons.more_horiz));
+      await tester.tap(find.byIcon(Icons.more_vert));
       await tester.pumpAndSettle();
       expect(find.byType(ResponsiveBottomSheet), findsOneWidget);
       expect(
@@ -2948,7 +2948,7 @@ void main() {
     final moreIconRect = tester.getRect(
       find.descendant(
         of: find.byKey(const ValueKey('player-more-button')),
-        matching: find.byIcon(Icons.more_horiz),
+        matching: find.byIcon(Icons.more_vert),
       ),
     );
     expect(moreRect.right, closeTo(coverRect.right + 12, 0.01));
