@@ -10,7 +10,6 @@ import '../services/subtitle_library_service.dart';
 import '../utils/snackbar_util.dart';
 import '../../l10n/app_localizations.dart';
 import 'responsive_dialog.dart';
-import 'player/player_glass_surface.dart';
 
 /// 字幕轴调整对话框
 class SubtitleAdjustmentDialog extends ConsumerStatefulWidget {
@@ -212,39 +211,14 @@ class _SubtitleAdjustmentDialogState
     final isAdjusted = _currentOffset != Duration.zero;
     final mediaQuery = MediaQuery.of(context);
     final isLandscape = mediaQuery.orientation == Orientation.landscape;
-    final floatingCard = _buildFloatingCard(
-      context,
-      colorScheme,
-      offsetSeconds,
-      isAdjusted,
-      isLandscape,
-    );
-
-    return PlayerBackdropGroup(
-      child: Stack(
-        children: [
-          // 点击背景关闭
-          Positioned.fill(
-            child: GestureDetector(
-              onTap: () => Navigator.pop(context),
-              behavior: HitTestBehavior.translucent,
-              child: Container(color: Colors.transparent),
-            ),
-          ),
-          if (isLandscape)
-            Positioned(
-              top: mediaQuery.padding.top + 170,
-              left: 10,
-              child: floatingCard,
-            )
-          else
-            Positioned(
-              bottom: 40,
-              left: 0,
-              right: 0,
-              child: Center(child: floatingCard),
-            ),
-        ],
+    return ResponsiveDialog(
+      contentPadding: EdgeInsets.zero,
+      content: _buildFloatingCard(
+        context,
+        colorScheme,
+        offsetSeconds,
+        isAdjusted,
+        isLandscape,
       ),
     );
   }
@@ -261,8 +235,7 @@ class _SubtitleAdjustmentDialogState
         : (MediaQuery.sizeOf(context).width - 32).clamp(280.0, 400.0);
     return SizedBox(
       width: width,
-      child: PlayerTransientGlassSurface(
-        borderRadius: BorderRadius.circular(16),
+      child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -340,24 +313,23 @@ class _SubtitleAdjustmentDialogState
             const SizedBox(height: 12),
 
             // 快速调整按钮
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 _CompactButton(
                   label: '-500',
                   onPressed: () => _adjustByMilliseconds(-500),
                 ),
-                const SizedBox(width: 8),
                 _CompactButton(
                   label: '-100',
                   onPressed: () => _adjustByMilliseconds(-100),
                 ),
-                const SizedBox(width: 8),
                 _CompactButton(
                   label: '+100',
                   onPressed: () => _adjustByMilliseconds(100),
                 ),
-                const SizedBox(width: 8),
                 _CompactButton(
                   label: '+500',
                   onPressed: () => _adjustByMilliseconds(500),

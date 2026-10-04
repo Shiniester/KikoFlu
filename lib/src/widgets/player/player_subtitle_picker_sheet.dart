@@ -5,21 +5,13 @@ import '../../../l10n/app_localizations.dart';
 import '../../providers/lyric_provider.dart';
 import '../../providers/player_subtitle_candidates_provider.dart';
 import '../../utils/snackbar_util.dart';
-import 'player_glass_surface.dart';
+import '../responsive_dialog.dart';
 
 Future<void> showPlayerSubtitlePickerSheet(BuildContext context) {
-  return showModalBottomSheet<void>(
+  return showResponsiveBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    showDragHandle: false,
-    backgroundColor: Colors.transparent,
-    barrierColor: Colors.transparent,
-    builder: (_) => const PlayerBackdropGroup(
-      child: PlayerTransientGlassSurface(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-        child: _PlayerSubtitlePickerSheet(),
-      ),
-    ),
+    builder: (_) => const _PlayerSubtitlePickerSheet(),
   );
 }
 

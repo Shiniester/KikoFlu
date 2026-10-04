@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../providers/lyric_provider.dart';
 import '../../providers/player_lyric_style_provider.dart';
+import '../responsive_dialog.dart';
 import 'lyric_display_widget.dart';
 import 'player_glass_surface.dart';
 import 'player_seek_preview.dart';
@@ -530,18 +531,10 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
 }
 
 Future<void> showPlayerLyricSettingsSheet(BuildContext context) {
-  return showModalBottomSheet<void>(
+  return showResponsiveBottomSheet<void>(
     context: context,
-    showDragHandle: false,
     isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    barrierColor: Colors.transparent,
-    builder: (_) => const PlayerBackdropGroup(
-      child: PlayerTransientGlassSurface(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-        child: _LyricSettingsSheet(),
-      ),
-    ),
+    builder: (_) => const _LyricSettingsSheet(),
   );
 }
 

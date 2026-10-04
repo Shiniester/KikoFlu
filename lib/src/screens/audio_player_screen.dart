@@ -39,6 +39,7 @@ import '../widgets/text_preview_screen.dart';
 import '../widgets/work_bookmark_manager.dart';
 import '../widgets/app_bottom_dock_transition.dart';
 import '../widgets/cover_preview_dialog.dart';
+import '../widgets/responsive_dialog.dart';
 import 'work_detail_screen.dart';
 import '../../l10n/app_localizations.dart';
 
@@ -388,7 +389,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => PlayerGlassAlertDialog(
+      builder: (dialogContext) => ResponsiveAlertDialog(
         title: Text(S.of(dialogContext).translateLyrics),
         content: Text(S.of(dialogContext).lyricTranslationConfirmMessage),
         actions: [
@@ -2336,58 +2337,46 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   Future<void> _showMoreSheet(BuildContext context, AudioTrack track) async {
     _releaseTextInputFocus();
     try {
-      await showModalBottomSheet<void>(
+      await showResponsiveBottomSheet<void>(
         context: context,
         isScrollControlled: true,
-        showDragHandle: false,
-        requestFocus: false,
-        backgroundColor: Colors.transparent,
-        barrierColor: Colors.transparent,
-        builder: (sheetContext) => PlayerBackdropGroup(
-          child: PlayerTransientGlassSurface(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-            child: SafeArea(
-              top: false,
-              child: SizedBox(
-                height: math.min(
-                  MediaQuery.sizeOf(sheetContext).height * 0.62,
-                  520,
-                ),
-                child: ValueListenableBuilder<String?>(
-                  valueListenable: _workProgress,
-                  builder: (_, progress, _) => PlayerInfoPanel(
-                    track: track,
-                    currentProgress: progress,
-                    onMarkPressed: track.workId == null
-                        ? null
-                        : () => _showMarkDialog(
-                            context,
-                            track.workId!,
-                            track.title,
-                          ),
-                    onDetailPressed: track.workId == null
-                        ? null
-                        : () {
-                            Navigator.of(sheetContext).pop();
-                            _navigateToWorkDetail(context, track.workId!);
-                          },
-                    onQueuePressed: () {
-                      Navigator.of(sheetContext).pop();
-                      _showQueue();
-                    },
-                    onImmersiveLyrics: () {
-                      Navigator.of(sheetContext).pop();
-                      _enterLyricFullscreen();
-                    },
-                    onLyricSettings: () {
-                      Navigator.of(sheetContext).pop();
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) showPlayerLyricSettingsSheet(context);
-                      });
-                    },
-                    visibleActionCount: 5,
-                  ),
-                ),
+        builder: (sheetContext) => SafeArea(
+          top: false,
+          child: SizedBox(
+            height: math.min(
+              MediaQuery.sizeOf(sheetContext).height * 0.62,
+              520,
+            ),
+            child: ValueListenableBuilder<String?>(
+              valueListenable: _workProgress,
+              builder: (_, progress, _) => PlayerInfoPanel(
+                track: track,
+                currentProgress: progress,
+                onMarkPressed: track.workId == null
+                    ? null
+                    : () =>
+                          _showMarkDialog(context, track.workId!, track.title),
+                onDetailPressed: track.workId == null
+                    ? null
+                    : () {
+                        Navigator.of(sheetContext).pop();
+                        _navigateToWorkDetail(context, track.workId!);
+                      },
+                onQueuePressed: () {
+                  Navigator.of(sheetContext).pop();
+                  _showQueue();
+                },
+                onImmersiveLyrics: () {
+                  Navigator.of(sheetContext).pop();
+                  _enterLyricFullscreen();
+                },
+                onLyricSettings: () {
+                  Navigator.of(sheetContext).pop();
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) showPlayerLyricSettingsSheet(context);
+                  });
+                },
+                visibleActionCount: 5,
               ),
             ),
           ),

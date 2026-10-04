@@ -6,6 +6,7 @@ import '../../providers/player_work_details_provider.dart';
 import '../../services/player_audio_variant_classifier.dart';
 import '../../utils/snackbar_util.dart';
 import '../circle_chip.dart';
+import '../responsive_dialog.dart';
 import '../tag_chip.dart';
 import '../va_chip.dart';
 import 'player_glass_surface.dart';
@@ -358,18 +359,10 @@ class _PlayerAudioDetailsPanelState
   }
 
   Future<void> _showFilterSheet(BuildContext context) async {
-    final result = await showModalBottomSheet<PlayerAudioVariantFilter>(
+    final result = await showResponsiveBottomSheet<PlayerAudioVariantFilter>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: false,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.transparent,
-      builder: (sheetContext) => PlayerBackdropGroup(
-        child: PlayerTransientGlassSurface(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-          child: _AudioVariantFilterSheet(initial: _filter),
-        ),
-      ),
+      builder: (_) => _AudioVariantFilterSheet(initial: _filter),
     );
     if (result != null && mounted) setState(() => _filter = result);
   }
