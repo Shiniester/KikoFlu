@@ -1209,6 +1209,19 @@ void main() {
             as PageRoute<void>;
     tester.view.padding = const FakeViewPadding();
 
+    final sourceSnapshot = _snapshotControllerFor(tester, sourceMiniKey);
+    var sourceRasters = 0;
+    final onCreate = ui.Image.onCreate;
+    ui.Image.onCreate = (image) {
+      onCreate?.call(image);
+      if (sourceSnapshot.allowSnapshotting &&
+          image.width == 390 &&
+          image.height == 844) {
+        sourceRasters++;
+      }
+    };
+    addTearDown(() => ui.Image.onCreate = onCreate);
+
     final targetSnapshot = _snapshotControllerFor(tester, targetMiniKey);
     final settledTarget = tester.getRect(find.byKey(targetMiniKey));
     route.handleStartBackGesture(progress: 1);
@@ -1233,6 +1246,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(targetMiniKey), findsOneWidget);
     expect(find.byKey(sourceMiniKey), findsNothing);
+    expect(sourceRasters, 0);
 
     route.handleStartBackGesture(progress: 1);
     final committedGaps = <double>[];
@@ -1247,10 +1261,20 @@ void main() {
       reason: 'Predictive-back commit gaps: $committedGaps',
     );
     route.handleCommitBackGesture();
+    await tester.pump();
+    for (var frame = 0; frame < 30; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(sourceSnapshot.allowSnapshotting, isFalse);
+    }
     await tester.pumpAndSettle();
     expect(find.byKey(sourceMiniKey), findsOneWidget);
     expect(find.byKey(targetMiniKey), findsNothing);
     expect(_settledDockGap(tester), closeTo(settledGap, 1));
+    expect(
+      sourceRasters,
+      0,
+      reason: 'Dock gesture settling must not rasterize the source.',
+    );
     expect(tester.takeException(), isNull);
     debugDefaultTargetPlatformOverride = null;
   });

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/utils/theme.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
 
 const _root = ValueKey('root');
@@ -152,6 +154,113 @@ void main() {
       await tester.pump(const Duration(milliseconds: 16));
     }
     expect(rasters - beforePop, 1);
+  });
+
+  for (final progress in [0.0, .6]) {
+    for (final commit in [false, true]) {
+      testWidgets(
+        'Android gesture keeps one raster (progress=$progress, commit=$commit)',
+        (tester) async {
+          tester.view.devicePixelRatio = 3;
+          tester.view.physicalSize = const Size(1170, 2532);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          addTearDown(tester.view.resetPhysicalSize);
+          final navigator = await _app(tester);
+          _push(navigator, _page);
+          await tester.pumpAndSettle();
+
+          var rasters = 0;
+          final onCreate = ui.Image.onCreate;
+          ui.Image.onCreate = (image) {
+            onCreate?.call(image);
+            if (image.width == 1170 && image.height == 2532) rasters++;
+          };
+          addTearDown(() => ui.Image.onCreate = onCreate);
+
+          await _backEvent(tester, 'startBackGesture', 0);
+          if (progress > 0) {
+            await _backEvent(tester, 'updateBackGestureProgress', progress);
+          }
+          await tester.pump();
+          expect(rasters, 1);
+          await _backEvent(
+            tester,
+            commit ? 'commitBackGesture' : 'cancelBackGesture',
+          );
+          await tester.pump();
+          for (var frame = 0; frame < 30; frame++) {
+            await tester.pump(const Duration(milliseconds: 16));
+            expect(
+              rasters,
+              1,
+              reason: 'Gesture settling must reuse its raster.',
+            );
+            expect(
+              _snapshotController(tester, _root).allowSnapshotting,
+              isFalse,
+            );
+          }
+          expect(navigator.currentState!.userGestureInProgress, isFalse);
+          expect(find.byKey(_page), commit ? findsNothing : findsOneWidget);
+          if (!commit) {
+            expect(
+              _snapshotController(tester, _page).allowSnapshotting,
+              isFalse,
+            );
+            final exclusion = find.ancestor(
+              of: find.byKey(_page),
+              matching: find.byType(ExcludeSemantics),
+            );
+            expect(
+              tester.widget<ExcludeSemantics>(exclusion.first).excluding,
+              isFalse,
+            );
+          }
+        },
+      );
+    }
+  }
+
+  testWidgets('player gesture theme changes do not snapshot the covered page', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final navigator = GlobalKey<NavigatorState>();
+    final seed = ValueNotifier<Color>(Colors.blue);
+    addTearDown(seed.dispose);
+    await tester.pumpWidget(
+      ValueListenableBuilder<Color>(
+        valueListenable: seed,
+        builder: (_, color, __) => MaterialApp(
+          navigatorKey: navigator,
+          theme: AppTheme.lightTheme(null).copyWith(
+            platform: TargetPlatform.android,
+            colorScheme: ColorScheme.fromSeed(seedColor: color),
+          ),
+          home: const Scaffold(key: _root, body: SizedBox.expand()),
+        ),
+      ),
+    );
+    final player = AudioPlayerPageRoute<void>(
+      builder: (_) => const Scaffold(key: _page, body: SizedBox.expand()),
+    );
+    navigator.currentState!.push(player);
+    await tester.pumpAndSettle();
+    final source = _snapshotController(tester, _root);
+    expect(
+      player.beginVerticalDismissGesture(PlayerDismissVisualMode.main),
+      isTrue,
+    );
+    player.updateVerticalDismissGesture(distance: 200, extent: 844);
+    seed.value = Colors.red;
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(source.allowSnapshotting, isFalse);
+    player.cancelVerticalDismissGesture();
+    await tester.pumpAndSettle();
+    expect(source.allowSnapshotting, isFalse);
   });
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {

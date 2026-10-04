@@ -109,8 +109,7 @@ class _PageTransitionState extends State<_PageTransition>
   bool _isSnapshotFrame(Animation<double> animation) =>
       (animation.status == AnimationStatus.forward ||
           animation.status == AnimationStatus.reverse) &&
-      animation.value > 0 &&
-      animation.value < 1;
+      animation.value > 0;
 
   bool get _pageStopped =>
       widget.animation.status == AnimationStatus.completed &&
@@ -214,6 +213,7 @@ class _PageTransitionState extends State<_PageTransition>
           animation: Listenable.merge([
             widget.animation,
             widget.secondaryAnimation,
+            widget.route.navigator!.userGestureInProgressNotifier,
           ]),
           child: SnapshotWidget(
             controller: _snapshotController,
@@ -228,6 +228,7 @@ class _PageTransitionState extends State<_PageTransition>
                 !_dockSnapshotSwitching &&
                 widget.route.allowSnapshotting &&
                 // Source parallax reuses its paint layer without a new bitmap.
+                widget.secondaryAnimation.isDismissed &&
                 ((widget.route.isCurrent &&
                         widget.route.popGestureInProgress) ||
                     _isSnapshotFrame(widget.animation));
