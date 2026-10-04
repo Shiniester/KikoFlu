@@ -119,49 +119,70 @@ Future<void> _backEvent(
 );
 
 void main() {
-  testWidgets('page translation reuses static layout and paint', (
-    tester,
-  ) async {
-    final navigator = await _app(tester);
-    var builds = 0;
-    var layouts = 0;
-    var paints = 0;
-    navigator.currentState!.push(
-      MaterialPageRoute<void>(
-        builder: (_) => Builder(
-          builder: (_) {
-            builds++;
-            return LayoutBuilder(
-              builder: (_, __) {
-                layouts++;
-                return CustomPaint(
-                  painter: _PaintProbe(() => paints++),
-                  child: const SizedBox.expand(),
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets(
+      'page translation reuses static layout and paint on $platform',
+      (tester) async {
+        final navigator = await _app(tester, platform: platform);
+        var builds = 0;
+        var layouts = 0;
+        var paints = 0;
+        navigator.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => Builder(
+              builder: (_) {
+                builds++;
+                return LayoutBuilder(
+                  builder: (_, __) {
+                    layouts++;
+                    return CustomPaint(
+                      painter: _PaintProbe(() => paints++),
+                      child: const SizedBox.expand(),
+                    );
+                  },
                 );
               },
-            );
-          },
-        ),
-      ),
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        final initial = (builds, layouts, paints);
+        for (var i = 0; i < 4; i++) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        expect((builds, layouts, paints), initial);
+        await tester.pumpAndSettle();
+        _push(navigator, const ValueKey('covering-page'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        final covered = (builds, layouts, paints);
+        for (var i = 0; i < 4; i++) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        expect((builds, layouts, paints), covered);
+        await tester.pumpAndSettle();
+        navigator.currentState!.pop();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        final revealed = (builds, layouts, paints);
+        for (var i = 0; i < 4; i++) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        expect((builds, layouts, paints), revealed);
+        await tester.pumpAndSettle();
+        navigator.currentState!.pop();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        final returning = (builds, layouts, paints);
+        for (var i = 0; i < 4; i++) {
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        expect((builds, layouts, paints), returning);
+        await tester.pumpAndSettle();
+      },
     );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
-    final initial = (builds, layouts, paints);
-    for (var i = 0; i < 4; i++) {
-      await tester.pump(const Duration(milliseconds: 50));
-    }
-    expect((builds, layouts, paints), initial);
-    await tester.pumpAndSettle();
-    navigator.currentState!.pop();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
-    final returning = (builds, layouts, paints);
-    for (var i = 0; i < 4; i++) {
-      await tester.pump(const Duration(milliseconds: 50));
-    }
-    expect((builds, layouts, paints), returning);
-    await tester.pumpAndSettle();
-  });
+  }
 
   testWidgets('page shadow stays on the exposed edge during push and pop', (
     tester,
@@ -206,7 +227,7 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('300ms ease push and pop move only the foreground page', (
+  testWidgets('300ms ease push and pop include one third source parallax', (
     tester,
   ) async {
     final navigator = await _app(tester);
@@ -222,7 +243,10 @@ void main() {
       _x(tester, _page),
       closeTo(800 * (1 - Curves.ease.transform(route.animation!.value)), .01),
     );
-    expect(_x(tester, _root), 0);
+    expect(
+      _x(tester, _root),
+      closeTo(-800 / 3 * Curves.ease.transform(route.animation!.value), .01),
+    );
     _expectExposedPageClipTracks(tester, _root, _page);
     await tester.pumpAndSettle();
     expect(_x(tester, _page), 0);
@@ -236,8 +260,11 @@ void main() {
       _x(tester, next),
       closeTo(800 * (1 - Curves.ease.transform(.5)), .01),
     );
-    expect(_x(tester, _page), 0);
-    expect(_x(tester, _root), 0);
+    expect(
+      _x(tester, _page),
+      closeTo(-800 / 3 * Curves.ease.transform(.5), .01),
+    );
+    expect(_x(tester, _root), closeTo(-800 / 3, .01));
     _expectExposedPageClipTracks(tester, _root, _page);
     _expectExposedPageClipTracks(tester, _page, next);
     await tester.pumpAndSettle();
@@ -249,8 +276,11 @@ void main() {
       _x(tester, next),
       closeTo(800 * (1 - Curves.ease.transform(.5)), .01),
     );
-    expect(_x(tester, _page), 0);
-    expect(_x(tester, _root), 0);
+    expect(
+      _x(tester, _page),
+      closeTo(-800 / 3 * Curves.ease.transform(.5), .01),
+    );
+    expect(_x(tester, _root), closeTo(-800 / 3, .01));
     _expectExposedPageClipTracks(tester, _page, next);
     await tester.pumpAndSettle();
 
@@ -261,7 +291,10 @@ void main() {
       _x(tester, _page),
       closeTo(800 * (1 - Curves.ease.transform(.5)), .01),
     );
-    expect(_x(tester, _root), 0);
+    expect(
+      _x(tester, _root),
+      closeTo(-800 / 3 * Curves.ease.transform(.5), .01),
+    );
     _expectExposedPageClipTracks(tester, _root, _page);
     await tester.pumpAndSettle();
     expect(find.byKey(_root), findsOneWidget);
@@ -632,7 +665,7 @@ void main() {
         await tester.pump();
         expect(navigator.currentState!.userGestureInProgress, isTrue);
         expect(_x(tester, _page), closeTo(320, .01));
-        expect(_x(tester, _root), 0);
+        expect(_x(tester, _root), closeTo(-800 / 3 * .6, .01));
         _expectExposedPageClipTracks(tester, _root, _page);
         await _backEvent(
           tester,
@@ -663,7 +696,7 @@ void main() {
       await gesture.moveBy(Offset(distance, 0));
       await tester.pump();
       expect(_x(tester, _page), closeTo(startX + distance, .01));
-      expect(_x(tester, _root), 0);
+      expect(_x(tester, _root), closeTo(-(800 - _x(tester, _page)) / 3, .01));
       _expectExposedPageClipTracks(tester, _root, _page);
       await tester.pump(const Duration(milliseconds: 100));
       await gesture.up();
@@ -721,7 +754,10 @@ void main() {
           await tester.pump();
           expect(navigator.currentState!.userGestureInProgress, isTrue);
           expect(_x(tester, _page), closeTo(startX + distance, .01));
-          expect(_x(tester, _root), 0);
+          expect(
+            _x(tester, _root),
+            closeTo(-(800 - _x(tester, _page)) / 3, .01),
+          );
           _expectExposedPageClipTracks(tester, _root, _page);
           expect(scrollable.position.pixels, closeTo(800, .01));
           await tester.pump(const Duration(milliseconds: 100));

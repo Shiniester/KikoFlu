@@ -637,6 +637,9 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
     final onLongPress = widget.onLongPress;
     final layoutType = ref.watch(comicLayoutProvider);
     final isList = layoutType == LayoutType.list;
+    final bottomPadding = SliverToBoxAdapter(
+      child: SizedBox(height: MediaQuery.paddingOf(context).bottom),
+    );
     return LayoutBuilder(
       builder: (context, constraints) {
         final metrics = resolveCollectionGridMetrics(
@@ -689,6 +692,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
               ),
               if (widget.footer != null)
                 SliverToBoxAdapter(child: widget.footer!),
+              bottomPadding,
             ],
           );
         }
@@ -807,6 +811,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
               ),
               if (widget.footer != null)
                 SliverToBoxAdapter(child: widget.footer!),
+              bottomPadding,
             ],
           );
         }
@@ -912,6 +917,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
             ),
             if (widget.footer != null)
               SliverToBoxAdapter(child: widget.footer!),
+            bottomPadding,
           ],
         );
       },

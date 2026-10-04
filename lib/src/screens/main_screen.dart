@@ -299,6 +299,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     );
 
     final portraitScaffold = Scaffold(
+      extendBody: true,
       body: Stack(
         children: [
           // 主内容
@@ -311,12 +312,21 @@ class _MainScreenState extends ConsumerState<MainScreen> {
                   !authState.isLoggedIn &&
                   authState.error != null;
 
-              return Padding(
-                padding: EdgeInsets.only(top: isOfflineMode ? 30 : 0),
-                child: SafeArea(
-                  top: false,
-                  bottom: false,
-                  child: PageStorage(bucket: _bucket, child: _buildPages()),
+              final mediaQuery = MediaQuery.of(context);
+              // Keep nested Scaffold controls above the Dock.
+              return MediaQuery(
+                data: mediaQuery.copyWith(
+                  viewPadding: mediaQuery.viewPadding.copyWith(
+                    bottom: mediaQuery.padding.bottom,
+                  ),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.only(top: isOfflineMode ? 30 : 0),
+                  child: SafeArea(
+                    top: false,
+                    bottom: false,
+                    child: PageStorage(bucket: _bucket, child: _buildPages()),
+                  ),
                 ),
               );
             },
