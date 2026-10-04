@@ -292,31 +292,6 @@ ID 触发进度、文件树和详情加载，与随后分页重叠。
 `candidate_fast_gradient_warmup_1.json`。
 GPU 证据为 `fast_gradient_gpu_0.rdc` 及 `renderdoc-fast-gradient-replay.json`。
 
-交接记录：
-
-- `task_brief`：删除完整播放器径向背景，保持线性换色、内部 300ms 分页、默认
-  手势物理，解决内部动画性能回退；主任务完成局部修改和验收。
-- `dispatch`：`read_only` 为 `rendering_facts`、`measurement_facts`、`boundary_review`、`paging_gpu_consult`；
-  `writer` 与 `writer_sequence` 均为主任务。
-  `skipped`：无依赖、发布或跨业务模块改动，其他角色与当前职责重复。
-- `agents`：
-  - `name: rendering_facts`；`focus`：框架渲染与绘制范围；`result`：确认整页边界
-    可复用，遮罩应限制可见范围；`risks`：单设备 GPU 证据；`next_step`：后续设备回归。
-  - `name: measurement_facts`；`focus`：五对交错测量与门槛；`result`：确认采样及
-    汇总口径；`risks`：本地 UI 场景；`next_step`：沿用相同入口和门槛。
-  - `name: boundary_review`；`focus`：背景删除及渐变坐标；`result`：
-    确认淡出绝对位置等价，极小高度保留原逻辑，未发现问题；`risks`：布局基准已有差异；
-    `next_step`：后续保持局部改动。
-  - `name: paging_gpu_consult`；`focus`：横向 GPU 工作；`result`：定位渐变终点
-    与遮罩范围不匹配，恢复框架 fast gradient；`risks`：不同后端的取整差异；`next_step`：其他设备验证。
-- `implementation_plan`：本地测量输入 → 分页边界与字幕可见遮罩 → 删除径向背景
-  → 可见范围内重参数化字幕渐变 → 真实组件回归、视觉对照、隔离构建及固定五对测量。
-- `verification`：以上测试、像素对照、构建、三个场景门槛及连续交接检查均完成。
-- `dependency_risks`：无新增依赖，Flutter 3.44.7 和现有锁定版本保持一致。
-- `conflicts`：`[]`。
-- `handoff`：`what` 为局部源码、路由基准及完整报告；`why` 为三个内部场景均
-  达标；`next` 为按相同口径扩展其他设备验证。
-
 ## 2026-10-03 横向拖动与松手
 
 静止的播放器背景通过 Flutter `SnapshotWidget` 复用为纹理。调色变化时关闭
@@ -360,22 +335,3 @@ GPU 证据为 `fast_gradient_gpu_0.rdc` 及 `renderdoc-fast-gradient-replay.json
 `horizontal_snapshot_paired_gates.json`，完整复现为
 `candidate_horizontal_full_validation_1.json`。临时诊断入口和帧追踪保存在
 被忽略的 `build/`；正式分阶段入口及汇总工具已纳入仓库。
-
-交接记录：
-
-- `task_brief`：保留播放器布局、手势和实时字幕，优化 Android 横向分页绘制。
-- `dispatch`：`read_only` 为 `paging_path_facts`、`paging_repro_facts`、
-  `background_cache_review`；`writer` 与 `writer_sequence` 为主任务。
-  `skipped`：未新增依赖或改变发布、音频、跨模块接口，其他角色无独立问题。
-- `agents`：`paging_path_facts` 定位横向路径与 GLES 绘制耗时，指出整页快照会
-  冻结实时字幕；`paging_repro_facts` 确认分阶段手势与计时窗口；
-  `background_cache_review` 核对缓存生命周期、调色更新、缺窗拒绝和汇总口径。
-  风险为单设备与空详情覆盖，下一步为其他设备及实际元数据测量。
-- `implementation_plan`：真实组件分阶段复现 → 静止背景缓存 → 像素和手势回归
-  → 五对交错测量 → 原始完整场景复验。
-- `verification`：上述测试、静态分析、构建、完整场景和整体门槛已完成；
-  松手子阶段卡顿比例门槛未通过。
-- `dependency_risks`：无新增依赖，使用锁定 Flutter 的公共 API。
-- `conflicts`：`[]`。
-- `handoff`：`what` 为背景实现、分阶段性能入口及证据；`why` 为减少拖动阶段
-  超预算帧；`next` 为定位尚未改善的松手尾部帧。
