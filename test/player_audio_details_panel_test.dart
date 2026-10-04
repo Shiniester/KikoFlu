@@ -12,6 +12,7 @@ import 'package:kikoeru_flutter/src/widgets/circle_chip.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_audio_details_panel.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_action_icons.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
+import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/tag_chip.dart';
 import 'package:kikoeru_flutter/src/widgets/va_chip.dart';
 
@@ -276,9 +277,14 @@ void main() {
     expect(opened, _work);
   });
 
-  testWidgets('audio filter uses glass and calls SE sound effects', (
+  testWidgets('audio filter uses a responsive sheet without blur', (
     tester,
   ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(500, 1000);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+
     final variants = const PlayerAudioVariantClassifier().scan(_tree);
     await tester.pumpWidget(
       ProviderScope(
@@ -307,14 +313,23 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('player-audio-filter-button')));
     await tester.pumpAndSettle();
-    expect(find.text('Sound effects'), findsOneWidget);
-    expect(find.text('SE'), findsNothing);
-    final filterGlass = find.byType(PlayerTransientGlassSurface);
-    expect(filterGlass, findsOneWidget);
+    final filterSheet = find.byType(ResponsiveBottomSheet);
+    expect(filterSheet, findsOneWidget);
     expect(
-      find.descendant(of: filterGlass, matching: find.byType(BackdropFilter)),
+      find.descendant(of: filterSheet, matching: find.byType(BackdropFilter)),
+      findsNothing,
+    );
+    final albumGlass = find.descendant(
+      of: find.byKey(const ValueKey('player-detail-album')),
+      matching: find.byType(PlayerGlassSurface),
+    );
+    expect(albumGlass, findsOneWidget);
+    expect(
+      find.descendant(of: albumGlass, matching: find.byType(BackdropFilter)),
       findsOneWidget,
     );
+    expect(find.text('Sound effects'), findsOneWidget);
+    expect(find.text('SE'), findsNothing);
     final filterTitle = tester.widget<Text>(find.text('Filter audio files'));
     expect(filterTitle.style?.fontSize, 18);
     final keywordField = tester.widget<TextField>(find.byType(TextField));

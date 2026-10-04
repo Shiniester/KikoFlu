@@ -11,6 +11,7 @@ import '../../providers/floating_lyric_provider.dart';
 import '../../providers/lyric_provider.dart';
 import '../../providers/player_buttons_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../responsive_dialog.dart';
 import '../subtitle_adjustment_dialog.dart';
 import 'player_glass_surface.dart';
 import 'sleep_timer_dialog.dart';
@@ -325,7 +326,6 @@ class _PlayerOverflowAction extends ConsumerWidget {
         if (!context.mounted) return;
         showDialog(
           context: context,
-          barrierColor: Colors.transparent,
           builder: (_) => const SubtitleAdjustmentDialog(),
         );
       case PlayerButtonType.floatingLyric:
@@ -338,7 +338,7 @@ class _PlayerOverflowAction extends ConsumerWidget {
     showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setState) => PlayerGlassAlertDialog(
+        builder: (context, setState) => ResponsiveAlertDialog(
           title: Text(S.of(context).playbackSpeed),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -378,7 +378,7 @@ class _PlayerOverflowAction extends ConsumerWidget {
           final volume = ref.watch(
             audioPlayerControllerProvider.select((state) => state.volume),
           );
-          return PlayerGlassAlertDialog(
+          return ResponsiveAlertDialog(
             title: Text(S.of(context).volume),
             content: Slider(
               value: volume,

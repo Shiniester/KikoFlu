@@ -15,7 +15,6 @@ import '../volume_control.dart';
 import 'sleep_timer_button.dart';
 import 'sleep_timer_dialog.dart';
 import 'playlist_dialog.dart';
-import 'player_glass_surface.dart';
 import 'player_seek_preview.dart';
 import '../../../l10n/app_localizations.dart';
 
@@ -79,7 +78,7 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
 
     showDialog(
       context: context,
-      builder: (context) => PlayerGlassAlertDialog(
+      builder: (context) => ResponsiveAlertDialog(
         title: Text(S.of(context).playbackSpeed),
         content: StatefulBuilder(
           builder: (context, setState) {
@@ -368,7 +367,6 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
             Navigator.pop(context);
             showDialog(
               context: context,
-              barrierColor: Colors.transparent,
               builder: (context) => const SubtitleAdjustmentDialog(),
             );
           },
@@ -591,7 +589,6 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
               onPressed: () {
                 showDialog(
                   context: context,
-                  barrierColor: Colors.transparent,
                   builder: (context) => const SubtitleAdjustmentDialog(),
                 );
               },

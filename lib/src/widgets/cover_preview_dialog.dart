@@ -459,10 +459,6 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
       background = DecoratedBox(
         key: const ValueKey('cover-preview-linear-background'),
         decoration: BoxDecoration(gradient: palette.backgroundGradient),
-        child: DecoratedBox(
-          key: const ValueKey('cover-preview-radial-background'),
-          decoration: BoxDecoration(gradient: palette.accentGradient),
-        ),
       );
     }
     final routeAnimation = widget.routeAnimation;

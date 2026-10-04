@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/audio_provider.dart';
 import '../../../l10n/app_localizations.dart';
-import 'player_glass_surface.dart';
+import '../responsive_dialog.dart';
 
 /// 定时器对话框
 class SleepTimerDialog extends ConsumerStatefulWidget {
@@ -29,7 +29,7 @@ class _SleepTimerDialogState extends ConsumerState<SleepTimerDialog> {
   Widget build(BuildContext context) {
     final timerState = ref.watch(sleepTimerProvider);
 
-    return PlayerGlassAlertDialog(
+    return ResponsiveAlertDialog(
       title: Text(S.of(context).sleepTimerTitle),
       content: SingleChildScrollView(
         child: Column(
@@ -231,9 +231,11 @@ class _SleepTimerDialogState extends ConsumerState<SleepTimerDialog> {
               ),
             ),
             const SizedBox(width: 8),
-            Text(
-              S.of(context).finishCurrentTrack,
-              style: Theme.of(context).textTheme.bodyMedium,
+            Flexible(
+              child: Text(
+                S.of(context).finishCurrentTrack,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
             ),
           ],
         ),

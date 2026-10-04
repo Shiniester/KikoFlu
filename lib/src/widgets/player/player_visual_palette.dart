@@ -57,12 +57,6 @@ class PlayerVisualPalette {
     stops: const [0, 0.56, 1],
   );
 
-  RadialGradient get accentGradient => RadialGradient(
-    center: const Alignment(-0.72, 0.62),
-    radius: 1.15,
-    colors: [accent.withValues(alpha: 0.18), Colors.transparent],
-  );
-
   factory PlayerVisualPalette.fallback({
     required Color seed,
     required Brightness brightness,

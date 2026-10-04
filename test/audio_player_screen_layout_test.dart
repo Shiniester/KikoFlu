@@ -24,7 +24,7 @@ import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
 import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
+import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/player/lyric_display_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_action_icons.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_controls_widget.dart';
@@ -735,11 +735,19 @@ void main() {
   ) async {
     await _pumpPlayer(tester, const Size(390, 844));
 
-    await tester.tap(find.byIcon(Icons.more_horiz));
+    await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pumpAndSettle();
     expect(find.text('Keep Screen Awake'), findsOneWidget);
     expect(find.text('Fullscreen lyrics'), findsOneWidget);
     expect(find.text('Subtitle view settings'), findsOneWidget);
+    expect(find.byType(ResponsiveBottomSheet), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(ResponsiveBottomSheet),
+        matching: find.byType(BackdropFilter),
+      ),
+      findsNothing,
+    );
     await tester.tap(
       find.byKey(const ValueKey('player-more-lyric-settings-card')),
     );
@@ -769,6 +777,14 @@ void main() {
     await tester.tap(find.text('Clear'));
     await tester.pumpAndSettle();
     expect(find.text('Clear playback queue?'), findsOneWidget);
+    expect(find.byType(ResponsiveAlertDialog), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(ResponsiveAlertDialog),
+        matching: find.byType(BackdropFilter),
+      ),
+      findsNothing,
+    );
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
 
@@ -779,6 +795,42 @@ void main() {
   });
 
   for (final size in [const Size(390, 844), const Size(1280, 720)]) {
+    testWidgets('more opens standard player dialogs at $size', (tester) async {
+      await _pumpPlayer(tester, size);
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      expect(find.byType(ResponsiveBottomSheet), findsOneWidget);
+      expect(
+        find.byType(BottomSheet),
+        size.width > size.height ? findsNothing : findsOneWidget,
+      );
+
+      for (final action in ['sleepTimer', 'speed', 'subtitleAdjustment']) {
+        final button = find.byKey(ValueKey('player-more-action-$action'));
+        await tester.ensureVisible(button);
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        final dialog = action == 'subtitleAdjustment'
+            ? find.byType(ResponsiveDialog)
+            : find.byType(ResponsiveAlertDialog);
+        expect(dialog, findsOneWidget);
+        expect(
+          find.descendant(of: dialog, matching: find.byType(BackdropFilter)),
+          findsNothing,
+        );
+        if (action == 'subtitleAdjustment') {
+          await tester.tap(find.text('+100'));
+          await tester.pump();
+          expect(find.text('0.10 s'), findsOneWidget);
+        }
+        expect(tester.takeException(), isNull, reason: action);
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+        expect(dialog, findsNothing);
+        expect(find.byType(ResponsiveBottomSheet), findsOneWidget);
+      }
+    });
+
     testWidgets('direct queue skips unused work loading at $size', (
       tester,
     ) async {
@@ -2896,7 +2948,7 @@ void main() {
     final moreIconRect = tester.getRect(
       find.descendant(
         of: find.byKey(const ValueKey('player-more-button')),
-        matching: find.byIcon(Icons.more_horiz),
+        matching: find.byIcon(Icons.more_vert),
       ),
     );
     expect(moreRect.right, closeTo(coverRect.right + 12, 0.01));
@@ -3615,11 +3667,11 @@ void main() {
           Offset((oldButtonLeft + buttonRect.left) / 2, buttonRect.center.dy),
         );
         await tester.pump();
-        expect(find.byType(PlayerGlassAlertDialog), findsNothing);
+        expect(find.byType(ResponsiveAlertDialog), findsNothing);
 
         await tester.tapAt(Offset(buttonRect.right - 2, buttonRect.center.dy));
         await tester.pumpAndSettle();
-        expect(find.byType(PlayerGlassAlertDialog), findsOneWidget);
+        expect(find.byType(ResponsiveAlertDialog), findsOneWidget);
       },
     );
   }
@@ -3858,15 +3910,15 @@ void main() {
           lessThan(lyricSettingsRect.top),
         );
       }
-      final moreGlass = find
+      final moreMenu = find
           .ancestor(
             of: find.byKey(const ValueKey('player-more-keep-awake-card')),
-            matching: find.byType(PlayerTransientGlassSurface),
+            matching: find.byType(ResponsiveBottomSheet),
           )
           .first;
       expect(
-        find.descendant(of: moreGlass, matching: find.byType(BackdropFilter)),
-        findsOneWidget,
+        find.descendant(of: moreMenu, matching: find.byType(BackdropFilter)),
+        findsNothing,
       );
 
       await tester.tapAt(const Offset(8, 8));

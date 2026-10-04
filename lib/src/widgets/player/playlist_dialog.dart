@@ -10,6 +10,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../utils/l10n_extensions.dart';
 import '../../utils/local_file_url.dart';
+import '../responsive_dialog.dart';
 import 'player_glass_surface.dart';
 import 'player_cover_widget.dart';
 import 'player_action_icons.dart';
@@ -25,7 +26,7 @@ const List<AudioTapPlaylistMode> _playlistModeMenuOrder = [
 Future<bool> confirmClearPlaybackQueue(BuildContext context) async {
   return await showDialog<bool>(
         context: context,
-        builder: (dialogContext) => PlayerGlassAlertDialog(
+        builder: (dialogContext) => ResponsiveAlertDialog(
           title: Text(S.of(dialogContext).clearPlaybackQueueTitle),
           content: Text(S.of(dialogContext).clearPlaybackQueueMessage),
           actions: [
