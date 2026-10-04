@@ -766,6 +766,9 @@ class _VirtualizedSliverCollectionState<T>
             widget.pagination!.showWhenEmpty)
           SliverToBoxAdapter(child: _buildFooter()),
         ...widget.sliversAfter,
+        SliverToBoxAdapter(
+          child: SizedBox(height: MediaQuery.paddingOf(context).bottom),
+        ),
       ],
     );
 

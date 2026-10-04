@@ -27,7 +27,8 @@ class AppFloatingNotice {
     final mediaQuery = MediaQuery.maybeOf(context);
     final width = mediaQuery?.size.width ?? 360;
     final height = mediaQuery?.size.height ?? 800;
-    final safeBottom = mediaQuery?.viewPadding.bottom ?? 0;
+    final view = View.of(context);
+    final safeBottom = view.viewPadding.bottom / view.devicePixelRatio;
     final horizontal = math.max(16.0, (width - 420) / 2);
     final viewportOffset = (height * 0.18).clamp(88.0, 144.0);
     messenger.removeCurrentSnackBar(reason: SnackBarClosedReason.hide);

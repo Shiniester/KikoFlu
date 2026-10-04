@@ -134,7 +134,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       body: isLandscape
           ? _buildLandscapeLayout(cards)
           : ListView.separated(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.fromLTRB(
+                16,
+                16,
+                16,
+                16 + MediaQuery.paddingOf(context).bottom,
+              ),
               itemBuilder: (context, index) => cards[index],
               separatorBuilder: (context, index) => const SizedBox(height: 16),
               itemCount: cards.length,
