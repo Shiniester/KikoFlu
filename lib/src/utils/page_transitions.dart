@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../widgets/app_bottom_dock_transition.dart';
 
-/// Slides only the entering/leaving page; shared elements fly in the overlay.
+/// Slides the foreground page with source parallax; shared elements use overlays.
 class AppPageTransitionsBuilder extends PageTransitionsBuilder {
   const AppPageTransitionsBuilder();
 
@@ -219,7 +219,7 @@ class _PageTransitionState extends State<_PageTransition>
             controller: _snapshotController,
             mode: SnapshotMode.permissive,
             autoresize: true,
-            child: widget.child,
+            child: RepaintBoundary(child: widget.child),
           ),
           builder: (context, child) {
             _snapshotController.allowSnapshotting =
@@ -248,8 +248,11 @@ class _PageTransitionState extends State<_PageTransition>
                 : widget.route.popGestureInProgress
                 ? widget.animation.value
                 : Curves.ease.transform(widget.animation.value);
+            final secondaryProgress = widget.route.popGestureInProgress
+                ? secondaryAnimation.value
+                : Curves.ease.transform(secondaryAnimation.value);
             return FractionalTranslation(
-              translation: Offset(1 - progress, 0),
+              translation: Offset(1 - progress - .4 * secondaryProgress, 0),
               child: Stack(
                 fit: StackFit.passthrough,
                 clipBehavior: Clip.none,

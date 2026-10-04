@@ -777,7 +777,7 @@ void main() {
           final progress = sample / route.transitionDuration.inMilliseconds;
           expect(
             tester.getTopLeft(find.byKey(homeKey, skipOffstage: false)).dx,
-            0,
+            closeTo(-width * .4 * Curves.ease.transform(progress), 0.1),
           );
           expect(
             tester.getTopLeft(find.byKey(secondKey)).dx,

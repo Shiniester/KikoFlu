@@ -266,7 +266,7 @@ void main() {
         greaterThanOrEqualTo(tester.getRect(movingDock).top),
         reason: 'The revealed strip must contain the source list viewport.',
       );
-      expect(tester.getRect(source), viewport);
+      expect(tester.getSize(source), viewport.size);
       expect(scroll.offset, offset);
       expect(
         find
