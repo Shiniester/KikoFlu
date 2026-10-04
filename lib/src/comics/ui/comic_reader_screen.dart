@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -52,7 +54,9 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   ItemScrollController _continuous = ItemScrollController();
   final _positions = ItemPositionsListener.create();
   final Map<int, Future<Uint8List>> _images = {};
-  final Map<int, double> _aspectRatios = {};
+  final Map<int, Size> _imageSizes = {};
+  Matrix4 _continuousTransform = Matrix4.identity();
+  bool _continuousPinching = false;
   Timer? _saveTimer;
   Animation<double>? _routeAnimation;
   AnimationStatusListener? _routeStatusListener;
@@ -169,7 +173,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   }) {
     final duration = MediaQuery.disableAnimationsOf(context)
         ? Duration.zero
-        : const Duration(milliseconds: 200);
+        : const Duration(milliseconds: 300);
     return IgnorePointer(
       ignoring: !visible,
       child: ExcludeFocus(
@@ -180,12 +184,8 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
             key: key,
             offset: visible ? Offset.zero : hiddenOffset,
             duration: duration,
-            curve: Curves.easeOutCubic,
-            child: AnimatedOpacity(
-              opacity: visible ? 1 : 0,
-              duration: duration,
-              child: child,
-            ),
+            curve: Curves.ease,
+            child: child,
           ),
         ),
       ),
@@ -199,7 +199,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       _loading = true;
       _error = null;
       _images.clear();
-      _aspectRatios.clear();
+      _imageSizes.clear();
       _pages = [];
     });
     try {
@@ -238,6 +238,8 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       initialPage: comicViewIndex(_page, ref.read(comicReadingModeProvider)),
     );
     _continuous = ItemScrollController();
+    _continuousTransform = Matrix4.identity();
+    _continuousPinching = false;
     _layoutGeneration++;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       old?.dispose();
@@ -258,7 +260,10 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       final descriptor = await ui.ImageDescriptor.encoded(buffer);
       try {
         if (mounted && generation == _generation) {
-          _aspectRatios[page] = descriptor.width / descriptor.height;
+          _imageSizes[page] = Size(
+            descriptor.width.toDouble(),
+            descriptor.height.toDouble(),
+          );
         }
       } finally {
         descriptor.dispose();
@@ -309,14 +314,35 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   void _scrolled() {
     if (!mounted ||
         _pages.isEmpty ||
+        _viewport.height <= 0 ||
         ref.read(comicReadingModeProvider) != ComicReadingMode.continuous) {
       return;
     }
+    final scale = _continuousTransform.getMaxScaleOnAxis();
+    final translation = _continuousTransform.getTranslation();
+    final visibleTop = ((-translation.y / scale) / _viewport.height).clamp(
+      0.0,
+      1.0,
+    );
+    final visibleBottom =
+        ((_viewport.height - translation.y) / scale / _viewport.height).clamp(
+          0.0,
+          1.0,
+        );
+    final visibleThreshold = visibleTop + 0.05 * (visibleBottom - visibleTop);
     final visible =
         _positions.itemPositions.value
-            .where((p) => p.itemTrailingEdge > 0.05 && p.itemLeadingEdge < 1)
+            .where(
+              (p) =>
+                  p.itemTrailingEdge > visibleThreshold &&
+                  p.itemLeadingEdge < visibleBottom,
+            )
             .toList()
-          ..sort((a, b) => a.index.compareTo(b.index));
+          ..sort((a, b) {
+            final aVisibleTop = math.max(a.itemLeadingEdge, visibleTop);
+            final bVisibleTop = math.max(b.itemLeadingEdge, visibleTop);
+            return aVisibleTop.compareTo(bVisibleTop);
+          });
     if (visible.isNotEmpty) _changed(visible.first.index);
   }
 
@@ -363,8 +389,8 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     }
   }
 
-  Widget _pageImage(int page, {bool continuous = false}) {
-    final image = FutureBuilder<Uint8List>(
+  Widget _pageImage(int page, {bool continuous = false, bool zoomable = true}) {
+    return FutureBuilder<Uint8List>(
       future: _image(page),
       builder: (context, snapshot) {
         Widget content;
@@ -380,39 +406,46 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
         } else if (!snapshot.hasData) {
           content = const Center(child: CircularProgressIndicator());
         } else {
-          content = _ZoomableComicPage(
-            child: Image.memory(
-              snapshot.data!,
-              fit: BoxFit.contain,
-              width: continuous ? MediaQuery.sizeOf(context).width : null,
-              gaplessPlayback: true,
-              errorBuilder: (_, __, ___) =>
-                  const Icon(Icons.broken_image, color: Colors.white),
-            ),
+          content = Image.memory(
+            snapshot.data!,
+            fit: BoxFit.contain,
+            width: continuous
+                ? MediaQuery.sizeOf(context).width
+                : double.infinity,
+            height: continuous ? null : double.infinity,
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) =>
+                const Icon(Icons.broken_image, color: Colors.white),
           );
+          if (!continuous && zoomable) {
+            content = _ZoomableComicPage(
+              key: ValueKey('comic-page-zoom-$page'),
+              imageSize: _imageSizes[page],
+              child: content,
+            );
+          }
         }
         // Keep decoded page geometry after its image bytes leave the cache.
         // Returning to an earlier page must not resize the slivers above it.
         return continuous
             ? AspectRatio(
-                aspectRatio: _aspectRatios[page] ?? 2 / 3,
+                aspectRatio: _imageSizes[page]?.aspectRatio ?? 2 / 3,
                 child: content,
               )
             : content;
       },
     );
-    return continuous
-        ? AnimatedSize(
-            key: ValueKey('comic-page-size-$page'),
-            alignment: Alignment.topCenter,
-            duration: MediaQuery.disableAnimationsOf(context)
-                ? Duration.zero
-                : const Duration(milliseconds: 250),
-            curve: Curves.easeOutCubic,
-            child: image,
-          )
-        : image;
   }
+
+  Widget _continuousPage(int page) => AnimatedSize(
+    key: ValueKey('comic-page-size-$page'),
+    alignment: Alignment.topCenter,
+    duration: MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 250),
+    curve: Curves.easeOutCubic,
+    child: _pageImage(page, continuous: true),
+  );
 
   Widget _body(ComicReadingMode mode) {
     if (_loading) return const Center(child: CircularProgressIndicator());
@@ -420,16 +453,58 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       return ComicErrorView(error: _error!, retry: _loadChapter);
     }
     if (mode == ComicReadingMode.continuous) {
-      return ScrollablePositionedList.builder(
-        key: ValueKey(_layoutGeneration),
-        padding: EdgeInsets.zero,
-        itemCount: _pages.length,
-        itemScrollController: _continuous,
-        itemPositionsListener: _positions,
-        initialScrollIndex: _page,
-        itemBuilder: (context, i) => GestureDetector(
-          onTap: _toggle,
-          child: _pageImage(i, continuous: true),
+      final layoutGeneration = _layoutGeneration;
+      return KeyedSubtree(
+        key: ValueKey('comic-continuous-layout-$_layoutGeneration'),
+        child: _ZoomableComicPage(
+          key: const ValueKey('comic-continuous-zoom'),
+          focalZoom: true,
+          continuous: true,
+          onTransformChanged: (value) {
+            if (!mounted || layoutGeneration != _layoutGeneration) return;
+            _continuousTransform = value.clone();
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && layoutGeneration == _layoutGeneration) {
+                _scrolled();
+              }
+            });
+          },
+          onPinchChanged: (pinching) {
+            if (mounted &&
+                layoutGeneration == _layoutGeneration &&
+                _continuousPinching != pinching) {
+              setState(() => _continuousPinching = pinching);
+            }
+          },
+          canPanVertically: (dy) {
+            final positions = _positions.itemPositions.value;
+            if (dy > 0) {
+              return positions.any(
+                (position) =>
+                    position.index == 0 && position.itemLeadingEdge >= 0,
+              );
+            }
+            return positions.any(
+              (position) =>
+                  position.index == _pages.length - 1 &&
+                  position.itemTrailingEdge <= 1,
+            );
+          },
+          child: SizedBox.expand(
+            child: ScrollablePositionedList.builder(
+              key: ValueKey(_layoutGeneration),
+              padding: EdgeInsets.zero,
+              physics: _continuousPinching
+                  ? const NeverScrollableScrollPhysics()
+                  : const BouncingScrollPhysics(),
+              itemCount: _pages.length,
+              itemScrollController: _continuous,
+              itemPositionsListener: _positions,
+              initialScrollIndex: _page,
+              itemBuilder: (context, i) =>
+                  GestureDetector(onTap: _toggle, child: _continuousPage(i)),
+            ),
+          ),
         ),
       );
     }
@@ -463,14 +538,18 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
           itemBuilder: (context, i) {
             if (!spread) return _pageImage(i);
             final indices = [i * 2, if (i * 2 + 1 < _pages.length) i * 2 + 1];
-            return Row(
-              children: [
-                for (final page
-                    in mode == ComicReadingMode.reverseSpread
-                        ? indices.reversed
-                        : indices)
-                  Expanded(child: _pageImage(page)),
-              ],
+            return _ZoomableComicPage(
+              key: ValueKey('comic-spread-zoom-$i'),
+              focalZoom: true,
+              child: Row(
+                children: [
+                  for (final page
+                      in mode == ComicReadingMode.reverseSpread
+                          ? indices.reversed
+                          : indices)
+                    Expanded(child: _pageImage(page, zoomable: false)),
+                ],
+              ),
             );
           },
         ),
@@ -660,44 +739,483 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
 }
 
 class _ZoomableComicPage extends StatefulWidget {
-  const _ZoomableComicPage({required this.child});
+  const _ZoomableComicPage({
+    super.key,
+    required this.child,
+    this.imageSize,
+    this.focalZoom = false,
+    this.continuous = false,
+    this.onTransformChanged,
+    this.onPinchChanged,
+    this.canPanVertically,
+  });
+
   final Widget child;
+  final Size? imageSize;
+  final bool focalZoom;
+  final bool continuous;
+  final ValueChanged<Matrix4>? onTransformChanged;
+  final ValueChanged<bool>? onPinchChanged;
+  final bool Function(double dy)? canPanVertically;
+
   @override
   State<_ZoomableComicPage> createState() => _ZoomableComicPageState();
 }
 
-class _ZoomableComicPageState extends State<_ZoomableComicPage> {
+class _ZoomableComicPageState extends State<_ZoomableComicPage>
+    with SingleTickerProviderStateMixin {
   final _transform = TransformationController();
+  late final AnimationController _zoomAnimationController;
+  Matrix4Tween? _zoomTween;
+  Size _viewportSize = Size.zero;
+  bool _constrainingTransform = false;
+  Offset? _doubleTapPosition;
+  final Map<int, Offset> _continuousPointers = {};
+  double? _pinchStartDistance;
+  double? _pinchStartScale;
+  Offset? _pinchStartFocal;
+  Offset? _pinchScenePoint;
+  Offset? _panZoomStartFocal;
+  double? _panZoomStartScale;
+  Offset? _panZoomScenePoint;
+  bool _panZoomPinching = false;
   bool _zoomed = false;
+  double _gestureStartScale = 1;
+  int _scaleState = 0;
+  int? _targetScaleState;
 
-  void _updateZoom() {
-    final zoomed = _transform.value.getMaxScaleOnAxis() > 1;
-    if (_zoomed != zoomed) setState(() => _zoomed = zoomed);
+  @override
+  void initState() {
+    super.initState();
+    _transform.addListener(_constrainTransform);
+    _zoomAnimationController =
+        AnimationController(vsync: this, lowerBound: 0, upperBound: 1)
+          ..addListener(_applyZoomAnimation)
+          ..addStatusListener(_zoomAnimationStatusChanged);
   }
 
   @override
   void dispose() {
+    _zoomAnimationController
+      ..removeListener(_applyZoomAnimation)
+      ..removeStatusListener(_zoomAnimationStatusChanged)
+      ..dispose();
+    _transform.removeListener(_constrainTransform);
     _transform.dispose();
     super.dispose();
   }
 
+  List<double> _scaleTargets(Size viewport) {
+    if (widget.focalZoom) return const [1, 1.75];
+    final image = widget.imageSize;
+    if (image == null || viewport.isEmpty || image.isEmpty) {
+      return const [1, 1.75, 1];
+    }
+    final contained = math.min(
+      viewport.width / image.width,
+      viewport.height / image.height,
+    );
+    final covering = math.max(
+      viewport.width / image.width,
+      viewport.height / image.height,
+    );
+    return [1, covering / contained, 1 / contained];
+  }
+
+  Matrix4 _matrixAt(
+    Size viewport,
+    double scale,
+    Offset scenePoint, {
+    Offset? focalPoint,
+  }) {
+    final center = focalPoint ?? viewport.center(Offset.zero);
+    final extentX = viewport.width * (1 - scale);
+    final extentY = viewport.height * (1 - scale);
+    final dx = (center.dx - scenePoint.dx * scale)
+        .clamp(math.min(0.0, extentX), math.max(0.0, extentX))
+        .toDouble();
+    final dy = (center.dy - scenePoint.dy * scale)
+        .clamp(math.min(0.0, extentY), math.max(0.0, extentY))
+        .toDouble();
+    return Matrix4.identity()
+      ..translateByDouble(dx, dy, 0, 1)
+      ..scaleByDouble(scale, scale, scale, 1);
+  }
+
+  void _constrainTransform() {
+    final viewport = _viewportSize;
+    if (widget.continuous || viewport.isEmpty || _constrainingTransform) {
+      return;
+    }
+    final scale = _transform.value.getMaxScaleOnAxis();
+    final bounded = _matrixAt(
+      viewport,
+      scale,
+      _transform.toScene(viewport.center(Offset.zero)),
+    );
+    final translation = _transform.value.getTranslation();
+    final boundedTranslation = bounded.getTranslation();
+    if ((translation.x - boundedTranslation.x).abs() < .001 &&
+        (translation.y - boundedTranslation.y).abs() < .001) {
+      return;
+    }
+    _constrainingTransform = true;
+    _transform.value = bounded;
+    _constrainingTransform = false;
+  }
+
+  void _transformChanged() {
+    _updateZoomed();
+    if (widget.continuous) {
+      widget.onTransformChanged?.call(_transform.value);
+    }
+  }
+
+  void _beginContinuousPinch() {
+    final pointers = _continuousPointers.values.take(2).toList();
+    if (pointers.length != 2) return;
+    _pinchStartFocal = (pointers[0] + pointers[1]) / 2;
+    _pinchStartDistance = (pointers[0] - pointers[1]).distance;
+    _pinchStartScale = _transform.value.getMaxScaleOnAxis();
+    _pinchScenePoint = _transform.toScene(_pinchStartFocal!);
+    widget.onPinchChanged?.call(true);
+  }
+
+  void _continuousPointerDown(PointerDownEvent event) {
+    _interruptZoomAnimation(keepTarget: true);
+    final previousCount = _continuousPointers.length;
+    _continuousPointers[event.pointer] = event.localPosition;
+    if (previousCount < 2 && _continuousPointers.length >= 2) {
+      if (_targetScaleState != null) {
+        _targetScaleState = null;
+        _scaleState = -1;
+      }
+      _beginContinuousPinch();
+    }
+  }
+
+  bool _continuousVerticalPanAllowed(double dy) {
+    if (dy == 0) return false;
+    return widget.canPanVertically?.call(dy) ?? false;
+  }
+
+  void _applyContinuousPan(Offset delta, Size viewport) {
+    final scale = _transform.value.getMaxScaleOnAxis();
+    if (scale <= 1.01) return;
+    final translation = _transform.value.getTranslation();
+    final dx = (translation.x + delta.dx)
+        .clamp(viewport.width * (1 - scale), 0.0)
+        .toDouble();
+    final allowVertical = _continuousVerticalPanAllowed(delta.dy);
+    final dy = allowVertical
+        ? (translation.y + delta.dy)
+              .clamp(viewport.height * (1 - scale), 0.0)
+              .toDouble()
+        : translation.y;
+    if (dx == translation.x && dy == translation.y) return;
+    _transform.value = _transform.value.clone()..setTranslationRaw(dx, dy, 0);
+    _transformChanged();
+  }
+
+  void _applyContinuousScale(
+    Size viewport,
+    double scale,
+    Offset scenePoint,
+    Offset focalPoint,
+  ) {
+    final targetScale = scale.clamp(1.0, 5.0).toDouble();
+    _targetScaleState = null;
+    _scaleState = -1;
+    _transform.value = _matrixAt(
+      viewport,
+      targetScale,
+      scenePoint,
+      focalPoint: focalPoint,
+    );
+    _transformChanged();
+  }
+
+  void _continuousPointerMove(PointerMoveEvent event, Size viewport) {
+    final previous = _continuousPointers[event.pointer];
+    if (previous == null) return;
+    _continuousPointers[event.pointer] = event.localPosition;
+    if (_targetScaleState != null) {
+      _targetScaleState = null;
+      _scaleState = -1;
+    }
+    if (_continuousPointers.length >= 2) {
+      final pointers = _continuousPointers.values.take(2).toList();
+      final initialDistance = _pinchStartDistance;
+      final initialScale = _pinchStartScale;
+      final scenePoint = _pinchScenePoint;
+      if (initialDistance == null ||
+          initialScale == null ||
+          scenePoint == null ||
+          initialDistance == 0) {
+        return;
+      }
+      _applyContinuousScale(
+        viewport,
+        initialScale * (pointers[0] - pointers[1]).distance / initialDistance,
+        scenePoint,
+        (pointers[0] + pointers[1]) / 2,
+      );
+      return;
+    }
+    _applyContinuousPan(event.localPosition - previous, viewport);
+  }
+
+  void _continuousPointerRemoved(PointerEvent event) {
+    final previousCount = _continuousPointers.length;
+    _continuousPointers.remove(event.pointer);
+    if (previousCount >= 2 && _continuousPointers.length < 2) {
+      _pinchStartDistance = null;
+      _pinchStartScale = null;
+      _pinchStartFocal = null;
+      _pinchScenePoint = null;
+      widget.onPinchChanged?.call(false);
+    }
+  }
+
+  void _panZoomStart(PointerPanZoomStartEvent event) {
+    _interruptZoomAnimation(keepTarget: true);
+    _panZoomStartFocal = event.localPosition;
+    _panZoomStartScale = _transform.value.getMaxScaleOnAxis();
+    _panZoomScenePoint = _transform.toScene(event.localPosition);
+    _panZoomPinching = false;
+  }
+
+  void _panZoomUpdate(PointerPanZoomUpdateEvent event, Size viewport) {
+    final startFocal = _panZoomStartFocal;
+    final startScale = _panZoomStartScale;
+    final scenePoint = _panZoomScenePoint;
+    if (startFocal == null || startScale == null || scenePoint == null) return;
+    final focalPoint = startFocal + event.localPan;
+    if ((event.scale - 1).abs() > .01) {
+      if (!_panZoomPinching) {
+        _panZoomPinching = true;
+        widget.onPinchChanged?.call(true);
+      }
+      if (_targetScaleState != null) {
+        _targetScaleState = null;
+        _scaleState = -1;
+      }
+      _applyContinuousScale(
+        viewport,
+        startScale * event.scale,
+        scenePoint,
+        focalPoint,
+      );
+    } else {
+      _applyContinuousPan(event.localPanDelta, viewport);
+    }
+  }
+
+  void _panZoomEnd(PointerPanZoomEndEvent event) {
+    _panZoomStartFocal = null;
+    _panZoomStartScale = null;
+    _panZoomScenePoint = null;
+    if (_panZoomPinching) {
+      _panZoomPinching = false;
+      widget.onPinchChanged?.call(false);
+    }
+  }
+
+  void _updateZoomed() {
+    final zoomed = _transform.value.getMaxScaleOnAxis() > 1.01;
+    if (mounted && _zoomed != zoomed) setState(() => _zoomed = zoomed);
+  }
+
+  void _applyZoomAnimation() {
+    final tween = _zoomTween;
+    if (!mounted || tween == null) return;
+    _transform.value = tween.transform(_zoomAnimationController.value);
+    _transformChanged();
+  }
+
+  void _zoomAnimationStatusChanged(AnimationStatus status) {
+    if ((status == AnimationStatus.completed ||
+            status == AnimationStatus.dismissed) &&
+        _targetScaleState != null) {
+      if (status == AnimationStatus.completed && _zoomTween != null) {
+        _transform.value = _zoomTween!.end!;
+      }
+      _scaleState = _targetScaleState!;
+      _targetScaleState = null;
+      _zoomTween = null;
+      _transformChanged();
+    }
+  }
+
+  void _interruptZoomAnimation({bool keepTarget = false}) {
+    if (_zoomAnimationController.isAnimating) {
+      _zoomAnimationController.stop();
+    }
+    _zoomTween = null;
+    if (!keepTarget) _targetScaleState = null;
+  }
+
+  void _zoomToNextState(Size viewport) {
+    final targets = _scaleTargets(viewport);
+    final currentState = _targetScaleState ?? _scaleState;
+    final currentScale = _transform.value.getMaxScaleOnAxis();
+    final nextState = widget.focalZoom
+        ? _targetScaleState != null
+              ? 1 - _targetScaleState!
+              : currentScale > 1.01
+              ? 0
+              : 1
+        : currentState < 0
+        ? 0
+        : (currentState + 1) % targets.length;
+    final center = viewport.center(Offset.zero);
+    final focal = _doubleTapPosition == null
+        ? center
+        : Offset(
+            _doubleTapPosition!.dx.clamp(0.0, viewport.width).toDouble(),
+            _doubleTapPosition!.dy.clamp(0.0, viewport.height).toDouble(),
+          );
+    final scenePoint = widget.focalZoom ? _transform.toScene(focal) : center;
+    final target = widget.focalZoom && nextState == 0
+        ? Matrix4.identity()
+        : _matrixAt(viewport, targets[nextState], scenePoint);
+    _animateTo(target, nextState);
+  }
+
+  void _animateTo(Matrix4 target, int targetState) {
+    _interruptZoomAnimation();
+    final current = _transform.value.clone();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _transform.value = target;
+      _scaleState = targetState;
+      _targetScaleState = null;
+      _transformChanged();
+      return;
+    }
+    _zoomTween = Matrix4Tween(begin: current, end: target);
+    _zoomAnimationController.value = 0;
+    _targetScaleState = targetState;
+    _zoomAnimationController.fling(velocity: .4);
+  }
+
+  void _interactionStarted() {
+    final interruptedAnimation = _targetScaleState != null;
+    _gestureStartScale = _transform.value.getMaxScaleOnAxis();
+    _interruptZoomAnimation();
+    if (interruptedAnimation) _scaleState = -1;
+  }
+
+  void _interactionUpdated(Size viewport) {
+    final scale = _transform.value.getMaxScaleOnAxis();
+    if ((scale - _gestureStartScale).abs() > .01) {
+      _targetScaleState = null;
+      _scaleState = -1;
+    }
+    if (!widget.focalZoom) {
+      _transform.value = _matrixAt(
+        viewport,
+        scale,
+        _transform.toScene(viewport.center(Offset.zero)),
+      );
+    }
+    _updateZoomed();
+  }
+
   @override
-  Widget build(BuildContext context) => GestureDetector(
-    onDoubleTap: !(StorageService.getBool('comic_double_tap_zoom') ?? true)
-        ? null
-        : () {
-            _transform.value = _transform.value.getMaxScaleOnAxis() > 1
-                ? Matrix4.identity()
-                : (Matrix4.identity()..scaleByDouble(2, 2, 1, 1));
-            _updateZoom();
-          },
-    child: InteractiveViewer(
-      transformationController: _transform,
-      panEnabled: _zoomed,
-      onInteractionUpdate: (_) => _updateZoom(),
-      minScale: 1,
-      maxScale: 5,
-      child: Center(child: widget.child),
-    ),
-  );
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!MediaQuery.disableAnimationsOf(context) ||
+        !_zoomAnimationController.isAnimating) {
+      return;
+    }
+    final tween = _zoomTween;
+    final targetState = _targetScaleState;
+    if (tween != null && targetState != null) {
+      _transform.value = tween.end!;
+      _scaleState = targetState;
+    }
+    _interruptZoomAnimation();
+    _transformChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final doubleTapEnabled =
+        StorageService.getBool('comic_double_tap_zoom') ?? true;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final viewport = constraints.biggest;
+        _viewportSize = viewport;
+        final targets = _scaleTargets(viewport);
+        if (widget.continuous) {
+          return Listener(
+            onPointerDown: _continuousPointerDown,
+            onPointerMove: (event) => _continuousPointerMove(event, viewport),
+            onPointerUp: _continuousPointerRemoved,
+            onPointerCancel: _continuousPointerRemoved,
+            onPointerPanZoomStart: _panZoomStart,
+            onPointerPanZoomUpdate: (event) => _panZoomUpdate(event, viewport),
+            onPointerPanZoomEnd: _panZoomEnd,
+            child: GestureDetector(
+              onDoubleTapDown: doubleTapEnabled
+                  ? (details) => _doubleTapPosition = details.localPosition
+                  : null,
+              onDoubleTap: doubleTapEnabled
+                  ? () => _zoomToNextState(viewport)
+                  : null,
+              child: ClipRect(
+                child: AnimatedBuilder(
+                  animation: _transform,
+                  child: SizedBox.expand(child: Center(child: widget.child)),
+                  builder: (context, child) => Transform(
+                    key: const ValueKey('comic-reader-canvas-transform'),
+                    alignment: Alignment.topLeft,
+                    transform: _transform.value,
+                    child: child,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+        final minimumScale = widget.focalZoom
+            ? 1.0
+            : targets.reduce((a, b) => a < b ? a : b);
+        final minimumBoundaryScale = math.min(1.0, minimumScale);
+        final boundaryMargin = widget.focalZoom
+            ? EdgeInsets.zero
+            : EdgeInsets.symmetric(
+                horizontal: viewport.width * (1 / minimumBoundaryScale - 1) / 2,
+                vertical: viewport.height * (1 / minimumBoundaryScale - 1) / 2,
+              );
+        return Listener(
+          onPointerDown: (_) => _interruptZoomAnimation(keepTarget: true),
+          child: GestureDetector(
+            onDoubleTapDown: doubleTapEnabled
+                ? (details) => _doubleTapPosition = details.localPosition
+                : null,
+            onDoubleTap: doubleTapEnabled
+                ? () => _zoomToNextState(viewport)
+                : null,
+            child: InteractiveViewer(
+              transformationController: _transform,
+              boundaryMargin: boundaryMargin,
+              panEnabled: _zoomed,
+              panAxis: PanAxis.free,
+              scaleEnabled: true,
+              onInteractionStart: (_) => _interactionStarted(),
+              onInteractionUpdate: (_) => _interactionUpdated(viewport),
+              minScale: minimumScale,
+              maxScale: widget.focalZoom
+                  ? 5
+                  : math
+                        .max(5, targets.reduce((a, b) => a > b ? a : b))
+                        .toDouble(),
+              child: SizedBox.expand(child: Center(child: widget.child)),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }

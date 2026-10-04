@@ -484,6 +484,13 @@ void main() {
     return container;
   }
 
+  Future<void> doubleTapAt(WidgetTester tester, Offset position) async {
+    await tester.tapAt(position);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tapAt(position);
+    await tester.pump(const Duration(milliseconds: 50));
+  }
+
   for (final reduceMotion in [false, true]) {
     testWidgets(
       'reader route slides and restores details; reduced motion $reduceMotion',
@@ -569,6 +576,367 @@ void main() {
       null,
     );
   });
+
+  testWidgets('spread zoom follows its focal point and interrupts smoothly', (
+    tester,
+  ) async {
+    await StorageService.setString('comic_reading_mode', 'spread');
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pump(
+      tester,
+      const ComicReaderScreen(
+        comic: _comic,
+        chapter: ComicChapter('one', 'Chapter 1'),
+      ),
+      _Library(),
+      _Source(),
+    );
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pumpAndSettle();
+
+    final view = find.byKey(const ValueKey('comic-spread-zoom-0'));
+    expect(
+      find.descendant(
+        of: view,
+        matching: find.byType(FutureBuilder<Uint8List>),
+      ),
+      findsNWidgets(2),
+    );
+    final rect = tester.getRect(view);
+    final focal = Offset(
+      rect.left + rect.width * .75,
+      rect.top + rect.height * .35,
+    );
+    await doubleTapAt(tester, focal);
+    await tester.pump(const Duration(milliseconds: 50));
+    final transform = tester
+        .widget<InteractiveViewer>(
+          find.descendant(of: view, matching: find.byType(InteractiveViewer)),
+        )
+        .transformationController!;
+    final firstScale = transform.value.getMaxScaleOnAxis();
+    expect(firstScale, greaterThan(1));
+    expect(firstScale, lessThan(1.75));
+    expect(transform.value.getTranslation().x, lessThan(0));
+
+    final touch = await tester.startGesture(rect.center);
+    await tester.pump(const Duration(milliseconds: 100));
+    final interruptedScale = transform.value.getMaxScaleOnAxis();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(
+      transform.value.getMaxScaleOnAxis(),
+      closeTo(interruptedScale, .001),
+    );
+    await touch.up();
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    await doubleTapAt(tester, rect.center);
+    final resetStart = transform.value.getMaxScaleOnAxis();
+    expect(resetStart, lessThan(interruptedScale));
+    await tester.pumpAndSettle();
+    expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
+    expect(transform.value.getTranslation().x, closeTo(0, .01));
+    expect(transform.value.getTranslation().y, closeTo(0, .01));
+  });
+
+  testWidgets('continuous zoom covers the strip and preserves list gestures', (
+    tester,
+  ) async {
+    await StorageService.setString('comic_reading_mode', 'continuous');
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pump(
+      tester,
+      const ComicReaderScreen(
+        comic: _comic,
+        chapter: ComicChapter('one', 'Chapter 1'),
+      ),
+      _Library(),
+      _Source(),
+    );
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pumpAndSettle();
+
+    final view = find.byKey(const ValueKey('comic-continuous-zoom'));
+    final list = find.descendant(
+      of: view,
+      matching: find.byType(ScrollablePositionedList),
+    );
+    expect(list, findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    expect(find.text('1/8'), findsOneWidget);
+    await tester.drag(list, const Offset(0, -524));
+    await tester.pumpAndSettle();
+    expect(find.text('1/8'), findsOneWidget);
+
+    await doubleTapAt(tester, tester.getCenter(view));
+    await tester.pumpAndSettle();
+    final canvas = find.byKey(const ValueKey('comic-reader-canvas-transform'));
+    var transform = tester.widget<Transform>(canvas).transform;
+    expect(transform.getMaxScaleOnAxis(), closeTo(1.75, .01));
+    expect(find.text('2/8'), findsOneWidget);
+
+    final beforePan = transform.getTranslation().x;
+    await tester.drag(list, const Offset(-40, 0));
+    await tester.pumpAndSettle();
+    transform = tester.widget<Transform>(canvas).transform;
+    expect(transform.getTranslation().x, lessThan(beforePan));
+
+    expect(
+      tester.widget<ScrollablePositionedList>(list).physics,
+      isA<BouncingScrollPhysics>(),
+    );
+    await tester.drag(list, const Offset(0, -650));
+    await tester.pumpAndSettle();
+    await tester.drag(list, const Offset(0, -650));
+    await tester.pumpAndSettle();
+    expect(find.text('3/8'), findsOneWidget);
+
+    final beforePinch = transform.getMaxScaleOnAxis();
+    final center = tester.getCenter(view);
+    final first = await tester.startGesture(
+      Offset(center.dx - 20, center.dy),
+      pointer: 1,
+    );
+    final second = await tester.startGesture(
+      Offset(center.dx + 20, center.dy),
+      pointer: 2,
+    );
+    await tester.pump();
+    expect(
+      tester.widget<ScrollablePositionedList>(list).physics,
+      isA<NeverScrollableScrollPhysics>(),
+    );
+    await first.moveBy(const Offset(-20, 0));
+    await second.moveBy(const Offset(20, 0));
+    await tester.pump();
+    transform = tester.widget<Transform>(canvas).transform;
+    expect(transform.getMaxScaleOnAxis(), greaterThan(beforePinch));
+    await first.up();
+    await second.up();
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<ScrollablePositionedList>(list).physics,
+      isA<BouncingScrollPhysics>(),
+    );
+    await doubleTapAt(tester, tester.getCenter(view));
+    await tester.pumpAndSettle();
+    transform = tester.widget<Transform>(canvas).transform;
+    expect(transform.getMaxScaleOnAxis(), closeTo(1, .01));
+
+    await doubleTapAt(tester, tester.getCenter(view));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(
+      tester.widget<Transform>(canvas).transform.getMaxScaleOnAxis(),
+      greaterThan(1),
+    );
+    await tester.tap(find.byIcon(Icons.skip_next));
+    await tester.pumpAndSettle();
+    expect(find.text('1/8'), findsOneWidget);
+    expect(
+      tester.widget<Transform>(canvas).transform.getMaxScaleOnAxis(),
+      closeTo(1, .01),
+    );
+  });
+
+  testWidgets('single-page zoom cycles PhotoView scales around the center', (
+    tester,
+  ) async {
+    await StorageService.setString('comic_reading_mode', 'vertical');
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pump(
+      tester,
+      const ComicReaderScreen(
+        comic: _comic,
+        chapter: ComicChapter('one', 'Chapter 1'),
+      ),
+      _Library(),
+      _Source(),
+    );
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pumpAndSettle();
+
+    final view = find.byKey(const ValueKey('comic-page-zoom-0'));
+    final rect = tester.getRect(view);
+    final center = rect.center;
+    await doubleTapAt(tester, center);
+    final interactiveViewer = tester.widget<InteractiveViewer>(
+      find.descendant(of: view, matching: find.byType(InteractiveViewer)),
+    );
+    final transform = interactiveViewer.transformationController!;
+    await tester.pumpAndSettle();
+    final contained = math.min(rect.width / 100, rect.height / 160);
+    final covering = math.max(rect.width / 100, rect.height / 160);
+    expect(
+      transform.value.getMaxScaleOnAxis(),
+      closeTo(covering / contained, .01),
+    );
+    expect(
+      transform.value.getTranslation().x,
+      closeTo(rect.width / 2 * (1 - covering / contained), .1),
+    );
+
+    await tester.drag(view, const Offset(600, 0));
+    await tester.pumpAndSettle();
+    final coverTranslation = transform.value.getTranslation().x;
+    expect(coverTranslation, lessThanOrEqualTo(.01));
+    expect(
+      coverTranslation,
+      greaterThanOrEqualTo(
+        rect.width * (1 - transform.value.getMaxScaleOnAxis()) - .1,
+      ),
+    );
+    await tester.fling(view, const Offset(600, 0), 2000);
+    await tester.pumpAndSettle();
+    final flingTranslation = transform.value.getTranslation().x;
+    expect(flingTranslation, lessThanOrEqualTo(.01));
+    expect(
+      flingTranslation,
+      greaterThanOrEqualTo(
+        rect.width * (1 - transform.value.getMaxScaleOnAxis()) - .1,
+      ),
+    );
+
+    await doubleTapAt(tester, center);
+    await tester.pumpAndSettle();
+    expect(transform.value.getMaxScaleOnAxis(), closeTo(1 / contained, .01));
+
+    final first = await tester.startGesture(
+      Offset(center.dx - 25, center.dy),
+      pointer: 1,
+    );
+    final second = await tester.startGesture(
+      Offset(center.dx + 25, center.dy),
+      pointer: 2,
+    );
+    await first.moveBy(const Offset(-20, 0));
+    await tester.pump();
+    await second.moveBy(const Offset(20, 0));
+    await tester.pump();
+    await first.moveBy(const Offset(-4, 0));
+    await second.moveBy(const Offset(4, 0));
+    await tester.pump();
+    expect(transform.value.getMaxScaleOnAxis(), greaterThan(1 / contained));
+    expect(transform.value.getMaxScaleOnAxis(), lessThan(1));
+    await first.up();
+    await second.up();
+    await tester.pumpAndSettle();
+    await doubleTapAt(tester, center);
+    await tester.pumpAndSettle();
+    expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .01));
+  });
+
+  testWidgets('single-page covering zoom supports a target above five', (
+    tester,
+  ) async {
+    await StorageService.setString('comic_reading_mode', 'leftToRight');
+    final tallImage = Uint8List.fromList(
+      img.encodePng(img.Image(width: 100, height: 1800)),
+    );
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pump(
+      tester,
+      const ComicReaderScreen(
+        comic: _comic,
+        chapter: ComicChapter('one', 'Chapter 1'),
+      ),
+      _Library(),
+      _Source(),
+      loadImage: (_) async => tallImage,
+    );
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pumpAndSettle();
+
+    final view = find.byKey(const ValueKey('comic-page-zoom-0'));
+    final rect = tester.getRect(view);
+    await doubleTapAt(tester, rect.center);
+    final transform = tester
+        .widget<InteractiveViewer>(
+          find.descendant(of: view, matching: find.byType(InteractiveViewer)),
+        )
+        .transformationController!;
+    await tester.pumpAndSettle();
+    expect(transform.value.getMaxScaleOnAxis(), greaterThan(5));
+  });
+
+  testWidgets(
+    'single-page reduced motion and double-tap preference are honored',
+    (tester) async {
+      await StorageService.setString('comic_reading_mode', 'leftToRight');
+      await StorageService.setBool('comic_double_tap_zoom', false);
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await pump(
+        tester,
+        const ComicReaderScreen(
+          comic: _comic,
+          chapter: ComicChapter('one', 'Chapter 1'),
+        ),
+        _Library(),
+        _Source(),
+        reduceMotion: true,
+      );
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 30)),
+      );
+      await tester.pumpAndSettle();
+      final disabledView = find.byKey(const ValueKey('comic-page-zoom-0'));
+      await doubleTapAt(tester, tester.getCenter(disabledView));
+      var transform = tester
+          .widget<InteractiveViewer>(
+            find.descendant(
+              of: disabledView,
+              matching: find.byType(InteractiveViewer),
+            ),
+          )
+          .transformationController!;
+      expect(transform.value.getMaxScaleOnAxis(), closeTo(1, .001));
+
+      await StorageService.setBool('comic_double_tap_zoom', true);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      await pump(
+        tester,
+        const ComicReaderScreen(
+          comic: _comic,
+          chapter: ComicChapter('one', 'Chapter 1'),
+        ),
+        _Library(),
+        _Source(),
+        reduceMotion: true,
+      );
+      final reducedView = find.byKey(const ValueKey('comic-page-zoom-0'));
+      await doubleTapAt(tester, tester.getCenter(reducedView));
+      transform = tester
+          .widget<InteractiveViewer>(
+            find.descendant(
+              of: reducedView,
+              matching: find.byType(InteractiveViewer),
+            ),
+          )
+          .transformationController!;
+      expect(transform.value.getMaxScaleOnAxis(), greaterThan(1));
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   for (final resizeWindow in [false, true]) {
     for (final reduceMotion in [false, true]) {
@@ -3616,22 +3984,34 @@ void main() {
             .first;
         final hiddenTop = tester.getTopLeft(topMaterial).dy;
         final hiddenBottom = tester.getTopLeft(bottomMaterial).dy;
-        expect(
-          tester
-              .widget<AnimatedOpacity>(
-                find.descendant(
-                  of: bottom,
-                  matching: find.byType(AnimatedOpacity),
-                ),
-              )
-              .opacity,
-          0,
-        );
+        for (final overlay in [top, bottom]) {
+          final slide = tester.widget<AnimatedSlide>(overlay);
+          expect(
+            slide.duration,
+            reduceMotion ? Duration.zero : const Duration(milliseconds: 300),
+          );
+          expect(slide.curve, Curves.ease);
+          expect(
+            find.descendant(
+              of: overlay,
+              matching: find.byType(AnimatedOpacity),
+            ),
+            findsNothing,
+          );
+        }
         expect(find.byType(MiniPlayer), findsOneWidget);
         await tester.tapAt(const Offset(195, 420));
-        await tester.pump(const Duration(milliseconds: 350));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 300));
+        if (!reduceMotion) {
+          await tester.pump(const Duration(milliseconds: 150));
+          final topPosition = tester.getTopLeft(topMaterial).dy;
+          final bottomPosition = tester.getTopLeft(bottomMaterial).dy;
+          expect(topPosition, greaterThan(hiddenTop));
+          expect(topPosition, lessThan(0));
+          expect(bottomPosition, lessThan(hiddenBottom));
+          await tester.pump(const Duration(milliseconds: 200));
+        }
+        await tester.pumpAndSettle();
         expect(
           tester.getRect(find.byType(FutureBuilder<Uint8List>).first),
           page,
@@ -3641,43 +4021,55 @@ void main() {
           final bottomSlide = tester.widget<AnimatedSlide>(bottom);
           expect(topSlide.offset, Offset.zero);
           expect(bottomSlide.offset, Offset.zero);
-          final topOpacity = tester.widget<AnimatedOpacity>(
-            find.descendant(of: top, matching: find.byType(AnimatedOpacity)),
-          );
-          expect(topOpacity.opacity, 1);
-          final topPosition = tester.getTopLeft(topMaterial).dy;
-          expect(topPosition, greaterThan(hiddenTop));
-          expect(topPosition, lessThan(0));
-          expect(tester.getTopLeft(bottomMaterial).dy, lessThan(hiddenBottom));
         }
-        await tester.pumpAndSettle();
         expect(find.text('4/8'), findsOneWidget);
         expect(find.byType(MiniPlayer), findsOneWidget);
         await tester.sendKeyEvent(LogicalKeyboardKey.space);
         await tester.pumpAndSettle();
-        expect(
-          tester
-              .widget<IgnorePointer>(
-                find
-                    .ancestor(of: bottom, matching: find.byType(IgnorePointer))
-                    .first,
-              )
-              .ignoring,
-          isTrue,
-        );
+        for (final overlay in [top, bottom]) {
+          expect(
+            tester
+                .widget<IgnorePointer>(
+                  find
+                      .ancestor(
+                        of: overlay,
+                        matching: find.byType(IgnorePointer),
+                      )
+                      .first,
+                )
+                .ignoring,
+            isTrue,
+          );
+          expect(
+            tester
+                .widget<ExcludeFocus>(
+                  find
+                      .ancestor(
+                        of: overlay,
+                        matching: find.byType(ExcludeFocus),
+                      )
+                      .first,
+                )
+                .excluding,
+            isTrue,
+          );
+          expect(
+            tester
+                .widget<ExcludeSemantics>(
+                  find
+                      .ancestor(
+                        of: overlay,
+                        matching: find.byType(ExcludeSemantics),
+                      )
+                      .first,
+                )
+                .excluding,
+            isTrue,
+          );
+        }
         expect(
           tester.getRect(find.byType(FutureBuilder<Uint8List>).first),
           page,
-        );
-        expect(
-          tester
-              .widget<ExcludeFocus>(
-                find
-                    .ancestor(of: bottom, matching: find.byType(ExcludeFocus))
-                    .first,
-              )
-              .excluding,
-          isTrue,
         );
         await tester.pumpWidget(const SizedBox());
         await tester.pump();
