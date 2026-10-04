@@ -4,6 +4,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../widgets/app_bottom_dock_transition.dart';
+
 /// Slides only the entering/leaving page; shared elements fly in the overlay.
 class AppPageTransitionsBuilder extends PageTransitionsBuilder {
   const AppPageTransitionsBuilder();
@@ -21,18 +23,25 @@ class AppPageTransitionsBuilder extends PageTransitionsBuilder {
     Animation<double> animation,
     Animation<double> secondaryAnimation,
     Widget child,
-  ) => _PageTransition(route: route, animation: animation, child: child);
+  ) => _PageTransition(
+    route: route,
+    animation: animation,
+    secondaryAnimation: secondaryAnimation,
+    child: child,
+  );
 }
 
 class _PageTransition extends StatefulWidget {
   const _PageTransition({
     required this.route,
     required this.animation,
+    required this.secondaryAnimation,
     required this.child,
   });
 
   final PageRoute<dynamic> route;
   final Animation<double> animation;
+  final Animation<double> secondaryAnimation;
   final Widget child;
 
   @override
@@ -41,11 +50,29 @@ class _PageTransition extends StatefulWidget {
 
 class _PageTransitionState extends State<_PageTransition>
     with WidgetsBindingObserver {
+  static const _dismissedAnimation = AlwaysStoppedAnimation<double>(0);
+
+  final SnapshotController _snapshotController = SnapshotController();
   late final HorizontalDragGestureRecognizer _edgeDrag;
   NavigatorState? _gestureNavigator;
   Animation<double>? _settlingAnimation;
   bool _dragging = false;
   bool _completionScheduled = false;
+  bool _semanticsRestored = false;
+  bool _semanticsRestoreScheduled = false;
+  bool _dockSnapshotSwitching = false;
+
+  bool _onDockSnapshotChanged(AppBottomDockSnapshotNotification notification) {
+    _snapshotController.clear();
+    _snapshotController.allowSnapshotting = false;
+    if (_dockSnapshotSwitching) return true;
+    _dockSnapshotSwitching = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() => _dockSnapshotSwitching = false);
+    });
+    return true;
+  }
 
   @override
   void initState() {
@@ -78,6 +105,18 @@ class _PageTransitionState extends State<_PageTransition>
   }
 
   bool get _enabled => widget.route.isCurrent && widget.route.popGestureEnabled;
+
+  bool _isSnapshotFrame(Animation<double> animation) =>
+      (animation.status == AnimationStatus.forward ||
+          animation.status == AnimationStatus.reverse) &&
+      animation.value > 0 &&
+      animation.value < 1;
+
+  bool get _pageStopped =>
+      widget.animation.status == AnimationStatus.completed &&
+      widget.secondaryAnimation.status == AnimationStatus.dismissed &&
+      widget.secondaryAnimation.value == 0 &&
+      !widget.route.popGestureInProgress;
 
   void _startGesture({double progress = 1}) {
     if (!_enabled) return;
@@ -165,13 +204,45 @@ class _PageTransitionState extends State<_PageTransition>
       });
     }
     final platform = Theme.of(context).platform;
-    return Stack(
+    final secondaryAnimation = reduceMotion
+        ? _dismissedAnimation
+        : widget.secondaryAnimation;
+    final transition = Stack(
       fit: StackFit.passthrough,
       children: [
         AnimatedBuilder(
-          animation: widget.animation,
-          child: widget.child,
+          animation: Listenable.merge([
+            widget.animation,
+            widget.secondaryAnimation,
+          ]),
+          child: SnapshotWidget(
+            controller: _snapshotController,
+            mode: SnapshotMode.permissive,
+            autoresize: true,
+            child: widget.child,
+          ),
           builder: (context, child) {
+            _snapshotController.allowSnapshotting =
+                platform == TargetPlatform.android &&
+                !reduceMotion &&
+                !_dockSnapshotSwitching &&
+                widget.route.allowSnapshotting &&
+                (widget.route.popGestureInProgress ||
+                    _isSnapshotFrame(widget.animation) ||
+                    // Reuse the covered page's snapshot until its reveal finishes.
+                    widget.secondaryAnimation.value > 0);
+            final pageStopped = _pageStopped;
+            if (!pageStopped) {
+              _semanticsRestored = false;
+            } else if (!_semanticsRestored && !_semanticsRestoreScheduled) {
+              _semanticsRestoreScheduled = true;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _semanticsRestoreScheduled = false;
+                if (!mounted || !_pageStopped) return;
+                setState(() => _semanticsRestored = true);
+              });
+            }
+
             final progress = reduceMotion
                 ? 1.0
                 : widget.route.popGestureInProgress
@@ -194,7 +265,11 @@ class _PageTransitionState extends State<_PageTransition>
                       child: SizedBox.expand(),
                     ),
                   ),
-                  ClipRect(child: child),
+                  ExcludeSemantics(
+                    // Restore semantics after the final moving frame.
+                    excluding: !reduceMotion && !_semanticsRestored,
+                    child: ClipRect(child: child!),
+                  ),
                 ],
               ),
             );
@@ -215,6 +290,13 @@ class _PageTransitionState extends State<_PageTransition>
           ),
       ],
     );
+    return NotificationListener<AppBottomDockSnapshotNotification>(
+      onNotification: _onDockSnapshotChanged,
+      child: ClipRect(
+        clipper: _ExposedPageClipper(secondaryAnimation, widget.route),
+        child: transition,
+      ),
+    );
   }
 
   @override
@@ -222,6 +304,27 @@ class _PageTransitionState extends State<_PageTransition>
     WidgetsBinding.instance.removeObserver(this);
     _edgeDrag.dispose();
     _stopGesture();
+    _snapshotController.allowSnapshotting = false;
+    _snapshotController.dispose();
     super.dispose();
   }
+}
+
+class _ExposedPageClipper extends CustomClipper<Rect> {
+  _ExposedPageClipper(this.animation, this.route) : super(reclip: animation);
+
+  final Animation<double> animation;
+  final PageRoute<dynamic> route;
+
+  @override
+  Rect getClip(Size size) {
+    final progress = route.navigator?.userGestureInProgress == true
+        ? animation.value
+        : Curves.ease.transform(animation.value);
+    return Rect.fromLTWH(0, 0, size.width * (1 - progress), size.height);
+  }
+
+  @override
+  bool shouldReclip(_ExposedPageClipper oldClipper) =>
+      animation != oldClipper.animation || route != oldClipper.route;
 }

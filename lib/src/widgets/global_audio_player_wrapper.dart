@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/audio_provider.dart';
-import 'app_bottom_dock.dart';
 import 'app_bottom_dock_transition.dart';
 import 'mini_player.dart';
 import 'player/player_cover_widget.dart';
@@ -33,7 +32,6 @@ class GlobalAudioPlayerWrapper extends ConsumerStatefulWidget {
 class _GlobalAudioPlayerWrapperState
     extends ConsumerState<GlobalAudioPlayerWrapper> {
   final GlobalKey _miniPlayerKey = GlobalKey();
-  bool _suspendWorkDetailDockHero = false;
 
   @override
   Widget build(BuildContext context) {
@@ -50,13 +48,6 @@ class _GlobalAudioPlayerWrapperState
               initialArtworkFlightTarget: isWorkDetailsTarget
                   ? PlayerArtworkFlightTarget.none
                   : PlayerArtworkFlightTarget.main,
-              onArtworkHeroActivationChanged: isWorkDetailsTarget
-                  ? (active) {
-                      if (mounted && _suspendWorkDetailDockHero != active) {
-                        setState(() => _suspendWorkDetailDockHero = active);
-                      }
-                    }
-                  : null,
             )
           : const SizedBox.shrink(),
       loading: () => const SizedBox.shrink(),
@@ -65,11 +56,9 @@ class _GlobalAudioPlayerWrapperState
     final hasMiniPlayer = currentTrack.asData?.value != null;
     final miniPlayer = !hasMiniPlayer
         ? rawMiniPlayer
-        : isWorkDetailsTarget && !_suspendWorkDetailDockHero
-        ? AppBottomDockMiniPlayerHero.target(child: rawMiniPlayer)
         : isWorkDetailsTarget
-        ? rawMiniPlayer
-        : AppBottomDockMiniPlayerHero.source(child: rawMiniPlayer);
+        ? AppBottomDockMiniPlayer.target(child: rawMiniPlayer)
+        : AppBottomDockMiniPlayer.source(child: rawMiniPlayer);
 
     final content = Column(
       children: [
@@ -77,26 +66,6 @@ class _GlobalAudioPlayerWrapperState
         if (widget.showMiniPlayer) miniPlayer,
       ],
     );
-    final body =
-        isWorkDetailsTarget &&
-            MediaQuery.orientationOf(context) == Orientation.portrait
-        ? Stack(
-            fit: StackFit.expand,
-            clipBehavior: Clip.none,
-            children: [
-              content,
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: AppBottomDockTabBarHero.offstageTarget(
-                  height: AppBottomDock.layoutExtent(context),
-                ),
-              ),
-            ],
-          )
-        : content;
-    return AppBottomDockTransitionScope(
-      sourceHasAppTabBar: false,
-      child: Scaffold(body: body),
-    );
+    return AppBottomDockTransitionScope(child: Scaffold(body: content));
   }
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -2443,10 +2444,25 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   }
 
   Future<void> _openKnownWork(Work work) {
+    final initialCover = _initialWorkDetailCover(work);
     return pushWorkDetailRoute(
       context,
-      builder: (context) => WorkDetailScreen(work: work),
+      builder: (context) =>
+          WorkDetailScreen(work: work, initialCoverImageProvider: initialCover),
     );
+  }
+
+  ImageProvider<Object>? _initialWorkDetailCover(Work work) {
+    final track = ref.read(currentTrackProvider).valueOrNull;
+    if (track == null || track.workId != work.id) return null;
+    final url = _buildWorkCoverUrl(track.workId, track.artworkUrl);
+    if (url == null) return null;
+    final ImageProvider<Object> provider = LocalFileUrl.isLocalFileUrl(url)
+        ? FileImage(File(LocalFileUrl.pathFromUrl(url) ?? url))
+        : CachedNetworkImageProvider(url, cacheKey: 'work_cover_${work.id}');
+    return PaintingBinding.instance.imageCache.statusForKey(provider).tracked
+        ? provider
+        : null;
   }
 
   void _openCurrentLyricSource(
@@ -3210,10 +3226,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       if (context.mounted) {
         Navigator.of(context).pop();
 
-        pushWorkDetailRoute(
-          context,
-          builder: (context) => WorkDetailScreen(work: work),
-        );
+        unawaited(_openKnownWork(work));
       }
     } catch (e) {
       if (context.mounted) {

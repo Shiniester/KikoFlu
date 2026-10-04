@@ -13,6 +13,7 @@ import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/models/lyric.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
+import 'package:kikoeru_flutter/src/providers/artwork_theme_provider.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
 import 'package:kikoeru_flutter/src/providers/artwork_theme_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
@@ -641,6 +642,7 @@ void main() {
       artist: 'Artist',
       album: 'Work album',
       workId: 42,
+      artworkUrl: 'file://assets/icons/app_icon_opaque.png',
     );
     const work = Work(id: 42, title: 'Work album');
     const details = PlayerWorkDetailsData(
@@ -655,9 +657,15 @@ void main() {
       const Size(390, 844),
       track: track,
       workDetails: details,
-      disableThemeArtwork: true,
+      mockArtworkSeed: true,
     );
 
+    final cover = FileImage(File('assets/icons/app_icon_opaque.png'));
+    expect(
+      PaintingBinding.instance.imageCache.statusForKey(cover).tracked,
+      isTrue,
+    );
+    addTearDown(() => cover.evict());
     final compactTitle = find.byKey(
       const ValueKey('player-track-title-button'),
     );
@@ -666,6 +674,12 @@ void main() {
     compactTitleButton.onTap!();
     await tester.pumpAndSettle();
     expect(find.byType(WorkDetailScreen, skipOffstage: false), findsOneWidget);
+    expect(
+      tester
+          .widget<WorkDetailScreen>(find.byType(WorkDetailScreen))
+          .initialCoverImageProvider,
+      cover,
+    );
 
     await tester.pageBack();
     await tester.pumpAndSettle();
@@ -678,6 +692,12 @@ void main() {
     wideTitleButton.onTap!();
     await tester.pumpAndSettle();
     expect(find.byType(WorkDetailScreen), findsOneWidget);
+    expect(
+      tester
+          .widget<WorkDetailScreen>(find.byType(WorkDetailScreen))
+          .initialCoverImageProvider,
+      cover,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -2792,10 +2812,7 @@ void main() {
       final progressSection = find.byType(PlayerProgressSection);
       List<String?> progressText() => [
         for (final text in tester.widgetList<Text>(
-          find.descendant(
-            of: progressSection,
-            matching: find.byType(Text),
-          ),
+          find.descendant(of: progressSection, matching: find.byType(Text)),
         ))
           text.data,
       ];
@@ -4356,6 +4373,7 @@ Future<void> _pumpPlayer(
   void Function(int oldIndex, int newIndex)? onQueueReorder,
   void Function(Duration position)? onSeek,
   VoidCallback? onHostTap,
+  bool mockArtworkSeed = false,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -4373,6 +4391,13 @@ Future<void> _pumpPlayer(
         else if (onQueueReorder != null)
           audioPlayerControllerProvider.overrideWith(
             (ref) => _ReorderingAudioController(ref, onQueueReorder),
+          ),
+        if (mockArtworkSeed)
+          artworkSeedLoaderProvider.overrideWithValue(
+            ArtworkSeedCache(
+              maxEntries: 1,
+              extractor: (_) async => Colors.blue,
+            ),
           ),
         currentTrackProvider.overrideWith(
           (ref) => trackStream ?? Stream.value(track),

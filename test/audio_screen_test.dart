@@ -1,4 +1,5 @@
 import 'package:kikoeru_flutter/src/screens/settings_screen.dart';
+import 'package:kikoeru_flutter/src/comics/ui/comic_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,6 +27,7 @@ import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/screens/main_screen.dart';
 import 'package:kikoeru_flutter/src/screens/works_screen.dart';
 import 'package:kikoeru_flutter/src/screens/history_screen.dart';
+import 'package:kikoeru_flutter/src/screens/playlists_screen.dart';
 import 'package:kikoeru_flutter/src/screens/local_downloads_screen.dart';
 import 'package:kikoeru_flutter/src/screens/subtitle_library_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/global_audio_player_wrapper.dart';
@@ -167,12 +169,7 @@ Future<void> _pumpAudioScreen(
 }
 
 PageController _pages(WidgetTester tester) => tester
-    .widget<PageView>(
-      find.descendant(
-        of: find.byType(TabBarView),
-        matching: find.byType(PageView),
-      ),
-    )
+    .widget<PageView>(find.byKey(const ValueKey('audio-tab-pages')))
     .controller!;
 
 class _AuthenticatedAudio extends AuthNotifier {
@@ -240,16 +237,16 @@ void main() {
     await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
-    expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
+    expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
+    expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsOneWidget);
     await tester.pumpAndSettle();
     expect(find.byType(SearchScreen), findsOneWidget);
     expect(find.byType(MiniPlayer), findsOneWidget);
     await tester.tap(find.byTooltip('Back'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.byKey(appBottomDockTabBarFlightRootKey), findsOneWidget);
-    expect(find.byKey(appBottomDockMiniPlayerFlightRootKey), findsOneWidget);
+    expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
+    expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsOneWidget);
     await tester.pumpAndSettle();
     expect(find.byType(SearchScreen), findsNothing);
     expect(find.byType(MiniPlayer), findsOneWidget);
@@ -289,12 +286,18 @@ void main() {
             reason: 'before leaving online marks',
           );
           for (var i = 0; i < 2; i++) {
-            await tester.drag(find.byType(TabBarView), const Offset(-600, 0));
+            await tester.drag(
+              find.byKey(const ValueKey('audio-tab-pages')),
+              const Offset(-600, 0),
+            );
             await tester.pumpAndSettle();
           }
           expect(_pages(tester).page, 3);
           for (var i = 0; i < 2; i++) {
-            await tester.drag(find.byType(TabBarView), const Offset(600, 0));
+            await tester.drag(
+              find.byKey(const ValueKey('audio-tab-pages')),
+              const Offset(600, 0),
+            );
             await tester.pumpAndSettle();
           }
           expect(_pages(tester).page, 1);
@@ -330,12 +333,18 @@ void main() {
           await tester.pumpAndSettle();
           expect(historyScroll().offset, 360);
           for (var i = 0; i < 2; i++) {
-            await tester.drag(find.byType(TabBarView), const Offset(600, 0));
+            await tester.drag(
+              find.byKey(const ValueKey('audio-tab-pages')),
+              const Offset(600, 0),
+            );
             await tester.pumpAndSettle();
           }
           expect(_pages(tester).page, 0);
           for (var i = 0; i < 2; i++) {
-            await tester.drag(find.byType(TabBarView), const Offset(-600, 0));
+            await tester.drag(
+              find.byKey(const ValueKey('audio-tab-pages')),
+              const Offset(-600, 0),
+            );
             await tester.pumpAndSettle();
           }
           expect(_pages(tester).page, 2);
@@ -395,12 +404,12 @@ void main() {
     await _pumpAudioScreen(tester, reduced, settle: false);
     await tester.pump(const Duration(milliseconds: 300));
     final tabs = tester.widget<TabBar>(find.byType(TabBar)).controller!;
-    tabs.animateTo(tabs.length - 1);
+    tester.widget<TabBar>(find.byType(TabBar)).onTap!(tabs.length - 1);
     await tester.pump(const Duration(milliseconds: 300));
     final libraryElement = tester.element(find.byType(SubtitleLibraryScreen));
-    tabs.animateTo(0);
+    tester.widget<TabBar>(find.byType(TabBar)).onTap!(0);
     await tester.pump(const Duration(milliseconds: 300));
-    tabs.animateTo(tabs.length - 1);
+    tester.widget<TabBar>(find.byType(TabBar)).onTap!(tabs.length - 1);
     await tester.pump(const Duration(milliseconds: 300));
     expect(
       tester.element(find.byType(SubtitleLibraryScreen)),
@@ -471,12 +480,18 @@ void main() {
     );
     final initialMode = container.read(worksProvider).displayMode;
 
-    await tester.drag(find.byType(TabBarView), const Offset(-600, 0));
+    await tester.drag(
+      find.byKey(const ValueKey('audio-tab-pages')),
+      const Offset(-600, 0),
+    );
     await tester.pumpAndSettle();
     expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 1);
     expect(container.read(worksProvider).displayMode, initialMode);
 
-    await tester.drag(find.byType(TabBarView), const Offset(600, 0));
+    await tester.drag(
+      find.byKey(const ValueKey('audio-tab-pages')),
+      const Offset(600, 0),
+    );
     await tester.pumpAndSettle();
     expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 0);
     expect(container.read(worksProvider).displayMode, initialMode);
@@ -618,10 +633,10 @@ void main() {
           } else {
             expect(destination.left, greaterThan(start.left));
             expect(destination.left, lessThan(start.right));
-            expect(
-              tester.getRect(find.byType(AudioScreen)).left,
-              lessThan(start.left),
-            );
+            final pages = tester
+                .widget<PageView>(find.byKey(const ValueKey('main-tab-pages')))
+                .controller!;
+            expect(pages.page, closeTo(2 * Curves.ease.transform(1 / 3), .001));
           }
           await tester.pumpAndSettle();
           expect(
@@ -761,7 +776,9 @@ void main() {
       final reduced = ValueNotifier(false);
       addTearDown(reduced.dispose);
       await _pumpAudioScreen(tester, reduced);
-      final pageView = tester.element(find.byType(TabBarView));
+      final pageView = tester.element(
+        find.byKey(const ValueKey('audio-tab-pages')),
+      );
       await tester.ensureVisible(find.byType(Tab).at(2));
       await tester.tap(find.byType(Tab).at(2));
       await tester.pump();
@@ -774,7 +791,10 @@ void main() {
 
       reduced.value = false;
       await tester.pump();
-      expect(tester.element(find.byType(TabBarView)), same(pageView));
+      expect(
+        tester.element(find.byKey(const ValueKey('audio-tab-pages'))),
+        same(pageView),
+      );
       expect(_pages(tester).page, 2);
 
       await tester.tap(find.byType(Tab).at(1));
@@ -789,4 +809,184 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'Audio click follows ease motion and retargets from its position',
+    (tester) async {
+      final reduced = ValueNotifier(false);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced);
+      final tabs = tester.widget<TabBar>(find.byType(TabBar));
+      final pages = _pages(tester);
+      await tester.tap(find.byType(Tab).at(2));
+      await tester.pump();
+      expect(pages.page, 0);
+      expect(tabs.controller!.animation!.value, 0);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(pages.page, closeTo(2 * Curves.ease.transform(1 / 3), .001));
+      expect(tabs.controller!.animation!.value, closeTo(pages.page!, .001));
+      final from = pages.page!;
+      await tester.tap(find.byType(Tab).at(0));
+      await tester.pump();
+      expect(pages.page, closeTo(from, .001));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        pages.page,
+        closeTo(from * (1 - Curves.ease.transform(1 / 3)), .001),
+      );
+      expect(tabs.controller!.animation!.value, closeTo(pages.page!, .001));
+      await tester.pump(const Duration(milliseconds: 199));
+      expect(pages.page, greaterThan(0));
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(pages.page, 0);
+      expect(tabs.controller!.index, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Audio drag interrupts click and reselecting the current tab settles',
+    (tester) async {
+      final reduced = ValueNotifier(false);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced);
+      await tester.tap(find.byType(Tab).at(2));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 40));
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const ValueKey('audio-tab-pages'))),
+      );
+      await gesture.moveBy(const Offset(220, 0));
+      await tester.pump();
+      final tabs = tester.widget<TabBar>(find.byType(TabBar));
+      expect(
+        tabs.controller!.animation!.value,
+        closeTo(_pages(tester).page!, .001),
+      );
+      await gesture.up();
+      final current = tabs.controller!.index;
+      expect(_pages(tester).page, isNot(closeTo(current.toDouble(), .001)));
+      await tester.tap(find.byType(Tab).at(current));
+      await tester.pumpAndSettle();
+      expect(_pages(tester).page, current);
+      expect(tabs.controller!.offset, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'changing Audio tabs during travel keeps the destination identity',
+    (tester) async {
+      final reduced = ValueNotifier(false);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(AudioScreen)),
+      );
+      await tester.tap(find.byType(Tab).at(2));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 40));
+      await container
+          .read(myTabsDisplayProvider.notifier)
+          .setShowOnlineMarks(false);
+      await tester.pumpAndSettle();
+      expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 1);
+      expect(_pages(tester).page, 1);
+      final history = tester.state(find.byType(HistoryScreen));
+      await container
+          .read(myTabsDisplayProvider.notifier)
+          .setShowOnlineMarks(true);
+      await tester.pumpAndSettle();
+      expect(_pages(tester).page, 2);
+      expect(tester.state(find.byType(HistoryScreen)), same(history));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('distant Audio clicks only initialize the chosen library', (
+    tester,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('my_tabs_show_playlists', true);
+    await prefs.setBool('my_tabs_show_subtitle_library', true);
+    final reduced = ValueNotifier(false);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced);
+    final tabs = tester.widget<TabBar>(find.byType(TabBar));
+    tabs.onTap!(tabs.tabs.length - 1);
+    await tester.pump();
+    for (var frame = 0; frame < 20; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(find.byType(HistoryScreen, skipOffstage: false), findsNothing);
+      expect(find.byType(PlaylistsScreen, skipOffstage: false), findsNothing);
+      expect(
+        find.byType(LocalDownloadsScreen, skipOffstage: false),
+        findsNothing,
+      );
+    }
+    expect(find.byType(SubtitleLibraryScreen), findsOneWidget);
+    final library = tester.state(find.byType(SubtitleLibraryScreen));
+    tabs.onTap!(0);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    tabs.onTap!(tabs.tabs.length - 1);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.state(find.byType(SubtitleLibraryScreen)), same(library));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  for (final size in [const Size(390, 844), const Size(1000, 600)]) {
+    testWidgets(
+      'main paging stays lazy, ignores dragging and retargets ($size)',
+      (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final reduced = ValueNotifier(false);
+        addTearDown(reduced.dispose);
+        await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+        final pagesFinder = find.byKey(const ValueKey('main-tab-pages'));
+        final pages = tester.widget<PageView>(pagesFinder).controller!;
+        final navigation = size.width > size.height
+            ? find.byType(NavigationRail)
+            : find.byType(NavigationBar);
+        void select(int index) {
+          if (size.width > size.height) {
+            tester.widget<NavigationRail>(navigation).onDestinationSelected!(
+              index,
+            );
+          } else {
+            tester.widget<NavigationBar>(navigation).onDestinationSelected!(
+              index,
+            );
+          }
+        }
+
+        final audioState = tester.state(find.byType(AudioScreen));
+        select(2);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(pages.page, closeTo(2 * Curves.ease.transform(1 / 3), .001));
+        expect(find.byType(ComicScreen, skipOffstage: false), findsNothing);
+        select(0);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(pages.page, 0);
+        expect(tester.state(find.byType(AudioScreen)), same(audioState));
+        select(2);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 40));
+        reduced.value = true;
+        await tester.pump();
+        expect(pages.page, 2);
+        await tester.drag(pagesFinder, const Offset(600, 0));
+        await tester.pumpAndSettle();
+        expect(pages.page, 2);
+        expect(find.byType(ComicScreen, skipOffstage: false), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 }

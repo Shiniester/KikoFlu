@@ -12,6 +12,18 @@ Widget _testApp(Widget child) {
   );
 }
 
+class _CountingPainter extends CustomPainter {
+  _CountingPainter(this.onPaint);
+
+  final VoidCallback onPaint;
+
+  @override
+  void paint(Canvas canvas, Size size) => onPaint();
+
+  @override
+  bool shouldRepaint(covariant _CountingPainter oldDelegate) => false;
+}
+
 void main() {
   testWidgets('renders loading state before all other states', (tester) async {
     await tester.pumpWidget(
@@ -30,6 +42,43 @@ void main() {
     expect(find.text('Failed'), findsNothing);
     expect(find.text('No files'), findsNothing);
     expect(find.text('content'), findsNothing);
+  });
+
+  testWidgets('loading spinner paint does not repaint its ancestor', (
+    tester,
+  ) async {
+    var ancestorPaints = 0;
+    await tester.pumpWidget(
+      MediaQuery(
+        data: const MediaQueryData(size: Size(400, 800)),
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: Theme(
+            data: ThemeData(),
+            child: SizedBox(
+              width: 400,
+              height: 800,
+              child: CustomPaint(
+                painter: _CountingPainter(() => ancestorPaints++),
+                child: const FileExplorerStatusView(
+                  isLoading: true,
+                  empty: false,
+                  emptyMessage: 'No files',
+                  child: SizedBox.shrink(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final initialPaints = ancestorPaints;
+    for (var frame = 0; frame < 6; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    expect(ancestorPaints, initialPaints);
   });
 
   testWidgets('renders error state and retry action', (tester) async {

@@ -52,8 +52,8 @@ class AppBottomDock extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (miniPlayer case final miniPlayer?)
-          AppBottomDockMiniPlayerHero.source(child: miniPlayer),
-        AppBottomDockTabBarHero.source(child: navigationBar),
+          AppBottomDockMiniPlayer.source(child: miniPlayer),
+        AppBottomDockTabBar.source(child: navigationBar),
       ],
     );
   }

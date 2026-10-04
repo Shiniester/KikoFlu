@@ -22,13 +22,11 @@ import 'player/player_visual_palette.dart';
 class MiniPlayer extends ConsumerStatefulWidget {
   final bool enableArtworkHero;
   final PlayerArtworkFlightTarget initialArtworkFlightTarget;
-  final ValueChanged<bool>? onArtworkHeroActivationChanged;
 
   const MiniPlayer({
     super.key,
     this.enableArtworkHero = true,
     this.initialArtworkFlightTarget = PlayerArtworkFlightTarget.main,
-    this.onArtworkHeroActivationChanged,
   });
 
   @override
@@ -102,7 +100,6 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
           artworkBuilder: (context) =>
               _buildArtworkImage(context, track, workCoverUrl: workCoverUrl),
           initialArtworkFlightTarget: widget.initialArtworkFlightTarget,
-          onArtworkHeroActivationChanged: widget.onArtworkHeroActivationChanged,
           builder: (context, launcher, artwork) => Dismissible(
             key: const ValueKey('mini-player-dismissible'),
             direction: DismissDirection.down,

@@ -8,6 +8,7 @@ import '../providers/auth_provider.dart';
 import '../widgets/app_bottom_dock_transition.dart';
 import '../widgets/app_bottom_dock.dart';
 import '../widgets/mini_player.dart';
+import '../widgets/tab_page_motion.dart';
 import 'audio_screen.dart';
 import '../comics/ui/comic_screen.dart';
 import 'settings_screen.dart';
@@ -20,9 +21,9 @@ class MainScreen extends ConsumerStatefulWidget {
   ConsumerState<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends ConsumerState<MainScreen>
-    with TickerProviderStateMixin {
-  late TabController _tabs = TabController(length: 3, vsync: this);
+class _MainScreenState extends ConsumerState<MainScreen> {
+  final _pages = PageController();
+  bool _reduceMotion = false;
   int _currentIndex = 0;
   final _selection = ValueNotifier(0);
   static const int _settingsTabIndex = 2;
@@ -50,14 +51,14 @@ class _MainScreenState extends ConsumerState<MainScreen>
 
   @override
   void dispose() {
-    _tabs.dispose();
+    _pages.dispose();
     _selection.dispose();
     super.dispose();
   }
 
-  Widget _buildPages() => TabBarView(
+  Widget _buildPages() => PageView(
     key: const ValueKey('main-tab-pages'),
-    controller: _tabs,
+    controller: _pages,
     physics: const NeverScrollableScrollPhysics(),
     children: [
       for (var i = 0; i < _screens.length; i++)
@@ -110,7 +111,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
     });
 
     _selection.value = index;
-    _tabs.animateTo(index);
+    moveToTabPage(_pages, index, reduceMotion: _reduceMotion);
 
     if (index == _settingsTabIndex) {
       ref.read(settingsCacheRefreshTriggerProvider.notifier).state++;
@@ -118,19 +119,17 @@ class _MainScreenState extends ConsumerState<MainScreen>
   }
 
   @override
-  Widget build(BuildContext context) {
-    final duration = MediaQuery.disableAnimationsOf(context)
-        ? Duration.zero
-        : kTabScrollDuration;
-    if (_tabs.animationDuration != duration) {
-      _tabs.dispose();
-      _tabs = TabController(
-        length: 3,
-        vsync: this,
-        initialIndex: _currentIndex,
-        animationDuration: duration,
-      );
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (reduceMotion && !_reduceMotion && _pages.hasClients) {
+      _pages.jumpToPage(_currentIndex);
     }
+    _reduceMotion = reduceMotion;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
     final showUpdateBadge = ref.watch(showUpdateRedDotProvider);
@@ -281,7 +280,7 @@ class _MainScreenState extends ConsumerState<MainScreen>
           ],
         ),
       );
-      return landscapeScaffold;
+      return AppBottomDockTransitionScope(child: landscapeScaffold);
     }
 
     // 竖屏布局：播放条和应用标签栏共同组成底部 Dock。

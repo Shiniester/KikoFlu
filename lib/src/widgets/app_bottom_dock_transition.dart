@@ -1,67 +1,42 @@
+import 'dart:ui' show FlutterView;
+
 import 'package:flutter/material.dart';
 
-const _miniPlayerHeroTag = 'app-bottom-dock-mini-player';
-const _appTabBarHeroTag = 'app-bottom-dock-tab-bar';
 const double appBottomDockNavigationBarHeight = 58;
-
 @visibleForTesting
-const appBottomDockMiniPlayerFlightRootKey = ValueKey<String>(
-  'app-bottom-dock-mini-player-flight-root',
+const appBottomDockMiniPlayerHandoffRootKey = ValueKey<String>(
+  'app-bottom-dock-mini-player-handoff-root',
 );
-
 @visibleForTesting
-const appBottomDockTabBarFlightRootKey = ValueKey<String>(
-  'app-bottom-dock-tab-bar-flight-root',
+const appBottomDockTabBarHandoffRootKey = ValueKey<String>(
+  'app-bottom-dock-tab-bar-handoff-root',
 );
-
-enum _AppBottomDockHeroPart { miniPlayer, tabBar }
 
 enum AppBottomDockRole { source, workDetailsTarget }
 
-/// Keeps the source-side Bottom Dock heroes available for the complete
-/// lifetime of a pushed Work Details Screen route.
+enum _DockPart { miniPlayer, tabBar }
+
+/// Owns outgoing Dock handoffs without owning playback or app navigation.
 class AppBottomDockTransitionScope extends StatefulWidget {
-  const AppBottomDockTransitionScope({
-    super.key,
-    required this.child,
-    this.sourceHasAppTabBar = true,
-  });
-
+  const AppBottomDockTransitionScope({super.key, required this.child});
   final Widget child;
-  final bool sourceHasAppTabBar;
-
   @override
-  State<AppBottomDockTransitionScope> createState() =>
-      _AppBottomDockTransitionScopeState();
-
-  static _AppBottomDockTransitionScopeState? _maybeStateOf(
-    BuildContext context,
-  ) {
-    return context
-        .getInheritedWidgetOfExactType<_AppBottomDockTransitionHost>()
-        ?.state;
-  }
-
-  static bool _sourceHeroesEnabledOf(BuildContext context) {
-    return context
-            .dependOnInheritedWidgetOfExactType<_AppBottomDockTransitionHost>()
-            ?.sourceHeroesEnabled ??
-        false;
-  }
-
+  State<AppBottomDockTransitionScope> createState() => _DockScopeState();
+  static _DockScopeState? _maybeStateOf(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<_DockHost>()?.state;
   static double? handoffBottomInsetOf(BuildContext context) {
-    return _AppBottomDockHandoffMetrics.handoffBottomInsetOf(context);
+    final metrics = _DockMetrics.maybeOf(context);
+    return metrics?.frozen == true ? metrics!.bottomInset : null;
   }
 
-  static double bottomInsetOf(BuildContext context) {
-    return _AppBottomDockHandoffMetrics.bottomInsetOf(context) ??
-        MediaQuery.viewPaddingOf(context).bottom;
-  }
-
-  static bool sourceHasAppTabBarOf(BuildContext context) {
-    return _AppBottomDockHandoffMetrics.sourceHasAppTabBarOf(context) ?? false;
-  }
-
+  static double bottomInsetOf(BuildContext context) =>
+      _DockMetrics.maybeOf(context)?.bottomInset ??
+      MediaQuery.viewPaddingOf(context).bottom;
+  static bool artworkHeroEnabledOf(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<_DockArtworkHeroMode>()
+          ?.enabled ??
+      true;
   static Widget withHandoffBottomInset(
     BuildContext context, {
     required double bottomInset,
@@ -75,445 +50,520 @@ class AppBottomDockTransitionScope extends StatefulWidget {
       child: child,
     );
   }
-
-  static Widget _withHandoffMetrics({
-    required double bottomInset,
-    required bool frozen,
-    required bool sourceHasAppTabBar,
-    required Widget child,
-  }) {
-    return _AppBottomDockHandoffMetrics(
-      bottomInset: bottomInset,
-      frozen: frozen,
-      sourceHasAppTabBar: sourceHasAppTabBar,
-      child: child,
-    );
-  }
 }
 
-class _AppBottomDockTransitionScopeState
-    extends State<AppBottomDockTransitionScope> {
-  final List<_AppBottomDockHandoff> _handoffs = [];
-
-  bool get sourceHasAppTabBar => widget.sourceHasAppTabBar;
-
-  _AppBottomDockTransitionLease arm(double bottomInset) {
-    final handoff = _AppBottomDockHandoff(bottomInset);
-    setState(() => _handoffs.add(handoff));
-    return _AppBottomDockTransitionLease(this, handoff);
+class _DockScopeState extends State<AppBottomDockTransitionScope> {
+  final List<_DockSession> _handoffs = [];
+  final Map<_DockPart, _DockEndpointState> _endpoints = {};
+  _DockSession? get activeSession => _handoffs.lastOrNull;
+  PageRoute<void>? get returningRoute {
+    for (final session in _handoffs.reversed) {
+      final route = session.route;
+      if (route.navigator != null && !route.isActive) return route;
+    }
+    return null;
   }
 
-  void _release(_AppBottomDockHandoff handoff) {
-    if (!mounted || !_handoffs.contains(handoff)) return;
-    setState(() => _handoffs.remove(handoff));
+  void arm(_DockSession session) => setState(() => _handoffs.add(session));
+  void release(_DockSession session) {
+    session.dispose();
+    if (mounted) setState(() => _handoffs.remove(session));
   }
 
   @override
   Widget build(BuildContext context) {
-    final inheritedMetrics = _AppBottomDockHandoffMetrics._maybeOf(context);
-    final inheritedHandoffBottomInset = inheritedMetrics?.frozen == true
-        ? inheritedMetrics!.bottomInset
-        : null;
-    final hasLocalHandoff = _handoffs.isNotEmpty;
-    final frozen = hasLocalHandoff || inheritedHandoffBottomInset != null;
-    final bottomInset = hasLocalHandoff
-        ? _handoffs.last.bottomInset
-        : inheritedHandoffBottomInset ??
-              MediaQuery.viewPaddingOf(context).bottom;
-    final host = _AppBottomDockTransitionHost(
-      state: this,
-      sourceHeroesEnabled: _handoffs.isNotEmpty,
-      child: widget.child,
-    );
-    return AppBottomDockTransitionScope._withHandoffMetrics(
-      bottomInset: bottomInset,
-      frozen: frozen,
-      sourceHasAppTabBar: hasLocalHandoff
-          ? widget.sourceHasAppTabBar
-          : inheritedHandoffBottomInset != null
-          ? inheritedMetrics!.sourceHasAppTabBar
-          : widget.sourceHasAppTabBar,
-      child: host,
+    final inherited = _DockMetrics.maybeOf(context);
+    final session = activeSession;
+    return _DockMetrics(
+      bottomInset:
+          session?.bottomInset ??
+          inherited?.bottomInset ??
+          MediaQuery.viewPaddingOf(context).bottom,
+      frozen: session != null || (inherited?.frozen ?? false),
+      // Incoming and outgoing handoffs are independent for nested routes.
+      incoming: inherited?.incoming,
+      child: _DockHost(state: this, outgoing: session, child: widget.child),
     );
   }
-}
-
-class _AppBottomDockHandoff {
-  const _AppBottomDockHandoff(this.bottomInset);
-
-  final double bottomInset;
-}
-
-class _AppBottomDockTransitionLease {
-  _AppBottomDockTransitionLease(this._owner, this._handoff);
-
-  _AppBottomDockTransitionScopeState? _owner;
-  _AppBottomDockHandoff? _handoff;
-
-  void release() {
-    final owner = _owner;
-    final handoff = _handoff;
-    if (owner != null && handoff != null) owner._release(handoff);
-    _owner = null;
-    _handoff = null;
-  }
-}
-
-class _AppBottomDockTransitionHost extends InheritedWidget {
-  const _AppBottomDockTransitionHost({
-    required this.state,
-    required this.sourceHeroesEnabled,
-    required super.child,
-  });
-
-  final _AppBottomDockTransitionScopeState state;
-  final bool sourceHeroesEnabled;
 
   @override
-  bool updateShouldNotify(_AppBottomDockTransitionHost oldWidget) {
-    return sourceHeroesEnabled != oldWidget.sourceHeroesEnabled;
+  void dispose() {
+    for (final session in _handoffs) {
+      session.dispose();
+    }
+    super.dispose();
   }
 }
 
-class _AppBottomDockHandoffMetrics extends InheritedWidget {
-  const _AppBottomDockHandoffMetrics({
+class _DockHost extends InheritedWidget {
+  const _DockHost({
+    required this.state,
+    required this.outgoing,
+    required super.child,
+  });
+  final _DockScopeState state;
+  final _DockSession? outgoing;
+  @override
+  bool updateShouldNotify(_DockHost oldWidget) =>
+      outgoing != oldWidget.outgoing;
+}
+
+class _DockMetrics extends InheritedWidget {
+  const _DockMetrics({
     required this.bottomInset,
     required this.frozen,
-    required this.sourceHasAppTabBar,
+    required this.incoming,
     required super.child,
   });
-
   final double bottomInset;
   final bool frozen;
-  final bool sourceHasAppTabBar;
-
-  static _AppBottomDockHandoffMetrics? _maybeOf(BuildContext context) {
-    return context
-        .dependOnInheritedWidgetOfExactType<_AppBottomDockHandoffMetrics>();
-  }
-
-  static double? bottomInsetOf(BuildContext context) {
-    return _maybeOf(context)?.bottomInset;
-  }
-
-  static double? handoffBottomInsetOf(BuildContext context) {
-    final metrics = _maybeOf(context);
-    if (metrics == null || !metrics.frozen) return null;
-    return metrics.bottomInset;
-  }
-
-  static bool? sourceHasAppTabBarOf(BuildContext context) {
-    return _maybeOf(context)?.sourceHasAppTabBar;
-  }
-
+  final _DockSession? incoming;
+  static _DockMetrics? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_DockMetrics>();
   @override
-  bool updateShouldNotify(_AppBottomDockHandoffMetrics oldWidget) {
-    return bottomInset != oldWidget.bottomInset ||
-        frozen != oldWidget.frozen ||
-        sourceHasAppTabBar != oldWidget.sourceHasAppTabBar;
-  }
+  bool updateShouldNotify(_DockMetrics oldWidget) =>
+      bottomInset != oldWidget.bottomInset ||
+      frozen != oldWidget.frozen ||
+      incoming != oldWidget.incoming;
 }
 
-/// Pushes a Work Details Screen while preserving the source Bottom Dock until
-/// the route has completely left the Navigator again.
+/// Invalidates the page image when its Dock becomes an equal-size placeholder.
+class AppBottomDockSnapshotNotification extends Notification {
+  const AppBottomDockSnapshotNotification();
+}
+
 Future<void> pushWorkDetailRoute(
   BuildContext context, {
   required WidgetBuilder builder,
 }) => pushBottomDockRoute(context, builder: builder);
 
-/// Hands off the Bottom Dock to a page containing a Mini Player, retaining
-/// the source endpoints until the destination has finished returning.
+/// Retains the source scope until the destination has completely returned.
 Future<void> pushBottomDockRoute(
   BuildContext context, {
   required WidgetBuilder builder,
 }) async {
   final sourceScope = AppBottomDockTransitionScope._maybeStateOf(context);
+  final sourceRoute = ModalRoute.of(context);
+  final returningRoute = sourceScope?.returningRoute;
+  if (returningRoute != null) {
+    await returningRoute.completed;
+    if (!context.mounted) return;
+  }
   final view = View.of(context);
-  final capturedBottomInset = view.viewPadding.bottom / view.devicePixelRatio;
-  final lease = sourceScope?.arm(capturedBottomInset);
-  if (lease != null) {
-    await WidgetsBinding.instance.endOfFrame;
-  }
-  if (!context.mounted) {
-    lease?.release();
-    return;
-  }
-
-  final route = MaterialPageRoute<void>(
-    builder: (_) => AppBottomDockTransitionScope._withHandoffMetrics(
-      bottomInset: capturedBottomInset,
+  final bottomInset = view.viewPadding.bottom / view.devicePixelRatio;
+  final session = sourceScope != null
+      ? _DockSession(
+          enabled:
+              MediaQuery.orientationOf(context) == Orientation.portrait &&
+              !MediaQuery.disableAnimationsOf(context),
+          bottomInset: bottomInset,
+          source: sourceScope,
+          view: view,
+        )
+      : null;
+  final route = _DockPageRoute(
+    session: session,
+    builder: (_) => _DockMetrics(
+      bottomInset: bottomInset,
       frozen: true,
-      sourceHasAppTabBar: sourceScope?.sourceHasAppTabBar ?? false,
+      incoming: session,
       child: Builder(builder: builder),
     ),
   );
+  session?.route = route;
+  if (session != null) sourceScope!.arm(session);
   try {
+    if (session != null) await WidgetsBinding.instance.endOfFrame;
+    if (!context.mounted || sourceRoute?.isCurrent == false) return;
     await Navigator.of(context).push<void>(route);
     await route.completed;
   } finally {
-    lease?.release();
+    if (session != null) sourceScope!.release(session);
   }
 }
 
-class AppBottomDockMiniPlayerHero extends StatelessWidget {
-  const AppBottomDockMiniPlayerHero.source({super.key, required this.child})
-    : _role = AppBottomDockRole.source;
-
-  const AppBottomDockMiniPlayerHero.target({super.key, required this.child})
-    : _role = AppBottomDockRole.workDetailsTarget;
-
-  final Widget child;
-  final AppBottomDockRole _role;
-
-  static bool artworkHeroEnabledOf(BuildContext context) {
-    return context
-            .dependOnInheritedWidgetOfExactType<_DockArtworkHeroMode>()
-            ?.enabled ??
-        true;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled =
-        _role == AppBottomDockRole.workDetailsTarget ||
-        AppBottomDockTransitionScope._sourceHeroesEnabledOf(context);
-    return _AppBottomDockHero(
-      tag: _miniPlayerHeroTag,
-      part: _AppBottomDockHeroPart.miniPlayer,
-      role: _role,
-      enabled: enabled,
-      flightChild: child,
-      suppressDescendantHeroes: true,
-      child: child,
-    );
-  }
-}
-
-class AppBottomDockTabBarHero extends StatelessWidget {
-  const AppBottomDockTabBarHero.source({super.key, required this.child})
-    : height = null;
-
-  const AppBottomDockTabBarHero.offstageTarget({
-    super.key,
-    required this.height,
-  }) : child = null;
-
-  final Widget? child;
-  final double? height;
-
-  @override
-  Widget build(BuildContext context) {
-    final tabBar = child;
-    if (tabBar != null) {
-      return _AppBottomDockHero(
-        tag: _appTabBarHeroTag,
-        part: _AppBottomDockHeroPart.tabBar,
-        role: AppBottomDockRole.source,
-        enabled: AppBottomDockTransitionScope._sourceHeroesEnabledOf(context),
-        flightChild: tabBar,
-        child: tabBar,
-      );
-    }
-
-    return IgnorePointer(
-      child: ExcludeSemantics(
-        child: FractionalTranslation(
-          translation: const Offset(0, 1),
-          child: _AppBottomDockHero(
-            tag: _appTabBarHeroTag,
-            part: _AppBottomDockHeroPart.tabBar,
-            role: AppBottomDockRole.workDetailsTarget,
-            enabled: true,
-            child: SizedBox(width: double.infinity, height: height),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AppBottomDockHero extends StatelessWidget {
-  const _AppBottomDockHero({
-    required this.tag,
-    required this.part,
-    required this.role,
+class _DockSession extends ChangeNotifier with WidgetsBindingObserver {
+  _DockSession({
     required this.enabled,
-    required this.child,
-    this.flightChild,
-    this.suppressDescendantHeroes = false,
+    required this.bottomInset,
+    required this.source,
+    required this.view,
   });
-
-  final Object tag;
-  final _AppBottomDockHeroPart part;
-  final AppBottomDockRole role;
   final bool enabled;
-  final Widget child;
-  final Widget? flightChild;
-  final bool suppressDescendantHeroes;
+  final double bottomInset;
+  final _DockScopeState source;
+  final FlutterView view;
+  _DockEndpointState? get sourceMini => source._endpoints[_DockPart.miniPlayer];
+  _DockEndpointState? get sourceTab => source._endpoints[_DockPart.tabBar];
+  late final _DockPageRoute route;
+  _DockEndpointState? targetMini;
+  Animation<double>? _animation;
+  ValueNotifier<bool>? _gesture;
+  bool _ready = false;
+  bool _disposed = false;
+  bool _payloadRefreshScheduled = false;
+  bool inTransit = false;
+  bool sourceCovered = false;
+  double get distance =>
+      sourceTab == null ? 0 : appBottomDockNavigationBarHeight + bottomInset;
+  void attach(Animation<double> animation, ValueNotifier<bool> gesture) {
+    if (identical(_animation, animation)) return;
+    _animation = animation;
+    _gesture = gesture;
+    animation.addListener(_sync);
+    animation.addStatusListener(_onStatus);
+    gesture.addListener(_sync);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  void prepareAfterLayout() {
+    if (_disposed || _ready) return;
+    sourceMini?.measure();
+    sourceTab?.measure();
+    targetMini?.measure();
+    if ((sourceMini?.extent.height ?? 0) > 0 &&
+        (targetMini?.extent.height ?? 0) == 0) {
+      return;
+    }
+    _ready = true;
+    _sync();
+  }
+
+  void _onStatus(AnimationStatus _) => _sync();
+
+  void refreshPayloadAfterLayout() {
+    if (_disposed || !inTransit || _payloadRefreshScheduled) return;
+    _payloadRefreshScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _payloadRefreshScheduled = false;
+      if (!_disposed && inTransit) notifyListeners();
+    });
+  }
 
   @override
-  Widget build(BuildContext context) {
-    if (!enabled || MediaQuery.disableAnimationsOf(context)) return child;
-    final screenHeight = MediaQuery.sizeOf(context).height;
-    final dockExtent =
-        AppBottomDockTransitionScope.bottomInsetOf(context) +
-        appBottomDockNavigationBarHeight;
-    final sourceHasAppTabBar =
-        AppBottomDockTransitionScope.sourceHasAppTabBarOf(context);
-    return Hero(
-      tag: tag,
-      transitionOnUserGestures: true,
-      curve: Curves.linear,
-      reverseCurve: Curves.linear,
-      createRectTween: (begin, end) => _createBottomDockRectTween(
-        begin,
-        end,
-        part: part,
-        destinationRole: role,
-        sourceHasAppTabBar: sourceHasAppTabBar,
-        screenHeight: screenHeight,
-        dockExtent: dockExtent,
-      ),
-      flightShuttleBuilder: _buildAppBottomDockFlight,
-      child: _AppBottomDockHeroPayload(
-        flightChild: flightChild,
-        suppressDescendantHeroes: suppressDescendantHeroes,
-        handoffBottomInset: AppBottomDockTransitionScope.handoffBottomInsetOf(
-          context,
+  void didChangeMetrics() => _sync();
+
+  void _sync() {
+    if (_disposed || !_ready || _animation == null) return;
+    final status = _animation!.status;
+    final gesture = route.isCurrent && (_gesture?.value ?? false);
+    final portrait = view.physicalSize.height >= view.physicalSize.width;
+    final moving =
+        portrait &&
+        (gesture ||
+            status == AnimationStatus.forward ||
+            status == AnimationStatus.reverse);
+    final covered = portrait && status != AnimationStatus.dismissed;
+    if (moving == inTransit && covered == sourceCovered) return;
+    inTransit = moving;
+    sourceCovered = covered;
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    if (_disposed) return;
+    _disposed = true;
+    _animation?.removeListener(_sync);
+    _animation?.removeStatusListener(_onStatus);
+    _gesture?.removeListener(_sync);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+}
+
+class _DockPageRoute extends MaterialPageRoute<void> {
+  _DockPageRoute({required super.builder, required this.session});
+  final _DockSession? session;
+  Widget? _dockTransitionLayer;
+  @override
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    final page = super.buildTransitions(
+      context,
+      animation,
+      secondaryAnimation,
+      child,
+    );
+    final handoff = session;
+    if (handoff == null || !handoff.enabled) return page;
+    handoff.attach(animation, navigator!.userGestureInProgressNotifier);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        page,
+        _dockTransitionLayer ??= _DockTransitionLayer(
+          session: handoff,
+          animation: animation,
         ),
-        child: suppressDescendantHeroes
-            ? _DockArtworkHeroMode(enabled: false, child: child)
-            : child,
-      ),
+      ],
     );
   }
 }
 
-RectTween _createBottomDockRectTween(
-  Rect? begin,
-  Rect? end, {
-  required _AppBottomDockHeroPart part,
-  required AppBottomDockRole destinationRole,
-  required bool sourceHasAppTabBar,
-  required double screenHeight,
-  required double dockExtent,
-}) {
-  final push = destinationRole == AppBottomDockRole.workDetailsTarget;
-  return RectTween(
-    begin: _bottomDockEndpointRect(
-      begin,
-      part: part,
-      role: push
-          ? AppBottomDockRole.source
-          : AppBottomDockRole.workDetailsTarget,
-      sourceHasAppTabBar: sourceHasAppTabBar,
-      screenHeight: screenHeight,
-      dockExtent: dockExtent,
-    ),
-    end: _bottomDockEndpointRect(
-      end,
-      part: part,
-      role: destinationRole,
-      sourceHasAppTabBar: sourceHasAppTabBar,
-      screenHeight: screenHeight,
-      dockExtent: dockExtent,
-    ),
-  );
+class _DockTransitionLayer extends StatefulWidget {
+  const _DockTransitionLayer({required this.session, required this.animation});
+  final _DockSession session;
+  final Animation<double> animation;
+  @override
+  State<_DockTransitionLayer> createState() => _DockTransitionLayerState();
 }
 
-Rect? _bottomDockEndpointRect(
-  Rect? rect, {
-  required _AppBottomDockHeroPart part,
-  required AppBottomDockRole role,
-  required bool sourceHasAppTabBar,
-  required double screenHeight,
-  required double dockExtent,
-}) {
-  if (rect == null) return null;
-  final isSource = role == AppBottomDockRole.source;
-  switch (part) {
-    case _AppBottomDockHeroPart.miniPlayer:
-      final bottom = isSource && sourceHasAppTabBar
-          ? screenHeight - dockExtent
-          : screenHeight;
-      return Rect.fromLTWH(
-        rect.left,
-        bottom - rect.height,
-        rect.width,
-        rect.height,
+class _DockTransitionLayerState extends State<_DockTransitionLayer> {
+  late final CurvedAnimation _curve;
+  @override
+  void initState() {
+    super.initState();
+    _curve = CurvedAnimation(
+      parent: widget.animation,
+      curve: Curves.ease,
+      reverseCurve: Curves.ease,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.session.prepareAfterLayout();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([widget.session, widget.session._gesture]),
+    builder: (context, _) {
+      final session = widget.session;
+      if (!session.inTransit) return const SizedBox.shrink();
+      final mini = session.targetMini;
+      final tab = session.sourceTab;
+      if (mini == null && tab == null) return const SizedBox.shrink();
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final position = Tween<Offset>(
+            begin: Offset.zero,
+            end: Offset(0, session.distance / constraints.maxHeight),
+          ).animate(session._gesture!.value ? widget.animation : _curve);
+          final dock = Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (mini != null)
+                KeyedSubtree(
+                  key: appBottomDockMiniPlayerHandoffRootKey,
+                  child: RepaintBoundary(child: mini.payload(inOverlay: true)),
+                ),
+              if (tab != null)
+                KeyedSubtree(
+                  key: appBottomDockTabBarHandoffRootKey,
+                  child: RepaintBoundary(child: tab.payload(inOverlay: true)),
+                ),
+            ],
+          );
+          return ClipRect(
+            child: IgnorePointer(
+              child: ExcludeSemantics(
+                child: SlideTransition(
+                  position: position,
+                  child: SizedBox.expand(
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: Material(
+                        type: MaterialType.transparency,
+                        child: _DockArtworkHeroMode(
+                          enabled: false,
+                          child: HeroMode(
+                            enabled: false,
+                            child:
+                                AppBottomDockTransitionScope.withHandoffBottomInset(
+                                  context,
+                                  bottomInset: session.bottomInset,
+                                  child: _DockMetrics(
+                                    bottomInset: session.bottomInset,
+                                    frozen: true,
+                                    incoming: session,
+                                    child: dock,
+                                  ),
+                                ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       );
-    case _AppBottomDockHeroPart.tabBar:
-      final top = isSource ? screenHeight - dockExtent : screenHeight;
-      return Rect.fromLTWH(rect.left, top, rect.width, dockExtent);
+    },
+  );
+  @override
+  void dispose() {
+    _curve.dispose();
+    super.dispose();
   }
 }
 
-class _AppBottomDockHeroPayload extends StatelessWidget {
-  const _AppBottomDockHeroPayload({
-    required this.child,
-    required this.flightChild,
-    required this.suppressDescendantHeroes,
-    required this.handoffBottomInset,
-  });
-
+class AppBottomDockMiniPlayer extends StatelessWidget {
+  const AppBottomDockMiniPlayer.source({super.key, required this.child});
+  const AppBottomDockMiniPlayer.target({super.key, required this.child});
   final Widget child;
-  final Widget? flightChild;
-  final bool suppressDescendantHeroes;
-  final double? handoffBottomInset;
-
   @override
-  Widget build(BuildContext context) => child;
+  Widget build(BuildContext context) =>
+      _DockEndpoint(part: _DockPart.miniPlayer, child: child);
 }
 
-Widget _buildAppBottomDockFlight(
-  BuildContext flightContext,
-  Animation<double> animation,
-  HeroFlightDirection direction,
-  BuildContext fromHeroContext,
-  BuildContext toHeroContext,
-) {
-  final fromHero = fromHeroContext.widget as Hero;
-  final toHero = toHeroContext.widget as Hero;
-  final from = fromHero.child as _AppBottomDockHeroPayload;
-  final to = toHero.child as _AppBottomDockHeroPayload;
-  final preferred = direction == HeroFlightDirection.push ? to : from;
-  final fallback = direction == HeroFlightDirection.push ? from : to;
-  final child =
-      preferred.flightChild ?? fallback.flightChild ?? preferred.child;
-  final flightChild =
-      preferred.suppressDescendantHeroes || fallback.suppressDescendantHeroes
-      ? _DockArtworkHeroMode(enabled: false, child: child)
-      : child;
-  final handoffBottomInset =
-      preferred.handoffBottomInset ?? fallback.handoffBottomInset;
-  final frozenFlightChild = handoffBottomInset == null
-      ? flightChild
-      : AppBottomDockTransitionScope.withHandoffBottomInset(
-          flightContext,
-          bottomInset: handoffBottomInset,
-          child: flightChild,
-        );
-  final flightRootKey = fromHero.tag == _miniPlayerHeroTag
-      ? appBottomDockMiniPlayerFlightRootKey
-      : appBottomDockTabBarFlightRootKey;
-  return IgnorePointer(
-    child: Material(
-      type: MaterialType.transparency,
-      child: KeyedSubtree(
-        key: flightRootKey,
-        child: HeroMode(enabled: false, child: frozenFlightChild),
+class AppBottomDockTabBar extends StatelessWidget {
+  const AppBottomDockTabBar.source({super.key, required this.child});
+  final Widget child;
+  @override
+  Widget build(BuildContext context) =>
+      _DockEndpoint(part: _DockPart.tabBar, child: child);
+}
+
+class _DockEndpoint extends StatefulWidget {
+  const _DockEndpoint({required this.part, required this.child});
+  final _DockPart part;
+  final Widget child;
+  @override
+  State<_DockEndpoint> createState() => _DockEndpointState();
+}
+
+class _DockEndpointState extends State<_DockEndpoint> {
+  final GlobalKey _payloadKey = GlobalKey();
+  _DockScopeState? _owner;
+  _DockSession? _incoming;
+  _DockSession? _outgoing;
+  CapturedThemes? _themes;
+  ThemeData? _theme;
+  bool _wasInLayer = false;
+  bool _wasCovered = false;
+  Size _wasExtent = Size.zero;
+  Size extent = Size.zero;
+  bool get _movesIntoLayer =>
+      ((_incoming?.inTransit ?? false) &&
+          widget.part == _DockPart.miniPlayer) ||
+      ((_outgoing?.inTransit ?? false) && widget.part == _DockPart.tabBar);
+  void measure() {
+    final box = _payloadKey.currentContext?.findRenderObject();
+    if (box is RenderBox && box.hasSize) extent = box.size;
+  }
+
+  Widget payload({bool inOverlay = false}) {
+    Widget result = KeyedSubtree(key: _payloadKey, child: widget.child);
+    if (inOverlay) result = _themes!.wrap(result);
+    return result;
+  }
+
+  @override
+  void didUpdateWidget(_DockEndpoint oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.child != widget.child) {
+      _incoming?.refreshPayloadAfterLayout();
+      _outgoing?.refreshPayloadAfterLayout();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final theme = Theme.of(context);
+    final themeChanged = _theme != null && _theme != theme;
+    _theme = theme;
+    final host = context.dependOnInheritedWidgetOfExactType<_DockHost>();
+    final owner = host?.state;
+    final registrationChanged = owner?._endpoints[widget.part] != this;
+    if (_owner != owner) {
+      _owner?._endpoints.remove(widget.part);
+      _owner = owner;
+    }
+    owner?._endpoints[widget.part] = this;
+    final incoming = _DockMetrics.maybeOf(context)?.incoming;
+    final target = incoming?.route == ModalRoute.of(context) ? incoming : null;
+    final outgoing = host?.outgoing;
+    final refreshPayload =
+        themeChanged ||
+        (registrationChanged &&
+            ((target?.inTransit ?? false) || (outgoing?.inTransit ?? false)));
+    if (_incoming != target || _outgoing != outgoing) {
+      _incoming?.removeListener(_onSessionChanged);
+      _outgoing?.removeListener(_onSessionChanged);
+      _incoming = target;
+      _outgoing = outgoing;
+      _incoming?.addListener(_onSessionChanged);
+      _outgoing?.addListener(_onSessionChanged);
+    }
+    if (widget.part == _DockPart.miniPlayer && target != null) {
+      target.targetMini = this;
+    }
+    _themes = InheritedTheme.capture(
+      from: context,
+      to: Navigator.of(context).context,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      measure();
+      target?.prepareAfterLayout();
+      if (refreshPayload) {
+        _incoming?.refreshPayloadAfterLayout();
+        _outgoing?.refreshPayloadAfterLayout();
+      }
+    });
+  }
+
+  void _onSessionChanged() {
+    if (!mounted) return;
+    measure();
+    if (_wasInLayer == _movesIntoLayer &&
+        _wasCovered == (_outgoing?.sourceCovered ?? false) &&
+        _wasExtent == extent) {
+      return;
+    }
+    setState(() {});
+    const AppBottomDockSnapshotNotification().dispatch(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _wasInLayer = _movesIntoLayer;
+    _wasCovered = _outgoing?.sourceCovered ?? false;
+    _wasExtent = extent;
+    if (_wasInLayer) {
+      return SizedBox(width: double.infinity, height: extent.height);
+    }
+    final covered = _wasCovered;
+    return _DockArtworkHeroMode(
+      enabled: !covered,
+      child: HeroMode(
+        enabled: !covered,
+        child: covered
+            ? SizedBox(
+                width: double.infinity,
+                height: extent.height,
+                child: Offstage(child: payload()),
+              )
+            : payload(),
       ),
-    ),
-  );
+    );
+  }
+
+  @override
+  void dispose() {
+    if (_incoming?.targetMini == this) _incoming?.targetMini = null;
+    _incoming?.removeListener(_onSessionChanged);
+    _outgoing?.removeListener(_onSessionChanged);
+    if (_owner?._endpoints[widget.part] == this) {
+      _owner?._endpoints.remove(widget.part);
+    }
+    _incoming?.refreshPayloadAfterLayout();
+    _outgoing?.refreshPayloadAfterLayout();
+    super.dispose();
+  }
 }
 
 class _DockArtworkHeroMode extends InheritedWidget {
   const _DockArtworkHeroMode({required this.enabled, required super.child});
-
   final bool enabled;
-
   @override
-  bool updateShouldNotify(_DockArtworkHeroMode oldWidget) {
-    return enabled != oldWidget.enabled;
-  }
+  bool updateShouldNotify(_DockArtworkHeroMode oldWidget) =>
+      enabled != oldWidget.enabled;
 }

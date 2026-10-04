@@ -55,9 +55,11 @@ final downloadedFileStateScannerProvider = Provider((ref) {
 class FileExplorerController {
   _FileExplorerWidgetState? _state;
 
+  bool get isAttached => _state != null;
+
   Future<void> refresh({bool forceRefresh = false}) async {
     final state = _state;
-    if (state == null) return;
+    if (state == null) throw StateError('File explorer is not attached');
 
     await state._loadWorkTree(forceRefresh: forceRefresh, propagateError: true);
   }
@@ -78,6 +80,7 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
   final Work Function()? currentWork;
   final VoidCallback? onLoadCompleted;
   final FileExplorerController? controller;
+  final Future<bool> Function()? initialLoadReady;
 
   const FileExplorerWidget({
     super.key,
@@ -85,6 +88,7 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
     this.currentWork,
     this.onLoadCompleted,
     this.controller,
+    this.initialLoadReady,
   });
 
   @override
@@ -98,7 +102,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   final Map<String, bool> _downloadedFiles = {}; // hash -> downloaded
   Map<String, String> _fileRelativePaths = {}; // hash -> relative path
   final Set<String> _audioWithLibrarySubtitles = {}; // 存储在字幕库中有匹配字幕的音频文件名
-  bool _isLoading = false;
+  bool _isLoading = true;
   String? _errorMessage;
   String? _mainFolderPath; // 主文件夹路径
   StreamSubscription<DownloadTaskChange>? _downloadTasksSubscription;
@@ -169,6 +173,10 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     return mounted && generation == _loadGeneration;
   }
 
+  Future<bool> _waitForLoadReady() async {
+    return await widget.initialLoadReady?.call() ?? true;
+  }
+
   // 监听下载任务变化，当有任务完成或被删除时重新检测
   void _listenToDownloadTasks() {
     final downloadService = ref.read(downloadServiceProvider);
@@ -193,18 +201,22 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   }) async {
     final generation = ++_loadGeneration;
     final preserveCurrentTree = forceRefresh && _rootFiles.isNotEmpty;
-    setState(() {
-      _isLoading = !preserveCurrentTree;
-      _errorMessage = null;
-    });
+    var mayPublishCompletion = false;
 
     try {
+      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) return;
+      setState(() {
+        _isLoading = !preserveCurrentTree;
+        _errorMessage = null;
+      });
+
       final apiService = ref.read(kikoeruApiServiceProvider);
       final files = await apiService.getWorkTracks(
         _work.id,
         forceRefresh: forceRefresh,
       );
       if (!_isCurrentLoad(generation)) return;
+      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) return;
 
       // 注意：不要在这里更新全局文件列表
       // 只在播放音频时才更新，避免浏览其他作品时影响当前播放的歌曲?
@@ -216,27 +228,32 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       });
 
       // 检查已下载的文件
-      _checkDownloadedFiles();
+      unawaited(_checkDownloadedFiles());
 
       // 检查字幕库中的匹配项
-      await _checkLibrarySubtitles(generation);
-      if (!_isCurrentLoad(generation)) return;
+      if (!await _checkLibrarySubtitles(generation)) return;
+      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) return;
 
       // 识别主文件夹并自动展开（需要在检查字幕库后执行）
       setState(() {
         _identifyAndExpandMainFolder();
       });
+      mayPublishCompletion = true;
     } catch (e) {
       if (!_isCurrentLoad(generation)) return;
+      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) return;
       setState(() {
         if (!preserveCurrentTree) {
           _errorMessage = S.of(context).loadFilesFailed(e.toString());
         }
         _isLoading = false;
       });
+      mayPublishCompletion = true;
       if (propagateError) rethrow;
     } finally {
-      if (_isCurrentLoad(generation)) widget.onLoadCompleted?.call();
+      if (mayPublishCompletion && _isCurrentLoad(generation)) {
+        widget.onLoadCompleted?.call();
+      }
     }
   }
 
@@ -249,13 +266,24 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       while (mounted && _downloadScanRequested) {
         _downloadScanRequested = false;
         final generation = _loadGeneration;
-        final result = await _downloadedFileScanner.scan(
-          workId: _work.id,
-          fileTree: _rootFiles,
-          fileRelativePaths: _fileRelativePaths,
-        );
+        if (!await _waitForLoadReady() || !mounted) return;
+        if (_downloadScanRequested || generation != _loadGeneration) continue;
+        final DownloadedFileState result;
+        try {
+          result = await _downloadedFileScanner.scan(
+            workId: _work.id,
+            fileTree: _rootFiles,
+            fileRelativePaths: _fileRelativePaths,
+          );
+        } catch (e) {
+          _log.captureOutput('[FileExplorer] 检查已下载文件失败: $e');
+          if (_downloadScanRequested) continue;
+          return;
+        }
         if (!mounted) return;
-        if (generation != _loadGeneration || _downloadScanRequested) continue;
+        if (!await _waitForLoadReady() || !mounted) return;
+        if (_downloadScanRequested) continue;
+        if (generation != _loadGeneration) continue;
         if (mapEquals(_downloadedFiles, result.downloadedFiles)) continue;
         setState(() {
           _downloadedFiles
@@ -269,13 +297,19 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   }
 
   // 检查字幕库中哪些音频文件有匹配的字幕
-  Future<void> _checkLibrarySubtitles(int generation) async {
+  Future<bool> _checkLibrarySubtitles(int generation) async {
     try {
+      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) {
+        return false;
+      }
       final matches = await _subtitleMatchLoader.loadMatches(
         workId: _work.id,
         fileTree: _rootFiles,
       );
-      if (!_isCurrentLoad(generation)) return;
+      if (!_isCurrentLoad(generation)) return false;
+      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) {
+        return false;
+      }
 
       _audioWithLibrarySubtitles
         ..clear()
@@ -284,8 +318,10 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       _log.captureOutput(
         '[FileExplorer] 字幕库匹配: ${_audioWithLibrarySubtitles.length} 个音频文件有字幕',
       );
+      return true;
     } catch (e) {
       _log.captureOutput('[FileExplorer] 检查字幕库失败: $e');
+      return _isCurrentLoad(generation);
     }
   }
 
