@@ -1568,6 +1568,10 @@
   "comicOnlineFavorites": "Online favorites",
   "comicSources": "Sources and accounts",
   "comicReader": "Reader",
+  "comicReaderSettings": "Reader settings",
+  "@comicReaderSettings": {
+    "description": "Title and entry label for the shared comic reader settings page."
+  },
   "comicSearchTargets": "Search targets",
   "comicSearchSingle": "Single source",
   "comicSearchGrouped": "Grouped results",

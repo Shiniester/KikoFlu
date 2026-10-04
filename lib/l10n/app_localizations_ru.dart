@@ -3890,6 +3890,9 @@ class SRu extends S {
   String get comicReader => 'Читалка';
 
   @override
+  String get comicReaderSettings => 'Настройки чтения';
+
+  @override
   String get comicSearchTargets => 'Область поиска';
 
   @override

@@ -3760,6 +3760,9 @@ class SJa extends S {
   String get comicReader => 'リーダー';
 
   @override
+  String get comicReaderSettings => 'リーダー設定';
+
+  @override
   String get comicSearchTargets => '検索対象';
 
   @override

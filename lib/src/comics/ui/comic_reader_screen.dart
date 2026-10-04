@@ -559,6 +559,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(comicSettingsRevisionProvider);
     final mode = ref.watch(comicReadingModeProvider);
     ref.listen(comicReadingModeProvider, (_, __) {
       if (mounted) setState(_resetLayout);
@@ -672,6 +673,15 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                               m.name,
                             );
                           },
+                        ),
+                        IconButton(
+                          tooltip: s.comicReaderSettings,
+                          icon: const Icon(Icons.settings_outlined),
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const ComicReaderSettingsScreen(),
+                            ),
+                          ),
                         ),
                       ],
                     ),

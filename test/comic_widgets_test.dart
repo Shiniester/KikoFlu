@@ -1547,6 +1547,134 @@ void main() {
     expect(StorageService.getString('comic_layout_type'), 'bigGrid');
   });
 
+  testWidgets('comic settings opens and persists reader settings', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final container = await pump(
+      tester,
+      const ComicSettingsScreen(),
+      _Library(),
+      _Source(),
+    );
+
+    await tester.tap(find.text('Reader settings'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ComicReaderSettingsScreen), findsOneWidget);
+    await tester.tap(find.text('Reading mode'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Left to right'));
+    await tester.pumpAndSettle();
+    expect(
+      container.read(comicReadingModeProvider),
+      ComicReadingMode.leftToRight,
+    );
+    expect(StorageService.getString('comic_reading_mode'), 'leftToRight');
+
+    for (final (title, key) in [
+      ('Tap edges to turn pages', 'comic_tap_to_turn'),
+      ('Double-tap to zoom', 'comic_double_tap_zoom'),
+      ('Keep awake while reading', 'comic_keep_awake'),
+    ]) {
+      await tester.tap(find.text(title));
+      await tester.pumpAndSettle();
+      expect(StorageService.getBool(key), isFalse);
+    }
+    await tester.tap(find.text('Preload pages'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('5'));
+    await tester.pumpAndSettle();
+    expect(StorageService.getInt('comic_preload'), 5);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Reader settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('Left to right'), findsOneWidget);
+    expect(find.text('5'), findsOneWidget);
+    expect(
+      tester
+          .widgetList<SwitchListTile>(find.byType(SwitchListTile))
+          .every((tile) => !tile.value),
+      isTrue,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('reader settings apply gestures without losing the page', (
+    tester,
+  ) async {
+    await StorageService.setString('comic_reading_mode', 'leftToRight');
+    await StorageService.setBool('comic_double_tap_zoom', false);
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pump(
+      tester,
+      const ComicReaderScreen(
+        comic: _comic,
+        chapter: ComicChapter('one', 'Chapter 1'),
+        initialPage: 3,
+      ),
+      _Library(),
+      _Source(),
+    );
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    );
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    expect(find.text('4/8'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Reader settings'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ComicReaderSettingsScreen), findsOneWidget);
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.widgetWithText(SwitchListTile, 'Double-tap to zoom'),
+          )
+          .value,
+      isFalse,
+    );
+    await tester.tap(find.text('Double-tap to zoom'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Tap edges to turn pages'));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('4/8'), findsOneWidget);
+
+    final view = find.byKey(const ValueKey('comic-page-zoom-3'));
+    final transform = tester
+        .widget<InteractiveViewer>(
+          find.descendant(of: view, matching: find.byType(InteractiveViewer)),
+        )
+        .transformationController!;
+    await doubleTapAt(tester, tester.getCenter(view));
+    await tester.pumpAndSettle();
+    expect(transform.value.getMaxScaleOnAxis(), greaterThan(1));
+    expect(StorageService.getBool('comic_double_tap_zoom'), isTrue);
+
+    await tester.tapAt(const Offset(25, 420));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(find.text('4/8'), findsOneWidget);
+    expect(
+      tester
+          .widget<AnimatedSlide>(
+            find.byKey(const ValueKey('comic-reader-top-controls')),
+          )
+          .offset,
+      const Offset(0, -1),
+    );
+    expect(StorageService.getBool('comic_tap_to_turn'), isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('comic settings selects the shared small-grid preference', (
     tester,
   ) async {

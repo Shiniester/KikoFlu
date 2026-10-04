@@ -146,6 +146,12 @@ The Comic Reader's toolbar, chapter and page controls, and shared Mini Player
 shown over the reading surface.
 _Avoid_: Bottom Dock, App Tab Bar
 
+**Reader Settings (阅读器设置)**:
+The shared Comic Reader preferences page opened from Reader Controls or Comic
+settings. It contains reading mode, page-turn and zoom gestures, keep-awake,
+and preload preferences.
+_Avoid_: Comic Source settings, Reader Controls
+
 **Reader Zoom (阅读器缩放)**:
 The magnification of the current Comic Reader view: one page, one spread, or
 the entire continuous strip. Images within that view share the same transform.

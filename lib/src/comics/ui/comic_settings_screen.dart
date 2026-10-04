@@ -66,77 +66,13 @@ class ComicSettingsScreen extends ConsumerWidget {
           SettingsSectionList(
             children: [
               SettingsNavigationTile(
-                icon: Icons.chrome_reader_mode,
-                title: s.comicReadingMode,
-                subtitle: comicModeLabel(
-                  s,
-                  ref.watch(comicReadingModeProvider),
+                icon: Icons.settings_outlined,
+                title: s.comicReaderSettings,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const ComicReaderSettingsScreen(),
+                  ),
                 ),
-                onTap: () async {
-                  final selected = await showDialog<ComicReadingMode>(
-                    context: context,
-                    builder: (context) => SimpleDialog(
-                      title: Text(s.comicReadingMode),
-                      children: [
-                        for (final mode in ComicReadingMode.values)
-                          SimpleDialogOption(
-                            onPressed: () => Navigator.pop(context, mode),
-                            child: Text(comicModeLabel(s, mode)),
-                          ),
-                      ],
-                    ),
-                  );
-                  if (selected != null) {
-                    ref.read(comicReadingModeProvider.notifier).state =
-                        selected;
-                    await StorageService.setString(
-                      'comic_reading_mode',
-                      selected.name,
-                    );
-                  }
-                },
-              ),
-              SettingsSwitchTile(
-                title: s.comicTapToTurn,
-                icon: Icons.touch_app_outlined,
-                value: StorageService.getBool('comic_tap_to_turn') ?? true,
-                onChanged: (v) => save('comic_tap_to_turn', v),
-              ),
-              SettingsSwitchTile(
-                title: s.comicDoubleTapZoom,
-                icon: Icons.zoom_in,
-                value: StorageService.getBool('comic_double_tap_zoom') ?? true,
-                onChanged: (v) => save('comic_double_tap_zoom', v),
-              ),
-              SettingsSwitchTile(
-                title: s.comicKeepAwake,
-                icon: Icons.light_mode_outlined,
-                value: StorageService.getBool('comic_keep_awake') ?? true,
-                onChanged: (v) => save('comic_keep_awake', v),
-              ),
-              SettingsNavigationTile(
-                title: s.comicPreload,
-                icon: Icons.layers_outlined,
-                subtitle: '${StorageService.getInt('comic_preload') ?? 3}',
-                onTap: () async {
-                  final selected = await showDialog<int>(
-                    context: context,
-                    builder: (context) => SimpleDialog(
-                      title: Text(s.comicPreload),
-                      children: [
-                        for (final count in [0, 1, 3, 5, 10])
-                          SimpleDialogOption(
-                            onPressed: () => Navigator.pop(context, count),
-                            child: Text('$count'),
-                          ),
-                      ],
-                    ),
-                  );
-                  if (selected != null) {
-                    await StorageService.setInt('comic_preload', selected);
-                    ref.read(comicSettingsRevisionProvider.notifier).state++;
-                  }
-                },
               ),
             ],
           ),
@@ -238,6 +174,106 @@ class ComicSettingsScreen extends ConsumerWidget {
                   await comicImageCache.emptyCache();
                   if (context.mounted) {
                     SnackBarUtil.showSuccess(context, s.comicSaved);
+                  }
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class ComicReaderSettingsScreen extends ConsumerWidget {
+  const ComicReaderSettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(comicSettingsRevisionProvider);
+    final s = S.of(context);
+    Future<void> save(String key, bool value) async {
+      await StorageService.setBool(key, value);
+      ref.read(comicSettingsRevisionProvider.notifier).state++;
+    }
+
+    return SettingsSubpageScaffold(
+      title: s.comicReaderSettings,
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          SettingsSectionList(
+            children: [
+              SettingsNavigationTile(
+                icon: Icons.chrome_reader_mode,
+                title: s.comicReadingMode,
+                subtitle: comicModeLabel(
+                  s,
+                  ref.watch(comicReadingModeProvider),
+                ),
+                onTap: () async {
+                  final selected = await showDialog<ComicReadingMode>(
+                    context: context,
+                    builder: (context) => SimpleDialog(
+                      title: Text(s.comicReadingMode),
+                      children: [
+                        for (final mode in ComicReadingMode.values)
+                          SimpleDialogOption(
+                            onPressed: () => Navigator.pop(context, mode),
+                            child: Text(comicModeLabel(s, mode)),
+                          ),
+                      ],
+                    ),
+                  );
+                  if (selected != null) {
+                    ref.read(comicReadingModeProvider.notifier).state =
+                        selected;
+                    await StorageService.setString(
+                      'comic_reading_mode',
+                      selected.name,
+                    );
+                  }
+                },
+              ),
+              SettingsSwitchTile(
+                title: s.comicTapToTurn,
+                icon: Icons.touch_app_outlined,
+                value: StorageService.getBool('comic_tap_to_turn') ?? true,
+                onChanged: (v) => save('comic_tap_to_turn', v),
+              ),
+              SettingsSwitchTile(
+                title: s.comicDoubleTapZoom,
+                icon: Icons.zoom_in,
+                value: StorageService.getBool('comic_double_tap_zoom') ?? true,
+                onChanged: (v) => save('comic_double_tap_zoom', v),
+              ),
+              SettingsSwitchTile(
+                title: s.comicKeepAwake,
+                icon: Icons.light_mode_outlined,
+                value: StorageService.getBool('comic_keep_awake') ?? true,
+                onChanged: (v) => save('comic_keep_awake', v),
+              ),
+              SettingsNavigationTile(
+                title: s.comicPreload,
+                icon: Icons.layers_outlined,
+                subtitle: '${StorageService.getInt('comic_preload') ?? 3}',
+                onTap: () async {
+                  final selected = await showDialog<int>(
+                    context: context,
+                    builder: (context) => SimpleDialog(
+                      title: Text(s.comicPreload),
+                      children: [
+                        for (final count in [0, 1, 3, 5, 10])
+                          SimpleDialogOption(
+                            onPressed: () => Navigator.pop(context, count),
+                            child: Text('$count'),
+                          ),
+                      ],
+                    ),
+                  );
+                  if (selected != null) {
+                    await StorageService.setInt('comic_preload', selected);
+                    ref.read(comicSettingsRevisionProvider.notifier).state++;
                   }
                 },
               ),
