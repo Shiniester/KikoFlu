@@ -22,7 +22,7 @@ Future<void> moveToTabPage(
   return pages.animateToPage(
     index,
     duration: tabPageDuration,
-    curve: Curves.easeOutCubic,
+    curve: Curves.ease,
   );
 }
 

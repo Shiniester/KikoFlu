@@ -636,10 +636,7 @@ void main() {
             final pages = tester
                 .widget<PageView>(find.byKey(const ValueKey('main-tab-pages')))
                 .controller!;
-            expect(
-              pages.page,
-              closeTo(2 * Curves.easeOutCubic.transform(1 / 3), .001),
-            );
+            expect(pages.page, closeTo(2 * Curves.ease.transform(1 / 3), .001));
           }
           await tester.pumpAndSettle();
           expect(
@@ -814,7 +811,7 @@ void main() {
   );
 
   testWidgets(
-    'Audio click follows cubic motion and retargets from its position',
+    'Audio click follows ease motion and retargets from its position',
     (tester) async {
       final reduced = ValueNotifier(false);
       addTearDown(reduced.dispose);
@@ -826,10 +823,7 @@ void main() {
       expect(pages.page, 0);
       expect(tabs.controller!.animation!.value, 0);
       await tester.pump(const Duration(milliseconds: 100));
-      expect(
-        pages.page,
-        closeTo(2 * Curves.easeOutCubic.transform(1 / 3), .001),
-      );
+      expect(pages.page, closeTo(2 * Curves.ease.transform(1 / 3), .001));
       expect(tabs.controller!.animation!.value, closeTo(pages.page!, .001));
       final from = pages.page!;
       await tester.tap(find.byType(Tab).at(0));
@@ -838,7 +832,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       expect(
         pages.page,
-        closeTo(from * (1 - Curves.easeOutCubic.transform(1 / 3)), .001),
+        closeTo(from * (1 - Curves.ease.transform(1 / 3)), .001),
       );
       expect(tabs.controller!.animation!.value, closeTo(pages.page!, .001));
       await tester.pump(const Duration(milliseconds: 199));
@@ -974,10 +968,7 @@ void main() {
         select(2);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
-        expect(
-          pages.page,
-          closeTo(2 * Curves.easeOutCubic.transform(1 / 3), .001),
-        );
+        expect(pages.page, closeTo(2 * Curves.ease.transform(1 / 3), .001));
         expect(find.byType(ComicScreen, skipOffstage: false), findsNothing);
         select(0);
         await tester.pump();

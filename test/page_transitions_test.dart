@@ -206,7 +206,7 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('300ms easeOutCubic push and pop move only the foreground page', (
+  testWidgets('300ms ease push and pop move only the foreground page', (
     tester,
   ) async {
     final navigator = await _app(tester);
@@ -220,10 +220,7 @@ void main() {
     expect(route.animation!.value, closeTo(.5, .01));
     expect(
       _x(tester, _page),
-      closeTo(
-        800 * (1 - Curves.easeOutCubic.transform(route.animation!.value)),
-        .01,
-      ),
+      closeTo(800 * (1 - Curves.ease.transform(route.animation!.value)), .01),
     );
     expect(_x(tester, _root), 0);
     _expectExposedPageClipTracks(tester, _root, _page);
@@ -237,7 +234,7 @@ void main() {
     expect(nextRoute.transitionDuration, const Duration(milliseconds: 300));
     expect(
       _x(tester, next),
-      closeTo(800 * (1 - Curves.easeOutCubic.transform(.5)), .01),
+      closeTo(800 * (1 - Curves.ease.transform(.5)), .01),
     );
     expect(_x(tester, _page), 0);
     expect(_x(tester, _root), 0);
@@ -250,7 +247,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 150));
     expect(
       _x(tester, next),
-      closeTo(800 * (1 - Curves.easeOutCubic.transform(.5)), .01),
+      closeTo(800 * (1 - Curves.ease.transform(.5)), .01),
     );
     expect(_x(tester, _page), 0);
     expect(_x(tester, _root), 0);
@@ -262,7 +259,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 150));
     expect(
       _x(tester, _page),
-      closeTo(800 * (1 - Curves.easeOutCubic.transform(.5)), .01),
+      closeTo(800 * (1 - Curves.ease.transform(.5)), .01),
     );
     expect(_x(tester, _root), 0);
     _expectExposedPageClipTracks(tester, _root, _page);
@@ -772,7 +769,7 @@ void main() {
     expect(route.transitionDuration, const Duration(milliseconds: 300));
     expect(
       _x(tester, _page),
-      closeTo(800 * (1 - Curves.easeOutCubic.transform(.5)), .01),
+      closeTo(800 * (1 - Curves.ease.transform(.5)), .01),
     );
     expect(tester.getTopLeft(find.byKey(_page)).dy, 0);
     expect(_x(tester, _root), 0);

@@ -508,9 +508,7 @@ void main() {
         expect(tester.widget<ComicReaderScreen>(reader).initialPage, 3);
         expect(
           tester.getTopLeft(reader).dx,
-          reduceMotion
-              ? 0
-              : closeTo(800 * (1 - Curves.easeOutCubic.transform(.5)), .1),
+          reduceMotion ? 0 : closeTo(800 * (1 - Curves.ease.transform(.5)), .1),
         );
         await tester.pumpAndSettle();
         Navigator.of(tester.element(reader)).pop();
@@ -4613,7 +4611,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Fixture book'), findsOneWidget);
   });
-  testWidgets('comic tab clicks use cubic paging and retain the home page', (
+  testWidgets('comic tab clicks use ease paging and retain the home page', (
     tester,
   ) async {
     await pump(tester, const ComicScreen(), _Library(), _Source());
@@ -4626,7 +4624,7 @@ void main() {
     expect(pages.page, 0);
     expect(tabs.animation!.value, 0);
     await tester.pump(const Duration(milliseconds: 100));
-    expect(pages.page, closeTo(2 * Curves.easeOutCubic.transform(1 / 3), .001));
+    expect(pages.page, closeTo(2 * Curves.ease.transform(1 / 3), .001));
     expect(tabs.animation!.value, closeTo(pages.page!, .001));
     await tester.pump(const Duration(milliseconds: 199));
     expect(pages.page, lessThan(2));
@@ -4641,7 +4639,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(
       pages.page,
-      closeTo(from + (1 - from) * Curves.easeOutCubic.transform(1 / 3), .001),
+      closeTo(from + (1 - from) * Curves.ease.transform(1 / 3), .001),
     );
     expect(tabs.animation!.value, closeTo(pages.page!, .001));
     await tester.pumpAndSettle();
