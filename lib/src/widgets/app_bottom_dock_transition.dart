@@ -320,8 +320,8 @@ class _DockTransitionLayerState extends State<_DockTransitionLayer> {
     super.initState();
     _curve = CurvedAnimation(
       parent: widget.animation,
-      curve: Curves.easeInOutCubic,
-      reverseCurve: Curves.easeInOutCubic,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeOutCubic,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) widget.session.prepareAfterLayout();

@@ -508,7 +508,9 @@ void main() {
         expect(tester.widget<ComicReaderScreen>(reader).initialPage, 3);
         expect(
           tester.getTopLeft(reader).dx,
-          reduceMotion ? 0 : closeTo(800 * (1 - Curves.ease.transform(.5)), .1),
+          reduceMotion
+              ? 0
+              : closeTo(800 * (1 - Curves.easeOutCubic.transform(.5)), .1),
         );
         await tester.pumpAndSettle();
         Navigator.of(tester.element(reader)).pop();

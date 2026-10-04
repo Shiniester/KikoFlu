@@ -247,7 +247,7 @@ class _PageTransitionState extends State<_PageTransition>
                 ? 1.0
                 : widget.route.popGestureInProgress
                 ? widget.animation.value
-                : Curves.ease.transform(widget.animation.value);
+                : Curves.easeOutCubic.transform(widget.animation.value);
             return FractionalTranslation(
               translation: Offset(1 - progress, 0),
               child: Stack(
@@ -320,7 +320,7 @@ class _ExposedPageClipper extends CustomClipper<Rect> {
   Rect getClip(Size size) {
     final progress = route.navigator?.userGestureInProgress == true
         ? animation.value
-        : Curves.ease.transform(animation.value);
+        : Curves.easeOutCubic.transform(animation.value);
     return Rect.fromLTWH(0, 0, size.width * (1 - progress), size.height);
   }
 

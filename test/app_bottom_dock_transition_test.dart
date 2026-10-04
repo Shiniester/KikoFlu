@@ -247,7 +247,7 @@ void main() {
           rect.bottom,
           closeTo(
             sourceRect.bottom +
-                (58 + inset) * Curves.easeInOutCubic.transform(progress),
+                (58 + inset) * Curves.easeOutCubic.transform(progress),
             .01,
           ),
         );
@@ -782,7 +782,7 @@ void main() {
           );
           expect(
             tester.getTopLeft(find.byKey(secondKey)).dx,
-            closeTo(width * (1 - Curves.ease.transform(progress)), 0.1),
+            closeTo(width * (1 - Curves.easeOutCubic.transform(progress)), 0.1),
           );
         }
         await tester.pumpAndSettle();
@@ -875,12 +875,12 @@ void main() {
 
     expect(
       tester.getTopLeft(find.byKey(targetMiniKey)).dy,
-      closeTo(714 + 58 * Curves.easeInOutCubic.transform(0.5), 0.1),
+      closeTo(714 + 58 * Curves.easeOutCubic.transform(0.5), 0.1),
     );
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dx, 0);
     expect(
       tester.getTopLeft(find.byKey(tabBarKey)).dy,
-      closeTo(786 + 58 * Curves.easeInOutCubic.transform(0.5), 0.1),
+      closeTo(786 + 58 * Curves.easeOutCubic.transform(0.5), 0.1),
     );
 
     await tester.pumpAndSettle();
@@ -900,12 +900,12 @@ void main() {
 
     expect(
       tester.getTopLeft(find.byKey(targetMiniKey)).dy,
-      closeTo(714 + 58 * Curves.easeInOutCubic.transform(0.5), 0.1),
+      closeTo(714 + 58 * Curves.easeOutCubic.transform(0.5), 0.1),
     );
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dx, 0);
     expect(
       tester.getTopLeft(find.byKey(tabBarKey)).dy,
-      closeTo(786 + 58 * Curves.easeInOutCubic.transform(0.5), 0.1),
+      closeTo(786 + 58 * Curves.easeOutCubic.transform(0.5), 0.1),
     );
 
     await tester.pumpAndSettle();
@@ -975,12 +975,12 @@ void main() {
 
     expect(
       tester.getTopLeft(find.byKey(targetMiniKey)).dy,
-      closeTo(714 + 58 * Curves.easeInOutCubic.transform(0.5), 0.1),
+      closeTo(714 + 58 * Curves.easeOutCubic.transform(0.5), 0.1),
     );
     expect(tester.getTopLeft(find.byKey(targetMiniKey)).dx, 0);
     expect(
       tester.getTopLeft(find.byType(NavigationBar)).dy,
-      closeTo(786 + 58 * Curves.easeInOutCubic.transform(0.5), 0.1),
+      closeTo(786 + 58 * Curves.easeOutCubic.transform(0.5), 0.1),
     );
 
     navigatorKey.currentState!.pop();
@@ -1362,7 +1362,7 @@ void main() {
     expect(find.byType(AppBottomDockMiniPlayer), findsNothing);
     expect(
       tester.getTopLeft(find.byType(NavigationBar)).dy,
-      closeTo(786 + 58 * Curves.easeInOutCubic.transform(0.5), 0.1),
+      closeTo(786 + 58 * Curves.easeOutCubic.transform(0.5), 0.1),
     );
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
