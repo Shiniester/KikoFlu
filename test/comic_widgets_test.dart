@@ -3231,6 +3231,7 @@ void main() {
       );
       final cardCover = tester.getSize(find.byType(ComicImage)).width;
       expect(cardCover, closeTo(824 / 3, 0.1));
+      await waitForComicCardImage(tester, 'Fixture book');
       await tester.tap(find.text('Fixture book'));
       await tester.pumpAndSettle();
       final detailCover = find.byKey(const ValueKey('comic-detail-cover'));

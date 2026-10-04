@@ -1505,6 +1505,7 @@ void main() {
         find.byKey(const ValueKey('compact-header-dismiss-surface')),
       ),
     );
+    await closing.moveBy(const Offset(0, 20));
     await closing.moveBy(const Offset(0, 40));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 16));
@@ -1526,6 +1527,7 @@ void main() {
         find.byKey(const ValueKey('compact-header-dismiss-surface')),
       ),
     );
+    await finalClosing.moveBy(const Offset(0, 20));
     await finalClosing.moveBy(const Offset(0, 40));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 16));

@@ -536,7 +536,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  cover,
+                                  SizedBox(width: coverWidth, child: cover),
                                   const SizedBox(width: 16),
                                   Expanded(child: info),
                                 ],
