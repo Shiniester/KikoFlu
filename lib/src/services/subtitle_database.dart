@@ -151,13 +151,6 @@ class SubtitleDatabase {
 
   // ==================== CRUD ====================
 
-  /// 插入单条记录
-  Future<void> insertFile(SubtitleFileRecord record) async {
-    final db = await database;
-    await db.insert('subtitle_files', record.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
   /// 批量插入（事务）
   Future<void> insertFiles(List<SubtitleFileRecord> records) async {
     if (records.isEmpty) return;
@@ -185,64 +178,6 @@ class SubtitleDatabase {
         relativePrefix.endsWith('/') ? relativePrefix : '$relativePrefix/';
     return await db.delete('subtitle_files',
         where: 'relative_path LIKE ?', whereArgs: ['$prefix%']);
-  }
-
-  /// 更新单个文件的路径（重命名）
-  Future<void> updateRelativePath(
-    String oldRelativePath,
-    String newRelativePath,
-    String newFileName,
-  ) async {
-    final db = await database;
-    final newCategory = _extractCategoryFromRelativePath(newRelativePath);
-    final newWorkId = _extractWorkIdFromRelativePath(newRelativePath);
-    await db.update(
-      'subtitle_files',
-      {
-        'relative_path': newRelativePath,
-        'file_name': newFileName,
-        'category': newCategory,
-        'work_id': newWorkId,
-      },
-      where: 'relative_path = ?',
-      whereArgs: [oldRelativePath],
-    );
-  }
-
-  /// 批量更新目录路径（目录重命名/移动）
-  Future<void> updateDirectoryRelativePaths(
-    String oldRelativePrefix,
-    String newRelativePrefix,
-  ) async {
-    final db = await database;
-    final oldPrefix =
-        oldRelativePrefix.endsWith('/') ? oldRelativePrefix : '$oldRelativePrefix/';
-    final files = await db.query('subtitle_files',
-        where: 'relative_path LIKE ?', whereArgs: ['$oldPrefix%']);
-
-    if (files.isEmpty) return;
-
-    final batch = db.batch();
-    for (final file in files) {
-      final oldRelativePath = file['relative_path'] as String;
-      final newRelativePath =
-          oldRelativePath.replaceFirst(oldRelativePrefix, newRelativePrefix);
-      final parts = newRelativePath.split('/');
-      final newCategory = parts.isNotEmpty ? parts.first : '';
-      final newWorkId = _extractWorkIdFromRelativePath(newRelativePath);
-
-      batch.update(
-        'subtitle_files',
-        {
-          'relative_path': newRelativePath,
-          'category': newCategory,
-          'work_id': newWorkId,
-        },
-        where: 'id = ?',
-        whereArgs: [file['id']],
-      );
-    }
-    await batch.commit(noResult: true);
   }
 
   // ==================== 查询 ====================
@@ -358,31 +293,5 @@ class SubtitleDatabase {
   Future<void> clear() async {
     final db = await database;
     await db.delete('subtitle_files');
-  }
-
-  // ==================== 工具方法 ====================
-
-  static final _workIdRegex = RegExp(r'[RrBbVv][Jj]0*(\d+)');
-
-  /// 从相对路径提取分类（第一级目录）
-  static String _extractCategoryFromRelativePath(String relativePath) {
-    final firstSlash = relativePath.indexOf('/');
-    if (firstSlash > 0) {
-      return relativePath.substring(0, firstSlash);
-    }
-    return '';
-  }
-
-  /// 从相对路径提取 workId
-  static int? _extractWorkIdFromRelativePath(String relativePath) {
-    // 相对路径格式: "已解析/RJ1003058/track.vtt"
-    final parts = relativePath.split('/');
-    if (parts.length < 2) return null;
-    // 检查第二级目录名
-    final match = _workIdRegex.firstMatch(parts[1]);
-    if (match != null) {
-      return int.tryParse(match.group(1)!);
-    }
-    return null;
   }
 }

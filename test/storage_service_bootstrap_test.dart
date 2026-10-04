@@ -8,7 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('critical storage defers all Hive boxes', () async {
+  test('storage opens only the users Hive box after the first frame', () async {
     final root = await Directory.systemTemp.createTemp(
       'kikoflu-storage-bootstrap-',
     );
@@ -29,13 +29,13 @@ void main() {
     await StorageService.initSecondary();
 
     expect(Hive.isBoxOpen('users'), isTrue);
-    expect(Hive.isBoxOpen('settings'), isTrue);
-    expect(Hive.isBoxOpen('cache'), isTrue);
+    expect(Hive.isBoxOpen('settings'), isFalse);
+    expect(Hive.isBoxOpen('cache'), isFalse);
     await StorageService.setUser('account', 'current');
     expect(StorageService.getUser<String>('account'), 'current');
-    await StorageService.setSetting('theme', 'system');
-    await StorageService.setCache('derived', 1);
-    expect(StorageService.getSetting<String>('theme'), 'system');
-    expect(StorageService.getCache<int>('derived'), 1);
+    expect(StorageService.getAllUserKeys(), contains('account'));
+    await StorageService.removeUser('account');
+    expect(StorageService.getUser<String>('account'), isNull);
+    expect(StorageService.getAllUserKeys(), isNot(contains('account')));
   });
 }

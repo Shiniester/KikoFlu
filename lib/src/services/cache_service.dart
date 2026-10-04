@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
@@ -60,20 +59,8 @@ class CacheService {
     return audioCacheFiles.finalFile(hash);
   }
 
-  static Future<File> _audioTempFile(String hash) async {
-    return audioCacheFiles.partialFile(hash);
-  }
-
-  static Future<void> resetAudioCachePartial(String hash) async {
-    await audioCacheFiles.resetPartial(hash);
-  }
-
   static Future<File> prepareAudioCacheTempFile(String hash) async {
     return audioCacheFiles.partialFile(hash, create: true);
-  }
-
-  static Future<String> audioCacheTempPath(String hash) async {
-    return (await _audioTempFile(hash)).path;
   }
 
   static Future<String> audioCacheFinalPath(String hash) async {
@@ -90,12 +77,6 @@ class CacheService {
     required int expectedSize,
   }) async {
     return audioCacheFiles.finalize(hash, expectedSize: expectedSize);
-  }
-
-  /// Removes only the streaming/preload cache for [hash]. Completed downloads
-  /// are stored separately and are intentionally left untouched.
-  static Future<void> invalidateAudioCache(String hash) async {
-    await audioCacheFiles.invalidate(hash);
   }
 
   static void installImageCacheManager() {
@@ -122,36 +103,6 @@ class CacheService {
       identity: identity,
       revision: revision,
     );
-  }
-
-  static Future<File> getRemoteAsset({
-    required String url,
-    required RemoteAssetKind kind,
-    required String identity,
-    String? revision,
-    String fileExtension = 'asset',
-    bool allowRange = true,
-    Duration maxAge = fileCacheDuration,
-    bool forceRevalidate = false,
-    Map<String, String> headers = const {},
-  }) async {
-    final request = RemoteAssetRequest(
-      uri: Uri.parse(url),
-      key: remoteAssetKey(kind: kind, identity: identity, revision: revision),
-      fileExtension: fileExtension,
-      allowRange: allowRange,
-      maxAge: maxAge,
-      forceRevalidate: forceRevalidate,
-      headers: {...StorageService.serverCookieHeaders, ...headers},
-    );
-    final lease = remoteAssetCache.acquire(request);
-    try {
-      final file = await lease.file;
-      unawaited(checkAndCleanCache());
-      return file;
-    } finally {
-      await lease.release();
-    }
   }
 
   // 缓存大小上限配置键
@@ -312,52 +263,6 @@ class CacheService {
       return cachedPath;
     } catch (e) {
       _log.captureOutput('[Cache] 获取缓存音频文件失败: $e');
-      return null;
-    }
-  }
-
-  // 缓存文件资源（PDF等）
-  static Future<String?> cacheFileResource({
-    required int workId,
-    required String hash,
-    required String fileType,
-    required String url,
-    required Dio dio,
-  }) async {
-    try {
-      final downloadedFile = await _getDownloadedFile(workId, hash, null);
-      if (downloadedFile != null) {
-        _log.captureOutput('[Cache] 使用已下载的文件: $hash');
-        return downloadedFile;
-      }
-      final cached = await getCachedFileResource(
-        workId: workId,
-        hash: hash,
-        fileType: fileType,
-      );
-      if (cached != null) return cached;
-
-      final uri = Uri.parse(url);
-      final extension = p.extension(uri.path).replaceFirst('.', '');
-      final kind = fileType == 'image'
-          ? RemoteAssetKind.contentImage
-          : RemoteAssetKind.document;
-      final requestHeaders = <String, String>{};
-      for (final entry in dio.options.headers.entries) {
-        if (entry.value != null) {
-          requestHeaders[entry.key] = entry.value.toString();
-        }
-      }
-      final file = await getRemoteAsset(
-        url: url,
-        kind: kind,
-        identity: hash,
-        fileExtension: extension.isEmpty ? fileType : extension,
-        headers: requestHeaders,
-      );
-      return file.path;
-    } catch (e) {
-      _log.captureOutput('[Cache] 缓存文件失败: $e');
       return null;
     }
   }

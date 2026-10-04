@@ -4,9 +4,7 @@ import 'dart:convert';
 import 'log_service.dart';
 
 class StorageService {
-  static late Box _settingsBox;
   static late Box _userBox;
-  static late Box _cacheBox;
   static late SharedPreferences _prefs;
   static Future<void>? _criticalInitFuture;
   static Future<void>? _secondaryInitFuture;
@@ -43,8 +41,7 @@ class StorageService {
     }
   }
 
-  /// Opens legacy settings/cache boxes after the first frame. Their format and
-  /// APIs remain unchanged for compatibility with existing data and callers.
+  /// Opens the saved-account box after the first frame.
   static Future<void> initSecondary() {
     if (_secondaryInitialized) return Future.value();
     return _secondaryInitFuture ??= _initializeSecondary();
@@ -52,31 +49,11 @@ class StorageService {
 
   static Future<void> _initializeSecondary() async {
     try {
-      final results = await Future.wait<Box>([
-        Hive.openBox('users'),
-        Hive.openBox('settings'),
-        Hive.openBox('cache'),
-      ]);
-      _userBox = results[0];
-      _settingsBox = results[1];
-      _cacheBox = results[2];
+      _userBox = await Hive.openBox('users');
       _secondaryInitialized = true;
     } finally {
       _secondaryInitFuture = null;
     }
-  }
-
-  // Settings
-  static Future<void> setSetting(String key, dynamic value) async {
-    await _settingsBox.put(key, value);
-  }
-
-  static T? getSetting<T>(String key, {T? defaultValue}) {
-    return _settingsBox.get(key, defaultValue: defaultValue) as T?;
-  }
-
-  static Future<void> removeSetting(String key) async {
-    await _settingsBox.delete(key);
   }
 
   // User data
@@ -96,23 +73,6 @@ class StorageService {
 
   static List<String> getAllUserKeys() {
     return _userBox.keys.cast<String>().toList();
-  }
-
-  // Cache
-  static Future<void> setCache(String key, dynamic value) async {
-    await _cacheBox.put(key, value);
-  }
-
-  static T? getCache<T>(String key, {T? defaultValue}) {
-    return _cacheBox.get(key, defaultValue: defaultValue) as T?;
-  }
-
-  static Future<void> removeCache(String key) async {
-    await _cacheBox.delete(key);
-  }
-
-  static Future<void> clearCache() async {
-    await _cacheBox.clear();
   }
 
   // SharedPreferences methods

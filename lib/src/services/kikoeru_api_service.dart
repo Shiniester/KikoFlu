@@ -1,5 +1,4 @@
 import 'package:dio/dio.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:convert';
 import '../models/work.dart';
@@ -23,9 +22,9 @@ class KikoeruApiService {
   String? _host;
   String? _accountScope;
   int _sessionGeneration = 0;
-  int _subtitle = 0; // 1: 带字幕, 0: 不限制 (默认显示所有作品)
-  String _order = 'create_date';
-  String _sort = 'desc'; // 默认降序排列
+  final int _subtitle = 0; // 1: 带字幕, 0: 不限制 (默认显示所有作品)
+  final String _order = 'create_date';
+  final String _sort = 'desc'; // 默认降序排列
 
   KikoeruApiService() {
     _dio = Dio();
@@ -278,48 +277,6 @@ class KikoeruApiService {
       return parse(segments[2]);
     }
     return null;
-  }
-
-  // Setters for configuration
-  void setOrder(String order) {
-    if (_order == order) {
-      // Toggle sort direction
-      _sort = _sort == 'asc' ? 'desc' : 'asc';
-    } else {
-      _order = order;
-    }
-  }
-
-  void setSubtitle(int subtitle) {
-    _subtitle = subtitle;
-  }
-
-  // Check network connectivity
-  Future<bool> isConnected() async {
-    final connectivityResult = await Connectivity().checkConnectivity();
-    return connectivityResult != ConnectivityResult.none;
-  }
-
-  // Test if a host is reachable
-  Future<bool> testHostConnection(String host) async {
-    try {
-      final testDio = Dio();
-      testDio.options.connectTimeout = const Duration(seconds: 3);
-      testDio.options.receiveTimeout = const Duration(seconds: 3);
-
-      final testHost = host.startsWith('http') ? host : 'https://$host';
-
-      await testDio.get(
-        '$testHost/api/health',
-        options: Options(
-          validateStatus: (status) => status! < 500, // Accept any status < 500
-        ),
-      );
-      return true;
-    } catch (e) {
-      _logOutput('Host connection test failed for $host: $e');
-      return false;
-    }
   }
 
   // Helper to check if we are using the official server
@@ -1451,23 +1408,6 @@ class KikoeruApiService {
     }
   }
 
-  Future<List<Va>> searchVas(String query) async {
-    try {
-      final vas = await getAllVas();
-      final filteredVas = vas
-          .where(
-            (va) => va['name'].toString().toLowerCase().contains(
-              query.toLowerCase(),
-            ),
-          )
-          .map((va) => Va.fromJson(va))
-          .toList();
-      return filteredVas;
-    } catch (e) {
-      throw KikoeruApiException('Failed to search VAs', e);
-    }
-  }
-
   // Circles API
   Future<List<dynamic>> getAllCircles({CancelToken? cancelToken}) async {
     try {
@@ -1521,48 +1461,6 @@ class KikoeruApiService {
     } catch (e) {
       throw KikoeruApiException('Failed to get tracks', e);
     }
-  }
-
-  // Reviews API
-  Future<Map<String, dynamic>> getWorkReviews(
-    int workId, {
-    int page = 1,
-    int pageSize = 20,
-  }) async {
-    if (_isOfficialServer) {
-      return _getWorkReviewsOfficial(workId, page: page, pageSize: pageSize);
-    } else {
-      return _getWorkReviewsCustom(workId, page: page, pageSize: pageSize);
-    }
-  }
-
-  Future<Map<String, dynamic>> _getWorkReviewsOfficial(
-    int workId, {
-    int page = 1,
-    int pageSize = 20,
-  }) async {
-    try {
-      final response = await _dio.get(
-        '/api/review/$workId',
-        queryParameters: {'page': page, 'pageSize': pageSize},
-      );
-      return response.data;
-    } catch (e) {
-      throw KikoeruApiException('Failed to get reviews', e);
-    }
-  }
-
-  Future<Map<String, dynamic>> _getWorkReviewsCustom(
-    int workId, {
-    int page = 1,
-    int pageSize = 20,
-  }) async {
-    // Local backend does not support getting reviews for a specific work
-    // Return empty structure to avoid errors
-    return {
-      'reviews': [],
-      'pagination': {'currentPage': 1, 'pageSize': pageSize, 'totalCount': 0},
-    };
   }
 
   /// 获取当前账户的 Review/收藏状态列表
@@ -1807,83 +1705,7 @@ class KikoeruApiService {
     }
   }
 
-  // Favorites API
-  Future<Map<String, dynamic>> getFavorites({
-    int page = 1,
-    int pageSize = 20,
-  }) async {
-    if (!_isOfficialServer) {
-      return _fetchCombinedPages(
-        page: page,
-        pageSize: pageSize,
-        fetcher: (p) async {
-          try {
-            final response = await _dio.get(
-              '/api/favourites',
-              queryParameters: {
-                'page': p,
-                'pageSize': 12, // Force 12 for custom server
-              },
-            );
-            return response.data;
-          } catch (e) {
-            throw KikoeruApiException('Failed to get favorites', e);
-          }
-        },
-      );
-    }
-
-    // Official server might also have a limit for favorites, applying similar logic
-    return _fetchCombinedPages(
-      page: page,
-      pageSize: pageSize,
-      serverPageSize: 20,
-      fetcher: (p) async {
-        try {
-          final response = await _dio.get(
-            '/api/favourites',
-            queryParameters: {
-              'page': p,
-              'pageSize': 20, // Force 20 for official server
-            },
-          );
-          return response.data;
-        } catch (e) {
-          throw KikoeruApiException('Failed to get favorites', e);
-        }
-      },
-    );
-  }
-
-  Future<void> addToFavorites(int workId) async {
-    try {
-      await _dio.put('/api/favourites/$workId');
-    } catch (e) {
-      throw KikoeruApiException('Failed to add to favorites', e);
-    }
-  }
-
-  Future<void> removeFromFavorites(int workId) async {
-    try {
-      await _dio.delete('/api/favourites/$workId');
-    } catch (e) {
-      throw KikoeruApiException('Failed to remove from favorites', e);
-    }
-  }
-
   // Playlists API
-  Future<List<dynamic>> getPlaylists({CancelToken? cancelToken}) async {
-    try {
-      final response = await _dio.get(
-        '/api/playlists',
-        cancelToken: cancelToken,
-      );
-      return response.data;
-    } catch (e) {
-      throw KikoeruApiException('Failed to get playlists', e);
-    }
-  }
-
   /// 获取用户的播放列表（需要token）
   /// page: 页码（从1开始）
   /// pageSize: 每页数量
@@ -2084,28 +1906,6 @@ class KikoeruApiService {
     } catch (e) {
       throw KikoeruApiException('Failed to update progress', e);
     }
-  }
-
-  Future<Map<String, dynamic>> getProgress(int workId) async {
-    try {
-      final response = await _dio.get('/api/progress/$workId');
-      return response.data;
-    } catch (e) {
-      throw KikoeruApiException('Failed to get progress', e);
-    }
-  }
-
-  // Download API
-  String getDownloadUrl(String hash, String fileName) {
-    return '$_host/api/media/download/$hash/$fileName';
-  }
-
-  String getStreamUrl(String hash, String fileName) {
-    return '$_host/api/media/stream/$hash/$fileName';
-  }
-
-  String getCoverUrl(int workId) {
-    return '$_host/api/cover/$workId';
   }
 
   // Cleanup

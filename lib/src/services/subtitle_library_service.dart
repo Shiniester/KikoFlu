@@ -1309,33 +1309,6 @@ class SubtitleLibraryService {
     return folders;
   }
 
-  /// 获取所有可用的目标文件夹（已废弃，性能问题）
-  @Deprecated('Use getSubFolders for lazy loading instead')
-  static Future<List<Map<String, dynamic>>> getAvailableFolders() async {
-    final libraryDir = await getSubtitleLibraryDirectory();
-
-    if (!await libraryDir.exists()) {
-      return [];
-    }
-
-    final folders = <Map<String, dynamic>>[];
-
-    // 添加根目录选项
-    folders.add({'name': '根目录', 'path': libraryDir.path});
-
-    await for (final entity in libraryDir.list(
-      recursive: true,
-      followLinks: false,
-    )) {
-      if (entity is Directory) {
-        final relativePath = entity.path.substring(libraryDir.path.length + 1);
-        folders.add({'name': relativePath, 'path': entity.path});
-      }
-    }
-
-    return folders;
-  }
-
   /// 获取字幕库统计信息
   /// forceRefresh: 是否强制刷新，重新扫描文件系统
   static Future<LibraryStats> getStats({bool forceRefresh = false}) async {

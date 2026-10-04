@@ -263,51 +263,6 @@ class TranslationService {
     );
   }
 
-  /// 批量翻译
-  Future<List<String>> translateBatch(
-    List<String> texts, {
-    String? sourceLang,
-  }) async {
-    if (texts.isEmpty) return [];
-
-    // 获取并发设置
-    final prefs = await SharedPreferences.getInstance();
-    final source = prefs.getString('translation_source') ?? 'google';
-    int concurrency = 1;
-    if (source == 'llm') {
-      concurrency = LLMSettings.normalizeConcurrency(
-        prefs.getInt('llm_settings_concurrency'),
-      );
-    }
-
-    final results = List<String>.filled(texts.length, '');
-    int currentIndex = 0;
-
-    Future<void> worker() async {
-      while (true) {
-        int index;
-        if (currentIndex >= texts.length) return;
-        index = currentIndex++;
-
-        try {
-          final translated = await translate(
-            texts[index],
-            sourceLang: sourceLang,
-          );
-          results[index] = translated;
-        } catch (e) {
-          _log.captureOutput('Translation batch item $index failed: $e');
-          results[index] = texts[index];
-        }
-      }
-    }
-
-    final workers = List.generate(concurrency, (_) => worker());
-    await Future.wait(workers);
-
-    return results;
-  }
-
   /// 分块翻译长文本
   /// 每块最多 1500 字符，避免超过翻译 API 的 URL 长度限制
   Future<String> translateLongText(
@@ -464,17 +419,6 @@ class TranslationService {
       }
     } catch (e) {
       _log.captureOutput('Cache clear error: $e');
-    }
-  }
-
-  /// 检测语言
-  Future<String> detectLanguage(String text) async {
-    try {
-      final translation = await _googleTranslator.translate(text, from: 'auto');
-      return translation.sourceLanguage.code;
-    } catch (e) {
-      _log.captureOutput('Language detection error: $e');
-      return 'unknown';
     }
   }
 }

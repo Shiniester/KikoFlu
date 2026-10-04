@@ -38,7 +38,7 @@ void main() {
         (control['batteryTemperatureTenthsCelsius'] as num).toInt();
     final skipDownloads = control['skipDownloads'] == true;
 
-    final adapter = createPerformanceScenarioAdapter();
+    const adapter = OptimizedPerformanceScenarioAdapter();
     final recorder = PerformanceRecorder.instance
       ..start(force: true)
       ..resetRun();
@@ -230,7 +230,7 @@ class _ProfileHarness extends StatefulWidget {
     required this.works,
   });
 
-  final PerformanceScenarioAdapter adapter;
+  final OptimizedPerformanceScenarioAdapter adapter;
   final List<Map<String, dynamic>> works;
 
   @override

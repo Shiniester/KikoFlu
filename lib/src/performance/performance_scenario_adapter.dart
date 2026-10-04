@@ -15,50 +15,11 @@ import 'performance_download_counters.dart';
 /// workload changes so reports with different costs cannot be compared.
 const performanceScenarioAdapterVersion = 5;
 
-abstract interface class PerformanceScenarioAdapter {
-  String get implementation;
-
-  Widget buildTabHost({
-    required int index,
-    required Set<int> visitedIndices,
-    required List<Widget> children,
-  });
-
-  Widget buildDownloads();
-
-  Widget buildPlayer({
-    required ValueNotifier<int> position,
-    required ValueNotifier<int> track,
-  });
-
-  Future<void> waitForBackgroundWork();
-
-  void injectDownloadTasks(List<DownloadTask> tasks);
-  void advanceActiveDownloads(int tick);
-  void resetDownloadCounters();
-  PerformanceDownloadCounters readDownloadCounters();
-  void clearDownloadTasks();
-
-  Future<List<SubtitleFileRecord>> scanSubtitleDirectory(String sourcePath);
-
-  Future<ImportResult> importSubtitleArchive({
-    required String sourcePath,
-    required String targetPath,
-  });
-}
-
-PerformanceScenarioAdapter createPerformanceScenarioAdapter() {
-  return const OptimizedPerformanceScenarioAdapter();
-}
-
-class OptimizedPerformanceScenarioAdapter
-    implements PerformanceScenarioAdapter {
+class OptimizedPerformanceScenarioAdapter {
   const OptimizedPerformanceScenarioAdapter();
 
-  @override
   String get implementation => 'salt-player-stage';
 
-  @override
   Widget buildTabHost({
     required int index,
     required Set<int> visitedIndices,
@@ -71,10 +32,8 @@ class OptimizedPerformanceScenarioAdapter
     );
   }
 
-  @override
   Widget buildDownloads() => const DownloadsScreen();
 
-  @override
   Widget buildPlayer({
     required ValueNotifier<int> position,
     required ValueNotifier<int> track,
@@ -82,42 +41,34 @@ class OptimizedPerformanceScenarioAdapter
     return _ProfilePlayerStage(position: position, track: track);
   }
 
-  @override
   Future<void> waitForBackgroundWork() {
     return BackgroundWorkScheduler.instance.whenIdle();
   }
 
-  @override
   void injectDownloadTasks(List<DownloadTask> tasks) {
     DownloadService.instance.debugInjectPerformanceTasks(tasks);
   }
 
-  @override
   void advanceActiveDownloads(int tick) {
     DownloadService.instance.debugAdvancePerformanceTasks(tick);
   }
 
-  @override
   void resetDownloadCounters() {
     DownloadService.instance.debugResetPerformanceCounters();
   }
 
-  @override
   PerformanceDownloadCounters readDownloadCounters() {
     return DownloadService.instance.debugPerformanceCounters;
   }
 
-  @override
   void clearDownloadTasks() {
     DownloadService.instance.debugClearPerformanceTasks();
   }
 
-  @override
   Future<List<SubtitleFileRecord>> scanSubtitleDirectory(String sourcePath) {
     return SubtitleLibraryService.scanDirectoryFromPath(sourcePath);
   }
 
-  @override
   Future<ImportResult> importSubtitleArchive({
     required String sourcePath,
     required String targetPath,

@@ -17,17 +17,13 @@ dependencies:
   intl: any
 
   # UI & Material Design
-  cupertino_icons: ^1.0.6
   dynamic_color: ^1.7.0
   
   # State Management
-  provider: ^6.1.2
   flutter_riverpod: ^2.4.9
   
   # Network & API
   dio: ^5.4.0
-  connectivity_plus: ^5.0.2
-  http: ^1.6.0
   translator: ^1.0.0
   
   # Audio & Video & Pdf
@@ -92,7 +88,6 @@ dependencies:
   url_launcher: ^6.2.2
   open_filex: ^4.5.0
   package_info_plus: ^9.0.0
-  msix: ^3.16.12
   window_manager: ^0.4.3
   desktop_multi_window: ^0.3.0
   audio_session: ^0.1.25
@@ -107,7 +102,6 @@ dev_dependencies:
   flutter_lints: ^3.0.1
   json_serializable: ^6.7.1
   build_runner: ^2.4.7
-  hive_generator: ^2.0.1
   flutter_launcher_icons: ^0.13.1
 
 flutter:
