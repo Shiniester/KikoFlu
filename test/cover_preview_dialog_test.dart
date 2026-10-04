@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart' show LogicalKeyboardKey;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/widgets/cover_preview_dialog.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_palette_background.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_visual_palette.dart';
 import 'package:kikoeru_flutter/src/widgets/privacy_blur_cover.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -48,16 +51,9 @@ void main() {
     final linear = tester.widget<DecoratedBox>(
       find.byKey(const ValueKey('cover-preview-linear-background')),
     );
-    final radial = tester.widget<DecoratedBox>(
-      find.byKey(const ValueKey('cover-preview-radial-background')),
-    );
     expect(
       (linear.decoration as BoxDecoration).gradient,
       _previewPalette.backgroundGradient,
-    );
-    expect(
-      (radial.decoration as BoxDecoration).gradient,
-      _previewPalette.accentGradient,
     );
 
     await _tapPreviewCenter(tester);
@@ -187,38 +183,75 @@ void main() {
   });
 
   testWidgets(
-    'show completes after the reverse route and delays background fade',
+    'show preserves the player background and completes after the reverse route',
     (tester) async {
       var showCompleted = false;
+      final boundaryKey = GlobalKey();
+      Future<Color> bottomLeftColor() async => (await tester.runAsync(() async {
+        final boundary =
+            boundaryKey.currentContext!.findRenderObject()!
+                as RenderRepaintBoundary;
+        final image = await boundary.toImage();
+        try {
+          final pixels = (await image.toByteData(
+            format: ui.ImageByteFormat.rawRgba,
+          ))!;
+          final offset = ((image.height - 8) * image.width + 8) * 4;
+          return Color.fromARGB(
+            pixels.getUint8(offset + 3),
+            pixels.getUint8(offset),
+            pixels.getUint8(offset + 1),
+            pixels.getUint8(offset + 2),
+          );
+        } finally {
+          image.dispose();
+        }
+      }))!;
       await tester.pumpWidget(
         ProviderScope(
           child: MaterialApp(
+            builder: (context, child) =>
+                RepaintBoundary(key: boundaryKey, child: child),
             home: Builder(
               builder: (context) => Scaffold(
-                body: ElevatedButton(
-                  key: const ValueKey('open-preview'),
-                  onPressed: () {
-                    unawaited(() async {
-                      await CoverPreviewDialog.show(
-                        context,
-                        localPath: 'assets/icons/app_icon_opaque.png',
-                        backgroundPalette: _previewPalette,
-                      );
-                      showCompleted = true;
-                    }());
-                  },
-                  child: const Text('open'),
+                body: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    PlayerPaletteBackground(
+                      gradient: _previewPalette.backgroundGradient,
+                      duration: Duration.zero,
+                    ),
+                    Center(
+                      child: ElevatedButton(
+                        key: const ValueKey('open-preview'),
+                        onPressed: () {
+                          unawaited(() async {
+                            await CoverPreviewDialog.show(
+                              context,
+                              localPath: 'assets/icons/app_icon_opaque.png',
+                              backgroundPalette: _previewPalette,
+                            );
+                            showCompleted = true;
+                          }());
+                        },
+                        child: const Text('open'),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
         ),
       );
+      await tester.pumpAndSettle();
+      final playerBackgroundColor = await bottomLeftColor();
 
       await tester.tap(find.byKey(const ValueKey('open-preview')));
       await tester.pumpAndSettle();
       final preview = find.byType(CoverPreviewDialog);
       expect(preview, findsOneWidget);
+      expect(await bottomLeftColor(), playerBackgroundColor);
 
       Navigator.of(tester.element(preview)).pop();
       await tester.pump();
