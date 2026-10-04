@@ -1646,17 +1646,18 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
               isLandscape: isWide,
               artworkLayerLink: _coverLoadingLayerLink,
               animateTrackChanges: _isPlayerCoverVisible(isWide: isWide),
-              heroEnabled: heroEnabled && !previewHeroActive,
-              heroTarget: heroEnabled
-                  ? PlayerArtworkFlightTarget.main
-                  : PlayerArtworkFlightTarget.none,
+              heroEnabled: !previewHeroActive,
               onTap: coverUrl == null
                   ? null
                   : () => _showCoverPreview(track, coverUrl, previewPalette),
               previewHeroTag: playerCoverPreviewHeroTag(track.id),
               previewHeroEnabled: previewHeroActive,
             );
-            return cover;
+            // Keep the artwork mounted when a drag changes the semantic page.
+            return HeroMode(
+              enabled: heroEnabled || previewHeroActive,
+              child: cover,
+            );
           },
         );
       },
