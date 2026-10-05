@@ -254,6 +254,60 @@ class ComicReaderSettingsScreen extends ConsumerWidget {
                 onChanged: (v) => save('comic_keep_awake', v),
               ),
               SettingsNavigationTile(
+                title: s.comicAutoPageInterval,
+                icon: Icons.timer_outlined,
+                subtitle: s.comicAutoPageIntervalValue(
+                  (StorageService.getInt('comic_auto_page_interval') ?? 5)
+                      .clamp(1, 20),
+                ),
+                onTap: () async {
+                  var interval =
+                      (StorageService.getInt('comic_auto_page_interval') ?? 5)
+                          .clamp(1, 20);
+                  final selected = await showDialog<int>(
+                    context: context,
+                    builder: (dialogContext) => StatefulBuilder(
+                      builder: (context, setState) => AlertDialog(
+                        title: Text(s.comicAutoPageInterval),
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(s.comicAutoPageIntervalValue(interval)),
+                            Slider(
+                              value: interval.toDouble(),
+                              min: 1,
+                              max: 20,
+                              divisions: 19,
+                              label: s.comicAutoPageIntervalValue(interval),
+                              onChanged: (value) =>
+                                  setState(() => interval = value.round()),
+                            ),
+                          ],
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(dialogContext),
+                            child: Text(s.cancel),
+                          ),
+                          TextButton(
+                            onPressed: () =>
+                                Navigator.pop(dialogContext, interval),
+                            child: Text(s.save),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                  if (selected != null) {
+                    await StorageService.setInt(
+                      'comic_auto_page_interval',
+                      selected,
+                    );
+                    ref.read(comicSettingsRevisionProvider.notifier).state++;
+                  }
+                },
+              ),
+              SettingsNavigationTile(
                 title: s.comicPreload,
                 icon: Icons.layers_outlined,
                 subtitle: '${StorageService.getInt('comic_preload') ?? 3}',

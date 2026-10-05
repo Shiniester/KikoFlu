@@ -148,8 +148,8 @@ _Avoid_: Bottom Dock, App Tab Bar
 
 **Reader Settings (阅读器设置)**:
 The shared Comic Reader preferences page opened from Reader Controls or Comic
-settings. It contains reading mode, page-turn and zoom gestures, keep-awake,
-and preload preferences.
+settings. It contains reading mode, auto page-turn interval, page-turn and zoom
+gestures, keep-awake, and preload preferences.
 _Avoid_: Comic Source settings, Reader Controls
 
 **Reader Zoom (阅读器缩放)**:
@@ -160,7 +160,8 @@ _Avoid_: Cover Preview, image gallery
 
 **Comic Home Tab (漫画主页)**:
 The first Comic Screen tab, showing recommendations and categories for the
-selected enabled Comic Source.
+selected enabled Comic Source, independent of the favorite collection. Its
+anonymous access follows the Comic Source's browsing requirements.
 _Avoid_: Comic Screen, source library
 
 **Comic Collection Layout (漫画集合布局)**:

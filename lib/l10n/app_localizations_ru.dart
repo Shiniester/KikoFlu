@@ -3978,6 +3978,17 @@ class SRu extends S {
   String get comicPreload => 'Предзагрузка страниц';
 
   @override
+  String get comicAutoPageTurn => 'Автоперелистывание';
+
+  @override
+  String get comicAutoPageInterval => 'Интервал автоперелистывания';
+
+  @override
+  String comicAutoPageIntervalValue(int seconds) {
+    return '$seconds с';
+  }
+
+  @override
   String get comicDownloadSelected => 'Скачать выбранные главы';
 
   @override

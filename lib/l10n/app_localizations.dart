@@ -7068,6 +7068,24 @@ abstract class S {
   /// **'Preload pages'**
   String get comicPreload;
 
+  /// No description provided for @comicAutoPageTurn.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto page turn'**
+  String get comicAutoPageTurn;
+
+  /// No description provided for @comicAutoPageInterval.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto page turn interval'**
+  String get comicAutoPageInterval;
+
+  /// No description provided for @comicAutoPageIntervalValue.
+  ///
+  /// In en, this message translates to:
+  /// **'{seconds} seconds'**
+  String comicAutoPageIntervalValue(int seconds);
+
   /// No description provided for @comicDownloadSelected.
   ///
   /// In en, this message translates to:

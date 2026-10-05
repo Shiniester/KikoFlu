@@ -112,3 +112,35 @@ flutter test --no-pub test/comic_live_smoke_test.dart
 | inspect_audio_shell | 音声导航、设置、Dock 和账号入口 | 共用标签和工具栏，保留音声 Dock 专用路由 | 原生导航与音频交互需设备检查 | 对应平台交互验收 |
 | source_protocols | 六源协议与阅读搜索交互 | Dart 适配器、图片处理和六模式阅读边界 | 源站接口与图片域名可变化 | 网络可达环境逐源验证 |
 | review_comic_services | 资料库、下载与会话隔离 | 独立模型和存储、串行凭证提交、下载完成信号清理 | 真人账号流程尚未验收 | 用真实账号验证登录、退出、收藏 |
+
+## 漫画主页收藏偏好隔离
+
+漫画主页始终展示当前启用来源的推荐列表。「默认源站收藏视图」只决定收藏标签的
+视图，不改变主页的数据来源或匿名浏览要求。源站收藏列表继续保留来源能力与登录
+检查，漫画源自身的访问要求仍由对应适配器处理。
+
+2026-10-05 验证：157 项回归通过，修改文件静态分析无问题。新增检查覆盖源站收藏
+偏好开启时的游客与已登录主页、设置刷新、标签往返，以及收藏列表的登录边界。
+
+```powershell
+flutter test --no-pub test/comic_widgets_test.dart test/comic_pagination_test.dart test/comics_protocol_test.dart test/anonymous_auth_test.dart
+flutter analyze --no-pub lib/src/comics/ui/comic_screen.dart test/comic_widgets_test.dart
+```
+
+- `task_brief`：修复收藏偏好导致主页只显示收藏或要求登录的问题。
+- `dispatch`：`read_only` 为 `comic_flow_map`、`comic_fix_review`；`write_stages`
+  为单阶段，`writers` 为主执行者，负责 `comic_screen.dart`、`comic_widgets_test.dart`、
+  `CONTEXT.md` 与本文；`skipped` 为额外实现、测试、构建、依赖角色，小范围修复由主执行者串行完成。
+- `implementation_plan`：确认主页与收藏数据分支，统一限定收藏模式所属标签，再验证集合与会话路径。
+- `verification`：上述命令通过；检查使用模拟来源，不代表真人源站或设备验收。
+- `dependency_risks`：无新增依赖或版本变化。
+- `conflicts`：[]。
+- `handoff`：`what` 为已验收的主页与收藏偏好隔离；`why` 为两者访问条件独立；
+  `next` 为在发行设备上核对开启源站收藏偏好后的匿名主页交互。
+
+`agents`：
+
+| name | focus | result | risks | next_step |
+| --- | --- | --- | --- | --- |
+| comic_flow_map | 主页请求与登录检查调用链 | 收藏偏好曾同时决定主页的数据来源和登录检查 | 无额外实现依赖 | 已交付主执行者 |
+| comic_fix_review | 设置、源切换、搜索与收藏模式隔离 | 本次修复正确，未发现新增回归 | 真人来源访问仍需环境验收 | 无代码修正项 |

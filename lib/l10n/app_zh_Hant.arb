@@ -1293,6 +1293,12 @@
   "comicModeReverseSpread": "反向雙頁",
   "comicKeepAwake": "閱讀時保持螢幕開啟",
   "comicPreload": "預載頁數",
+  "comicAutoPageTurn": "自動翻頁",
+  "comicAutoPageInterval": "自動翻頁時間間隔",
+  "comicAutoPageIntervalValue": "{seconds} 秒",
+  "@comicAutoPageIntervalValue": {
+    "placeholders": { "seconds": { "type": "int" } }
+  },
   "comicDownloadSelected": "下載所選章節",
   "comicPause": "暫停",
   "comicResume": "繼續／重試",
