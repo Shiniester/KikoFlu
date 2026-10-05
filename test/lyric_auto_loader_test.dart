@@ -8,6 +8,8 @@ import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _SubtitlePriorityNotifier extends SubtitleLibraryPriorityNotifier {
   _SubtitlePriorityNotifier() : super() {
@@ -43,6 +45,15 @@ AudioTrack _track(String hash, String title) {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
+  });
+
   test('auto loader refreshes local subtitles when offline track changes',
       () async {
     final tempDir = await Directory.systemTemp.createTemp(

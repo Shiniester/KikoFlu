@@ -3,9 +3,12 @@ import 'dart:ui';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/audio_gain_settings.dart';
+import '../models/audio_preference.dart';
 import '../models/audio_tap_playlist_mode.dart';
 import '../models/sort_options.dart';
 import '../utils/persistent_enum_preference.dart';
+
+export '../models/audio_preference.dart';
 
 /// Triggers when Settings screen should refresh cache-related information.
 final settingsCacheRefreshTriggerProvider = StateProvider<int>((ref) => 0);
@@ -127,20 +130,6 @@ final audioTapPlaylistModeProvider =
     ) {
       return AudioTapPlaylistModeNotifier();
     });
-
-/// 音频格式类型
-enum AudioFormat {
-  mp3('MP3', 'mp3'),
-  flac('FLAC', 'flac'),
-  wav('WAV', 'wav'),
-  opus('Opus', 'opus'),
-  m4a('M4A', 'm4a'),
-  aac('AAC', 'aac');
-
-  final String displayName;
-  final String extension;
-  const AudioFormat(this.displayName, this.extension);
-}
 
 /// 翻译源
 enum TranslationSource {
@@ -454,34 +443,19 @@ final translationLanguagePreferencesProvider =
       return TranslationLanguagePreferencesNotifier();
     });
 
-/// 音频格式优先级设置
-class AudioFormatPreference {
-  final List<AudioFormat> priority;
-
-  const AudioFormatPreference({
-    this.priority = const [
-      AudioFormat.mp3,
-      AudioFormat.flac,
-      AudioFormat.wav,
-      AudioFormat.opus,
-      AudioFormat.m4a,
-      AudioFormat.aac,
-    ],
-  });
-
-  AudioFormatPreference copyWith({List<AudioFormat>? priority}) {
-    return AudioFormatPreference(priority: priority ?? this.priority);
-  }
-}
-
-/// 音频格式优先级控制器
+/// 音频偏好控制器
 class AudioFormatPreferenceNotifier
     extends StateNotifier<AudioFormatPreference> {
   static const String _preferenceKey = 'audio_format_preference';
+  static const String _languageKey = 'audio_subtitle_language_preference';
+  static const String _seKey = 'audio_se_preference';
+  static const String _ejaculationKey = 'audio_ejaculation_preference';
+  static const String _unknownKey = 'audio_include_unknown_preference';
   bool _changedLocally = false;
+  late final Future<void> _preferenceLoad;
 
   AudioFormatPreferenceNotifier() : super(const AudioFormatPreference()) {
-    _loadPreference();
+    _preferenceLoad = _loadPreference();
   }
 
   Future<void> _loadPreference() async {
@@ -490,8 +464,9 @@ class AudioFormatPreferenceNotifier
       if (_changedLocally) return;
       final savedOrder = prefs.getStringList(_preferenceKey);
 
+      var priority = state.priority;
       if (savedOrder != null && savedOrder.isNotEmpty) {
-        final priority = savedOrder
+        priority = savedOrder
             .map(
               (ext) => AudioFormat.values.firstWhere(
                 (format) => format.extension == ext,
@@ -506,9 +481,23 @@ class AudioFormatPreferenceNotifier
             priority.add(format);
           }
         }
-
-        state = AudioFormatPreference(priority: priority);
       }
+      state = AudioFormatPreference(
+        priority: priority,
+        subtitleLanguage: PlayerSubtitleLanguage.values.firstWhere(
+          (value) => value.name == prefs.getString(_languageKey),
+          orElse: () => PlayerSubtitleLanguage.simplifiedChinese,
+        ),
+        se: PlayerBinaryTrait.values.firstWhere(
+          (value) => value.name == prefs.getString(_seKey),
+          orElse: () => PlayerBinaryTrait.present,
+        ),
+        ejaculation: PlayerBinaryTrait.values.firstWhere(
+          (value) => value.name == prefs.getString(_ejaculationKey),
+          orElse: () => PlayerBinaryTrait.present,
+        ),
+        includeUnknown: prefs.getBool(_unknownKey) ?? true,
+      );
     } catch (e) {
       // 加载失败，使用默认值
       state = const AudioFormatPreference();
@@ -516,9 +505,18 @@ class AudioFormatPreferenceNotifier
   }
 
   Future<void> updatePriority(List<AudioFormat> newPriority) async {
+    await updatePreference(state.copyWith(priority: newPriority));
+  }
+
+  Future<void> updatePreference(AudioFormatPreference preference) async {
     _changedLocally = true;
-    state = state.copyWith(priority: newPriority);
+    state = preference;
     await _savePreference();
+  }
+
+  Future<AudioFormatPreference> getPreference() async {
+    await _preferenceLoad;
+    return state;
   }
 
   Future<void> _savePreference() async {
@@ -526,6 +524,10 @@ class AudioFormatPreferenceNotifier
       final prefs = await SharedPreferences.getInstance();
       final order = state.priority.map((format) => format.extension).toList();
       await prefs.setStringList(_preferenceKey, order);
+      await prefs.setString(_languageKey, state.subtitleLanguage.name);
+      await prefs.setString(_seKey, state.se.name);
+      await prefs.setString(_ejaculationKey, state.ejaculation.name);
+      await prefs.setBool(_unknownKey, state.includeUnknown);
     } catch (e) {
       // 保存失败时静默处理
     }
@@ -538,7 +540,7 @@ class AudioFormatPreferenceNotifier
   }
 }
 
-/// 音频格式优先级提供者
+/// 音频偏好提供者
 final audioFormatPreferenceProvider =
     StateNotifierProvider<AudioFormatPreferenceNotifier, AudioFormatPreference>(
       (ref) {

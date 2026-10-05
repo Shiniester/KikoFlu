@@ -11,6 +11,7 @@ import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_visual_palette.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -52,8 +53,11 @@ const _thirdDescriptor = ArtworkDescriptor(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(() {
+  setUp(() async {
     SharedPreferences.setMockInitialValues({'lyric_hint_has_shown': true});
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
   });
 
   testWidgets('entry palette stays frozen until the route finishes', (

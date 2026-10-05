@@ -966,10 +966,10 @@ class SZh extends S {
   String get llmSettingsSubtitle => 'API 地址、密钥和模型';
 
   @override
-  String get audioFormatPreference => '音频格式偏好';
+  String get audioFormatPreference => '音频偏好';
 
   @override
-  String get audioFormatSubtitle => '调整音频格式优先级';
+  String get audioFormatSubtitle => '默认字幕、格式和音效偏好';
 
   @override
   String get audioTapPlaylistMode => '音频添加模式';
@@ -3385,13 +3385,90 @@ class SZh extends S {
   String get audioFormatPriority => '音频格式优先级';
 
   @override
-  String get confirmRestoreAudioFormat => '确定要恢复默认的音频格式优先级吗？';
+  String get confirmRestoreAudioFormat => '确定要将所有音频偏好恢复为默认值吗？';
 
   @override
   String get priorityDescription => '优先级说明';
 
   @override
-  String get audioFormatPriorityDesc => '• 打开作品详情页时，会自动优先展开优先级更高格式音频的文件夹';
+  String get audioFormatPriorityDesc => '拖动调整格式顺序。播放器会优先使用符合字幕和声音偏好且排序靠前的可用格式。';
+
+  @override
+  String get audioSubtitleLanguage => '字幕语言';
+
+  @override
+  String get audioSoundEffects => '效果音';
+
+  @override
+  String get audioEjaculationSound => '射精音';
+
+  @override
+  String get audioSubtitleSimplifiedChinese => '简体中文';
+
+  @override
+  String get audioSubtitleTraditionalChinese => '繁体中文';
+
+  @override
+  String get audioSubtitleOtherLanguage => '其他语言';
+
+  @override
+  String get audioSubtitleNone => '无字幕';
+
+  @override
+  String get audioPresent => '有';
+
+  @override
+  String get audioAbsent => '无';
+
+  @override
+  String get audioFormatOther => '其他';
+
+  @override
+  String get audioFilter => '筛选音频';
+
+  @override
+  String get audioFilterTitle => '筛选音频';
+
+  @override
+  String get audioFormatLabel => '音频格式';
+
+  @override
+  String get audioFilterKeyword => '文件或文件夹关键词';
+
+  @override
+  String get audioIncludeUnknown => '包含未知项目';
+
+  @override
+  String get audioIncludeUnknownDescription => '当字幕语言或声音属性无法识别时，也包含这些音频版本。';
+
+  @override
+  String get audioShowAllCombinations => '显示全部组合';
+
+  @override
+  String get audioFilterApply => '应用';
+
+  @override
+  String get audioNoMatches => '没有符合筛选条件的文件';
+
+  @override
+  String audioFileCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 个音频文件',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String audioBestCombinationCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '最佳可用组合 · $count 个文件',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get ratingInfo => '评分信息';
@@ -4904,10 +4981,10 @@ class SZhHant extends SZh {
   String get llmSettingsSubtitle => 'API 位址、金鑰和模型';
 
   @override
-  String get audioFormatPreference => '音訊格式偏好';
+  String get audioFormatPreference => '音訊偏好';
 
   @override
-  String get audioFormatSubtitle => '調整音訊格式優先順序';
+  String get audioFormatSubtitle => '預設字幕、格式和音效偏好';
 
   @override
   String get audioTapPlaylistMode => '音訊新增模式';
@@ -7320,16 +7397,93 @@ class SZhHant extends SZh {
   String get shownInMoreMenu => '顯示在更多選單';
 
   @override
-  String get audioFormatPriority => '音訊格式優先級';
+  String get audioFormatPriority => '音訊格式優先順序';
 
   @override
-  String get confirmRestoreAudioFormat => '確定要恢復預設的音訊格式優先級嗎？';
+  String get confirmRestoreAudioFormat => '確定要將所有音訊偏好恢復為預設值嗎？';
 
   @override
   String get priorityDescription => '優先級說明';
 
   @override
-  String get audioFormatPriorityDesc => '• 打開作品詳情頁時，會自動優先展開優先級更高格式音訊的資料夾';
+  String get audioFormatPriorityDesc => '拖曳調整格式順序。播放器會優先使用符合字幕與聲音偏好且排序較前的可用格式。';
+
+  @override
+  String get audioSubtitleLanguage => '字幕語言';
+
+  @override
+  String get audioSoundEffects => '效果音';
+
+  @override
+  String get audioEjaculationSound => '射精音';
+
+  @override
+  String get audioSubtitleSimplifiedChinese => '簡體中文';
+
+  @override
+  String get audioSubtitleTraditionalChinese => '繁體中文';
+
+  @override
+  String get audioSubtitleOtherLanguage => '其他語言';
+
+  @override
+  String get audioSubtitleNone => '無字幕';
+
+  @override
+  String get audioPresent => '有';
+
+  @override
+  String get audioAbsent => '無';
+
+  @override
+  String get audioFormatOther => '其他';
+
+  @override
+  String get audioFilter => '篩選音訊';
+
+  @override
+  String get audioFilterTitle => '篩選音訊';
+
+  @override
+  String get audioFormatLabel => '音訊格式';
+
+  @override
+  String get audioFilterKeyword => '檔案或資料夾關鍵字';
+
+  @override
+  String get audioIncludeUnknown => '包含未知項目';
+
+  @override
+  String get audioIncludeUnknownDescription => '字幕語言或聲音屬性無法辨識時，也包含這些音訊版本。';
+
+  @override
+  String get audioShowAllCombinations => '顯示所有組合';
+
+  @override
+  String get audioFilterApply => '套用';
+
+  @override
+  String get audioNoMatches => '沒有符合篩選條件的檔案';
+
+  @override
+  String audioFileCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count 個音訊檔案',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String audioBestCombinationCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '最佳可用組合 · $count 個檔案',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get ratingInfo => '評分資訊';

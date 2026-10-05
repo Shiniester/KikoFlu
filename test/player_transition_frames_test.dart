@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +14,8 @@ import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/linux_golden_file_comparator.dart';
+
 const track = AudioTrack(
   id: 'frames',
   title: 'Player transition',
@@ -20,7 +24,19 @@ const track = AudioTrack(
 );
 
 void main() {
-  testWidgets('real player expansion and partial page keyframes', (tester) async {
+  final defaultGoldenFileComparator = goldenFileComparator;
+  setUpAll(() {
+    if (Platform.isLinux) {
+      goldenFileComparator = LinuxTolerantGoldenFileComparator(
+        Uri.parse('test/player_transition_frames_test.dart'),
+      );
+    }
+  });
+  tearDownAll(() => goldenFileComparator = defaultGoldenFileComparator);
+
+  testWidgets('real player expansion and partial page keyframes', (
+    tester,
+  ) async {
     await pumpPlayer(tester);
     await tester.tap(find.byKey(const ValueKey('mini-player-upward-launcher')));
     await tester.pump();
