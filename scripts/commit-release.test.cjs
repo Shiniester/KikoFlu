@@ -50,7 +50,14 @@ function commitFile(root, name, content, message) {
 
 test("queues exact commits, gates turn commits, pushes promptly, and serializes releases", async (t) => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "kikoflu-commit-release-"));
-  t.after(() => {
+  let worker;
+  let acceptedFile;
+  let acceptedRequest;
+  let continuePlanner;
+  t.after(async () => {
+    continuePlanner?.resolve();
+    if (acceptedFile && acceptedRequest) fs.writeFileSync(acceptedFile, JSON.stringify(acceptedRequest));
+    if (worker) await worker;
     const target = path.resolve(base);
     const tempRoot = path.resolve(os.tmpdir()) + path.sep;
     if (!target.startsWith(tempRoot) || !path.basename(target).startsWith("kikoflu-commit-release-")) {
@@ -110,21 +117,14 @@ test("queues exact commits, gates turn commits, pushes promptly, and serializes 
   assert.equal(first.workflow, "build.yml");
   assert.equal(first.turnCommit, true);
   const request = JSON.parse(fs.readFileSync(first.requestPath, "utf8"));
+  acceptedFile = first.requestPath.replace(/\.request$/, ".accepted");
+  acceptedRequest = request;
   assert.deepEqual(request, { head: sha1, branch: "refs/heads/local-main-target" });
   assert.equal(release.validAccepted(first), false);
   fs.writeFileSync(first.requestPath.replace(/\.request$/, ".accepted"), JSON.stringify({ head: "f".repeat(40), branch: first.branch }));
   assert.equal(release.validAccepted(first), false);
 
-  const sha2 = commitFile(repo, "two.txt", "second\n", "second change");
-  const second = capture();
-  assert.equal(second.head, sha2);
-  assert.equal(second.turnCommit, false);
-  assert.equal(workerStarts, 2);
-  fs.writeFileSync(first.requestPath.replace(/\.request$/, ".accepted"), JSON.stringify(request));
-  assert.equal(release.validAccepted(first), true);
-
-  const plannerStarted = deferred();
-  const continuePlanner = deferred();
+  continuePlanner = deferred();
   const dispatches = [];
   const runs = new Map();
   const releases = [{ tag_name: "v1.0.0", draft: false, prerelease: false, published_at: "2026-01-01T00:00:00Z" }];
@@ -137,7 +137,6 @@ test("queues exact commits, gates turn commits, pushes promptly, and serializes 
     plan: async (job, inventory) => {
       plannedBases.push({ head: job.head, baseline: inventory.stable.tag_name });
       if (job.head === sha1) {
-        plannerStarted.resolve();
         await continuePlanner.promise;
       }
       return { publish: true, bump: "patch", release_notes: `Release ${job.head}`, reason: "localized compatible changes" };
@@ -175,9 +174,24 @@ test("queues exact commits, gates turn commits, pushes promptly, and serializes 
   assert.equal(release.selectVersion({ workflow: "build.yml" }, inventoryForMajor, "major"), "5.0.0");
   assert.equal(release.selectVersion({ workflow: "build.yml" }, inventoryForMajor, "minor"), "4.9.0");
   assert.equal(release.selectVersion({ workflow: "build.yml" }, inventoryForMajor, "patch"), "4.8.2");
-  const worker = release.runWorker(commonDir, services);
-  await until(() => git(bare, ["rev-parse", "refs/heads/main"]) === sha2, "newer queued SHA push");
+  const originalRemoteHead = git(bare, ["rev-parse", "refs/heads/main"]);
+  worker = release.runWorker(commonDir, services);
+  await until(() => release.readJobs(commonDir).find((job) => job.head === sha1)?.pushState === "waiting", "turn commit ACK wait");
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(git(bare, ["rev-parse", "refs/heads/main"]), originalRemoteHead, "a turn commit must not push before its ACK");
   assert.equal(dispatches.length, 0, "turn commit must wait for the index-install ACK");
+  assert.equal(release.validAccepted(first), false);
+  fs.writeFileSync(first.requestPath.replace(/\.request$/, ".accepted"), JSON.stringify(request));
+  assert.equal(release.validAccepted(first), true);
+  await until(() => git(bare, ["rev-parse", "refs/heads/main"]) === sha1, "accepted turn SHA push");
+  await until(() => plannedBases.some((item) => item.head === sha1), "first release planner");
+
+  const sha2 = commitFile(repo, "two.txt", "second\n", "second change");
+  const second = capture();
+  assert.equal(second.head, sha2);
+  assert.equal(second.turnCommit, false);
+  assert.equal(workerStarts, 2);
+  await until(() => git(bare, ["rev-parse", "refs/heads/main"]) === sha2, "newer queued SHA push while planning");
 
   fs.writeFileSync(path.join(repo, "three.txt"), "third\n");
   const sha3 = (() => {
@@ -188,7 +202,6 @@ test("queues exact commits, gates turn commits, pushes promptly, and serializes 
   const third = capture();
   assert.equal(third.head, sha3);
   await until(() => git(bare, ["rev-parse", "refs/heads/main"]) === sha3, "push during release planning");
-  await plannerStarted.promise;
   assert.equal(dispatches.length, 0, "the first planner is held before dispatch");
   continuePlanner.resolve();
   await worker;
