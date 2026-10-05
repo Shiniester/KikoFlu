@@ -3,6 +3,36 @@
 2026-10-05，Windows，Flutter 3.44.7 / Dart 3.12.2。
 对应 [Build test 运行](https://github.com/Shiniester/KikoFlu/actions/runs/37296067270)。
 
+## Linux 后台测试初始化
+
+Linux 的两份后台提取测试在断言通过后，`flutter_tester` 收尾时发生原生
+类型检查崩溃。两份测试现在在入口初始化 `TestWidgetsFlutterBinding`。
+
+[Ubuntu 验证](https://github.com/Shiniester/KikoFlu/actions/runs/37334793165/job/111846719580)：
+两份测试连续运行 20 次，每次 6 项通过；完整测试 1342 项通过、7 项跳过，
+静态分析通过。Windows 的同一组 6 项测试通过。
+
+- `task_brief`：修复 PR #4 的 Linux 测试进程收尾崩溃。
+- `dispatch.read_only`：`entrypoint_crash_map` 定位调用与资源生命周期；
+  `isolate_test_shutdown_advice` 核对 isolate 退出语义；
+  `native_vm_crash_expert` 解析原生故障指令。
+- `dispatch.write_stages`：主智能体串行修改两份测试的绑定初始化并清理诊断。
+- `dispatch.skipped`：无需业务实现、依赖或设备构建改动，不增加对应 writer。
+- `implementation_plan`：以 Linux 失败日志定位测试环境，连续复现检查通过后
+  清理诊断，再验证正常工作流。
+- `verification`：以上 Ubuntu、Windows 测试与静态分析。
+- `dependency_risks`：无新增依赖，继续使用 Flutter 3.44.7。
+- `conflicts`：[]。
+- `handoff`：两份测试显式初始化绑定；正常 CI 保留完整测试及原有失败判定。
+
+`agents`：
+
+| name | focus | result | risks | next_step |
+| --- | --- | --- | --- | --- |
+| entrypoint_crash_map | 后台扫描与提取调用 | 定位两份失败测试的公共提取路径 | Windows 不能代替 Linux 崩溃检查 | 已验收 |
+| isolate_test_shutdown_advice | 退出和测试环境语义 | 核对退出通知与 native 清理顺序 | 原生故障需 Ubuntu 验证 | 已验收 |
+| native_vm_crash_expert | 原生堆栈与指令 | 定位 VM 类型检查读取无效对象信息 | 未确定 VM 内部损坏的具体来源 | 初始化修复已通过 Ubuntu 连续验证 |
+
 ## 修复结果
 
 - Android APK 已在原 CI 中完成构建，兼容性检查使用的证书预期与签名产物不一致。
