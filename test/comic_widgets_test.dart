@@ -10,6 +10,7 @@ import 'package:kikoeru_flutter/src/services/log_service.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
+import 'package:flutter/gestures.dart' show kDoubleTapTimeout;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
@@ -144,6 +145,16 @@ class _Source extends ComicSource {
       throw const ComicSourceException('Chapter unavailable');
     }
     return List.generate(8, (i) => ComicPage('page-$i'));
+  }
+}
+
+class _ThreePageChapterSource extends _Source {
+  @override
+  Future<List<ComicPage>> pages(Comic comic, ComicChapter chapter) async {
+    if (chapter.id == 'one') {
+      return List.generate(3, (i) => ComicPage('page-$i'));
+    }
+    return super.pages(comic, chapter);
   }
 }
 
@@ -498,6 +509,407 @@ void main() {
     await tester.tapAt(position);
     await tester.pump(const Duration(milliseconds: 50));
   }
+
+  Future<void> startAutoPageTurn(
+    WidgetTester tester, {
+    ComicReadingMode mode = ComicReadingMode.leftToRight,
+    int? interval,
+    Comic comic = _comic,
+    ComicChapter chapter = const ComicChapter('one', 'Chapter 1'),
+    int initialPage = 0,
+    _Source? source,
+    Future<Uint8List> Function(ComicPage)? loadImage,
+  }) async {
+    await StorageService.setString('comic_reading_mode', mode.name);
+    if (interval != null) {
+      await StorageService.setInt('comic_auto_page_interval', interval);
+    }
+    await pump(
+      tester,
+      ComicReaderScreen(
+        comic: comic,
+        chapter: chapter,
+        initialPage: initialPage,
+      ),
+      _Library(),
+      source ?? _Source(),
+      loadImage: loadImage,
+    );
+    await waitForDecodedImage(tester, find.byType(Image).first);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('comic-auto-page-turn')));
+    await tester.pump();
+  }
+
+  testWidgets('reader bottom controls show auto switch and chapter chooser', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await StorageService.setString('comic_reading_mode', 'leftToRight');
+    await StorageService.setInt('comic_auto_page_interval', 1);
+    const comic = Comic(
+      source: 'fixture',
+      id: 'book',
+      title: 'Fixture book',
+      chapters: [
+        ComicChapter('one', 'Chapter 1'),
+        ComicChapter('two', 'Chapter 2'),
+        ComicChapter('three', 'Chapter 3'),
+      ],
+    );
+    final library = _Library();
+    await pump(
+      tester,
+      const ComicReaderScreen(
+        comic: comic,
+        chapter: ComicChapter('one', 'Chapter 1'),
+      ),
+      library,
+      _Source(),
+    );
+    await waitForDecodedImage(tester, find.byType(Image).first);
+    await tester.pumpAndSettle();
+    await tester.tapAt(tester.getCenter(find.byType(PageView)));
+    await tester.pump(kDoubleTapTimeout);
+    await tester.pumpAndSettle();
+    final bottom = find.byKey(const ValueKey('comic-reader-bottom-controls'));
+    final auto = find.descendant(of: bottom, matching: find.byType(FilterChip));
+    final chooser = find.descendant(
+      of: bottom,
+      matching: find.widgetWithText(TextButton, 'Choose chapters'),
+    );
+    expect(auto, findsOneWidget);
+    expect(chooser, findsOneWidget);
+    expect(
+      find.descendant(of: auto, matching: find.text('Auto page turn')),
+      findsOneWidget,
+    );
+    expect(tester.widget<FilterChip>(auto).selected, isFalse);
+    expect(tester.getRect(auto).bottom, lessThanOrEqualTo(640));
+    expect(tester.getRect(chooser).bottom, lessThanOrEqualTo(640));
+
+    await tester.tap(auto);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(tester.widget<FilterChip>(auto).selected, isTrue);
+    expect(find.text('2/8'), findsOneWidget);
+    await tester.tap(auto);
+    await tester.pump(const Duration(seconds: 2));
+    expect(tester.widget<FilterChip>(auto).selected, isFalse);
+    expect(find.text('2/8'), findsOneWidget);
+
+    await tester.tap(chooser);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ListTile>(find.widgetWithText(ListTile, 'Chapter 1'))
+          .selected,
+      isTrue,
+    );
+    await tester.tap(find.widgetWithText(ListTile, 'Chapter 3'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Chapter 3'), findsOneWidget);
+    expect(find.text('1/8'), findsOneWidget);
+    expect(library.last?.chapterId, 'three');
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(find.text('2/8'), findsOneWidget);
+    await tester.tap(chooser);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ListTile>(find.widgetWithText(ListTile, 'Chapter 3'))
+          .selected,
+      isTrue,
+    );
+    await tester.tap(find.widgetWithText(ListTile, 'Chapter 3'));
+    await tester.pumpAndSettle();
+    expect(find.text('2/8'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final mode in ComicReadingMode.values) {
+    testWidgets('auto page turn advances in ${mode.name}', (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await startAutoPageTurn(tester, mode: mode, interval: 1);
+
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      if (mode == ComicReadingMode.continuous) {
+        final view = find.byKey(const ValueKey('comic-continuous-zoom'));
+        final list = find.descendant(
+          of: view,
+          matching: find.byType(ScrollablePositionedList),
+        );
+        final scrollable = find.descendant(
+          of: list,
+          matching: find.byType(Scrollable),
+        );
+        final position = tester
+            .state<ScrollableState>(scrollable.first)
+            .position;
+        expect(position.pixels, closeTo(600, .1));
+        expect(position.pixels, lessThan(position.maxScrollExtent));
+      } else {
+        expect(find.text(isComicSpread(mode) ? '3/8' : '2/8'), findsOneWidget);
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final mode in [
+    ComicReadingMode.spread,
+    ComicReadingMode.reverseSpread,
+  ]) {
+    testWidgets('auto page turn advances from an odd image in ${mode.name}', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await startAutoPageTurn(
+        tester,
+        mode: mode,
+        interval: 1,
+        initialPage: 1,
+        source: _ThreePageChapterSource(),
+      );
+
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.textContaining('Chapter 1'), findsOneWidget);
+      expect(find.text('3/3'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.textContaining('Chapter 2'), findsOneWidget);
+      expect(find.text('1/8'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final hasNextChapter in [true, false]) {
+    testWidgets(
+      'continuous auto page turn waits for the real image bottom; next chapter $hasNextChapter',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final comic = Comic(
+          source: 'fixture',
+          id: 'book',
+          title: 'Fixture book',
+          cover: 'fixture-cover',
+          chapters: [
+            const ComicChapter('one', 'Chapter 1'),
+            if (hasNextChapter) const ComicChapter('two', 'Chapter 2'),
+          ],
+        );
+        await startAutoPageTurn(
+          tester,
+          mode: ComicReadingMode.continuous,
+          interval: 1,
+          comic: comic,
+          initialPage: 7,
+          loadImage: (_) async => _tallPng,
+        );
+
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump();
+        expect(find.textContaining('Chapter 1'), findsOneWidget);
+        expect(find.text('8/8'), findsOneWidget);
+        final view = find.byKey(const ValueKey('comic-continuous-zoom'));
+        final list = find.descendant(
+          of: view,
+          matching: find.byType(ScrollablePositionedList),
+        );
+        final scrollable = find.descendant(
+          of: list,
+          matching: find.byType(Scrollable),
+        );
+        final position = tester
+            .state<ScrollableState>(scrollable.first)
+            .position;
+        expect(position.pixels, closeTo(position.maxScrollExtent, .1));
+
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump();
+        if (hasNextChapter) {
+          expect(find.textContaining('Chapter 2'), findsOneWidget);
+          expect(find.byTooltip('Pause'), findsOneWidget);
+        } else {
+          expect(find.textContaining('Chapter 1'), findsOneWidget);
+          expect(find.byTooltip('Auto page turn'), findsOneWidget);
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('auto page turn uses its saved interval and stops at the end', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await startAutoPageTurn(tester);
+
+    await tester.pump(const Duration(seconds: 4, milliseconds: 999));
+    expect(find.text('1/8'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump();
+    expect(find.text('2/8'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('comic-auto-page-turn')));
+    await tester.pump();
+    await StorageService.setInt('comic_auto_page_interval', 2);
+    await tester.tap(find.byKey(const ValueKey('comic-auto-page-turn')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1, milliseconds: 999));
+    expect(find.text('2/8'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 1));
+    await tester.pump();
+    expect(find.text('3/8'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('comic-auto-page-turn')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    expect(find.text('3/8'), findsOneWidget);
+    expect(find.byTooltip('Auto page turn'), findsOneWidget);
+  });
+
+  testWidgets(
+    'auto page turn stops at the final page without another chapter',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      const oneChapterComic = Comic(
+        source: 'fixture',
+        id: 'book',
+        title: 'Fixture book',
+        cover: 'fixture-cover',
+        chapters: [ComicChapter('one', 'Chapter 1')],
+      );
+      await startAutoPageTurn(
+        tester,
+        comic: oneChapterComic,
+        initialPage: 7,
+        interval: 1,
+      );
+
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(find.text('8/8'), findsOneWidget);
+      expect(find.byTooltip('Auto page turn'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'auto page turn stops on reader failure and can restart manually',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final source = _Source()..failedChapter = 'two';
+      await startAutoPageTurn(
+        tester,
+        initialPage: 7,
+        interval: 1,
+        source: source,
+      );
+
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+      expect(find.text('Retry'), findsOneWidget);
+
+      source.failedChapter = null;
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Chapter 2'), findsOneWidget);
+      expect(find.byTooltip('Auto page turn'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('auto page turn saves interval changes only on Save', (
+    tester,
+  ) async {
+    await StorageService.setInt('comic_auto_page_interval', 4);
+    await pump(
+      tester,
+      const ComicReaderSettingsScreen(),
+      _Library(),
+      _Source(),
+    );
+
+    await tester.tap(find.text('Auto page turn interval'));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('4 seconds'),
+      ),
+      findsOneWidget,
+    );
+    await tester.drag(find.byType(Slider), const Offset(120, 0));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<Slider>(find.byType(Slider)).value.round(),
+      greaterThan(4),
+    );
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(StorageService.getInt('comic_auto_page_interval'), 4);
+
+    await tester.tap(find.text('Auto page turn interval'));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(Slider), const Offset(120, 0));
+    await tester.pumpAndSettle();
+    final selected = tester.widget<Slider>(find.byType(Slider)).value.round();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(StorageService.getInt('comic_auto_page_interval'), selected);
+  });
+
+  testWidgets('auto page turn stops when reader is covered or backgrounded', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await startAutoPageTurn(tester, interval: 1);
+
+    await tester.tap(find.byTooltip('Reader settings'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('1/8'), findsOneWidget);
+    expect(find.byTooltip('Auto page turn'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('comic-auto-page-turn')));
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(find.text('1/8'), findsOneWidget);
+    expect(find.byTooltip('Auto page turn'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('comic-auto-page-turn')));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(seconds: 2));
+    expect(tester.takeException(), isNull);
+  });
 
   for (final reduceMotion in [false, true]) {
     testWidgets(

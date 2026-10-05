@@ -24,6 +24,8 @@ int comicViewIndex(int page, ComicReadingMode mode) =>
     isComicSpread(mode) ? page ~/ 2 : page;
 int comicPageIndex(int view, ComicReadingMode mode) =>
     isComicSpread(mode) ? view * 2 : view;
+int _pageAfterView(int page, int delta, ComicReadingMode mode) =>
+    comicPageIndex(comicViewIndex(page, mode) + delta, mode);
 
 class ComicReaderScreen extends ConsumerStatefulWidget {
   const ComicReaderScreen({
@@ -56,8 +58,13 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   final Map<int, Future<Uint8List>> _images = {};
   final Map<int, Size> _imageSizes = {};
   Matrix4 _continuousTransform = Matrix4.identity();
+  ScrollPosition? _continuousPosition;
   bool _continuousPinching = false;
   Timer? _saveTimer;
+  Timer? _autoPageTimer;
+  bool _autoPageTurning = false;
+  bool _appResumed = true;
+  bool _routeIsCurrent = true;
   Animation<double>? _routeAnimation;
   AnimationStatusListener? _routeStatusListener;
   bool _immersiveBarsRequested = false;
@@ -79,6 +86,8 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _routeIsCurrent = ModalRoute.of(context)?.isCurrent ?? true;
+    if (!_routeIsCurrent) _stopAutoPageTurn(rebuild: false);
     final animation = ModalRoute.of(context)?.animation;
     if (identical(animation, _routeAnimation)) return;
     if (_routeAnimation != null && _routeStatusListener != null) {
@@ -113,6 +122,9 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     WidgetsBinding.instance.removeObserver(this);
     _generation++;
     _saveTimer?.cancel();
+    _autoPageTimer?.cancel();
+    _autoPageTimer = null;
+    _autoPageTurning = false;
     if (_pages.isNotEmpty) {
       unawaited(_saveProgress(_chapter.id, _page));
     }
@@ -132,6 +144,8 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appResumed = state == AppLifecycleState.resumed;
+    if (!_appResumed) _stopAutoPageTurn();
     if (state != AppLifecycleState.resumed && _pages.isNotEmpty) {
       _saveTimer?.cancel();
       unawaited(_saveProgress(_chapter.id, _page));
@@ -151,6 +165,108 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
 
   void _toggle() {
     setState(() => _controls = !_controls);
+  }
+
+  void _toggleAutoPageTurn() {
+    if (_autoPageTurning) {
+      _stopAutoPageTurn();
+      return;
+    }
+    if (_loading ||
+        _error != null ||
+        _pages.isEmpty ||
+        !_appResumed ||
+        !_routeIsCurrent) {
+      return;
+    }
+    final interval = (StorageService.getInt('comic_auto_page_interval') ?? 5)
+        .clamp(1, 20)
+        .toInt();
+    _autoPageTimer = Timer.periodic(Duration(seconds: interval), (_) {
+      _autoPageTick();
+    });
+    setState(() => _autoPageTurning = true);
+  }
+
+  void _stopAutoPageTurn({bool rebuild = true}) {
+    _autoPageTimer?.cancel();
+    _autoPageTimer = null;
+    if (!_autoPageTurning) return;
+    if (rebuild && mounted) {
+      setState(() => _autoPageTurning = false);
+    } else {
+      _autoPageTurning = false;
+    }
+  }
+
+  bool _hasNextChapter() {
+    final chapterIndex = widget.comic.chapters.indexWhere(
+      (chapter) => chapter.id == _chapter.id,
+    );
+    return chapterIndex >= 0 && chapterIndex + 1 < widget.comic.chapters.length;
+  }
+
+  bool _continuousAtEnd() {
+    final position = _continuousPosition;
+    if (position == null ||
+        !position.hasContentDimensions ||
+        position.pixels < position.maxScrollExtent - 1) {
+      return false;
+    }
+    final lastPage = _pages.length - 1;
+    final lastItem = _positions.itemPositions.value
+        .where((item) => item.index == lastPage)
+        .firstOrNull;
+    if (lastItem == null || _viewport.height <= 0) return false;
+    final scale = _continuousTransform.getMaxScaleOnAxis();
+    final translation = _continuousTransform.getTranslation();
+    final visibleBottom =
+        ((_viewport.height - translation.y) / scale / _viewport.height).clamp(
+          0.0,
+          1.0,
+        );
+    return lastItem.itemTrailingEdge <= visibleBottom + .01;
+  }
+
+  void _autoPageTick() {
+    if (!_autoPageTurning || !mounted) return;
+    if (!_appResumed || !_routeIsCurrent) {
+      _stopAutoPageTurn();
+      return;
+    }
+    if (_loading) return;
+    if (_error != null || _pages.isEmpty) {
+      _stopAutoPageTurn();
+      return;
+    }
+    final mode = ref.read(comicReadingModeProvider);
+    if (mode == ComicReadingMode.continuous) {
+      if (_continuousAtEnd()) {
+        if (_hasNextChapter()) {
+          unawaited(_chapterBy(1));
+        } else {
+          _stopAutoPageTurn();
+        }
+        return;
+      }
+      final position = _continuousPosition;
+      if (position == null || !position.hasContentDimensions) return;
+      final target = (position.pixels + 600)
+          .clamp(position.minScrollExtent, position.maxScrollExtent)
+          .toDouble();
+      if (target != position.pixels) position.jumpTo(target);
+      return;
+    }
+    final nextPage = _pageAfterView(_page, 1, mode);
+    if (nextPage >= _pages.length) {
+      if (_hasNextChapter()) {
+        unawaited(_chapterBy(1));
+      } else {
+        _stopAutoPageTurn();
+      }
+      return;
+    }
+    _step(1);
   }
 
   Widget _controlLayer({
@@ -212,9 +328,12 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       _preload();
     } catch (e) {
       if (mounted && generation == _generation) {
+        _autoPageTimer?.cancel();
+        _autoPageTimer = null;
         setState(() {
           _error = e;
           _loading = false;
+          _autoPageTurning = false;
         });
       }
     }
@@ -227,6 +346,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     );
     _continuous = ItemScrollController();
     _continuousTransform = Matrix4.identity();
+    _continuousPosition = null;
     _continuousPinching = false;
     _layoutGeneration++;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -364,10 +484,42 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     await _loadChapter();
   }
 
+  Future<void> _chooseChapter() async {
+    final chapters = widget.comic.chapters;
+    final current = chapters.indexWhere((chapter) => chapter.id == _chapter.id);
+    final selected = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(S.of(dialogContext).comicChooseChapters),
+        content: SizedBox(
+          width: 420,
+          height: 340,
+          child: ListView.builder(
+            itemCount: chapters.length,
+            itemBuilder: (context, index) => ListTile(
+              title: Text(chapters[index].title),
+              selected: index == current,
+              trailing: index == current ? const Icon(Icons.check) : null,
+              onTap: () => Navigator.pop(dialogContext, index),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(S.of(dialogContext).cancel),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || selected == null || selected == current) return;
+    await _chapterBy(selected - current);
+  }
+
   void _step(int delta) {
     if (_loading) return;
     final mode = ref.read(comicReadingModeProvider);
-    final target = _page + delta * (isComicSpread(mode) ? 2 : 1);
+    final target = _pageAfterView(_page, delta, mode);
     if (target >= _pages.length) {
       _chapterBy(1);
     } else if (target < 0) {
@@ -489,8 +641,15 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
               itemScrollController: _continuous,
               itemPositionsListener: _positions,
               initialScrollIndex: _page,
-              itemBuilder: (context, i) =>
-                  GestureDetector(onTap: _toggle, child: _continuousPage(i)),
+              itemBuilder: (context, i) => Builder(
+                builder: (itemContext) {
+                  _continuousPosition = Scrollable.of(itemContext).position;
+                  return GestureDetector(
+                    onTap: _toggle,
+                    child: _continuousPage(i),
+                  );
+                },
+              ),
             ),
           ),
         ),
@@ -695,6 +854,37 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                                 icon: const Icon(Icons.skip_next),
                               ),
                             ],
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                            child: Wrap(
+                              spacing: 12,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                Tooltip(
+                                  message: _autoPageTurning
+                                      ? s.pause
+                                      : s.comicAutoPageTurn,
+                                  child: FilterChip(
+                                    key: const ValueKey('comic-auto-page-turn'),
+                                    selected: _autoPageTurning,
+                                    avatar: const Icon(Icons.timer_outlined),
+                                    label: Text(s.comicAutoPageTurn),
+                                    onSelected: _loading || _error != null
+                                        ? null
+                                        : (_) => _toggleAutoPageTurn(),
+                                  ),
+                                ),
+                                TextButton.icon(
+                                  onPressed:
+                                      _loading || widget.comic.chapters.isEmpty
+                                      ? null
+                                      : _chooseChapter,
+                                  icon: const Icon(Icons.list),
+                                  label: Text(s.comicChooseChapters),
+                                ),
+                              ],
+                            ),
                           ),
                           if (hasAudio) const MiniPlayer(),
                         ],
