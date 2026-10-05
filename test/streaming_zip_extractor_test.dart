@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/services/streaming_zip_extractor.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late Directory sandbox;
 
   setUp(() async {

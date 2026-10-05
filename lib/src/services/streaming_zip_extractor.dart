@@ -66,31 +66,8 @@ class StreamingZipExtractor {
 
   static Future<StreamingZipExtractionResult> extract(
     StreamingZipExtractionRequest request,
-  ) async {
-    final response = ReceivePort();
-    try {
-      await Isolate.spawn<(StreamingZipExtractionRequest, SendPort)>(
-        _extractWorker,
-        (request, response.sendPort),
-        onError: response.sendPort,
-        onExit: response.sendPort,
-      );
-      final message = await response.first;
-      if (message is StreamingZipExtractionResult) return message;
-      if (message is List) {
-        throw RemoteError(message[0].toString(), message[1].toString());
-      }
-      throw StateError('ZIP extraction isolate exited without a result');
-    } finally {
-      response.close();
-    }
-  }
-
-  static void _extractWorker(
-    (StreamingZipExtractionRequest, SendPort) arguments,
   ) {
-    final (request, response) = arguments;
-    response.send(extractSynchronously(request));
+    return Isolate.run(() => extractSynchronously(request));
   }
 
   /// Synchronous implementation exposed for deterministic unit benchmarks.
