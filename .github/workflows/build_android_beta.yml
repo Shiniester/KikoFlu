@@ -2,6 +2,28 @@ name: Build Android Beta and Pre-release
 run-name: 'Android Beta ${{ inputs.version }} (branch: ${{ github.ref_name }})'
 
 on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      release_notes:
+        required: true
+        type: string
+      commit_sha:
+        required: true
+        type: string
+    secrets:
+      ANDROID_KEYSTORE_BASE64:
+        required: true
+      ANDROID_KEYSTORE_PASSWORD:
+        required: true
+      ANDROID_KEY_ALIAS:
+        required: true
+      ANDROID_KEY_PASSWORD:
+        required: true
+      RELEASE_TOKEN:
+        required: false
   workflow_dispatch:
     inputs:
       version:
@@ -23,7 +45,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: android-beta-${{ inputs.version }}
+  group: ${{ github.event_name == 'workflow_dispatch' && 'kikoflu-release' || format('kikoflu-build-beta-{0}', github.run_id) }}
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -207,7 +230,7 @@ jobs:
 
       - name: Publish Beta with Both APKs
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.android.outputs.version }}
           TAG: ${{ needs.android.outputs.tag }}
