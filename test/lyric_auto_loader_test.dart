@@ -45,6 +45,8 @@ AudioTrack _track(String hash, String title) {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     await StorageService.initCritical(

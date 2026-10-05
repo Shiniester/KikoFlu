@@ -146,6 +146,9 @@ void main() {
       final miniPlayer = File(
         'lib/src/widgets/mini_player.dart',
       ).readAsStringSync();
+      final cachedImageWidget = File(
+        'lib/src/widgets/cached_image_widget.dart',
+      ).readAsStringSync();
       final infoPanel = File(
         'lib/src/widgets/player/player_info_panel.dart',
       ).readAsStringSync();
@@ -248,6 +251,8 @@ void main() {
         ).hasMatch(compactArtwork),
         isTrue,
       );
+      expect(cachedImageWidget, contains('useOldImageOnUrlChange: true'));
+      expect(playerCover, contains('PlayerTrackLayers<_PlayerCoverSnapshot>'));
       expect(miniPlayer, isNot(contains('Icons.skip_previous')));
       expect(miniPlayer, isNot(contains('Icons.skip_next')));
       expect(playerLaunch, contains('class PlayerLaunchRegion'));
@@ -318,6 +323,16 @@ void main() {
         .where((file) => file.path.endsWith('.dart'))
         .map((file) => file.readAsStringSync())
         .join('\n');
+    final playerSources = Directory('lib/src/widgets/player')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((file) => file.path.endsWith('.dart'))
+        .map((file) => file.readAsStringSync())
+        .followedBy([
+          File('lib/src/screens/audio_player_screen.dart').readAsStringSync(),
+          File('lib/src/widgets/mini_player.dart').readAsStringSync(),
+        ])
+        .join('\n');
     final noticeSource = File(
       'lib/src/utils/snackbar_util.dart',
     ).readAsStringSync();
@@ -326,6 +341,8 @@ void main() {
     ).readAsStringSync();
 
     expect(RegExp(r'\.showSnackBar\(').allMatches(appSources), hasLength(1));
+    expect(playerSources, isNot(contains('.showSnackBar(')));
+    expect(RegExp(r'\.showSnackBar\(').allMatches(noticeSource), hasLength(1));
     expect(noticeSource, contains('SnackBarBehavior.floating'));
     expect(noticeSource, contains('(width - 420) / 2'));
     expect(noticeSource, contains('(height * 0.18).clamp(88.0, 144.0)'));

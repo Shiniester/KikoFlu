@@ -1,18 +1,12 @@
-import 'dart:io';
+import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-const double _linuxRasterizationTolerance = 0.003;
+const _linuxRasterizationTolerance = 0.003;
 
-GoldenFileComparator createPlatformGoldenFileComparator(Uri testFile) {
-  return Platform.isLinux
-      ? _LinuxTolerantGoldenFileComparator(testFile)
-      : goldenFileComparator;
-}
-
-class _LinuxTolerantGoldenFileComparator extends LocalFileComparator {
-  _LinuxTolerantGoldenFileComparator(super.testFile);
+class LinuxTolerantGoldenFileComparator extends LocalFileComparator {
+  LinuxTolerantGoldenFileComparator(super.testFile);
 
   @override
   Future<bool> compare(Uint8List imageBytes, Uri golden) async {

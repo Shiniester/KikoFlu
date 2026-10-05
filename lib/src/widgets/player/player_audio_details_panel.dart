@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../models/work.dart';
 import '../../providers/player_work_details_provider.dart';
+import '../../providers/settings_provider.dart';
 import '../../services/player_audio_variant_classifier.dart';
 import '../../utils/snackbar_util.dart';
 import '../circle_chip.dart';
@@ -32,13 +34,27 @@ class PlayerAudioDetailsPanel extends ConsumerStatefulWidget {
 class _PlayerAudioDetailsPanelState
     extends ConsumerState<PlayerAudioDetailsPanel> {
   static const _classifier = PlayerAudioVariantClassifier();
-  PlayerAudioVariantFilter _filter = const PlayerAudioVariantFilter();
+  PlayerAudioVariantFilter? _manualFilter;
+  PlayerAudioVariantFilter? _defaultFilter;
+  List<PlayerAudioVariant>? _defaultFilterSource;
+  AudioFormatPreference? _defaultFilterPreference;
+  List<PlayerAudioVariant>? _appliedFilterSource;
+  PlayerAudioVariantFilter? _appliedFilter;
+  AudioFormatPreference? _appliedPreference;
+  List<PlayerAudioVariant> _filteredVariants = const [];
+  AudioFormatPreference? _preferenceSource;
   String? _fileTreeId;
   bool _isQueueing = false;
 
   @override
   Widget build(BuildContext context) {
     final details = ref.watch(playerWorkDetailsProvider);
+    final preference = ref.watch(audioFormatPreferenceProvider);
+    if (_preferenceSource != null &&
+        !identical(_preferenceSource, preference)) {
+      _manualFilter = null;
+    }
+    _preferenceSource = preference;
     return TickerMode(
       enabled: widget.isActive,
       child: details.when(
@@ -50,9 +66,9 @@ class _PlayerAudioDetailsPanelState
           if (data == null) return _wrapStaticState(const _EmptyDetails());
           if (_fileTreeId != data.fileTreeId) {
             _fileTreeId = data.fileTreeId;
-            _filter = const PlayerAudioVariantFilter();
+            _manualFilter = null;
           }
-          return _buildDetails(context, data);
+          return _buildDetails(context, data, preference);
         },
       ),
     );
@@ -62,10 +78,36 @@ class _PlayerAudioDetailsPanelState
     return child;
   }
 
-  Widget _buildDetails(BuildContext context, PlayerWorkDetailsData details) {
+  Widget _buildDetails(
+    BuildContext context,
+    PlayerWorkDetailsData details,
+    AudioFormatPreference preference,
+  ) {
     final work = details.work;
     final colors = Theme.of(context).colorScheme;
-    final variants = _classifier.applyFilter(details.variants, _filter);
+    if (!identical(_defaultFilterSource, details.variants) ||
+        !identical(_defaultFilterPreference, preference)) {
+      _defaultFilter = _classifier.defaultFilter(
+        details.variants,
+        preference: preference,
+      );
+      _defaultFilterSource = details.variants;
+      _defaultFilterPreference = preference;
+    }
+    final activeFilter = _manualFilter ?? _defaultFilter!;
+    if (!identical(_appliedFilterSource, details.variants) ||
+        !identical(_appliedFilter, activeFilter) ||
+        !identical(_appliedPreference, preference)) {
+      _filteredVariants = _classifier.applyFilter(
+        details.variants,
+        activeFilter,
+        preference: preference,
+      );
+      _appliedFilterSource = details.variants;
+      _appliedFilter = activeFilter;
+      _appliedPreference = preference;
+    }
+    final variants = _filteredVariants;
     final hasCircle = work.name?.trim().isNotEmpty == true;
     final hasRelease = work.release?.trim().isNotEmpty == true;
     final hasVoiceActors = work.vas?.isNotEmpty == true;
@@ -177,6 +219,31 @@ class _PlayerAudioDetailsPanelState
                       ),
                     ),
                   ],
+                  if (hasTags) ...[
+                    const SizedBox(height: 8),
+                    _InfoCard(
+                      key: const ValueKey('player-detail-tags'),
+                      title: _label(context, 'tags'),
+                      child: Wrap(
+                        spacing: 4,
+                        runSpacing: 3,
+                        children: [
+                          for (final tag in work.tags!)
+                            TagChip(
+                              tag: tag,
+                              compact: true,
+                              fontSize: 11,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              borderRadius: 6,
+                              fontWeight: FontWeight.w500,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   _InfoCard(
                     key: const ValueKey('player-detail-audio-files'),
@@ -188,9 +255,13 @@ class _PlayerAudioDetailsPanelState
                       key: const ValueKey('player-audio-filter-button'),
                       onPressed: details.variants.isEmpty
                           ? null
-                          : () => _showFilterSheet(context),
+                          : () => _showFilterSheet(
+                              context,
+                              details,
+                              activeFilter,
+                            ),
                       icon: const Icon(Icons.tune, size: 18),
-                      tooltip: _label(context, 'filter'),
+                      tooltip: S.of(context).audioFilter,
                       visualDensity: VisualDensity.compact,
                     ),
                     child: details.variants.isEmpty
@@ -202,8 +273,8 @@ class _PlayerAudioDetailsPanelState
                             alignment: AlignmentDirectional.centerStart,
                             child: Text(
                               variants.isEmpty
-                                  ? _label(context, 'noMatch')
-                                  : _filter.showAll
+                                  ? S.of(context).audioNoMatches
+                                  : activeFilter.showAll
                                   ? _labelCount(context, variants.length)
                                   : _labelBestCount(context, variants.length),
                               style: Theme.of(context).textTheme.bodySmall
@@ -240,7 +311,7 @@ class _PlayerAudioDetailsPanelState
               )
             else
               const SliverToBoxAdapter(child: SizedBox.shrink()),
-            if (hasEditions || hasTags)
+            if (hasEditions)
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
                 sliver: SliverList.list(
@@ -293,30 +364,6 @@ class _PlayerAudioDetailsPanelState
                           ],
                         ),
                       ),
-                    if (hasEditions && hasTags) const SizedBox(height: 8),
-                    if (hasTags)
-                      _InfoCard(
-                        key: const ValueKey('player-detail-tags'),
-                        title: _label(context, 'tags'),
-                        child: Wrap(
-                          spacing: 4,
-                          runSpacing: 3,
-                          children: [
-                            for (final tag in work.tags!)
-                              TagChip(
-                                tag: tag,
-                                compact: true,
-                                fontSize: 11,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                borderRadius: 6,
-                                fontWeight: FontWeight.w500,
-                              ),
-                          ],
-                        ),
-                      ),
                   ],
                 ),
               )
@@ -358,13 +405,22 @@ class _PlayerAudioDetailsPanelState
     }
   }
 
-  Future<void> _showFilterSheet(BuildContext context) async {
-    final result = await showResponsiveBottomSheet<PlayerAudioVariantFilter>(
+  Future<void> _showFilterSheet(
+    BuildContext context,
+    PlayerWorkDetailsData details,
+    PlayerAudioVariantFilter activeFilter,
+  ) async {
+    final fileTreeId = details.fileTreeId;
+    final result = await showResponsiveBottomSheet<_AudioVariantFilterResult>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _AudioVariantFilterSheet(initial: _filter),
+      builder: (_) => _AudioVariantFilterSheet(initial: activeFilter),
     );
-    if (result != null && mounted) setState(() => _filter = result);
+    if (result != null && mounted && _fileTreeId == fileTreeId) {
+      setState(() {
+        _manualFilter = result.resetToDefault ? null : result.filter;
+      });
+    }
   }
 }
 
@@ -486,6 +542,11 @@ class _AudioVariantTile extends StatelessWidget {
   }
 }
 
+typedef _AudioVariantFilterResult = ({
+  bool resetToDefault,
+  PlayerAudioVariantFilter filter,
+});
+
 class _AudioVariantFilterSheet extends StatefulWidget {
   const _AudioVariantFilterSheet({required this.initial});
 
@@ -523,7 +584,7 @@ class _AudioVariantFilterSheetState extends State<_AudioVariantFilterSheet> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                _label(context, 'filterAudio'),
+                S.of(context).audioFilterTitle,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontSize: 18,
                   height: 1.1,
@@ -534,7 +595,7 @@ class _AudioVariantFilterSheetState extends State<_AudioVariantFilterSheet> {
               TextField(
                 controller: _keywordController,
                 decoration: InputDecoration(
-                  labelText: _label(context, 'keyword'),
+                  labelText: S.of(context).audioFilterKeyword,
                   prefixIcon: const Icon(Icons.search, size: 20),
                   prefixIconConstraints: const BoxConstraints(
                     minWidth: 40,
@@ -551,7 +612,7 @@ class _AudioVariantFilterSheetState extends State<_AudioVariantFilterSheet> {
               const SizedBox(height: 10),
               _chips<PlayerSubtitleLanguage>(
                 context,
-                title: _label(context, 'subtitleLanguage'),
+                title: S.of(context).audioSubtitleLanguage,
                 values: PlayerSubtitleLanguage.values.where(
                   (value) => value != PlayerSubtitleLanguage.unknown,
                 ),
@@ -563,16 +624,16 @@ class _AudioVariantFilterSheetState extends State<_AudioVariantFilterSheet> {
               ),
               _chips<PlayerAudioFormat>(
                 context,
-                title: _label(context, 'format'),
+                title: S.of(context).audioFormatLabel,
                 values: PlayerAudioFormat.values,
                 selected: _filter.formats,
-                label: (value) => value.name.toUpperCase(),
+                label: (value) => _formatLabel(context, value),
                 onChanged: (values) =>
                     setState(() => _filter = _filter.copyWith(formats: values)),
               ),
               _chips<PlayerBinaryTrait>(
                 context,
-                title: _label(context, 'effects'),
+                title: S.of(context).audioSoundEffects,
                 values: const [
                   PlayerBinaryTrait.present,
                   PlayerBinaryTrait.absent,
@@ -585,7 +646,7 @@ class _AudioVariantFilterSheetState extends State<_AudioVariantFilterSheet> {
               ),
               _chips<PlayerBinaryTrait>(
                 context,
-                title: _label(context, 'ejaculation'),
+                title: S.of(context).audioEjaculationSound,
                 values: const [
                   PlayerBinaryTrait.present,
                   PlayerBinaryTrait.absent,
@@ -602,7 +663,7 @@ class _AudioVariantFilterSheetState extends State<_AudioVariantFilterSheet> {
                 visualDensity: const VisualDensity(vertical: -3),
                 value: _filter.includeUnknown,
                 title: Text(
-                  _label(context, 'includeUnknown'),
+                  S.of(context).audioIncludeUnknown,
                   style: const TextStyle(fontSize: 12.5, height: 1.1),
                 ),
                 onChanged: (value) => setState(
@@ -615,7 +676,7 @@ class _AudioVariantFilterSheetState extends State<_AudioVariantFilterSheet> {
                 visualDensity: const VisualDensity(vertical: -3),
                 value: _filter.showAll,
                 title: Text(
-                  _label(context, 'showAll'),
+                  S.of(context).audioShowAllCombinations,
                   style: const TextStyle(fontSize: 12.5, height: 1.1),
                 ),
                 onChanged: (value) =>
@@ -625,18 +686,20 @@ class _AudioVariantFilterSheetState extends State<_AudioVariantFilterSheet> {
               Row(
                 children: [
                   TextButton(
-                    onPressed: () => setState(() {
-                      _filter = const PlayerAudioVariantFilter();
-                      _keywordController.clear();
-                    }),
-                    child: Text(_label(context, 'reset')),
+                    onPressed: () => Navigator.of(
+                      context,
+                    ).pop((resetToDefault: true, filter: widget.initial)),
+                    child: Text(S.of(context).reset),
                   ),
                   const Spacer(),
                   FilledButton(
-                    onPressed: () => Navigator.of(
-                      context,
-                    ).pop(_filter.copyWith(keyword: _keywordController.text)),
-                    child: Text(_label(context, 'apply')),
+                    onPressed: () => Navigator.of(context).pop((
+                      resetToDefault: false,
+                      filter: _filter.copyWith(
+                        keyword: _keywordController.text,
+                      ),
+                    )),
+                    child: Text(S.of(context).audioFilterApply),
                   ),
                 ],
               ),
@@ -721,47 +784,49 @@ class _EmptyDetails extends StatelessWidget {
 }
 
 String _variantSummary(BuildContext context, PlayerAudioVariant variant) {
+  final strings = S.of(context);
   return <String>[
-    variant.format.name.toUpperCase(),
+    _formatLabel(context, variant.format),
     _subtitleLabel(context, variant.subtitleLanguage),
-    '${_label(context, 'effects')}: ${_traitLabel(context, variant.se)}',
-    '${_label(context, 'ejaculation')}: ${_traitLabel(context, variant.ejaculation)}',
+    '${strings.audioSoundEffects}: ${_traitLabel(context, variant.se)}',
+    '${strings.audioEjaculationSound}: ${_traitLabel(context, variant.ejaculation)}',
   ].join(' · ');
 }
 
 String _subtitleLabel(BuildContext context, PlayerSubtitleLanguage value) {
-  final zh = Localizations.localeOf(context).languageCode == 'zh';
+  final strings = S.of(context);
   return switch (value) {
     PlayerSubtitleLanguage.simplifiedChinese =>
-      zh ? '简体中文' : 'Simplified Chinese',
+      strings.audioSubtitleSimplifiedChinese,
     PlayerSubtitleLanguage.traditionalChinese =>
-      zh ? '繁体中文' : 'Traditional Chinese',
-    PlayerSubtitleLanguage.other => zh ? '其他语言' : 'Other language',
-    PlayerSubtitleLanguage.none => zh ? '无字幕' : 'No subtitle',
-    PlayerSubtitleLanguage.unknown => zh ? '未知' : 'Unknown',
+      strings.audioSubtitleTraditionalChinese,
+    PlayerSubtitleLanguage.other => strings.audioSubtitleOtherLanguage,
+    PlayerSubtitleLanguage.none => strings.audioSubtitleNone,
+    PlayerSubtitleLanguage.unknown => strings.unknown,
   };
 }
 
 String _traitLabel(BuildContext context, PlayerBinaryTrait value) {
-  final zh = Localizations.localeOf(context).languageCode == 'zh';
+  final strings = S.of(context);
   return switch (value) {
-    PlayerBinaryTrait.present => zh ? '有' : 'Yes',
-    PlayerBinaryTrait.absent => zh ? '无' : 'No',
-    PlayerBinaryTrait.unknown => zh ? '未知' : 'Unknown',
+    PlayerBinaryTrait.present => strings.audioPresent,
+    PlayerBinaryTrait.absent => strings.audioAbsent,
+    PlayerBinaryTrait.unknown => strings.unknown,
   };
 }
 
 String _labelCount(BuildContext context, int count) {
-  return Localizations.localeOf(context).languageCode == 'zh'
-      ? '共 $count 个音频文件'
-      : '$count audio files';
+  return S.of(context).audioFileCount(count);
 }
 
 String _labelBestCount(BuildContext context, int count) {
-  return Localizations.localeOf(context).languageCode == 'zh'
-      ? '最佳可用组合 · $count 个文件'
-      : 'Best available combination · $count files';
+  return S.of(context).audioBestCombinationCount(count);
 }
+
+String _formatLabel(BuildContext context, PlayerAudioFormat format) =>
+    format == PlayerAudioFormat.other
+    ? S.of(context).audioFormatOther
+    : format.displayName;
 
 String _label(BuildContext context, String key) {
   final zh = Localizations.localeOf(context).languageCode == 'zh';
@@ -772,21 +837,9 @@ String _label(BuildContext context, String key) {
     'tags': '标签',
     'release': '发售日期',
     'versions': '其他版本',
-    'audioFiles': '音频文件',
-    'filter': '筛选',
-    'filterAudio': '筛选音频文件',
+    'audioFiles': '音频',
     'noFiles': '没有可用的音频文件',
-    'noMatch': '没有符合筛选条件的文件',
     'noDetails': '暂无可用的作品信息',
-    'keyword': '文件或目录关键词',
-    'subtitleLanguage': '字幕语言',
-    'format': '音频格式',
-    'effects': '效果音',
-    'ejaculation': '射精音',
-    'includeUnknown': '包含无法识别的项目',
-    'showAll': '显示全部组合',
-    'reset': '重置',
-    'apply': '应用',
     'playNext': '下一首播放',
     'queuedNext': '已设为下一首播放',
     'alreadyPlaying': '该音频正在播放',
@@ -799,21 +852,9 @@ String _label(BuildContext context, String key) {
     'tags': 'Tags',
     'release': 'Release date',
     'versions': 'Other editions',
-    'audioFiles': 'Audio files',
-    'filter': 'Filter',
-    'filterAudio': 'Filter audio files',
+    'audioFiles': 'Audio',
     'noFiles': 'No audio files available',
-    'noMatch': 'No files match these filters',
     'noDetails': 'No work details are available',
-    'keyword': 'File or folder keyword',
-    'subtitleLanguage': 'Subtitle language',
-    'format': 'Audio format',
-    'effects': 'Sound effects',
-    'ejaculation': 'Ejaculation sound',
-    'includeUnknown': 'Include unknown items',
-    'showAll': 'Show every combination',
-    'reset': 'Reset',
-    'apply': 'Apply',
     'playNext': 'Play next',
     'queuedNext': 'Queued to play next',
     'alreadyPlaying': 'This audio is already playing',

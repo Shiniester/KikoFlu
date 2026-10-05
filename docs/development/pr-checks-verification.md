@@ -90,3 +90,28 @@ Linux 的两份后台提取测试在断言通过后，`flutter_tester` 收尾时
 | ci_storage_fixtures / test-automator | 四个模拟存储测试文件 | 初始化 fixture 并校准现有卡片比例 | 无新增运行时行为 | 已验收 |
 | cold_tab_strategy / flutter-expert | 播放器约束与截图测试、基准 | 严格 Windows 回归通过，共用原 Linux 容差 | Linux 栅格结果需 CI 确认 | Analyze and Test |
 | shared_tab_render_review / code-reviewer | 签名依据、断言与稳定截图 | 未发现需要修改的问题 | 设备构建未执行 | 已验收 |
+
+## PR #4 合并冲突与发布审查验证（2026-10-06）
+
+- `task_brief`：同步 `main`，解决合并阻塞并处理五条发布与 CI 审查意见。
+- `implementation_plan`：核对 `gh` 与本地分支，合并 `main` 的 `c4b8407`，保留双方行为，修复发布元数据并执行相关回归。
+- `dispatch.read_only`：`isolate_test_shutdown_advice` 独立检查发布 SHA、Beta 编号和排队目标。
+- `dispatch.write_stages`：`cold_tab_strategy` 处理七个 Flutter 冲突文件；主智能体处理发布脚本、工作流、文档及 Git 集成。文件归属独立，SDK 验证串行执行。
+- `dispatch.skipped`：无依赖升级、设备动效调整或额外诊断工作流。
+- `conflicts`：`issue` 为十处文件冲突；`impact` 为 PR 无法合并；`resolution` 为保留已发布 Beta 历史去重、独立 Dart ZIP 检查、统一提示和截图比较器，并组合控制器释放、位置恢复、过期加载与减弱动态效果回归。
+- `verification`：189 项相关 Flutter 测试、3 项独立 ZIP 检查通过；全部源码、测试和工具目录静态分析无问题；发布规划、版本编号、签名一致性、6 项上传恢复检查、工作流 YAML 与 Bash 语法检查通过。旧目标回归能够在原 planner 中复现重新发布，并在修复后跳过。
+- `dependency_risks`：无新增依赖；本机验证使用 Flutter 3.44.7，GitHub Linux 测试及签名 APK 构建仍由 CI 执行。
+- `handoff`：`what` 为冲突解决和发布修复；`why` 为避免重复发布、错用 SHA 和 Beta 升级编号回退；`next` 为提交到 PR 分支，由 GitHub 重新计算合并状态和运行 CI。
+
+审查意见结果：
+
+1. 保留 `queue: max`；当前 [GitHub 官方语法](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency)支持该配置及 100 个等待运行。
+2. 合并 `main` 的已发布 Beta 历史排除逻辑，并跳过已包含在较新 Beta 中的旧排队目标。
+3. Android-only 工作流接受并解析 `commit_sha`，构建和发布标签共用解析后的 SHA。
+4. 20 次诊断循环已在 `e965c00` 移除；正常 CI 保持单次测试套件执行。
+5. 手动与自动 Beta 按版本共用构建编号，并核验实际 APK 的 universal 编号和 arm64 偏移。
+
+| name | focus | result | risks | next_step |
+| --- | --- | --- | --- | --- |
+| cold_tab_strategy | Flutter 合并冲突 | 七处冲突按双方有效行为解决，组合回归通过 | Linux 截图需 CI 验证 | 已验收 |
+| isolate_test_shutdown_advice | 发布兼容性只读审查 | 发现旧排队目标重新发布边界，真实 Git 回归覆盖并修复 | 签名 APK 构建需 CI 验证 | 已验收 |

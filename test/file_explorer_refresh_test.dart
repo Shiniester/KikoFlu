@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:kikoeru_flutter/src/models/download_task_change.dart';
 import 'package:kikoeru_flutter/src/providers/download_provider.dart';
+import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/services/downloaded_file_state_scanner.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,9 +10,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
 import 'package:kikoeru_flutter/src/widgets/file_explorer_widget.dart';
+import 'package:kikoeru_flutter/src/widgets/offline_file_explorer_widget.dart';
+import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class _FailingApiService extends KikoeruApiService {
   final List<bool> forceRefreshCalls = [];
@@ -36,6 +42,55 @@ class _TreeApi extends KikoeruApiService {
   ];
 }
 
+class _PreferredTreeApi extends KikoeruApiService {
+  @override
+  Future<List<dynamic>> getWorkTracks(
+    int workId, {
+    bool forceRefresh = false,
+  }) async => _preferredAudioTree();
+}
+
+List<dynamic> _preferredAudioTree() => [
+  {'type': 'audio', 'title': 'root.mp3', 'hash': 'root'},
+  {
+    'type': 'folder',
+    'title': 'Preferred',
+    'children': [
+      {'type': 'audio', 'title': 'preferred.wav', 'hash': 'preferred'},
+      {'type': 'audio', 'title': 'same-folder.mp3', 'hash': 'same-folder'},
+    ],
+  },
+  {
+    'type': 'folder',
+    'title': 'Outer',
+    'children': [
+      {
+        'type': 'folder',
+        'title': 'Inner',
+        'children': [
+          {'type': 'audio', 'title': 'nested.wav', 'hash': 'nested'},
+        ],
+      },
+    ],
+  },
+  {
+    'type': 'folder',
+    'title': 'Crowded',
+    'children': [
+      {'type': 'audio', 'title': 'crowded-1.mp3', 'hash': 'crowded-1'},
+      {'type': 'audio', 'title': 'crowded-2.mp3', 'hash': 'crowded-2'},
+      {'type': 'audio', 'title': 'crowded-3.mp3', 'hash': 'crowded-3'},
+    ],
+  },
+  {
+    'type': 'folder',
+    'title': 'Manual',
+    'children': [
+      {'type': 'audio', 'title': 'manual.flac', 'hash': 'manual'},
+    ],
+  },
+];
+
 class _Downloads extends Fake implements DownloadTaskRepository {
   final changes = StreamController<DownloadTaskChange>.broadcast();
   @override
@@ -43,6 +98,8 @@ class _Downloads extends Fake implements DownloadTaskRepository {
 }
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   testWidgets('download bursts coalesce scans and refresh replaces path data', (
     tester,
   ) async {
@@ -150,5 +207,215 @@ void main() {
     await tester.pump();
 
     expect(apiService.forceRefreshCalls, [false, true]);
+  });
+
+  testWidgets(
+    'preferred audio folders update without overriding manual state',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'audio_format_preference': [
+          'wav',
+          'mp3',
+          'flac',
+          'opus',
+          'm4a',
+          'aac',
+          'other',
+        ],
+      });
+      await tester.binding.setSurfaceSize(const Size(800, 1200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final downloads = _Downloads();
+      addTearDown(downloads.changes.close);
+      final loadCompleted = Completer<void>();
+      final scanner = DownloadedFileStateScanner(
+        downloadRootPath: () async => '/downloads',
+        resolveDownloadedPath: (_, __) async => null,
+        fileExists: (_) async => false,
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            kikoeruApiServiceProvider.overrideWithValue(_PreferredTreeApi()),
+            downloadServiceProvider.overrideWithValue(downloads),
+            downloadedFileStateScannerProvider.overrideWithValue(scanner),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: Scaffold(
+              body: CustomScrollView(
+                slivers: [
+                  FileExplorerWidget(
+                    work: const Work(id: 39, title: 'Work'),
+                    onLoadCompleted: () {
+                      if (!loadCompleted.isCompleted) loadCompleted.complete();
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.runAsync(() => loadCompleted.future);
+      await tester.pump();
+
+      expect(find.text('preferred.wav'), findsOneWidget);
+      expect(find.text('nested.wav'), findsOneWidget);
+      expect(find.text('crowded-1.mp3'), findsNothing);
+
+      await tester.tap(find.text('Preferred'));
+      await tester.pump();
+      await tester.tap(find.text('Manual'));
+      await tester.pump();
+      expect(find.text('preferred.wav'), findsNothing);
+      expect(find.text('manual.flac'), findsOneWidget);
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(FileExplorerWidget)),
+      );
+      await container
+          .read(audioFormatPreferenceProvider.notifier)
+          .updatePreference(
+            const AudioFormatPreference(
+              priority: [
+                AudioFormat.mp3,
+                AudioFormat.wav,
+                AudioFormat.flac,
+                AudioFormat.opus,
+                AudioFormat.m4a,
+                AudioFormat.aac,
+                AudioFormat.other,
+              ],
+            ),
+          );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('crowded-1.mp3'), findsOneWidget);
+      expect(find.text('same-folder.mp3'), findsNothing);
+      expect(find.text('manual.flac'), findsOneWidget);
+    },
+  );
+
+  testWidgets('offline explorer follows the same preferred folder selection', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final directory = Directory.systemTemp.createTempSync(
+      'preferred-audio-folders-',
+    );
+    addTearDown(() => directory.deleteSync(recursive: true));
+    for (final parts in const [
+      ['root.mp3'],
+      ['Preferred', 'preferred.wav'],
+      ['Preferred', 'same-folder.mp3'],
+      ['Outer', 'Inner', 'nested.wav'],
+      ['Crowded', 'crowded-1.mp3'],
+      ['Crowded', 'crowded-2.mp3'],
+      ['Crowded', 'crowded-3.mp3'],
+      ['Manual', 'manual.flac'],
+    ]) {
+      final file = File(p.joinAll([directory.path, ...parts]));
+      file.parent.createSync(recursive: true);
+      file.writeAsBytesSync(const []);
+    }
+
+    SharedPreferences.setMockInitialValues({
+      'custom_download_path': directory.path,
+      'audio_format_preference': [
+        'wav',
+        'mp3',
+        'flac',
+        'opus',
+        'm4a',
+        'aac',
+        'other',
+      ],
+    });
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
+
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: Scaffold(
+            body: CustomScrollView(
+              slivers: [
+                OfflineFileExplorerWidget(
+                  work: const Work(id: 39, title: 'Work'),
+                  fileTree: _preferredAudioTree(),
+                  localWorkDirPath: directory.path,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    for (
+      var i = 0;
+      i < 200 && find.text('preferred.wav').evaluate().isEmpty;
+      i++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
+
+    expect(
+      find.text('preferred.wav'),
+      findsOneWidget,
+      reason: tester
+          .widgetList<Text>(find.byType(Text))
+          .map((text) => text.data)
+          .toList()
+          .toString(),
+    );
+    expect(find.text('nested.wav'), findsOneWidget);
+    expect(find.text('crowded-1.mp3'), findsNothing);
+
+    await tester.tap(find.text('Preferred'));
+    await tester.pump();
+    await tester.tap(find.text('Manual'));
+    await tester.pump();
+    expect(find.text('preferred.wav'), findsNothing);
+    expect(find.text('manual.flac'), findsOneWidget);
+
+    await container
+        .read(audioFormatPreferenceProvider.notifier)
+        .updatePreference(
+          const AudioFormatPreference(
+            priority: [
+              AudioFormat.mp3,
+              AudioFormat.wav,
+              AudioFormat.flac,
+              AudioFormat.opus,
+              AudioFormat.m4a,
+              AudioFormat.aac,
+              AudioFormat.other,
+            ],
+          ),
+        );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('crowded-1.mp3'), findsOneWidget);
+    expect(find.text('same-folder.mp3'), findsNothing);
+    expect(find.text('manual.flac'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
   });
 }

@@ -2315,7 +2315,9 @@ void main() {
     final detailsPanel = details.panel;
     final detailsScroll = details.scroll;
 
-    final visibleCard = find.byKey(const ValueKey('player-detail-tags'));
+    final visibleCard = find.byKey(
+      const ValueKey('player-audio-variant-Long detail track 19.mp3'),
+    );
     expect(visibleCard, findsOneWidget);
     expect(
       find.descendant(
@@ -2422,7 +2424,9 @@ void main() {
       final details = await _pumpLongDetailsAtBottom(tester);
       final detailsPanel = details.panel;
       final detailsScroll = details.scroll;
-      final visibleCard = find.byKey(const ValueKey('player-detail-tags'));
+    final visibleCard = find.byKey(
+      const ValueKey('player-audio-variant-Long detail track 19.mp3'),
+    );
       double relativeCardTop() {
         final panelRect = tester.getRect(detailsPanel);
         return tester.getRect(visibleCard).top - panelRect.top;

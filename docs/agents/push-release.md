@@ -11,11 +11,18 @@ deletions do not publish releases.
 ## Commit-based version selection
 
 Actions parses [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
-from the latest published stable release's actual tag commit to the pushed commit.
-All new reachable commits are considered, including commits brought in by a merge.
-For a squash merge, the resulting squash commit message determines the level.
+from the latest published stable release's actual tag commit to the pushed commit
+for stable releases. For Beta releases, it excludes commits reachable from every
+published Beta tag on the pushed commit's ancestry with the current stable-derived
+version base, as well as commits reachable from the stable release tag. This excludes
+changes already published from every merged Beta history. If no matching Beta tag is
+an ancestor, only the stable release tag is used. The planner resolves each Beta tag
+to its commit; the release's target branch metadata does not determine ancestry.
+A queued target already included in a newer published Beta is also skipped. New
+reachable commits are considered, including commits brought in by a merge. For a
+squash merge, the resulting squash commit message determines the level.
 
-| Commit message | Stable update |
+| Commit message | Release trigger |
 | --- | --- |
 | `fix: ...` or `fix(scope): ...` | PATCH |
 | `feat: ...` or `feat(scope): ...` | MINOR |
@@ -47,6 +54,12 @@ Beta keeps the latest stable version's next PATCH base and increments `beta.N`
 beyond all existing tags and releases, including drafts. The conventional level
 determines whether to publish a Beta, without changing its version-base rule.
 Release notes contain the subjects of commits that trigger an update.
+
+Android Beta build numbers encode the version as
+`((major * 100 + minor) * 1000 + patch) * 1000 + beta`, shared by manual and
+automatic builds. Minor must be below 100; patch and Beta sequence below 1000.
+The result plus the legacy arm64 offset of 2000 must fit Android's versionCode
+limit of 2100000000. Unsupported versions stop before building.
 
 ## Codex turn auto-commit messages
 

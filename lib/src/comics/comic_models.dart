@@ -9,6 +9,8 @@ enum ComicReadingMode {
   reverseSpread,
 }
 
+enum ComicScreenOrientation { system, portrait, landscape }
+
 class ComicChapter {
   const ComicChapter(this.id, this.title);
   final String id;

@@ -967,10 +967,10 @@ class SJa extends S {
   String get llmSettingsSubtitle => 'API URL、キー、モデル';
 
   @override
-  String get audioFormatPreference => 'オーディオフォーマット設定';
+  String get audioFormatPreference => '音声設定';
 
   @override
-  String get audioFormatSubtitle => '音声形式の優先順位';
+  String get audioFormatSubtitle => '字幕・形式・効果音のデフォルト設定';
 
   @override
   String get audioTapPlaylistMode => '音声追加モード';
@@ -3397,17 +3397,94 @@ class SJa extends S {
   String get shownInMoreMenu => 'その他メニューに表示';
 
   @override
-  String get audioFormatPriority => 'オーディオ形式の優先順位';
+  String get audioFormatPriority => '音声形式の優先順位';
 
   @override
-  String get confirmRestoreAudioFormat => 'デフォルトのオーディオ形式優先順位に戻しますか？';
+  String get confirmRestoreAudioFormat => '音声設定をすべて初期値に戻しますか？';
 
   @override
   String get priorityDescription => '優先順位の説明';
 
   @override
   String get audioFormatPriorityDesc =>
-      '• 作品詳細ページを開くと、優先度の高い形式のオーディオフォルダが自動的に展開されます';
+      'ドラッグして形式の優先順位を設定します。字幕と音声の設定に合う形式のうち、順位が最も高いものをプレーヤーが選びます。';
+
+  @override
+  String get audioSubtitleLanguage => '字幕の言語';
+
+  @override
+  String get audioSoundEffects => '効果音';
+
+  @override
+  String get audioEjaculationSound => '射精音';
+
+  @override
+  String get audioSubtitleSimplifiedChinese => '簡体字中国語';
+
+  @override
+  String get audioSubtitleTraditionalChinese => '繁体字中国語';
+
+  @override
+  String get audioSubtitleOtherLanguage => 'その他の言語';
+
+  @override
+  String get audioSubtitleNone => '字幕なし';
+
+  @override
+  String get audioPresent => 'あり';
+
+  @override
+  String get audioAbsent => 'なし';
+
+  @override
+  String get audioFormatOther => 'その他';
+
+  @override
+  String get audioFilter => '音声を絞り込む';
+
+  @override
+  String get audioFilterTitle => '音声を絞り込む';
+
+  @override
+  String get audioFormatLabel => '音声形式';
+
+  @override
+  String get audioFilterKeyword => 'ファイル名またはフォルダー名';
+
+  @override
+  String get audioIncludeUnknown => '不明な項目を含める';
+
+  @override
+  String get audioIncludeUnknownDescription => '字幕の言語や音声属性を判別できない音声も含めます。';
+
+  @override
+  String get audioShowAllCombinations => 'すべての組み合わせを表示';
+
+  @override
+  String get audioFilterApply => '適用';
+
+  @override
+  String get audioNoMatches => '条件に一致するファイルはありません';
+
+  @override
+  String audioFileCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '音声ファイル $count 件',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String audioBestCombinationCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '再生可能な最適な組み合わせ · $count 件',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get ratingInfo => '評価情報';
@@ -3820,6 +3897,18 @@ class SJa extends S {
   String get comicEnabled => '配信元を有効にする';
 
   @override
+  String get comicScreenOrientation => '画面の向き';
+
+  @override
+  String get comicOrientationSystem => 'システムに従う';
+
+  @override
+  String get comicOrientationPortrait => '縦向き';
+
+  @override
+  String get comicOrientationLandscape => '横向き';
+
+  @override
   String get comicReadingMode => '読み方';
 
   @override
@@ -3845,6 +3934,17 @@ class SJa extends S {
 
   @override
   String get comicPreload => '先読みページ数';
+
+  @override
+  String get comicAutoPageTurn => '自動ページ送り';
+
+  @override
+  String get comicAutoPageInterval => '自動ページ送りの間隔';
+
+  @override
+  String comicAutoPageIntervalValue(int seconds) {
+    return '$seconds 秒';
+  }
 
   @override
   String get comicDownloadSelected => '選択したチャプターをダウンロード';

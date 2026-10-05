@@ -86,7 +86,8 @@ void main() {
   });
 
   testWidgets(
-    '40ms home round trips release old controllers and restore position',
+    'mode switches replace controllers, restore offsets, and reject stale '
+    'loads',
     (tester) async {
       late _Works works;
       final reduced = ValueNotifier(false);
@@ -104,57 +105,79 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      final first = tester
+      ScrollController currentController() => tester
           .widget<CustomScrollView>(find.byType(CustomScrollView))
           .controller!;
-      first.jumpTo(600);
+
+      final initialAllController = currentController();
+      initialAllController.jumpTo(600);
       await tester.pump();
       works.setDisplayMode(DisplayMode.popular);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 40));
-      expect(first.positions, isEmpty);
-      final controllers = tester
-          .widgetList<CustomScrollView>(find.byType(CustomScrollView))
-          .map((w) => w.controller!)
-          .toList();
-      expect(controllers, hasLength(1));
-      expect(controllers.single, isNot(same(first)));
-      expect(controllers.single.positions, hasLength(1));
-      final oldCollection = tester.widget<VirtualizedSliverCollection<Work>>(
-        find.descendant(
-          of: find.byKey(const ValueKey('popular-1')),
-          matching: find.byType(VirtualizedSliverCollection<Work>),
-        ),
-      );
+      expect(find.byType(CustomScrollView), findsOneWidget);
+      expect(initialAllController.positions, isEmpty);
+      expect(initialAllController.hasClients, isFalse);
+
+      final firstPopularController = currentController();
+      expect(identical(firstPopularController, initialAllController), isFalse);
+      expect(firstPopularController.offset, 0);
+      firstPopularController.jumpTo(300);
+      await tester.pump();
+      final popularCollection = tester
+          .widget<VirtualizedSliverCollection<Work>>(
+            find.byType(VirtualizedSliverCollection<Work>),
+          );
+      expect(popularCollection.onLoadMore, isNotNull);
+      final stalePopularLoadMore = popularCollection.onLoadMore!;
+
       works.setDisplayMode(DisplayMode.all);
       await tester.pump();
-      final current = tester
-          .widget<CustomScrollView>(
-            find.descendant(
-              of: find.byKey(const ValueKey('all-2')),
-              matching: find.byType(CustomScrollView),
-            ),
-          )
-          .controller!;
-      expect(identical(first, current), isFalse);
-      expect(controllers.single.positions, isEmpty);
-      expect(current.offset, 600);
-      await oldCollection.onLoadMore!();
-      expect(works.loadMoreCalls, 0);
-      reduced.value = true;
-      await tester.pump();
-      expect(current.offset, 600);
-      await tester.pump(const Duration(milliseconds: 300));
       expect(find.byType(CustomScrollView), findsOneWidget);
+      expect(firstPopularController.hasClients, isFalse);
+      final restoredAllController = currentController();
+      expect(identical(restoredAllController, initialAllController), isFalse);
+      expect(identical(restoredAllController, firstPopularController), isFalse);
+      expect(restoredAllController.offset, 600);
+
+      await stalePopularLoadMore();
+      expect(works.loadMoreCalls, 0);
+
+      works.setDisplayMode(DisplayMode.popular);
+      await tester.pump();
+      expect(find.byType(CustomScrollView), findsOneWidget);
+      expect(restoredAllController.hasClients, isFalse);
+      final restoredPopularController = currentController();
+      expect(
+        identical(restoredPopularController, firstPopularController),
+        isFalse,
+      );
+      expect(
+        identical(restoredPopularController, restoredAllController),
+        isFalse,
+      );
+      expect(restoredPopularController.offset, 300);
+
       works.clearMode(DisplayMode.recommended);
       works.setDisplayMode(DisplayMode.recommended);
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 40));
       expect(works.refreshCalls, 1);
       works.setDisplayMode(DisplayMode.all);
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 220));
       expect(find.byType(CustomScrollView), findsOneWidget);
+      expect(
+        tester
+            .widget<CustomScrollView>(find.byType(CustomScrollView))
+            .controller!
+            .offset,
+        600,
+      );
+      final finalAllController = currentController();
+      reduced.value = true;
+      await tester.pump();
+      expect(finalAllController.offset, 600);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(finalAllController.offset, 600);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },
@@ -203,7 +226,10 @@ void main() {
       await doubleTap();
       expect(controller.value, reversing);
       await tester.pump(const Duration(milliseconds: 80));
-      expect(controller.value.getMaxScaleOnAxis(), greaterThan(reversing.getMaxScaleOnAxis()));
+      expect(
+        controller.value.getMaxScaleOnAxis(),
+        greaterThan(reversing.getMaxScaleOnAxis()),
+      );
       final touch = await tester.startGesture(point);
       final stopped = controller.value.clone();
       await tester.pump(const Duration(milliseconds: 300));

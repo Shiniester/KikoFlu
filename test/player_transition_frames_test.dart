@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,7 +14,7 @@ import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'helpers/linux_tolerant_golden_file_comparator.dart';
+import 'support/linux_golden_file_comparator.dart';
 
 const track = AudioTrack(
   id: 'frames',
@@ -23,11 +25,12 @@ const track = AudioTrack(
 
 void main() {
   final defaultGoldenFileComparator = goldenFileComparator;
-
   setUpAll(() {
-    goldenFileComparator = createPlatformGoldenFileComparator(
-      Uri.parse('test/player_transition_frames_test.dart'),
-    );
+    if (Platform.isLinux) {
+      goldenFileComparator = LinuxTolerantGoldenFileComparator(
+        Uri.parse('test/player_transition_frames_test.dart'),
+      );
+    }
   });
   tearDownAll(() => goldenFileComparator = defaultGoldenFileComparator);
 

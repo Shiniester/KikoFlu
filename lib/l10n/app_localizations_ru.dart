@@ -994,10 +994,11 @@ class SRu extends S {
   String get llmSettingsSubtitle => 'API URL, ключ и модель';
 
   @override
-  String get audioFormatPreference => 'Аудиоформат';
+  String get audioFormatPreference => 'Настройки аудио';
 
   @override
-  String get audioFormatSubtitle => 'Приоритет аудиоформатов';
+  String get audioFormatSubtitle =>
+      'Язык субтитров, формат и звуковые эффекты по умолчанию';
 
   @override
   String get audioTapPlaylistMode => 'Режим добавления аудио';
@@ -3508,14 +3509,98 @@ class SRu extends S {
 
   @override
   String get confirmRestoreAudioFormat =>
-      'Восстановить приоритет аудиоформатов по умолчанию?';
+      'Сбросить все настройки аудио к значениям по умолчанию?';
 
   @override
   String get priorityDescription => 'Описание приоритетов';
 
   @override
   String get audioFormatPriorityDesc =>
-      '• При открытии страницы произведения автоматически раскрывается папка с аудио наиболее приоритетного формата';
+      'Перетащите форматы, чтобы изменить их порядок. Плеер выберет наиболее приоритетный доступный формат с учетом предпочтений субтитров и звука.';
+
+  @override
+  String get audioSubtitleLanguage => 'Язык субтитров';
+
+  @override
+  String get audioSoundEffects => 'Звуковые эффекты';
+
+  @override
+  String get audioEjaculationSound => 'Звук эякуляции';
+
+  @override
+  String get audioSubtitleSimplifiedChinese => 'Упрощенный китайский';
+
+  @override
+  String get audioSubtitleTraditionalChinese => 'Традиционный китайский';
+
+  @override
+  String get audioSubtitleOtherLanguage => 'Другой язык';
+
+  @override
+  String get audioSubtitleNone => 'Без субтитров';
+
+  @override
+  String get audioPresent => 'Есть';
+
+  @override
+  String get audioAbsent => 'Нет';
+
+  @override
+  String get audioFormatOther => 'Другой';
+
+  @override
+  String get audioFilter => 'Фильтр аудио';
+
+  @override
+  String get audioFilterTitle => 'Фильтр аудио';
+
+  @override
+  String get audioFormatLabel => 'Формат аудио';
+
+  @override
+  String get audioFilterKeyword => 'Имя файла или папки';
+
+  @override
+  String get audioIncludeUnknown => 'Включать неизвестные варианты';
+
+  @override
+  String get audioIncludeUnknownDescription =>
+      'Включать аудио, если язык субтитров или звуковые свойства не удалось определить.';
+
+  @override
+  String get audioShowAllCombinations => 'Показывать все варианты';
+
+  @override
+  String get audioFilterApply => 'Применить';
+
+  @override
+  String get audioNoMatches => 'Нет файлов, соответствующих фильтрам';
+
+  @override
+  String audioFileCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count аудиофайла',
+      many: '$count аудиофайлов',
+      few: '$count аудиофайла',
+      one: '$count аудиофайл',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String audioBestCombinationCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Лучшая доступная комбинация · $count файла',
+      many: 'Лучшая доступная комбинация · $count файлов',
+      few: 'Лучшая доступная комбинация · $count файла',
+      one: 'Лучшая доступная комбинация · $count файл',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get ratingInfo => 'Информация о рейтинге';
@@ -3951,6 +4036,18 @@ class SRu extends S {
   String get comicEnabled => 'Включить источник';
 
   @override
+  String get comicScreenOrientation => 'Ориентация экрана';
+
+  @override
+  String get comicOrientationSystem => 'Как в системе';
+
+  @override
+  String get comicOrientationPortrait => 'Портретная';
+
+  @override
+  String get comicOrientationLandscape => 'Альбомная';
+
+  @override
   String get comicReadingMode => 'Режим чтения';
 
   @override
@@ -3976,6 +4073,17 @@ class SRu extends S {
 
   @override
   String get comicPreload => 'Предзагрузка страниц';
+
+  @override
+  String get comicAutoPageTurn => 'Автоперелистывание';
+
+  @override
+  String get comicAutoPageInterval => 'Интервал автоперелистывания';
+
+  @override
+  String comicAutoPageIntervalValue(int seconds) {
+    return '$seconds с';
+  }
 
   @override
   String get comicDownloadSelected => 'Скачать выбранные главы';

@@ -21,6 +21,9 @@ jobs:
       - name: Test Android signing certificate consistency
         run: python3 scripts/test_android_signing.py
 
+      - name: Test release metadata
+        run: python3 scripts/test_release_metadata.py
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -32,6 +35,9 @@ jobs:
 
       - name: Analyze
         run: flutter analyze --fatal-infos
+
+      - name: Test streaming ZIP extraction
+        run: dart --enable-asserts run scripts/test_streaming_zip_extractor.dart
 
       - name: Test
         run: flutter test --exclude-tags external

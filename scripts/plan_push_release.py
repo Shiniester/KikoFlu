@@ -63,11 +63,44 @@ def next_version(base, branch, bump, existing):
     return version
 
 
-def read_commits(baseline, target):
+def read_commits(baseline, target, additional_baselines=()):
+    revisions = ([target, "--not", baseline, *additional_baselines]
+                 if additional_baselines else [f"{baseline}..{target}"])
     log = command("git", "log", "--format=%B%x00", "--encoding=UTF-8", "--reverse",
-                  f"{baseline}..{target}", "--")
+                  *revisions, "--")
     return [message.strip("\r\n") for message in log.split("\0")
             if message.strip("\r\n")]
+
+
+def published_beta_baselines(releases, base, target):
+    major, minor, patch = base
+    prefix = f"{major}.{minor}.{patch + 1}-beta."
+    candidates = []
+    for release in releases:
+        if release["draft"] or not release["prerelease"]:
+            continue
+        match = re.fullmatch(r"v?" + re.escape(prefix) + r"([1-9]\d*)",
+                             release["tag_name"])
+        if match:
+            candidates.append((int(match.group(1)), release["tag_name"]))
+
+    eligible = []
+    for number, tag in sorted(candidates, reverse=True):
+        try:
+            beta_target = command("git", "rev-parse", f"refs/tags/{tag}^{{commit}}").strip()
+        except subprocess.CalledProcessError as error:
+            raise ValueError(f"Could not resolve published Beta tag {tag}.") from error
+        ancestry = subprocess.run(["git", "merge-base", "--is-ancestor", beta_target, target],
+                                  cwd=ROOT)
+        if ancestry.returncode == 1:
+            # A newer Beta may have published before this queued push started.
+            ancestry = subprocess.run(["git", "merge-base", "--is-ancestor", target, beta_target],
+                                      cwd=ROOT)
+        if ancestry.returncode == 0:
+            eligible.append((tag, beta_target))
+        elif ancestry.returncode != 1:
+            raise RuntimeError(f"Could not compare published Beta tag {tag} to the push target.")
+    return eligible
 
 
 def breaking_footer(lines):
@@ -167,8 +200,14 @@ def main():
         write_outputs({"publish": "false"})
         print(f"No changes against stable {tag}; skipping release.")
         return
-    decision = plan_commits(read_commits(baseline, target))
-    summary = f"Baseline: {tag}\nCommit: {target}\nBranch: {branch}\n\n{decision['reason']}\n"
+    beta_baselines = (published_beta_baselines(releases, base, target)
+                      if branch != "main" else [])
+    beta_commits = [commit for _, commit in beta_baselines]
+    decision = plan_commits(read_commits(baseline, target, beta_commits))
+    summary = f"Baseline: {tag}\n"
+    if beta_baselines:
+        summary += f"Beta baselines: {', '.join(tag for tag, _ in beta_baselines)}\n"
+    summary += f"Commit: {target}\nBranch: {branch}\n\n{decision['reason']}\n"
     if decision["bump"] != "none":
         existing = {r["tag_name"] for r in releases} | {t["name"] for t in inventory(repo, "tags")}
         version = next_version(base, branch, decision["bump"], existing)

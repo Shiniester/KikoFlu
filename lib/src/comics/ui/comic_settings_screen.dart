@@ -23,6 +23,13 @@ String comicModeLabel(S s, ComicReadingMode mode) => [
   s.comicModeReverseSpread,
 ][mode.index];
 
+String comicOrientationLabel(S s, ComicScreenOrientation orientation) =>
+    switch (orientation) {
+      ComicScreenOrientation.system => s.comicOrientationSystem,
+      ComicScreenOrientation.portrait => s.comicOrientationPortrait,
+      ComicScreenOrientation.landscape => s.comicOrientationLandscape,
+    };
+
 class ComicSettingsScreen extends ConsumerWidget {
   const ComicSettingsScreen({super.key});
   @override
@@ -235,6 +242,38 @@ class ComicReaderSettingsScreen extends ConsumerWidget {
                   }
                 },
               ),
+              SettingsNavigationTile(
+                icon: Icons.screen_rotation,
+                title: s.comicScreenOrientation,
+                subtitle: comicOrientationLabel(
+                  s,
+                  ref.watch(comicScreenOrientationProvider),
+                ),
+                onTap: () async {
+                  final selected = await showDialog<ComicScreenOrientation>(
+                    context: context,
+                    builder: (context) => SimpleDialog(
+                      title: Text(s.comicScreenOrientation),
+                      children: [
+                        for (final orientation in ComicScreenOrientation.values)
+                          SimpleDialogOption(
+                            onPressed: () =>
+                                Navigator.pop(context, orientation),
+                            child: Text(comicOrientationLabel(s, orientation)),
+                          ),
+                      ],
+                    ),
+                  );
+                  if (selected != null) {
+                    ref.read(comicScreenOrientationProvider.notifier).state =
+                        selected;
+                    await StorageService.setString(
+                      'comic_screen_orientation',
+                      selected.name,
+                    );
+                  }
+                },
+              ),
               SettingsSwitchTile(
                 title: s.comicTapToTurn,
                 icon: Icons.touch_app_outlined,
@@ -252,6 +291,60 @@ class ComicReaderSettingsScreen extends ConsumerWidget {
                 icon: Icons.light_mode_outlined,
                 value: StorageService.getBool('comic_keep_awake') ?? true,
                 onChanged: (v) => save('comic_keep_awake', v),
+              ),
+              SettingsNavigationTile(
+                title: s.comicAutoPageInterval,
+                icon: Icons.timer_outlined,
+                subtitle: s.comicAutoPageIntervalValue(
+                  (StorageService.getInt('comic_auto_page_interval') ?? 5)
+                      .clamp(1, 20),
+                ),
+                onTap: () async {
+                  var interval =
+                      (StorageService.getInt('comic_auto_page_interval') ?? 5)
+                          .clamp(1, 20);
+                  final selected = await showDialog<int>(
+                    context: context,
+                    builder: (dialogContext) => StatefulBuilder(
+                      builder: (context, setState) => AlertDialog(
+                        title: Text(s.comicAutoPageInterval),
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(s.comicAutoPageIntervalValue(interval)),
+                            Slider(
+                              value: interval.toDouble(),
+                              min: 1,
+                              max: 20,
+                              divisions: 19,
+                              label: s.comicAutoPageIntervalValue(interval),
+                              onChanged: (value) =>
+                                  setState(() => interval = value.round()),
+                            ),
+                          ],
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(dialogContext),
+                            child: Text(s.cancel),
+                          ),
+                          TextButton(
+                            onPressed: () =>
+                                Navigator.pop(dialogContext, interval),
+                            child: Text(s.save),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                  if (selected != null) {
+                    await StorageService.setInt(
+                      'comic_auto_page_interval',
+                      selected,
+                    );
+                    ref.read(comicSettingsRevisionProvider.notifier).state++;
+                  }
+                },
               ),
               SettingsNavigationTile(
                 title: s.comicPreload,

@@ -64,6 +64,17 @@ The full-screen player page containing details for the current audio track. It
 is distinct from the Work Details Screen for the containing work.
 _Avoid_: Player details page, work details page
 
+**Audio Subtitle Language (音频字幕语言)**:
+The language of subtitles available for an individual audio file. A work's
+Chinese-language label does not imply that every audio file has subtitles.
+_Avoid_: Work language, audio language
+
+**Audio Preferences (音频偏好)**:
+The shared preferences for subtitle language, audio format order, sound effects
+and ejaculation audio. They guide preferred work resources and default player
+audio filtering.
+_Avoid_: Audio Format Preference, player-only preferences
+
 **Player Lyrics Page (播放器字幕页)**:
 The full-screen player page containing the current track's synchronized lyrics
 or subtitles.
@@ -148,9 +159,14 @@ _Avoid_: Bottom Dock, App Tab Bar
 
 **Reader Settings (阅读器设置)**:
 The shared Comic Reader preferences page opened from Reader Controls or Comic
-settings. It contains reading mode, page-turn and zoom gestures, keep-awake,
-and preload preferences.
+settings. It contains reading mode, screen orientation, auto page-turn interval,
+page-turn and zoom gestures, keep-awake, and preload preferences.
 _Avoid_: Comic Source settings, Reader Controls
+
+**Chapter Page Preview (章节页面预览)**:
+A visual index of the individual comic images in the current chapter used to
+choose an image to read. It is distinct from the Cover Preview and chapter catalog.
+_Avoid_: Cover Preview, chapter catalog
 
 **Reader Zoom (阅读器缩放)**:
 The magnification of the current Comic Reader view: one page, one spread, or
@@ -160,7 +176,8 @@ _Avoid_: Cover Preview, image gallery
 
 **Comic Home Tab (漫画主页)**:
 The first Comic Screen tab, showing recommendations and categories for the
-selected enabled Comic Source.
+selected enabled Comic Source, independent of the favorite collection. Its
+anonymous access follows the Comic Source's browsing requirements.
 _Avoid_: Comic Screen, source library
 
 **Comic Collection Layout (漫画集合布局)**:
