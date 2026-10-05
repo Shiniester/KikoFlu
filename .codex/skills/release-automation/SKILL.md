@@ -21,20 +21,25 @@ When a release is requested through a GitHub Actions workflow selected below,
 and the user explicitly requests the full repository sync:
 
 1. Inspect the working tree and include all current tracked and untracked changes in the requested commit.
-2. Commit the changes locally with a concise release-relevant message. For Beta releases, include the resolved remote branch name, for example `release: 4.5.3-beta.1 (branch: feature/player)`.
+2. Commit the changes with a Conventional Commit message matching the changes (`fix`, `feat`, or a breaking marker when appropriate). Include Beta branch context in the body, for example `Branch: feature/player`. The commit type determines whether the push starts a release.
 3. Push only the current local branch to its resolved remote branch using an explicit refspec (`HEAD:refs/heads/<remote-branch>`).
 4. Confirm that the remote branch points to the local release commit.
-5. Dispatch the workflow in that remote's GitHub repository with an explicit branch ref (`gh workflow run <workflow> --repo <repository> --ref <remote-branch>`) and the requested version and release notes. The workflow checkout and release tag must use the dispatched branch's commit.
-6. Confirm that GitHub accepted the dispatch and capture the workflow URL.
-7. Report the commit, remote branch, push result, and workflow URL, then finish the local release task.
+5. For the default channel, the push starts `release_on_push.yml`: `main` selects all-platform stable; other branches select Android Beta. Confirm the push-triggered run for that exact commit and capture its URL. Its planner parses Conventional Commit messages and computes the version; do not also dispatch a manual release for the same push.
+6. Report the commit, remote branch, push result, and workflow URL, then finish the local release task. If the workflow is absent from the pushed branch, report the setup requirement using `docs/agents/push-release.md`.
+
+For an explicit version, platform override, or manual-only release, use the selected
+workflow's `workflow_dispatch` with the resolved branch, version, release notes
+and exact `commit_sha` against an already-synced commit. When repository sync is
+also requested, resolve the automatic default channel/version versus the explicit
+manual override before pushing. Use one release entry point for the same change.
 
 Do not commit or push merely because a release workflow is being discussed;
 those repository mutations require the user's explicit request. Keep the release
 on the resolved branch; do not merge into or push `main` unless it is that branch.
 
-GitHub Actions runs asynchronously after dispatch. Treat the accepted dispatch as the completion boundary for the local task. Do not wait for, poll, watch, or inspect the workflow's later build and release result unless the user explicitly asks for monitoring or verification.
+GitHub Actions runs asynchronously after a push or dispatch. Treat the accepted push-triggered run or manual dispatch as the completion boundary for the local task. Do not wait for, poll, watch, or inspect the workflow's later build and release result unless the user explicitly asks for monitoring or verification.
 
-When reporting an accepted dispatch, state that the workflow was started and link to the run; for Beta releases, include the resolved remote branch name. Do not state that the release was published until a later verification is explicitly requested and completed.
+When reporting an accepted push-triggered run or dispatch, state that the workflow was started and link to the run; for Beta releases, include the resolved remote branch name. Do not state that the release was published until a later verification is explicitly requested and completed.
 
 ## Release channel and platform selection
 
@@ -47,25 +52,27 @@ When reporting an accepted dispatch, state that the workflow was started and lin
 
 ## Stable version selection from main
 
-Query the most recently published stable GitHub release in the target repository,
-excluding drafts and pre-releases, and resolve its tag to the actual release commit.
-Compare that commit with the intended `main` release commit using the commit log,
-diff summary, and relevant source diffs. Include pending changes when the user
-requests repository sync. Use the release commit as the baseline, rather than a
-previous Beta, the current version in `pubspec.yaml`, or a merge-base.
+Query the latest published stable release, excluding drafts and pre-releases, and
+resolve its tag to the actual commit. Read full commit messages from that commit
+to the intended main release commit. Apply Conventional Commits v1.0.0:
 
-Given the latest stable version `M.m.p`, select one of these three levels:
+- `fix:` or `fix(scope):` selects PATCH: `M.m.(p+1)`.
+- `feat:` or `feat(scope):` selects MINOR: `M.(m+1).0`.
+- Any valid conventional type with `!`, or an uppercase `BREAKING CHANGE:` /
+  `BREAKING-CHANGE:` footer with an explanation, selects MAJOR: `(M+1).0.0`.
+- Types are case-insensitive; other types have no release impact unless marked
+  as breaking. Use the highest level across all new reachable commits.
 
-- Smallest update (小版本更新): choose PATCH for localized fixes, polish, and small compatible improvements with limited impact. Keep MAJOR and MINOR and increment PATCH: `M.m.(p+1)`.
-- Larger update (大版本更新): choose MINOR for substantial new features, significant changes to core user flows, or a broad set of meaningful improvements. Keep MAJOR, increment MINOR, and reset PATCH: `M.(m+1).0`.
-- Very substantial feature update (非常重大的功能更新): choose MAJOR only when adding a major new product capability, such as video viewing/playback. Increment MAJOR and reset MINOR and PATCH: `(M+1).0.0`. Ordinary new features or a large diff alone do not qualify.
-- Judge change volume together with user impact and affected functionality. Commit counts and changed-line totals provide context, not fixed thresholds; generated files, formatting, and lockfile churn alone do not justify MINOR.
+The push planner implements these rules directly in Python. It derives release
+notes from the subjects of releasing commits and skips histories without a
+release level or tree changes. The Actions version decision is independent of
+this skill. See `docs/agents/push-release.md` for message examples and turn
+auto-commit integration.
 
-Briefly report the baseline release, main changes, and why they justify the chosen
-version; use the same findings to write the release notes. Honor an explicitly
-requested version after checking the release channel and tag availability. If
-there are no releasable changes, report that rather than creating an empty release.
-If the previous stable release or its commit cannot be resolved, ask for the
-baseline or version instead of inventing a comparison.
+Report the baseline, matching commits and selected level. For an explicit manual
+version, validate the channel and tag availability before dispatching. If the
+stable baseline cannot be resolved, request a baseline or version.
 
-Before dispatching the selected workflow, verify that the version matches its release channel and that the corresponding tag and release do not already exist. If the user specifies an existing Beta version, report the conflict rather than reusing it. Dispatch Beta releases with the `version` and `release_notes` inputs.
+Before dispatching the selected workflow, verify that its tag and release do not
+already exist. Dispatch against the resolved remote branch with the selected
+version, release notes and exact commit SHA.
