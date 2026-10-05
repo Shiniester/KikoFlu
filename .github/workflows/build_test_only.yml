@@ -40,8 +40,17 @@ jobs:
           sudo sysctl -w kernel.core_pattern="$PWD/core.%p"
           ulimit -c unlimited
           set +e
-          flutter test --exclude-tags external
-          test_status=$?
+          test_status=0
+          for attempt in {1..20}; do
+            echo "[DEBUG-pr4] isolate test attempt $attempt"
+            flutter test --no-pub test/streaming_zip_extractor_test.dart test/performance_service_entrypoints_test.dart
+            test_status=$?
+            [ "$test_status" -eq 0 ] || break
+          done
+          if [ "$test_status" -eq 0 ]; then
+            flutter test --exclude-tags external
+            test_status=$?
+          fi
           set -e
           if [ "$test_status" -ne 0 ]; then
             for dump in core.*; do
@@ -51,6 +60,13 @@ jobs:
                 -ex 'info registers' -ex 'info frame' \
                 -ex 'info symbol $pc' -ex 'x/24i $pc-32' \
                 -ex 'x/32gx $sp' \
+                -ex 'p/x $rax' -ex 'x/2gx $r15' \
+                -ex 'set $src_handle=*(unsigned long*)($rsp+8)' \
+                -ex 'x/2gx $src_handle' \
+                -ex 'set $src=*(unsigned long*)($src_handle+8)' \
+                -ex 'x/8gx ($src-1)' \
+                -ex 'p/x ((*(unsigned int*)($src-1))>>12)' \
+                -ex 'x/2gx $rbp' \
                 -ex 'thread apply all bt 20' \
                 "$FLUTTER_ROOT/bin/cache/artifacts/engine/linux-x64/flutter_tester" "$dump" || true
             done
