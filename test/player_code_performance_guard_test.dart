@@ -139,6 +139,10 @@ void main() {
       final playerCover = File(
         'lib/src/widgets/player/player_cover_widget.dart',
       ).readAsStringSync();
+      final compactArtwork = playerCover.substring(
+        playerCover.indexOf('class PlayerCompactArtwork'),
+        playerCover.indexOf('typedef _CoverResizeKey'),
+      );
       final miniPlayer = File(
         'lib/src/widgets/mini_player.dart',
       ).readAsStringSync();
@@ -238,7 +242,12 @@ void main() {
       expect(miniPlayer, contains('class _MiniPlayerTrackSwitcher'));
       expect(miniPlayer, contains('PlayerTrackLayers<AudioTrack>'));
       expect(miniPlayer, isNot(contains('AnimatedSwitcher')));
-      expect(playerCover, contains('useOldImageOnUrlChange: true'));
+      expect(
+        RegExp(
+          r': OctoImage\([\s\S]*?gaplessPlayback: true',
+        ).hasMatch(compactArtwork),
+        isTrue,
+      );
       expect(miniPlayer, isNot(contains('Icons.skip_previous')));
       expect(miniPlayer, isNot(contains('Icons.skip_next')));
       expect(playerLaunch, contains('class PlayerLaunchRegion'));

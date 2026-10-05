@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../services/storage_service.dart';
+import '../../utils/snackbar_util.dart';
 import '../../widgets/floating_feed_toolbar.dart';
 import '../../widgets/library_tab_strip.dart';
 import '../../widgets/tab_page_motion.dart';
@@ -304,9 +305,10 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
+        SnackBarUtil.showFromSnackBar(
           context,
-        ).showSnackBar(SnackBar(content: Text('$error')));
+          SnackBar(content: Text('$error')),
+        );
       }
     }
   }
