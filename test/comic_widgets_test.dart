@@ -199,6 +199,7 @@ class _Library extends ComicLibrary {
   ComicProgress? last;
   int favoriteWrites = 0;
   int favoriteReads = 0, historyReads = 0;
+  VoidCallback? onHistoryRead;
   @override
   Future<void> favorite(Comic comic, bool value) async {
     favoriteWrites++;
@@ -216,6 +217,7 @@ class _Library extends ComicLibrary {
   @override
   Future<List<ComicProgress>> history() async {
     historyReads++;
+    onHistoryRead?.call();
     return last == null ? [] : [last!];
   }
 
@@ -5177,6 +5179,32 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Fixture book'), findsOneWidget);
   });
+  testWidgets('first comic History click reads before page movement', (
+    tester,
+  ) async {
+    final library = _Library();
+    await pump(tester, const ComicScreen(), library, _Source());
+    final pages = tester
+        .widget<PageView>(find.byKey(const ValueKey('comic-tab-pages')))
+        .controller!;
+    double? readAtPage;
+    library.onHistoryRead = () => readAtPage = pages.page;
+    expect(library.historyReads, 0);
+    await tester.tap(find.text('History').first);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(readAtPage, 0);
+    final pageView = tester.widget<PageView>(
+      find.byKey(const ValueKey('comic-tab-pages')),
+    );
+    expect(pageView.scrollCacheExtent.value, 0);
+    expect(pageView.allowImplicitScrolling, isFalse);
+    await tester.pumpAndSettle();
+    expect(pages.page, 2);
+    expect(library.historyReads, 1);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('comic tab clicks use ease paging and retain the home page', (
     tester,
   ) async {

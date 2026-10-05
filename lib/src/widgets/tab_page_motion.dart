@@ -26,6 +26,70 @@ Future<void> moveToTabPage(
   );
 }
 
+/// Lays out the clicked page in the first frame, then restores lazy caching.
+class TabPageWarmup extends StatefulWidget {
+  const TabPageWarmup({
+    super.key,
+    required this.pages,
+    required this.target,
+    required this.builder,
+  });
+
+  final PageController pages;
+  final ValueNotifier<int?> target;
+  final Widget Function(double cacheExtent) builder;
+
+  @override
+  State<TabPageWarmup> createState() => _TabPageWarmupState();
+}
+
+class _TabPageWarmupState extends State<TabPageWarmup> {
+  double _cacheExtent = 0;
+  int _request = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.target.addListener(_prepareTarget);
+    _prepareTarget();
+  }
+
+  @override
+  void didUpdateWidget(TabPageWarmup oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.target != widget.target) {
+      oldWidget.target.removeListener(_prepareTarget);
+      widget.target.addListener(_prepareTarget);
+      _prepareTarget();
+    }
+  }
+
+  void _prepareTarget() {
+    final request = ++_request;
+    final target = widget.target.value;
+    final page =
+        widget.pages.hasClients && widget.pages.position.hasContentDimensions
+        ? widget.pages.page!
+        : widget.pages.initialPage.toDouble();
+    final extent = target == null ? 0.0 : (target - page).abs().ceilToDouble();
+    if (_cacheExtent != extent) setState(() => _cacheExtent = extent);
+    if (extent == 0) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || request != _request) return;
+      setState(() => _cacheExtent = 0);
+    });
+  }
+
+  @override
+  void dispose() {
+    widget.target.removeListener(_prepareTarget);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(_cacheExtent);
+}
+
 /// Keeps visited pages alive without loading pages crossed by a distant click.
 class LazyTabPage extends StatefulWidget {
   const LazyTabPage({

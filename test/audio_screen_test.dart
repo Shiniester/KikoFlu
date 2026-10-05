@@ -127,6 +127,7 @@ Future<void> _pumpAudioScreen(
   bool settle = true,
   AudioTrack? track,
   ThemeData? theme,
+  VoidCallback? onHistoryCreated,
 }) async {
   final app = ProviderScope(
     overrides: [
@@ -134,7 +135,10 @@ Future<void> _pumpAudioScreen(
       myReviewsProvider.overrideWith((ref) => _Reviews(ref)),
       worksProvider.overrideWith((ref) => _Works(ref)),
       subtitleLibraryProvider.overrideWith((ref) => _SubtitleLibrary()),
-      historyProvider.overrideWith((ref) => _History(ref)),
+      historyProvider.overrideWith((ref) {
+        onHistoryCreated?.call();
+        return _History(ref);
+      }),
       downloadSummaryProvider.overrideWith(
         (ref) => Stream.value(const DownloadTaskSummary.empty()),
       ),
@@ -1020,6 +1024,36 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('first History click initializes before page movement', (
+    tester,
+  ) async {
+    final reduced = ValueNotifier(false);
+    addTearDown(reduced.dispose);
+    double? createdAtPage;
+    await _pumpAudioScreen(
+      tester,
+      reduced,
+      onHistoryCreated: () => createdAtPage = _pages(tester).page,
+    );
+    expect(createdAtPage, isNull);
+    tester.widget<TabBar>(find.byType(TabBar)).onTap!(2);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(
+      createdAtPage,
+      0,
+      reason: 'First-entry initialization must precede the sliding frames.',
+    );
+    final pageView = tester.widget<PageView>(
+      find.byKey(const ValueKey('audio-tab-pages')),
+    );
+    expect(pageView.scrollCacheExtent.value, 0);
+    expect(pageView.allowImplicitScrolling, isFalse);
+    await tester.pumpAndSettle();
+    expect(_pages(tester).page, 2);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('distant Audio clicks only initialize the chosen library', (
     tester,
