@@ -1,6 +1,6 @@
 interface:
   display_name: "Release automation 发布自动化"
-  short_description: "按分支选择正式版或 Beta，对比上次正式发布决定版本并调度工作流"
-  default_prompt: "Use $release-automation 根据当前分支选择发布流程；main 对比上次正式 Release 的改动和影响选择全平台正式版版本，并在调度后返回运行链接。"
+  short_description: "按分支选择正式版或 Beta，按规范提交选择版本并调度工作流"
+  default_prompt: "Use $release-automation 根据当前分支选择发布流程；main 根据上次正式 Release 后的 Conventional Commit 消息选择版本，并在调度后返回运行链接。"
 policy:
   allow_implicit_invocation: true
