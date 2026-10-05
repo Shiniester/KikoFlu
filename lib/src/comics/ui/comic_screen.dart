@@ -198,7 +198,9 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
   ComicPageBuffer? _buffer;
   List<Comic> _items = [];
   bool _loading = false;
-  bool _online = StorageService.getBool('comic_online_favorites') ?? false;
+  bool _onlineFavorites =
+      StorageService.getBool('comic_online_favorites') ?? false;
+  bool get _online => widget.tab == 1 && _onlineFavorites;
   Map<String, Object> _errors = {};
   bool _hasMore = false;
   int _page = 1;
@@ -525,7 +527,8 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
       (_, __) => _loadPage(1, reset: true, clearItems: true),
     );
     ref.listen(comicSettingsRevisionProvider, (_, __) {
-      _online = StorageService.getBool('comic_online_favorites') ?? false;
+      _onlineFavorites =
+          StorageService.getBool('comic_online_favorites') ?? false;
       _loadPage(1, reset: true, clearItems: true);
     });
     ref.listen(comicRemoteFavoritesRevisionProvider, (_, __) {
@@ -691,7 +694,7 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
                       ? s.comicOnlineFavorites
                       : s.comicLocalFavorites,
                   onPressed: () {
-                    setState(() => _online = !_online);
+                    setState(() => _onlineFavorites = !_onlineFavorites);
                     StorageService.setBool('comic_online_favorites', _online);
                     _loadPage(1, reset: true, clearItems: true);
                   },

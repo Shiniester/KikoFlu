@@ -3847,6 +3847,17 @@ class SJa extends S {
   String get comicPreload => '先読みページ数';
 
   @override
+  String get comicAutoPageTurn => '自動ページ送り';
+
+  @override
+  String get comicAutoPageInterval => '自動ページ送りの間隔';
+
+  @override
+  String comicAutoPageIntervalValue(int seconds) {
+    return '$seconds 秒';
+  }
+
+  @override
   String get comicDownloadSelected => '選択したチャプターをダウンロード';
 
   @override

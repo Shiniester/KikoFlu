@@ -1600,6 +1600,12 @@
   "comicModeReverseSpread": "Two pages, right to left",
   "comicKeepAwake": "Keep awake while reading",
   "comicPreload": "Preload pages",
+  "comicAutoPageTurn": "Auto page turn",
+  "comicAutoPageInterval": "Auto page turn interval",
+  "comicAutoPageIntervalValue": "{seconds} seconds",
+  "@comicAutoPageIntervalValue": {
+    "placeholders": { "seconds": { "type": "int" } }
+  },
   "comicDownloadSelected": "Download selected chapters",
   "comicPause": "Pause",
   "comicResume": "Resume / retry",

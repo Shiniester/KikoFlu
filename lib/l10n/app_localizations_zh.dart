@@ -3829,6 +3829,17 @@ class SZh extends S {
   String get comicPreload => '预加载页数';
 
   @override
+  String get comicAutoPageTurn => '自动翻页';
+
+  @override
+  String get comicAutoPageInterval => '自动翻页时间间隔';
+
+  @override
+  String comicAutoPageIntervalValue(int seconds) {
+    return '$seconds 秒';
+  }
+
+  @override
   String get comicDownloadSelected => '下载所选章节';
 
   @override
@@ -7754,6 +7765,17 @@ class SZhHant extends SZh {
 
   @override
   String get comicPreload => '預載頁數';
+
+  @override
+  String get comicAutoPageTurn => '自動翻頁';
+
+  @override
+  String get comicAutoPageInterval => '自動翻頁時間間隔';
+
+  @override
+  String comicAutoPageIntervalValue(int seconds) {
+    return '$seconds 秒';
+  }
 
   @override
   String get comicDownloadSelected => '下載所選章節';

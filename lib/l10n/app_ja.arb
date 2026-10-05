@@ -1293,6 +1293,12 @@
   "comicModeReverseSpread": "見開き（右から左）",
   "comicKeepAwake": "読書中は画面を点灯",
   "comicPreload": "先読みページ数",
+  "comicAutoPageTurn": "自動ページ送り",
+  "comicAutoPageInterval": "自動ページ送りの間隔",
+  "comicAutoPageIntervalValue": "{seconds} 秒",
+  "@comicAutoPageIntervalValue": {
+    "placeholders": { "seconds": { "type": "int" } }
+  },
   "comicDownloadSelected": "選択したチャプターをダウンロード",
   "comicPause": "一時停止",
   "comicResume": "再開／再試行",

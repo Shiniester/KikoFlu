@@ -3956,6 +3956,17 @@ class SEn extends S {
   String get comicPreload => 'Preload pages';
 
   @override
+  String get comicAutoPageTurn => 'Auto page turn';
+
+  @override
+  String get comicAutoPageInterval => 'Auto page turn interval';
+
+  @override
+  String comicAutoPageIntervalValue(int seconds) {
+    return '$seconds seconds';
+  }
+
+  @override
   String get comicDownloadSelected => 'Download selected chapters';
 
   @override

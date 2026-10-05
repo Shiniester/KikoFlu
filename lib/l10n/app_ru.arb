@@ -1293,6 +1293,12 @@
   "comicModeReverseSpread": "Две страницы, справа налево",
   "comicKeepAwake": "Не выключать экран при чтении",
   "comicPreload": "Предзагрузка страниц",
+  "comicAutoPageTurn": "Автоперелистывание",
+  "comicAutoPageInterval": "Интервал автоперелистывания",
+  "comicAutoPageIntervalValue": "{seconds} с",
+  "@comicAutoPageIntervalValue": {
+    "placeholders": { "seconds": { "type": "int" } }
+  },
   "comicDownloadSelected": "Скачать выбранные главы",
   "comicPause": "Приостановить",
   "comicResume": "Продолжить / повторить",

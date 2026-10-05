@@ -66,7 +66,7 @@ class _Source extends ComicSource {
   final String sourceKey;
   bool loggedIn = false, favoriteFails = false;
   bool commentsEnabled = false;
-  int searches = 0, favoriteWrites = 0;
+  int searches = 0, favoriteWrites = 0, favoriteReads = 0;
   int detailRequests = 0, chapterRequests = 0;
   final searchGates = <int, Completer<ComicResult>>{};
   Completer<Comic>? detailGate;
@@ -116,6 +116,14 @@ class _Source extends ComicSource {
   Future<List<ComicCategory>> categories() async => const [
     ComicCategory('fixture-category', 'Fixture category'),
   ];
+  @override
+  Future<ComicResult> favorites({String? cursor}) async {
+    favoriteReads++;
+    return ComicResult([
+      Comic(source: key, id: 'favorite', title: 'Online favorite'),
+    ]);
+  }
+
   @override
   Future<Comic> details(String id) async {
     detailRequests++;
@@ -5165,6 +5173,48 @@ void main() {
       expect(library.favoriteWrites, 2);
     },
   );
+  for (final loggedIn in [false, true]) {
+    testWidgets(
+      'comic home ignores online favorites preference when loggedIn=$loggedIn',
+      (tester) async {
+        await StorageService.setBool('comic_online_favorites', true);
+        final source = _Source()..loggedIn = loggedIn;
+        final container = await pump(
+          tester,
+          const ComicScreen(),
+          _Library(),
+          source,
+        );
+
+        expect(find.text('Fixture book'), findsOneWidget);
+        expect(find.text('Online favorite'), findsNothing);
+        expect(source.favoriteReads, 0);
+
+        container.read(comicSettingsRevisionProvider.notifier).state++;
+        await tester.pumpAndSettle();
+        expect(find.text('Fixture book'), findsOneWidget);
+        expect(source.favoriteReads, 0);
+
+        await tester.tap(find.text('Favorites').first);
+        await tester.pumpAndSettle();
+        if (loggedIn) {
+          expect(find.text('Online favorite'), findsOneWidget);
+          expect(source.favoriteReads, 1);
+        } else {
+          expect(
+            find.text('Sign in to this source in comic settings.'),
+            findsOneWidget,
+          );
+          expect(source.favoriteReads, 0);
+        }
+
+        await tester.tap(find.text('Home').first);
+        await tester.pumpAndSettle();
+        expect(find.text('Fixture book'), findsOneWidget);
+      },
+    );
+  }
+
   testWidgets('comic tabs preserve home content after switching to history', (
     tester,
   ) async {
