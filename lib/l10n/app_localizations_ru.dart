@@ -3951,6 +3951,18 @@ class SRu extends S {
   String get comicEnabled => 'Включить источник';
 
   @override
+  String get comicScreenOrientation => 'Ориентация экрана';
+
+  @override
+  String get comicOrientationSystem => 'Как в системе';
+
+  @override
+  String get comicOrientationPortrait => 'Портретная';
+
+  @override
+  String get comicOrientationLandscape => 'Альбомная';
+
+  @override
   String get comicReadingMode => 'Режим чтения';
 
   @override

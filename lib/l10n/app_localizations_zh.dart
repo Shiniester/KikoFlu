@@ -3802,6 +3802,18 @@ class SZh extends S {
   String get comicEnabled => '启用漫画源';
 
   @override
+  String get comicScreenOrientation => '屏幕方向';
+
+  @override
+  String get comicOrientationSystem => '跟随系统';
+
+  @override
+  String get comicOrientationPortrait => '竖屏';
+
+  @override
+  String get comicOrientationLandscape => '横屏';
+
+  @override
   String get comicReadingMode => '阅读模式';
 
   @override
@@ -7738,6 +7750,18 @@ class SZhHant extends SZh {
 
   @override
   String get comicEnabled => '啟用來源';
+
+  @override
+  String get comicScreenOrientation => '螢幕方向';
+
+  @override
+  String get comicOrientationSystem => '跟隨系統';
+
+  @override
+  String get comicOrientationPortrait => '直向';
+
+  @override
+  String get comicOrientationLandscape => '橫向';
 
   @override
   String get comicReadingMode => '閱讀模式';

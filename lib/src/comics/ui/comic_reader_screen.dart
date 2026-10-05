@@ -11,6 +11,7 @@ import '../../providers/audio_provider.dart';
 import '../../services/storage_service.dart';
 import '../../services/log_service.dart';
 import '../../widgets/mini_player.dart';
+import '../../utils/snackbar_util.dart';
 import '../comic_models.dart';
 import '../comic_providers.dart';
 import '../comic_library.dart';
@@ -18,6 +19,8 @@ import '../comic_library.dart';
 import 'comic_widgets.dart';
 import 'comic_settings_screen.dart';
 import 'comic_page_preview.dart';
+import 'comic_reader_menu_button.dart';
+import 'comic_actions.dart';
 
 bool isComicSpread(ComicReadingMode mode) =>
     mode == ComicReadingMode.spread || mode == ComicReadingMode.reverseSpread;
@@ -50,6 +53,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   late final StateController<bool> _active;
   List<ComicPage> _pages = [];
   bool _controls = false, _loading = true;
+  bool _savingFavorite = false, _choosingDownload = false;
   Object? _error;
   int _generation = 0;
   int _layoutGeneration = 0;
@@ -69,6 +73,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   Animation<double>? _routeAnimation;
   AnimationStatusListener? _routeStatusListener;
   bool _immersiveBarsRequested = false;
+  bool _orientationRequested = false;
   Size _viewport = Size.zero;
   @override
   void initState() {
@@ -140,6 +145,9 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     });
     // Keep the native window layout unchanged until the reader is removed.
     _restoreBars();
+    if (_orientationRequested) {
+      SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    }
     super.dispose();
   }
 
@@ -156,6 +164,22 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   void _setBars() {
     _immersiveBarsRequested = true;
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    _setOrientation(ref.read(comicScreenOrientationProvider));
+  }
+
+  void _setOrientation(ComicScreenOrientation orientation) {
+    _orientationRequested = true;
+    SystemChrome.setPreferredOrientations(switch (orientation) {
+      ComicScreenOrientation.system => DeviceOrientation.values,
+      ComicScreenOrientation.portrait => [
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+      ],
+      ComicScreenOrientation.landscape => [
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ],
+    });
   }
 
   void _restoreBars() {
@@ -517,6 +541,34 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     await _chapterBy(selected - current);
   }
 
+  Future<void> _favorite() async {
+    if (_savingFavorite) return;
+    setState(() => _savingFavorite = true);
+    try {
+      await saveComicFavorite(ref, widget.comic);
+      if (mounted) SnackBarUtil.showSuccess(context, S.of(context).comicSaved);
+    } catch (error) {
+      if (mounted) SnackBarUtil.showError(context, error.toString());
+    } finally {
+      if (mounted) setState(() => _savingFavorite = false);
+    }
+  }
+
+  Future<void> _download() async {
+    if (_choosingDownload) return;
+    setState(() => _choosingDownload = true);
+    try {
+      await downloadComicChapters(
+        context,
+        ref,
+        widget.comic,
+        initialChapterId: _chapter.id,
+      );
+    } finally {
+      if (mounted) setState(() => _choosingDownload = false);
+    }
+  }
+
   Future<Uint8List> _previewImage(int page) async {
     final generation = _generation;
     final image = _image(page);
@@ -754,14 +806,19 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   Widget build(BuildContext context) {
     ref.watch(comicSettingsRevisionProvider);
     final mode = ref.watch(comicReadingModeProvider);
+    final orientation = ref.watch(comicScreenOrientationProvider);
     ref.listen(comicReadingModeProvider, (_, __) {
       if (mounted) setState(_resetLayout);
     });
+    ref.listen(
+      comicScreenOrientationProvider,
+      (_, next) => _setOrientation(next),
+    );
     final hasAudio = ref.watch(currentTrackProvider).valueOrNull != null;
     return LayoutBuilder(
       builder: (context, constraints) {
         _viewport = constraints.biggest;
-        return _buildReader(context, mode, hasAudio);
+        return _buildReader(context, mode, orientation, hasAudio);
       },
     );
   }
@@ -769,6 +826,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   Widget _buildReader(
     BuildContext context,
     ComicReadingMode mode,
+    ComicScreenOrientation orientation,
     bool hasAudio,
   ) {
     final s = S.of(context);
@@ -861,18 +919,9 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                                 builder: (context, constraints) => SingleChildScrollView(
                                   scrollDirection: Axis.horizontal,
                                   child: SizedBox(
-                                    width: math.max(constraints.maxWidth, 288),
+                                    width: math.max(constraints.maxWidth, 336),
                                     child: Row(
                                       children: [
-                                        Expanded(
-                                          child: IconButton(
-                                            tooltip: s.comicPreviousChapter,
-                                            onPressed: () => _chapterBy(-1),
-                                            icon: const Icon(
-                                              Icons.skip_previous,
-                                            ),
-                                          ),
-                                        ),
                                         Expanded(
                                           child: Semantics(
                                             value:
@@ -888,13 +937,6 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                                                   : _showPagePreview,
                                               icon: const Icon(Icons.grid_view),
                                             ),
-                                          ),
-                                        ),
-                                        Expanded(
-                                          child: IconButton(
-                                            tooltip: s.comicNextChapter,
-                                            onPressed: () => _chapterBy(1),
-                                            icon: const Icon(Icons.skip_next),
                                           ),
                                         ),
                                         Expanded(
@@ -940,35 +982,129 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                                           ),
                                         ),
                                         Expanded(
-                                          child: PopupMenuButton<ComicReadingMode>(
-                                            tooltip: s.comicReadingMode,
-                                            icon: const Icon(
-                                              Icons.chrome_reader_mode,
+                                          child:
+                                              ComicReaderMenuButton<
+                                                ComicReadingMode
+                                              >(
+                                                tooltip: s.comicReadingMode,
+                                                icon: const Icon(
+                                                  Icons.chrome_reader_mode,
+                                                ),
+                                                itemBuilder: (_) => ComicReadingMode
+                                                    .values
+                                                    .map(
+                                                      (m) =>
+                                                          CheckedPopupMenuItem(
+                                                            value: m,
+                                                            checked: m == mode,
+                                                            child: Text(
+                                                              comicModeLabel(
+                                                                s,
+                                                                m,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                    )
+                                                    .toList(),
+                                                onSelected: (m) {
+                                                  ref
+                                                          .read(
+                                                            comicReadingModeProvider
+                                                                .notifier,
+                                                          )
+                                                          .state =
+                                                      m;
+                                                  StorageService.setString(
+                                                    'comic_reading_mode',
+                                                    m.name,
+                                                  );
+                                                },
+                                              ),
+                                        ),
+                                        Expanded(
+                                          child: Semantics(
+                                            value: comicOrientationLabel(
+                                              s,
+                                              orientation,
                                             ),
-                                            itemBuilder: (_) => ComicReadingMode
-                                                .values
-                                                .map(
-                                                  (m) => PopupMenuItem(
-                                                    value: m,
-                                                    child: Text(
-                                                      comicModeLabel(s, m),
-                                                    ),
-                                                  ),
-                                                )
-                                                .toList(),
-                                            onSelected: (m) {
-                                              ref
-                                                      .read(
-                                                        comicReadingModeProvider
-                                                            .notifier,
-                                                      )
-                                                      .state =
-                                                  m;
-                                              StorageService.setString(
-                                                'comic_reading_mode',
-                                                m.name,
-                                              );
-                                            },
+                                            child:
+                                                ComicReaderMenuButton<
+                                                  ComicScreenOrientation
+                                                >(
+                                                  tooltip:
+                                                      s.comicScreenOrientation,
+                                                  icon: Icon(switch (orientation) {
+                                                    ComicScreenOrientation
+                                                        .system =>
+                                                      Icons.screen_rotation,
+                                                    ComicScreenOrientation
+                                                        .portrait =>
+                                                      Icons
+                                                          .screen_lock_portrait,
+                                                    ComicScreenOrientation
+                                                        .landscape =>
+                                                      Icons
+                                                          .screen_lock_landscape,
+                                                  }),
+                                                  itemBuilder: (_) => [
+                                                    for (final orientation
+                                                        in ComicScreenOrientation
+                                                            .values)
+                                                      CheckedPopupMenuItem(
+                                                        value: orientation,
+                                                        checked:
+                                                            orientation ==
+                                                            ref.read(
+                                                              comicScreenOrientationProvider,
+                                                            ),
+                                                        child: Text(
+                                                          comicOrientationLabel(
+                                                            s,
+                                                            orientation,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                  ],
+                                                  onSelected: (orientation) {
+                                                    ref
+                                                            .read(
+                                                              comicScreenOrientationProvider
+                                                                  .notifier,
+                                                            )
+                                                            .state =
+                                                        orientation;
+                                                    StorageService.setString(
+                                                      'comic_screen_orientation',
+                                                      orientation.name,
+                                                    );
+                                                  },
+                                                ),
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: IconButton(
+                                            tooltip: s.comicFavorites,
+                                            icon: const Icon(
+                                              Icons.bookmark_add_outlined,
+                                            ),
+                                            onPressed: _savingFavorite
+                                                ? null
+                                                : _favorite,
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: IconButton(
+                                            tooltip: s.download,
+                                            icon: const Icon(Icons.download),
+                                            onPressed:
+                                                _loading ||
+                                                    _choosingDownload ||
+                                                    widget
+                                                        .comic
+                                                        .chapters
+                                                        .isEmpty
+                                                ? null
+                                                : _download,
                                           ),
                                         ),
                                       ],

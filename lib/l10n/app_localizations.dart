@@ -7014,6 +7014,30 @@ abstract class S {
   /// **'Enable source'**
   String get comicEnabled;
 
+  /// No description provided for @comicScreenOrientation.
+  ///
+  /// In en, this message translates to:
+  /// **'Screen orientation'**
+  String get comicScreenOrientation;
+
+  /// No description provided for @comicOrientationSystem.
+  ///
+  /// In en, this message translates to:
+  /// **'Follow system'**
+  String get comicOrientationSystem;
+
+  /// No description provided for @comicOrientationPortrait.
+  ///
+  /// In en, this message translates to:
+  /// **'Portrait'**
+  String get comicOrientationPortrait;
+
+  /// No description provided for @comicOrientationLandscape.
+  ///
+  /// In en, this message translates to:
+  /// **'Landscape'**
+  String get comicOrientationLandscape;
+
   /// No description provided for @comicReadingMode.
   ///
   /// In en, this message translates to:

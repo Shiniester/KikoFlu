@@ -47,6 +47,7 @@ import 'package:kikoeru_flutter/src/comics/ui/comic_settings_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_detail_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_reader_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_page_preview.dart';
+import 'package:kikoeru_flutter/src/comics/ui/comic_reader_menu_button.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_search_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 import 'package:kikoeru_flutter/src/widgets/settings_option_dialog.dart';
@@ -251,6 +252,19 @@ class _Library extends ComicLibrary {
   }
 }
 
+class _RecordingComicDownloads extends ComicDownloads {
+  _RecordingComicDownloads(_Library library, _Source source)
+    : super(library, (_) => source);
+  final enqueued = <List<ComicChapter>>[];
+  bool fail = false;
+
+  @override
+  Future<void> enqueue(Comic comic, List<ComicChapter> chapters) async {
+    if (fail) throw StateError('queue unavailable');
+    enqueued.add(chapters);
+  }
+}
+
 final _png = Uint8List.fromList(
   img.encodePng(img.Image(width: 100, height: 160)),
 );
@@ -445,6 +459,7 @@ void main() {
     bool settle = true,
     bool reduceMotion = false,
     ThemeData? theme,
+    ComicDownloads? downloads,
   }) async {
     final container = ProviderContainer(
       overrides: [
@@ -453,6 +468,8 @@ void main() {
           if (other != null) other,
         ]),
         comicLibraryProvider.overrideWith((ref) => library),
+        if (downloads != null)
+          comicDownloadsProvider.overrideWith((ref) => downloads),
         currentTrackProvider.overrideWith((ref) => Stream.value(track)),
         isTrackLoadingProvider.overrideWith((ref) => Stream.value(false)),
         positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
@@ -561,7 +578,7 @@ void main() {
     await tester.pump();
   }
 
-  testWidgets('reader bottom controls keep six icons in one row', (
+  testWidgets('reader bottom controls keep seven icons in one row', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(320, 640);
@@ -609,12 +626,13 @@ void main() {
     expect(find.byType(Slider), findsNothing);
     expect(find.text('1/8'), findsNothing);
     final actions = [
-      find.byTooltip('Previous chapter'),
       find.byKey(const ValueKey('comic-page-preview')),
-      find.byTooltip('Next chapter'),
       chooser,
       auto,
       find.byTooltip('Reading mode'),
+      find.byTooltip('Screen orientation'),
+      find.byTooltip('Favorites'),
+      find.byTooltip('Download'),
     ];
     for (final width in [320.0, 1000.0]) {
       tester.view.physicalSize = Size(width, 640);
@@ -629,11 +647,13 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('comic-reader-top-controls')),
-        matching: find.byType(PopupMenuButton<ComicReadingMode>),
+        matching: find.byType(ComicReaderMenuButton<ComicReadingMode>),
       ),
       findsNothing,
     );
     expect(find.byIcon(Icons.more_vert), findsOneWidget);
+    expect(find.byTooltip('Previous chapter'), findsNothing);
+    expect(find.byTooltip('Next chapter'), findsNothing);
     expect(tester.widget<IconButton>(auto).isSelected, isFalse);
     expect(tester.getRect(auto).bottom, lessThanOrEqualTo(640));
     expect(tester.getRect(chooser).bottom, lessThanOrEqualTo(640));
@@ -735,6 +755,270 @@ void main() {
       await tester.pumpAndSettle();
       expect(readerPageValue('5/8'), findsOneWidget);
       expect(find.byType(ComicPagePreview), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('reader mode menu opens above controls with a Mini Player', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await StorageService.setString('comic_reading_mode', 'leftToRight');
+    await pump(
+      tester,
+      const ComicReaderScreen(
+        comic: _comic,
+        chapter: ComicChapter('one', 'Chapter 1'),
+        initialPage: 3,
+      ),
+      _Library(),
+      _Source(),
+      track: const AudioTrack(
+        id: 'reader-track',
+        title: 'Audio',
+        url: 'https://example.invalid/audio.mp3',
+      ),
+    );
+    await waitForDecodedImage(tester, find.byType(Image).first);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    final buttonTop = tester.getTopLeft(find.byTooltip('Reading mode')).dy;
+    await tester.tap(find.byTooltip('Reading mode'));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .getRect(find.byKey(const ValueKey('comic-reader-menu-surface')))
+          .bottom,
+      lessThanOrEqualTo(buttonTop - 8),
+    );
+    await tester.tap(
+      find.widgetWithText(
+        CheckedPopupMenuItem<ComicReadingMode>,
+        'Vertical pages',
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(StorageService.getString('comic_reading_mode'), 'vertical');
+    expect(
+      tester.widget<PageView>(find.byType(PageView)).scrollDirection,
+      Axis.vertical,
+    );
+    expect(readerPageValue('4/8'), findsOneWidget);
+    expect(find.byType(MiniPlayer), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'reader orientation persists, shares settings and restores on exit',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final calls = <List<String>>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'SystemChrome.setPreferredOrientations') {
+            calls.add(List<String>.from(call.arguments as List));
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      await StorageService.setString('comic_reading_mode', 'leftToRight');
+      await StorageService.setString('comic_screen_orientation', 'portrait');
+      final container = await pump(
+        tester,
+        const ComicReaderScreen(
+          comic: _comic,
+          chapter: ComicChapter('one', 'Chapter 1'),
+          initialPage: 3,
+        ),
+        _Library(),
+        _Source(),
+      );
+      await waitForDecodedImage(tester, find.byType(Image).first);
+      await tester.pumpAndSettle();
+      expect(calls.last, [
+        'DeviceOrientation.portraitUp',
+        'DeviceOrientation.portraitDown',
+      ]);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Screen orientation'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.widgetWithText(
+          CheckedPopupMenuItem<ComicScreenOrientation>,
+          'Landscape',
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(calls.last, [
+        'DeviceOrientation.landscapeLeft',
+        'DeviceOrientation.landscapeRight',
+      ]);
+      expect(StorageService.getString('comic_screen_orientation'), 'landscape');
+      expect(
+        container.read(comicScreenOrientationProvider),
+        ComicScreenOrientation.landscape,
+      );
+      tester.view.physicalSize = const Size(844, 390);
+      await tester.pumpAndSettle();
+      expect(readerPageValue('4/8'), findsOneWidget);
+      await tester.tap(find.byTooltip('Reader settings'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Screen orientation'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Portrait'));
+      await tester.pumpAndSettle();
+      expect(StorageService.getString('comic_screen_orientation'), 'portrait');
+      expect(
+        container.read(comicScreenOrientationProvider),
+        ComicScreenOrientation.portrait,
+      );
+      expect(calls.last, [
+        'DeviceOrientation.portraitUp',
+        'DeviceOrientation.portraitDown',
+      ]);
+      tester.view.physicalSize = const Size(390, 844);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(readerPageValue('4/8'), findsOneWidget);
+      expect(find.byIcon(Icons.screen_lock_portrait), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+      expect(
+        calls.last,
+        unorderedEquals(
+          DeviceOrientation.values.map((value) => value.toString()),
+        ),
+      );
+      calls.clear();
+      await pump(
+        tester,
+        const ComicReaderSettingsScreen(),
+        _Library(),
+        _Source(),
+      );
+      await tester.tap(find.text('Screen orientation'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Follow system'));
+      await tester.pumpAndSettle();
+      expect(StorageService.getString('comic_screen_orientation'), 'system');
+      expect(calls, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('reader favorite keeps source-first saving and can retry', (
+    tester,
+  ) async {
+    final library = _Library();
+    final source = _Source()
+      ..loggedIn = true
+      ..favoriteFails = true;
+    final container = await pump(
+      tester,
+      const ComicReaderScreen(
+        comic: _comic,
+        chapter: ComicChapter('one', 'Chapter 1'),
+      ),
+      library,
+      source,
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Favorites'));
+    await tester.pumpAndSettle();
+    expect(source.favoriteWrites, 1);
+    expect(library.favoriteWrites, 0);
+    expect(container.read(comicRemoteFavoritesRevisionProvider), 0);
+    source.favoriteFails = false;
+    await tester.tap(find.byTooltip('Favorites'));
+    await tester.pumpAndSettle();
+    expect(source.favoriteWrites, 2);
+    expect(library.favoriteWrites, 1);
+    expect(container.read(comicRemoteFavoritesRevisionProvider), 1);
+    source.loggedIn = false;
+    await tester.tap(find.byTooltip('Favorites'));
+    await tester.pumpAndSettle();
+    expect(source.favoriteWrites, 2);
+    expect(library.favoriteWrites, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'reader download defaults to current chapter and supports selection',
+    (tester) async {
+      final library = _Library();
+      final source = _Source();
+      final downloads = _RecordingComicDownloads(library, source);
+      await pump(
+        tester,
+        const ComicReaderScreen(
+          comic: _comic,
+          chapter: ComicChapter('two', 'Chapter 2'),
+          initialPage: 3,
+        ),
+        library,
+        source,
+        downloads: downloads,
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Download'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.widgetWithText(CheckboxListTile, 'Chapter 1'),
+            )
+            .value,
+        false,
+      );
+      expect(
+        tester
+            .widget<CheckboxListTile>(
+              find.widgetWithText(CheckboxListTile, 'Chapter 2'),
+            )
+            .value,
+        true,
+      );
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(downloads.enqueued, isEmpty);
+      await tester.tap(find.byTooltip('Download'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(CheckboxListTile, 'Chapter 1'));
+      await tester.tap(find.text('Download selected chapters'));
+      await tester.pumpAndSettle();
+      expect(downloads.enqueued.single.map((chapter) => chapter.id), [
+        'one',
+        'two',
+      ]);
+      expect(readerPageValue('4/8'), findsOneWidget);
+      downloads.fail = true;
+      await tester.tap(find.byTooltip('Download'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Download selected chapters'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('queue unavailable'), findsOneWidget);
+      expect(downloads.enqueued, hasLength(1));
+      expect(
+        tester
+            .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.download))
+            .onPressed,
+        isNotNull,
+      );
       expect(tester.takeException(), isNull);
     },
   );
@@ -1384,7 +1668,9 @@ void main() {
       tester.widget<Transform>(canvas).transform.getMaxScaleOnAxis(),
       greaterThan(1),
     );
-    await tester.tap(find.byIcon(Icons.skip_next));
+    await tester.tap(find.byTooltip('Choose chapters'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ListTile, 'Chapter 2'));
     await tester.pumpAndSettle();
     expect(readerPageValue('1/8'), findsOneWidget);
     expect(
@@ -6023,7 +6309,9 @@ void main() {
       await tester.tapAt(tester.getCenter(find.byType(Scaffold)));
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Next chapter'));
+      await tester.tap(find.byTooltip('Choose chapters'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ListTile, 'Chapter 2'));
       await tester.pumpAndSettle();
       expect(find.text('Chapter unavailable'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());

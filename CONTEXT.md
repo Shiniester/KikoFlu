@@ -148,8 +148,8 @@ _Avoid_: Bottom Dock, App Tab Bar
 
 **Reader Settings (阅读器设置)**:
 The shared Comic Reader preferences page opened from Reader Controls or Comic
-settings. It contains reading mode, auto page-turn interval, page-turn and zoom
-gestures, keep-awake, and preload preferences.
+settings. It contains reading mode, screen orientation, auto page-turn interval,
+page-turn and zoom gestures, keep-awake, and preload preferences.
 _Avoid_: Comic Source settings, Reader Controls
 
 **Chapter Page Preview (章节页面预览)**:

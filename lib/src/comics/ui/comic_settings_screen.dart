@@ -23,6 +23,13 @@ String comicModeLabel(S s, ComicReadingMode mode) => [
   s.comicModeReverseSpread,
 ][mode.index];
 
+String comicOrientationLabel(S s, ComicScreenOrientation orientation) =>
+    switch (orientation) {
+      ComicScreenOrientation.system => s.comicOrientationSystem,
+      ComicScreenOrientation.portrait => s.comicOrientationPortrait,
+      ComicScreenOrientation.landscape => s.comicOrientationLandscape,
+    };
+
 class ComicSettingsScreen extends ConsumerWidget {
   const ComicSettingsScreen({super.key});
   @override
@@ -230,6 +237,38 @@ class ComicReaderSettingsScreen extends ConsumerWidget {
                         selected;
                     await StorageService.setString(
                       'comic_reading_mode',
+                      selected.name,
+                    );
+                  }
+                },
+              ),
+              SettingsNavigationTile(
+                icon: Icons.screen_rotation,
+                title: s.comicScreenOrientation,
+                subtitle: comicOrientationLabel(
+                  s,
+                  ref.watch(comicScreenOrientationProvider),
+                ),
+                onTap: () async {
+                  final selected = await showDialog<ComicScreenOrientation>(
+                    context: context,
+                    builder: (context) => SimpleDialog(
+                      title: Text(s.comicScreenOrientation),
+                      children: [
+                        for (final orientation in ComicScreenOrientation.values)
+                          SimpleDialogOption(
+                            onPressed: () =>
+                                Navigator.pop(context, orientation),
+                            child: Text(comicOrientationLabel(s, orientation)),
+                          ),
+                      ],
+                    ),
+                  );
+                  if (selected != null) {
+                    ref.read(comicScreenOrientationProvider.notifier).state =
+                        selected;
+                    await StorageService.setString(
+                      'comic_screen_orientation',
                       selected.name,
                     );
                   }
