@@ -12,14 +12,14 @@ deletions do not publish releases.
 
 Actions parses [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
 from the latest published stable release's actual tag commit to the pushed commit
-for stable releases. For Beta releases, it starts after the furthest published
-Beta tag commit on the pushed commit's ancestry that uses the current stable-derived
-version base. If no such Beta tag is an ancestor, it starts from the stable release
-tag. The planner resolves each Beta tag to its commit and selects by ancestry. The
-release's target branch metadata does not determine ancestry. Candidates are visited
-by descending Beta sequence; descendant commits take precedence. New reachable commits are considered,
-including commits brought in by a merge. For a squash merge, the resulting squash
-commit message determines the level.
+for stable releases. For Beta releases, it excludes commits reachable from every
+published Beta tag on the pushed commit's ancestry with the current stable-derived
+version base, as well as commits reachable from the stable release tag. This excludes
+changes already published from every merged Beta history. If no matching Beta tag is
+an ancestor, only the stable release tag is used. The planner resolves each Beta tag
+to its commit; the release's target branch metadata does not determine ancestry. New
+reachable commits are considered, including commits brought in by a merge. For a
+squash merge, the resulting squash commit message determines the level.
 
 | Commit message | Release trigger |
 | --- | --- |

@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -38,9 +39,24 @@ def output_values(path):
     return values
 
 
+def git(cwd, *args):
+    result = subprocess.run(["git", *args], cwd=cwd, text=True, encoding="utf-8",
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode:
+        raise AssertionError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def commit(cwd, filename, content, subject):
+    (cwd / filename).write_text(content, encoding="utf-8")
+    git(cwd, "add", filename)
+    git(cwd, "commit", "-m", subject)
+    return git(cwd, "rev-parse", "HEAD")
+
+
 def run_main(*, branch="main", head=TARGET, target=TARGET, changed="README.md\0", logs="",
              old_target=False, baseline_ancestor=True, releases=None, tags=None,
-             beta_tag_commits=None, beta_ancestor_tags=(), beta_ancestor_pairs=()):
+             beta_tag_commits=None, beta_ancestor_tags=()):
     calls = []
     releases = RELEASES if releases is None else releases
     tags = tags or []
@@ -82,10 +98,6 @@ def run_main(*, branch="main", head=TARGET, target=TARGET, changed="README.md\0"
                             if commit == beta_commit), None)
                 if tag:
                     return SimpleNamespace(returncode=0 if tag in beta_ancestor_tags else 1)
-            if beta_commit == candidate_target or (beta_commit, candidate_target) in beta_ancestor_pairs:
-                return SimpleNamespace(returncode=0)
-            if beta_commit in beta_tag_commits.values() and candidate_target in beta_tag_commits.values():
-                return SimpleNamespace(returncode=1)
         raise AssertionError(f"Unexpected subprocess: {args}")
 
     with tempfile.TemporaryDirectory() as temporary:
@@ -102,6 +114,74 @@ def run_main(*, branch="main", head=TARGET, target=TARGET, changed="README.md\0"
                 patch.object(planner.subprocess, "run", side_effect=run):
             planner.main()
         return output_values(output), summary.read_text(encoding="utf-8") if summary.exists() else "", calls
+
+
+def run_real_main(root, target, stable_commit, releases, tags):
+    with tempfile.TemporaryDirectory() as temporary:
+        path = Path(temporary)
+        output, summary = path / "output", path / "summary"
+        env = {"GH_REPO": "owner/repo", "GITHUB_REF_NAME": "feature/merge",
+               "GITHUB_SHA": target, "GITHUB_OUTPUT": str(output),
+               "GITHUB_STEP_SUMMARY": str(summary)}
+        real_command = planner.command
+
+        def command(*args):
+            if args[:2] == ("git", "fetch"):
+                return ""
+            if args == ("git", "rev-parse", "FETCH_HEAD^{commit}"):
+                return stable_commit
+            return real_command(*args)
+
+        with patch.dict(os.environ, env), patch.object(planner, "ROOT", root), \
+                patch.object(planner, "command", command), \
+                patch.object(planner, "inventory",
+                             side_effect=lambda repo, resource: releases if resource == "releases" else tags):
+            planner.main()
+        return output_values(output), summary.read_text(encoding="utf-8") if summary.exists() else ""
+
+
+def check_real_beta_union():
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary) / "repo"
+        root.mkdir()
+        git(root, "init", "--object-format=sha1", "--initial-branch=main")
+        git(root, "config", "user.name", "Release Planner Test")
+        git(root, "config", "user.email", "release-planner@example.invalid")
+
+        stable_commit = commit(root, "base.txt", "base\n", "chore: establish stable base")
+        git(root, "tag", "v4.8.1")
+        stable = {"tag_name": "v4.8.1", "published_at": "2026-10-01T00:00:00Z",
+                  "draft": False, "prerelease": False}
+
+        git(root, "checkout", "-b", "feature/a")
+        commit(root, "a.txt", "from a\n", "fix(audio): restore playback")
+        git(root, "tag", "v4.8.2-beta.1")
+
+        git(root, "checkout", "main")
+        git(root, "checkout", "-b", "feature/b")
+        commit(root, "b.txt", "from b\n", "feat(queue): add smart queue")
+        git(root, "tag", "v4.8.2-beta.2")
+
+        git(root, "checkout", "feature/a")
+        git(root, "merge", "--no-ff", "-m", "chore: merge beta histories", "feature/b")
+        merged = git(root, "rev-parse", "HEAD")
+
+        beta_releases = [stable,
+                         {"tag_name": "v4.8.2-beta.1", "published_at": "2026-10-02T00:00:00Z",
+                          "draft": False, "prerelease": True},
+                         {"tag_name": "v4.8.2-beta.2", "published_at": "2026-10-03T00:00:00Z",
+                          "draft": False, "prerelease": True}]
+        tags = [{"name": release["tag_name"]} for release in beta_releases]
+        values, summary = run_real_main(root, merged, stable_commit, beta_releases, tags)
+        assert values == {"publish": "false", "version": "", "release_notes": "", "commit_sha": ""}
+        assert "No commit matched" in summary
+
+        next_fix = commit(root, "after-merge.txt", "new fix\n", "fix(audio): handle device changes")
+        values, summary = run_real_main(root, next_fix, stable_commit, beta_releases, tags)
+        assert values == {"publish": "true", "version": "4.8.2-beta.3",
+                          "release_notes": "- fix(audio): handle device changes",
+                          "commit_sha": next_fix}
+        assert "Beta baselines: v4.8.2-beta.2, v4.8.2-beta.1" in summary
 
 
 def check():
@@ -218,9 +298,9 @@ def check():
         releases=beta_releases, beta_tag_commits=beta_commits,
         beta_ancestor_tags={first_beta["tag_name"]})
     assert values == {"publish": "false", "version": "", "release_notes": "", "commit_sha": ""}
-    assert "Classification baseline: v4.8.2-beta.1" in summary
+    assert "Beta baselines: v4.8.2-beta.1" in summary
     assert ("git", "log", "--format=%B%x00", "--encoding=UTF-8", "--reverse",
-            f"{first_beta_sha}..{docs_sha}", "--") in calls
+            docs_sha, "--not", BASELINE, first_beta_sha, "--") in calls
 
     values, _, calls = run_main(
         branch="feature/player", head=next_fix_sha, target=next_fix_sha,
@@ -231,7 +311,7 @@ def check():
                       "release_notes": "- fix(player): prevent another crash",
                       "commit_sha": next_fix_sha}
     assert ("git", "log", "--format=%B%x00", "--encoding=UTF-8", "--reverse",
-            f"{first_beta_sha}..{next_fix_sha}", "--") in calls
+            next_fix_sha, "--not", BASELINE, first_beta_sha, "--") in calls
 
     stable_482 = {"tag_name": "v4.8.2", "published_at": "2026-10-05T00:00:00Z",
                   "draft": False, "prerelease": False}
@@ -258,13 +338,11 @@ def check():
         changed="README.md\0", logs=git_log("docs: update docs after queued releases"),
         releases=[*stable_only, queued_beta1, queued_beta2],
         beta_tag_commits=queued_commits,
-        beta_ancestor_tags={queued_beta1["tag_name"], queued_beta2["tag_name"]},
-        beta_ancestor_pairs={(queued_b_sha, queued_c_sha), (queued_c_sha, queued_docs_sha),
-                             (queued_b_sha, queued_docs_sha)})
+        beta_ancestor_tags={queued_beta1["tag_name"], queued_beta2["tag_name"]})
     assert values == {"publish": "false", "version": "", "release_notes": "", "commit_sha": ""}
-    assert f"Classification baseline: {queued_beta1['tag_name']}" in summary
+    assert f"Beta baselines: {queued_beta2['tag_name']}, {queued_beta1['tag_name']}" in summary
     assert ("git", "log", "--format=%B%x00", "--encoding=UTF-8", "--reverse",
-            f"{queued_c_sha}..{queued_docs_sha}", "--") in calls
+            queued_docs_sha, "--not", BASELINE, queued_b_sha, queued_c_sha, "--") in calls
 
     values, _, calls = run_main(changed="")
     assert values == {"publish": "false", "version": "", "release_notes": "", "commit_sha": ""}
@@ -296,6 +374,7 @@ def check():
     else:
         raise AssertionError("A published beta release without a resolvable tag must stop planning")
 
+    check_real_beta_union()
     print("Push release planner checks passed.")
 
 

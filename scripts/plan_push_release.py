@@ -63,14 +63,16 @@ def next_version(base, branch, bump, existing):
     return version
 
 
-def read_commits(baseline, target):
+def read_commits(baseline, target, additional_baselines=()):
+    revisions = ([target, "--not", baseline, *additional_baselines]
+                 if additional_baselines else [f"{baseline}..{target}"])
     log = command("git", "log", "--format=%B%x00", "--encoding=UTF-8", "--reverse",
-                  f"{baseline}..{target}", "--")
+                  *revisions, "--")
     return [message.strip("\r\n") for message in log.split("\0")
             if message.strip("\r\n")]
 
 
-def latest_beta_ancestor(releases, base, target):
+def published_beta_ancestors(releases, base, target):
     major, minor, patch = base
     prefix = f"{major}.{minor}.{patch + 1}-beta."
     candidates = []
@@ -91,23 +93,10 @@ def latest_beta_ancestor(releases, base, target):
         ancestry = subprocess.run(["git", "merge-base", "--is-ancestor", beta_target, target],
                                   cwd=ROOT)
         if ancestry.returncode == 0:
-            eligible.append((number, tag, beta_target))
+            eligible.append((tag, beta_target))
         elif ancestry.returncode != 1:
             raise RuntimeError(f"Could not compare published Beta tag {tag} to the push target.")
-
-    # Visit by descending sequence, preferring descendant commits.
-    latest = None
-    for candidate in eligible:
-        if latest is None:
-            latest = candidate
-            continue
-        ancestry = subprocess.run(["git", "merge-base", "--is-ancestor", latest[2], candidate[2]],
-                                  cwd=ROOT)
-        if ancestry.returncode == 0:
-            latest = candidate
-        elif ancestry.returncode != 1:
-            raise RuntimeError(f"Could not compare published Beta tags {latest[1]} and {candidate[1]}.")
-    return (latest[1], latest[2]) if latest else (None, None)
+    return eligible
 
 
 def breaking_footer(lines):
@@ -185,7 +174,6 @@ def main():
     tag, base = latest_stable(releases)
     command("git", "fetch", "origin", f"refs/tags/{tag}")
     baseline = command("git", "rev-parse", "FETCH_HEAD^{commit}").strip()
-    classification_baseline, classification_tag = baseline, tag
     # Queued pushes may start out of order; never publish an older main commit.
     ancestry = subprocess.run(["git", "merge-base", "--is-ancestor", target, baseline],
                                cwd=ROOT)
@@ -208,14 +196,13 @@ def main():
         write_outputs({"publish": "false"})
         print(f"No changes against stable {tag}; skipping release.")
         return
-    if branch != "main":
-        beta_tag, beta_commit = latest_beta_ancestor(releases, base, target)
-        if beta_tag:
-            classification_baseline, classification_tag = beta_commit, beta_tag
-    decision = plan_commits(read_commits(classification_baseline, target))
+    beta_ancestors = (published_beta_ancestors(releases, base, target)
+                      if branch != "main" else [])
+    beta_commits = [commit for _, commit in beta_ancestors]
+    decision = plan_commits(read_commits(baseline, target, beta_commits))
     summary = f"Baseline: {tag}\n"
-    if classification_tag != tag:
-        summary += f"Classification baseline: {classification_tag}\n"
+    if beta_ancestors:
+        summary += f"Beta baselines: {', '.join(tag for tag, _ in beta_ancestors)}\n"
     summary += f"Commit: {target}\nBranch: {branch}\n\n{decision['reason']}\n"
     if decision["bump"] != "none":
         existing = {r["tag_name"] for r in releases} | {t["name"] for t in inventory(repo, "tags")}

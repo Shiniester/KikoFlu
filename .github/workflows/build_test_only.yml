@@ -30,6 +30,9 @@ jobs:
       - name: Analyze
         run: flutter analyze --fatal-infos
 
+      - name: Test streaming ZIP extraction
+        run: dart --enable-asserts run scripts/test_streaming_zip_extractor.dart
+
       - name: Test
         run: flutter test --exclude-tags external
 
