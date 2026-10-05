@@ -11,6 +11,11 @@ on:
         description: 'Release notes in Markdown'
         required: true
         type: string
+      commit_sha:
+        description: 'Exact 40-character commit SHA to release (defaults to the workflow dispatch commit)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -23,7 +28,40 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
       suffix: ${{ steps.version.outputs.suffix }}
+      commit_sha: ${{ steps.resolve_commit.outputs.commit_sha }}
     steps:
+      - name: Validate selected release commit
+        env:
+          INPUT_COMMIT_SHA: ${{ inputs.commit_sha }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_COMMIT_SHA" ] && [[ ! "$INPUT_COMMIT_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo '::error::commit_sha must be a full 40-character commit SHA.'
+            exit 1
+          fi
+          if [ -z "$INPUT_COMMIT_SHA" ]; then
+            echo "Using workflow dispatch commit: $WORKFLOW_SHA"
+          else
+            echo "Using selected release commit: $INPUT_COMMIT_SHA"
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit_sha || github.sha }}
+
+      - name: Resolve selected release commit
+        id: resolve_commit
+        run: |
+          set -euo pipefail
+          commit_sha="$(git rev-parse HEAD)"
+          echo "commit_sha=$commit_sha" >> "$GITHUB_OUTPUT"
+          {
+            echo '### Release commit'
+            echo "- Workflow event SHA (github.sha): \`$GITHUB_SHA\`"
+            echo "- Selected release commit: \`$commit_sha\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Normalize and validate version
         id: version
         env:
@@ -63,6 +101,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit_sha || github.sha }}
 
       - name: Set Application Version
         run: |
@@ -217,6 +257,8 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit_sha || github.sha }}
 
       - name: Set Application Version
         shell: pwsh
@@ -276,6 +318,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit_sha || github.sha }}
 
       - name: Set Application Version
         run: |
@@ -317,6 +361,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit_sha || github.sha }}
 
       - name: Set Application Version
         run: |
@@ -359,6 +405,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit_sha || github.sha }}
 
       - name: Set Application Version
         run: |
@@ -406,6 +454,8 @@ jobs:
     runs-on: ubuntu-22.04-arm
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit_sha || github.sha }}
 
       - name: Set Application Version
         run: |
@@ -477,6 +527,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit_sha }}
           RELEASE_NOTES: ${{ inputs.release_notes }}
         run: |
           set -euo pipefail
@@ -523,7 +574,7 @@ jobs:
 
           release_json="$(gh api --method POST "repos/${GH_REPO}/releases" \
             -f "tag_name=${TAG}" \
-            -f "target_commitish=${GITHUB_SHA}" \
+            -f "target_commitish=${RELEASE_COMMIT}" \
             -f "name=${TAG}" \
             -f "body=${RELEASE_NOTES}" \
             -F 'draft=true' \
