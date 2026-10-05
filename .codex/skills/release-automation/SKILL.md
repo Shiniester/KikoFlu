@@ -7,6 +7,10 @@ metadata:
 
 # Release automation
 
+All concrete version numbers in this skill are illustrative examples. Compute
+each release version from the latest published stable release and the rules below;
+examples such as `4.5.3`, `4.8.x`, `4.9.0`, and `5.x.x` are not fixed targets.
+
 Resolve the release branch from the current local branch's upstream remote and
 branch. If no upstream exists, use `origin` and the same branch name, establishing
 that upstream when pushing. If HEAD is detached, ask which branch to use before
@@ -50,8 +54,11 @@ diff summary, and relevant source diffs. Include pending changes when the user
 requests repository sync. Use the release commit as the baseline, rather than a
 previous Beta, the current version in `pubspec.yaml`, or a merge-base.
 
-- Choose PATCH for localized fixes, polish, and small compatible improvements with limited impact: `4.8.2` becomes `4.8.3`.
-- Choose MINOR and reset PATCH to zero for substantial new features, significant changes to core user flows, or a broad set of meaningful improvements: `4.8.2` becomes `4.9.0`. This is the larger update (大版本更新) described by the user; it does not automatically increment MAJOR.
+Given the latest stable version `M.m.p`, select one of these three levels:
+
+- Smallest update (小版本更新): choose PATCH for localized fixes, polish, and small compatible improvements with limited impact. Keep MAJOR and MINOR and increment PATCH: `M.m.(p+1)`.
+- Larger update (大版本更新): choose MINOR for substantial new features, significant changes to core user flows, or a broad set of meaningful improvements. Keep MAJOR, increment MINOR, and reset PATCH: `M.(m+1).0`.
+- Very substantial feature update (非常重大的功能更新): choose MAJOR only when adding a major new product capability, such as video viewing/playback. Increment MAJOR and reset MINOR and PATCH: `(M+1).0.0`. Ordinary new features or a large diff alone do not qualify.
 - Judge change volume together with user impact and affected functionality. Commit counts and changed-line totals provide context, not fixed thresholds; generated files, formatting, and lockfile churn alone do not justify MINOR.
 
 Briefly report the baseline release, main changes, and why they justify the chosen
