@@ -276,10 +276,12 @@ class SettingsInfoCard extends StatelessWidget {
                         color: resolvedIconColor,
                       ),
                       const SizedBox(width: UiSpacing.small),
-                      Text(
-                        title!,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
+                      Expanded(
+                        child: Text(
+                          title!,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],

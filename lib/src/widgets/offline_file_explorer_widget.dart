@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,6 +19,7 @@ import '../services/offline_local_file_scanner.dart';
 import '../services/file_explorer_tap_resolver.dart';
 import '../services/file_name_translation_controller.dart';
 import '../services/file_delete_request_builder.dart';
+import '../services/player_audio_variant_classifier.dart';
 import '../providers/audio_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/settings_provider.dart';
@@ -64,10 +66,14 @@ class _OfflineFileExplorerWidgetState
     extends ConsumerState<OfflineFileExplorerWidget> {
   List<dynamic> _localFiles = []; // 仅包含本地存在的文件
   final Set<String> _expandedFolders = {}; // 记录展开的文件夹路径
+  final Map<String, bool> _manualFolderOverrides = {};
+  final _audioVariantClassifier = const PlayerAudioVariantClassifier();
+  List<PlayerAudioVariant> _audioVariants = const [];
   final Set<String> _audioWithLibrarySubtitles = {}; // 存储在字幕库中有匹配字幕的音频文件名
   bool _isLoading = true;
   String? _errorMessage;
-  String? _mainFolderPath; // 主文件夹路径
+  bool _audioVariantsReady = false;
+  int _preferenceUpdateGeneration = 0;
   late final FileListController _fileListController;
   int _loadGeneration = 0;
   String? _workDirPath;
@@ -111,6 +117,9 @@ class _OfflineFileExplorerWidgetState
   void initState() {
     super.initState();
     _fileListController = ref.read(fileListControllerProvider.notifier);
+    ref.listenManual(audioFormatPreferenceProvider, (previous, preference) {
+      unawaited(_syncPreferredExpandedFolders(preference));
+    });
     _loadLocalFiles();
   }
 
@@ -135,6 +144,7 @@ class _OfflineFileExplorerWidgetState
   // 加载本地存在的文件
   Future<void> _loadLocalFiles() async {
     final generation = ++_loadGeneration;
+    _audioVariantsReady = false;
 
     try {
       if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) return;
@@ -180,6 +190,10 @@ class _OfflineFileExplorerWidgetState
 
       _workDirPath = workDir.path;
       _localFiles = scanResult.files;
+      _audioVariants = _audioVariantClassifier.scan(
+        _localFiles,
+        workTitle: widget.work.title,
+      );
 
       // 检查字幕库中的匹配项
       if (!await _checkLibrarySubtitles(generation)) return;
@@ -192,8 +206,12 @@ class _OfflineFileExplorerWidgetState
         subtitleWorkDirPath: workDir.path,
       );
 
-      // 识别主文件夹并自动展开（需要在检查字幕库后执行）
-      _identifyAndExpandMainFolder();
+      await ref.read(audioFormatPreferenceProvider.notifier).getPreference();
+      if (!await _waitForLoadReady() || !_isCurrentLoad(generation)) return;
+
+      // 与原有流程保持一致，在字幕匹配准备完成后再自动展开目录。
+      _audioVariantsReady = true;
+      _applyPreferredExpandedFolders(ref.read(audioFormatPreferenceProvider));
 
       setState(() {
         _isLoading = false;
@@ -237,27 +255,36 @@ class _OfflineFileExplorerWidgetState
     }
   }
 
-  // 识别主文件夹：音频数量最多的目录，如果有多个则选择文本文件最多的
-  void _identifyAndExpandMainFolder() {
-    final formatPreference = ref.read(audioFormatPreferenceProvider);
-    final mainFolder = FileTreeUtils.identifyMainFolder(
-      _localFiles,
-      formatPreference.priority,
-      audioWithLibrarySubtitles: _audioWithLibrarySubtitles,
-    );
-
-    if (mainFolder == null) {
-      _mainFolderPath = null;
+  Future<void> _syncPreferredExpandedFolders(
+    AudioFormatPreference preference,
+  ) async {
+    if (!_audioVariantsReady) return;
+    final generation = _loadGeneration;
+    final preferenceGeneration = ++_preferenceUpdateGeneration;
+    if (!await _waitForLoadReady() ||
+        !_isCurrentLoad(generation) ||
+        !_audioVariantsReady ||
+        preferenceGeneration != _preferenceUpdateGeneration) {
       return;
     }
+    setState(() => _applyPreferredExpandedFolders(preference));
+  }
 
-    _mainFolderPath = mainFolder.path;
-    _expandedFolders.addAll(mainFolder.expandedPaths);
-    if (mainFolder.path.isNotEmpty) {
-      _log.captureOutput(
-        '[OfflineFileExplorer] 识别到主文件夹 $_mainFolderPath (音频:${mainFolder.audioCount}, 文本:${mainFolder.textCount})',
+  void _applyPreferredExpandedFolders(AudioFormatPreference preference) {
+    final preferredPaths = _audioVariantClassifier.preferredExpandedPaths(
+      _audioVariants,
+      preference: preference,
+    );
+    _expandedFolders
+      ..clear()
+      ..addAll(
+        preferredPaths.where((path) => _manualFolderOverrides[path] != false),
+      )
+      ..addAll(
+        _manualFolderOverrides.entries
+            .where((entry) => entry.value)
+            .map((entry) => entry.key),
       );
-    }
   }
 
   // 切换文件夹展开/折叠状态
@@ -265,8 +292,10 @@ class _OfflineFileExplorerWidgetState
     setState(() {
       if (_expandedFolders.contains(path)) {
         _expandedFolders.remove(path);
+        _manualFolderOverrides[path] = false;
       } else {
         _expandedFolders.add(path);
+        _manualFolderOverrides[path] = true;
       }
     });
   }

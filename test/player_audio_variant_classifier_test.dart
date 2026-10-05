@@ -29,6 +29,87 @@ void main() {
     },
   );
 
+  test(
+    'saved language, format and trait preferences select one real combination',
+    () {
+      final variants = classifier.scan([
+        _folder('简中_有SE_射精音', [
+          _audio('track.wav', 'simplified-wav'),
+          _subtitle('track_简中.lrc'),
+        ]),
+        _folder('繁中_无SE_无射精', [
+          _audio('track.wav', 'traditional-wav'),
+          _audio('track.mp3', 'traditional-mp3'),
+          _subtitle('track_繁中.lrc'),
+        ]),
+      ]);
+      const preference = AudioFormatPreference(
+        priority: [AudioFormat.mp3, AudioFormat.wav],
+        subtitleLanguage: PlayerSubtitleLanguage.traditionalChinese,
+        se: PlayerBinaryTrait.absent,
+        ejaculation: PlayerBinaryTrait.absent,
+      );
+
+      final best = classifier.selectBest(variants, preference: preference);
+      final defaults = classifier.defaultFilter(
+        variants,
+        preference: preference,
+      );
+      expect(best.single.source['hash'], 'traditional-mp3');
+      expect(defaults.subtitleLanguages, {
+        PlayerSubtitleLanguage.traditionalChinese,
+      });
+      expect(defaults.formats, {AudioFormat.mp3});
+      expect(defaults.seValues, {PlayerBinaryTrait.absent});
+      expect(defaults.ejaculationValues, {PlayerBinaryTrait.absent});
+      expect(
+        classifier.applyFilter(variants, defaults, preference: preference),
+        best,
+      );
+    },
+  );
+
+  test('default filter highlights the actual fallback combination', () {
+    final variants = classifier.scan([
+      _folder('繁中', [_audio('track.wav', 'wav'), _subtitle('track_繁中.lrc')]),
+      _folder('简中', [_audio('track.mp3', 'mp3'), _subtitle('track_简中.lrc')]),
+    ]);
+
+    final defaults = classifier.defaultFilter(variants);
+    expect(defaults.subtitleLanguages, {
+      PlayerSubtitleLanguage.simplifiedChinese,
+    });
+    expect(defaults.formats, {AudioFormat.mp3});
+    expect(
+      classifier.applyFilter(variants, defaults).single.source['hash'],
+      'mp3',
+    );
+  });
+
+  test('all saved audio formats are classified and can be preferred', () {
+    final variants = classifier.scan([
+      for (final format in AudioFormat.values.where(
+        (value) => value != AudioFormat.other,
+      ))
+        _audio('track.${format.extension}', format.extension),
+    ]);
+    expect(
+      variants.map((variant) => variant.format).toSet(),
+      AudioFormat.values.toSet()..remove(AudioFormat.other),
+    );
+
+    for (final format in AudioFormat.values.where(
+      (value) => value != AudioFormat.other,
+    )) {
+      final defaults = classifier.defaultFilter(
+        variants,
+        preference: AudioFormatPreference(priority: [format]),
+      );
+      expect(defaults.formats, {format});
+      expect(classifier.applyFilter(variants, defaults).single.format, format);
+    }
+  });
+
   test('negative words win before positive keyword fragments', () {
     final variant = classifier.scan([
       _folder('无SE_射精なし', [_audio('track.flac', 'negative')]),
@@ -194,6 +275,20 @@ void main() {
 
     expect(withUnknown, hasLength(2));
     expect(withoutUnknown.map((variant) => variant.title), ['02.flac']);
+    for (final filter in const [
+      PlayerAudioVariantFilter(includeUnknown: false),
+      PlayerAudioVariantFilter(
+        formats: {PlayerAudioFormat.flac},
+        includeUnknown: false,
+      ),
+    ]) {
+      expect(
+        classifier
+            .applyFilter(variants, filter)
+            .map((variant) => variant.title),
+        ['02.flac'],
+      );
+    }
   });
 
   test('keyword and show-all filtering do not rescan the tree', () {

@@ -1917,13 +1917,13 @@ abstract class S {
   /// No description provided for @audioFormatPreference.
   ///
   /// In en, this message translates to:
-  /// **'Audio Format Preference'**
+  /// **'Audio Preferences'**
   String get audioFormatPreference;
 
   /// No description provided for @audioFormatSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Audio format priority'**
+  /// **'Default subtitle, format, and sound preferences'**
   String get audioFormatSubtitle;
 
   /// No description provided for @audioTapPlaylistMode.
@@ -6213,13 +6213,13 @@ abstract class S {
   /// No description provided for @audioFormatPriority.
   ///
   /// In en, this message translates to:
-  /// **'Audio Format Priority'**
+  /// **'Audio format priority'**
   String get audioFormatPriority;
 
   /// No description provided for @confirmRestoreAudioFormat.
   ///
   /// In en, this message translates to:
-  /// **'Are you sure you want to restore the default audio format priority?'**
+  /// **'Reset all audio preferences to their defaults?'**
   String get confirmRestoreAudioFormat;
 
   /// No description provided for @priorityDescription.
@@ -6231,8 +6231,134 @@ abstract class S {
   /// No description provided for @audioFormatPriorityDesc.
   ///
   /// In en, this message translates to:
-  /// **'• When opening a work\'s detail page, the folder with the highest priority audio format will be expanded first'**
+  /// **'Drag formats into your preferred order. The player uses the highest-ranked format available for your subtitle and sound preferences.'**
   String get audioFormatPriorityDesc;
+
+  /// Subtitle language preference used when the player chooses its default audio variants.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle language'**
+  String get audioSubtitleLanguage;
+
+  /// Whether the default audio variants should include sound effects.
+  ///
+  /// In en, this message translates to:
+  /// **'Sound effects'**
+  String get audioSoundEffects;
+
+  /// Whether the default audio variants should include ejaculation sounds.
+  ///
+  /// In en, this message translates to:
+  /// **'Ejaculation sound'**
+  String get audioEjaculationSound;
+
+  /// Subtitle language option in audio preferences.
+  ///
+  /// In en, this message translates to:
+  /// **'Simplified Chinese'**
+  String get audioSubtitleSimplifiedChinese;
+
+  /// Subtitle language option in audio preferences.
+  ///
+  /// In en, this message translates to:
+  /// **'Traditional Chinese'**
+  String get audioSubtitleTraditionalChinese;
+
+  /// Subtitle language option for subtitles outside the supported Chinese variants.
+  ///
+  /// In en, this message translates to:
+  /// **'Other language'**
+  String get audioSubtitleOtherLanguage;
+
+  /// Subtitle language option for audio without subtitles.
+  ///
+  /// In en, this message translates to:
+  /// **'No subtitles'**
+  String get audioSubtitleNone;
+
+  /// Option indicating that the audio contains the selected sound type.
+  ///
+  /// In en, this message translates to:
+  /// **'Yes'**
+  String get audioPresent;
+
+  /// Option indicating that the audio does not contain the selected sound type.
+  ///
+  /// In en, this message translates to:
+  /// **'No'**
+  String get audioAbsent;
+
+  /// Audio format label for formats not listed by name.
+  ///
+  /// In en, this message translates to:
+  /// **'Other'**
+  String get audioFormatOther;
+
+  /// Tooltip for the player's audio filter button.
+  ///
+  /// In en, this message translates to:
+  /// **'Filter audio'**
+  String get audioFilter;
+
+  /// Title of the player's audio filtering sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Filter audio files'**
+  String get audioFilterTitle;
+
+  /// Audio format filter heading in the player's filter sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio format'**
+  String get audioFormatLabel;
+
+  /// Search field label in the player's audio filter sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'File or folder keyword'**
+  String get audioFilterKeyword;
+
+  /// Toggle for including audio variants whose attributes could not be identified.
+  ///
+  /// In en, this message translates to:
+  /// **'Include unknown items'**
+  String get audioIncludeUnknown;
+
+  /// Helper text for the include-unknown audio preference.
+  ///
+  /// In en, this message translates to:
+  /// **'Include variants when their subtitle or sound attributes cannot be identified.'**
+  String get audioIncludeUnknownDescription;
+
+  /// Toggle in the player's temporary filter sheet to show every audio combination.
+  ///
+  /// In en, this message translates to:
+  /// **'Show all combinations'**
+  String get audioShowAllCombinations;
+
+  /// Apply the temporary audio filters selected in the player's filter sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply'**
+  String get audioFilterApply;
+
+  /// Empty state shown when the selected audio filters match no files.
+  ///
+  /// In en, this message translates to:
+  /// **'No files match these filters'**
+  String get audioNoMatches;
+
+  /// Count of audio files shown in the player.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{{count} audio file} other{{count} audio files}}'**
+  String audioFileCount(int count);
+
+  /// Count of files in the player's best available audio combination.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{Best available combination · {count} file} other{Best available combination · {count} files}}'**
+  String audioBestCombinationCount(int count);
 
   /// No description provided for @ratingInfo.
   ///

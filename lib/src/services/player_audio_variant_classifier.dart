@@ -1,18 +1,8 @@
+import '../models/audio_preference.dart';
 import '../services/subtitle_matching.dart';
 import '../utils/file_tree_utils.dart';
 
-/// Subtitle language inferred from the existing file tree only.
-enum PlayerSubtitleLanguage {
-  simplifiedChinese,
-  traditionalChinese,
-  other,
-  none,
-  unknown,
-}
-
-enum PlayerAudioFormat { wav, flac, mp3, other }
-
-enum PlayerBinaryTrait { present, absent, unknown }
+export '../models/audio_preference.dart';
 
 class PlayerAudioVariant {
   const PlayerAudioVariant({
@@ -180,12 +170,22 @@ class PlayerAudioVariantClassifier {
   }
 
   /// Returns the best real combination, while allowing unknown values to act
-  /// as wildcards. This guarantees that a sparse/crossed directory layout
-  /// still yields at least one playable result.
-  List<PlayerAudioVariant> selectBest(List<PlayerAudioVariant> variants) {
-    if (variants.isEmpty) return const [];
-    final sorted = List<PlayerAudioVariant>.of(variants);
-    _sort(sorted);
+  /// as wildcards. A sparse/crossed directory layout still yields a result
+  /// when at least one variant satisfies the unknown-attribute preference.
+  List<PlayerAudioVariant> selectBest(
+    List<PlayerAudioVariant> variants, {
+    AudioFormatPreference preference = const AudioFormatPreference(),
+  }) {
+    final sorted = variants
+        .where((variant) {
+          return preference.includeUnknown ||
+              (variant.subtitleLanguage != PlayerSubtitleLanguage.unknown &&
+                  variant.se != PlayerBinaryTrait.unknown &&
+                  variant.ejaculation != PlayerBinaryTrait.unknown);
+        })
+        .toList(growable: false);
+    if (sorted.isEmpty) return const [];
+    _sort(sorted, preference: preference);
     final best = sorted.first;
 
     final result = sorted
@@ -211,35 +211,75 @@ class PlayerAudioVariantClassifier {
     return result.isEmpty ? <PlayerAudioVariant>[best] : result;
   }
 
+  PlayerAudioVariantFilter defaultFilter(
+    List<PlayerAudioVariant> variants, {
+    AudioFormatPreference preference = const AudioFormatPreference(),
+  }) {
+    final best = selectBest(variants, preference: preference).firstOrNull;
+    final language = best?.subtitleLanguage ?? preference.subtitleLanguage;
+    final se = best?.se ?? preference.se;
+    final ejaculation = best?.ejaculation ?? preference.ejaculation;
+    return PlayerAudioVariantFilter(
+      subtitleLanguages: language == PlayerSubtitleLanguage.unknown
+          ? const {}
+          : {language},
+      formats: {best?.format ?? preference.priority.first},
+      seValues: se == PlayerBinaryTrait.unknown ? const {} : {se},
+      ejaculationValues: ejaculation == PlayerBinaryTrait.unknown
+          ? const {}
+          : {ejaculation},
+      includeUnknown: preference.includeUnknown,
+    );
+  }
+
+  Set<String> preferredExpandedPaths(
+    List<PlayerAudioVariant> variants, {
+    AudioFormatPreference preference = const AudioFormatPreference(),
+  }) => {
+    for (final variant in selectBest(variants, preference: preference))
+      ...FileTreeUtils.expandedPathsFor(variant.parentPath),
+  };
+
   List<PlayerAudioVariant> applyFilter(
     List<PlayerAudioVariant> variants,
-    PlayerAudioVariantFilter filter,
-  ) {
+    PlayerAudioVariantFilter filter, {
+    AudioFormatPreference preference = const AudioFormatPreference(),
+  }) {
     final keyword = _normalize(filter.keyword).trim();
     final source = filter.showAll
         ? variants
-        : _filterByDimensions(variants, filter);
+        : _filterByDimensions(variants, filter, preference);
     final result = source
         .where((variant) {
           return keyword.isEmpty ||
               _normalize(variant.fullPath).contains(keyword);
         })
         .toList(growable: false);
-    _sort(result);
+    _sort(result, preference: preference);
     return result;
   }
 
   Iterable<PlayerAudioVariant> _filterByDimensions(
     List<PlayerAudioVariant> variants,
     PlayerAudioVariantFilter filter,
+    AudioFormatPreference preference,
   ) {
     if (filter.subtitleLanguages.isEmpty &&
         filter.formats.isEmpty &&
         filter.seValues.isEmpty &&
         filter.ejaculationValues.isEmpty) {
-      return selectBest(variants);
+      return selectBest(
+        variants,
+        preference: preference.copyWith(includeUnknown: filter.includeUnknown),
+      );
     }
     return variants.where((variant) {
+      if (!filter.includeUnknown &&
+          (variant.subtitleLanguage == PlayerSubtitleLanguage.unknown ||
+              variant.se == PlayerBinaryTrait.unknown ||
+              variant.ejaculation == PlayerBinaryTrait.unknown)) {
+        return false;
+      }
       return _matchesLanguage(variant.subtitleLanguage, filter) &&
           (filter.formats.isEmpty || filter.formats.contains(variant.format)) &&
           _matchesTrait(variant.se, filter.seValues, filter.includeUnknown) &&
@@ -327,9 +367,12 @@ class PlayerAudioVariantClassifier {
 
   PlayerAudioFormat _formatOf(String title) {
     final lower = title.toLowerCase();
-    if (lower.endsWith('.wav')) return PlayerAudioFormat.wav;
-    if (lower.endsWith('.flac')) return PlayerAudioFormat.flac;
-    if (lower.endsWith('.mp3')) return PlayerAudioFormat.mp3;
+    for (final format in AudioFormat.values) {
+      if (format != AudioFormat.other &&
+          lower.endsWith('.${format.extension}')) {
+        return format;
+      }
+    }
     return PlayerAudioFormat.other;
   }
 
@@ -442,22 +485,50 @@ class PlayerAudioVariantClassifier {
     ).replaceAll('\\', '/');
   }
 
-  int _compare(PlayerAudioVariant a, PlayerAudioVariant b) {
-    var compared = a.subtitleLanguage.index.compareTo(b.subtitleLanguage.index);
+  int _compare(
+    PlayerAudioVariant a,
+    PlayerAudioVariant b, {
+    AudioFormatPreference? preference,
+  }) {
+    int languageRank(PlayerSubtitleLanguage language) =>
+        language == preference?.subtitleLanguage ? -1 : language.index;
+    int formatRank(AudioFormat format) {
+      if (preference == null) return format.index;
+      final index = preference.priority.indexOf(format);
+      return index < 0 ? preference.priority.length + format.index : index;
+    }
+
+    int traitRank(PlayerBinaryTrait trait, PlayerBinaryTrait? preferred) =>
+        trait == preferred ? -1 : trait.index;
+
+    var compared = languageRank(
+      a.subtitleLanguage,
+    ).compareTo(languageRank(b.subtitleLanguage));
     if (compared != 0) return compared;
-    compared = a.format.index.compareTo(b.format.index);
+    compared = formatRank(a.format).compareTo(formatRank(b.format));
     if (compared != 0) return compared;
-    compared = a.se.index.compareTo(b.se.index);
+    compared = traitRank(
+      a.se,
+      preference?.se,
+    ).compareTo(traitRank(b.se, preference?.se));
     if (compared != 0) return compared;
-    compared = a.ejaculation.index.compareTo(b.ejaculation.index);
+    compared = traitRank(
+      a.ejaculation,
+      preference?.ejaculation,
+    ).compareTo(traitRank(b.ejaculation, preference?.ejaculation));
     if (compared != 0) return compared;
     return a.fullPath.toLowerCase().compareTo(b.fullPath.toLowerCase());
   }
 
-  void _sort(List<PlayerAudioVariant> variants) {
+  void _sort(
+    List<PlayerAudioVariant> variants, {
+    AudioFormatPreference? preference,
+  }) {
+    int compare(PlayerAudioVariant a, PlayerAudioVariant b) =>
+        _compare(a, b, preference: preference);
     for (var index = 1; index < variants.length; index++) {
-      if (_compare(variants[index - 1], variants[index]) > 0) {
-        variants.sort(_compare);
+      if (compare(variants[index - 1], variants[index]) > 0) {
+        variants.sort(compare);
         return;
       }
     }

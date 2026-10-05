@@ -9,6 +9,19 @@
 `02.wav`，则 `01.wav` 属于简中字幕，`02.wav` 属于无字幕。手动选择
 简中字幕时仅显示 `01.wav`。
 
+## 音频偏好
+
+音声设置的“偏好设置 → 音频偏好”保存字幕语言、格式优先顺序、效果音、
+射精音及是否包含未知属性。已有格式顺序继续有效；首次使用时优先简中、
+WAV、有效果音和有射精音。支持 WAV、FLAC、MP3、Opus、M4A、AAC 和其他格式。
+
+作品资源目录与播放器默认筛选使用同一组偏好，按字幕语言、格式、效果音、
+射精音依次选择实际存在的组合；偏好组合不存在时按优先顺序回退。作品
+详情页展开选中文件所在的全部目录及祖先目录，而不是按文件数量选目录。
+
+播放器筛选面板高亮实际采用的组合。手动筛选仅作用于当前播放器详情；
+“重置”恢复当前全局偏好，修改全局偏好或切换作品也恢复默认筛选。
+
 ## 计算与缓存
 
 音频和字幕文件名复用现有 `SubtitleMatcher` 的预处理，原始字幕名与
@@ -18,8 +31,9 @@
 
 音频列表由 `SliverList.builder` 按需构建。详情页仅在音频分类列表或筛选
 条件变化时计算筛选结果；排队状态、主题等页面重建复用结果。作品文件树
-变化时重置筛选条件。分类缓存的键包含目录边界，音频移入字幕所在目录
-后会重新分类。
+变化时恢复默认筛选。分类缓存的键包含目录边界，音频移入字幕所在目录
+后会重新分类。资源目录同样缓存分类结果，偏好变化只重新选择文件，
+不重复匹配字幕。
 
 ## 微基准
 
@@ -30,11 +44,11 @@ Flutter 测试环境测量。每项预热 2 次，采样 5 次，取中位数；
 
 | 场景 | 优化前（ms） | 优化后（ms） | 耗时减少 |
 | --- | ---: | ---: | ---: |
-| 40 个音频 + 40 个字幕分类 | 35.442 | 4.182 | 88.2% |
-| 160 个音频 + 160 个字幕分类 | 436.142 | 15.869 | 96.4% |
-| 5000 个音频，默认优选 | 5.703 | 0.877 | 84.6% |
-| 5000 个音频，手动格式筛选 | 3.245 | 0.782 | 75.9% |
-| 5000 个音频，关键词筛选 | 2.026 | 1.756 | 13.3% |
+| 40 个音频 + 40 个字幕分类 | 35.442 | 5.008 | 85.9% |
+| 160 个音频 + 160 个字幕分类 | 436.142 | 18.494 | 95.8% |
+| 5000 个音频，默认优选 | 5.703 | 1.671 | 70.7% |
+| 5000 个音频，手动格式筛选 | 3.245 | 1.097 | 66.2% |
+| 5000 个音频，关键词筛选 | 2.026 | 1.917 | 5.4% |
 
 使用仓库锁定的 Flutter SDK 复测：
 
@@ -46,10 +60,12 @@ flutter test --no-pub --reporter expanded tool/performance/player_audio_variant_
 
 定向测试覆盖部分音频缺少字幕、字幕语言优先、简繁语言标记、模糊匹配、
 目录隔离、未知属性、无序输入排序，以及筛选提交、分类列表更新、作品
-切换、目录移动和排队期间复用筛选结果。
+切换、目录移动和排队期间复用筛选结果。音频偏好测试覆盖旧格式顺序、
+保存后重新加载、重置默认、实际回退选项高亮，以及在线／离线资源目录
+展开多个优选目录、祖先目录和保留手动展开／收起状态。
 
 ```powershell
-flutter test --no-pub test/player_audio_variant_classifier_test.dart test/player_audio_details_panel_test.dart test/player_subtitle_candidates_provider_test.dart test/enqueue_next_queue_test.dart
+flutter test --no-pub test/audio_preferences_test.dart test/player_audio_variant_classifier_test.dart test/settings_subpage_test.dart test/player_audio_details_panel_test.dart test/file_explorer_refresh_test.dart test/file_tree_utils_test.dart test/work_detail_route_readiness_test.dart test/work_detail_refresh_guard_test.dart test/offline_work_detail_idle_test.dart
 ```
 
 ## 限制与已知问题

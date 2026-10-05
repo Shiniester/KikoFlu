@@ -69,6 +69,12 @@ The language of subtitles available for an individual audio file. A work's
 Chinese-language label does not imply that every audio file has subtitles.
 _Avoid_: Work language, audio language
 
+**Audio Preferences (音频偏好)**:
+The shared preferences for subtitle language, audio format order, sound effects
+and ejaculation audio. They guide preferred work resources and default player
+audio filtering.
+_Avoid_: Audio Format Preference, player-only preferences
+
 **Player Lyrics Page (播放器字幕页)**:
 The full-screen player page containing the current track's synchronized lyrics
 or subtitles.
