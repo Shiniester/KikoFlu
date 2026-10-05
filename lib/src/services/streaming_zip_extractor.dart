@@ -66,8 +66,30 @@ class StreamingZipExtractor {
 
   static Future<StreamingZipExtractionResult> extract(
     StreamingZipExtractionRequest request,
-  ) {
-    return Isolate.run(() => extractSynchronously(request));
+  ) async {
+    final values = await Isolate.run<List<Object?>>(() {
+      final result = extractSynchronously(request);
+      return <Object?>[
+        result.extractedCount,
+        result.errorCount,
+        result.skippedCount,
+        result.nestedArchiveCount,
+        result.sizeErrorCount,
+        result.depthErrorCount,
+        result.decodeErrorCount,
+        result.rootDecodeError,
+      ];
+    });
+    return StreamingZipExtractionResult(
+      extractedCount: values[0]! as int,
+      errorCount: values[1]! as int,
+      skippedCount: values[2]! as int,
+      nestedArchiveCount: values[3]! as int,
+      sizeErrorCount: values[4]! as int,
+      depthErrorCount: values[5]! as int,
+      decodeErrorCount: values[6]! as int,
+      rootDecodeError: values[7] as String?,
+    );
   }
 
   /// Synchronous implementation exposed for deterministic unit benchmarks.
