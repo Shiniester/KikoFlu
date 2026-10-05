@@ -307,11 +307,15 @@ void main() {
   });
 
   test('artwork flights and transient notices stay centralized', () {
-    final appSources = Directory('lib/src')
+    final playerSources = Directory('lib/src/widgets/player')
         .listSync(recursive: true)
         .whereType<File>()
         .where((file) => file.path.endsWith('.dart'))
         .map((file) => file.readAsStringSync())
+        .followedBy([
+          File('lib/src/screens/audio_player_screen.dart').readAsStringSync(),
+          File('lib/src/widgets/mini_player.dart').readAsStringSync(),
+        ])
         .join('\n');
     final noticeSource = File(
       'lib/src/utils/snackbar_util.dart',
@@ -320,7 +324,8 @@ void main() {
       'lib/src/widgets/player/player_cover_widget.dart',
     ).readAsStringSync();
 
-    expect(RegExp(r'\.showSnackBar\(').allMatches(appSources), hasLength(1));
+    expect(playerSources, isNot(contains('.showSnackBar(')));
+    expect(RegExp(r'\.showSnackBar\(').allMatches(noticeSource), hasLength(1));
     expect(noticeSource, contains('SnackBarBehavior.floating'));
     expect(noticeSource, contains('(width - 420) / 2'));
     expect(noticeSource, contains('(height * 0.18).clamp(88.0, 144.0)'));

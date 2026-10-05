@@ -988,10 +988,11 @@ class SEn extends S {
   String get llmSettingsSubtitle => 'API URL, key, and model';
 
   @override
-  String get audioFormatPreference => 'Audio Format Preference';
+  String get audioFormatPreference => 'Audio Preferences';
 
   @override
-  String get audioFormatSubtitle => 'Audio format priority';
+  String get audioFormatSubtitle =>
+      'Default subtitle, format, and sound preferences';
 
   @override
   String get audioTapPlaylistMode => 'Audio Add Mode';
@@ -3490,18 +3491,98 @@ class SEn extends S {
   String get shownInMoreMenu => 'Shown in More menu';
 
   @override
-  String get audioFormatPriority => 'Audio Format Priority';
+  String get audioFormatPriority => 'Audio format priority';
 
   @override
   String get confirmRestoreAudioFormat =>
-      'Are you sure you want to restore the default audio format priority?';
+      'Reset all audio preferences to their defaults?';
 
   @override
   String get priorityDescription => 'Priority Description';
 
   @override
   String get audioFormatPriorityDesc =>
-      '• When opening a work\'s detail page, the folder with the highest priority audio format will be expanded first';
+      'Drag formats into your preferred order. The player uses the highest-ranked format available for your subtitle and sound preferences.';
+
+  @override
+  String get audioSubtitleLanguage => 'Subtitle language';
+
+  @override
+  String get audioSoundEffects => 'Sound effects';
+
+  @override
+  String get audioEjaculationSound => 'Ejaculation sound';
+
+  @override
+  String get audioSubtitleSimplifiedChinese => 'Simplified Chinese';
+
+  @override
+  String get audioSubtitleTraditionalChinese => 'Traditional Chinese';
+
+  @override
+  String get audioSubtitleOtherLanguage => 'Other language';
+
+  @override
+  String get audioSubtitleNone => 'No subtitles';
+
+  @override
+  String get audioPresent => 'Yes';
+
+  @override
+  String get audioAbsent => 'No';
+
+  @override
+  String get audioFormatOther => 'Other';
+
+  @override
+  String get audioFilter => 'Filter audio';
+
+  @override
+  String get audioFilterTitle => 'Filter audio';
+
+  @override
+  String get audioFormatLabel => 'Audio format';
+
+  @override
+  String get audioFilterKeyword => 'File or folder keyword';
+
+  @override
+  String get audioIncludeUnknown => 'Include unknown items';
+
+  @override
+  String get audioIncludeUnknownDescription =>
+      'Include variants when their subtitle or sound attributes cannot be identified.';
+
+  @override
+  String get audioShowAllCombinations => 'Show all combinations';
+
+  @override
+  String get audioFilterApply => 'Apply';
+
+  @override
+  String get audioNoMatches => 'No files match these filters';
+
+  @override
+  String audioFileCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count audio files',
+      one: '$count audio file',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String audioBestCombinationCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Best available combination · $count files',
+      one: 'Best available combination · $count file',
+    );
+    return '$_temp0';
+  }
 
   @override
   String get ratingInfo => 'Rating Info';

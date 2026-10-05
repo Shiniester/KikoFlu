@@ -3,8 +3,10 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-class LinuxGoldenFileComparator extends LocalFileComparator {
-  LinuxGoldenFileComparator(super.testFile);
+const _linuxRasterizationTolerance = 0.003;
+
+class LinuxTolerantGoldenFileComparator extends LocalFileComparator {
+  LinuxTolerantGoldenFileComparator(super.testFile);
 
   @override
   Future<bool> compare(Uint8List imageBytes, Uri golden) async {
@@ -12,10 +14,13 @@ class LinuxGoldenFileComparator extends LocalFileComparator {
       imageBytes,
       await getGoldenBytes(golden),
     );
-    if (result.passed || result.diffPercent <= 0.003) {
+    final passed =
+        result.passed || result.diffPercent <= _linuxRasterizationTolerance;
+    if (passed) {
       result.dispose();
       return true;
     }
+
     final error = await generateFailureOutput(result, golden, basedir);
     result.dispose();
     throw FlutterError(error);

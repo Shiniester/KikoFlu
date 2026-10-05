@@ -14,7 +14,7 @@ import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'linux_golden_file_comparator.dart';
+import 'support/linux_golden_file_comparator.dart';
 
 const _goldenTrack = AudioTrack(
   id: 'golden-track',
@@ -29,7 +29,7 @@ void main() {
 
   setUpAll(() {
     if (Platform.isLinux) {
-      goldenFileComparator = LinuxGoldenFileComparator(
+      goldenFileComparator = LinuxTolerantGoldenFileComparator(
         Uri.parse('test/audio_player_golden_test.dart'),
       );
     }
@@ -110,8 +110,7 @@ void main() {
           ),
         ),
       );
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
 
       await expectLater(
         find.byKey(const ValueKey('player-golden-root')),

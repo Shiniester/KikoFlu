@@ -64,6 +64,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   final Map<int, Size> _imageSizes = {};
   Matrix4 _continuousTransform = Matrix4.identity();
   ScrollPosition? _continuousPosition;
+  void Function(double)? _continuousAdvanceAtExtent;
   bool _continuousPinching = false;
   Timer? _saveTimer;
   Timer? _autoPageTimer;
@@ -231,6 +232,18 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     return chapterIndex >= 0 && chapterIndex + 1 < widget.comic.chapters.length;
   }
 
+  void _registerContinuousAdvanceAtExtent(void Function(double) advance) {
+    _continuousAdvanceAtExtent = advance;
+  }
+
+  double? _continuousLastPageTrailingEdge() {
+    final lastPage = _pages.length - 1;
+    return _positions.itemPositions.value
+        .where((item) => item.index == lastPage)
+        .firstOrNull
+        ?.itemTrailingEdge;
+  }
+
   bool _continuousAtEnd() {
     final position = _continuousPosition;
     if (position == null ||
@@ -238,11 +251,8 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
         position.pixels < position.maxScrollExtent - 1) {
       return false;
     }
-    final lastPage = _pages.length - 1;
-    final lastItem = _positions.itemPositions.value
-        .where((item) => item.index == lastPage)
-        .firstOrNull;
-    if (lastItem == null || _viewport.height <= 0) return false;
+    final trailingEdge = _continuousLastPageTrailingEdge();
+    if (trailingEdge == null || _viewport.height <= 0) return false;
     final scale = _continuousTransform.getMaxScaleOnAxis();
     final translation = _continuousTransform.getTranslation();
     final visibleBottom =
@@ -250,7 +260,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
           0.0,
           1.0,
         );
-    return lastItem.itemTrailingEdge <= visibleBottom + .01;
+    return trailingEdge <= visibleBottom + .01;
   }
 
   void _autoPageTick() {
@@ -279,7 +289,14 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       final target = (position.pixels + 600)
           .clamp(position.minScrollExtent, position.maxScrollExtent)
           .toDouble();
-      if (target != position.pixels) position.jumpTo(target);
+      if (target != position.pixels) {
+        position.jumpTo(target);
+      } else {
+        final trailingEdge = _continuousLastPageTrailingEdge();
+        if (trailingEdge != null) {
+          _continuousAdvanceAtExtent?.call(trailingEdge);
+        }
+      }
       return;
     }
     final nextPage = _pageAfterView(_page, 1, mode);
@@ -372,6 +389,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     _continuous = ItemScrollController();
     _continuousTransform = Matrix4.identity();
     _continuousPosition = null;
+    _continuousAdvanceAtExtent = null;
     _continuousPinching = false;
     _layoutGeneration++;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -698,6 +716,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
           key: const ValueKey('comic-continuous-zoom'),
           focalZoom: true,
           continuous: true,
+          onAdvanceAtExtentAvailable: _registerContinuousAdvanceAtExtent,
           onTransformChanged: (value) {
             if (!mounted || layoutGeneration != _layoutGeneration) return;
             _continuousTransform = value.clone();
@@ -1137,6 +1156,7 @@ class _ZoomableComicPage extends StatefulWidget {
     this.imageSize,
     this.focalZoom = false,
     this.continuous = false,
+    this.onAdvanceAtExtentAvailable,
     this.onTransformChanged,
     this.onPinchChanged,
     this.canPanVertically,
@@ -1146,6 +1166,7 @@ class _ZoomableComicPage extends StatefulWidget {
   final Size? imageSize;
   final bool focalZoom;
   final bool continuous;
+  final ValueChanged<void Function(double)>? onAdvanceAtExtentAvailable;
   final ValueChanged<Matrix4>? onTransformChanged;
   final ValueChanged<bool>? onPinchChanged;
   final bool Function(double dy)? canPanVertically;
@@ -1180,6 +1201,7 @@ class _ZoomableComicPageState extends State<_ZoomableComicPage>
   void initState() {
     super.initState();
     _transform.addListener(_constrainTransform);
+    widget.onAdvanceAtExtentAvailable?.call(_advanceAtExtent);
     _zoomAnimationController =
         AnimationController(vsync: this, lowerBound: 0, upperBound: 1)
           ..addListener(_applyZoomAnimation)
@@ -1261,6 +1283,25 @@ class _ZoomableComicPageState extends State<_ZoomableComicPage>
     if (widget.continuous) {
       widget.onTransformChanged?.call(_transform.value);
     }
+  }
+
+  void _advanceAtExtent(double itemTrailingEdge) {
+    final viewport = _viewportSize;
+    final scale = _transform.value.getMaxScaleOnAxis();
+    if (!widget.continuous || viewport.isEmpty || scale <= 1.01) return;
+    final translation = _transform.value.getTranslation();
+    final minY = viewport.height * (1 - scale);
+    final targetY = (viewport.height * (1 - scale * itemTrailingEdge))
+        .clamp(minY, 0.0)
+        .toDouble();
+    final dy = (translation.y + (targetY - translation.y).clamp(-600.0, 0.0))
+        .clamp(minY, 0.0)
+        .toDouble();
+    if (dy == translation.y) return;
+    _interruptZoomAnimation();
+    _transform.value = _transform.value.clone()
+      ..setTranslationRaw(translation.x, dy, 0);
+    _transformChanged();
   }
 
   void _beginContinuousPinch() {

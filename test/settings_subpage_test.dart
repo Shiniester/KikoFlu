@@ -166,6 +166,66 @@ void main() {
     );
   });
 
+  testWidgets('audio preferences save subtitle and sound defaults', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      _testApp(const AudioFormatSettingsScreen(), container: container),
+    );
+    await tester.runAsync(_pumpPreferences);
+    await tester.pump();
+
+    final initial = container.read(audioFormatPreferenceProvider);
+    expect(initial.priority.first, AudioFormat.wav);
+    expect(initial.subtitleLanguage, PlayerSubtitleLanguage.simplifiedChinese);
+    expect(initial.se, PlayerBinaryTrait.present);
+    expect(initial.ejaculation, PlayerBinaryTrait.present);
+    expect(initial.includeUnknown, isTrue);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.text('Subtitle language'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Traditional Chinese'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Sound effects'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('No'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.pump();
+    await tester.runAsync(_pumpPreferences);
+
+    final preference = container.read(audioFormatPreferenceProvider);
+    expect(
+      preference.subtitleLanguage,
+      PlayerSubtitleLanguage.traditionalChinese,
+    );
+    expect(preference.se, PlayerBinaryTrait.absent);
+    expect(preference.ejaculation, PlayerBinaryTrait.present);
+    expect(preference.includeUnknown, isFalse);
+    expect(tester.takeException(), isNull);
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getString('audio_subtitle_language_preference'),
+      PlayerSubtitleLanguage.traditionalChinese.name,
+    );
+    expect(
+      prefs.getString('audio_se_preference'),
+      PlayerBinaryTrait.absent.name,
+    );
+    expect(prefs.getBool('audio_include_unknown_preference'), isFalse);
+  });
+
   testWidgets('preferences selects and persists the audio tap playlist mode', (
     tester,
   ) async {
