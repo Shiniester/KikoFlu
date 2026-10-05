@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +14,8 @@ import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/linux_golden_file_comparator.dart';
+
 const _goldenTrack = AudioTrack(
   id: 'golden-track',
   title: 'A long immersive player title',
@@ -23,36 +24,12 @@ const _goldenTrack = AudioTrack(
   album: 'Album title',
 );
 
-const _linuxRasterizationTolerance = 0.003;
-
-class _LinuxTolerantGoldenFileComparator extends LocalFileComparator {
-  _LinuxTolerantGoldenFileComparator(super.testFile);
-
-  @override
-  Future<bool> compare(Uint8List imageBytes, Uri golden) async {
-    final result = await GoldenFileComparator.compareLists(
-      imageBytes,
-      await getGoldenBytes(golden),
-    );
-    final passed =
-        result.passed || result.diffPercent <= _linuxRasterizationTolerance;
-    if (passed) {
-      result.dispose();
-      return true;
-    }
-
-    final error = await generateFailureOutput(result, golden, basedir);
-    result.dispose();
-    throw FlutterError(error);
-  }
-}
-
 void main() {
   final defaultGoldenFileComparator = goldenFileComparator;
 
   setUpAll(() {
     if (Platform.isLinux) {
-      goldenFileComparator = _LinuxTolerantGoldenFileComparator(
+      goldenFileComparator = LinuxTolerantGoldenFileComparator(
         Uri.parse('test/audio_player_golden_test.dart'),
       );
     }
@@ -133,8 +110,7 @@ void main() {
           ),
         ),
       );
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
 
       await expectLater(
         find.byKey(const ValueKey('player-golden-root')),
