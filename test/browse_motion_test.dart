@@ -161,6 +161,13 @@ void main() {
       works.setDisplayMode(DisplayMode.all);
       await tester.pump();
       expect(find.byType(CustomScrollView), findsOneWidget);
+      expect(
+        tester
+            .widget<CustomScrollView>(find.byType(CustomScrollView))
+            .controller!
+            .offset,
+        600,
+      );
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },
@@ -209,7 +216,10 @@ void main() {
       await doubleTap();
       expect(controller.value, reversing);
       await tester.pump(const Duration(milliseconds: 80));
-      expect(controller.value.getMaxScaleOnAxis(), greaterThan(reversing.getMaxScaleOnAxis()));
+      expect(
+        controller.value.getMaxScaleOnAxis(),
+        greaterThan(reversing.getMaxScaleOnAxis()),
+      );
       final touch = await tester.startGesture(point);
       final stopped = controller.value.clone();
       await tester.pump(const Duration(milliseconds: 300));

@@ -3897,6 +3897,18 @@ class SJa extends S {
   String get comicEnabled => '配信元を有効にする';
 
   @override
+  String get comicScreenOrientation => '画面の向き';
+
+  @override
+  String get comicOrientationSystem => 'システムに従う';
+
+  @override
+  String get comicOrientationPortrait => '縦向き';
+
+  @override
+  String get comicOrientationLandscape => '横向き';
+
+  @override
   String get comicReadingMode => '読み方';
 
   @override

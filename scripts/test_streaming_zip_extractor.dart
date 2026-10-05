@@ -1,25 +1,12 @@
 import 'dart:io';
 
 import 'package:archive/archive.dart';
-import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/services/streaming_zip_extractor.dart';
 
-void main() {
-  late Directory sandbox;
-
-  setUp(() async {
-    sandbox = await Directory.systemTemp.createTemp('kikoflu_zip_test_');
-  });
-
-  tearDown(() async {
-    if (await sandbox.exists()) {
-      await sandbox.delete(recursive: true);
-    }
-  });
-
-  test(
+Future<void> main() async {
+  await _test(
     'streams root and nested ZIP entries while containing traversal',
-    () async {
+    (sandbox) async {
       final nestedBytes = _encodeZip({
         'track.srt': '1\n00:00:00,000 --> 00:00:01,000\nnested\n',
       });
@@ -42,39 +29,38 @@ void main() {
         ),
       );
 
-      expect(result.decodedRootArchive, isTrue);
-      expect(result.extractedCount, 2);
-      expect(result.nestedArchiveCount, 1);
-      expect(result.skippedCount, 1);
-      expect(
+      assert(result.decodedRootArchive);
+      assert(result.extractedCount == 2);
+      assert(result.nestedArchiveCount == 1);
+      assert(result.skippedCount == 1);
+      assert(
         File(
-          '${target.path}${Platform.pathSeparator}escape.srt',
-        ).readAsStringSync(),
-        'inside',
+              '${target.path}${Platform.pathSeparator}escape.srt',
+            ).readAsStringSync() ==
+            'inside',
       );
-      expect(
+      assert(
         File(
           '${target.path}${Platform.pathSeparator}RJ123456'
           '${Platform.pathSeparator}track.srt',
         ).existsSync(),
-        isTrue,
       );
-      expect(
-        File(
+      assert(
+        !File(
           '${sandbox.parent.path}${Platform.pathSeparator}escape.srt',
         ).existsSync(),
-        isFalse,
       );
-      expect(
-        Directory(
+      assert(
+        !Directory(
           '${target.path}${Platform.pathSeparator}.nested_archives',
         ).existsSync(),
-        isFalse,
       );
     },
   );
 
-  test('rejects oversized entries before decompressing them', () async {
+  await _test('rejects oversized entries before decompressing them', (
+    sandbox,
+  ) async {
     final source = File('${sandbox.path}${Platform.pathSeparator}source.zip');
     await source.writeAsBytes(_encodeZip({'large.srt': '123456'}));
     final target = Directory('${sandbox.path}${Platform.pathSeparator}output');
@@ -89,18 +75,17 @@ void main() {
       ),
     );
 
-    expect(result.extractedCount, 0);
-    expect(result.sizeErrorCount, 1);
-    expect(result.skippedCount, 1);
-    expect(
-      File('${target.path}${Platform.pathSeparator}large.srt').existsSync(),
-      isFalse,
+    assert(result.extractedCount == 0);
+    assert(result.sizeErrorCount == 1);
+    assert(result.skippedCount == 1);
+    assert(
+      !File('${target.path}${Platform.pathSeparator}large.srt').existsSync(),
     );
   });
 
-  test(
+  await _test(
     'reports a damaged root archive without leaving temporary files',
-    () async {
+    (sandbox) async {
       final source = File('${sandbox.path}${Platform.pathSeparator}source.zip');
       await source.writeAsBytes(<int>[1, 2, 3, 4]);
       final target = Directory(
@@ -116,16 +101,27 @@ void main() {
         ),
       );
 
-      expect(result.decodedRootArchive, isFalse);
-      expect(result.decodeErrorCount, 1);
-      expect(
-        Directory(
+      assert(!result.decodedRootArchive);
+      assert(result.decodeErrorCount == 1);
+      assert(
+        !Directory(
           '${target.path}${Platform.pathSeparator}.nested_archives',
         ).existsSync(),
-        isFalse,
       );
     },
   );
+}
+
+Future<void> _test(String name, Future<void> Function(Directory) run) async {
+  final sandbox = await Directory.systemTemp.createTemp('kikoflu_zip_test_');
+  try {
+    await run(sandbox);
+    stdout.writeln('PASS: $name');
+  } finally {
+    if (await sandbox.exists()) {
+      await sandbox.delete(recursive: true);
+    }
+  }
 }
 
 List<int> _encodeZip(Map<String, String> files) {

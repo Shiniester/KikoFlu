@@ -4010,6 +4010,18 @@ class SEn extends S {
   String get comicEnabled => 'Enable source';
 
   @override
+  String get comicScreenOrientation => 'Screen orientation';
+
+  @override
+  String get comicOrientationSystem => 'Follow system';
+
+  @override
+  String get comicOrientationPortrait => 'Portrait';
+
+  @override
+  String get comicOrientationLandscape => 'Landscape';
+
+  @override
   String get comicReadingMode => 'Reading mode';
 
   @override

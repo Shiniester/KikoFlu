@@ -29,6 +29,9 @@ void main() {
       AudioTapPlaylistModeNotifier.preferenceKey:
           AudioTapPlaylistMode.replaceQueue.name,
     });
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
@@ -297,6 +300,9 @@ void main() {
     SharedPreferences.setMockInitialValues({
       AudioTapPlaylistModeNotifier.preferenceKey: 'invalid',
     });
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
     final container = ProviderContainer();
     addTearDown(container.dispose);
 

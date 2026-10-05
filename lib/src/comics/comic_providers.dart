@@ -53,6 +53,15 @@ final comicReadingModeProvider = StateProvider<ComicReadingMode>((ref) {
   return ComicReadingMode.values.where((v) => v.name == name).firstOrNull ??
       ComicReadingMode.rightToLeft;
 });
+final comicScreenOrientationProvider = StateProvider<ComicScreenOrientation>((
+  ref,
+) {
+  final name = StorageService.getString('comic_screen_orientation');
+  return ComicScreenOrientation.values
+          .where((v) => v.name == name)
+          .firstOrNull ??
+      ComicScreenOrientation.system;
+});
 final comicSelectedSourceProvider = StateProvider<String>(
   (ref) => StorageService.getString('comic_selected_source') ?? 'picacg',
 );
