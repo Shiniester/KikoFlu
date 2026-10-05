@@ -1,4 +1,5 @@
 name: Build Android Beta and Pre-release
+run-name: 'Android Beta ${{ inputs.version }} (branch: ${{ github.ref_name }})'
 
 on:
   workflow_dispatch:
@@ -28,6 +29,10 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
+      - name: Show Beta Branch
+        run: |
+          printf 'Branch: %s\nCommit: %s\n' "$GITHUB_REF_NAME" "$GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/checkout@v6
 
       - name: Validate Beta Version
@@ -188,8 +193,9 @@ jobs:
           for asset in "${assets[@]}"; do
             test -s "$asset"
           done
-          printf '%s\n\n%s\n' \
+          printf '%s\n\nBranch: %s\nCommit: %s\n\n%s\n' \
             'Android Beta: installs alongside KikoFlu as KikoFlu Beta with separate app data.' \
+            "$GITHUB_REF_NAME" "$GITHUB_SHA" \
             "$RELEASE_NOTES" > "$RUNNER_TEMP/beta-release-notes.md"
           gh release create "$TAG" --target "$GITHUB_SHA" \
             --title "KikoFlu $TAG" --notes-file "$RUNNER_TEMP/beta-release-notes.md" \
