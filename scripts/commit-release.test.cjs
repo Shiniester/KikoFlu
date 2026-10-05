@@ -92,15 +92,15 @@ test("queues exact commits, gates turn commits, pushes promptly, and serializes 
     const merge = git(root, ["config", "--get", `branch.${localBranch}.merge`]);
     const remoteBranch = merge.slice("refs/heads/".length);
     return {
-    localBranch,
-    remote,
-    remoteBranch,
-    remoteUrl: git(root, ["config", "--get", `remote.${remote}.url`]),
-    githubHost: "github.com",
-    githubRepo: "test/KikoFlu",
-    setUpstream: false,
-    workflow: remoteBranch === "main" ? "build.yml" : "build_android_beta.yml",
-  };
+      localBranch,
+      remote,
+      remoteBranch,
+      remoteUrl: git(root, ["config", "--get", `remote.${remote}.url`]),
+      githubHost: "github.com",
+      githubRepo: "test/KikoFlu",
+      setUpstream: false,
+      workflow: remoteBranch === "main" ? "build.yml" : "build_android_beta.yml",
+    };
   };
   const capture = (temporaryIndex = "") => release.captureCommit(repo, {
     GIT_INDEX_FILE: temporaryIndex,
@@ -127,6 +127,7 @@ test("queues exact commits, gates turn commits, pushes promptly, and serializes 
   continuePlanner = deferred();
   const dispatches = [];
   const runs = new Map();
+  let monitorFailures = 0;
   const releases = [{ tag_name: "v1.0.0", draft: false, prerelease: false, published_at: "2026-01-01T00:00:00Z" }];
   const plannedBases = [];
   const services = {
@@ -146,6 +147,7 @@ test("queues exact commits, gates turn commits, pushes promptly, and serializes 
       const endpoint = args[args.length - 1];
       if (endpoint.includes("/releases?")) return { status: 0, stdout: JSON.stringify([releases]) };
       if (endpoint.endsWith("/dispatches")) {
+        if (dispatches.length) assert.equal(runs.get(String(dispatches.at(-1).id)).finished, true, "wait for the previous workflow before dispatching another");
         const body = JSON.parse(input);
         const id = dispatches.length + 1;
         dispatches.push({ job, body, id });
@@ -156,16 +158,23 @@ test("queues exact commits, gates turn commits, pushes promptly, and serializes 
       const run = runs.get(runId);
       assert.ok(run, `unexpected workflow run ${runId}`);
       run.polls++;
-      if (run.polls === 1) return { status: 0, stdout: JSON.stringify({ status: "in_progress", conclusion: null }) };
-      const inputVersion = run.dispatch.body.inputs.version;
-      const tag = `v${inputVersion}`;
-      const target = run.dispatch.body.inputs.commit_sha;
-      if (!releases.some((item) => item.tag_name === tag)) {
-        git(repo, ["tag", tag, target]);
-        git(repo, ["push", "origin", `refs/tags/${tag}:refs/tags/${tag}`]);
-        releases.push({ tag_name: tag, draft: false, prerelease: false, published_at: new Date(Date.now() + idSort(runId)).toISOString() });
+      if (runId === "1" && run.polls === 1) {
+        monitorFailures++;
+        throw new Error("temporary workflow status failure");
       }
-      return { status: 0, stdout: JSON.stringify({ status: "completed", conclusion: "success" }) };
+      if (run.polls <= (runId === "1" ? 2 : 1)) return { status: 0, stdout: JSON.stringify({ status: "in_progress", conclusion: null }) };
+      const inputVersion = run.dispatch.body.inputs.version;
+      if (runId !== "2") {
+        const tag = `v${inputVersion}`;
+        const target = run.dispatch.body.inputs.commit_sha;
+        if (!releases.some((item) => item.tag_name === tag)) {
+          git(repo, ["tag", tag, target]);
+          git(repo, ["push", "origin", `refs/tags/${tag}:refs/tags/${tag}`]);
+          releases.push({ tag_name: tag, draft: false, prerelease: false, published_at: new Date(Date.now() + idSort(runId)).toISOString() });
+        }
+      }
+      run.finished = true;
+      return { status: 0, stdout: JSON.stringify({ status: "completed", conclusion: runId === "2" ? "failure" : "success" }) };
     },
   };
 
@@ -209,16 +218,21 @@ test("queues exact commits, gates turn commits, pushes promptly, and serializes 
   assert.deepEqual(dispatches.map((item) => item.body), [
     { ref: "main", inputs: { version: "1.0.1", release_notes: `Release ${sha1}`, commit_sha: sha1 } },
     { ref: "main", inputs: { version: "1.0.2", release_notes: `Release ${sha2}`, commit_sha: sha2 } },
-    { ref: "main", inputs: { version: "1.0.3", release_notes: `Release ${sha3}`, commit_sha: sha3 } },
+    { ref: "main", inputs: { version: "1.0.2", release_notes: `Release ${sha3}`, commit_sha: sha3 } },
   ]);
-  assert.deepEqual(plannedBases.map((item) => item.baseline), ["v1.0.0", "v1.0.1", "v1.0.2"]);
+  assert.deepEqual(plannedBases.map((item) => item.baseline), ["v1.0.0", "v1.0.1", "v1.0.1"]);
+  assert.equal(monitorFailures, 1, "temporary workflow status failures are retried before later releases");
   assert.equal(git(bare, ["rev-parse", "refs/heads/main"]), sha3);
   const mainJobs = release.readJobs(commonDir);
   const persistedDispatch = mainJobs.find((job) => job.head === sha1);
   assert.equal(persistedDispatch.schemaVersion, 1);
   assert.equal(persistedDispatch.releaseVersion, "1.0.1");
   assert.equal(persistedDispatch.releaseState, "done");
-  assert.match(release.status(repo), /version=1\.0\.3/);
+  const failedWorkflow = mainJobs.find((job) => job.head === sha2);
+  assert.equal(failedWorkflow.releaseState, "failed");
+  assert.equal(failedWorkflow.releaseError, "workflow concluded failure");
+  assert.match(release.status(repo), /workflow concluded failure/);
+  assert.match(release.status(repo), /version=1\.0\.2/);
 
   git(repo, ["switch", "-c", "local-beta-target", sha1]);
   git(repo, ["config", "branch.local-beta-target.remote", "origin"]);
@@ -259,6 +273,53 @@ test("queues exact commits, gates turn commits, pushes promptly, and serializes 
   assert.equal(failedJob.schemaVersion, 1);
   assert.equal(failedJob.releaseVersion, null);
   assert.equal(dispatches.length, 3, "an invalid planner result must not dispatch a workflow");
+
+  const ambiguousSha = commitFile(repo, "ambiguous.txt", "ambiguous dispatch\n", "ambiguous dispatch fixture");
+  const ambiguous = capture();
+  assert.equal(ambiguous.head, ambiguousSha);
+  let ambiguousPosts = 0;
+  let spawnedWorkers = 0;
+  const ambiguousServices = {
+    ...services,
+    plan: async () => ({ publish: true, bump: "patch", release_notes: "ambiguous fixture", reason: "patch" }),
+    gh: async (_job, args) => {
+      const endpoint = args.at(-1);
+      if (endpoint.includes("/releases?")) return { status: 0, stdout: JSON.stringify([releases]) };
+      if (endpoint.endsWith("/dispatches")) {
+        ambiguousPosts++;
+        return { status: 0, stdout: JSON.stringify({ message: "accepted without run details" }) };
+      }
+      throw new Error(`unexpected GitHub call ${endpoint}`);
+    },
+    startWorker: () => { spawnedWorkers++; },
+  };
+  await release.runWorker(commonDir, ambiguousServices);
+  const ambiguousJob = release.readJobs(commonDir).find((job) => job.head === ambiguousSha);
+  assert.equal(ambiguousJob.releaseState, "uncertain");
+  assert.equal(ambiguousJob.releaseVersion, "1.0.3");
+  assert.equal(ambiguousPosts, 1);
+
+  const laterSha = commitFile(repo, "after-ambiguous.txt", "later commit\n", "after ambiguous dispatch");
+  const later = capture();
+  await release.runWorker(commonDir, ambiguousServices);
+  const laterJob = release.readJobs(commonDir).find((job) => job.head === laterSha);
+  assert.equal(git(bare, ["rev-parse", "refs/heads/main"]), laterSha, "later commits still push while release planning is blocked");
+  assert.equal(laterJob.pushState, "pushed");
+  assert.equal(laterJob.releaseState, "queued", "an uncertain dispatch blocks later version selection");
+  assert.equal(ambiguousPosts, 1, "a second worker must not repeat an ambiguous dispatch");
+  assert.equal(spawnedWorkers, 0, "an uncertain head job must not start a polling loop");
+
+  const beforeExpired = git(bare, ["rev-parse", "refs/heads/main"]);
+  const expiredSha = commitFile(repo, "expired-turn.txt", "unaccepted turn\n", "expired turn fixture");
+  const expired = capture("C:\\temp\\turn-commit-expired.index");
+  assert.equal(release.validAccepted(expired), false);
+  const expiredNow = Date.now() + 5 * 60 * 1000;
+  await release.runWorker(commonDir, { ...services, now: () => expiredNow, startWorker: () => { spawnedWorkers++; } });
+  const expiredJob = release.readJobs(commonDir).find((job) => job.head === expiredSha);
+  assert.equal(expiredJob.pushState, "blocked");
+  assert.equal(expiredJob.releaseState, "blocked");
+  assert.equal(git(bare, ["rev-parse", "refs/heads/main"]), beforeExpired, "an expired unaccepted turn SHA stays unpushed");
+  assert.equal(spawnedWorkers, 0);
 });
 
 test("native post-commit hook captures a commit without starting network work in the fixture", async (t) => {
@@ -296,6 +357,9 @@ test("native post-commit hook captures a commit without starting network work in
   assert.equal(jobs.length, 1);
   assert.equal(jobs[0].head, head);
   assert.equal(jobs[0].branch, "refs/heads/main");
+  assert.equal(jobs[0].remoteBranch, "main", "a branch without an upstream defaults to origin and its own name");
+  assert.equal(jobs[0].workflow, "build.yml");
+  assert.equal(jobs[0].setUpstream, true);
   assert.equal(jobs[0].pushState, "queued");
   assert.equal(git(repo, ["config", "--local", "--get", "core.hooksPath"]), path.resolve(__dirname, "..", ".githooks"));
 });
