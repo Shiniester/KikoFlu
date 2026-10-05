@@ -89,8 +89,6 @@ void main() {
     '40ms home round trips isolate controllers and restore position',
     (tester) async {
       late _Works works;
-      final reduced = ValueNotifier(false);
-      addTearDown(reduced.dispose);
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
@@ -100,7 +98,7 @@ void main() {
               (ref) => Stream.value(const DownloadTaskSummary.empty()),
             ),
           ],
-          child: _app(const WorksScreen(), reduced: reduced),
+          child: _app(const WorksScreen()),
         ),
       );
       await tester.pumpAndSettle();
@@ -110,68 +108,79 @@ void main() {
       first.jumpTo(600);
       await tester.pump();
       works.setDisplayMode(DisplayMode.popular);
-      await tester.pump();
       await tester.pump(const Duration(milliseconds: 40));
-      expect(first.positions.length, 1);
-      final controllers = tester
+      expect(first.positions, isEmpty);
+      var controllers = tester
           .widgetList<CustomScrollView>(find.byType(CustomScrollView))
           .map((w) => w.controller!)
           .toList();
-      expect(controllers.toSet().length, 2);
-      for (final controller in controllers) {
-        expect(controller.positions.length, 1);
-      }
+      expect(controllers, hasLength(1));
+      var current = controllers.single;
+      expect(identical(first, current), isFalse);
+      expect(current.positions.length, 1);
       final oldCollection = tester.widget<VirtualizedSliverCollection<Work>>(
         find.descendant(
           of: find.byKey(const ValueKey('popular-1')),
           matching: find.byType(VirtualizedSliverCollection<Work>),
         ),
       );
-      final heroModes = tester.widgetList<HeroMode>(
-        find.descendant(
-          of: find.byType(AnimatedSwitcher).first,
-          matching: find.byType(HeroMode),
-        ),
-      );
-      expect(heroModes.where((mode) => mode.enabled).length, 1);
-      expect(heroModes.where((mode) => !mode.enabled).length, 1);
+
       works.setDisplayMode(DisplayMode.all);
-      await tester.pump();
-      final current = tester
-          .widget<CustomScrollView>(
-            find.descendant(
-              of: find.byKey(const ValueKey('all-2')),
-              matching: find.byType(CustomScrollView),
-            ),
-          )
-          .controller!;
-      expect(identical(first, current), isFalse);
-      expect(current.offset, 600);
+      await tester.pump(const Duration(milliseconds: 40));
+      controllers = tester
+          .widgetList<CustomScrollView>(find.byType(CustomScrollView))
+          .map((w) => w.controller!)
+          .toList();
+      expect(controllers, hasLength(1));
+      final restored = controllers.single;
+      expect(identical(current, restored), isFalse);
+      expect(current.positions, isEmpty);
+      expect(restored.positions.length, 1);
+      expect(identical(first, restored), isFalse);
+      expect(restored.offset, 600);
       await oldCollection.onLoadMore!();
       expect(works.loadMoreCalls, 0);
-      reduced.value = true;
-      await tester.pump();
-      final slides = tester.widgetList<SlideTransition>(
-        find.descendant(
-          of: find.byType(AnimatedSwitcher).first,
-          matching: find.byType(SlideTransition),
-        ),
-      );
-      expect(slides, isNotEmpty);
-      for (final slide in slides) {
-        expect(slide.position.value, Offset.zero);
-      }
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(find.byType(CustomScrollView), findsOneWidget);
+
+      current = restored;
+      works.setDisplayMode(DisplayMode.popular);
+      await tester.pump(const Duration(milliseconds: 40));
+      controllers = tester
+          .widgetList<CustomScrollView>(find.byType(CustomScrollView))
+          .map((w) => w.controller!)
+          .toList();
+      expect(controllers, hasLength(1));
+      final popular = controllers.single;
+      expect(identical(current, popular), isFalse);
+      expect(current.positions, isEmpty);
+      expect(popular.positions.length, 1);
+
+      works.setDisplayMode(DisplayMode.all);
+      await tester.pump(const Duration(milliseconds: 40));
+      controllers = tester
+          .widgetList<CustomScrollView>(find.byType(CustomScrollView))
+          .map((w) => w.controller!)
+          .toList();
+      expect(controllers, hasLength(1));
+      final restoredAgain = controllers.single;
+      expect(identical(popular, restoredAgain), isFalse);
+      expect(popular.positions, isEmpty);
+      expect(restoredAgain.positions.length, 1);
+      expect(restoredAgain.offset, 600);
+
       works.clearMode(DisplayMode.recommended);
       works.setDisplayMode(DisplayMode.recommended);
-      await tester.pump();
       await tester.pump(const Duration(milliseconds: 40));
       expect(works.refreshCalls, 1);
       works.setDisplayMode(DisplayMode.all);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 220));
+      await tester.pump(const Duration(milliseconds: 40));
       expect(find.byType(CustomScrollView), findsOneWidget);
+      expect(
+        tester
+            .widget<CustomScrollView>(find.byType(CustomScrollView))
+            .controller!
+            .offset,
+        600,
+      );
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },
@@ -220,7 +229,10 @@ void main() {
       await doubleTap();
       expect(controller.value, reversing);
       await tester.pump(const Duration(milliseconds: 80));
-      expect(controller.value.getMaxScaleOnAxis(), greaterThan(reversing.getMaxScaleOnAxis()));
+      expect(
+        controller.value.getMaxScaleOnAxis(),
+        greaterThan(reversing.getMaxScaleOnAxis()),
+      );
       final touch = await tester.startGesture(point);
       final stopped = controller.value.clone();
       await tester.pump(const Duration(milliseconds: 300));

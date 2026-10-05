@@ -106,11 +106,19 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
 
   void _deactivate(int index) {
     _activeTiles.remove(index);
+    _trimThumbnails();
     _tileSizes.remove(index);
     _errors.remove(index);
     if (_queued.remove(index)) {
       _queue.remove(index);
       _queuedSizes.remove(index);
+    }
+  }
+
+  void _trimThumbnails() {
+    for (final index in _thumbnails.keys.toList()) {
+      if (_thumbnails.length <= _cacheLimit) break;
+      if (!_activeTiles.contains(index)) _thumbnails.remove(index);
     }
   }
 
@@ -156,9 +164,7 @@ class _ComicPagePreviewState extends State<ComicPagePreview> {
           _errors.remove(index);
           _thumbnails.remove(index);
           _thumbnails[index] = thumbnail;
-          while (_thumbnails.length > _cacheLimit) {
-            _thumbnails.remove(_thumbnails.keys.first);
-          }
+          _trimThumbnails();
         });
       }
     } catch (error) {

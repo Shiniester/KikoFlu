@@ -94,6 +94,42 @@ Future<void> _closePreview(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('keeps every active thumbnail loaded in a tall desktop sheet', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 4000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final requests = <int, int>{};
+    await tester.pumpWidget(
+      _host(
+        pageCount: 150,
+        initialPage: 0,
+        loadImage: (index) async {
+          requests.update(index, (count) => count + 1, ifAbsent: () => 1);
+          return _png;
+        },
+        onOpened: (_) {},
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('open-preview')));
+    await _pumpFrames(tester);
+    for (var frame = 0; frame < 200; frame++) {
+      await _pumpNativeFrame(tester);
+      if (requests.length > 64 &&
+          find.byType(CircularProgressIndicator).evaluate().isEmpty) {
+        break;
+      }
+    }
+    expect(requests.length, greaterThan(64));
+    expect(find.byType(Image).evaluate().length, greaterThan(64));
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(requests.values, everyElement(1));
+    await tester.pump();
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    await _closePreview(tester);
+  });
+
   testWidgets('starts at the selected middle page with at most three loads', (
     tester,
   ) async {

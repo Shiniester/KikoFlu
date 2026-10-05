@@ -142,6 +142,9 @@ void main() {
       final miniPlayer = File(
         'lib/src/widgets/mini_player.dart',
       ).readAsStringSync();
+      final cachedImageWidget = File(
+        'lib/src/widgets/cached_image_widget.dart',
+      ).readAsStringSync();
       final infoPanel = File(
         'lib/src/widgets/player/player_info_panel.dart',
       ).readAsStringSync();
@@ -238,7 +241,8 @@ void main() {
       expect(miniPlayer, contains('class _MiniPlayerTrackSwitcher'));
       expect(miniPlayer, contains('PlayerTrackLayers<AudioTrack>'));
       expect(miniPlayer, isNot(contains('AnimatedSwitcher')));
-      expect(playerCover, contains('useOldImageOnUrlChange: true'));
+      expect(cachedImageWidget, contains('useOldImageOnUrlChange: true'));
+      expect(playerCover, contains('PlayerTrackLayers<_PlayerCoverSnapshot>'));
       expect(miniPlayer, isNot(contains('Icons.skip_previous')));
       expect(miniPlayer, isNot(contains('Icons.skip_next')));
       expect(playerLaunch, contains('class PlayerLaunchRegion'));

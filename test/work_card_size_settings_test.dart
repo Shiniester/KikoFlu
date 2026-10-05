@@ -7,6 +7,7 @@ import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/providers/work_card_display_provider.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart';
 import 'package:kikoeru_flutter/src/screens/work_card_display_settings_screen.dart';
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/works_grid_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -34,8 +35,11 @@ Future<void> _pumpAsyncPreferenceLoad(WidgetTester tester) async {
 }
 
 void main() {
-  setUp(() {
+  setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
   });
 
   testWidgets(
@@ -143,7 +147,7 @@ void main() {
     expect(find.byType(AspectRatio), findsOneWidget);
     expect(
       tester.widget<AspectRatio>(find.byType(AspectRatio)).aspectRatio,
-      1.3,
+      4 / 3,
     );
   });
 

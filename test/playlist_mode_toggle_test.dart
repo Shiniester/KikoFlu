@@ -7,6 +7,7 @@ import 'package:kikoeru_flutter/src/models/audio_tap_playlist_mode.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/playlist_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,8 +15,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(() {
+  setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
   });
 
   testWidgets('playlist mode menu selects and persists all modes', (
@@ -25,6 +29,9 @@ void main() {
       AudioTapPlaylistModeNotifier.preferenceKey:
           AudioTapPlaylistMode.replaceQueue.name,
     });
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
@@ -293,6 +300,9 @@ void main() {
     SharedPreferences.setMockInitialValues({
       AudioTapPlaylistModeNotifier.preferenceKey: 'invalid',
     });
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
     final container = ProviderContainer();
     addTearDown(container.dispose);
 

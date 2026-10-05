@@ -38,11 +38,17 @@ def output_values(path):
     return values
 
 
-def run_main(*, branch="main", head=TARGET, changed="README.md\0", logs="",
-             old_target=False, baseline_ancestor=True, releases=None, tags=None):
+def run_main(*, branch="main", head=TARGET, target=TARGET, changed="README.md\0", logs="",
+             old_target=False, baseline_ancestor=True, releases=None, tags=None,
+             beta_tag_commits=None, beta_ancestor_tags=(), beta_ancestor_pairs=()):
     calls = []
     releases = RELEASES if releases is None else releases
     tags = tags or []
+    if beta_tag_commits is None:
+        beta_tag_commits = {
+            release["tag_name"]: "e" * 40 for release in releases
+            if not release["draft"] and release["prerelease"]
+        }
 
     def command(*args):
         calls.append(args)
@@ -52,6 +58,11 @@ def run_main(*, branch="main", head=TARGET, changed="README.md\0", logs="",
             return ""
         if args == ("git", "rev-parse", "FETCH_HEAD^{commit}"):
             return BASELINE
+        if args[:2] == ("git", "rev-parse") and args[2].startswith("refs/tags/"):
+            tag = args[2][len("refs/tags/"):-len("^{commit}")]
+            if tag not in beta_tag_commits:
+                raise planner.subprocess.CalledProcessError(128, args)
+            return beta_tag_commits[tag]
         if args[:2] == ("git", "diff") and "--name-only" in args:
             return changed
         if args[:2] == ("git", "log"):
@@ -60,17 +71,28 @@ def run_main(*, branch="main", head=TARGET, changed="README.md\0", logs="",
 
     def run(args, cwd):
         args = tuple(args)
-        if args == ("git", "merge-base", "--is-ancestor", TARGET, BASELINE):
+        if args == ("git", "merge-base", "--is-ancestor", target, BASELINE):
             return SimpleNamespace(returncode=0 if old_target else 1)
-        if args == ("git", "merge-base", "--is-ancestor", BASELINE, TARGET):
+        if args == ("git", "merge-base", "--is-ancestor", BASELINE, target):
             return SimpleNamespace(returncode=0 if baseline_ancestor else 1)
+        if args[:3] == ("git", "merge-base", "--is-ancestor"):
+            beta_commit, candidate_target = args[-2:]
+            if candidate_target == target:
+                tag = next((tag for tag, commit in beta_tag_commits.items()
+                            if commit == beta_commit), None)
+                if tag:
+                    return SimpleNamespace(returncode=0 if tag in beta_ancestor_tags else 1)
+            if beta_commit == candidate_target or (beta_commit, candidate_target) in beta_ancestor_pairs:
+                return SimpleNamespace(returncode=0)
+            if beta_commit in beta_tag_commits.values() and candidate_target in beta_tag_commits.values():
+                return SimpleNamespace(returncode=1)
         raise AssertionError(f"Unexpected subprocess: {args}")
 
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         output, summary = root / "output", root / "summary"
         env = {"GH_REPO": "owner/repo", "GITHUB_REF_NAME": branch,
-               "GITHUB_SHA": TARGET, "GITHUB_OUTPUT": str(output),
+               "GITHUB_SHA": target, "GITHUB_OUTPUT": str(output),
                "GITHUB_STEP_SUMMARY": str(summary)}
         with patch.dict(os.environ, env, clear=True), \
                 patch.object(planner, "ROOT", root), \
@@ -171,6 +193,79 @@ def check():
     assert ("git", "log", "--format=%B%x00", "--encoding=UTF-8", "--reverse",
             f"{BASELINE}..{TARGET}", "--") in calls
 
+    stable_only = [RELEASES[0]]
+    first_beta_sha, docs_sha, next_fix_sha, other_branch_sha = (
+        "1" * 40, "2" * 40, "3" * 40, "4" * 40)
+    values, _, _ = run_main(
+        branch="feature/player", head=first_beta_sha, target=first_beta_sha,
+        changed="lib/file.dart\0", logs=git_log("fix(player): prevent crash"),
+        releases=stable_only, beta_tag_commits={})
+    assert values["publish"] == "true" and values["version"] == "4.8.2-beta.1"
+
+    first_beta = {"tag_name": "v4.8.2-beta.1", "published_at": "2026-10-02T00:00:00Z",
+                  "draft": False, "prerelease": True}
+    other_branch_beta = {"tag_name": "v4.8.2-beta.2", "published_at": "2026-10-03T00:00:00Z",
+                         "draft": False, "prerelease": True}
+    other_base_beta = {"tag_name": "v4.8.3-beta.99", "published_at": "2026-10-04T00:00:00Z",
+                       "draft": False, "prerelease": True}
+    beta_releases = [*stable_only, first_beta, other_branch_beta, other_base_beta]
+    beta_commits = {first_beta["tag_name"]: first_beta_sha,
+                    other_branch_beta["tag_name"]: other_branch_sha,
+                    other_base_beta["tag_name"]: docs_sha}
+    values, summary, calls = run_main(
+        branch="feature/player", head=docs_sha, target=docs_sha,
+        changed="README.md\0", logs=git_log("docs: update docs", "chore: tidy scripts"),
+        releases=beta_releases, beta_tag_commits=beta_commits,
+        beta_ancestor_tags={first_beta["tag_name"]})
+    assert values == {"publish": "false", "version": "", "release_notes": "", "commit_sha": ""}
+    assert "Classification baseline: v4.8.2-beta.1" in summary
+    assert ("git", "log", "--format=%B%x00", "--encoding=UTF-8", "--reverse",
+            f"{first_beta_sha}..{docs_sha}", "--") in calls
+
+    values, _, calls = run_main(
+        branch="feature/player", head=next_fix_sha, target=next_fix_sha,
+        changed="lib/file.dart\0", logs=git_log("fix(player): prevent another crash"),
+        releases=beta_releases, beta_tag_commits=beta_commits,
+        beta_ancestor_tags={first_beta["tag_name"]})
+    assert values == {"publish": "true", "version": "4.8.2-beta.3",
+                      "release_notes": "- fix(player): prevent another crash",
+                      "commit_sha": next_fix_sha}
+    assert ("git", "log", "--format=%B%x00", "--encoding=UTF-8", "--reverse",
+            f"{first_beta_sha}..{next_fix_sha}", "--") in calls
+
+    stable_482 = {"tag_name": "v4.8.2", "published_at": "2026-10-05T00:00:00Z",
+                  "draft": False, "prerelease": False}
+    values, summary, calls = run_main(
+        branch="feature/player", head=next_fix_sha, target=next_fix_sha,
+        changed="lib/file.dart\0", logs=git_log("fix(player): carry forward the change"),
+        releases=[*stable_only, stable_482, first_beta],
+        beta_tag_commits={first_beta["tag_name"]: first_beta_sha},
+        beta_ancestor_tags={first_beta["tag_name"]})
+    assert values["publish"] == "true" and values["version"] == "4.8.3-beta.1"
+    assert "Baseline: v4.8.2\nCommit:" in summary
+    assert ("git", "log", "--format=%B%x00", "--encoding=UTF-8", "--reverse",
+            f"{BASELINE}..{next_fix_sha}", "--") in calls
+
+    queued_b_sha, queued_c_sha, queued_docs_sha = "5" * 40, "6" * 40, "7" * 40
+    queued_beta1 = {"tag_name": "v4.8.2-beta.1", "published_at": "2026-10-02T00:00:00Z",
+                    "draft": False, "prerelease": True}
+    queued_beta2 = {"tag_name": "v4.8.2-beta.2", "published_at": "2026-10-03T00:00:00Z",
+                    "draft": False, "prerelease": True}
+    queued_commits = {queued_beta1["tag_name"]: queued_c_sha,
+                      queued_beta2["tag_name"]: queued_b_sha}
+    values, summary, calls = run_main(
+        branch="feature/player", head=queued_docs_sha, target=queued_docs_sha,
+        changed="README.md\0", logs=git_log("docs: update docs after queued releases"),
+        releases=[*stable_only, queued_beta1, queued_beta2],
+        beta_tag_commits=queued_commits,
+        beta_ancestor_tags={queued_beta1["tag_name"], queued_beta2["tag_name"]},
+        beta_ancestor_pairs={(queued_b_sha, queued_c_sha), (queued_c_sha, queued_docs_sha),
+                             (queued_b_sha, queued_docs_sha)})
+    assert values == {"publish": "false", "version": "", "release_notes": "", "commit_sha": ""}
+    assert f"Classification baseline: {queued_beta1['tag_name']}" in summary
+    assert ("git", "log", "--format=%B%x00", "--encoding=UTF-8", "--reverse",
+            f"{queued_c_sha}..{queued_docs_sha}", "--") in calls
+
     values, _, calls = run_main(changed="")
     assert values == {"publish": "false", "version": "", "release_notes": "", "commit_sha": ""}
     assert not any(args[:2] == ("git", "log") for args in calls)
@@ -192,6 +287,14 @@ def check():
         assert "not an ancestor" in str(error)
     else:
         raise AssertionError("A main target outside the stable baseline history must stop planning")
+
+    try:
+        run_main(branch="feature/player", releases=[*stable_only, first_beta],
+                 beta_tag_commits={})
+    except ValueError as error:
+        assert "Could not resolve published Beta tag v4.8.2-beta.1" in str(error)
+    else:
+        raise AssertionError("A published beta release without a resolvable tag must stop planning")
 
     print("Push release planner checks passed.")
 
