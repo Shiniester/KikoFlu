@@ -5182,7 +5182,8 @@ void main() {
   testWidgets('first comic History click reads before page movement', (
     tester,
   ) async {
-    final library = _Library();
+    final library = _Library()
+      ..last = ComicProgress(_comic, 'one', 0, DateTime(2026));
     await pump(tester, const ComicScreen(), library, _Source());
     final pages = tester
         .widget<PageView>(find.byKey(const ValueKey('comic-tab-pages')))
@@ -5194,6 +5195,11 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(readAtPage, 0);
+    final historyCovers = find.descendant(
+      of: find.byKey(const ValueKey('comic-tab-2'), skipOffstage: false),
+      matching: find.byType(ComicCover, skipOffstage: false),
+    );
+    expect(historyCovers, findsNothing);
     final pageView = tester.widget<PageView>(
       find.byKey(const ValueKey('comic-tab-pages')),
     );
@@ -5202,6 +5208,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(pages.page, 2);
     expect(library.historyReads, 1);
+    expect(historyCovers, findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

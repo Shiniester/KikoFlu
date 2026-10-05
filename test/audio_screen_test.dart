@@ -1025,6 +1025,65 @@ void main() {
     },
   );
 
+  testWidgets('first online marks content waits until tab travel finishes', (
+    tester,
+  ) async {
+    final reduced = ValueNotifier(false);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AudioScreen)),
+    );
+    (container.read(myReviewsProvider.notifier) as _Reviews).populate();
+    await tester.pumpAndSettle();
+    tester.widget<TabBar>(find.byType(TabBar)).onTap!(1);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(_pages(tester).page, inExclusiveRange(0, 1));
+    expect(find.text('Marked 0', skipOffstage: false), findsNothing);
+    await tester.pumpAndSettle();
+    expect(find.text('Marked 0'), findsOneWidget);
+    final card = tester.element(find.text('Marked 0'));
+    tester.widget<TabBar>(find.byType(TabBar)).onTap!(0);
+    await tester.pumpAndSettle();
+    tester.widget<TabBar>(find.byType(TabBar)).onTap!(1);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Marked 0', skipOffstage: false), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(tester.element(find.text('Marked 0')), same(card));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('retargeting leaves abandoned cold content unbuilt', (
+    tester,
+  ) async {
+    final reduced = ValueNotifier(false);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AudioScreen)),
+    );
+    (container.read(myReviewsProvider.notifier) as _Reviews).populate();
+    (container.read(historyProvider.notifier) as _History).populate();
+    await tester.pumpAndSettle();
+    final tabs = tester.widget<TabBar>(find.byType(TabBar));
+    tabs.onTap!(1);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 40));
+    tabs.onTap!(2);
+    await tester.pumpAndSettle();
+    expect(_pages(tester).page, 2);
+    expect(find.text('History 0'), findsOneWidget);
+    expect(find.text('Marked 0', skipOffstage: false), findsNothing);
+    reduced.value = true;
+    await tester.pump();
+    tabs.onTap!(1);
+    await tester.pumpAndSettle();
+    expect(find.text('Marked 0'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('first History click initializes before page movement', (
     tester,
   ) async {

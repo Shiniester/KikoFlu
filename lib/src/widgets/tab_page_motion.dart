@@ -26,7 +26,7 @@ Future<void> moveToTabPage(
   );
 }
 
-/// Lays out the clicked page in the first frame, then restores lazy caching.
+/// Prepares the clicked page shell in the first frame, then restores lazy caching.
 class TabPageWarmup extends StatefulWidget {
   const TabPageWarmup({
     super.key,
@@ -90,6 +90,94 @@ class _TabPageWarmupState extends State<TabPageWarmup> {
   Widget build(BuildContext context) => widget.builder(_cacheExtent);
 }
 
+/// Defers a collection's first presentation until horizontal paging settles.
+class DeferredTabContent extends StatefulWidget {
+  const DeferredTabContent({super.key, required this.builder});
+
+  final WidgetBuilder builder;
+
+  @override
+  State<DeferredTabContent> createState() => _DeferredTabContentState();
+}
+
+class _DeferredTabContentState extends State<DeferredTabContent> {
+  _TabPageScope? _tab;
+  Listenable? _motion;
+  ValueNotifier<bool>? _scrolling;
+  bool _presented = false;
+  bool _releaseScheduled = false;
+
+  bool get _canPresent =>
+      _scrolling?.value != true && (_tab?.isCurrent ?? true);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_presented) return;
+    _motion?.removeListener(_onMotionChanged);
+    _tab = context.dependOnInheritedWidgetOfExactType<_TabPageScope>();
+    _scrolling = Scrollable.maybeOf(
+      context,
+      axis: Axis.horizontal,
+    )?.position.isScrollingNotifier;
+    if (_canPresent) {
+      _presented = true;
+      _motion = null;
+    } else {
+      _motion = Listenable.merge([_scrolling, _tab?.pages]);
+      _motion!.addListener(_onMotionChanged);
+    }
+  }
+
+  void _onMotionChanged() {
+    if (!_canPresent || _releaseScheduled) return;
+    _releaseScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _releaseScheduled = false;
+      if (!mounted || !_canPresent || _presented) return;
+      _motion?.removeListener(_onMotionChanged);
+      _motion = null;
+      setState(() => _presented = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _motion?.removeListener(_onMotionChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => _presented
+      ? widget.builder(context)
+      : const TickerMode(
+          enabled: false,
+          child: Center(child: CircularProgressIndicator()),
+        );
+}
+
+class _TabPageScope extends InheritedWidget {
+  const _TabPageScope({
+    required this.index,
+    required this.pages,
+    required super.child,
+  });
+
+  final int index;
+  final PageController pages;
+
+  bool get isCurrent {
+    final page = pages.hasClients && pages.position.hasContentDimensions
+        ? pages.page!
+        : pages.initialPage.toDouble();
+    return page.round() == index;
+  }
+
+  @override
+  bool updateShouldNotify(_TabPageScope oldWidget) =>
+      index != oldWidget.index || pages != oldWidget.pages;
+}
+
 /// Keeps visited pages alive without loading pages crossed by a distant click.
 class LazyTabPage extends StatefulWidget {
   const LazyTabPage({
@@ -132,7 +220,11 @@ class _LazyTabPageState extends State<LazyTabPage>
             (widget.target.value == null && (page - widget.index).abs() < 1);
         return _visited ? child! : const SizedBox.shrink();
       },
-      child: widget.child,
+      child: _TabPageScope(
+        index: widget.index,
+        pages: widget.pages,
+        child: widget.child,
+      ),
     );
   }
 }
