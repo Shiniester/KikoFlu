@@ -3443,7 +3443,7 @@ class SJa extends S {
   String get audioFilter => '音声を絞り込む';
 
   @override
-  String get audioFilterTitle => '音声ファイルを絞り込む';
+  String get audioFilterTitle => '音声を絞り込む';
 
   @override
   String get audioFormatLabel => '音声形式';

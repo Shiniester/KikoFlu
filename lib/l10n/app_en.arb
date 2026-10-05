@@ -1460,7 +1460,7 @@
   "@audioFormatOther": {"description": "Audio format label for formats not listed by name."},
   "audioFilter": "Filter audio",
   "@audioFilter": {"description": "Tooltip for the player's audio filter button."},
-  "audioFilterTitle": "Filter audio files",
+  "audioFilterTitle": "Filter audio",
   "@audioFilterTitle": {"description": "Title of the player's audio filtering sheet."},
   "audioFormatLabel": "Audio format",
   "@audioFormatLabel": {"description": "Audio format filter heading in the player's filter sheet."},

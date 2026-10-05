@@ -6303,7 +6303,7 @@ abstract class S {
   /// Title of the player's audio filtering sheet.
   ///
   /// In en, this message translates to:
-  /// **'Filter audio files'**
+  /// **'Filter audio'**
   String get audioFilterTitle;
 
   /// Audio format filter heading in the player's filter sheet.

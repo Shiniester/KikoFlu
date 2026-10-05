@@ -3427,7 +3427,7 @@ class SZh extends S {
   String get audioFilter => '筛选音频';
 
   @override
-  String get audioFilterTitle => '筛选音频文件';
+  String get audioFilterTitle => '筛选音频';
 
   @override
   String get audioFormatLabel => '音频格式';
@@ -7431,7 +7431,7 @@ class SZhHant extends SZh {
   String get audioFilter => '篩選音訊';
 
   @override
-  String get audioFilterTitle => '篩選音訊檔案';
+  String get audioFilterTitle => '篩選音訊';
 
   @override
   String get audioFormatLabel => '音訊格式';

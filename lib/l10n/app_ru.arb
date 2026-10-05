@@ -1157,7 +1157,7 @@
   "audioAbsent": "Нет",
   "audioFormatOther": "Другой",
   "audioFilter": "Фильтр аудио",
-  "audioFilterTitle": "Фильтр аудиофайлов",
+  "audioFilterTitle": "Фильтр аудио",
   "audioFormatLabel": "Формат аудио",
   "audioFilterKeyword": "Имя файла или папки",
   "audioIncludeUnknown": "Включать неизвестные варианты",

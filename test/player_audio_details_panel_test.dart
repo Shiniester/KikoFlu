@@ -164,7 +164,7 @@ void main() {
         final secondVariant = find.byKey(
           ValueKey('player-audio-variant-${variants[1].fullPath}'),
         );
-        await tester.ensureVisible(secondVariant);
+        await tester.scrollUntilVisible(secondVariant, 150);
         await tester.pumpAndSettle();
         expect(scrollController.offset, greaterThan(0));
         final initialOffset = scrollController.offset;
@@ -262,9 +262,9 @@ void main() {
       'player-detail-album',
       'player-detail-circle',
       'player-detail-voice-actors',
+      'player-detail-tags',
       'player-detail-audio-files',
       'player-detail-other-editions',
-      'player-detail-tags',
     ];
     final tops = orderedKeys
         .map((key) => tester.getTopLeft(find.byKey(ValueKey(key))).dy)
@@ -295,6 +295,7 @@ void main() {
     expect(find.byType(CircleChip), findsOneWidget);
     expect(find.byType(VaChip), findsOneWidget);
     expect(find.byType(TagChip), findsOneWidget);
+    expect(find.text('Audio'), findsOneWidget);
     expect(find.byIcon(Icons.audio_file_outlined), findsNothing);
     expect(find.text('English'), findsOneWidget);
     expect(find.text('RJ000008'), findsOneWidget);
@@ -400,7 +401,7 @@ void main() {
           .selected,
       isTrue,
     );
-    final filterTitle = tester.widget<Text>(find.text('Filter audio files'));
+    final filterTitle = tester.widget<Text>(find.text('Filter audio'));
     expect(filterTitle.style?.fontSize, 18);
     final keywordField = tester.widget<TextField>(find.byType(TextField));
     expect(keywordField.decoration?.isDense, isTrue);

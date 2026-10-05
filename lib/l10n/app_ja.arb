@@ -1157,7 +1157,7 @@
   "audioAbsent": "なし",
   "audioFormatOther": "その他",
   "audioFilter": "音声を絞り込む",
-  "audioFilterTitle": "音声ファイルを絞り込む",
+  "audioFilterTitle": "音声を絞り込む",
   "audioFormatLabel": "音声形式",
   "audioFilterKeyword": "ファイル名またはフォルダー名",
   "audioIncludeUnknown": "不明な項目を含める",

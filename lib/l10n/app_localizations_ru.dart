@@ -3552,7 +3552,7 @@ class SRu extends S {
   String get audioFilter => 'Фильтр аудио';
 
   @override
-  String get audioFilterTitle => 'Фильтр аудиофайлов';
+  String get audioFilterTitle => 'Фильтр аудио';
 
   @override
   String get audioFormatLabel => 'Формат аудио';

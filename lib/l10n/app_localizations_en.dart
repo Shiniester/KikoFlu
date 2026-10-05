@@ -3538,7 +3538,7 @@ class SEn extends S {
   String get audioFilter => 'Filter audio';
 
   @override
-  String get audioFilterTitle => 'Filter audio files';
+  String get audioFilterTitle => 'Filter audio';
 
   @override
   String get audioFormatLabel => 'Audio format';

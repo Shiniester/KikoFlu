@@ -1191,7 +1191,7 @@
   "audioAbsent": "无",
   "audioFormatOther": "其他",
   "audioFilter": "筛选音频",
-  "audioFilterTitle": "筛选音频文件",
+  "audioFilterTitle": "筛选音频",
   "audioFormatLabel": "音频格式",
   "audioFilterKeyword": "文件或文件夹关键词",
   "audioIncludeUnknown": "包含未知项目",

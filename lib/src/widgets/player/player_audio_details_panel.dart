@@ -219,6 +219,31 @@ class _PlayerAudioDetailsPanelState
                       ),
                     ),
                   ],
+                  if (hasTags) ...[
+                    const SizedBox(height: 8),
+                    _InfoCard(
+                      key: const ValueKey('player-detail-tags'),
+                      title: _label(context, 'tags'),
+                      child: Wrap(
+                        spacing: 4,
+                        runSpacing: 3,
+                        children: [
+                          for (final tag in work.tags!)
+                            TagChip(
+                              tag: tag,
+                              compact: true,
+                              fontSize: 11,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              borderRadius: 6,
+                              fontWeight: FontWeight.w500,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   _InfoCard(
                     key: const ValueKey('player-detail-audio-files'),
@@ -286,7 +311,7 @@ class _PlayerAudioDetailsPanelState
               )
             else
               const SliverToBoxAdapter(child: SizedBox.shrink()),
-            if (hasEditions || hasTags)
+            if (hasEditions)
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
                 sliver: SliverList.list(
@@ -335,30 +360,6 @@ class _PlayerAudioDetailsPanelState
                                           sourceId: edition.sourceId,
                                         ),
                                       ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    if (hasEditions && hasTags) const SizedBox(height: 8),
-                    if (hasTags)
-                      _InfoCard(
-                        key: const ValueKey('player-detail-tags'),
-                        title: _label(context, 'tags'),
-                        child: Wrap(
-                          spacing: 4,
-                          runSpacing: 3,
-                          children: [
-                            for (final tag in work.tags!)
-                              TagChip(
-                                tag: tag,
-                                compact: true,
-                                fontSize: 11,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                borderRadius: 6,
-                                fontWeight: FontWeight.w500,
                               ),
                           ],
                         ),
@@ -836,7 +837,7 @@ String _label(BuildContext context, String key) {
     'tags': '标签',
     'release': '发售日期',
     'versions': '其他版本',
-    'audioFiles': '音频文件',
+    'audioFiles': '音频',
     'noFiles': '没有可用的音频文件',
     'noDetails': '暂无可用的作品信息',
     'playNext': '下一首播放',
@@ -851,7 +852,7 @@ String _label(BuildContext context, String key) {
     'tags': 'Tags',
     'release': 'Release date',
     'versions': 'Other editions',
-    'audioFiles': 'Audio files',
+    'audioFiles': 'Audio',
     'noFiles': 'No audio files available',
     'noDetails': 'No work details are available',
     'playNext': 'Play next',
