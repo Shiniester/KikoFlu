@@ -17,6 +17,7 @@ import '../comic_library.dart';
 
 import 'comic_widgets.dart';
 import 'comic_settings_screen.dart';
+import 'comic_page_preview.dart';
 
 bool isComicSpread(ComicReadingMode mode) =>
     mode == ComicReadingMode.spread || mode == ComicReadingMode.reverseSpread;
@@ -516,6 +517,51 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     await _chapterBy(selected - current);
   }
 
+  Future<Uint8List> _previewImage(int page) async {
+    final generation = _generation;
+    final image = _image(page);
+    try {
+      final bytes = await image;
+      if (mounted && generation == _generation) _preload();
+      return bytes;
+    } catch (_) {
+      if (generation == _generation && identical(_images[page], image)) {
+        _images.remove(page);
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _showPagePreview() async {
+    final generation = _generation;
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: .7,
+        minChildSize: .35,
+        maxChildSize: .95,
+        builder: (context, controller) => ComicPagePreview(
+          pageCount: _pages.length,
+          initialPage: _page,
+          title: _chapter.title,
+          scrollController: controller,
+          loadImage: _previewImage,
+          onSelected: (page) => Navigator.pop(sheetContext, page),
+        ),
+      ),
+    );
+    if (!mounted || generation != _generation || selected == null) return;
+    _jump(selected);
+    setState(() {
+      _controls = true;
+      _resetLayout();
+    });
+  }
+
   void _step(int delta) {
     if (_loading) return;
     final mode = ref.read(comicReadingModeProvider);
@@ -777,29 +823,9 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        PopupMenuButton<ComicReadingMode>(
-                          tooltip: s.comicReadingMode,
-                          icon: const Icon(Icons.chrome_reader_mode),
-                          itemBuilder: (_) => ComicReadingMode.values
-                              .map(
-                                (m) => PopupMenuItem(
-                                  value: m,
-                                  child: Text(comicModeLabel(s, m)),
-                                ),
-                              )
-                              .toList(),
-                          onSelected: (m) {
-                            ref.read(comicReadingModeProvider.notifier).state =
-                                m;
-                            StorageService.setString(
-                              'comic_reading_mode',
-                              m.name,
-                            );
-                          },
-                        ),
                         IconButton(
                           tooltip: s.comicReaderSettings,
-                          icon: const Icon(Icons.settings_outlined),
+                          icon: const Icon(Icons.more_vert),
                           onPressed: () => Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => const ComicReaderSettingsScreen(),
@@ -828,62 +854,128 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Row(
-                            children: [
-                              IconButton(
-                                tooltip: s.comicPreviousChapter,
-                                onPressed: () => _chapterBy(-1),
-                                icon: const Icon(Icons.skip_previous),
-                              ),
-                              Expanded(
-                                child: Slider(
-                                  value: _page.toDouble(),
-                                  min: 0,
-                                  max: (_pages.length - 1)
-                                      .clamp(1, 1 << 30)
-                                      .toDouble(),
-                                  onChanged: _pages.length < 2
-                                      ? null
-                                      : (value) => _jump(value.round()),
-                                ),
-                              ),
-                              Text('${_page + 1}/${_pages.length}'),
-                              IconButton(
-                                tooltip: s.comicNextChapter,
-                                onPressed: () => _chapterBy(1),
-                                icon: const Icon(Icons.skip_next),
-                              ),
-                            ],
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                            child: Wrap(
-                              spacing: 12,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              children: [
-                                Tooltip(
-                                  message: _autoPageTurning
-                                      ? s.pause
-                                      : s.comicAutoPageTurn,
-                                  child: FilterChip(
-                                    key: const ValueKey('comic-auto-page-turn'),
-                                    selected: _autoPageTurning,
-                                    avatar: const Icon(Icons.timer_outlined),
-                                    label: Text(s.comicAutoPageTurn),
-                                    onSelected: _loading || _error != null
-                                        ? null
-                                        : (_) => _toggleAutoPageTurn(),
+                          Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 600),
+                              child: LayoutBuilder(
+                                builder: (context, constraints) => SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: SizedBox(
+                                    width: math.max(constraints.maxWidth, 288),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: IconButton(
+                                            tooltip: s.comicPreviousChapter,
+                                            onPressed: () => _chapterBy(-1),
+                                            icon: const Icon(
+                                              Icons.skip_previous,
+                                            ),
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: Semantics(
+                                            value:
+                                                '${_page + 1}/${_pages.length}',
+                                            child: IconButton(
+                                              key: const ValueKey(
+                                                'comic-page-preview',
+                                              ),
+                                              tooltip: s.preview,
+                                              onPressed:
+                                                  _loading || _error != null
+                                                  ? null
+                                                  : _showPagePreview,
+                                              icon: const Icon(Icons.grid_view),
+                                            ),
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: IconButton(
+                                            tooltip: s.comicNextChapter,
+                                            onPressed: () => _chapterBy(1),
+                                            icon: const Icon(Icons.skip_next),
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: IconButton(
+                                            tooltip: s.comicChooseChapters,
+                                            onPressed:
+                                                _loading ||
+                                                    widget
+                                                        .comic
+                                                        .chapters
+                                                        .isEmpty
+                                                ? null
+                                                : _chooseChapter,
+                                            icon: const Icon(Icons.list),
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: IconButton(
+                                            key: const ValueKey(
+                                              'comic-auto-page-turn',
+                                            ),
+                                            tooltip: _autoPageTurning
+                                                ? s.pause
+                                                : s.comicAutoPageTurn,
+                                            isSelected: _autoPageTurning,
+                                            style: IconButton.styleFrom(
+                                              backgroundColor: _autoPageTurning
+                                                  ? Theme.of(context)
+                                                        .colorScheme
+                                                        .secondaryContainer
+                                                  : null,
+                                            ),
+                                            icon: const Icon(
+                                              Icons.timer_outlined,
+                                            ),
+                                            selectedIcon: const Icon(
+                                              Icons.pause,
+                                            ),
+                                            onPressed:
+                                                _loading || _error != null
+                                                ? null
+                                                : _toggleAutoPageTurn,
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: PopupMenuButton<ComicReadingMode>(
+                                            tooltip: s.comicReadingMode,
+                                            icon: const Icon(
+                                              Icons.chrome_reader_mode,
+                                            ),
+                                            itemBuilder: (_) => ComicReadingMode
+                                                .values
+                                                .map(
+                                                  (m) => PopupMenuItem(
+                                                    value: m,
+                                                    child: Text(
+                                                      comicModeLabel(s, m),
+                                                    ),
+                                                  ),
+                                                )
+                                                .toList(),
+                                            onSelected: (m) {
+                                              ref
+                                                      .read(
+                                                        comicReadingModeProvider
+                                                            .notifier,
+                                                      )
+                                                      .state =
+                                                  m;
+                                              StorageService.setString(
+                                                'comic_reading_mode',
+                                                m.name,
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                                TextButton.icon(
-                                  onPressed:
-                                      _loading || widget.comic.chapters.isEmpty
-                                      ? null
-                                      : _chooseChapter,
-                                  icon: const Icon(Icons.list),
-                                  label: Text(s.comicChooseChapters),
-                                ),
-                              ],
+                              ),
                             ),
                           ),
                           if (hasAudio) const MiniPlayer(),

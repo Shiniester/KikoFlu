@@ -152,6 +152,11 @@ settings. It contains reading mode, auto page-turn interval, page-turn and zoom
 gestures, keep-awake, and preload preferences.
 _Avoid_: Comic Source settings, Reader Controls
 
+**Chapter Page Preview (章节页面预览)**:
+A visual index of the individual comic images in the current chapter used to
+choose an image to read. It is distinct from the Cover Preview and chapter catalog.
+_Avoid_: Cover Preview, chapter catalog
+
 **Reader Zoom (阅读器缩放)**:
 The magnification of the current Comic Reader view: one page, one spread, or
 the entire continuous strip. Images within that view share the same transform.
