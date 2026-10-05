@@ -224,6 +224,7 @@ class _Library extends ComicLibrary {
   ComicProgress? last;
   int favoriteWrites = 0;
   int favoriteReads = 0, historyReads = 0;
+  VoidCallback? onHistoryRead;
   @override
   Future<void> favorite(Comic comic, bool value) async {
     favoriteWrites++;
@@ -241,6 +242,7 @@ class _Library extends ComicLibrary {
   @override
   Future<List<ComicProgress>> history() async {
     historyReads++;
+    onHistoryRead?.call();
     return last == null ? [] : [last!];
   }
 
@@ -6207,6 +6209,112 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Fixture book'), findsOneWidget);
   });
+  testWidgets('first main comic switch waits for outer paging', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final source = _Source();
+    var coverRequests = 0;
+    await pump(
+      tester,
+      ProviderScope(
+        overrides: [
+          worksProvider.overrideWith((ref) => _IdleWorks(ref)),
+          downloadSummaryProvider.overrideWith(
+            (ref) => Stream.value(const DownloadTaskSummary.empty()),
+          ),
+          downloadTaskIdsProvider.overrideWith(
+            (ref) => Stream.value(<String>[]),
+          ),
+        ],
+        child: const MainScreen(),
+      ),
+      _Library(),
+      source,
+      loadImage: (_) {
+        coverRequests++;
+        return Future.value(_png);
+      },
+    );
+    final pagesFinder = find.byKey(const ValueKey('main-tab-pages'));
+    final pages = tester.widget<PageView>(pagesFinder).controller!;
+    final navigation = find.byType(NavigationBar);
+    void select(int index) =>
+        tester.widget<NavigationBar>(navigation).onDestinationSelected!(index);
+
+    select(1);
+    await tester.pump();
+    expect(pages.page, 0);
+    expect(source.searches, 1);
+    final comicState = tester.state(
+      find.byType(ComicScreen, skipOffstage: false),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(pages.page, inExclusiveRange(0, 1));
+    expect(find.byType(ComicCover, skipOffstage: false), findsNothing);
+    expect(coverRequests, 0);
+    final pageView = tester.widget<PageView>(pagesFinder);
+    expect(pageView.scrollCacheExtent.value, 0);
+    expect(pageView.allowImplicitScrolling, isFalse);
+
+    select(0);
+    await tester.pump();
+    await pumpFrames(tester, frames: 25);
+    expect(pages.page, 0);
+    expect(find.byType(ComicCover, skipOffstage: false), findsNothing);
+    expect(coverRequests, 0);
+    select(1);
+    await tester.pump();
+    await pumpFrames(tester, frames: 25);
+    expect(find.byType(ComicCover), findsWidgets);
+    expect(coverRequests, greaterThan(0));
+    expect(tester.state(find.byType(ComicScreen)), same(comicState));
+    select(0);
+    await tester.pump();
+    await pumpFrames(tester, frames: 25);
+    select(1);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byType(ComicCover), findsWidgets);
+    expect(source.searches, 1);
+    expect(tester.state(find.byType(ComicScreen)), same(comicState));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('first comic History click reads before page movement', (
+    tester,
+  ) async {
+    final library = _Library()
+      ..last = ComicProgress(_comic, 'one', 0, DateTime(2026));
+    await pump(tester, const ComicScreen(), library, _Source());
+    final pages = tester
+        .widget<PageView>(find.byKey(const ValueKey('comic-tab-pages')))
+        .controller!;
+    double? readAtPage;
+    library.onHistoryRead = () => readAtPage = pages.page;
+    expect(library.historyReads, 0);
+    await tester.tap(find.text('History').first);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(readAtPage, 0);
+    final historyCovers = find.descendant(
+      of: find.byKey(const ValueKey('comic-tab-2'), skipOffstage: false),
+      matching: find.byType(ComicCover, skipOffstage: false),
+    );
+    expect(historyCovers, findsNothing);
+    final pageView = tester.widget<PageView>(
+      find.byKey(const ValueKey('comic-tab-pages')),
+    );
+    expect(pageView.scrollCacheExtent.value, 0);
+    expect(pageView.allowImplicitScrolling, isFalse);
+    await tester.pumpAndSettle();
+    expect(pages.page, 2);
+    expect(library.historyReads, 1);
+    expect(historyCovers, findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('comic tab clicks use ease paging and retain the home page', (
     tester,
   ) async {

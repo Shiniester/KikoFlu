@@ -7,6 +7,7 @@ import 'package:kikoeru_flutter/src/services/subtitle_library_service.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late Directory root;
 
   setUp(() async {

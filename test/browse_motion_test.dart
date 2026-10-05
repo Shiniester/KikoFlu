@@ -90,6 +90,8 @@ void main() {
     'loads',
     (tester) async {
       late _Works works;
+      final reduced = ValueNotifier(false);
+      addTearDown(reduced.dispose);
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
@@ -99,7 +101,7 @@ void main() {
               (ref) => Stream.value(const DownloadTaskSummary.empty()),
             ),
           ],
-          child: _app(const WorksScreen()),
+          child: _app(const WorksScreen(), reduced: reduced),
         ),
       );
       await tester.pumpAndSettle();
@@ -112,7 +114,9 @@ void main() {
       await tester.pump();
       works.setDisplayMode(DisplayMode.popular);
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 40));
       expect(find.byType(CustomScrollView), findsOneWidget);
+      expect(initialAllController.positions, isEmpty);
       expect(initialAllController.hasClients, isFalse);
 
       final firstPopularController = currentController();
@@ -120,8 +124,8 @@ void main() {
       expect(firstPopularController.offset, 0);
       firstPopularController.jumpTo(300);
       await tester.pump();
-      final popularCollection =
-          tester.widget<VirtualizedSliverCollection<Work>>(
+      final popularCollection = tester
+          .widget<VirtualizedSliverCollection<Work>>(
             find.byType(VirtualizedSliverCollection<Work>),
           );
       expect(popularCollection.onLoadMore, isNotNull);
@@ -168,6 +172,12 @@ void main() {
             .offset,
         600,
       );
+      final finalAllController = currentController();
+      reduced.value = true;
+      await tester.pump();
+      expect(finalAllController.offset, 600);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(finalAllController.offset, 600);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },

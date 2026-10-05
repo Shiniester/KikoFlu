@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
@@ -25,7 +26,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   final _pages = PageController();
   bool _reduceMotion = false;
   int _currentIndex = 0;
-  final _selection = ValueNotifier(0);
+  final _selection = ValueNotifier<int?>(0);
   static const int _settingsTabIndex = 2;
 
   // 使用 PageStorageBucket 来保存页面状态
@@ -38,7 +39,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     super.initState();
     _screens = [
       const AudioScreen(key: PageStorageKey('audio_screen')),
-      ValueListenableBuilder<int>(
+      ValueListenableBuilder<int?>(
         valueListenable: _selection,
         builder: (context, index, child) => ComicScreen(
           key: const PageStorageKey('comic_screen'),
@@ -56,19 +57,31 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     super.dispose();
   }
 
-  Widget _buildPages() => PageView(
-    key: const ValueKey('main-tab-pages'),
-    controller: _pages,
-    physics: const NeverScrollableScrollPhysics(),
-    children: [
-      for (var i = 0; i < _screens.length; i++)
-        _MainTabPage(
-          key: ValueKey(i),
-          index: i,
-          selection: _selection,
-          child: _screens[i],
-        ),
-    ],
+  Widget _buildPages() => TabPageWarmup(
+    pages: _pages,
+    target: _selection,
+    builder: (cacheExtent) => PageView(
+      key: const ValueKey('main-tab-pages'),
+      controller: _pages,
+      physics: const NeverScrollableScrollPhysics(),
+      allowImplicitScrolling: cacheExtent > 0,
+      scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
+      children: [
+        for (var i = 0; i < _screens.length; i++)
+          LazyTabPage(
+            key: ValueKey(i),
+            index: i,
+            target: _selection,
+            pages: _pages,
+            child: ValueListenableBuilder<int?>(
+              valueListenable: _selection,
+              child: _screens[i],
+              builder: (context, index, child) =>
+                  HeroMode(enabled: index == i, child: child!),
+            ),
+          ),
+      ],
+    ),
   );
 
   List<NavigationDestination> _buildDestinations(
@@ -421,42 +434,6 @@ class _MainScreenState extends ConsumerState<MainScreen> {
             ),
           )
           .toList(),
-    );
-  }
-}
-
-class _MainTabPage extends StatefulWidget {
-  const _MainTabPage({
-    super.key,
-    required this.index,
-    required this.selection,
-    required this.child,
-  });
-  final int index;
-  final ValueNotifier<int> selection;
-  final Widget child;
-  @override
-  State<_MainTabPage> createState() => _MainTabPageState();
-}
-
-class _MainTabPageState extends State<_MainTabPage>
-    with AutomaticKeepAliveClientMixin {
-  bool _visited = false;
-  @override
-  bool get wantKeepAlive => true;
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    return ValueListenableBuilder<int>(
-      valueListenable: widget.selection,
-      child: widget.child,
-      builder: (context, index, child) {
-        final selected = index == widget.index;
-        _visited |= selected;
-        return _visited
-            ? HeroMode(enabled: selected, child: child!)
-            : const SizedBox.shrink();
-      },
     );
   }
 }

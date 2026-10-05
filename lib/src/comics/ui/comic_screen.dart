@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../providers/works_provider.dart' show LayoutType;
@@ -118,28 +119,34 @@ class _ComicScreenState extends ConsumerState<ComicScreen>
           Positioned.fill(
             child: NotificationListener<ScrollNotification>(
               onNotification: _handleScrollNotification,
-              child: PageView(
-                key: const ValueKey('comic-tab-pages'),
-                controller: _pages,
-                children: [
-                  for (var i = 0; i < 4; i++)
-                    LazyTabPage(
-                      key: ValueKey('comic-tab-$i'),
-                      index: i,
-                      target: _pageTarget,
-                      pages: _pages,
-                      child: AnimatedBuilder(
-                        animation: _tabs,
-                        builder: (context, child) => _ComicCollection(
-                          active: widget.active && _tabs.index == i,
-                          tab: i,
-                          toolbarTop: top + kTextTabBarHeight + 8,
-                          collapsedTop: top,
-                          visible: _visible,
+              child: TabPageWarmup(
+                pages: _pages,
+                target: _pageTarget,
+                builder: (cacheExtent) => PageView(
+                  key: const ValueKey('comic-tab-pages'),
+                  controller: _pages,
+                  allowImplicitScrolling: cacheExtent > 0,
+                  scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
+                  children: [
+                    for (var i = 0; i < 4; i++)
+                      LazyTabPage(
+                        key: ValueKey('comic-tab-$i'),
+                        index: i,
+                        target: _pageTarget,
+                        pages: _pages,
+                        child: AnimatedBuilder(
+                          animation: _tabs,
+                          builder: (context, child) => _ComicCollection(
+                            active: widget.active && _tabs.index == i,
+                            tab: i,
+                            toolbarTop: top + kTextTabBarHeight + 8,
+                            collapsedTop: top,
+                            visible: _visible,
+                          ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

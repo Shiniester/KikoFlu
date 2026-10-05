@@ -139,6 +139,10 @@ void main() {
       final playerCover = File(
         'lib/src/widgets/player/player_cover_widget.dart',
       ).readAsStringSync();
+      final compactArtwork = playerCover.substring(
+        playerCover.indexOf('class PlayerCompactArtwork'),
+        playerCover.indexOf('typedef _CoverResizeKey'),
+      );
       final miniPlayer = File(
         'lib/src/widgets/mini_player.dart',
       ).readAsStringSync();
@@ -241,6 +245,12 @@ void main() {
       expect(miniPlayer, contains('class _MiniPlayerTrackSwitcher'));
       expect(miniPlayer, contains('PlayerTrackLayers<AudioTrack>'));
       expect(miniPlayer, isNot(contains('AnimatedSwitcher')));
+      expect(
+        RegExp(
+          r': OctoImage\([\s\S]*?gaplessPlayback: true',
+        ).hasMatch(compactArtwork),
+        isTrue,
+      );
       expect(cachedImageWidget, contains('useOldImageOnUrlChange: true'));
       expect(playerCover, contains('PlayerTrackLayers<_PlayerCoverSnapshot>'));
       expect(miniPlayer, isNot(contains('Icons.skip_previous')));
@@ -307,6 +317,12 @@ void main() {
   });
 
   test('artwork flights and transient notices stay centralized', () {
+    final appSources = Directory('lib/src')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((file) => file.path.endsWith('.dart'))
+        .map((file) => file.readAsStringSync())
+        .join('\n');
     final playerSources = Directory('lib/src/widgets/player')
         .listSync(recursive: true)
         .whereType<File>()
@@ -324,6 +340,7 @@ void main() {
       'lib/src/widgets/player/player_cover_widget.dart',
     ).readAsStringSync();
 
+    expect(RegExp(r'\.showSnackBar\(').allMatches(appSources), hasLength(1));
     expect(playerSources, isNot(contains('.showSnackBar(')));
     expect(RegExp(r'\.showSnackBar\(').allMatches(noticeSource), hasLength(1));
     expect(noticeSource, contains('SnackBarBehavior.floating'));

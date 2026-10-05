@@ -93,6 +93,8 @@ def run_main(*, branch="main", head=TARGET, target=TARGET, changed="README.md\0"
             return SimpleNamespace(returncode=0 if baseline_ancestor else 1)
         if args[:3] == ("git", "merge-base", "--is-ancestor"):
             beta_commit, candidate_target = args[-2:]
+            if beta_commit == target and candidate_target in beta_tag_commits.values():
+                return SimpleNamespace(returncode=1)
             if candidate_target == target:
                 tag = next((tag for tag, commit in beta_tag_commits.items()
                             if commit == beta_commit), None)
@@ -182,6 +184,16 @@ def check_real_beta_union():
                           "release_notes": "- fix(audio): handle device changes",
                           "commit_sha": next_fix}
         assert "Beta baselines: v4.8.2-beta.2, v4.8.2-beta.1" in summary
+
+        commit(root, "newer.txt", "newer fix\n", "fix(audio): handle another device")
+        git(root, "tag", "v4.8.2-beta.3")
+        beta_releases.append({"tag_name": "v4.8.2-beta.3", "published_at": "2026-10-04T00:00:00Z",
+                              "draft": False, "prerelease": True})
+        tags.append({"name": "v4.8.2-beta.3"})
+        git(root, "checkout", next_fix)
+        values, summary = run_real_main(root, next_fix, stable_commit, beta_releases, tags)
+        assert values == {"publish": "false", "version": "", "release_notes": "", "commit_sha": ""}
+        assert "Beta baselines: v4.8.2-beta.3" in summary
 
 
 def check():
