@@ -43,6 +43,7 @@ import 'package:kikoeru_flutter/src/utils/theme.dart';
 import 'package:kikoeru_flutter/src/widgets/enhanced_work_card.dart';
 import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 import 'package:kikoeru_flutter/src/utils/snackbar_util.dart';
+import 'package:kikoeru_flutter/src/widgets/settings_section.dart';
 
 class _Reviews extends MyReviewsNotifier {
   _Reviews(Ref ref) : super(KikoeruApiService(), ref);
@@ -750,9 +751,15 @@ void main() {
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 100));
           final destination = tester.getRect(find.byType(SettingsScreen));
+          final settingsCards = find.descendant(
+            of: find.byType(SettingsScreen),
+            matching: find.byType(SettingsSectionList),
+          );
           if (reducedMotion) {
             expect(destination.left, closeTo(start.left, .1));
+            expect(settingsCards, findsWidgets);
           } else {
+            expect(settingsCards, findsNothing);
             expect(destination.left, greaterThan(start.left));
             expect(destination.left, lessThan(start.right));
             final pages = tester
@@ -761,6 +768,8 @@ void main() {
             expect(pages.page, closeTo(2 * Curves.ease.transform(1 / 3), .001));
           }
           await tester.pumpAndSettle();
+          expect(settingsCards, findsWidgets);
+          final settingsState = tester.state(find.byType(SettingsScreen));
           expect(
             tester.getRect(find.byType(SettingsScreen)).left,
             closeTo(start.left, .1),
@@ -773,6 +782,20 @@ void main() {
           );
           await tester.pumpAndSettle();
           expect(tester.state(find.byType(AudioScreen)), same(audioState));
+          await tester.tap(
+            find.descendant(
+              of: navigation,
+              matching: find.byIcon(Icons.settings_outlined),
+            ),
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 100));
+          expect(settingsCards, findsWidgets);
+          expect(
+            tester.state(find.byType(SettingsScreen)),
+            same(settingsState),
+          );
+          await tester.pumpAndSettle();
           expect(tester.takeException(), isNull);
         },
       );
@@ -1186,6 +1209,13 @@ void main() {
         await tester.pump(const Duration(milliseconds: 300));
         expect(pages.page, 0);
         expect(tester.state(find.byType(AudioScreen)), same(audioState));
+        expect(
+          find.descendant(
+            of: find.byType(SettingsScreen, skipOffstage: false),
+            matching: find.byType(SettingsSectionList, skipOffstage: false),
+          ),
+          findsNothing,
+        );
         select(2);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 40));

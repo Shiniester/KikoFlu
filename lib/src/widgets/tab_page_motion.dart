@@ -90,7 +90,7 @@ class _TabPageWarmupState extends State<TabPageWarmup> {
   Widget build(BuildContext context) => widget.builder(_cacheExtent);
 }
 
-/// Defers a collection's first presentation until horizontal paging settles.
+/// Defers content's first presentation until its owning pagers settle.
 class DeferredTabContent extends StatefulWidget {
   const DeferredTabContent({super.key, required this.builder});
 
@@ -108,7 +108,7 @@ class _DeferredTabContentState extends State<DeferredTabContent> {
   bool _releaseScheduled = false;
 
   bool get _canPresent =>
-      _scrolling?.value != true && (_tab?.isCurrent ?? true);
+      _scrolling?.value != true && (_tab?.canPresent ?? true);
 
   @override
   void didChangeDependencies() {
@@ -124,7 +124,7 @@ class _DeferredTabContentState extends State<DeferredTabContent> {
       _presented = true;
       _motion = null;
     } else {
-      _motion = Listenable.merge([_scrolling, _tab?.pages]);
+      _motion = Listenable.merge([_scrolling, ...?_tab?.motion]);
       _motion!.addListener(_onMotionChanged);
     }
   }
@@ -160,11 +160,24 @@ class _TabPageScope extends InheritedWidget {
   const _TabPageScope({
     required this.index,
     required this.pages,
+    required this.parent,
     required super.child,
   });
 
   final int index;
   final PageController pages;
+  final _TabPageScope? parent;
+
+  bool get canPresent =>
+      isCurrent &&
+      (!pages.hasClients || !pages.position.isScrollingNotifier.value) &&
+      (parent?.canPresent ?? true);
+
+  Iterable<Listenable> get motion sync* {
+    yield pages;
+    if (pages.hasClients) yield pages.position.isScrollingNotifier;
+    if (parent != null) yield* parent!.motion;
+  }
 
   bool get isCurrent {
     final page = pages.hasClients && pages.position.hasContentDimensions
@@ -175,7 +188,9 @@ class _TabPageScope extends InheritedWidget {
 
   @override
   bool updateShouldNotify(_TabPageScope oldWidget) =>
-      index != oldWidget.index || pages != oldWidget.pages;
+      index != oldWidget.index ||
+      pages != oldWidget.pages ||
+      parent != oldWidget.parent;
 }
 
 /// Keeps visited pages alive without loading pages crossed by a distant click.
@@ -223,6 +238,7 @@ class _LazyTabPageState extends State<LazyTabPage>
       child: _TabPageScope(
         index: widget.index,
         pages: widget.pages,
+        parent: context.dependOnInheritedWidgetOfExactType<_TabPageScope>(),
         child: widget.child,
       ),
     );

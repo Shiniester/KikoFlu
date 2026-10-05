@@ -28,6 +28,7 @@ import '../widgets/download_fab.dart';
 import '../widgets/settings_section.dart';
 import '../widgets/radio_option_group.dart';
 import '../widgets/settings_option_dialog.dart';
+import '../widgets/tab_page_motion.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key, this.audioOnly = false});
@@ -131,19 +132,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           style: UiTextStyles.pageTitle,
         ),
       ),
-      body: isLandscape
-          ? _buildLandscapeLayout(cards)
-          : ListView.separated(
-              padding: EdgeInsets.fromLTRB(
-                16,
-                16,
-                16,
-                16 + MediaQuery.paddingOf(context).bottom,
+      body: DeferredTabContent(
+        builder: (context) => isLandscape
+            ? _buildLandscapeLayout(cards)
+            : ListView.separated(
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  16,
+                  16,
+                  16 + MediaQuery.paddingOf(context).bottom,
+                ),
+                itemBuilder: (context, index) => cards[index],
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 16),
+                itemCount: cards.length,
               ),
-              itemBuilder: (context, index) => cards[index],
-              separatorBuilder: (context, index) => const SizedBox(height: 16),
-              itemCount: cards.length,
-            ),
+      ),
     );
   }
 
