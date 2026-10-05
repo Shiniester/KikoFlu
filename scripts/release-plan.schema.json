@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["publish", "bump", "release_notes", "reason"],
+  "properties": {
+    "publish": { "type": "boolean" },
+    "bump": { "type": "string", "enum": ["major", "minor", "patch", "none"] },
+    "release_notes": { "type": "string" },
+    "reason": { "type": "string", "minLength": 1 }
+  }
+}

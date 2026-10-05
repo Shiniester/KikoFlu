@@ -79,11 +79,22 @@ test("queues exact commits, gates turn commits, pushes promptly, and serializes 
   git(repo, ["branch", "--set-upstream-to=origin/main", "local-main-target"]);
 
   let workerStarts = 0;
-  const resolveRepo = (root, branch, env) => ({
-    ...release.resolveRoute(root, branch, env),
+  const resolveRepo = (root, branch) => {
+    const localBranch = branch.slice("refs/heads/".length);
+    const remote = git(root, ["config", "--get", `branch.${localBranch}.remote`]);
+    const merge = git(root, ["config", "--get", `branch.${localBranch}.merge`]);
+    const remoteBranch = merge.slice("refs/heads/".length);
+    return {
+    localBranch,
+    remote,
+    remoteBranch,
+    remoteUrl: git(root, ["config", "--get", `remote.${remote}.url`]),
     githubHost: "github.com",
     githubRepo: "test/KikoFlu",
-  });
+    setUpstream: false,
+    workflow: remoteBranch === "main" ? "build.yml" : "build_android_beta.yml",
+  };
+  };
   const capture = (temporaryIndex = "") => release.captureCommit(repo, {
     GIT_INDEX_FILE: temporaryIndex,
   }, {
@@ -93,7 +104,7 @@ test("queues exact commits, gates turn commits, pushes promptly, and serializes 
 
   const sha1 = commitFile(repo, "one.txt", "first\n", "first change");
   const first = capture("C:\\temp\\turn-commit-first.index");
-  assert.equal(first.head, sha1);
+  assert.equal(first.head, sha1, JSON.stringify(first));
   assert.equal(first.localBranch, "local-main-target");
   assert.equal(first.remoteBranch, "main");
   assert.equal(first.workflow, "build.yml");
@@ -160,11 +171,14 @@ test("queues exact commits, gates turn commits, pushes promptly, and serializes 
   };
 
   const commonDir = first.commonDir;
+  const inventoryForMajor = { version: { major: 4, minor: 8, patch: 1 }, tags: new Set(), releases: [] };
+  assert.equal(release.selectVersion({ workflow: "build.yml" }, inventoryForMajor, "major"), "5.0.0");
+  assert.equal(release.selectVersion({ workflow: "build.yml" }, inventoryForMajor, "minor"), "4.9.0");
+  assert.equal(release.selectVersion({ workflow: "build.yml" }, inventoryForMajor, "patch"), "4.8.2");
   const worker = release.runWorker(commonDir, services);
   await until(() => git(bare, ["rev-parse", "refs/heads/main"]) === sha2, "newer queued SHA push");
   assert.equal(dispatches.length, 0, "turn commit must wait for the index-install ACK");
 
-  fs.writeFileSync(path.join(first.gitDir, DATA_DIR + "-unused"), "");
   fs.writeFileSync(path.join(repo, "three.txt"), "third\n");
   const sha3 = (() => {
     git(repo, ["add", "--", "three.txt"]);
@@ -186,8 +200,14 @@ test("queues exact commits, gates turn commits, pushes promptly, and serializes 
   ]);
   assert.deepEqual(plannedBases.map((item) => item.baseline), ["v1.0.0", "v1.0.1", "v1.0.2"]);
   assert.equal(git(bare, ["rev-parse", "refs/heads/main"]), sha3);
+  const mainJobs = release.readJobs(commonDir);
+  const persistedDispatch = mainJobs.find((job) => job.head === sha1);
+  assert.equal(persistedDispatch.schemaVersion, 1);
+  assert.equal(persistedDispatch.releaseVersion, "1.0.1");
+  assert.equal(persistedDispatch.releaseState, "done");
+  assert.match(release.status(repo), /version=1\.0\.3/);
 
-  git(repo, ["switch", "-c", "local-beta-target"]);
+  git(repo, ["switch", "-c", "local-beta-target", sha1]);
   git(repo, ["config", "branch.local-beta-target.remote", "origin"]);
   git(repo, ["config", "branch.local-beta-target.merge", "refs/heads/feature/beta"]);
   const betaSha = commitFile(repo, "beta.txt", "beta\n", "beta change");
@@ -195,6 +215,76 @@ test("queues exact commits, gates turn commits, pushes promptly, and serializes 
   assert.equal(beta.head, betaSha);
   assert.equal(beta.remoteBranch, "feature/beta");
   assert.equal(beta.workflow, "build_android_beta.yml");
+  let betaPlanned = false;
+  const betaWorker = release.runWorker(commonDir, {
+    ...services,
+    plan: async () => {
+      betaPlanned = true;
+      return { publish: false, bump: "none", release_notes: "", reason: "fixture inspected divergent Beta target" };
+    },
+  });
+  await betaWorker;
+  const betaJob = release.readJobs(commonDir).find((job) => job.head === betaSha);
+  assert.equal(betaPlanned, true, "a feature commit may diverge from the latest stable baseline");
+  assert.equal(betaJob.releaseState, "none");
+  assert.equal(git(bare, ["rev-parse", "refs/heads/feature/beta"]), betaSha);
+
+  git(repo, ["switch", "local-main-target"]);
+  const failedSha = commitFile(repo, "planner-failure.txt", "failure path\n", "planner failure fixture");
+  const failed = capture();
+  let failureCalls = 0;
+  await release.runWorker(commonDir, {
+    ...services,
+    plan: async () => {
+      failureCalls++;
+      return { publish: true, bump: "invalid", release_notes: "", reason: "invalid plan fixture" };
+    },
+  });
+  const failedJob = release.readJobs(commonDir).find((job) => job.head === failedSha);
+  assert.equal(failureCalls, 1);
+  assert.equal(failedJob.releaseState, "failed");
+  assert.equal(failedJob.schemaVersion, 1);
+  assert.equal(failedJob.releaseVersion, null);
+  assert.equal(dispatches.length, 3, "an invalid planner result must not dispatch a workflow");
+});
+
+test("native post-commit hook captures a commit without starting network work in the fixture", async (t) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kikoflu-native-hook-"));
+  t.after(() => {
+    const target = path.resolve(base);
+    const tempRoot = path.resolve(os.tmpdir()) + path.sep;
+    if (!target.startsWith(tempRoot) || !path.basename(target).startsWith("kikoflu-native-hook-")) {
+      throw new Error("unexpected native-hook fixture path");
+    }
+    fs.rmSync(target, { recursive: true, force: true });
+  });
+
+  fs.mkdirSync(path.join(base, "repo"));
+  const repo = path.join(base, "repo");
+  git(repo, ["init", "--initial-branch=main"]);
+  git(repo, ["config", "user.name", "Native Hook Test"]);
+  git(repo, ["config", "user.email", "native-hook@example.invalid"]);
+  git(repo, ["remote", "add", "origin", "git@github.com:test/fixture.git"]);
+  commitFile(repo, "base.txt", "base\n", "hook fixture base");
+
+  const commonDir = git(repo, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  const queueRoot = path.join(commonDir, "kikoflu-auto-release");
+  fs.mkdirSync(queueRoot, { recursive: true });
+  fs.writeFileSync(path.join(queueRoot, "worker.lock"), JSON.stringify({ pid: process.pid }));
+  release.installHook(repo);
+
+  fs.writeFileSync(path.join(repo, "hooked.txt"), "captured\n");
+  git(repo, ["add", "--", "hooked.txt"]);
+  git(repo, ["commit", "-m", "native hook commit"]);
+  const head = git(repo, ["rev-parse", "HEAD"]);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  const jobs = release.readJobs(commonDir);
+  assert.equal(jobs.length, 1);
+  assert.equal(jobs[0].head, head);
+  assert.equal(jobs[0].branch, "refs/heads/main");
+  assert.equal(jobs[0].pushState, "queued");
+  assert.equal(git(repo, ["config", "--local", "--get", "core.hooksPath"]), path.resolve(__dirname, "..", ".githooks"));
 });
 
 function idSort(id) {
