@@ -34,7 +34,21 @@ jobs:
         run: flutter analyze --fatal-infos
 
       - name: Test
-        run: flutter test --exclude-tags external
+        run: |
+          sudo sysctl -w kernel.core_pattern="$PWD/core.%p"
+          ulimit -c unlimited
+          set +e
+          flutter test --exclude-tags external
+          test_status=$?
+          set -e
+          if [ "$test_status" -ne 0 ]; then
+            for dump in core.*; do
+              [ -f "$dump" ] || continue
+              gdb --batch -ex 'thread apply all bt 20' \
+                "$FLUTTER_ROOT/bin/cache/artifacts/engine/linux-x64/flutter_tester" "$dump" || true
+            done
+          fi
+          exit "$test_status"
 
   android:
     name: Android Build
