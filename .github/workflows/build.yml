@@ -1,6 +1,28 @@
 name: Build and Release
 
 on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      release_notes:
+        required: true
+        type: string
+      commit_sha:
+        required: true
+        type: string
+    secrets:
+      ANDROID_KEYSTORE_BASE64:
+        required: true
+      ANDROID_KEYSTORE_PASSWORD:
+        required: true
+      ANDROID_KEY_ALIAS:
+        required: true
+      ANDROID_KEY_PASSWORD:
+        required: true
+      RELEASE_TOKEN:
+        required: false
   workflow_dispatch:
     inputs:
       version:
@@ -19,6 +41,11 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.event_name == 'workflow_dispatch' && 'kikoflu-release' || format('kikoflu-build-stable-{0}', github.run_id) }}
+  queue: max
+  cancel-in-progress: false
 
 jobs:
   prepare:
@@ -524,7 +551,7 @@ jobs:
 
       - name: Verify and publish release atomically
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_COMMIT: ${{ needs.prepare.outputs.commit_sha }}

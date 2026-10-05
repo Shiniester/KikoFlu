@@ -1,0 +1,75 @@
+name: Release on Push
+
+on:
+  push:
+    branches:
+      - '**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kikoflu-release
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan Release
+    if: github.event.deleted != true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+      version: ${{ steps.plan.outputs.version }}
+      release_notes: ${{ steps.plan.outputs.release_notes }}
+      commit_sha: ${{ steps.plan.outputs.commit_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Plan automatic release
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 scripts/plan_push_release.py
+
+  stable:
+    name: Build Stable Release
+    if: github.event.deleted != true && github.ref_name == 'main' && needs.plan.outputs.publish == 'true'
+    needs: plan
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+      release_notes: ${{ needs.plan.outputs.release_notes }}
+      commit_sha: ${{ needs.plan.outputs.commit_sha }}
+    secrets:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
+  beta:
+    name: Build Android Beta Release
+    if: github.event.deleted != true && github.ref_name != 'main' && needs.plan.outputs.publish == 'true'
+    needs: plan
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build_android_beta.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+      release_notes: ${{ needs.plan.outputs.release_notes }}
+      commit_sha: ${{ needs.plan.outputs.commit_sha }}
+    secrets:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
