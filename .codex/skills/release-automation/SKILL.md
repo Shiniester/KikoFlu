@@ -17,7 +17,7 @@ When a release is requested through a GitHub Actions workflow selected below,
 and the user explicitly requests the full repository sync:
 
 1. Inspect the working tree and include all current tracked and untracked changes in the requested commit.
-2. Commit the changes locally with a concise release-relevant message.
+2. Commit the changes locally with a concise release-relevant message. For Beta releases, include the resolved remote branch name, for example `release: 4.5.3-beta.1 (branch: feature/player)`.
 3. Push only the current local branch to its resolved remote branch using an explicit refspec (`HEAD:refs/heads/<remote-branch>`).
 4. Confirm that the remote branch points to the local release commit.
 5. Dispatch the workflow in that remote's GitHub repository with an explicit branch ref (`gh workflow run <workflow> --repo <repository> --ref <remote-branch>`) and the requested version and release notes. The workflow checkout and release tag must use the dispatched branch's commit.
@@ -30,7 +30,7 @@ on the resolved branch; do not merge into or push `main` unless it is that branc
 
 GitHub Actions runs asynchronously after dispatch. Treat the accepted dispatch as the completion boundary for the local task. Do not wait for, poll, watch, or inspect the workflow's later build and release result unless the user explicitly asks for monitoring or verification.
 
-When reporting an accepted dispatch, state that the workflow was started and link to the run; do not state that the release was published until a later verification is explicitly requested and completed.
+When reporting an accepted dispatch, state that the workflow was started and link to the run; for Beta releases, include the resolved remote branch name. Do not state that the release was published until a later verification is explicitly requested and completed.
 
 ## Platform selection by release size
 
