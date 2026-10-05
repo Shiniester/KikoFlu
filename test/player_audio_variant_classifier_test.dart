@@ -57,21 +57,98 @@ void main() {
     );
   });
 
-  test('work title language is inherited by audio files without markers', () {
+  test('work title language only fills in matched subtitle language', () {
     final simplified = classifier.scan([
-      _folder('audio', [_audio('01.wav', 'simplified')]),
+      _folder('audio', [
+        _audio('01.wav', 'simplified'),
+        _subtitle('01.lrc'),
+        _audio('02.wav', 'no-subtitle'),
+      ]),
     ], workTitle: 'RJ100 简体中文版本');
     final traditional = classifier.scan([
-      _folder('audio', [_audio('01.flac', 'traditional')]),
+      _folder('audio', [_audio('01.flac', 'traditional'), _subtitle('01.lrc')]),
     ], workTitle: 'RJ200 繁體中文版本');
 
     expect(
-      simplified.single.subtitleLanguage,
+      simplified.first.subtitleLanguage,
       PlayerSubtitleLanguage.simplifiedChinese,
+    );
+    expect(simplified.last.title, '02.wav');
+    expect(simplified.last.subtitleLanguage, PlayerSubtitleLanguage.none);
+    expect(
+      classifier
+          .applyFilter(
+            simplified,
+            const PlayerAudioVariantFilter(
+              subtitleLanguages: {PlayerSubtitleLanguage.simplifiedChinese},
+            ),
+          )
+          .map((variant) => variant.title),
+      ['01.wav'],
     );
     expect(
       traditional.single.subtitleLanguage,
       PlayerSubtitleLanguage.traditionalChinese,
+    );
+  });
+
+  test('subtitle language markers take precedence over the work title', () {
+    final variants = classifier.scan([
+      _audio('01.wav', 'traditional'),
+      _subtitle('01_繁中.lrc'),
+      _audio('02.wav', 'mixed'),
+      _subtitle('02_简中.lrc'),
+      _subtitle('02_繁中.lrc'),
+    ], workTitle: 'RJ100 简体中文版本');
+
+    expect(
+      variants.first.subtitleLanguage,
+      PlayerSubtitleLanguage.traditionalChinese,
+    );
+    expect(variants.last.subtitleLanguage, PlayerSubtitleLanguage.unknown);
+  });
+
+  test(
+    'traditional-script simplified markers override a traditional title',
+    () {
+      final variants = classifier.scan([
+        _audio('01.wav', 'long-marker'),
+        _subtitle('01_簡體中文.lrc'),
+        _audio('02.wav', 'short-marker'),
+        _subtitle('02_簡體.lrc'),
+      ], workTitle: 'RJ100 繁體中文版本');
+
+      expect(variants, hasLength(2));
+      for (final variant in variants) {
+        expect(
+          variant.subtitleLanguage,
+          PlayerSubtitleLanguage.simplifiedChinese,
+        );
+        expect(variant.subtitleSources, hasLength(1));
+      }
+    },
+  );
+
+  test('long language markers match short audio names', () {
+    final variants = classifier.scan([
+      _audio('01.wav', 'traditional'),
+      _subtitle('01_繁体中文.lrc'),
+      _audio('02.wav', 'simplified'),
+      _subtitle('02_簡体中文.lrc'),
+    ]);
+
+    expect(variants.first.title, '02.wav');
+    expect(
+      variants.first.subtitleLanguage,
+      PlayerSubtitleLanguage.simplifiedChinese,
+    );
+    expect(
+      variants.last.subtitleLanguage,
+      PlayerSubtitleLanguage.traditionalChinese,
+    );
+    expect(
+      variants.every((variant) => variant.subtitleSources.length == 1),
+      isTrue,
     );
   });
 
@@ -131,6 +208,58 @@ void main() {
     );
 
     expect(result.single.title, 'beta.mp3');
+  });
+
+  test('filtering sorts unsorted input without modifying it', () {
+    final variants = classifier
+        .scan([
+          _audio('z.wav', 'z'),
+          _audio('a.wav', 'a'),
+          _audio('b.mp3', 'b'),
+        ])
+        .reversed
+        .toList();
+    final original = variants.toList();
+
+    for (final filter in const [
+      PlayerAudioVariantFilter(),
+      PlayerAudioVariantFilter(formats: {PlayerAudioFormat.wav}),
+      PlayerAudioVariantFilter(showAll: true),
+    ]) {
+      expect(
+        classifier
+            .applyFilter(variants, filter)
+            .map((variant) => variant.title),
+        filter.showAll ? ['a.wav', 'z.wav', 'b.mp3'] : ['a.wav', 'z.wav'],
+      );
+      expect(variants, orderedEquals(original));
+    }
+  });
+
+  test('prepared matching keeps fuzzy names and directory boundaries', () {
+    final variants = classifier.scan([
+      _folder('简中', [
+        _audio('a_long_track_title.wav', 'fuzzy'),
+        _subtitle('a_long_track_titl.lrc'),
+        _audio('02.wav', 'full-width'),
+        _subtitle('０２_CHS.lrc'),
+        _audio('03.wav', 'no-subtitle'),
+      ]),
+      _folder('other', [_subtitle('03_简中.lrc')]),
+    ]);
+
+    final fuzzy = variants.singleWhere(
+      (variant) => variant.source['hash'] == 'fuzzy',
+    );
+    final fullWidth = variants.singleWhere(
+      (variant) => variant.source['hash'] == 'full-width',
+    );
+    final withoutSubtitle = variants.singleWhere(
+      (variant) => variant.source['hash'] == 'no-subtitle',
+    );
+    expect(fuzzy.subtitleSources, hasLength(1));
+    expect(fullWidth.subtitleSources, hasLength(1));
+    expect(withoutSubtitle.subtitleLanguage, PlayerSubtitleLanguage.none);
   });
 }
 

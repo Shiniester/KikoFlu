@@ -171,6 +171,7 @@ class PlayerWorkDetailsRepository {
   int _fingerprint(List<dynamic> items) {
     var result = 17;
     void addItems(List<dynamic> current) {
+      result = Object.hash(result, current.length);
       for (final item in current) {
         result = Object.hash(
           result,

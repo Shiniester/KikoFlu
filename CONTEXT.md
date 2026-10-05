@@ -64,6 +64,11 @@ The full-screen player page containing details for the current audio track. It
 is distinct from the Work Details Screen for the containing work.
 _Avoid_: Player details page, work details page
 
+**Audio Subtitle Language (音频字幕语言)**:
+The language of subtitles available for an individual audio file. A work's
+Chinese-language label does not imply that every audio file has subtitles.
+_Avoid_: Work language, audio language
+
 **Player Lyrics Page (播放器字幕页)**:
 The full-screen player page containing the current track's synchronized lyrics
 or subtitles.

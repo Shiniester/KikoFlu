@@ -88,24 +88,40 @@ class PlayerAudioVariantClassifier {
     final entries = <_TreeEntry>[];
     _flatten(fileTree, '', entries);
     final inheritedLanguage = inferWorkTitleLanguage(workTitle);
-    final subtitlesByParent = <String, List<_TreeEntry>>{};
+    final subtitlesByParent = <String, List<_PreparedSubtitle>>{};
     for (final entry in entries.where(
       (entry) => FileTreeUtils.isText(entry.source),
     )) {
-      subtitlesByParent.putIfAbsent(entry.parentPath, () => []).add(entry);
+      subtitlesByParent.putIfAbsent(entry.parentPath, () => []).add((
+        entry: entry,
+        original: SubtitleMatcher.prepareSubtitle(entry.title),
+        cleaned: _prepareSubtitleWithoutLanguage(entry.title),
+      ));
     }
 
     final variants = <PlayerAudioVariant>[];
     for (final entry in entries.where(
       (entry) => FileTreeUtils.isAudio(entry.source),
     )) {
+      final audioName = SubtitleMatcher.prepareAudio(entry.title);
+      // ponytail: matching is quadratic per folder; index names if large folders dominate.
       final subtitles =
-          (subtitlesByParent[entry.parentPath] ?? const <_TreeEntry>[])
+          (subtitlesByParent[entry.parentPath] ?? const <_PreparedSubtitle>[])
               .where(
-                (subtitle) => _subtitleMatches(subtitle.title, entry.title),
+                (subtitle) =>
+                    SubtitleMatcher.checkPrepared(
+                      subtitle.original,
+                      audioName,
+                    ).isMatch ||
+                    SubtitleMatcher.checkPrepared(
+                      subtitle.cleaned,
+                      audioName,
+                    ).isMatch,
               )
+              .map((subtitle) => subtitle.entry)
               .toList(growable: false);
       final traitText = _normalize('${entry.parentPath}/${entry.title}');
+      final subtitleLanguage = _subtitleLanguageOf(subtitles);
       variants.add(
         PlayerAudioVariant(
           source: entry.source,
@@ -113,13 +129,11 @@ class PlayerAudioVariantClassifier {
           parentPath: entry.parentPath,
           fullPath: entry.fullPath,
           format: _formatOf(entry.title),
-          subtitleLanguage: switch (inheritedLanguage) {
-            PlayerSubtitleLanguage.simplifiedChinese =>
-              PlayerSubtitleLanguage.simplifiedChinese,
-            PlayerSubtitleLanguage.traditionalChinese =>
-              PlayerSubtitleLanguage.traditionalChinese,
-            _ => _subtitleLanguageOf(subtitles),
-          },
+          subtitleLanguage:
+              subtitleLanguage == PlayerSubtitleLanguage.other &&
+                  inheritedLanguage != PlayerSubtitleLanguage.unknown
+              ? inheritedLanguage
+              : subtitleLanguage,
           se: _seOf(traitText),
           ejaculation: _ejaculationOf(traitText),
           subtitleSources: subtitles
@@ -128,12 +142,11 @@ class PlayerAudioVariantClassifier {
         ),
       );
     }
-    variants.sort(_compare);
+    _sort(variants);
     return List.unmodifiable(variants);
   }
 
-  /// A language marker on the work title applies to every audio file in the
-  /// work, even when the individual path and file name omit that marker.
+  /// A work title can supply the language of a matched, unmarked subtitle.
   PlayerSubtitleLanguage inferWorkTitleLanguage(String title) {
     final text = _normalize(title);
     final simplified = _containsAny(text, const [
@@ -141,6 +154,7 @@ class PlayerAudioVariantClassifier {
       '簡體中文',
       '简体',
       '簡体',
+      '簡體',
       '简中',
       '簡中',
       'chs',
@@ -170,33 +184,21 @@ class PlayerAudioVariantClassifier {
   /// still yields at least one playable result.
   List<PlayerAudioVariant> selectBest(List<PlayerAudioVariant> variants) {
     if (variants.isEmpty) return const [];
-    final sorted = List<PlayerAudioVariant>.of(variants)..sort(_compare);
+    final sorted = List<PlayerAudioVariant>.of(variants);
+    _sort(sorted);
     final best = sorted.first;
-
-    final hasKnownLanguage = variants.any(
-      (variant) => variant.subtitleLanguage != PlayerSubtitleLanguage.unknown,
-    );
-    final hasKnownSe = variants.any(
-      (variant) => variant.se != PlayerBinaryTrait.unknown,
-    );
-    final hasKnownEjaculation = variants.any(
-      (variant) => variant.ejaculation != PlayerBinaryTrait.unknown,
-    );
 
     final result = sorted
         .where((variant) {
           final languageMatches =
-              !hasKnownLanguage ||
               best.subtitleLanguage == PlayerSubtitleLanguage.unknown ||
               variant.subtitleLanguage == PlayerSubtitleLanguage.unknown ||
               variant.subtitleLanguage == best.subtitleLanguage;
           final seMatches =
-              !hasKnownSe ||
               best.se == PlayerBinaryTrait.unknown ||
               variant.se == PlayerBinaryTrait.unknown ||
               variant.se == best.se;
           final ejaculationMatches =
-              !hasKnownEjaculation ||
               best.ejaculation == PlayerBinaryTrait.unknown ||
               variant.ejaculation == PlayerBinaryTrait.unknown ||
               variant.ejaculation == best.ejaculation;
@@ -217,14 +219,13 @@ class PlayerAudioVariantClassifier {
     final source = filter.showAll
         ? variants
         : _filterByDimensions(variants, filter);
-    final result =
-        source
-            .where((variant) {
-              return keyword.isEmpty ||
-                  _normalize(variant.fullPath).contains(keyword);
-            })
-            .toList(growable: false)
-          ..sort(_compare);
+    final result = source
+        .where((variant) {
+          return keyword.isEmpty ||
+              _normalize(variant.fullPath).contains(keyword);
+        })
+        .toList(growable: false);
+    _sort(result);
     return result;
   }
 
@@ -269,17 +270,17 @@ class PlayerAudioVariantClassifier {
     return selected.contains(value);
   }
 
-  bool _subtitleMatches(String subtitleTitle, String audioTitle) {
-    if (SubtitleMatcher.isSubtitleForAudio(subtitleTitle, audioTitle)) {
-      return true;
-    }
+  PreparedSubtitleName? _prepareSubtitleWithoutLanguage(String subtitleTitle) {
     var cleaned = subtitleTitle;
     for (final marker in const [
       '简体中文',
       '簡體中文',
+      '簡体中文',
+      '繁体中文',
       '繁體中文',
       '简体',
       '簡体',
+      '簡體',
       '繁体',
       '繁體',
       '简中',
@@ -297,7 +298,7 @@ class PlayerAudioVariantClassifier {
       cleaned = cleaned.replaceAll(RegExp(marker, caseSensitive: false), '');
     }
     cleaned = cleaned.replaceAll(RegExp(r'[_\-\s]+(?=\.[^.]+$)'), '');
-    return SubtitleMatcher.isSubtitleForAudio(cleaned, audioTitle);
+    return SubtitleMatcher.prepareSubtitle(cleaned);
   }
 
   void _flatten(
@@ -338,6 +339,7 @@ class PlayerAudioVariantClassifier {
     final simplified = _containsAny(text, const [
       '简体',
       '簡体',
+      '簡體',
       '简中',
       '簡中',
       '简体中文',
@@ -441,46 +443,32 @@ class PlayerAudioVariantClassifier {
   }
 
   int _compare(PlayerAudioVariant a, PlayerAudioVariant b) {
-    final ranksA = <int>[
-      _languageRank(a.subtitleLanguage),
-      _formatRank(a.format),
-      _traitRank(a.se),
-      _traitRank(a.ejaculation),
-    ];
-    final ranksB = <int>[
-      _languageRank(b.subtitleLanguage),
-      _formatRank(b.format),
-      _traitRank(b.se),
-      _traitRank(b.ejaculation),
-    ];
-    for (var index = 0; index < ranksA.length; index++) {
-      final compared = ranksA[index].compareTo(ranksB[index]);
-      if (compared != 0) return compared;
-    }
+    var compared = a.subtitleLanguage.index.compareTo(b.subtitleLanguage.index);
+    if (compared != 0) return compared;
+    compared = a.format.index.compareTo(b.format.index);
+    if (compared != 0) return compared;
+    compared = a.se.index.compareTo(b.se.index);
+    if (compared != 0) return compared;
+    compared = a.ejaculation.index.compareTo(b.ejaculation.index);
+    if (compared != 0) return compared;
     return a.fullPath.toLowerCase().compareTo(b.fullPath.toLowerCase());
   }
 
-  int _languageRank(PlayerSubtitleLanguage value) => switch (value) {
-    PlayerSubtitleLanguage.simplifiedChinese => 0,
-    PlayerSubtitleLanguage.traditionalChinese => 1,
-    PlayerSubtitleLanguage.other => 2,
-    PlayerSubtitleLanguage.none => 3,
-    PlayerSubtitleLanguage.unknown => 4,
-  };
-
-  int _formatRank(PlayerAudioFormat value) => switch (value) {
-    PlayerAudioFormat.wav => 0,
-    PlayerAudioFormat.flac => 1,
-    PlayerAudioFormat.mp3 => 2,
-    PlayerAudioFormat.other => 3,
-  };
-
-  int _traitRank(PlayerBinaryTrait value) => switch (value) {
-    PlayerBinaryTrait.present => 0,
-    PlayerBinaryTrait.absent => 1,
-    PlayerBinaryTrait.unknown => 2,
-  };
+  void _sort(List<PlayerAudioVariant> variants) {
+    for (var index = 1; index < variants.length; index++) {
+      if (_compare(variants[index - 1], variants[index]) > 0) {
+        variants.sort(_compare);
+        return;
+      }
+    }
+  }
 }
+
+typedef _PreparedSubtitle = ({
+  _TreeEntry entry,
+  PreparedSubtitleName? original,
+  PreparedSubtitleName? cleaned,
+});
 
 class _TreeEntry {
   const _TreeEntry({

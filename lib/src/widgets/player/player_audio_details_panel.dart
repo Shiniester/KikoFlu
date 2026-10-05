@@ -33,6 +33,9 @@ class _PlayerAudioDetailsPanelState
     extends ConsumerState<PlayerAudioDetailsPanel> {
   static const _classifier = PlayerAudioVariantClassifier();
   PlayerAudioVariantFilter _filter = const PlayerAudioVariantFilter();
+  List<PlayerAudioVariant>? _filterSource;
+  PlayerAudioVariantFilter? _appliedFilter;
+  List<PlayerAudioVariant> _filteredVariants = const [];
   String? _fileTreeId;
   bool _isQueueing = false;
 
@@ -65,7 +68,13 @@ class _PlayerAudioDetailsPanelState
   Widget _buildDetails(BuildContext context, PlayerWorkDetailsData details) {
     final work = details.work;
     final colors = Theme.of(context).colorScheme;
-    final variants = _classifier.applyFilter(details.variants, _filter);
+    if (!identical(_filterSource, details.variants) ||
+        !identical(_appliedFilter, _filter)) {
+      _filteredVariants = _classifier.applyFilter(details.variants, _filter);
+      _filterSource = details.variants;
+      _appliedFilter = _filter;
+    }
+    final variants = _filteredVariants;
     final hasCircle = work.name?.trim().isNotEmpty == true;
     final hasRelease = work.release?.trim().isNotEmpty == true;
     final hasVoiceActors = work.vas?.isNotEmpty == true;
