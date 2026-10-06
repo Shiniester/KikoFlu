@@ -570,6 +570,7 @@ void main() {
     int initialPage = 0,
     _Source? source,
     Future<Uint8List> Function(ComicPage)? loadImage,
+    bool reduceMotion = false,
   }) async {
     await StorageService.setString('comic_reading_mode', mode.name);
     if (interval != null) {
@@ -585,6 +586,7 @@ void main() {
       _Library(),
       source ?? _Source(),
       loadImage: loadImage,
+      reduceMotion: reduceMotion,
     );
     await waitForDecodedImage(tester, find.byType(Image).first);
     await tester.pumpAndSettle();
@@ -819,7 +821,7 @@ void main() {
 
     await tester.tap(auto);
     await tester.pump(const Duration(seconds: 1));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(tester.widget<IconButton>(auto).isSelected, isTrue);
     expect(readerPageValue('2/8'), findsOneWidget);
     await tester.tap(auto);
@@ -1294,38 +1296,132 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('auto page turn advances in ${mode.name}', (tester) async {
-      tester.view.physicalSize = const Size(390, 844);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      await startAutoPageTurn(tester, mode: mode, interval: 1);
+    for (final reduceMotion in [false, true]) {
+      testWidgets(
+        'auto page turn animates in ${mode.name}; reduced motion $reduceMotion',
+        (tester) async {
+          tester.view.physicalSize = const Size(390, 844);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.reset);
+          await startAutoPageTurn(
+            tester,
+            mode: mode,
+            interval: 1,
+            reduceMotion: reduceMotion,
+          );
 
-      await tester.pump(const Duration(seconds: 1));
-      await tester.pump();
-      if (mode == ComicReadingMode.continuous) {
-        final view = find.byKey(const ValueKey('comic-continuous-zoom'));
-        final list = find.descendant(
-          of: view,
-          matching: find.byType(ScrollablePositionedList),
-        );
-        final scrollable = find.descendant(
-          of: list,
-          matching: find.byType(Scrollable),
-        );
-        final position = tester
-            .state<ScrollableState>(scrollable.first)
-            .position;
-        expect(position.pixels, closeTo(600, .1));
-        expect(position.pixels, lessThan(position.maxScrollExtent));
-      } else {
-        expect(
-          readerPageValue(isComicSpread(mode) ? '3/8' : '2/8'),
-          findsOneWidget,
-        );
-      }
-      expect(tester.takeException(), isNull);
-    });
+          await tester.pump(const Duration(seconds: 1));
+          await tester.pump(const Duration(milliseconds: 100));
+          if (mode == ComicReadingMode.continuous) {
+            final view = find.byKey(const ValueKey('comic-continuous-zoom'));
+            final list = find.descendant(
+              of: view,
+              matching: find.byType(ScrollablePositionedList),
+            );
+            final scrollable = find.descendant(
+              of: list,
+              matching: find.byType(Scrollable),
+            );
+            final position = tester
+                .state<ScrollableState>(scrollable.first)
+                .position;
+            if (reduceMotion) {
+              expect(position.pixels, closeTo(600, .1));
+            } else {
+              expect(position.pixels, inExclusiveRange(0, 600));
+            }
+            expect(position.pixels, lessThan(position.maxScrollExtent));
+            await tester.pumpAndSettle();
+            expect(position.pixels, closeTo(600, .1));
+          } else {
+            final controller = tester
+                .widget<PageView>(find.byType(PageView))
+                .controller!;
+            const targetView = 1;
+            if (reduceMotion) {
+              expect(controller.page, targetView.toDouble());
+            } else {
+              expect(controller.page, inExclusiveRange(0, targetView));
+            }
+            await tester.pumpAndSettle();
+            expect(controller.page, targetView.toDouble());
+            expect(
+              readerPageValue(isComicSpread(mode) ? '3/8' : '2/8'),
+              findsOneWidget,
+            );
+          }
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
   }
+
+  testWidgets('reader preloads a decoded image before it is turned to', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await StorageService.setString('comic_reading_mode', 'leftToRight');
+    await StorageService.setInt('comic_preload', 2);
+    final nextPageBytes = Uint8List.fromList(
+      img.encodePng(img.Image(width: 153, height: 277)),
+    );
+    final nextPageLoadStarted = Completer<void>();
+    await pump(
+      tester,
+      const ComicReaderScreen(
+        comic: _comic,
+        chapter: ComicChapter('one', 'Chapter 1'),
+      ),
+      _Library(),
+      _Source(),
+      loadImage: (page) async {
+        if (page.url == 'page-2' && !nextPageLoadStarted.isCompleted) {
+          nextPageLoadStarted.complete();
+        }
+        return page.url == 'page-2' ? nextPageBytes : _png;
+      },
+    );
+    await tester.runAsync(() async {
+      await nextPageLoadStarted.future;
+    });
+    final cacheKey = await MemoryImage(
+      nextPageBytes,
+    ).obtainKey(ImageConfiguration.empty);
+    for (var frame = 0; frame < 50; frame++) {
+      if (PaintingBinding.instance.imageCache
+          .statusForKey(cacheKey)
+          .keepAlive) {
+        break;
+      }
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+    expect(
+      PaintingBinding.instance.imageCache.statusForKey(cacheKey).keepAlive,
+      isTrue,
+      reason: 'Preloading must decode the image before its page is visible.',
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    expect(
+      tester
+          .widgetList<RawImage>(find.byType(RawImage))
+          .any(
+            (image) => image.image?.width == 153 && image.image?.height == 277,
+          ),
+      isTrue,
+    );
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   for (final mode in [
     ComicReadingMode.spread,
@@ -1346,12 +1442,12 @@ void main() {
       );
 
       await tester.pump(const Duration(seconds: 1));
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(find.textContaining('Chapter 1'), findsOneWidget);
       expect(readerPageValue('3/3'), findsOneWidget);
 
       await tester.pump(const Duration(seconds: 1));
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(find.textContaining('Chapter 2'), findsOneWidget);
       expect(readerPageValue('1/8'), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -1360,116 +1456,135 @@ void main() {
 
   for (final zoomed in [false, true]) {
     for (final hasNextChapter in [true, false]) {
-      testWidgets(
-        'continuous auto page turn reaches the final image; zoomed $zoomed, next chapter $hasNextChapter',
-        (tester) async {
-          tester.view.physicalSize = const Size(390, 844);
-          tester.view.devicePixelRatio = 1;
-          addTearDown(tester.view.reset);
-          final comic = Comic(
-            source: 'fixture',
-            id: 'book',
-            title: 'Fixture book',
-            cover: 'fixture-cover',
-            chapters: [
-              const ComicChapter('one', 'Chapter 1'),
-              if (hasNextChapter) const ComicChapter('two', 'Chapter 2'),
-            ],
-          );
-          await startAutoPageTurn(
-            tester,
-            mode: ComicReadingMode.continuous,
-            interval: 1,
-            comic: comic,
-            initialPage: 7,
-            loadImage: (_) async => _tallPng,
-          );
-
-          final auto = find.byKey(const ValueKey('comic-auto-page-turn'));
-          final view = find.byKey(const ValueKey('comic-continuous-zoom'));
-          final transformFinder = find.byKey(
-            const ValueKey('comic-reader-canvas-transform'),
-          );
-          double? beforePanScale;
-          double? beforePanY;
-          var panned = false;
-          if (zoomed) {
-            await tester.tap(auto);
-            await tester.pump();
-            await doubleTapAt(tester, tester.getCenter(view));
-            await tester.pumpAndSettle();
-            final beforePan = tester
-                .widget<Transform>(transformFinder)
-                .transform
-                .clone();
-            beforePanScale = beforePan.getMaxScaleOnAxis();
-            beforePanY = beforePan.getTranslation().y;
-            expect(beforePanScale, greaterThan(1));
-            expect(
-              tester
-                  .getRect(find.byKey(const ValueKey('comic-page-size-7')))
-                  .bottom,
-              greaterThan(tester.getRect(view).bottom + 1),
+      for (final reduceMotion in zoomed ? [false, true] : [false]) {
+        testWidgets(
+          'continuous auto page turn reaches the final image; zoomed $zoomed, next chapter $hasNextChapter, reduced motion $reduceMotion',
+          (tester) async {
+            tester.view.physicalSize = const Size(390, 844);
+            tester.view.devicePixelRatio = 1;
+            addTearDown(tester.view.reset);
+            final comic = Comic(
+              source: 'fixture',
+              id: 'book',
+              title: 'Fixture book',
+              cover: 'fixture-cover',
+              chapters: [
+                const ComicChapter('one', 'Chapter 1'),
+                if (hasNextChapter) const ComicChapter('two', 'Chapter 2'),
+              ],
+            );
+            await startAutoPageTurn(
+              tester,
+              mode: ComicReadingMode.continuous,
+              interval: 1,
+              comic: comic,
+              initialPage: 7,
+              loadImage: (_) async => _tallPng,
+              reduceMotion: reduceMotion,
             );
 
-            await tester.tap(auto);
-            await tester.pump();
-          }
-          for (var i = 0; zoomed && i < 12 && !panned; i++) {
-            await tester.pump(const Duration(seconds: 1));
-            await tester.pump();
-            panned =
+            final auto = find.byKey(const ValueKey('comic-auto-page-turn'));
+            final view = find.byKey(const ValueKey('comic-continuous-zoom'));
+            final transformFinder = find.byKey(
+              const ValueKey('comic-reader-canvas-transform'),
+            );
+            double? beforePanScale;
+            double? beforePanY;
+            var panned = false;
+            if (zoomed) {
+              await tester.tap(auto);
+              await tester.pump();
+              await doubleTapAt(tester, tester.getCenter(view));
+              await tester.pumpAndSettle();
+              final beforePan = tester
+                  .widget<Transform>(transformFinder)
+                  .transform
+                  .clone();
+              beforePanScale = beforePan.getMaxScaleOnAxis();
+              beforePanY = beforePan.getTranslation().y;
+              expect(beforePanScale, greaterThan(1));
+              expect(
                 tester
-                    .widget<Transform>(transformFinder)
-                    .transform
-                    .getTranslation()
-                    .y <
-                beforePanY! - 1;
-          }
-          if (!zoomed) {
+                    .getRect(find.byKey(const ValueKey('comic-page-size-7')))
+                    .bottom,
+                greaterThan(tester.getRect(view).bottom + 1),
+              );
+
+              await tester.tap(auto);
+              await tester.pump();
+            }
+            for (var i = 0; zoomed && i < 12 && !panned; i++) {
+              await tester.pump(const Duration(seconds: 1));
+              await tester.pump(const Duration(milliseconds: 100));
+              final duringPanY = tester
+                  .widget<Transform>(transformFinder)
+                  .transform
+                  .getTranslation()
+                  .y;
+              await tester.pumpAndSettle();
+              final afterPanY = tester
+                  .widget<Transform>(transformFinder)
+                  .transform
+                  .getTranslation()
+                  .y;
+              panned = afterPanY < beforePanY! - 1;
+              if (panned) {
+                if (reduceMotion) {
+                  expect(duringPanY, closeTo(afterPanY, .1));
+                } else {
+                  expect(duringPanY, lessThan(beforePanY - 1));
+                  expect(duringPanY, greaterThan(afterPanY + 1));
+                }
+              }
+            }
+            if (!zoomed) {
+              await tester.pump(const Duration(seconds: 1));
+              await tester.pumpAndSettle();
+            }
+            expect(find.textContaining('Chapter 1'), findsOneWidget);
+            expect(readerPageValue('8/8'), findsOneWidget);
+            if (zoomed) {
+              expect(panned, isTrue);
+              final afterPan = tester
+                  .widget<Transform>(transformFinder)
+                  .transform;
+              expect(
+                afterPan.getMaxScaleOnAxis(),
+                closeTo(beforePanScale!, .01),
+              );
+              expect(
+                tester
+                    .getRect(find.byKey(const ValueKey('comic-page-size-7')))
+                    .bottom,
+                lessThanOrEqualTo(tester.getRect(view).bottom + 1),
+              );
+            }
+            final list = find.descendant(
+              of: view,
+              matching: find.byType(ScrollablePositionedList),
+            );
+            final scrollable = find.descendant(
+              of: list,
+              matching: find.byType(Scrollable),
+            );
+            final position = tester
+                .state<ScrollableState>(scrollable.first)
+                .position;
+            expect(position.pixels, closeTo(position.maxScrollExtent, .1));
+
             await tester.pump(const Duration(seconds: 1));
             await tester.pump();
-          }
-          expect(find.textContaining('Chapter 1'), findsOneWidget);
-          expect(readerPageValue('8/8'), findsOneWidget);
-          if (zoomed) {
-            expect(panned, isTrue);
-            final afterPan = tester
-                .widget<Transform>(transformFinder)
-                .transform;
-            expect(afterPan.getMaxScaleOnAxis(), closeTo(beforePanScale!, .01));
-            expect(
-              tester
-                  .getRect(find.byKey(const ValueKey('comic-page-size-7')))
-                  .bottom,
-              lessThanOrEqualTo(tester.getRect(view).bottom + 1),
-            );
-          }
-          final list = find.descendant(
-            of: view,
-            matching: find.byType(ScrollablePositionedList),
-          );
-          final scrollable = find.descendant(
-            of: list,
-            matching: find.byType(Scrollable),
-          );
-          final position = tester
-              .state<ScrollableState>(scrollable.first)
-              .position;
-          expect(position.pixels, closeTo(position.maxScrollExtent, .1));
-
-          await tester.pump(const Duration(seconds: 1));
-          await tester.pump();
-          if (hasNextChapter) {
-            expect(find.textContaining('Chapter 2'), findsOneWidget);
-            expect(find.byTooltip('Pause'), findsOneWidget);
-          } else {
-            expect(find.textContaining('Chapter 1'), findsOneWidget);
-            expect(find.byTooltip('Auto page turn'), findsOneWidget);
-          }
-          expect(tester.takeException(), isNull);
-        },
-      );
+            if (hasNextChapter) {
+              expect(find.textContaining('Chapter 2'), findsOneWidget);
+              expect(find.byTooltip('Pause'), findsOneWidget);
+            } else {
+              expect(find.textContaining('Chapter 1'), findsOneWidget);
+              expect(find.byTooltip('Auto page turn'), findsOneWidget);
+            }
+            expect(tester.takeException(), isNull);
+          },
+        );
+      }
     }
   }
 
@@ -1484,7 +1599,7 @@ void main() {
     await tester.pump(const Duration(seconds: 4, milliseconds: 999));
     expect(readerPageValue('1/8'), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 1));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(readerPageValue('2/8'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('comic-auto-page-turn')));
     await tester.pump();
@@ -1494,7 +1609,7 @@ void main() {
     await tester.pump(const Duration(seconds: 1, milliseconds: 999));
     expect(readerPageValue('2/8'), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 1));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(readerPageValue('3/8'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('comic-auto-page-turn')));
     await tester.pump();

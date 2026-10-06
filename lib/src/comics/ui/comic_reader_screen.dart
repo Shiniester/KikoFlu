@@ -61,6 +61,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   ItemScrollController _continuous = ItemScrollController();
   final _positions = ItemPositionsListener.create();
   final Map<int, Future<Uint8List>> _images = {};
+  final Map<int, Uint8List> _loadedImages = {};
   final Map<int, Size> _imageSizes = {};
   Matrix4 _continuousTransform = Matrix4.identity();
   ScrollPosition? _continuousPosition;
@@ -290,7 +291,17 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
           .clamp(position.minScrollExtent, position.maxScrollExtent)
           .toDouble();
       if (target != position.pixels) {
-        position.jumpTo(target);
+        if (MediaQuery.disableAnimationsOf(context)) {
+          position.jumpTo(target);
+        } else {
+          unawaited(
+            position.animateTo(
+              target,
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOutCubic,
+            ),
+          );
+        }
       } else {
         final trailingEdge = _continuousLastPageTrailingEdge();
         if (trailingEdge != null) {
@@ -308,7 +319,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       }
       return;
     }
-    _step(1);
+    _step(1, animate: true);
   }
 
   Widget _controlLayer({
@@ -345,6 +356,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       _loading = true;
       _error = null;
       _images.clear();
+      _loadedImages.clear();
       _imageSizes.clear();
       _pages = [];
     });
@@ -398,43 +410,68 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     });
   }
 
-  Future<Uint8List> _image(int page) => _images.putIfAbsent(page, () async {
+  Future<Uint8List> _image(int page) {
+    final existing = _images[page];
+    if (existing != null) return existing;
     final generation = _generation;
-    final source = ref
-        .read(comicSourcesProvider)
-        .firstWhere((s) => s.key == widget.comic.source);
-    final bytes = await ref.read(comicImageLoaderProvider)(
-      source,
-      _pages[page],
-    );
-    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-    try {
-      final descriptor = await ui.ImageDescriptor.encoded(buffer);
+    late final Future<Uint8List> image;
+    image = () async {
+      final source = ref
+          .read(comicSourcesProvider)
+          .firstWhere((s) => s.key == widget.comic.source);
+      final bytes = await ref.read(comicImageLoaderProvider)(
+        source,
+        _pages[page],
+      );
+      final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
       try {
-        if (mounted && generation == _generation) {
-          _imageSizes[page] = Size(
-            descriptor.width.toDouble(),
-            descriptor.height.toDouble(),
-          );
+        final descriptor = await ui.ImageDescriptor.encoded(buffer);
+        try {
+          if (mounted && generation == _generation) {
+            _imageSizes[page] = Size(
+              descriptor.width.toDouble(),
+              descriptor.height.toDouble(),
+            );
+            if (identical(_images[page], image)) _loadedImages[page] = bytes;
+          }
+        } finally {
+          descriptor.dispose();
         }
       } finally {
-        descriptor.dispose();
+        buffer.dispose();
       }
-    } finally {
-      buffer.dispose();
-    }
-    return bytes;
-  });
+      return bytes;
+    }();
+    _images[page] = image;
+    return image;
+  }
+
   void _preload() {
     final count = StorageService.getInt('comic_preload') ?? 3;
     final first =
         ref.read(comicReadingModeProvider) == ComicReadingMode.continuous
         ? (_page - count).clamp(0, _pages.length - 1)
         : _page;
+    final generation = _generation;
     for (var i = first; i <= _page + count && i < _pages.length; i++) {
-      _image(i).then<void>((_) {}, onError: (Object _, StackTrace __) {});
+      final image = _image(i);
+      image.then<void>((bytes) {
+        if (mounted &&
+            generation == _generation &&
+            identical(_images[i], image)) {
+          unawaited(
+            precacheImage(
+              MemoryImage(bytes),
+              context,
+              onError: (Object _, StackTrace? __) {},
+            ),
+          );
+        }
+      }, onError: (Object _, StackTrace __) {});
     }
-    _images.removeWhere((i, _) => i < first - 2 || i > _page + count + 2);
+    bool outsideCache(int page) => page < first - 2 || page > _page + count + 2;
+    _images.removeWhere((page, _) => outsideCache(page));
+    _loadedImages.removeWhere((page, _) => outsideCache(page));
   }
 
   Future<void> _saveProgress(String chapter, int page) async {
@@ -672,6 +709,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   Widget _pageImage(int page, {bool continuous = false, bool zoomable = true}) {
     return FutureBuilder<Uint8List>(
       future: _image(page),
+      initialData: _loadedImages[page],
       builder: (context, snapshot) {
         Widget content;
         if (snapshot.hasError) {
@@ -679,7 +717,10 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
             child: IconButton(
               color: Colors.white,
               tooltip: S.of(context).retry,
-              onPressed: () => setState(() => _images.remove(page)),
+              onPressed: () => setState(() {
+                _images.remove(page);
+                _loadedImages.remove(page);
+              }),
               icon: const Icon(Icons.refresh),
             ),
           );
@@ -717,15 +758,20 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     );
   }
 
-  Widget _continuousPage(int page) => AnimatedSize(
-    key: ValueKey('comic-page-size-$page'),
-    alignment: Alignment.topCenter,
-    duration: MediaQuery.disableAnimationsOf(context)
-        ? Duration.zero
-        : const Duration(milliseconds: 250),
-    curve: Curves.easeOutCubic,
-    child: _pageImage(page, continuous: true),
-  );
+  Widget _continuousPage(int page) {
+    final key = ValueKey('comic-page-size-$page');
+    final image = _pageImage(page, continuous: true);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return KeyedSubtree(key: key, child: image);
+    }
+    return AnimatedSize(
+      key: key,
+      alignment: Alignment.topCenter,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOutCubic,
+      child: image,
+    );
+  }
 
   Widget _body(ComicReadingMode mode) {
     if (_loading) return const Center(child: CircularProgressIndicator());
@@ -1335,10 +1381,9 @@ class _ZoomableComicPageState extends State<_ZoomableComicPage>
         .clamp(minY, 0.0)
         .toDouble();
     if (dy == translation.y) return;
-    _interruptZoomAnimation();
-    _transform.value = _transform.value.clone()
+    final target = _transform.value.clone()
       ..setTranslationRaw(translation.x, dy, 0);
-    _transformChanged();
+    _animateTo(target, null, duration: const Duration(milliseconds: 250));
   }
 
   void _beginContinuousPinch() {
@@ -1504,6 +1549,11 @@ class _ZoomableComicPageState extends State<_ZoomableComicPage>
   }
 
   void _zoomAnimationStatusChanged(AnimationStatus status) {
+    if (status == AnimationStatus.completed && _targetScaleState == null) {
+      _zoomTween = null;
+      _transformChanged();
+      return;
+    }
     if ((status == AnimationStatus.completed ||
             status == AnimationStatus.dismissed) &&
         _targetScaleState != null) {
@@ -1552,12 +1602,12 @@ class _ZoomableComicPageState extends State<_ZoomableComicPage>
     _animateTo(target, nextState);
   }
 
-  void _animateTo(Matrix4 target, int targetState) {
+  void _animateTo(Matrix4 target, int? targetState, {Duration? duration}) {
     _interruptZoomAnimation();
     final current = _transform.value.clone();
     if (MediaQuery.disableAnimationsOf(context)) {
       _transform.value = target;
-      _scaleState = targetState;
+      if (targetState != null) _scaleState = targetState;
       _targetScaleState = null;
       _transformChanged();
       return;
@@ -1565,7 +1615,17 @@ class _ZoomableComicPageState extends State<_ZoomableComicPage>
     _zoomTween = Matrix4Tween(begin: current, end: target);
     _zoomAnimationController.value = 0;
     _targetScaleState = targetState;
-    _zoomAnimationController.fling(velocity: .4);
+    if (duration == null) {
+      _zoomAnimationController.fling(velocity: .4);
+    } else {
+      unawaited(
+        _zoomAnimationController.animateTo(
+          1,
+          duration: duration,
+          curve: Curves.easeOutCubic,
+        ),
+      );
+    }
   }
 
   void _interactionStarted() {
@@ -1600,9 +1660,9 @@ class _ZoomableComicPageState extends State<_ZoomableComicPage>
     }
     final tween = _zoomTween;
     final targetState = _targetScaleState;
-    if (tween != null && targetState != null) {
+    if (tween != null) {
       _transform.value = tween.end!;
-      _scaleState = targetState;
+      if (targetState != null) _scaleState = targetState;
     }
     _interruptZoomAnimation();
     _transformChanged();
