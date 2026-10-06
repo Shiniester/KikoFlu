@@ -90,6 +90,36 @@ void main() {
       http.dispose();
     },
   );
+  test(
+    'JM session follows the current API host and excludes image hosts',
+    () async {
+      final adapter = _Adapter();
+      final http = ComicHttp(
+        'jmcomic',
+        client: Dio()..httpClientAdapter = adapter,
+      );
+      addTearDown(http.dispose);
+      await http.saveSession(cookie: 'sid=jm');
+      await http.json('https://www.cdnhjk.net/album?id=1');
+      await http.bytes('https://cdn-msp2.jmapiproxy3.cc/media/albums/1.jpg');
+      expect(adapter.requests.first.headers['Cookie'], 'sid=jm');
+      expect(adapter.requests.last.headers['Cookie'], isNull);
+      await StorageService.setString(
+        'comic_jmcomic_endpoint',
+        'https://www.cdntwice.org',
+      );
+      await http.json('https://www.cdnhjk.net/album?id=1');
+      expect(adapter.requests.last.headers['Cookie'], 'sid=jm');
+      await StorageService.setString(
+        'comic_jmcomic_endpoint',
+        'https://custom.test',
+      );
+      await http.json('https://custom.test/album?id=1');
+      expect(adapter.requests.last.headers['Cookie'], 'sid=jm');
+      await http.json('https://www.cdnhjk.net/album?id=1');
+      expect(adapter.requests.last.headers['Cookie'], isNull);
+    },
+  );
   test('403 becomes a local sign-in requirement', () async {
     final adapter = _Adapter()..status = 403;
     final http = ComicHttp(

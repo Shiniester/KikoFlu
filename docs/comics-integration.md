@@ -144,3 +144,33 @@ flutter analyze --no-pub lib/src/comics/ui/comic_screen.dart test/comic_widgets_
 | --- | --- | --- | --- | --- |
 | comic_flow_map | 主页请求与登录检查调用链 | 收藏偏好曾同时决定主页的数据来源和登录检查 | 无额外实现依赖 | 已交付主执行者 |
 | comic_fix_review | 设置、源切换、搜索与收藏模式隔离 | 本次修复正确，未发现新增回归 | 真人来源访问仍需环境验收 | 无代码修正项 |
+
+## JMComic 与 Hitomi 来源适配
+
+2026-10-07，在 Windows、Flutter 3.44.7 上验证。
+
+JMComic 默认 API 改为 `https://www.cdnhjk.net`，已保存的旧默认
+`www.cdntwice.org` 同样使用新地址；其它自定义地址保持原值。会话 Cookie 只发送
+到当前 API 主机。旧默认的 setting 与 latest 路由实测返回 404；当前 API 主机可参考
+[维护中的 JM 客户端配置](https://github.com/hect0x7/JMComic-Crawler-Python/blob/master/src/jmcomic/jm_config.py)。
+匿名浏览先读取 setting 的 `img_host`，按 API 地址缓存成功配置，失败允许重试，
+地址变化后重新加载。主页兼容 latest 的裸列表响应，无总数时非空页继续请求下一页，
+空页结束。签名与图片重组沿用原有协议。
+
+Hitomi 在来源 HTTP 客户端设置默认 `Referer: https://hitomi.la/`，用于封面、
+已保存作品和下载请求；章节图片自己的 reader Referer 仍优先。实测同一缩略图地址
+缺少 Referer 时返回 404，带上后返回图片。缩略图与阅读图片地址算法保持现有行为。
+
+定向回归 29 项通过，覆盖默认/自定义 API、匿名图床配置与重试、列表分页、封面
+请求头、阅读页请求头覆盖、Cookie 隔离、图片重组及下载续传。匿名联网检查 4 项
+通过：JMComic 主页 80 条、Hitomi 主页 25 条，详情、章节、封面及首张阅读图片均
+加载并解码；Hitomi 的 `language:chinese` 分类和 `chinese` 搜索各返回 25 条。
+联网测试按应用启动流程初始化代理，不使用账号凭证。静态分析无问题，无新增依赖。
+
+```powershell
+flutter test --no-pub test/jm_source_test.dart test/hitomi_source_test.dart test/comics_protocol_test.dart test/comic_downloads_test.dart
+$env:KIKOFLU_LIVE_COMICS='1'
+flutter test --no-pub test/comic_live_smoke_test.dart --name 'anonymous live source: (jmcomic|hitomi)|anonymous live Hitomi search' --concurrency=1
+```
+
+以上验证不包含真实账号登录、源站收藏写入和移动设备交互。
