@@ -135,7 +135,7 @@ class HitomiSource extends ComicSource {
       body.substring(body.indexOf('{'), body.lastIndexOf('}') + 1),
     );
     final artists = (json['artists'] as List? ?? [])
-        .map<String>((artist) => '${artist['name'] ?? ''}')
+        .map<String>((artist) => '${artist['artist'] ?? ''}')
         .where((name) => name.isNotEmpty)
         .toList();
     return Comic(

@@ -403,7 +403,7 @@ void main() {
           ? String.fromCharCodes([0, 0, 0, 42])
           : request.uri.path.endsWith('.html')
           ? '<h1 class="lillie"><a>Book</a></h1><div class="dj-content"><p>2024-01-02</p></div>'
-          : 'var galleryinfo = {"date":"2024-03-04","files":[],"tags":[],"artists":[{"name":"Artist"}]};';
+          : 'var galleryinfo = {"date":"2024-03-04","files":[],"tags":[],"artists":[{"artist":"Artist"}]};';
     final source = HitomiSource(
       ComicHttp('hitomi', client: Dio()..httpClientAdapter = adapter),
     );
