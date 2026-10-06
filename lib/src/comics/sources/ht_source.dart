@@ -30,6 +30,7 @@ class HtSource extends ComicSource {
       if (id == null) continue;
       final title = li.querySelector('.title a');
       final image = li.querySelector('img');
+      final sourceDate = li.querySelector('.info .info_col')?.text.trim();
       comics.add(
         Comic(
           source: 'htmanga',
@@ -41,7 +42,8 @@ class HtSource extends ComicSource {
               )
               .toString(),
           extra: {
-            'sourceDate': li.querySelector('.info .info_col')?.text.trim(),
+            'sourceDate': sourceDate,
+            if (sourceDate?.isNotEmpty == true) 'publishedAt': sourceDate,
             'favoriteId': RegExp(
               r'fav_del-id-(\d+)',
             ).firstMatch(li.outerHtml)?.group(1),
@@ -163,6 +165,7 @@ class HtSource extends ComicSource {
       ).firstMatch(link?.attributes['href'] ?? '')?.group(1);
       if (id == null) continue;
       final image = row.querySelector('.thumb img')?.attributes['src'] ?? '';
+      final sourceDate = row.querySelector('p.l_catg span')?.text.trim();
       comics.add(
         Comic(
           source: 'htmanga',
@@ -170,7 +173,8 @@ class HtSource extends ComicSource {
           title: link!.text.trim(),
           cover: Uri.parse(base).resolve(image).toString(),
           extra: {
-            'sourceDate': row.querySelector('p.l_catg span')?.text.trim(),
+            'sourceDate': sourceDate,
+            if (sourceDate?.isNotEmpty == true) 'publishedAt': sourceDate,
             'favoriteId': RegExp(
               r'del-id-(\d+)',
             ).firstMatch(row.outerHtml)?.group(1),

@@ -41,39 +41,15 @@ class Comic {
   final List<ComicChapter> chapters;
   final String? rating;
   final Map<String, dynamic> extra;
+  List<String> get authors => switch (extra['authors']) {
+    final List values => values.whereType<String>().toList(),
+    _ => const [],
+  };
+  String? get publishedDate => _dateOnly(extra['publishedAt']);
+  String? get updatedDate => _dateOnly(extra['updatedAt']);
   ComicPage get coverPage =>
       ComicPage(cover, localPath: extra['localCover'] as String?);
-  String? get coverDate {
-    final value = extra['sourceDate'];
-    if (value is String) {
-      final parts = RegExp(
-        r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})',
-      ).firstMatch(value);
-      if (parts == null) return null;
-      final year = int.parse(parts[1]!);
-      final month = int.parse(parts[2]!);
-      final day = int.parse(parts[3]!);
-      final parsed = DateTime.utc(year, month, day);
-      if (parsed.year != year || parsed.month != month || parsed.day != day) {
-        return null;
-      }
-      return '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
-    }
-    if (value is! num ||
-        !value.isFinite ||
-        value <= 0 ||
-        value > 253402300799) {
-      return null;
-    }
-    final date = DateTime.fromMillisecondsSinceEpoch(
-      (value * 1000).toInt(),
-      isUtc: true,
-    );
-    final year = date.year.toString().padLeft(4, '0');
-    final month = date.month.toString().padLeft(2, '0');
-    final day = date.day.toString().padLeft(2, '0');
-    return '$year-$month-$day';
-  }
+  String? get coverDate => _dateOnly(extra['sourceDate']);
 
   String get key => jsonEncode([source, id]);
   Comic withChapters(List<ComicChapter> value) => Comic(
@@ -150,10 +126,18 @@ class ComicResult {
 }
 
 class ComicComment {
-  const ComicComment(this.author, this.text, {this.score});
+  const ComicComment(
+    this.author,
+    this.text, {
+    this.score,
+    this.avatar,
+    this.createdAt,
+  });
   final String author;
   final String text;
   final String? score;
+  final ComicPage? avatar;
+  final DateTime? createdAt;
 }
 
 class ComicProgress {
@@ -176,4 +160,32 @@ class ComicSourceException implements Exception {
   final bool loginRequired;
   @override
   String toString() => message;
+}
+
+String? _dateOnly(dynamic value) {
+  if (value is String) {
+    final parts = RegExp(
+      r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})',
+    ).firstMatch(value);
+    if (parts == null) return null;
+    final year = int.parse(parts[1]!);
+    final month = int.parse(parts[2]!);
+    final day = int.parse(parts[3]!);
+    final parsed = DateTime.utc(year, month, day);
+    if (parsed.year != year || parsed.month != month || parsed.day != day) {
+      return null;
+    }
+    return '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}-${day.toString().padLeft(2, '0')}';
+  }
+  if (value is! num || !value.isFinite || value <= 0 || value > 253402300799) {
+    return null;
+  }
+  final date = DateTime.fromMillisecondsSinceEpoch(
+    (value * 1000).toInt(),
+    isUtc: true,
+  );
+  final year = date.year.toString().padLeft(4, '0');
+  final month = date.month.toString().padLeft(2, '0');
+  final day = date.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
 }

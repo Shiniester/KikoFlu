@@ -1624,7 +1624,19 @@
   "comicRead": "Read",
   "comicSaveLocal": "Save locally",
   "comicRemoveFavorite": "Remove favorite",
-  "comicComments": "Comments and rating",
+  "comicComments": "Comments",
+  "comicChapterThumbnails": "Chapter thumbnails",
+  "comicPreviewPage": "Page {page}",
+  "comicCommentTime": "{date} {time}",
+  "@comicChapterThumbnails": { "description": "Setting to show three evenly sampled chapter thumbnails in comic details." },
+  "@comicPreviewPage": { "placeholders": { "page": { "type": "int" } } },
+  "@comicCommentTime": {
+    "description": "Comment creation date and time in the user's local timezone.",
+    "placeholders": {
+      "date": { "type": "DateTime", "format": "yMd" },
+      "time": { "type": "DateTime", "format": "jm" }
+    }
+  },
   "comicNoResults": "No comics here yet",
   "comicLoginRequired": "Sign in to this source in comic settings.",
   "comicAnonymous": "Anonymous",

@@ -9,11 +9,14 @@ import '../../widgets/scrollable_appbar.dart';
 import '../../widgets/metadata_search_chip.dart';
 import '../../widgets/work_detail/work_cover_frame.dart';
 import '../../widgets/work_detail/work_title_header.dart';
+import '../../widgets/work_detail/work_detail_section_title.dart';
+import '../../widgets/work_detail/work_extra_sections.dart';
 import '../../providers/work_card_display_provider.dart';
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../utils/collection_grid_layout.dart';
 import '../../utils/system_ui_style.dart';
 import '../../services/log_service.dart';
+import '../../services/storage_service.dart';
 import 'comic_search_screen.dart';
 import '../../utils/snackbar_util.dart';
 import '../comic_models.dart';
@@ -21,6 +24,7 @@ import '../comic_providers.dart';
 import 'comic_widgets.dart';
 import 'comic_reader_screen.dart';
 import 'comic_actions.dart';
+import 'comic_chapter_thumbnails.dart';
 
 class ComicDetailScreen extends ConsumerStatefulWidget {
   const ComicDetailScreen({
@@ -120,6 +124,11 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
               ...response.extra,
               if (response.coverDate == null && _comic.coverDate != null)
                 'sourceDate': _comic.extra['sourceDate'],
+              if (response.publishedDate == null &&
+                  _comic.publishedDate != null)
+                'publishedAt': _comic.extra['publishedAt'],
+              if (response.updatedDate == null && _comic.updatedDate != null)
+                'updatedAt': _comic.extra['updatedAt'],
             },
           }),
         );
@@ -222,7 +231,11 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
     super.dispose();
   }
 
-  Future<void> _read(Comic comic, {ComicChapter? chapter}) async {
+  Future<void> _read(
+    Comic comic, {
+    ComicChapter? chapter,
+    int? initialPage,
+  }) async {
     if (!_initialContentVisible || comic.chapters.isEmpty) return;
     final progress = await ref.read(comicLibraryProvider).progress(comic);
     chapter ??=
@@ -237,7 +250,9 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
       builder: (_) => ComicReaderScreen(
         comic: comic,
         chapter: chapter!,
-        initialPage: progress?.chapterId == chapter.id ? progress!.page : 0,
+        initialPage:
+            initialPage ??
+            (progress?.chapterId == chapter.id ? progress!.page : 0),
       ),
     );
     await Navigator.of(context).push(route);
@@ -280,6 +295,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(comicSettingsRevisionProvider);
     final current = MediaQuery.of(context);
     final saved = _readerWindow;
     if (saved != null &&
@@ -354,10 +370,13 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   Widget _buildBody(BuildContext context) {
     final s = S.of(context);
     final comic = _readyComic;
+    final showThumbnails =
+        StorageService.getBool('comic_chapter_thumbnails') ?? true;
     final hasComments = ref
         .read(comicSourcesProvider)
         .firstWhere((source) => source.key == comic.source)
         .hasComments;
+    final sectionCount = hasComments ? 4 : 3;
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
@@ -502,8 +521,43 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                         ),
                       ),
                       SliverList.builder(
-                        itemCount: hasComments ? 4 : 3,
+                        itemCount:
+                            sectionCount +
+                            (_initialContentVisible ? _chapters.length : 0),
                         itemBuilder: (context, index) {
+                          if (index >= sectionCount) {
+                            final chapter = _chapters[index - sectionCount];
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                ListTile(
+                                  title: Text(chapter.title),
+                                  trailing: const Icon(Icons.chevron_right),
+                                  onTap: () => _read(comic, chapter: chapter),
+                                ),
+                                if (showThumbnails &&
+                                    !_metadataLoading &&
+                                    !_chaptersLoading)
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                    ),
+                                    child: ComicChapterThumbnails(
+                                      key: ValueKey(
+                                        '${comic.key}-${chapter.id}',
+                                      ),
+                                      comic: comic,
+                                      chapter: chapter,
+                                      onSelected: (page) => _read(
+                                        comic,
+                                        chapter: chapter,
+                                        initialPage: page,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            );
+                          }
                           if (index == 0) {
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 12),
@@ -511,34 +565,94 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                             );
                           }
                           if (index == 1) {
-                            return Wrap(
-                              spacing: 4,
-                              runSpacing: 4,
-                              children: comic.tags
-                                  .map(
-                                    (tag) => MetadataSearchChip(
-                                      label: tag,
-                                      searchKeyword: tag,
-                                      searchTypeLabel: s.tagLabel,
-                                      searchParams: const {},
-                                      chipTone: MetadataChipTone.primary,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
-                                      ),
-                                      borderRadius: 6,
-                                      onTap: () => pushBottomDockRoute(
-                                        context,
-                                        builder: (_) => ComicSearchScreen(
-                                          initialSource: comic.source,
-                                          initialQuery: tag,
+                            final authors = comic.authors;
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (authors.isNotEmpty) ...[
+                                  WorkDetailSectionTitle(s.author),
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 4,
+                                    runSpacing: 4,
+                                    children: [
+                                      for (final author in authors)
+                                        MetadataSearchChip(
+                                          label: author,
+                                          searchKeyword: author,
+                                          searchTypeLabel: s.author,
+                                          searchParams: const {},
+                                          chipTone: MetadataChipTone.secondary,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          borderRadius: 6,
+                                          onTap: () => pushBottomDockRoute(
+                                            context,
+                                            builder: (_) => ComicSearchScreen(
+                                              initialSource: comic.source,
+                                              initialQuery: author,
+                                            ),
+                                          ),
                                         ),
-                                      ),
-                                    ),
-                                  )
-                                  .toList(),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 16),
+                                ],
+                                if (comic.tags.isNotEmpty) ...[
+                                  WorkDetailSectionTitle(s.tagLabel),
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 4,
+                                    runSpacing: 4,
+                                    children: comic.tags
+                                        .toSet()
+                                        .map(
+                                          (tag) => MetadataSearchChip(
+                                            label: tag,
+                                            searchKeyword: tag,
+                                            searchTypeLabel: s.tagLabel,
+                                            searchParams: const {},
+                                            chipTone: MetadataChipTone.primary,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 4,
+                                            ),
+                                            borderRadius: 6,
+                                            onTap: () => pushBottomDockRoute(
+                                              context,
+                                              builder: (_) => ComicSearchScreen(
+                                                initialSource: comic.source,
+                                                initialQuery: tag,
+                                              ),
+                                            ),
+                                          ),
+                                        )
+                                        .toList(),
+                                  ),
+                                  const SizedBox(height: 16),
+                                ],
+                                WorkReleaseDateSection(
+                                  release: comic.publishedDate,
+                                ),
+                                if (comic.updatedDate != null) ...[
+                                  WorkDetailSectionTitle(s.lastUpdated),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    comic.updatedDate!,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(fontSize: 14),
+                                  ),
+                                  const SizedBox(height: 16),
+                                ],
+                              ],
                             );
                           }
                           if (hasComments && index == 2) {
@@ -579,19 +693,6 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                                   ),
                               ],
                             ),
-                          );
-                        },
-                      ),
-                      SliverList.builder(
-                        itemCount: _initialContentVisible
-                            ? _chapters.length
-                            : 0,
-                        itemBuilder: (context, index) {
-                          final chapter = _chapters[index];
-                          return ListTile(
-                            title: Text(chapter.title),
-                            trailing: const Icon(Icons.chevron_right),
-                            onTap: () => _read(comic, chapter: chapter),
                           );
                         },
                       ),
@@ -641,7 +742,39 @@ class _CommentsScreenState extends State<_CommentsScreen> {
           children: [
             for (final c in snapshot.data!)
               ListTile(
-                title: Text(c.author),
+                leading: c.avatar == null
+                    ? const CircleAvatar(child: Icon(Icons.person_outline))
+                    : ClipOval(
+                        child: SizedBox.square(
+                          dimension: 40,
+                          child: Center(
+                            child: ComicCover(
+                              source: widget.comic.source,
+                              page: c.avatar!,
+                              maxWidth: 40,
+                              maxHeight: 40,
+                              placeholderAspectRatio: 1,
+                              cornerRadius: 0,
+                            ),
+                          ),
+                        ),
+                      ),
+                title: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(c.author),
+                    if (c.createdAt != null)
+                      Text(
+                        S
+                            .of(context)
+                            .comicCommentTime(
+                              c.createdAt!.toLocal(),
+                              c.createdAt!.toLocal(),
+                            ),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                  ],
+                ),
                 subtitle: Text(c.text),
                 trailing: c.score == null ? null : Text(c.score!),
               ),

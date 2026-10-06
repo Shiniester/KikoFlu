@@ -111,13 +111,38 @@ void main() {
   test('Pica metadata is available before its paginated chapters', () async {
     final adapter = _Adapter();
     adapter.respond = (request) {
+      if (request.uri.path == '/comics/book/comments') {
+        return jsonEncode({
+          'data': {
+            'comments': {
+              'docs': [
+                {
+                  '_user': {
+                    'name': 'Reader',
+                    'avatar': {
+                      'fileServer': 'https://img.example',
+                      'path': 'avatar.jpg',
+                    },
+                  },
+                  'content': 'Comment',
+                  'likesCount': 2,
+                  'created_at': '2023-07-11T09:30:00Z',
+                },
+              ],
+            },
+          },
+        });
+      }
       if (request.uri.path == '/comics/book') {
         return jsonEncode({
           'data': {
             'comic': {
               '_id': 'book',
               'title': 'Book',
+              'author': 'Artist',
               'description': 'Synopsis',
+              'categories': ['Action', 'Drama'],
+              'tags': ['Action', 'Full Color'],
               'created_at': '2023-07-09T12:00:00Z',
               'updated_at': '2023-08-10T12:00:00Z',
               'thumb': {
@@ -151,11 +176,22 @@ void main() {
     final detail = await source.details('book');
     expect(detail.description, 'Synopsis');
     expect(detail.coverDate, '2023-08-10');
+    expect(detail.authors, ['Artist']);
+    expect(detail.publishedDate, '2023-07-09');
+    expect(detail.updatedDate, '2023-08-10');
+    expect(detail.tags, ['Action', 'Drama', 'Full Color']);
     expect(detail.chapters, isEmpty);
     expect(adapter.requests, hasLength(1));
     final chapters = await source.chapters(detail);
     expect(chapters.map((chapter) => chapter.title), ['First', 'Second']);
     expect(adapter.requests, hasLength(3));
+    final comments = await source.comments(detail);
+    expect(
+      comments.single.avatar?.url,
+      'https://img.example/static/avatar.jpg',
+    );
+    expect(comments.single.createdAt, DateTime.utc(2023, 7, 11, 9, 30));
+    expect(comments.single.score, '2');
   });
   test('NH v2 parses page paths and retains signed URLs', () {
     final comic = NhSource.parseComic({
@@ -164,6 +200,7 @@ void main() {
       'thumbnail': 'thumb.jpg',
       'upload_date': 1704067200,
       'tags': [
+        {'type': 'artist', 'name': 'Artist'},
         {'type': 'language', 'name': 'english'},
       ],
       'pages': [
@@ -174,11 +211,45 @@ void main() {
     expect(comic.title, 'A book');
     expect(comic.cover, 'https://t.nhentai.net/thumb.jpg');
     expect(comic.coverDate, '2024-01-01');
+    expect(comic.publishedDate, '2024-01-01');
+    expect(comic.authors, ['Artist']);
     expect(
       NhSource.imageUrl((comic.extra['pages'] as List).first['path']),
       'https://i.nhentai.net/42/1.jpg?verify=a',
     );
   });
+  test(
+    'NH comments retain the source avatar, timestamp, and image Referer',
+    () async {
+      final adapter = _Adapter()
+        ..respond = (request) => jsonEncode({
+          'comments': [
+            {
+              'poster': {
+                'username': 'Reader',
+                'avatar_url': 'https://i.nhentai.net/avatar/1.png',
+              },
+              'post_date': '1704067200',
+              'body': 'Comment',
+            },
+          ],
+        });
+      final source = NhSource(
+        ComicHttp('nhentai', client: Dio()..httpClientAdapter = adapter),
+      );
+      addTearDown(source.http.dispose);
+      final comments = await source.comments(
+        const Comic(source: 'nhentai', id: '42', title: 'Book'),
+      );
+      expect(comments.single.author, 'Reader');
+      expect(comments.single.avatar?.url, 'https://i.nhentai.net/avatar/1.png');
+      expect(comments.single.createdAt, DateTime.utc(2024));
+      expect(
+        comments.single.avatar?.headers['Referer'],
+        'https://nhentai.net/',
+      );
+    },
+  );
   test('EH preserves gallery token and the actual next cursor', () {
     final result = EhSource.parseListing(
       '''<table><tr><td><img src="https://ehgt.org/a.jpg"></td>
@@ -191,7 +262,44 @@ void main() {
     expect(result.items.single.id, '42/abc123');
     expect(result.items.single.title, 'Title 2020-01-01');
     expect(result.items.single.coverDate, '2024-05-12');
+    expect(result.items.single.publishedDate, '2024-05-12');
     expect(result.next, 'https://e-hentai.org/?next=42-abc');
+  });
+  test('EH details expose artist and publication date', () async {
+    final adapter = _Adapter()
+      ..respond = (_) => '''<h1 id="gn">Book</h1>
+        <table id="gdd"><tr><td class="gdt1">Posted:</td>
+          <td class="gdt2">2024-05-12 12:00</td></tr></table>
+        <div id="taglist"><div class="gt" id="td_artist:artist" title="artist:artist">Artist</div>
+          <div class="gt" id="td_language:english" title="language:english">english</div></div>''';
+    final source = EhSource(
+      ComicHttp('ehentai', client: Dio()..httpClientAdapter = adapter),
+    );
+    addTearDown(source.http.dispose);
+    final comic = await source.details('42/hash');
+    expect(comic.authors, ['Artist']);
+    expect(comic.publishedDate, '2024-05-12');
+    expect(comic.tags, ['artist:artist', 'language:english']);
+  });
+  test('EH comments extract the posted author and UTC timestamp', () async {
+    final adapter = _Adapter()
+      ..respond = (_) => '''<div class="c1">
+        <div class="c3">Posted on 04 May 2022, 11:21 UTC by:
+          <a href="/u/reader">Reader</a></div>
+        <div class="c5"><span>3</span></div>
+        <div class="c6">Comment body</div>
+      </div>''';
+    final source = EhSource(
+      ComicHttp('ehentai', client: Dio()..httpClientAdapter = adapter),
+    );
+    addTearDown(source.http.dispose);
+    final comments = await source.comments(
+      const Comic(source: 'ehentai', id: '42/hash', title: 'Book'),
+    );
+    expect(comments.single.author, 'Reader');
+    expect(comments.single.createdAt, DateTime.utc(2022, 5, 4, 11, 21));
+    expect(comments.single.avatar, isNull);
+    expect(adapter.requests.single.headers['Referer'], 'https://e-hentai.org/');
   });
   test('EH grid listings keep their source posting date', () {
     final result = EhSource.parseListing(
@@ -232,6 +340,7 @@ void main() {
     expect(result.items.single.id, '42');
     expect(result.items.single.extra['favoriteId'], '99');
     expect(result.items.single.coverDate, '2024-06-07');
+    expect(result.items.single.publishedDate, '2024-06-07');
   });
   test('HT listing keeps its source creation date', () {
     final result = HtSource.parseListing(
@@ -242,6 +351,7 @@ void main() {
       'https://www.wnacg.com',
     );
     expect(result.items.single.coverDate, '2024-06-07');
+    expect(result.items.single.publishedDate, '2024-06-07');
   });
   test(
     'source dates normalize only real calendar dates and survive storage',
@@ -293,7 +403,7 @@ void main() {
           ? String.fromCharCodes([0, 0, 0, 42])
           : request.uri.path.endsWith('.html')
           ? '<h1 class="lillie"><a>Book</a></h1><div class="dj-content"><p>2024-01-02</p></div>'
-          : 'var galleryinfo = {"date":"2024-03-04","files":[],"tags":[]};';
+          : 'var galleryinfo = {"date":"2024-03-04","files":[],"tags":[],"artists":[{"artist":"Artist"}]};';
     final source = HitomiSource(
       ComicHttp('hitomi', client: Dio()..httpClientAdapter = adapter),
     );
@@ -302,6 +412,8 @@ void main() {
     expect(listing.items.single.coverDate, '2024-01-02');
     final comic = await source.details('42');
     expect(comic.coverDate, '2024-03-04');
+    expect(comic.publishedDate, '2024-03-04');
+    expect(comic.authors, ['Artist']);
     expect(adapter.requests, hasLength(4));
   });
   test('JM reconstruction retains remainder rows', () {
@@ -355,15 +467,22 @@ void main() {
         id: '42',
         title: 'A',
         chapters: [ComicChapter('2', 'Chapter 2')],
+        extra: {
+          'authors': ['Artist'],
+          'publishedAt': '2024-01-02',
+          'updatedAt': '2024-03-04',
+        },
       );
       const second = Comic(source: 'nhentai', id: '42', title: 'B');
       expect(first.key, isNot(second.key));
-      expect(
-        Comic.fromJson(
-          jsonDecode(jsonEncode(first.toJson())),
-        ).chapters.single.id,
-        '2',
-      );
+      final restored = Comic.fromJson(jsonDecode(jsonEncode(first.toJson())));
+      expect(restored.chapters.single.id, '2');
+      expect(restored.authors, ['Artist']);
+      expect(restored.publishedDate, '2024-01-02');
+      expect(restored.updatedDate, '2024-03-04');
+      expect(second.authors, isEmpty);
+      expect(second.publishedDate, isNull);
+      expect(second.updatedDate, isNull);
     },
   );
   test('merged results interleave sources without dropping their tails', () {

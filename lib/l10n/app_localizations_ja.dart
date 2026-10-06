@@ -3870,7 +3870,25 @@ class SJa extends S {
   String get comicRemoveFavorite => 'お気に入りから削除';
 
   @override
-  String get comicComments => 'コメントと評価';
+  String get comicComments => 'コメント';
+
+  @override
+  String get comicChapterThumbnails => 'チャプターのサムネイル';
+
+  @override
+  String comicPreviewPage(int page) {
+    return '$page ページ';
+  }
+
+  @override
+  String comicCommentTime(DateTime date, DateTime time) {
+    final intl.DateFormat dateDateFormat = intl.DateFormat.yMd(localeName);
+    final String dateString = dateDateFormat.format(date);
+    final intl.DateFormat timeDateFormat = intl.DateFormat.jm(localeName);
+    final String timeString = timeDateFormat.format(time);
+
+    return '$dateString $timeString';
+  }
 
   @override
   String get comicNoResults => '漫画がありません';

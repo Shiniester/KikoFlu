@@ -56,13 +56,17 @@ class HitomiSource extends ComicSource {
           .replaceAll('avifbigtn', 'webpbigtn')
           .replaceAll('.avif', '.webp');
     }
+    final sourceDate = doc.querySelector('.dj-content > p')?.text.trim();
     return Comic(
       source: key,
       id: '$id',
       title: doc.querySelector('h1.lillie a')?.text ?? '$id',
       cover: cover,
       tags: doc.querySelectorAll('.relatedtags a').map((e) => e.text).toList(),
-      extra: {'sourceDate': doc.querySelector('.dj-content > p')?.text.trim()},
+      extra: {
+        'sourceDate': sourceDate,
+        if (sourceDate?.isNotEmpty == true) 'publishedAt': sourceDate,
+      },
     );
   }
 
@@ -130,6 +134,10 @@ class HitomiSource extends ComicSource {
     final json = jsonDecode(
       body.substring(body.indexOf('{'), body.lastIndexOf('}') + 1),
     );
+    final artists = (json['artists'] as List? ?? [])
+        .map<String>((artist) => '${artist['artist'] ?? ''}')
+        .where((name) => name.isNotEmpty)
+        .toList();
     return Comic(
       source: key,
       id: id,
@@ -140,6 +148,8 @@ class HitomiSource extends ComicSource {
       extra: {
         'files': json['files'],
         if (json['date'] != null) 'sourceDate': json['date'],
+        if (json['date'] != null) 'publishedAt': json['date'],
+        if (artists.isNotEmpty) 'authors': artists,
       },
     );
   }

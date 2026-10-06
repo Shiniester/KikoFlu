@@ -1,6 +1,7 @@
 // Protocol adapted from PicaComic. MIT, Copyright (c) 2023 Nyne.
 import 'package:html/parser.dart' as html;
 import 'package:html/dom.dart';
+import 'package:intl/intl.dart';
 import '../comic_models.dart';
 import '../comic_source.dart';
 import '../../services/storage_service.dart';
@@ -44,6 +45,15 @@ class EhSource extends ComicSource {
       var cover =
           image?.attributes['data-src'] ?? image?.attributes['src'] ?? '';
       if (cover.isNotEmpty) cover = Uri.parse(base).resolve(cover).toString();
+      final sourceDate = card
+          .querySelectorAll(
+            '.gl5t > div > div,.gl2e .gl3e > div,.gl2m > div,.gl2c [id^="posted_"]',
+          )
+          .map((element) => element.text.trim())
+          .firstWhere(
+            (text) => RegExp(r'\d{4}[-/]\d{1,2}[-/]\d{1,2}').hasMatch(text),
+            orElse: () => '',
+          );
       comics[id] = Comic(
         source: 'ehentai',
         id: id,
@@ -54,15 +64,8 @@ class EhSource extends ComicSource {
             .map((t) => t.attributes['title'] ?? t.text)
             .toList(),
         extra: {
-          'sourceDate': card
-              .querySelectorAll(
-                '.gl5t > div > div,.gl2e .gl3e > div,.gl2m > div,.gl2c [id^="posted_"]',
-              )
-              .map((element) => element.text.trim())
-              .firstWhere(
-                (text) => RegExp(r'\d{4}[-/]\d{1,2}[-/]\d{1,2}').hasMatch(text),
-                orElse: () => '',
-              ),
+          'sourceDate': sourceDate,
+          if (sourceDate.isNotEmpty) 'publishedAt': sourceDate,
         },
       );
     }
@@ -87,7 +90,14 @@ class EhSource extends ComicSource {
   @override
   Future<Comic> details(String id) async {
     final doc = await _document('$website/g/$id/');
+    final postedDate = doc.querySelector('#gdd .gdt2')?.text.trim();
     final style = doc.querySelector('#gd1 > div')?.attributes['style'] ?? '';
+    final detailTags = doc.querySelectorAll('#taglist .gt,#taglist .gtl');
+    final authors = detailTags
+        .where((tag) => tag.attributes['title']?.startsWith('artist:') == true)
+        .map((tag) => tag.text.trim())
+        .where((name) => name.isNotEmpty)
+        .toList();
     final cover =
         RegExp(r'url\(([^)]+)\)')
             .firstMatch(style)
@@ -104,8 +114,7 @@ class EhSource extends ComicSource {
           : doc.querySelector('#gn')?.text ?? id,
       cover: cover,
       description: doc.querySelector('#gdd')?.text.trim() ?? '',
-      tags: doc
-          .querySelectorAll('#taglist .gt,#taglist .gtl')
+      tags: detailTags
           .map((e) => e.attributes['id']?.replaceFirst('td_', '') ?? e.text)
           .toList(),
       chapters: [ComicChapter(id, '1')],
@@ -113,8 +122,9 @@ class EhSource extends ComicSource {
       extra: {
         'isFavorite':
             doc.querySelector('#favoritelink')?.text != 'Add to Favorites',
-        if (doc.querySelector('#gdd .gdt2')?.text.trim() case final date?)
-          'sourceDate': date,
+        if (postedDate != null) 'sourceDate': postedDate,
+        if (postedDate?.isNotEmpty == true) 'publishedAt': postedDate,
+        if (authors.isNotEmpty) 'authors': authors,
       },
     );
   }
@@ -170,15 +180,20 @@ class EhSource extends ComicSource {
   @override
   Future<List<ComicComment>> comments(Comic comic) async {
     final doc = await _document('$website/g/${comic.id}/?hc=1');
-    return doc
-        .querySelectorAll('.c1')
-        .map(
-          (c) => ComicComment(
-            c.querySelector('.c3')?.text ?? '',
-            c.querySelector('.c6')?.text ?? '',
-            score: c.querySelector('.c5 > span')?.text,
-          ),
-        )
-        .toList();
+    return doc.querySelectorAll('.c1').map((c) {
+      final header = c.querySelector('.c3');
+      final posted = RegExp(
+        r'Posted on (.*?)(?: UTC)? by',
+      ).firstMatch(header?.text ?? '')?.group(1);
+      final createdAt = posted == null
+          ? null
+          : DateFormat('d MMM yyyy, HH:mm', 'en_US').tryParse(posted, true);
+      return ComicComment(
+        c.querySelector('.c3 > a:first-child')?.text ?? '',
+        c.querySelector('.c6')?.text ?? '',
+        score: c.querySelector('.c5 > span')?.text,
+        createdAt: createdAt,
+      );
+    }).toList();
   }
 }
