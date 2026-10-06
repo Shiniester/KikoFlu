@@ -2416,6 +2416,12 @@ class SRu extends S {
   String get resourceFiles => 'Файлы ресурсов';
 
   @override
+  String get workResourceAudio => 'Аудио';
+
+  @override
+  String get workResourceImages => 'Изображения';
+
+  @override
   String resourceFilesTranslated(int count) {
     return 'Файлы ресурсов (переведено $count)';
   }

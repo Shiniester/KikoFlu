@@ -22,7 +22,7 @@ import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/screen_awake_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
-import 'package:kikoeru_flutter/src/widgets/image_gallery_screen.dart';
+import 'package:kikoeru_flutter/src/widgets/work_image_reader.dart';
 
 const _profilePackage = String.fromEnvironment(
   'KIKOFLU_PROFILE_PACKAGE',
@@ -456,14 +456,19 @@ void main() {
       }
 
       if (control['ui'] != false) {
+        await StorageService.setString('comic_reading_mode', 'spread');
         await tester.pumpWidget(
-          MaterialApp(
-            localizationsDelegates: S.localizationsDelegates,
-            supportedLocales: S.supportedLocales,
-            home: ImageGalleryScreen(
-              images: [
-                {'url': cover.uri.toString(), 'title': 'Animation fixture'},
-              ],
+          ProviderScope(
+            overrides: [lyricAutoLoaderProvider.overrideWith((ref) {})],
+            child: MaterialApp(
+              localizationsDelegates: S.localizationsDelegates,
+              supportedLocales: S.supportedLocales,
+              home: WorkImageReader(
+                title: 'Animation fixture',
+                images: [
+                  {'url': cover.uri.toString(), 'title': 'Animation fixture'},
+                ],
+              ),
             ),
           ),
         );

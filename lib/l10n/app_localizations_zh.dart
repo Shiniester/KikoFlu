@@ -2338,6 +2338,12 @@ class SZh extends S {
   String get resourceFiles => '资源文件';
 
   @override
+  String get workResourceAudio => '音频';
+
+  @override
+  String get workResourceImages => '图片';
+
+  @override
   String resourceFilesTranslated(int count) {
     return '资源文件 (已翻译 $count 项)';
   }
@@ -6381,6 +6387,12 @@ class SZhHant extends SZh {
 
   @override
   String get resourceFiles => '資源檔案';
+
+  @override
+  String get workResourceAudio => '音訊';
+
+  @override
+  String get workResourceImages => '圖片';
 
   @override
   String resourceFilesTranslated(int count) {

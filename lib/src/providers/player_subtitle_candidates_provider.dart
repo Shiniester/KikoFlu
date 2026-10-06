@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import '../models/audio_track.dart';
 import '../services/subtitle_database.dart';
 import '../services/subtitle_library_service.dart';
+import '../services/work_subtitle_candidate_selector.dart';
 import '../utils/file_tree_utils.dart';
 import 'audio_provider.dart';
 import 'lyric_provider.dart';
@@ -56,8 +57,6 @@ class PlayerSubtitleCandidateRepository {
 
   final PlayerSubtitleLibraryLoader? libraryLoader;
 
-  static const _extensions = <String>{'.vtt', '.srt', '.txt', '.lrc'};
-
   Future<List<PlayerSubtitleCandidate>> load({
     required AudioTrack track,
     required List<dynamic> fileTree,
@@ -67,46 +66,66 @@ class PlayerSubtitleCandidateRepository {
     final candidates = <PlayerSubtitleCandidate>[];
     final currentCandidate = _candidateFromCurrentSource(track, currentSource);
     if (currentCandidate != null) candidates.add(currentCandidate);
-    final audioParent = _findAudioParent(fileTree, track);
-    _collectWorkCandidates(
-      candidates,
-      items: fileTree,
-      parentPath: '',
-      audioParent: audioParent,
-      track: track,
+    candidates.addAll(
+      collectWorkCandidates(
+        fileTree: fileTree,
+        audioTitle: track.title,
+        audioHash: track.hash,
+        workId: track.workId,
+      ),
     );
     candidates.addAll(await (libraryLoader ?? _loadLibraryCandidates)(track));
 
     final deduplicated = <String, PlayerSubtitleCandidate>{};
     for (final candidate in candidates) {
       final previous = deduplicated[candidate.identity];
-      if (previous == null || _isBetter(candidate, previous)) {
+      if (previous == null ||
+          _compareCandidates(candidate, previous, libraryPriority) < 0) {
         deduplicated[candidate.identity] = candidate;
       }
     }
 
     final result = deduplicated.values.toList(growable: false);
-    result.sort((a, b) {
-      final matchCompare = _boolRank(
-        b.matchesCurrentAudio,
-      ).compareTo(_boolRank(a.matchesCurrentAudio));
-      if (matchCompare != 0) return matchCompare;
-      final sameDirectoryCompare = _boolRank(
-        b.sameDirectory,
-      ).compareTo(_boolRank(a.sameDirectory));
-      if (sameDirectoryCompare != 0) return sameDirectoryCompare;
-      final scoreCompare = b.matchScore.compareTo(a.matchScore);
-      if (scoreCompare != 0) return scoreCompare;
-      final preferredOrigin = libraryPriority == SubtitleLibraryPriority.highest
-          ? PlayerSubtitleCandidateOrigin.library
-          : PlayerSubtitleCandidateOrigin.work;
-      final originCompare = (a.origin == preferredOrigin ? 0 : 1).compareTo(
-        b.origin == preferredOrigin ? 0 : 1,
-      );
-      if (originCompare != 0) return originCompare;
-      return FileTreeUtils.compareTitles(a.pathLabel, b.pathLabel);
-    });
+    result.sort((a, b) => _compareCandidates(a, b, libraryPriority));
     return result;
+  }
+
+  /// Collects only work-tree candidates for the supplied audio identity.
+  List<PlayerSubtitleCandidate> collectWorkCandidates({
+    required List<dynamic> fileTree,
+    required String audioTitle,
+    String? audioHash,
+    String? audioParentPath,
+    int? workId,
+  }) {
+    return const WorkSubtitleCandidateSelector()
+        .collectWorkCandidates(
+          fileTree: fileTree,
+          audioTitle: audioTitle,
+          audioHash: audioHash,
+          audioParentPath: audioParentPath,
+          workId: workId,
+        )
+        .map((candidate) {
+          final localPath = candidate.source['localPath']?.toString();
+          final hash = candidate.source['hash']?.toString();
+          final identity = localPath != null && localPath.isNotEmpty
+              ? _localIdentity(localPath)
+              : hash != null && hash.isNotEmpty
+              ? 'hash:$hash'
+              : 'work:${workId ?? 0}:${candidate.pathLabel}';
+          return PlayerSubtitleCandidate(
+            identity: identity,
+            title: candidate.title,
+            pathLabel: candidate.pathLabel,
+            origin: PlayerSubtitleCandidateOrigin.work,
+            source: candidate.source,
+            matchesCurrentAudio: candidate.matchesCurrentAudio,
+            matchScore: candidate.matchScore,
+            sameDirectory: candidate.sameDirectory,
+          );
+        })
+        .toList(growable: false);
   }
 
   PlayerSubtitleCandidate? _candidateFromCurrentSource(
@@ -144,97 +163,27 @@ class PlayerSubtitleCandidateRepository {
     );
   }
 
-  bool _isBetter(
+  int _compareCandidates(
     PlayerSubtitleCandidate candidate,
     PlayerSubtitleCandidate previous,
+    SubtitleLibraryPriority libraryPriority,
   ) {
     if (candidate.matchesCurrentAudio != previous.matchesCurrentAudio) {
-      return candidate.matchesCurrentAudio;
+      return candidate.matchesCurrentAudio ? -1 : 1;
     }
+    final scoreCompare = previous.matchScore.compareTo(candidate.matchScore);
+    if (scoreCompare != 0) return scoreCompare;
     if (candidate.sameDirectory != previous.sameDirectory) {
-      return candidate.sameDirectory;
+      return candidate.sameDirectory ? -1 : 1;
     }
-    return candidate.matchScore > previous.matchScore;
-  }
-
-  int _boolRank(bool value) => value ? 1 : 0;
-
-  String? _findAudioParent(List<dynamic> items, AudioTrack track) {
-    String? match;
-    void visit(List<dynamic> current, String parentPath) {
-      if (match != null) return;
-      for (final item in current) {
-        final children = FileTreeUtils.childrenOf(item);
-        if (FileTreeUtils.isFolder(item) && children != null) {
-          visit(children, FileTreeUtils.itemPath(parentPath, item));
-          if (match != null) return;
-          continue;
-        }
-        if (!FileTreeUtils.isAudio(item)) continue;
-        final hash = FileTreeUtils.property(item, 'hash')?.toString();
-        final title = FileTreeUtils.titleOf(item);
-        if ((track.hash != null && hash == track.hash) ||
-            (track.hash == null && title == track.title)) {
-          match = parentPath;
-          return;
-        }
-      }
-    }
-
-    visit(items, '');
-    return match;
-  }
-
-  void _collectWorkCandidates(
-    List<PlayerSubtitleCandidate> result, {
-    required List<dynamic> items,
-    required String parentPath,
-    required String? audioParent,
-    required AudioTrack track,
-  }) {
-    for (final item in items) {
-      final title = FileTreeUtils.titleOf(item);
-      final children = FileTreeUtils.childrenOf(item);
-      if (FileTreeUtils.isFolder(item) && children != null) {
-        _collectWorkCandidates(
-          result,
-          items: children,
-          parentPath: FileTreeUtils.itemPath(parentPath, item),
-          audioParent: audioParent,
-          track: track,
-        );
-        continue;
-      }
-      if (!_extensions.contains(p.extension(title).toLowerCase())) continue;
-
-      final match = SubtitleLibraryService.checkMatch(title, track.title);
-      final localPath = FileTreeUtils.property(item, 'localPath')?.toString();
-      final hash = FileTreeUtils.property(item, 'hash')?.toString();
-      final relativePath = FileTreeUtils.itemPath(parentPath, item);
-      final identity = localPath != null && localPath.isNotEmpty
-          ? _localIdentity(localPath)
-          : hash != null && hash.isNotEmpty
-          ? 'hash:$hash'
-          : 'work:${track.workId ?? 0}:$relativePath';
-      result.add(
-        PlayerSubtitleCandidate(
-          identity: identity,
-          title: title,
-          pathLabel: relativePath,
-          origin: PlayerSubtitleCandidateOrigin.work,
-          source: <String, dynamic>{
-            'title': title,
-            'hash': hash,
-            if (localPath != null && localPath.isNotEmpty)
-              'localPath': localPath,
-            'workId': track.workId,
-          },
-          matchesCurrentAudio: match.$1,
-          matchScore: match.$2,
-          sameDirectory: audioParent != null && parentPath == audioParent,
-        ),
-      );
-    }
+    final preferredOrigin = libraryPriority == SubtitleLibraryPriority.highest
+        ? PlayerSubtitleCandidateOrigin.library
+        : PlayerSubtitleCandidateOrigin.work;
+    final candidateOriginRank = candidate.origin == preferredOrigin ? 0 : 1;
+    final previousOriginRank = previous.origin == preferredOrigin ? 0 : 1;
+    final originCompare = candidateOriginRank.compareTo(previousOriginRank);
+    if (originCompare != 0) return originCompare;
+    return FileTreeUtils.compareTitles(candidate.pathLabel, previous.pathLabel);
   }
 
   static Future<List<PlayerSubtitleCandidate>> _loadLibraryCandidates(

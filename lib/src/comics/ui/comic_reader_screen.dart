@@ -20,6 +20,7 @@ import 'comic_widgets.dart';
 import 'comic_settings_screen.dart';
 import 'comic_page_preview.dart';
 import 'comic_actions.dart';
+import '../../widgets/image_save_service.dart';
 
 bool isComicSpread(ComicReadingMode mode) =>
     mode == ComicReadingMode.spread || mode == ComicReadingMode.reverseSpread;
@@ -36,23 +37,44 @@ class ComicReaderScreen extends ConsumerStatefulWidget {
     required this.comic,
     required this.chapter,
     this.initialPage = 0,
-  });
-  final Comic comic;
-  final ComicChapter chapter;
+    this.saveImage,
+  }) : title = null,
+       imageTitles = const [],
+       loadImage = null;
+
+  const ComicReaderScreen.images({
+    super.key,
+    required this.title,
+    required this.imageTitles,
+    required this.loadImage,
+    this.initialPage = 0,
+    this.saveImage,
+  }) : comic = null,
+       chapter = null;
+
+  final Comic? comic;
+  final ComicChapter? chapter;
+  final String? title;
+  final List<String> imageTitles;
+  final Future<Uint8List> Function(int)? loadImage;
+  final ReaderImageSaveCallback? saveImage;
   final int initialPage;
+
+  bool get isImageReader => loadImage != null;
+
   @override
   ConsumerState<ComicReaderScreen> createState() => _ComicReaderScreenState();
 }
 
 class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     with WidgetsBindingObserver {
-  late ComicChapter _chapter = widget.chapter;
+  late ComicChapter? _chapter = widget.chapter;
   late int _page = widget.initialPage;
   late final ComicLibrary _library = ref.read(comicLibraryProvider);
   late final StateController<bool> _active;
   List<ComicPage> _pages = [];
   bool _controls = false, _loading = true;
-  bool _savingFavorite = false, _choosingDownload = false;
+  bool _savingFavorite = false, _savingImage = false;
   Object? _error;
   int _generation = 0;
   int _layoutGeneration = 0;
@@ -76,6 +98,15 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   bool _immersiveBarsRequested = false;
   bool _orientationRequested = false;
   Size _viewport = Size.zero;
+
+  int get _pageCount =>
+      widget.isImageReader ? widget.imageTitles.length : _pages.length;
+
+  String _imageTitle(int page) {
+    final title = widget.isImageReader ? widget.imageTitles[page].trim() : '';
+    return title.isEmpty ? 'image_${page + 1}' : title;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -87,7 +118,13 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
         _active.state = true;
       }
     });
-    _loadChapter();
+    if (widget.isImageReader) {
+      _page = _pageCount == 0 ? 0 : _page.clamp(0, _pageCount - 1).toInt();
+      _loading = false;
+      _resetLayout();
+    } else {
+      _loadChapter();
+    }
   }
 
   @override
@@ -132,8 +169,8 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     _autoPageTimer?.cancel();
     _autoPageTimer = null;
     _autoPageTurning = false;
-    if (_pages.isNotEmpty) {
-      unawaited(_saveProgress(_chapter.id, _page));
+    if (!widget.isImageReader && _pages.isNotEmpty) {
+      unawaited(_saveProgress(_chapter!.id, _page));
     }
     _positions.itemPositions.removeListener(_scrolled);
     if (_routeAnimation != null && _routeStatusListener != null) {
@@ -156,9 +193,11 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _appResumed = state == AppLifecycleState.resumed;
     if (!_appResumed) _stopAutoPageTurn();
-    if (state != AppLifecycleState.resumed && _pages.isNotEmpty) {
+    if (!widget.isImageReader &&
+        state != AppLifecycleState.resumed &&
+        _pages.isNotEmpty) {
       _saveTimer?.cancel();
-      unawaited(_saveProgress(_chapter.id, _page));
+      unawaited(_saveProgress(_chapter!.id, _page));
     }
   }
 
@@ -200,7 +239,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     }
     if (_loading ||
         _error != null ||
-        _pages.isEmpty ||
+        _pageCount == 0 ||
         !_appResumed ||
         !_routeIsCurrent) {
       return;
@@ -226,10 +265,13 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   }
 
   bool _hasNextChapter() {
-    final chapterIndex = widget.comic.chapters.indexWhere(
-      (chapter) => chapter.id == _chapter.id,
+    final comic = widget.comic;
+    final chapter = _chapter;
+    if (comic == null || chapter == null) return false;
+    final chapterIndex = comic.chapters.indexWhere(
+      (item) => item.id == chapter.id,
     );
-    return chapterIndex >= 0 && chapterIndex + 1 < widget.comic.chapters.length;
+    return chapterIndex >= 0 && chapterIndex + 1 < comic.chapters.length;
   }
 
   void _registerContinuousAdvanceAtExtent(void Function(double) advance) {
@@ -237,7 +279,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   }
 
   double? _continuousLastPageTrailingEdge() {
-    final lastPage = _pages.length - 1;
+    final lastPage = _pageCount - 1;
     return _positions.itemPositions.value
         .where((item) => item.index == lastPage)
         .firstOrNull
@@ -270,7 +312,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       return;
     }
     if (_loading) return;
-    if (_error != null || _pages.isEmpty) {
+    if (_error != null || _pageCount == 0) {
       _stopAutoPageTurn();
       return;
     }
@@ -300,7 +342,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       return;
     }
     final nextPage = _pageAfterView(_page, 1, mode);
-    if (nextPage >= _pages.length) {
+    if (nextPage >= _pageCount) {
       if (_hasNextChapter()) {
         unawaited(_chapterBy(1));
       } else {
@@ -339,6 +381,8 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   }
 
   Future<void> _loadChapter() async {
+    final comic = widget.comic!;
+    final chapter = _chapter!;
     final generation = ++_generation;
     _saveTimer?.cancel();
     setState(() {
@@ -351,11 +395,11 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     try {
       final offline = await ref
           .read(comicDownloadsProvider)
-          .offlinePages(widget.comic, _chapter);
+          .offlinePages(comic, chapter);
       final source = ref
           .read(comicSourcesProvider)
-          .firstWhere((s) => s.key == widget.comic.source);
-      final pages = offline ?? await source.pages(widget.comic, _chapter);
+          .firstWhere((s) => s.key == comic.source);
+      final pages = offline ?? await source.pages(comic, chapter);
       if (pages.isEmpty) {
         throw const ComicSourceException('This chapter has no pages.');
       }
@@ -400,13 +444,15 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
 
   Future<Uint8List> _image(int page) => _images.putIfAbsent(page, () async {
     final generation = _generation;
-    final source = ref
-        .read(comicSourcesProvider)
-        .firstWhere((s) => s.key == widget.comic.source);
-    final bytes = await ref.read(comicImageLoaderProvider)(
-      source,
-      _pages[page],
-    );
+    final Uint8List bytes;
+    if (widget.isImageReader) {
+      bytes = await widget.loadImage!(page);
+    } else {
+      final source = ref
+          .read(comicSourcesProvider)
+          .firstWhere((s) => s.key == widget.comic!.source);
+      bytes = await ref.read(comicImageLoaderProvider)(source, _pages[page]);
+    }
     final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
     try {
       final descriptor = await ui.ImageDescriptor.encoded(buffer);
@@ -429,25 +475,28 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     final count = StorageService.getInt('comic_preload') ?? 3;
     final first =
         ref.read(comicReadingModeProvider) == ComicReadingMode.continuous
-        ? (_page - count).clamp(0, _pages.length - 1)
+        ? (_page - count).clamp(0, _pageCount - 1)
         : _page;
-    for (var i = first; i <= _page + count && i < _pages.length; i++) {
+    for (var i = first; i <= _page + count && i < _pageCount; i++) {
       _image(i).then<void>((_) {}, onError: (Object _, StackTrace __) {});
     }
     _images.removeWhere((i, _) => i < first - 2 || i > _page + count + 2);
   }
 
   Future<void> _saveProgress(String chapter, int page) async {
+    final comic = widget.comic;
+    if (comic == null) return;
     try {
-      await _library.saveProgress(widget.comic, chapter, page);
+      await _library.saveProgress(comic, chapter, page);
     } catch (error) {
       LogService.instance.error('Comic progress: $error', tag: 'Comics');
     }
   }
 
   void _record() {
+    if (widget.isImageReader || _chapter == null) return;
     _saveTimer?.cancel();
-    final chapter = _chapter.id;
+    final chapter = _chapter!.id;
     final page = _page;
     _saveTimer = Timer(
       const Duration(milliseconds: 200),
@@ -456,7 +505,8 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   }
 
   void _changed(int page) {
-    page = page.clamp(0, _pages.length - 1);
+    if (_pageCount == 0) return;
+    page = page.clamp(0, _pageCount - 1);
     if (page == _page) return;
     setState(() => _page = page);
     _record();
@@ -465,7 +515,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
 
   void _scrolled() {
     if (!mounted ||
-        _pages.isEmpty ||
+        _pageCount == 0 ||
         _viewport.height <= 0 ||
         ref.read(comicReadingModeProvider) != ComicReadingMode.continuous) {
       return;
@@ -499,9 +549,9 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   }
 
   void _jump(int page) {
-    if (_pages.isEmpty || _loading) return;
+    if (_pageCount == 0 || _loading) return;
     _pageTurn = null;
-    page = page.clamp(0, _pages.length - 1);
+    page = page.clamp(0, _pageCount - 1);
     final mode = ref.read(comicReadingModeProvider);
     if (mode == ComicReadingMode.continuous) {
       if (_continuous.isAttached) _continuous.jumpTo(index: page);
@@ -514,24 +564,30 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   }
 
   Future<void> _chapterBy(int delta) async {
-    if (_loading) return;
-    final index =
-        widget.comic.chapters.indexWhere((c) => c.id == _chapter.id) + delta;
-    if (index < 0 || index >= widget.comic.chapters.length) return;
+    final comic = widget.comic;
+    final chapter = _chapter;
+    if (_loading || comic == null || chapter == null) return;
+    final index = comic.chapters.indexWhere((c) => c.id == chapter.id) + delta;
+    if (index < 0 || index >= comic.chapters.length) return;
     _saveTimer?.cancel();
     setState(() => _loading = true);
-    if (_pages.isNotEmpty) {
-      await _saveProgress(_chapter.id, _page);
+    if (_pageCount > 0) {
+      await _saveProgress(chapter.id, _page);
     }
     if (!mounted) return;
-    _chapter = widget.comic.chapters[index];
+    _chapter = comic.chapters[index];
     _page = 0;
     await _loadChapter();
   }
 
   Future<void> _chooseChapter() async {
-    final chapters = widget.comic.chapters;
-    final current = chapters.indexWhere((chapter) => chapter.id == _chapter.id);
+    final comic = widget.comic;
+    final currentChapter = _chapter;
+    if (comic == null || currentChapter == null) return;
+    final chapters = comic.chapters;
+    final current = chapters.indexWhere(
+      (chapter) => chapter.id == currentChapter.id,
+    );
     final selected = await showDialog<int>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -562,10 +618,11 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   }
 
   Future<void> _favorite() async {
-    if (_savingFavorite) return;
+    final comic = widget.comic;
+    if (_savingFavorite || comic == null) return;
     setState(() => _savingFavorite = true);
     try {
-      await saveComicFavorite(ref, widget.comic);
+      await saveComicFavorite(ref, comic);
       if (mounted) SnackBarUtil.showSuccess(context, S.of(context).comicSaved);
     } catch (error) {
       if (mounted) SnackBarUtil.showError(context, error.toString());
@@ -574,18 +631,65 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     }
   }
 
-  Future<void> _download() async {
-    if (_choosingDownload) return;
-    setState(() => _choosingDownload = true);
+  List<int> _visibleImagePages() {
+    final mode = ref.read(comicReadingModeProvider);
+    if (!isComicSpread(mode)) return [_page];
+    final first = comicPageIndex(comicViewIndex(_page, mode), mode);
+    final pages = [first, if (first + 1 < _pageCount) first + 1];
+    return mode == ComicReadingMode.reverseSpread
+        ? pages.reversed.toList()
+        : pages;
+  }
+
+  Future<int?> _chooseImagePage(List<int> pages) => showDialog<int>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(S.of(dialogContext).saveImage),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final page in pages)
+            ListTile(
+              title: Text(_imageTitle(page)),
+              onTap: () => Navigator.pop(dialogContext, page),
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: Text(S.of(dialogContext).cancel),
+        ),
+      ],
+    ),
+  );
+
+  Future<void> _saveCurrentImage() async {
+    if (_savingImage || _loading || _pageCount == 0) return;
+    _stopAutoPageTurn();
+    setState(() => _savingImage = true);
     try {
-      await downloadComicChapters(
+      final pages = _visibleImagePages();
+      final page = pages.length == 1
+          ? pages.single
+          : await _chooseImagePage(pages);
+      if (!mounted || page == null) return;
+      final imageBytes = await _image(page);
+      if (!mounted) return;
+      await (widget.saveImage ?? saveReaderImage)(
         context,
-        ref,
-        widget.comic,
-        initialChapterId: _chapter.id,
+        imageBytes,
+        _imageTitle(page),
       );
+    } catch (error) {
+      if (mounted) {
+        SnackBarUtil.showError(
+          context,
+          S.of(context).saveFailedWithError(error.toString()),
+        );
+      }
     } finally {
-      if (mounted) setState(() => _choosingDownload = false);
+      if (mounted) setState(() => _savingImage = false);
     }
   }
 
@@ -617,9 +721,9 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
         minChildSize: .35,
         maxChildSize: .95,
         builder: (context, controller) => ComicPagePreview(
-          pageCount: _pages.length,
+          pageCount: _pageCount,
           initialPage: _page,
-          title: _chapter.title,
+          title: _chapter?.title ?? widget.title ?? '',
           scrollController: controller,
           loadImage: _previewImage,
           onSelected: (page) => Navigator.pop(sheetContext, page),
@@ -638,7 +742,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     if (_loading) return;
     final mode = ref.read(comicReadingModeProvider);
     final target = _pageAfterView(_pageTurn?.page ?? _page, delta, mode);
-    if (target >= _pages.length) {
+    if (target >= _pageCount) {
       _chapterBy(1);
     } else if (target < 0) {
       _chapterBy(-1);
@@ -679,7 +783,9 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
             child: IconButton(
               color: Colors.white,
               tooltip: S.of(context).retry,
-              onPressed: () => setState(() => _images.remove(page)),
+              onPressed: () => setState(() {
+                _images.remove(page);
+              }),
               icon: const Icon(Icons.refresh),
             ),
           );
@@ -732,6 +838,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     if (_error != null) {
       return ComicErrorView(error: _error!, retry: _loadChapter);
     }
+    if (_pageCount == 0) return const SizedBox.shrink();
     if (mode == ComicReadingMode.continuous) {
       final layoutGeneration = _layoutGeneration;
       return KeyedSubtree(
@@ -767,7 +874,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
             }
             return positions.any(
               (position) =>
-                  position.index == _pages.length - 1 &&
+                  position.index == _pageCount - 1 &&
                   position.itemTrailingEdge <= 1,
             );
           },
@@ -778,7 +885,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
               physics: _continuousPinching
                   ? const NeverScrollableScrollPhysics()
                   : const BouncingScrollPhysics(),
-              itemCount: _pages.length,
+              itemCount: _pageCount,
               itemScrollController: _continuous,
               itemPositionsListener: _positions,
               initialScrollIndex: _page,
@@ -830,11 +937,11 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
             reverse:
                 mode == ComicReadingMode.rightToLeft ||
                 mode == ComicReadingMode.reverseSpread,
-            itemCount: spread ? (_pages.length + 1) ~/ 2 : _pages.length,
+            itemCount: spread ? (_pageCount + 1) ~/ 2 : _pageCount,
             onPageChanged: (i) => _changed(comicPageIndex(i, mode)),
             itemBuilder: (context, i) {
               if (!spread) return _pageImage(i);
-              final indices = [i * 2, if (i * 2 + 1 < _pages.length) i * 2 + 1];
+              final indices = [i * 2, if (i * 2 + 1 < _pageCount) i * 2 + 1];
               return _ZoomableComicPage(
                 key: ValueKey('comic-spread-zoom-$i'),
                 focalZoom: true,
@@ -883,6 +990,8 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     bool hasAudio,
   ) {
     final s = S.of(context);
+    final title = widget.comic?.title ?? widget.title ?? '';
+    final chapterTitle = _chapter?.title;
     return Scaffold(
       backgroundColor: Colors.black,
       body: KeyboardListener(
@@ -929,7 +1038,9 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                         const BackButton(),
                         Expanded(
                           child: Text(
-                            '${widget.comic.title}\n${_chapter.title}',
+                            chapterTitle == null
+                                ? title
+                                : '$title\n$chapterTitle',
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -949,7 +1060,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                 ),
               ),
             ),
-            if (_pages.isNotEmpty)
+            if (_pageCount > 0)
               Positioned(
                 bottom: 0,
                 left: 0,
@@ -977,8 +1088,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                                       children: [
                                         Expanded(
                                           child: Semantics(
-                                            value:
-                                                '${_page + 1}/${_pages.length}',
+                                            value: '${_page + 1}/$_pageCount',
                                             child: IconButton(
                                               key: const ValueKey(
                                                 'comic-page-preview',
@@ -992,20 +1102,21 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                                             ),
                                           ),
                                         ),
-                                        Expanded(
-                                          child: IconButton(
-                                            tooltip: s.comicChooseChapters,
-                                            onPressed:
-                                                _loading ||
-                                                    widget
-                                                        .comic
-                                                        .chapters
-                                                        .isEmpty
-                                                ? null
-                                                : _chooseChapter,
-                                            icon: const Icon(Icons.list),
+                                        if (!widget.isImageReader)
+                                          Expanded(
+                                            child: IconButton(
+                                              tooltip: s.comicChooseChapters,
+                                              onPressed:
+                                                  _loading ||
+                                                      widget
+                                                          .comic!
+                                                          .chapters
+                                                          .isEmpty
+                                                  ? null
+                                                  : _chooseChapter,
+                                              icon: const Icon(Icons.list),
+                                            ),
                                           ),
-                                        ),
                                         Expanded(
                                           child: IconButton(
                                             key: const ValueKey(
@@ -1137,31 +1248,42 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                                                 ),
                                           ),
                                         ),
-                                        Expanded(
-                                          child: IconButton(
-                                            tooltip: s.comicFavorites,
-                                            icon: const Icon(
-                                              Icons.bookmark_add_outlined,
+                                        if (!widget.isImageReader)
+                                          Expanded(
+                                            child: IconButton(
+                                              tooltip: s.comicFavorites,
+                                              icon: const Icon(
+                                                Icons.bookmark_add_outlined,
+                                              ),
+                                              onPressed: _savingFavorite
+                                                  ? null
+                                                  : _favorite,
                                             ),
-                                            onPressed: _savingFavorite
-                                                ? null
-                                                : _favorite,
                                           ),
-                                        ),
                                         Expanded(
-                                          child: IconButton(
-                                            tooltip: s.download,
-                                            icon: const Icon(Icons.download),
-                                            onPressed:
-                                                _loading ||
-                                                    _choosingDownload ||
-                                                    widget
-                                                        .comic
-                                                        .chapters
-                                                        .isEmpty
-                                                ? null
-                                                : _download,
-                                          ),
+                                          child: _savingImage
+                                              ? const Padding(
+                                                  padding: EdgeInsets.all(12),
+                                                  child: SizedBox(
+                                                    width: 24,
+                                                    height: 24,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                          strokeWidth: 2,
+                                                        ),
+                                                  ),
+                                                )
+                                              : IconButton(
+                                                  tooltip: s.saveImage,
+                                                  icon: const Icon(
+                                                    Icons.save_alt,
+                                                  ),
+                                                  onPressed:
+                                                      _loading ||
+                                                          _pageCount == 0
+                                                      ? null
+                                                      : _saveCurrentImage,
+                                                ),
                                         ),
                                       ],
                                     ),

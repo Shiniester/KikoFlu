@@ -21,6 +21,59 @@ const _work = Work(
 );
 
 void main() {
+  test('explicit audio list builds an ordered cross-directory queue', () async {
+    final first = audioItem('track01.wav', hash: 'h1');
+    final second = audioItem('track02.wav', hash: 'h2');
+    final subtitle = {
+      'type': 'text',
+      'title': 'track01.srt',
+      'hash': 'subtitle',
+    };
+    final tree = [
+      folderItem('A', [first, subtitle]),
+      folderItem('B', [second]),
+    ];
+    for (final mode in AudioTapPlaylistMode.values) {
+      final plan = await const AudioPlaybackPlanBuilder().build(
+        fileTree: tree,
+        parentPath: 'B',
+        audioFiles: [first, subtitle, second],
+        selectedFile: second,
+        resolveUrl: (file) async => 'file://${file['hash']}',
+        work: _work,
+        unknownTitle: 'Unknown',
+        playlistMode: mode,
+      );
+      expect(plan.status, AudioPlaybackPlanStatus.ready);
+      expect(
+        plan.queue!.tracks.map((track) => track.id),
+        mode == AudioTapPlaylistMode.replaceQueue ? ['h1', 'h2'] : ['h2'],
+      );
+      expect(
+        plan.queue!.startIndex,
+        mode == AudioTapPlaylistMode.replaceQueue ? 1 : 0,
+      );
+    }
+  });
+
+  test(
+    'explicit list cannot play a file outside the visible audio selection',
+    () async {
+      final selected = audioItem('hidden.mp3', hash: 'hidden');
+      final visible = audioItem('visible.wav', hash: 'visible');
+      final plan = await const AudioPlaybackPlanBuilder().build(
+        fileTree: [selected, visible],
+        parentPath: '',
+        audioFiles: [visible],
+        selectedFile: selected,
+        resolveUrl: (_) async => 'file://ok',
+        work: _work,
+        unknownTitle: 'Unknown',
+      );
+      expect(plan.status, AudioPlaybackPlanStatus.selectedFileMissing);
+    },
+  );
+
   test(
     'returns missing when selected file is outside the parent directory',
     () async {

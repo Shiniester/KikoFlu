@@ -40,7 +40,7 @@ import '../widgets/work_detail/work_detail_error_banner.dart';
 import '../widgets/work_detail/work_progress_action_button.dart';
 import '../widgets/work_detail_route_readiness.dart';
 
-import '../widgets/image_gallery_screen.dart';
+import '../widgets/work_image_reader.dart';
 
 final workDetailCoverCacheProvider = Provider(
   (ref) => CacheService.imageCacheManager,
@@ -874,7 +874,8 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (context) => ImageGalleryScreen(
+                  builder: (context) => WorkImageReader(
+                    title: _currentWork.title,
                     images: [
                       {
                         'url': coverUrl,

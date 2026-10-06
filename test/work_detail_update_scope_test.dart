@@ -760,7 +760,7 @@ void main() {
         findsNothing,
       );
       api.tracks.complete(
-        List.generate(1000, (i) => {'type': 'text', 'title': 'file-$i.txt'}),
+        List.generate(1000, (i) => {'type': 'audio', 'title': 'file-$i.wav'}),
       );
       for (
         var i = 0;
@@ -782,8 +782,9 @@ void main() {
       );
       expect(recommendations.requests, 0);
       await tester.scrollUntilVisible(
-        find.text('file-999.txt'),
+        find.text('file-999.wav'),
         3000,
+        scrollable: find.byType(Scrollable).first,
         maxScrolls: 60,
       );
       await tester.pump();
@@ -964,6 +965,8 @@ void main() {
         }
 
         expect(scanStarted, isTrue);
+        await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+        await tester.pump();
         expect(find.text('loaded-while-scan-pending.txt'), findsOneWidget);
         expect(tester.takeException(), isNull);
         if (!pendingDownloadRoot.isCompleted) pendingDownloadRoot.complete('');
@@ -1164,6 +1167,7 @@ void main() {
     await tester.scrollUntilVisible(
       find.text('Lazy VA sentinel'),
       300,
+      scrollable: find.byType(Scrollable).first,
       maxScrolls: 30,
     );
     expect(find.text('Lazy VA sentinel'), findsOneWidget);
@@ -1171,6 +1175,7 @@ void main() {
     await tester.scrollUntilVisible(
       find.text('Lazy tag sentinel'),
       300,
+      scrollable: find.byType(Scrollable).first,
       maxScrolls: 30,
     );
     expect(find.text('Lazy tag sentinel'), findsOneWidget);
@@ -1178,6 +1183,7 @@ void main() {
     await tester.scrollUntilVisible(
       find.text('「Japanese」'),
       300,
+      scrollable: find.byType(Scrollable).first,
       maxScrolls: 30,
     );
     expect(find.text('「Japanese」'), findsOneWidget);
@@ -1376,6 +1382,10 @@ void main() {
             ),
             findsWidgets,
           );
+          await tester.tap(
+            find.byKey(const ValueKey('work-resource-files-tab')),
+          );
+          await tester.pump();
           expect(find.text('loaded-file.txt'), findsOneWidget);
         }
         expect(tester.takeException(), isNull);
@@ -1628,6 +1638,8 @@ void main() {
       tester.widget<WorkTitleHeader>(find.byType(WorkTitleHeader)).title,
       'Updated title',
     );
+    await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+    await tester.pump();
     expect(find.text('covered-file.txt'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());

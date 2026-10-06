@@ -23,7 +23,7 @@ import '../widgets/offline_file_explorer_widget.dart';
 import '../widgets/global_audio_player_wrapper.dart';
 import '../widgets/download_fab.dart';
 import '../utils/string_utils.dart';
-import '../widgets/image_gallery_screen.dart';
+import '../widgets/work_image_reader.dart';
 import '../widgets/work_detail/work_title_header.dart';
 import '../widgets/work_detail/work_metadata_sections.dart';
 import '../widgets/work_detail/work_extra_sections.dart';
@@ -476,7 +476,8 @@ class _OfflineWorkDetailScreenState
           onTap: () {
             Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (context) => ImageGalleryScreen(
+                builder: (context) => WorkImageReader(
+                  title: work.title,
                   images: [
                     {
                       'url': coverUrl,

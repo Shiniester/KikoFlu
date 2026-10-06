@@ -2344,6 +2344,12 @@ class SJa extends S {
   String get resourceFiles => 'リソースファイル';
 
   @override
+  String get workResourceAudio => '音声';
+
+  @override
+  String get workResourceImages => '画像';
+
+  @override
   String resourceFilesTranslated(int count) {
     return 'リソースファイル (翻訳済み $count 項目)';
   }
