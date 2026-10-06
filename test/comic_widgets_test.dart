@@ -946,17 +946,21 @@ void main() {
     await tester.pumpAndSettle();
     await tester.sendKeyEvent(LogicalKeyboardKey.space);
     await tester.pumpAndSettle();
+    final modeButtonTop = tester.getRect(find.byTooltip('Reading mode')).top;
     await tester.tap(find.byTooltip('Reading mode'));
     await tester.pumpAndSettle();
-    final items = find.byType(CheckedPopupMenuItem<ComicReadingMode>);
+    final items = find.byType(MenuItemButton);
     expect(items, findsNWidgets(ComicReadingMode.values.length));
     expect(tester.getSize(items.first).width, lessThanOrEqualTo(224));
-    await tester.tap(
-      find.widgetWithText(
-        CheckedPopupMenuItem<ComicReadingMode>,
-        'Vertical pages',
-      ),
-    );
+    final menu = find
+        .ancestor(of: items.first, matching: find.byType(Material))
+        .first;
+    expect(tester.getRect(menu).bottom, lessThanOrEqualTo(modeButtonTop));
+    await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pumpAndSettle();
+    expect(readerPageValue('4/8'), findsOneWidget);
+    await tester.tap(find.widgetWithText(MenuItemButton, 'Vertical pages'));
     await tester.pumpAndSettle();
     expect(StorageService.getString('comic_reading_mode'), 'vertical');
     expect(
@@ -965,6 +969,76 @@ void main() {
     );
     expect(readerPageValue('4/8'), findsOneWidget);
     expect(find.byType(MiniPlayer), findsOneWidget);
+    tester.view.physicalSize = const Size(844, 390);
+    await tester.pumpAndSettle();
+    final landscapeButtonTop = tester
+        .getRect(find.byTooltip('Reading mode'))
+        .top;
+    await tester.tap(find.byTooltip('Reading mode'));
+    await tester.pumpAndSettle();
+    expect(tester.getRect(menu).bottom, lessThanOrEqualTo(landscapeButtonTop));
+    await tester.ensureVisible(items.last);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(items.last).bottom,
+      lessThanOrEqualTo(landscapeButtonTop),
+    );
+    await tester.tap(items.last);
+    await tester.pumpAndSettle();
+    expect(StorageService.getString('comic_reading_mode'), 'reverseSpread');
+    await tester.tap(find.byTooltip('Reading mode'));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(items, findsNothing);
+    await tester.tap(find.byTooltip('Reading mode'));
+    await tester.pumpAndSettle();
+    await tester.tapAt(const Offset(10, 100));
+    await tester.pumpAndSettle();
+    expect(items, findsNothing);
+    expect(find.byTooltip('Reading mode'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('reader menus pause auto turns and close before route back', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      Builder(
+        builder: (context) => TextButton(
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const ComicReaderScreen(
+                comic: _comic,
+                chapter: ComicChapter('one', 'Chapter 1'),
+              ),
+            ),
+          ),
+          child: const Text('Read'),
+        ),
+      ),
+      _Library(),
+      _Source(),
+    );
+    await tester.tap(find.text('Read'));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('comic-auto-page-turn')));
+    await tester.pump();
+    expect(find.byTooltip('Pause'), findsOneWidget);
+    await tester.tap(find.byTooltip('Reading mode'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Auto page turn'), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(MenuItemButton), findsNothing);
+    expect(find.byType(ComicReaderScreen), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(ComicReaderScreen), findsNothing);
+    expect(find.text('Read'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -1010,14 +1084,25 @@ void main() {
       ]);
       await tester.sendKeyEvent(LogicalKeyboardKey.space);
       await tester.pumpAndSettle();
+      final orientationButtonTop = tester
+          .getRect(find.byTooltip('Screen orientation'))
+          .top;
       await tester.tap(find.byTooltip('Screen orientation'));
       await tester.pumpAndSettle();
-      await tester.tap(
-        find.widgetWithText(
-          CheckedPopupMenuItem<ComicScreenOrientation>,
-          'Landscape',
-        ),
+      expect(
+        tester
+            .getRect(
+              find
+                  .ancestor(
+                    of: find.byType(MenuItemButton).first,
+                    matching: find.byType(Material),
+                  )
+                  .first,
+            )
+            .bottom,
+        lessThanOrEqualTo(orientationButtonTop),
       );
+      await tester.tap(find.widgetWithText(MenuItemButton, 'Landscape'));
       await tester.pumpAndSettle();
       expect(calls.last, [
         'DeviceOrientation.landscapeLeft',

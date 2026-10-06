@@ -141,6 +141,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       _routeAnimation!.removeStatusListener(_routeStatusListener!);
     }
     _pager?.dispose();
+    _readerMenuHistory?.remove();
     _focus.dispose();
     Future.microtask(() {
       if (_active.mounted) _active.state = false;
@@ -936,6 +937,9 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
         focusNode: _focus,
         onKeyEvent: (event) {
           if (event is! KeyDownEvent) return;
+          if (_modeMenuController.isOpen || _orientationMenuController.isOpen) {
+            return;
+          }
           final reverse =
               mode == ComicReadingMode.rightToLeft ||
               mode == ComicReadingMode.reverseSpread;
@@ -1081,28 +1085,16 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                                           ),
                                         ),
                                         Expanded(
-                                          child: PopupMenuButton<ComicReadingMode>(
+                                          child: _readerMenu<ComicReadingMode>(
                                             tooltip: s.comicReadingMode,
-                                            initialValue: mode,
-                                            constraints: const BoxConstraints(
-                                              minWidth: 112,
-                                              maxWidth: 224,
-                                            ),
-                                            menuPadding: EdgeInsets.zero,
+                                            controller: _modeMenuController,
+                                            value: mode,
+                                            options: ComicReadingMode.values,
+                                            label: (option) =>
+                                                comicModeLabel(s, option),
                                             icon: const Icon(
                                               Icons.chrome_reader_mode,
                                             ),
-                                            itemBuilder: (context) => [
-                                              for (final option
-                                                  in ComicReadingMode.values)
-                                                CheckedPopupMenuItem(
-                                                  value: option,
-                                                  checked: option == mode,
-                                                  child: Text(
-                                                    comicModeLabel(s, option),
-                                                  ),
-                                                ),
-                                            ],
                                             onSelected: (mode) {
                                               ref
                                                       .read(
@@ -1124,63 +1116,42 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                                               s,
                                               orientation,
                                             ),
-                                            child:
-                                                PopupMenuButton<
-                                                  ComicScreenOrientation
-                                                >(
-                                                  tooltip:
-                                                      s.comicScreenOrientation,
-                                                  initialValue: orientation,
-                                                  constraints:
-                                                      const BoxConstraints(
-                                                        minWidth: 112,
-                                                        maxWidth: 224,
-                                                      ),
-                                                  menuPadding: EdgeInsets.zero,
-                                                  icon: Icon(switch (orientation) {
-                                                    ComicScreenOrientation
-                                                        .system =>
-                                                      Icons.screen_rotation,
-                                                    ComicScreenOrientation
-                                                        .portrait =>
-                                                      Icons
-                                                          .screen_lock_portrait,
-                                                    ComicScreenOrientation
-                                                        .landscape =>
-                                                      Icons
-                                                          .screen_lock_landscape,
-                                                  }),
-                                                  itemBuilder: (context) => [
-                                                    for (final option
-                                                        in ComicScreenOrientation
-                                                            .values)
-                                                      CheckedPopupMenuItem(
-                                                        value: option,
-                                                        checked:
-                                                            option ==
-                                                            orientation,
-                                                        child: Text(
-                                                          comicOrientationLabel(
-                                                            s,
-                                                            option,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                  ],
-                                                  onSelected: (orientation) {
-                                                    ref
-                                                            .read(
-                                                              comicScreenOrientationProvider
-                                                                  .notifier,
-                                                            )
-                                                            .state =
-                                                        orientation;
-                                                    StorageService.setString(
-                                                      'comic_screen_orientation',
-                                                      orientation.name,
-                                                    );
-                                                  },
-                                                ),
+                                            child: _readerMenu<ComicScreenOrientation>(
+                                              tooltip: s.comicScreenOrientation,
+                                              controller:
+                                                  _orientationMenuController,
+                                              value: orientation,
+                                              options:
+                                                  ComicScreenOrientation.values,
+                                              label: (option) =>
+                                                  comicOrientationLabel(
+                                                    s,
+                                                    option,
+                                                  ),
+                                              icon: Icon(switch (orientation) {
+                                                ComicScreenOrientation.system =>
+                                                  Icons.screen_rotation,
+                                                ComicScreenOrientation
+                                                    .portrait =>
+                                                  Icons.screen_lock_portrait,
+                                                ComicScreenOrientation
+                                                    .landscape =>
+                                                  Icons.screen_lock_landscape,
+                                              }),
+                                              onSelected: (orientation) {
+                                                ref
+                                                        .read(
+                                                          comicScreenOrientationProvider
+                                                              .notifier,
+                                                        )
+                                                        .state =
+                                                    orientation;
+                                                StorageService.setString(
+                                                  'comic_screen_orientation',
+                                                  orientation.name,
+                                                );
+                                              },
+                                            ),
                                           ),
                                         ),
                                         Expanded(
@@ -1229,7 +1200,71 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     );
   }
 
+  Widget _readerMenu<T>({
+    required String tooltip,
+    required MenuController controller,
+    required T value,
+    required List<T> options,
+    required String Function(T) label,
+    required Widget icon,
+    required ValueChanged<T> onSelected,
+  }) => Builder(
+    builder: (anchorContext) => MenuAnchor(
+      controller: controller,
+      useRootOverlay: true,
+      consumeOutsideTap: true,
+      crossAxisUnconstrained: false,
+      onOpen: () {
+        _stopAutoPageTurn();
+        final entry = LocalHistoryEntry(onRemove: controller.close);
+        _readerMenuHistory = entry;
+        ModalRoute.of(context)?.addLocalHistoryEntry(entry);
+      },
+      onClose: () {
+        final entry = _readerMenuHistory;
+        _readerMenuHistory = null;
+        entry?.remove();
+        if (mounted) _focus.requestFocus();
+      },
+      style: MenuStyle(
+        alignment: AlignmentDirectional.bottomStart,
+        padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+        minimumSize: const WidgetStatePropertyAll(Size(112, 0)),
+        maximumSize: WidgetStateProperty.resolveWith((_) {
+          final anchor = anchorContext.findRenderObject()! as RenderBox;
+          final top = anchor.localToGlobal(Offset.zero).dy;
+          return Size(
+            224,
+            math.max(0, top - MediaQuery.paddingOf(anchorContext).top - 8),
+          );
+        }),
+      ),
+      menuChildren: [
+        for (final option in options)
+          Semantics(
+            selected: option == value,
+            child: MenuItemButton(
+              autofocus: option == value,
+              overflowAxis: Axis.vertical,
+              leadingIcon: Icon(option == value ? Icons.check : null),
+              onPressed: () => onSelected(option),
+              child: Text(label(option)),
+            ),
+          ),
+      ],
+      builder: (context, controller, child) => IconButton(
+        tooltip: tooltip,
+        icon: icon,
+        onPressed: () =>
+            controller.isOpen ? controller.close() : controller.open(),
+      ),
+    ),
+  );
+
   final _focus = FocusNode();
+  final _modeMenuController = MenuController();
+  final _orientationMenuController = MenuController();
+  LocalHistoryEntry? _readerMenuHistory;
 }
 
 class _ZoomableComicPage extends StatefulWidget {
