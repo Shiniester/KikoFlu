@@ -87,6 +87,13 @@ class ComicSettingsScreen extends ConsumerWidget {
           SettingsSectionList(
             children: [
               SettingsSwitchTile(
+                title: s.comicChapterThumbnails,
+                icon: Icons.preview_outlined,
+                value:
+                    StorageService.getBool('comic_chapter_thumbnails') ?? true,
+                onChanged: (value) => save('comic_chapter_thumbnails', value),
+              ),
+              SettingsSwitchTile(
                 title: s.comicDefaultOnlineFavorites,
                 icon: Icons.cloud_outlined,
                 value:

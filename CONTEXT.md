@@ -168,6 +168,12 @@ A visual index of the individual comic images in the current chapter used to
 choose an image to read. It is distinct from the Cover Preview and chapter catalog.
 _Avoid_: Cover Preview, chapter catalog
 
+**Chapter Thumbnails (章节缩略图预览)**:
+Up to three comic images sampled evenly across a chapter, shown alongside its
+entry in the Comic Details Screen. It is distinct from the Chapter Page Preview's
+full image index.
+_Avoid_: Chapter Page Preview, chapter catalog
+
 **Reader Zoom (阅读器缩放)**:
 The magnification of the current Comic Reader view: one page, one spread, or
 the entire continuous strip. Images within that view share the same transform.

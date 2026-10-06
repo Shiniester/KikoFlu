@@ -4008,7 +4008,25 @@ class SRu extends S {
   String get comicRemoveFavorite => 'Удалить из избранного';
 
   @override
-  String get comicComments => 'Комментарии и оценка';
+  String get comicComments => 'Комментарии';
+
+  @override
+  String get comicChapterThumbnails => 'Миниатюры глав';
+
+  @override
+  String comicPreviewPage(int page) {
+    return 'Страница $page';
+  }
+
+  @override
+  String comicCommentTime(DateTime date, DateTime time) {
+    final intl.DateFormat dateDateFormat = intl.DateFormat.yMd(localeName);
+    final String dateString = dateDateFormat.format(date);
+    final intl.DateFormat timeDateFormat = intl.DateFormat.jm(localeName);
+    final String timeString = timeDateFormat.format(time);
+
+    return '$dateString $timeString';
+  }
 
   @override
   String get comicNoResults => 'Манги пока нет';

@@ -3983,7 +3983,25 @@ class SEn extends S {
   String get comicRemoveFavorite => 'Remove favorite';
 
   @override
-  String get comicComments => 'Comments and rating';
+  String get comicComments => 'Comments';
+
+  @override
+  String get comicChapterThumbnails => 'Chapter thumbnails';
+
+  @override
+  String comicPreviewPage(int page) {
+    return 'Page $page';
+  }
+
+  @override
+  String comicCommentTime(DateTime date, DateTime time) {
+    final intl.DateFormat dateDateFormat = intl.DateFormat.yMd(localeName);
+    final String dateString = dateDateFormat.format(date);
+    final intl.DateFormat timeDateFormat = intl.DateFormat.jm(localeName);
+    final String timeString = timeDateFormat.format(time);
+
+    return '$dateString $timeString';
+  }
 
   @override
   String get comicNoResults => 'No comics here yet';

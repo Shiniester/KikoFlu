@@ -85,6 +85,12 @@ class NhSource extends ComicSource {
         ).resolve(path).toString();
   static Comic parseComic(Map<String, dynamic> c) {
     final title = c['title'];
+    final sourceTags = c['tags'] as List? ?? [];
+    final authors = sourceTags
+        .where((tag) => tag['type'] == 'artist')
+        .map<String>((tag) => '${tag['name']}')
+        .where((name) => name.isNotEmpty)
+        .toList();
     final thumbnail = c['cover'] is Map
         ? c['cover']['path']
         : c['thumbnail'] is Map
@@ -97,13 +103,13 @@ class NhSource extends ComicSource {
           ? '${title['japanese'] ?? title['english'] ?? title['pretty'] ?? ''}'
           : '${c['japanese_title'] ?? c['english_title'] ?? ''}',
       cover: imageUrl('${thumbnail ?? ''}', thumbnail: true),
-      tags: (c['tags'] as List? ?? [])
-          .map((t) => '${t['type']}:${t['name']}')
-          .toList(),
+      tags: sourceTags.map((t) => '${t['type']}:${t['name']}').toList(),
       chapters: [ComicChapter('${c['id']}', '1')],
       extra: {
         'pages': c['pages'] ?? [],
         if (c['upload_date'] != null) 'sourceDate': c['upload_date'],
+        if (c['upload_date'] != null) 'publishedAt': c['upload_date'],
+        if (authors.isNotEmpty) 'authors': authors,
       },
     );
   }
@@ -167,13 +173,28 @@ class NhSource extends ComicSource {
     final list = data is List
         ? data
         : (data['comments'] ?? data['result'] ?? data['items'] ?? []) as List;
-    return list
-        .map<ComicComment>(
-          (c) => ComicComment(
-            '${c['poster']?['username'] ?? c['username'] ?? ''}',
-            '${c['body'] ?? c['content'] ?? ''}',
-          ),
-        )
-        .toList();
+    return list.map<ComicComment>((c) {
+      final postDate = num.tryParse('${c['post_date'] ?? ''}');
+      return ComicComment(
+        '${c['poster']?['username'] ?? c['username'] ?? ''}',
+        '${c['body'] ?? c['content'] ?? ''}',
+        avatar: c['poster']?['avatar_url'] is String
+            ? ComicPage(
+                c['poster']['avatar_url'],
+                headers: {'Referer': '$website/'},
+              )
+            : null,
+        createdAt:
+            postDate == null ||
+                !postDate.isFinite ||
+                postDate <= 0 ||
+                postDate > 253402300799
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(
+                (postDate * 1000).toInt(),
+                isUtc: true,
+              ),
+      );
+    }).toList();
   }
 }

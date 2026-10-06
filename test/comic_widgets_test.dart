@@ -47,7 +47,7 @@ import 'package:kikoeru_flutter/src/comics/ui/comic_settings_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_detail_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_reader_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_page_preview.dart';
-import 'package:kikoeru_flutter/src/comics/ui/comic_reader_menu_button.dart';
+import 'package:kikoeru_flutter/src/comics/ui/comic_chapter_thumbnails.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_search_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 import 'package:kikoeru_flutter/src/widgets/settings_option_dialog.dart';
@@ -73,6 +73,10 @@ class _Source extends ComicSource {
   final String sourceKey;
   bool loggedIn = false, favoriteFails = false;
   bool commentsEnabled = false;
+  List<ComicComment> commentsResult = const [
+    ComicComment('Reader', 'Existing comment'),
+  ];
+  final pageRequests = <String>[];
   int searches = 0, favoriteWrites = 0, favoriteReads = 0;
   int detailRequests = 0, chapterRequests = 0;
   final searchGates = <int, Completer<ComicResult>>{};
@@ -85,9 +89,7 @@ class _Source extends ComicSource {
   @override
   bool get hasComments => commentsEnabled;
   @override
-  Future<List<ComicComment>> comments(Comic comic) async => const [
-    ComicComment('Reader', 'Existing comment'),
-  ];
+  Future<List<ComicComment>> comments(Comic comic) async => commentsResult;
   @override
   Future<void> setFavorite(Comic comic, bool value) async {
     favoriteWrites++;
@@ -147,6 +149,7 @@ class _Source extends ComicSource {
 
   @override
   Future<List<ComicPage>> pages(Comic comic, ComicChapter chapter) async {
+    pageRequests.add(chapter.id);
     if (chapter.id == failedChapter) {
       throw const ComicSourceException('Chapter unavailable');
     }
@@ -263,6 +266,18 @@ class _RecordingComicDownloads extends ComicDownloads {
     if (fail) throw StateError('queue unavailable');
     enqueued.add(chapters);
   }
+}
+
+class _PreviewDownloads extends ComicDownloads {
+  _PreviewDownloads(_Library library, _Source source, this.pages)
+    : super(library, (_) => source);
+  final List<ComicPage> pages;
+
+  @override
+  Future<List<ComicPage>?> offlinePages(
+    Comic comic,
+    ComicChapter chapter,
+  ) async => pages;
 }
 
 final _png = Uint8List.fromList(
@@ -443,6 +458,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       'comic_grid': false,
       'comic_selected_source': 'fixture',
+      'comic_chapter_thumbnails': false,
     });
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
@@ -578,6 +594,149 @@ void main() {
     await tester.pump();
   }
 
+  for (final mode in ComicReadingMode.values.where(
+    (mode) => mode != ComicReadingMode.continuous,
+  )) {
+    for (final reduceMotion in [false, true]) {
+      testWidgets(
+        'reader edge taps animate in ${mode.name}; reduced motion $reduceMotion',
+        (tester) async {
+          await StorageService.setString('comic_reading_mode', mode.name);
+          await StorageService.setBool('comic_double_tap_zoom', false);
+          await pump(
+            tester,
+            const ComicReaderScreen(
+              comic: _comic,
+              chapter: ComicChapter('one', 'Chapter 1'),
+            ),
+            _Library(),
+            _Source(),
+            reduceMotion: reduceMotion,
+          );
+          final view = find.byType(PageView);
+          final controller = tester.widget<PageView>(view).controller!;
+          final bounds = tester.getRect(view);
+          final reverse = tester.widget<PageView>(view).reverse;
+          final forward = Offset(
+            reverse ? bounds.left + 20 : bounds.right - 20,
+            bounds.center.dy,
+          );
+          final backward = Offset(
+            reverse ? bounds.right - 20 : bounds.left + 20,
+            bounds.center.dy,
+          );
+
+          await tester.tapAt(forward);
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 100));
+          if (reduceMotion) {
+            expect(controller.page, 1);
+          } else {
+            expect(controller.page, inExclusiveRange(0, 1));
+          }
+          await tester.pumpAndSettle();
+          expect(controller.page, 1);
+          expect(
+            readerPageValue(isComicSpread(mode) ? '3/8' : '2/8'),
+            findsOneWidget,
+          );
+
+          await tester.tapAt(backward);
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 100));
+          if (reduceMotion) {
+            expect(controller.page, 0);
+          } else {
+            expect(controller.page, inExclusiveRange(0, 1));
+          }
+          await tester.pumpAndSettle();
+          expect(controller.page, 0);
+          expect(readerPageValue('1/8'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
+  for (final deltas in const [
+    [1, 1],
+    [1, -1],
+    [1, -1, 1, 1],
+  ]) {
+    testWidgets('reader rapid edge taps $deltas keep the pending target', (
+      tester,
+    ) async {
+      await StorageService.setString('comic_reading_mode', 'leftToRight');
+      await StorageService.setBool('comic_double_tap_zoom', false);
+      final source = _Source();
+      await pump(
+        tester,
+        const ComicReaderScreen(
+          comic: _comic,
+          chapter: ComicChapter('two', 'Chapter 2'),
+        ),
+        _Library(),
+        source,
+      );
+      final view = find.byType(PageView);
+      final controller = tester.widget<PageView>(view).controller!;
+      final bounds = tester.getRect(view);
+      for (final delta in deltas) {
+        await tester.tapAt(
+          Offset(
+            delta > 0 ? bounds.right - 20 : bounds.left + 20,
+            bounds.center.dy,
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      await tester.pumpAndSettle();
+      final target = deltas.reduce((a, b) => a + b);
+      expect(source.pageRequests, ['two']);
+      expect(controller.page, target.toDouble());
+      expect(readerPageValue('${target + 1}/8'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final interruption in ['drag', 'controls']) {
+    testWidgets('reader $interruption clears an interrupted edge turn', (
+      tester,
+    ) async {
+      await StorageService.setString('comic_reading_mode', 'leftToRight');
+      await StorageService.setBool('comic_double_tap_zoom', false);
+      await pump(
+        tester,
+        const ComicReaderScreen(
+          comic: _comic,
+          chapter: ComicChapter('two', 'Chapter 2'),
+        ),
+        _Library(),
+        _Source(),
+      );
+      final view = find.byType(PageView);
+      final controller = tester.widget<PageView>(view).controller!;
+      final bounds = tester.getRect(view);
+      final forward = Offset(bounds.right - 20, bounds.center.dy);
+      await tester.tapAt(forward);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 20));
+      if (interruption == 'drag') {
+        await tester.drag(view, const Offset(600, 0));
+      } else {
+        await tester.tapAt(bounds.center);
+      }
+      await tester.pumpAndSettle();
+      expect(controller.page, 0);
+      await tester.tapAt(forward);
+      await tester.pumpAndSettle();
+      expect(controller.page, 1);
+      expect(readerPageValue('2/8'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('reader bottom controls keep seven icons in one row', (
     tester,
   ) async {
@@ -647,7 +806,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('comic-reader-top-controls')),
-        matching: find.byType(ComicReaderMenuButton<ComicReadingMode>),
+        matching: find.byType(PopupMenuButton<ComicReadingMode>),
       ),
       findsNothing,
     );
@@ -759,7 +918,7 @@ void main() {
     },
   );
 
-  testWidgets('reader mode menu opens above controls with a Mini Player', (
+  testWidgets('reader mode menu stays compact with a Mini Player', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -785,15 +944,11 @@ void main() {
     await tester.pumpAndSettle();
     await tester.sendKeyEvent(LogicalKeyboardKey.space);
     await tester.pumpAndSettle();
-    final buttonTop = tester.getTopLeft(find.byTooltip('Reading mode')).dy;
     await tester.tap(find.byTooltip('Reading mode'));
     await tester.pumpAndSettle();
-    expect(
-      tester
-          .getRect(find.byKey(const ValueKey('comic-reader-menu-surface')))
-          .bottom,
-      lessThanOrEqualTo(buttonTop - 8),
-    );
+    final items = find.byType(CheckedPopupMenuItem<ComicReadingMode>);
+    expect(items, findsNWidgets(ComicReadingMode.values.length));
+    expect(tester.getSize(items.first).width, lessThanOrEqualTo(224));
     await tester.tap(
       find.widgetWithText(
         CheckedPopupMenuItem<ComicReadingMode>,
@@ -4651,6 +4806,264 @@ void main() {
     });
   }
 
+  testWidgets(
+    'chapter thumbnails load nearby pages and open the selected page',
+    (tester) async {
+      await StorageService.remove('comic_chapter_thumbnails');
+      tester.view.physicalSize = const Size(320, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await StorageService.setString('comic_reading_mode', 'leftToRight');
+      await StorageService.setInt('comic_preload', 0);
+      final comic = Comic(
+        source: 'fixture',
+        id: 'book',
+        title: 'Fixture book',
+        description: List.filled(80, 'Synopsis').join('\n'),
+        chapters: _comic.chapters,
+      );
+      final source = _Source()..detailResult = comic;
+      final library = _Library()
+        ..last = ComicProgress(comic, 'one', 7, DateTime(2026));
+      final loaded = <String>[];
+      await pump(
+        tester,
+        ComicDetailScreen(comic: comic),
+        library,
+        source,
+        loadImage: (page) async {
+          loaded.add(page.url);
+          return _png;
+        },
+      );
+      expect(source.pageRequests, isEmpty);
+      await tester.scrollUntilVisible(
+        find.text('Chapter 1'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      final thumbnail = find.byKey(
+        const ValueKey('comic-chapter-thumbnail-one-3'),
+      );
+      await waitForPreviewContent(tester, thumbnail);
+      final image = find.descendant(
+        of: thumbnail,
+        matching: find.byType(Image),
+      );
+      await waitForPreviewContent(tester, image);
+      await waitForDecodedImage(tester, image);
+      await tester.ensureVisible(thumbnail);
+      await tester.pumpAndSettle();
+      expect(source.pageRequests, contains('one'));
+      expect(loaded.where((url) => url.startsWith('page-')).toSet(), {
+        'page-0',
+        'page-3',
+        'page-7',
+      });
+      await tester.tap(thumbnail);
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<ComicReaderScreen>(find.byType(ComicReaderScreen))
+            .initialPage,
+        3,
+      );
+      expect(readerPageValue('4/8'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('chapter thumbnails retry a failed page listing', (tester) async {
+    final source = _Source()..failedChapter = 'one';
+    await pump(
+      tester,
+      Scaffold(
+        body: ComicChapterThumbnails(
+          comic: _comic,
+          chapter: const ComicChapter('one', 'Chapter 1'),
+          onSelected: (_) {},
+        ),
+      ),
+      _Library(),
+      source,
+    );
+    expect(find.text('Retry'), findsOneWidget);
+    source.failedChapter = null;
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('comic-chapter-thumbnail-one-7')),
+      findsOneWidget,
+    );
+    expect(source.pageRequests, ['one', 'one']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'chapter thumbnails reuse offline pages without source requests',
+    (tester) async {
+      final source = _Source()..failedChapter = 'one';
+      final library = _Library();
+      final downloads = _PreviewDownloads(
+        library,
+        source,
+        List.generate(
+          8,
+          (i) => ComicPage('page-$i', localPath: 'offline-$i.png'),
+        ),
+      );
+      final loaded = <String?>[];
+      await pump(
+        tester,
+        Scaffold(
+          body: ComicChapterThumbnails(
+            comic: _comic,
+            chapter: const ComicChapter('one', 'Chapter 1'),
+            onSelected: (_) {},
+          ),
+        ),
+        library,
+        source,
+        downloads: downloads,
+        loadImage: (page) async {
+          loaded.add(page.localPath);
+          return _png;
+        },
+      );
+      expect(source.pageRequests, isEmpty);
+      expect(loaded.toSet(), {
+        'offline-0.png',
+        'offline-3.png',
+        'offline-7.png',
+      });
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('chapter thumbnail setting persists and prevents page requests', (
+    tester,
+  ) async {
+    await StorageService.remove('comic_chapter_thumbnails');
+    final source = _Source();
+    final library = _Library();
+    await pump(tester, const ComicSettingsScreen(), library, source);
+    final title = find.text('Chapter thumbnails');
+    await tester.ensureVisible(title);
+    await tester.tap(title);
+    await tester.pumpAndSettle();
+    expect(StorageService.getBool('comic_chapter_thumbnails'), isFalse);
+    await pump(tester, const ComicDetailScreen(comic: _comic), library, source);
+    await tester.scrollUntilVisible(
+      find.text('Chapter 1'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(ComicChapterThumbnails), findsNothing);
+    expect(source.pageRequests, isEmpty);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('comic metadata uses shared styles and deduplicates tags', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await StorageService.setBool('comic_chapter_thumbnails', false);
+    const comic = Comic(
+      source: 'fixture',
+      id: 'book',
+      title: 'Fixture book',
+      tags: ['Fixture tag', 'Fixture tag', 'Other tag'],
+      chapters: [
+        ComicChapter('one', 'Chapter 1'),
+        ComicChapter('two', 'Chapter 2'),
+      ],
+      extra: {
+        'authors': ['Fixture author'],
+        'publishedAt': '2026-01-02T00:00:00Z',
+        'updatedAt': '2026-02-03T00:00:00Z',
+      },
+    );
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: comic),
+      _Library(),
+      _Source()..detailResult = comic,
+    );
+    expect(find.text('Fixture tag'), findsOneWidget);
+    expect(find.text('Fixture author'), findsOneWidget);
+    expect(find.text('2026-01-02'), findsOneWidget);
+    expect(find.text('2026-02-03'), findsOneWidget);
+    final author = tester.widget<MetadataSearchChip>(
+      find.ancestor(
+        of: find.text('Fixture author'),
+        matching: find.byType(MetadataSearchChip),
+      ),
+    );
+    expect(author.fontSize, 12);
+    expect(author.borderRadius, 6);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('comic comments display avatars and localized creation times', (
+    tester,
+  ) async {
+    await StorageService.setBool('comic_chapter_thumbnails', false);
+    final createdAt = DateTime.utc(2026, 1, 2, 3, 4);
+    final source = _Source()
+      ..commentsEnabled = true
+      ..commentsResult = [
+        ComicComment(
+          'Reader',
+          'Timed comment',
+          createdAt: createdAt,
+          avatar: const ComicPage('fixture-avatar'),
+          score: '5',
+        ),
+        const ComicComment('Other reader', 'Untimed comment'),
+      ];
+    final loaded = <String>[];
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: _comic),
+      _Library(),
+      source,
+      loadImage: (page) async {
+        loaded.add(page.url);
+        return _png;
+      },
+    );
+    final comments = find.text('Comments');
+    await tester.ensureVisible(comments);
+    await tester.pumpAndSettle();
+    await tester.tap(comments);
+    await tester.pump();
+    final avatar = find.byWidgetPredicate(
+      (widget) => widget is ComicCover && widget.page.url == 'fixture-avatar',
+    );
+    final avatarImage = find.descendant(
+      of: avatar,
+      matching: find.byType(Image),
+    );
+    await waitForPreviewContent(tester, avatarImage);
+    await waitForDecodedImage(tester, avatarImage);
+    await tester.pumpAndSettle();
+    final labels = S.of(tester.element(find.text('Timed comment')));
+    expect(
+      find.text(
+        labels.comicCommentTime(createdAt.toLocal(), createdAt.toLocal()),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('5'), findsOneWidget);
+    expect(find.byIcon(Icons.person_outline), findsOneWidget);
+    expect(loaded, contains('fixture-avatar'));
+    expect(find.text('Untimed comment'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('comments sit between tags and chapters and remain read only', (
     tester,
   ) async {
@@ -4869,7 +5282,6 @@ void main() {
     expect(find.text('Fixture tag'), findsOneWidget);
     final labels = S.of(tester.element(find.byType(ComicDetailScreen)));
     expect(find.text(labels.comicComments), findsOneWidget);
-    expect(find.text(labels.comicChapters), findsOneWidget);
     expect(find.text('Chapter 1'), findsNothing);
     expect(
       tester.widget<WorkTitleHeader>(find.byType(WorkTitleHeader)).title,
@@ -5083,7 +5495,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('detail keeps a list-only source date for local favorites', (
+  testWidgets('detail keeps list-only dates for local favorites', (
     tester,
   ) async {
     const listing = Comic(
@@ -5091,7 +5503,11 @@ void main() {
       id: 'book',
       title: 'Fixture book',
       cover: 'fixture-cover',
-      extra: {'sourceDate': '2024-05-12'},
+      extra: {
+        'sourceDate': '2024-05-12',
+        'publishedAt': '2024-04-11',
+        'updatedAt': '2024-05-12',
+      },
     );
     final library = _Library();
     await pump(
@@ -5103,6 +5519,8 @@ void main() {
     await tester.tap(find.byTooltip('Favorites'));
     await tester.pumpAndSettle();
     expect(library.lastFavorite?.coverDate, '2024-05-12');
+    expect(library.lastFavorite?.publishedDate, '2024-04-11');
+    expect(library.lastFavorite?.updatedDate, '2024-05-12');
     expect(tester.takeException(), isNull);
   });
 
@@ -5307,7 +5725,6 @@ void main() {
     expect(source.detailRequests, 0);
     expect(source.chapterRequests, 0);
     await tester.pumpAndSettle();
-    expect(find.text('Chapter 1'), findsOneWidget);
     expect(source.detailRequests, 0);
     expect(source.chapterRequests, 0);
     final cover = tester.widget<ComicImage>(
@@ -5317,6 +5734,17 @@ void main() {
       ),
     );
     expect(cover.page.localPath, 'offline-cover');
+    await tester.scrollUntilVisible(
+      find.text('Chapter 1'),
+      300,
+      scrollable: find
+          .descendant(
+            of: find.byType(ComicDetailScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    expect(find.text('Chapter 1'), findsOneWidget);
     navigator.pop();
     await tester.pumpAndSettle();
   });

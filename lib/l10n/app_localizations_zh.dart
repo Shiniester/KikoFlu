@@ -3852,7 +3852,25 @@ class SZh extends S {
   String get comicRemoveFavorite => '取消收藏';
 
   @override
-  String get comicComments => '评论与评分';
+  String get comicComments => '评论';
+
+  @override
+  String get comicChapterThumbnails => '章节缩略图预览';
+
+  @override
+  String comicPreviewPage(int page) {
+    return '第 $page 页';
+  }
+
+  @override
+  String comicCommentTime(DateTime date, DateTime time) {
+    final intl.DateFormat dateDateFormat = intl.DateFormat.yMd(localeName);
+    final String dateString = dateDateFormat.format(date);
+    final intl.DateFormat timeDateFormat = intl.DateFormat.jm(localeName);
+    final String timeString = timeDateFormat.format(time);
+
+    return '$dateString $timeString';
+  }
 
   @override
   String get comicNoResults => '暂无漫画';
@@ -7879,7 +7897,25 @@ class SZhHant extends SZh {
   String get comicRemoveFavorite => '取消收藏';
 
   @override
-  String get comicComments => '評論與評分';
+  String get comicComments => '評論';
+
+  @override
+  String get comicChapterThumbnails => '章節縮圖預覽';
+
+  @override
+  String comicPreviewPage(int page) {
+    return '第 $page 頁';
+  }
+
+  @override
+  String comicCommentTime(DateTime date, DateTime time) {
+    final intl.DateFormat dateDateFormat = intl.DateFormat.yMd(localeName);
+    final String dateString = dateDateFormat.format(date);
+    final intl.DateFormat timeDateFormat = intl.DateFormat.jm(localeName);
+    final String timeString = timeDateFormat.format(time);
+
+    return '$dateString $timeString';
+  }
 
   @override
   String get comicNoResults => '暫無漫畫';

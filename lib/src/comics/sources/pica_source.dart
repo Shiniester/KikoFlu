@@ -93,24 +93,31 @@ class PicaSource extends ComicSource {
     }
   }
 
-  Comic _comic(dynamic c, {List<ComicChapter> chapters = const []}) => Comic(
-    source: key,
-    id: '${c['_id']}',
-    title: c['title'] ?? '',
-    cover: media(c['thumb']),
-    description: c['description'] ?? '',
-    tags: [
-      ...List<String>.from(c['categories'] ?? []),
-      ...List<String>.from(c['tags'] ?? []),
-    ],
-    chapters: chapters,
-    extra: {
-      'isFavorite': c['isFavourite'] ?? false,
-      'likes': c['likesCount'],
-      if (c['updated_at'] ?? c['created_at'] case final date?)
-        'sourceDate': date,
-    },
-  );
+  Comic _comic(dynamic c, {List<ComicChapter> chapters = const []}) {
+    final author = c['author'];
+    return Comic(
+      source: key,
+      id: '${c['_id']}',
+      title: c['title'] ?? '',
+      cover: media(c['thumb']),
+      description: c['description'] ?? '',
+      tags: {
+        ...List<String>.from(c['categories'] ?? []),
+        ...List<String>.from(c['tags'] ?? []),
+      }.toList(),
+      chapters: chapters,
+      extra: {
+        'isFavorite': c['isFavourite'] ?? false,
+        'likes': c['likesCount'],
+        if (author is String && author.trim().isNotEmpty) 'authors': [author],
+        if (c['updated_at'] ?? c['created_at'] case final date?)
+          'sourceDate': date,
+        if (c['created_at'] != null) 'publishedAt': c['created_at'],
+        if (c['updated_at'] != null) 'updatedAt': c['updated_at'],
+      },
+    );
+  }
+
   ComicResult _result(dynamic data, int page) {
     final pages = (data['pages'] as num?)?.toInt() ?? page;
     return ComicResult(
@@ -226,14 +233,21 @@ class PicaSource extends ComicSource {
   @override
   Future<List<ComicComment>> comments(Comic comic) async {
     final data = (await _api('comics/${comic.id}/comments?page=1'))['comments'];
-    return (data['docs'] as List)
-        .map(
-          (c) => ComicComment(
-            '${c['_user']?['name'] ?? ''}',
-            '${c['content'] ?? ''}',
-            score: c['likesCount']?.toString(),
-          ),
-        )
-        .toList();
+    return (data['docs'] as List).map((c) {
+      final user = c['_user'];
+      final avatar = user is Map ? user['avatar'] : null;
+      return ComicComment(
+        '${c['_user']?['name'] ?? ''}',
+        '${c['content'] ?? ''}',
+        score: c['likesCount']?.toString(),
+        avatar:
+            avatar is Map &&
+                avatar['fileServer'] is String &&
+                avatar['path'] is String
+            ? ComicPage(media(avatar))
+            : null,
+        createdAt: DateTime.tryParse('${c['created_at'] ?? ''}'),
+      );
+    }).toList();
   }
 }

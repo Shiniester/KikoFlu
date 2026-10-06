@@ -7089,8 +7089,26 @@ abstract class S {
   /// No description provided for @comicComments.
   ///
   /// In en, this message translates to:
-  /// **'Comments and rating'**
+  /// **'Comments'**
   String get comicComments;
+
+  /// Setting to show three evenly sampled chapter thumbnails in comic details.
+  ///
+  /// In en, this message translates to:
+  /// **'Chapter thumbnails'**
+  String get comicChapterThumbnails;
+
+  /// No description provided for @comicPreviewPage.
+  ///
+  /// In en, this message translates to:
+  /// **'Page {page}'**
+  String comicPreviewPage(int page);
+
+  /// Comment creation date and time in the user's local timezone.
+  ///
+  /// In en, this message translates to:
+  /// **'{date} {time}'**
+  String comicCommentTime(DateTime date, DateTime time);
 
   /// No description provided for @comicNoResults.
   ///
