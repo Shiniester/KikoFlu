@@ -3999,6 +3999,9 @@ class SRu extends S {
   String get comicContinue => 'Продолжить чтение';
 
   @override
+  String get comicStart => 'Читать';
+
+  @override
   String get comicRead => 'Читать';
 
   @override

@@ -3974,6 +3974,9 @@ class SEn extends S {
   String get comicContinue => 'Continue reading';
 
   @override
+  String get comicStart => 'Start reading';
+
+  @override
   String get comicRead => 'Read';
 
   @override

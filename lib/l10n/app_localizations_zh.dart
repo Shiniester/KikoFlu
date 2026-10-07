@@ -3843,6 +3843,9 @@ class SZh extends S {
   String get comicContinue => '继续阅读';
 
   @override
+  String get comicStart => '开始阅读';
+
+  @override
   String get comicRead => '阅读';
 
   @override
@@ -7886,6 +7889,9 @@ class SZhHant extends SZh {
 
   @override
   String get comicContinue => '繼續閱讀';
+
+  @override
+  String get comicStart => '開始閱讀';
 
   @override
   String get comicRead => '閱讀';

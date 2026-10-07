@@ -7068,6 +7068,12 @@ abstract class S {
   /// **'Continue reading'**
   String get comicContinue;
 
+  /// Comic details action when the comic has no saved reading history.
+  ///
+  /// In en, this message translates to:
+  /// **'Start reading'**
+  String get comicStart;
+
   /// No description provided for @comicRead.
   ///
   /// In en, this message translates to:

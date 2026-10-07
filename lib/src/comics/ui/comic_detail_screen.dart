@@ -522,7 +522,9 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                           const SizedBox(width: 8),
                           Flexible(
                             child: Text(
-                              s.comicContinue,
+                              lastProgress == null
+                                  ? s.comicStart
+                                  : s.comicContinue,
                               textAlign: TextAlign.center,
                               softWrap: true,
                             ),
@@ -541,7 +543,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                   child: SizedBox(
                     width: constraints.maxWidth,
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+                      mainAxisAlignment: MainAxisAlignment.start,
                       children: [
                         Icon(
                           Icons.history,
@@ -554,7 +556,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                             '${lastChapter?.title ?? lastProgress.chapterId} ${s.comicPreviewPage(lastProgress.page + 1)}',
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.end,
+                            textAlign: TextAlign.start,
                           ),
                         ),
                       ],

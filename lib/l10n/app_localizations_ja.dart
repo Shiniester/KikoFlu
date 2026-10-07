@@ -3861,6 +3861,9 @@ class SJa extends S {
   String get comicContinue => '続きを読む';
 
   @override
+  String get comicStart => '読む';
+
+  @override
   String get comicRead => '読む';
 
   @override
