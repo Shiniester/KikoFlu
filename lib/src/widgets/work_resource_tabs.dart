@@ -154,7 +154,6 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs> {
                 child: TabBar(
                   isScrollable: true,
                   tabAlignment: TabAlignment.start,
-                  labelPadding: const EdgeInsets.only(right: 24),
                   onTap: (index) => setState(() => _selected = index),
                   tabs: [
                     Tab(
@@ -318,7 +317,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs> {
         layoutType: LayoutType.bigGrid,
         cardSize: WorkCardSize.normal,
         availableWidth: constraints.crossAxisExtent,
-        padding: EdgeInsets.zero,
+        padding: const EdgeInsets.only(top: 8),
       );
       return SliverPadding(
         padding: metrics.padding,

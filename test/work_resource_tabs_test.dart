@@ -256,7 +256,7 @@ void main() {
       expect((tile.title! as Text).style!.fontSize, 14);
       expect(tester.getRect(audio).width, width);
       expect(tester.getRect(find.byIcon(Icons.audiotrack).first).left, 0);
-      expect(tester.getRect(find.text('Resource Files')).left, 0);
+      expect(tester.getRect(find.text('Resource Files')).left, 16);
       final play = find.descendant(
         of: audio,
         matching: find.byIcon(Icons.play_arrow),
@@ -358,6 +358,12 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
       await tester.pumpAndSettle();
       expect(attempts, 2);
+      expect(
+        tester.getRect(find.byType(Card).first).top -
+            tester.getRect(find.byType(TabBar)).bottom,
+        8,
+      );
+      expect(tester.getRect(find.byType(Card).first).left, 0);
       await tester.tap(find.byTooltip('Retry').first);
       await tester.pumpAndSettle();
       expect(attempts, 3);
