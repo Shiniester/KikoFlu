@@ -57,6 +57,18 @@ Equal scores prefer the audio's directory, then path order. The resource audio
 view and player use this same selection; the player's subtitle library and manual
 selection keep their own priority.
 
+**Work Details Translation (作品详情翻译)**:
+The translated view of a work's title and currently displayed resource names.
+It remains active within that details page until the user switches back to the original.
+
+**Automatic Work Details Translation (自动作品详情翻译)**:
+The preference that enables Work Details Translation when a details page opens,
+without requiring a manual translation action.
+
+**Subtitle Preview Translation (字幕预览翻译)**:
+The translated text shown while inspecting a work subtitle when Work Details
+Translation is active. Otherwise, subtitle previews show the original text.
+
 **Save Current Image (保存当前图片)**:
 Exporting the reader's full loaded image bytes for the actual current page.
 A two-image spread requires choosing one visible image before saving.

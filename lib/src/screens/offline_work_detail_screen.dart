@@ -13,6 +13,7 @@ import 'package:share_plus/share_plus.dart';
 import '../../l10n/app_localizations.dart';
 import '../models/work.dart';
 import '../providers/auth_provider.dart';
+import '../providers/settings_provider.dart';
 import '../providers/work_detail_display_provider.dart';
 import '../services/translation_service.dart';
 import '../services/download_service.dart';
@@ -61,6 +62,7 @@ class _OfflineWorkDetailScreenState
   final _deferredContentReady = ValueNotifier(false);
   final _routeReadiness = WorkDetailRouteReadiness();
   bool _deferredContentScheduled = false;
+  bool _translationChoiceMade = false;
 
   @override
   void didChangeDependencies() {
@@ -76,8 +78,22 @@ class _OfflineWorkDetailScreenState
   }
 
   Future<void> _showDeferredContentWhenIdle() async {
+    final autoTranslateFuture = ref
+        .read(autoTranslateWorkDetailsProvider.notifier)
+        .resolvedEnabled();
     final ready = await _routeReadiness.waitForIdle();
-    if (mounted && ready) _deferredContentReady.value = true;
+    if (!mounted || !ready) return;
+    _deferredContentReady.value = true;
+
+    final autoTranslate = await autoTranslateFuture;
+    if (!mounted) return;
+    if (!_routeReadiness.isIdle) {
+      final idle = await _routeReadiness.waitForIdle();
+      if (!mounted || !idle) return;
+    }
+    if (autoTranslate && !_translationChoiceMade) {
+      _setTranslationEnabled(true);
+    }
   }
 
   @override
@@ -92,24 +108,24 @@ class _OfflineWorkDetailScreenState
   bool _showTranslation = false; // 是否显示翻译
   bool _isTranslating = false; // 是否正在翻译
 
-  // 翻译标题
-  Future<void> _translateTitle() async {
-    if (_isTranslating) return;
+  void _toggleTranslation() {
+    _translationChoiceMade = true;
+    _setTranslationEnabled(!_showTranslation);
+  }
 
-    final work = widget.work;
-
-    // 如果已有翻译，直接切换显示
-    if (_translatedTitle != null) {
-      setState(() {
-        _showTranslation = !_showTranslation;
-      });
-      return;
-    }
-
+  void _setTranslationEnabled(bool enabled) {
+    if (_showTranslation == enabled) return;
+    final translateTitle =
+        enabled && _translatedTitle == null && !_isTranslating;
     setState(() {
-      _isTranslating = true;
+      _showTranslation = enabled;
+      if (translateTitle) _isTranslating = true;
     });
+    if (translateTitle) unawaited(_translateTitle());
+  }
 
+  Future<void> _translateTitle() async {
+    final work = widget.work;
     try {
       final translationService = TranslationService();
       final translated = await translationService.translate(
@@ -120,7 +136,6 @@ class _OfflineWorkDetailScreenState
       if (mounted) {
         setState(() {
           _translatedTitle = translated;
-          _showTranslation = true;
           _isTranslating = false;
         });
       }
@@ -427,7 +442,7 @@ class _OfflineWorkDetailScreenState
                   translatedTitle: _translatedTitle,
                   showTranslation: _showTranslation,
                   isTranslating: _isTranslating,
-                  onTranslate: _translateTitle,
+                  onTranslate: _toggleTranslation,
                   onCopy: (title) =>
                       _copyToClipboard(title, S.of(context).titleLabel),
                 ),
@@ -448,6 +463,7 @@ class _OfflineWorkDetailScreenState
             builder: (context, ready, _) => ready
                 ? OfflineFileExplorerWidget(
                     work: work,
+                    translate: _showTranslation,
                     localWorkDirPath: widget.localWorkDirPath,
                     localCoverRelativePath: widget.localCoverRelativePath,
                     initialLoadReady: _routeReadiness.waitForIdle,

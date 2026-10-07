@@ -904,6 +904,12 @@ class SZh extends S {
   String get autoSaveTranslatedLyricsDesc => '翻译后保存到字幕库；关闭时仅临时显示';
 
   @override
+  String get autoTranslateWorkDetails => '自动翻译';
+
+  @override
+  String get autoTranslateWorkDetailsDesc => '自动翻译作品标题、当前显示的资源和字幕预览';
+
+  @override
   String get selectTranslationTargetLanguage => '选择目标语言：';
 
   @override
@@ -4933,6 +4939,12 @@ class SZhHant extends SZh {
 
   @override
   String get autoSaveTranslatedLyricsDesc => '翻譯後儲存到字幕庫；關閉時僅暫時顯示';
+
+  @override
+  String get autoTranslateWorkDetails => '自動翻譯';
+
+  @override
+  String get autoTranslateWorkDetailsDesc => '自動翻譯作品標題、目前顯示的資源和字幕預覽';
 
   @override
   String get selectTranslationTargetLanguage => '選擇目標語言：';

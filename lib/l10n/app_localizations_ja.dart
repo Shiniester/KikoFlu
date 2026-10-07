@@ -905,6 +905,12 @@ class SJa extends S {
   String get autoSaveTranslatedLyricsDesc => '翻訳を字幕ライブラリに保存。オフでは一時表示のみ';
 
   @override
+  String get autoTranslateWorkDetails => '自動翻訳';
+
+  @override
+  String get autoTranslateWorkDetailsDesc => '作品タイトル、表示中のリソース、字幕プレビューを自動翻訳します';
+
+  @override
   String get selectTranslationTargetLanguage => 'ターゲット言語を選択：';
 
   @override

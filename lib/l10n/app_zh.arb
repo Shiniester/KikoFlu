@@ -317,6 +317,8 @@
   "translationTargetLanguage": "目标语言",
   "autoSaveTranslatedLyrics": "自动保存翻译歌词",
   "autoSaveTranslatedLyricsDesc": "翻译后保存到字幕库；关闭时仅临时显示",
+  "autoTranslateWorkDetails": "自动翻译",
+  "autoTranslateWorkDetailsDesc": "自动翻译作品标题、当前显示的资源和字幕预览",
   "selectTranslationTargetLanguage": "选择目标语言：",
   "translationLanguageFollowApp": "跟随 App 语言",
   "translationLanguageZhHans": "简体中文",

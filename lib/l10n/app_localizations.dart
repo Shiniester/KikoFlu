@@ -1792,6 +1792,18 @@ abstract class S {
   /// **'Save translations to the subtitle library; otherwise show them temporarily.'**
   String get autoSaveTranslatedLyricsDesc;
 
+  /// Audio preference for translating work detail content automatically.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic translation'**
+  String get autoTranslateWorkDetails;
+
+  /// Explains what the automatic work detail translation preference translates.
+  ///
+  /// In en, this message translates to:
+  /// **'Translate the work title, visible resources and subtitle previews automatically'**
+  String get autoTranslateWorkDetailsDesc;
+
   /// No description provided for @selectTranslationTargetLanguage.
   ///
   /// In en, this message translates to:

@@ -297,6 +297,9 @@ class PreferencesScreen extends ConsumerWidget {
     final autoSaveTranslatedLyrics = ref.watch(
       autoSaveTranslatedLyricsProvider,
     );
+    final autoTranslateWorkDetails = ref.watch(
+      autoTranslateWorkDetailsProvider,
+    );
     final preloadSettings = ref.watch(preloadNextSettingsProvider);
     final audioTapPlaylistMode = ref.watch(audioTapPlaylistModeProvider);
 
@@ -396,6 +399,15 @@ class PreferencesScreen extends ConsumerWidget {
                       audioTapPlaylistMode.localizedName(context),
                     ),
                 onTap: () => _showAudioTapPlaylistModeDialog(context, ref),
+              ),
+              SettingsSwitchTile(
+                icon: Icons.translate,
+                title: S.of(context).autoTranslateWorkDetails,
+                subtitle: S.of(context).autoTranslateWorkDetailsDesc,
+                value: autoTranslateWorkDetails,
+                onChanged: (enabled) => ref
+                    .read(autoTranslateWorkDetailsProvider.notifier)
+                    .setEnabled(enabled),
               ),
               SettingsNavigationTile(
                 icon: Icons.audio_file,

@@ -1,19 +1,22 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/utils/local_file_url.dart';
 import 'package:kikoeru_flutter/src/widgets/text_preview_screen.dart';
 
 Widget _testApp(String filePath) {
-  return MaterialApp(
-    locale: const Locale('en'),
-    localizationsDelegates: S.localizationsDelegates,
-    supportedLocales: S.supportedLocales,
-    home: TextPreviewScreen(
-      textUrl: LocalFileUrl.fromPath(filePath),
-      title: 'track01.srt',
+  return ProviderScope(
+    child: MaterialApp(
+      locale: const Locale('en'),
+      localizationsDelegates: S.localizationsDelegates,
+      supportedLocales: S.supportedLocales,
+      home: TextPreviewScreen(
+        textUrl: LocalFileUrl.fromPath(filePath),
+        title: 'track01.srt',
+      ),
     ),
   );
 }

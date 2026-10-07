@@ -42,7 +42,6 @@ import 'manual_subtitle_load_flow.dart';
 import 'text_preview_screen.dart';
 import 'pdf_preview_screen.dart';
 import 'video_open_failure_dialog.dart';
-import 'translation_toggle_button.dart';
 
 final _log = LogService.instance;
 
@@ -83,6 +82,7 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
   final VoidCallback? onLoadCompleted;
   final FileExplorerController? controller;
   final Future<bool> Function()? initialLoadReady;
+  final bool translate;
 
   const FileExplorerWidget({
     super.key,
@@ -91,6 +91,7 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
     this.onLoadCompleted,
     this.controller,
     this.initialLoadReady,
+    this.translate = false,
   });
 
   @override
@@ -115,6 +116,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   int _loadGeneration = 0;
   bool _downloadScanRunning = false;
   bool _downloadScanRequested = false;
+  List<String> _visibleNames = const [];
 
   FilePreviewResolver get _previewResolver => FilePreviewResolver(
     downloadRootPath: () async {
@@ -163,6 +165,9 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   @override
   void didUpdateWidget(covariant FileExplorerWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!oldWidget.translate && widget.translate) {
+      unawaited(_translateVisibleNames());
+    }
     if (!identical(oldWidget.controller, widget.controller)) {
       oldWidget.controller?._detach(this);
       widget.controller?._attach(this);
@@ -762,6 +767,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     switch (result.status) {
       case PreviewDocumentTargetStatus.ready:
         final target = result.requireTarget;
+        final autoTranslate = widget.translate;
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (context) {
@@ -779,6 +785,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
                 title: target.title,
                 workId: _work.id,
                 hash: target.hash,
+                autoTranslate: autoTranslate,
               );
             },
           ),
@@ -918,20 +925,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       fileTree: _rootFiles,
       audioVariants: _audioVariants,
       resourceSliver: tree,
-      resourceTitle: _translationController.showTranslation
-          ? S
-                .of(context)
-                .resourceFilesTranslated(
-                  _translationController.translationCount,
-                )
-          : S.of(context).resourceFiles,
-      toolbar: TranslationToggleButton(
-        isTranslated: _translationController.showTranslation,
-        isLoading: _translationController.isBulkTranslating,
-        originalLabel: S.of(context).translationOriginal,
-        translatedLabel: S.of(context).translationTranslated,
-        onPressed: _translateAllNames,
-      ),
+      resourceTitle: S.of(context).resourceFiles,
       progressMessage: _translationController.isBulkTranslating
           ? _translationController.progress
           : null,
@@ -941,10 +935,10 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
           _showFileActionMenu(file, title, path, audioFiles: files),
       onFileTap: _handleFileTap,
       displayNameFor: _getDisplayName,
-      onFileLongPress: _showFileActionMenu,
       metadataBuilder: _buildFileMetadata,
-      trailingBuilder: _buildFileActions,
       downloadedFiles: _downloadedFiles,
+      expandedFolders: _expandedFolders,
+      onVisibleNamesChanged: _onVisibleNamesChanged,
       onImageTap: _previewImageFile,
       resolveImage: (file) async {
         final auth = ref.read(authProvider);
@@ -992,14 +986,22 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     );
   }
 
-  // 分块批量翻译所有文件/文件夹名称
-  Future<void> _translateAllNames() async {
-    if (_translationController.isBulkTranslating) return;
+  void _onVisibleNamesChanged(List<String> names) {
+    _visibleNames = names;
+    if (widget.translate) unawaited(_translateVisibleNames());
+  }
 
-    if (_translationController.toggleExistingTranslations()) {
-      setState(() {});
+  Future<void> _translateVisibleNames() async {
+    if (!widget.translate ||
+        _isLoading ||
+        _errorMessage != null ||
+        _translationController.isBulkTranslating) {
       return;
     }
+    final names = _visibleNames
+        .where((name) => !_translationController.translations.containsKey(name))
+        .toList(growable: false);
+    if (names.isEmpty) return;
 
     final l10n = S.of(context);
     final generation = _translationController.beginBulkTranslation(
@@ -1008,69 +1010,47 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     setState(() {});
 
     try {
-      final result =
-          await FileNameTranslationService(
-            translate: TranslationService().translate,
-          ).translateFileTree(
-            fileTree: _rootFiles,
-            onProgress: (current, total) {
-              final updated = _translationController.updateBulkProgress(
-                generation,
-                l10n.translatingProgress(current, total),
-              );
-              if (updated && mounted) setState(() {});
-            },
-            onChunkError: (index, error) {
-              _log.captureOutput('[FileExplorer] 翻译块 $index 失败: $error');
-            },
+      final result = await FileNameTranslationService(
+        translate: TranslationService().translate,
+      ).translateNames(
+        names: names,
+        onProgress: (current, total) {
+          final updated = _translationController.updateBulkProgress(
+            generation,
+            l10n.translatingProgress(current, total),
           );
+          if (updated && mounted) setState(() {});
+        },
+        onChunkError: (index, error) {
+          _log.captureOutput('[FileExplorer] 翻译块 $index 失败: $error');
+        },
+      );
 
-      if (!mounted) return;
-
-      if (result.isEmpty) {
-        if (!_translationController.finishBulkWithoutTranslations(generation)) {
-          return;
-        }
-        setState(() {});
-        SnackBarUtil.showInfo(
-          context,
-          S.of(context).noContentToTranslate,
-          duration: const Duration(seconds: 2),
-        );
-        return;
-      }
-
-      if (!_translationController.completeBulkTranslation(
-        generation,
-        result.translations,
-      )) {
+      if (!mounted ||
+          !_translationController.completeBulkTranslation(
+            generation,
+            result.translations,
+          )) {
         return;
       }
       setState(() {});
-
-      SnackBarUtil.showSuccess(
-        context,
-        l10n.translationComplete(result.translations.length),
-        duration: const Duration(seconds: 2),
-      );
+      if (widget.translate) unawaited(_translateVisibleNames());
     } catch (e) {
-      if (!mounted) return;
-      if (!_translationController.failBulkTranslation(generation)) return;
+      if (!mounted ||
+          !_translationController.failBulkTranslation(generation)) {
+        return;
+      }
+      _log.captureOutput('[FileExplorer] 名称翻译失败: $e');
       setState(() {});
-
-      SnackBarUtil.showError(
-        context,
-        l10n.translationFailed(e.toString()),
-        duration: const Duration(seconds: 3),
-      );
     }
   }
 
-  // 获取显示的名称（根据翻译状态）
   String _getDisplayName(String originalName) {
-    return _translationController.displayName(originalName);
+    return _translationController.displayName(
+      originalName,
+      showTranslation: widget.translate,
+    );
   }
-
   // 处理文件点击
   void _handleFileTap(dynamic file, String title, String parentPath) {
     switch (_tapResolver.resolve(file)) {

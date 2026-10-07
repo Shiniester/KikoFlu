@@ -317,6 +317,8 @@
   "translationTargetLanguage": "ターゲット言語",
   "autoSaveTranslatedLyrics": "翻訳した歌詞を自動保存",
   "autoSaveTranslatedLyricsDesc": "翻訳を字幕ライブラリに保存。オフでは一時表示のみ",
+  "autoTranslateWorkDetails": "自動翻訳",
+  "autoTranslateWorkDetailsDesc": "作品タイトル、表示中のリソース、字幕プレビューを自動翻訳します",
   "selectTranslationTargetLanguage": "ターゲット言語を選択：",
   "translationLanguageFollowApp": "アプリ言語に従う",
   "translationLanguageZhHans": "簡体字中国語",

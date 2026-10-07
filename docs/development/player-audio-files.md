@@ -30,9 +30,9 @@ WAV、有效果音和有射精音。支持 WAV、FLAC、MP3、Opus、M4A、AAC �
 队列”使用音频标签内的全部优选文件，按列表顺序从点击项开始；“添加到
 播放队列”和“下一首播放”只添加点击项。资源树仍使用所在目录的队列。
 
-每条音频下方只展示作品资源中最高匹配的一份字幕。候选覆盖整个作品的
+每条音频的蓝色眼睛预览作品资源中最高匹配的一份字幕。候选覆盖整个作品的
 VTT、SRT、TXT 和 LRC 文件，复用播放器的匹配阈值及分数；分数优先，同分
-优先同目录，再按路径排序。点击字幕可预览，也可加载为字幕。播放器的
+优先同目录，再按路径排序。资源树中可将字幕加载到播放器。播放器的
 作品字幕自动选择与候选列表使用同一逻辑；当前手动选择与字幕库优先级
 继续有效。音频标签不列出字幕库文件，离线仅使用本地可用字幕。
 
@@ -45,6 +45,33 @@ VTT、SRT、TXT 和 LRC 文件，复用播放器的匹配阈值及分数；分�
 单页和连续模式使用当前实际页。选择及保存期间暂停自动翻页。Android
 保存到相册，iOS 使用文件导出，桌面选择保存路径。漫画详情页及下载管理
 仍提供整章下载。
+
+## 资源展示与翻译
+
+内容区域的左右边界与上方作品信息对齐，资源标签保留默认左右留白，文件树
+仍保留层级缩进。图片网格顶部与标签分隔线之间保留 8 像素间距。
+音频列表不再显示独立字幕行；有最佳匹配作品字幕时，在播放按钮右侧显示
+现有蓝色眼睛图标，点击预览该字幕。音频图标、播放按钮颜色与资源树一致，
+文件名采用资源树的字号。图片本身及外层卡片均按漫画主页大网格裁剪四角。
+图片标签和阅读器继续加载原图。
+
+资源区右侧不再提供独立翻译按钮。标题下的按钮统一控制本详情页的作品标题、
+当前资源标签内容和字幕预览。翻译开启后，切换标签与展开目录补译新内容；
+再次点击恢复原文。资源文件标签只翻译按展开状态可见的文件夹名和文件名，
+包括需要滚动才能看到的已展开条目，折叠目录的后代暂不翻译。音频和图片标签
+分别翻译当前集合的音频标题和图片文件名，不修改真实文件名与路径。
+
+音声设置增加默认关闭的自动作品详情翻译。开启后进入详情页自动启用翻译，
+本页按钮仍可切回原文。字幕预览仅在详情页翻译开启时自动翻译正文，沿用
+现有目标语言、服务、缓存及自动保存译后字幕偏好。“加载为字幕”继续读取
+原文件；预览页保存到字幕库仍保存当前显示或编辑的内容。
+
+字幕预览的译文按原文件名和格式写入字幕库的“已保存”目录，名称冲突时
+添加序号。自动保存不显示成功提示；译文为空或与原文相同时不自动保存。
+
+回归验证覆盖窄屏和宽屏的对齐、字体与图标、字幕按钮匹配及播放队列不变、
+图片四角裁剪、翻译默认关闭、手动开关、标签切换、目录展开补译、字幕预览
+触发与自动保存偏好，以及翻译失败时的原文展示。
 
 ## 计算与缓存
 
@@ -95,6 +122,7 @@ flutter test --no-pub --reporter expanded tool/performance/player_audio_variant_
 ```powershell
 flutter test --no-pub test/audio_preferences_test.dart test/player_audio_variant_classifier_test.dart test/settings_subpage_test.dart test/player_audio_details_panel_test.dart test/file_explorer_refresh_test.dart test/file_tree_utils_test.dart test/work_detail_route_readiness_test.dart test/work_detail_refresh_guard_test.dart test/offline_work_detail_idle_test.dart
 flutter test --no-pub test/work_resource_tabs_test.dart test/audio_playback_plan_builder_test.dart test/player_subtitle_candidates_provider_test.dart test/comic_widgets_test.dart
+flutter test --no-pub test/work_detail_translation_test.dart test/file_name_translation_service_test.dart test/file_name_translation_controller_test.dart test/translation_language_preferences_test.dart test/text_preview_auto_translate_test.dart test/text_preview_search_test.dart
 ```
 
 ## 限制与已知问题

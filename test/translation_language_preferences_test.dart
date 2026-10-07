@@ -130,6 +130,33 @@ void main() {
     expect(container.read(autoSaveTranslatedLyricsProvider), isFalse);
   });
 
+  test('work detail auto-translation defaults off and persists', () async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    expect(container.read(autoTranslateWorkDetailsProvider), isFalse);
+    await _pumpAsyncPreferenceLoad();
+    expect(container.read(autoTranslateWorkDetailsProvider), isFalse);
+
+    await container
+        .read(autoTranslateWorkDetailsProvider.notifier)
+        .setEnabled(true);
+
+    expect(container.read(autoTranslateWorkDetailsProvider), isTrue);
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getBool(AutoTranslateWorkDetailsNotifier.preferenceKey),
+      isTrue,
+    );
+
+    final reloadedContainer = ProviderContainer();
+    addTearDown(reloadedContainer.dispose);
+    final reloaded = await reloadedContainer
+        .read(autoTranslateWorkDetailsProvider.notifier)
+        .resolvedEnabled();
+    expect(reloaded, isTrue);
+  });
+
   test('translated lyrics auto-save resolves persisted value before use',
       () async {
     SharedPreferences.setMockInitialValues({

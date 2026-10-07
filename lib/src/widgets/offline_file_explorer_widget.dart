@@ -17,6 +17,7 @@ import '../services/audio_file_url_resolver.dart';
 import '../services/video_file_opener.dart';
 import '../services/offline_local_file_scanner.dart';
 import '../services/file_explorer_tap_resolver.dart';
+import '../services/file_name_translation_service.dart';
 import '../services/file_name_translation_controller.dart';
 import '../services/file_delete_request_builder.dart';
 import '../services/player_audio_variant_classifier.dart';
@@ -35,7 +36,6 @@ import 'manual_subtitle_load_flow.dart';
 import 'text_preview_screen.dart';
 import 'pdf_preview_screen.dart';
 import 'video_open_failure_dialog.dart';
-import 'translation_toggle_button.dart';
 import '../../l10n/app_localizations.dart';
 
 final _log = LogService.instance;
@@ -48,6 +48,7 @@ class OfflineFileExplorerWidget extends ConsumerStatefulWidget {
   final String? localWorkDirPath;
   final String? localCoverRelativePath;
   final Future<bool> Function()? initialLoadReady;
+  final bool translate;
 
   const OfflineFileExplorerWidget({
     super.key,
@@ -56,6 +57,7 @@ class OfflineFileExplorerWidget extends ConsumerStatefulWidget {
     this.localWorkDirPath,
     this.localCoverRelativePath,
     this.initialLoadReady,
+    this.translate = false,
   });
 
   @override
@@ -78,6 +80,7 @@ class _OfflineFileExplorerWidgetState
   late final FileListController _fileListController;
   int _loadGeneration = 0;
   String? _workDirPath;
+  List<String> _visibleNames = const [];
 
   FilePreviewResolver get _previewResolver => FilePreviewResolver(
     downloadRootPath: () async {
@@ -122,6 +125,14 @@ class _OfflineFileExplorerWidgetState
       unawaited(_syncPreferredExpandedFolders(preference));
     });
     _loadLocalFiles();
+  }
+
+  @override
+  void didUpdateWidget(covariant OfflineFileExplorerWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.translate && widget.translate) {
+      unawaited(_translateVisibleNames());
+    }
   }
 
   @override
@@ -503,6 +514,7 @@ class _OfflineFileExplorerWidgetState
     switch (result.status) {
       case PreviewDocumentTargetStatus.ready:
         final target = result.requireTarget;
+        final autoTranslate = widget.translate;
         Navigator.of(context).push(
           MaterialPageRoute(
             builder: (context) {
@@ -520,6 +532,7 @@ class _OfflineFileExplorerWidgetState
                 title: target.title,
                 workId: widget.work.id,
                 hash: target.hash,
+                autoTranslate: autoTranslate,
               );
             },
           ),
@@ -639,20 +652,14 @@ class _OfflineFileExplorerWidgetState
       audioVariants: _audioVariants,
       resourceSliver: tree,
       resourceTitle: S.of(context).resourceFiles,
-      toolbar: TranslationToggleButton(
-        isTranslated: _translationController.showTranslation,
-        originalLabel: S.of(context).translationOriginal,
-        translatedLabel: S.of(context).translationTranslated,
-        onPressed: () =>
-            setState(() => _translationController.toggleShowTranslation()),
-      ),
       onPlayAudio: (file, path, files) =>
           _playAudioFile(file, path, audioFiles: files),
       onFileTap: _handleFileTap,
       displayNameFor: _getDisplayName,
       metadataBuilder: _buildFileMetadata,
-      trailingBuilder: _buildFileActions,
       audioTrailingBuilder: _buildFileActions,
+      expandedFolders: _expandedFolders,
+      onVisibleNamesChanged: _onVisibleNamesChanged,
       onImageTap: _previewImageFile,
       resolveImage: (file) async {
         final items = await _previewResolver.buildOfflineImageItems(
@@ -704,52 +711,52 @@ class _OfflineFileExplorerWidgetState
     );
   }
 
-  // 获取显示的名称（根据翻译状态）
-  String _getDisplayName(String originalName) {
-    return _translationController.displayName(
-      originalName,
-      onMissingTranslation: _queueTranslation,
-    );
+  void _onVisibleNamesChanged(List<String> names) {
+    _visibleNames = names;
+    if (widget.translate) unawaited(_translateVisibleNames());
   }
 
-  // 按需翻译单个项目
-  void _queueTranslation(String originalName) {
-    final generation = _translationController.beginLazyTranslation(
-      originalName,
-    );
-    if (generation == null) return;
+  Future<void> _translateVisibleNames() async {
+    if (!widget.translate ||
+        _isLoading ||
+        _errorMessage != null ||
+        _translationController.isBulkTranslating) {
+      return;
+    }
+    final names = _visibleNames
+        .where((name) => !_translationController.translations.containsKey(name))
+        .toList(growable: false);
+    if (names.isEmpty) return;
 
-    Future.microtask(() => _translateItem(originalName, generation));
-  }
-
-  Future<void> _translateItem(String originalName, int generation) async {
+    final generation = _translationController.beginBulkTranslation('');
     try {
-      final translationService = TranslationService();
-      final translated = await translationService.translate(
-        originalName,
-        sourceLang: 'ja',
-      );
-
-      final completed = _translationController.completeLazyTranslation(
-        generation,
-        originalName,
-        translated,
-      );
-      if (!completed) return;
-      if (!mounted) return;
+      final result = await FileNameTranslationService(
+        translate: TranslationService().translate,
+      ).translateNames(names: names);
+      if (!mounted ||
+          !_translationController.completeBulkTranslation(
+            generation,
+            result.translations,
+          )) {
+        return;
+      }
       setState(() {});
+      if (widget.translate) unawaited(_translateVisibleNames());
     } catch (e) {
-      _log.captureOutput('[OfflineFileExplorer] 翻译失败: $e');
-      final failed = _translationController.failLazyTranslation(
-        generation,
-        originalName,
-      );
-      if (!failed) return;
-      if (!mounted) return;
-      setState(() {});
+      if (!mounted ||
+          !_translationController.failBulkTranslation(generation)) {
+        return;
+      }
+      _log.captureOutput('[OfflineFileExplorer] 名称翻译失败: $e');
     }
   }
 
+  String _getDisplayName(String originalName) {
+    return _translationController.displayName(
+      originalName,
+      showTranslation: widget.translate,
+    );
+  }
   // 处理文件点击
   void _handleFileTap(dynamic file, String title, String parentPath) {
     final action = _tapResolver.resolve(file);

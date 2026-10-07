@@ -5,7 +5,11 @@ const tabPageDuration = Duration(milliseconds: 300);
 /// Drives the official tab indicator from the page's actual scroll position.
 void syncTabWithPage(TabController tabs, PageController pages) {
   if (!pages.hasClients || !pages.position.hasContentDimensions) return;
-  final page = pages.page!.clamp(0.0, (tabs.length - 1).toDouble());
+  syncTabWithPagePosition(tabs, pages.page!);
+}
+
+void syncTabWithPagePosition(TabController tabs, double position) {
+  final page = position.clamp(0.0, (tabs.length - 1).toDouble());
   tabs.index = page.round();
   tabs.offset = page - tabs.index;
 }

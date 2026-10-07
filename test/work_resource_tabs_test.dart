@@ -1,13 +1,20 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/services/file_preview_resolver.dart';
 import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/utils/local_file_url.dart';
+import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 import 'package:kikoeru_flutter/src/widgets/work_resource_tabs.dart';
+import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
 
 List<dynamic> _files({bool images = false}) => [
   {
@@ -54,32 +61,57 @@ Future<void> _pumpResources(
   ValueChanged<dynamic>? onImageTap,
   Future<PreviewFileItem?> Function(dynamic)? resolveImage,
   Map<String, bool> downloadedFiles = const {},
+  Set<String> expandedFolders = const {},
+  ValueChanged<List<String>>? onVisibleNamesChanged,
+  ScrollController? controller,
+  bool disableAnimations = false,
+  int recommendationCount = 0,
 }) => tester.pumpWidget(
   ProviderScope(
     child: MaterialApp(
       locale: const Locale('en'),
       localizationsDelegates: S.localizationsDelegates,
       supportedLocales: S.supportedLocales,
-      home: Scaffold(
-        body: ValueListenableBuilder<List<dynamic>>(
-          valueListenable: tree,
-          builder: (context, files, _) => CustomScrollView(
-            slivers: [
-              WorkResourceTabs(
-                workId: 42,
-                fileTree: files,
-                audioVariants: const PlayerAudioVariantClassifier().scan(files),
-                resourceSliver: const SliverToBoxAdapter(
-                  child: Text('whole resource tree'),
-                ),
-                resourceTitle: 'Resource Files',
-                onPlayAudio: onPlay ?? (_, __, ___) {},
-                onFileTap: onFileTap ?? (_, __, ___) {},
-                onImageTap: onImageTap ?? (_) {},
-                resolveImage: resolveImage ?? (_) async => null,
-                downloadedFiles: downloadedFiles,
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(disableAnimations: disableAnimations),
+            child: ValueListenableBuilder<List<dynamic>>(
+              valueListenable: tree,
+              builder: (context, files, _) => CustomScrollView(
+                controller: controller,
+                slivers: [
+                  WorkResourceTabs(
+                    workId: 42,
+                    fileTree: files,
+                    audioVariants: const PlayerAudioVariantClassifier().scan(
+                      files,
+                    ),
+                    resourceSliver: const SliverToBoxAdapter(
+                      child: Text('whole resource tree'),
+                    ),
+                    resourceTitle: 'Resource Files',
+                    onPlayAudio: onPlay ?? (_, __, ___) {},
+                    onFileTap: onFileTap ?? (_, __, ___) {},
+                    onImageTap: onImageTap ?? (_) {},
+                    resolveImage: resolveImage ?? (_) async => null,
+                    downloadedFiles: downloadedFiles,
+                    expandedFolders: expandedFolders,
+                    onVisibleNamesChanged: onVisibleNamesChanged,
+                  ),
+                  if (recommendationCount > 0)
+                    SliverList.builder(
+                      itemCount: recommendationCount,
+                      itemBuilder: (context, index) => SizedBox(
+                        height: 70,
+                        child: Text('recommendation $index'),
+                      ),
+                    ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -87,7 +119,68 @@ Future<void> _pumpResources(
   ),
 );
 
+Future<void> _pumpUntilImageLoaded(WidgetTester tester, Finder finder) async {
+  final rawImage = find.descendant(of: finder, matching: find.byType(RawImage));
+  expect(rawImage, findsOneWidget);
+  for (
+    var frame = 0;
+    frame < 100 && tester.widget<RawImage>(rawImage).image == null;
+    frame++
+  ) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump();
+  }
+  expect(tester.widget<RawImage>(rawImage).image, isNotNull);
+}
+
 void main() {
+  testWidgets('scrolling past image pages continues through recommendations', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final tree = ValueNotifier<List<dynamic>>([
+      for (var index = 0; index < 41; index++)
+        {'type': 'image', 'title': 'image$index.png', 'hash': 'image$index'},
+    ]);
+    final scroll = ScrollController();
+    addTearDown(tree.dispose);
+    addTearDown(scroll.dispose);
+    await _pumpResources(
+      tester,
+      tree,
+      controller: scroll,
+      recommendationCount: 100,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pumpAndSettle();
+    for (var step = 0; step < 25; step++) {
+      final before = scroll.offset;
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -240));
+      await tester.pumpAndSettle();
+      expect(scroll.offset, greaterThanOrEqualTo(before));
+    }
+    expect(scroll.offset, greaterThan(5000));
+    expect(find.textContaining('recommendation '), findsWidgets);
+    await tester.binding.setSurfaceSize(const Size(900, 500));
+    await tester.pumpAndSettle();
+    final beforeRotationScroll = scroll.offset;
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -240));
+    await tester.pumpAndSettle();
+    expect(scroll.offset, greaterThanOrEqualTo(beforeRotationScroll));
+    expect(find.textContaining('recommendation '), findsWidgets);
+    expect(
+      tester
+          .widget<TabBar>(find.byType(TabBar, skipOffstage: false))
+          .controller!
+          .index,
+      2,
+    );
+  });
+
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     await StorageService.initCritical(
@@ -114,7 +207,8 @@ void main() {
       resolveImage: resolve,
     );
     await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
     expect(imageLoads, 1);
     downloaded['image1'] = false;
     await _pumpResources(
@@ -127,8 +221,180 @@ void main() {
     expect(imageLoads, 2);
   });
 
+  testWidgets('image cards keep their aspect ratio after scrolling back', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final directory = Directory.systemTemp.createTempSync(
+      'work-resource-images-',
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+      directory.deleteSync(recursive: true);
+    });
+    final imageFiles = <String, File>{};
+    final files = List<dynamic>.generate(20, (index) {
+      final hash = 'image$index';
+      final file = File('${directory.path}/$hash.png')
+        ..writeAsBytesSync(
+          img.encodePng(
+            img.Image(
+              width: index == 0 ? 80 : 160,
+              height: index == 0 ? 160 : 80,
+            ),
+          ),
+        );
+      imageFiles[hash] = file;
+      return {'type': 'image', 'title': '$hash.png', 'hash': hash};
+    });
+    final tree = ValueNotifier<List<dynamic>>(files);
+    addTearDown(tree.dispose);
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    await _pumpResources(
+      tester,
+      tree,
+      controller: controller,
+      resolveImage: (file) async {
+        final hash = file['hash'] as String;
+        return PreviewFileItem(
+          url: LocalFileUrl.fromPath(imageFiles[hash]!.path),
+          title: file['title'] as String,
+          hash: hash,
+        );
+      },
+    );
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pumpAndSettle();
+
+    Finder firstCard() =>
+        find.ancestor(of: find.text('image0.png'), matching: find.byType(Card));
+
+    final initialCard = firstCard();
+    final initialImage = find.descendant(
+      of: initialCard,
+      matching: find.byType(Image),
+    );
+    expect(initialImage, findsOneWidget);
+    await _pumpUntilImageLoaded(tester, initialImage);
+    await tester.pump(const Duration(milliseconds: 200));
+    final initialCardHeight = tester.getRect(initialCard).height;
+    expect(
+      tester.getRect(initialImage).width / tester.getRect(initialImage).height,
+      closeTo(0.5, 0.01),
+    );
+
+    await tester.scrollUntilVisible(
+      find.text('image19.png'),
+      300,
+      scrollable: find
+          .descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+    expect(firstCard().hitTestable(), findsNothing);
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+    controller.jumpTo(0);
+    await tester.pump();
+
+    final returnedCard = firstCard();
+    expect(returnedCard, findsOneWidget);
+    expect(tester.getRect(returnedCard).height, closeTo(initialCardHeight, 1));
+    expect(tester.takeException(), isNull);
+    final returnedImage = find.descendant(
+      of: returnedCard,
+      matching: find.byType(Image),
+    );
+    for (
+      var frame = 0;
+      frame < 100 && returnedImage.evaluate().isEmpty;
+      frame++
+    ) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    expect(returnedImage, findsOneWidget);
+    await _pumpUntilImageLoaded(tester, returnedImage);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('new image cards stay hidden until their ratio is decoded', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final directory = Directory.systemTemp.createTempSync(
+      'work-resource-first-image-',
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+      directory.deleteSync(recursive: true);
+    });
+    final file = File('${directory.path}/portrait.png')
+      ..writeAsBytesSync(img.encodePng(img.Image(width: 80, height: 160)));
+    final tree = ValueNotifier<List<dynamic>>([
+      {'type': 'image', 'title': 'portrait.png', 'hash': 'portrait'},
+    ]);
+    addTearDown(tree.dispose);
+    final target = Completer<PreviewFileItem?>();
+    await _pumpResources(tester, tree, resolveImage: (_) => target.future);
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final card = find.ancestor(
+      of: find.text('portrait.png'),
+      matching: find.byType(Card),
+    );
+    expect(card, findsOneWidget);
+    final visibility = find
+        .ancestor(of: card, matching: find.byType(Visibility))
+        .first;
+    expect(tester.widget<Visibility>(visibility).visible, isFalse);
+    expect(tester.widget<Visibility>(visibility).maintainSize, isTrue);
+    expect(tester.widget<Visibility>(visibility).maintainAnimation, isTrue);
+    expect(tester.widget<Visibility>(visibility).maintainState, isTrue);
+
+    target.complete(
+      PreviewFileItem(
+        url: LocalFileUrl.fromPath(file.path),
+        title: 'portrait.png',
+        hash: 'portrait',
+      ),
+    );
+    await tester.pump();
+    final image = find.descendant(of: card, matching: find.byType(Image));
+    expect(image, findsOneWidget);
+    expect(tester.widget<Visibility>(visibility).visible, isFalse);
+    expect(
+      tester
+          .widget<RawImage>(
+            find.descendant(of: image, matching: find.byType(RawImage)),
+          )
+          .image,
+      isNull,
+    );
+
+    await _pumpUntilImageLoaded(tester, image);
+    await tester.pump();
+    expect(tester.widget<Visibility>(visibility).visible, isTrue);
+    expect(
+      tester.getRect(image).width / tester.getRect(image).height,
+      closeTo(0.5, 0.01),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
-    'defaults to preferred audio and only shows the best work subtitle',
+    'defaults to preferred audio with an eye for the best work subtitle',
     (tester) async {
       final tree = ValueNotifier(_files());
       addTearDown(tree.dispose);
@@ -148,8 +414,9 @@ void main() {
       expect(find.text('track01.wav'), findsOneWidget);
       expect(find.text('track02.wav'), findsOneWidget);
       expect(find.text('track01.mp3'), findsNothing);
-      expect(find.text('track01.lrc'), findsOneWidget);
+      expect(find.text('track01.lrc'), findsNothing);
       expect(find.text('track01.srt'), findsNothing);
+      expect(find.byIcon(Icons.subtitles_outlined), findsNothing);
       expect(find.text('notes.txt'), findsNothing);
       expect(find.text('whole resource tree'), findsNothing);
       expect(
@@ -159,7 +426,9 @@ void main() {
       await tester.tap(find.text('track02.wav'));
       expect(selected['hash'], 'audio2');
       expect(queue!.map((file) => file['hash']), ['audio1', 'audio2']);
-      await tester.tap(find.text('track01.lrc'));
+      await tester.tap(
+        find.byKey(const ValueKey('work-audio-subtitle-A/track01.wav')),
+      );
       expect(subtitlePath, 'Captions');
 
       final container = ProviderScope.containerOf(
@@ -181,6 +450,97 @@ void main() {
       expect(find.text('whole resource tree'), findsOneWidget);
     },
   );
+
+  testWidgets('reports only names in the current tab and expanded folders', (
+    tester,
+  ) async {
+    final tree = ValueNotifier(_files(images: true));
+    addTearDown(tree.dispose);
+    final reports = <List<String>>[];
+    final expanded = <String>{};
+    await _pumpResources(
+      tester,
+      tree,
+      expandedFolders: expanded,
+      onVisibleNamesChanged: reports.add,
+    );
+    await tester.pumpAndSettle();
+    expect(reports.last, ['track01.wav', 'track02.wav']);
+    await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+    await tester.pumpAndSettle();
+    expect(reports.last, ['A', 'B', 'Captions', 'one.png', 'Artwork']);
+    expanded.add('Artwork');
+    await _pumpResources(
+      tester,
+      tree,
+      expandedFolders: expanded,
+      onVisibleNamesChanged: reports.add,
+    );
+    await tester.pumpAndSettle();
+    expect(reports.last, [
+      'A',
+      'B',
+      'Captions',
+      'one.png',
+      'Artwork',
+      'two.png',
+    ]);
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pumpAndSettle();
+    expect(reports.last, ['one.png', 'two.png']);
+    await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+    await tester.pumpAndSettle();
+    expect(reports.last.last, 'two.png');
+    final reportCount = reports.length;
+    await _pumpResources(
+      tester,
+      tree,
+      expandedFolders: expanded,
+      onVisibleNamesChanged: reports.add,
+    );
+    await tester.pumpAndSettle();
+    expect(reports.length, reportCount);
+  });
+
+  testWidgets('audio uses tree typography and colors and full content width', (
+    tester,
+  ) async {
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    for (final width in [390.0, 1200.0]) {
+      await tester.binding.setSurfaceSize(Size(width, 844));
+      final tree = ValueNotifier(_files());
+      await _pumpResources(tester, tree);
+      await tester.pumpAndSettle();
+      final audio = find.byKey(const ValueKey('work-audio-A/track01.wav'));
+      final tile = tester.widget<ListTile>(audio);
+      expect((tile.leading! as Icon).color, Colors.green);
+      expect((tile.title! as Text).style!.fontSize, 14);
+      expect(tester.getRect(audio).width, width);
+      expect(tester.getRect(find.byIcon(Icons.audiotrack).first).left, 0);
+      expect(tester.getRect(find.text('Resource Files')).left, 16);
+      final play = find.descendant(
+        of: audio,
+        matching: find.byIcon(Icons.play_arrow),
+      );
+      final eye = find.descendant(
+        of: audio,
+        matching: find.byIcon(Icons.visibility),
+      );
+      expect(tester.widget<Icon>(play).color, Colors.green);
+      expect(tester.getRect(eye).left, greaterThan(tester.getRect(play).left));
+      expect(
+        tester
+            .widget<IconButton>(
+              find.ancestor(of: eye, matching: find.byType(IconButton)),
+            )
+            .color,
+        Colors.blue,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      tree.dispose();
+    }
+  });
 
   testWidgets('empty audio tab stays available', (tester) async {
     final tree = ValueNotifier<List<dynamic>>([
@@ -206,8 +566,23 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
       await tester.pumpAndSettle();
+      expect(find.byType(PaginationBar), findsNothing);
       expect(find.text('one.png'), findsOneWidget);
       expect(find.text('two.png'), findsOneWidget);
+      final clips = tester.widgetList<ClipRRect>(
+        find.descendant(
+          of: find.byType(WorkCoverClip),
+          matching: find.byType(ClipRRect),
+        ),
+      );
+      expect(clips, hasLength(2));
+      for (final clip in clips) {
+        expect(
+          clip.borderRadius,
+          BorderRadius.circular(workCoverCompactRadius),
+        );
+      }
+      expect(tester.getRect(find.byType(Card).first).left, 0);
       await tester.tap(find.text('two.png'));
       expect(selected['hash'], 'image2');
       tree.value = _files();
@@ -218,10 +593,7 @@ void main() {
       );
       expect(find.text('track01.wav'), findsOneWidget);
       final tabs = tester.widget<TabBar>(find.byType(TabBar));
-      expect(
-        DefaultTabController.of(tester.element(find.byWidget(tabs))).index,
-        1,
-      );
+      expect(tabs.controller!.index, 1);
       expect(tester.takeException(), isNull);
     },
   );
@@ -245,6 +617,12 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
       await tester.pumpAndSettle();
       expect(attempts, 2);
+      expect(
+        tester.getRect(find.byType(Card).first).top -
+            tester.getRect(find.byType(TabBar)).bottom,
+        8,
+      );
+      expect(tester.getRect(find.byType(Card).first).left, 0);
       await tester.tap(find.byTooltip('Retry').first);
       await tester.pumpAndSettle();
       expect(attempts, 3);
@@ -253,5 +631,161 @@ void main() {
       tree.dispose();
     }
     await tester.binding.setSurfaceSize(null);
+  });
+
+  testWidgets('images paginate by twenty and report only the selected page', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final files = List<dynamic>.generate(
+      41,
+      (index) => {
+        'type': 'image',
+        'title': 'image$index.png',
+        'hash': 'image$index',
+      },
+    );
+    final tree = ValueNotifier<List<dynamic>>(files);
+    addTearDown(tree.dispose);
+    final reports = <List<String>>[];
+    final resolved = <String>[];
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    await _pumpResources(
+      tester,
+      tree,
+      controller: controller,
+      onVisibleNamesChanged: reports.add,
+      resolveImage: (file) async {
+        resolved.add(file['hash'] as String);
+        return null;
+      },
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pumpAndSettle();
+
+    expect(reports.last, [for (var i = 0; i < 20; i++) 'image$i.png']);
+    expect(resolved, isNotEmpty);
+    expect(
+      resolved.toSet().every((hash) => int.parse(hash.substring(5)) < 20),
+      isTrue,
+    );
+    final scrollable = find
+        .descendant(
+          of: find.byType(CustomScrollView),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(
+      find.text('Next'),
+      180,
+      scrollable: scrollable,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Page 1 / 3'), findsOneWidget);
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(reports.last, [for (var i = 20; i < 40; i++) 'image$i.png']);
+    expect(controller.offset, closeTo(0, 1));
+    expect(resolved, contains('image20'));
+
+    await tester.tap(find.byKey(const ValueKey('work-resource-audio-tab')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pumpAndSettle();
+    expect(reports.last, [for (var i = 20; i < 40; i++) 'image$i.png']);
+    await tester.scrollUntilVisible(
+      find.text('Jump'),
+      180,
+      scrollable: scrollable,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Page 2 / 3'), findsOneWidget);
+    await tester.tap(find.text('Jump'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '3');
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Jump'));
+    await tester.pumpAndSettle();
+    expect(reports.last, ['image40.png']);
+    expect(find.byKey(ObjectKey(files[40])), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('Previous'),
+      180,
+      scrollable: scrollable,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Previous'));
+    await tester.pumpAndSettle();
+    expect(reports.last, [for (var i = 20; i < 40; i++) 'image$i.png']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('resource tabs swipe, retarget, and honor reduced motion', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final tree = ValueNotifier(_files(images: true));
+    addTearDown(tree.dispose);
+    final reports = <List<String>>[];
+    await _pumpResources(tester, tree, onVisibleNamesChanged: reports.add);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pump();
+    final tabs = tester.widget<TabBar>(find.byType(TabBar)).controller!;
+    expect(tabs.animation!.value, closeTo(1, 0.01));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tabs.animation!.value, greaterThan(1));
+    expect(tabs.animation!.value, lessThan(2));
+    await tester.pumpAndSettle();
+    expect(reports.last, ['one.png', 'two.png']);
+    expect(tabs.index, 2);
+
+    await tester.tap(find.byKey(const ValueKey('work-resource-audio-tab')));
+    await tester.pumpAndSettle();
+    await tester.drag(find.text('track01.wav'), const Offset(-280, 0));
+    await tester.pumpAndSettle();
+    expect(reports.last, ['one.png', 'two.png']);
+    expect(tabs.index, 2);
+
+    await tester.tap(find.byKey(const ValueKey('work-resource-audio-tab')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+    await tester.pumpAndSettle();
+    expect(find.text('whole resource tree'), findsOneWidget);
+    expect(tabs.index, 0);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('work-resource-images-tab')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    tree.value = _files();
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('work-resource-images-tab')),
+      findsNothing,
+    );
+    expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 1);
+    expect(tester.takeException(), isNull);
+
+    tree.value = _files(images: true);
+    await tester.pumpAndSettle();
+
+    await tester.pumpWidget(const SizedBox());
+    await _pumpResources(tester, tree, disableAnimations: true);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+    await tester.pump();
+    expect(find.text('whole resource tree'), findsOneWidget);
+    expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 0);
+    expect(tester.takeException(), isNull);
   });
 }

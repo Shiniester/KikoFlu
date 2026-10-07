@@ -63,6 +63,29 @@ void main() {
       });
     });
 
+    test('translates explicit visible names and removes duplicates', () async {
+      final translatedChunks = <String>[];
+      final service = FileNameTranslationService(
+        translate: (text, {sourceLang}) async {
+          translatedChunks.add(text);
+          return text.split('\n').map((line) => 'translated:$line').join('\n');
+        },
+        delay: (_) async {},
+      );
+
+      final result = await service.translateNames(
+        names: ['track01.mp3', 'track02.mp3', 'track01.mp3'],
+        maxChunkSize: 100,
+      );
+
+      expect(translatedChunks, ['track01.mp3\ntrack02.mp3']);
+      expect(result.names, ['track01.mp3', 'track02.mp3']);
+      expect(result.translations, {
+        'track01.mp3': 'translated:track01.mp3',
+        'track02.mp3': 'translated:track02.mp3',
+      });
+    });
+
     test('falls back to original chunk on translation failure', () async {
       final chunkErrors = <String>[];
       final service = FileNameTranslationService(
@@ -91,6 +114,20 @@ void main() {
         'good': 'good',
         'bad': 'bad',
       });
+    });
+
+    test('keeps untranslated names when a response omits a line', () async {
+      final service = FileNameTranslationService(
+        translate: (text, {sourceLang}) async => 'translated:first',
+        delay: (_) async {},
+      );
+
+      final result = await service.translateNames(
+        names: ['first', 'second'],
+        maxChunkSize: 100,
+      );
+
+      expect(result.translations, {'first': 'translated:first', 'second': 'second'});
     });
 
     test('delays only between multiple chunks', () async {

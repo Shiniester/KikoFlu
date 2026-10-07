@@ -24,6 +24,8 @@ class MainScreen extends ConsumerStatefulWidget {
 
 class _MainScreenState extends ConsumerState<MainScreen> {
   final _pages = PageController();
+  // Preserve the pager while portrait and landscape layouts reparent it.
+  final _pagesKey = GlobalKey();
   bool _reduceMotion = false;
   int _currentIndex = 0;
   final _selection = ValueNotifier<int?>(0);
@@ -58,6 +60,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   }
 
   Widget _buildPages() => TabPageWarmup(
+    key: _pagesKey,
     pages: _pages,
     target: _selection,
     builder: (cacheExtent) => PageView(
