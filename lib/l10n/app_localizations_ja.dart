@@ -923,26 +923,6 @@ class SJa extends S {
   String get translationLanguageJapanese => '日本語';
 
   @override
-  String get translationLanguageRussian => 'ロシア語';
-
-  @override
-  String get translationLanguageCustom => 'カスタム';
-
-  @override
-  String get translationCustomTargetLanguage => 'カスタムターゲット言語';
-
-  @override
-  String get translationCustomLanguageHint => '言語名、例: Korean';
-
-  @override
-  String translationCustomLanguageLabel(String value) {
-    return 'カスタム: $value';
-  }
-
-  @override
-  String get translationCustomTargetRequiresLlm => 'LLM翻訳が必要です';
-
-  @override
   String get needsConfiguration => '設定が必要';
 
   @override
@@ -1264,9 +1244,6 @@ class SJa extends S {
 
   @override
   String get languageJa => '日本語';
-
-  @override
-  String get languageRu => 'Русский';
 
   @override
   String get themeModeDark => 'ダークモード';
@@ -3865,6 +3842,9 @@ class SJa extends S {
 
   @override
   String get comicContinue => '続きを読む';
+
+  @override
+  String get comicStart => '読む';
 
   @override
   String get comicRead => '読む';

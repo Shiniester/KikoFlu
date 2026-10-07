@@ -13,7 +13,7 @@ class EhSource extends ComicSource {
   @override
   String get key => 'ehentai';
   @override
-  String get name => 'E-Hentai / ExHentai';
+  String get name => 'ExHentai';
   @override
   String get website =>
       StorageService.getString('comic_ehentai_endpoint') ??

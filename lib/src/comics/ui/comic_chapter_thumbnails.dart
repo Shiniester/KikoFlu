@@ -22,7 +22,7 @@ class ComicChapterThumbnails extends ConsumerStatefulWidget {
 
   final Comic comic;
   final ComicChapter chapter;
-  final ValueChanged<int> onSelected;
+  final void Function(int page, List<ComicPage> pages) onSelected;
 
   @override
   ConsumerState<ComicChapterThumbnails> createState() =>
@@ -90,7 +90,7 @@ class _ComicChapterThumbnailsState
                       'comic-chapter-thumbnail-${widget.chapter.id}-${indices[i]}',
                     ),
                     borderRadius: BorderRadius.circular(6),
-                    onTap: () => widget.onSelected(indices[i]),
+                    onTap: () => widget.onSelected(indices[i], pages),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [

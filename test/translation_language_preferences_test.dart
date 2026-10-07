@@ -32,6 +32,70 @@ void main() {
     expect(preferences.targetLanguage, TranslationTargetLanguage.followApp);
   });
 
+  test(
+    'translation target options and legacy values use supported targets',
+    () {
+      expect(TranslationTargetLanguage.values, [
+        TranslationTargetLanguage.followApp,
+        TranslationTargetLanguage.zhHans,
+        TranslationTargetLanguage.zhHant,
+        TranslationTargetLanguage.english,
+        TranslationTargetLanguage.japanese,
+      ]);
+      expect(
+        TranslationTargetLanguage.fromValue('ru'),
+        TranslationTargetLanguage.followApp,
+      );
+      expect(
+        TranslationTargetLanguage.fromValue('custom'),
+        TranslationTargetLanguage.followApp,
+      );
+      expect(
+        TranslationTargetLanguage.followApp.resolveLocale(const Locale('en')),
+        const Locale('en'),
+      );
+      expect(
+        TranslationTargetLanguage.zhHans.resolveLocale(const Locale('en')),
+        const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
+      );
+      expect(
+        TranslationTargetLanguage.zhHant.resolveLocale(const Locale('en')),
+        const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+      );
+      expect(
+        TranslationTargetLanguage.english.resolveLocale(const Locale('ja')),
+        const Locale('en'),
+      );
+      expect(
+        TranslationTargetLanguage.japanese.resolveLocale(const Locale('en')),
+        const Locale('ja'),
+      );
+    },
+  );
+
+  test(
+    'removed saved translation targets fall back to app language',
+    () async {
+      for (final legacyTarget in ['ru', 'custom']) {
+        SharedPreferences.setMockInitialValues({
+          TranslationLanguagePreferencesNotifier.keyTargetLanguage:
+              legacyTarget,
+          'translation_custom_target_language': 'Portuguese (Brazil)',
+        });
+        final container = ProviderContainer();
+        await _pumpAsyncPreferenceLoad();
+
+        expect(
+          container
+              .read(translationLanguagePreferencesProvider)
+              .targetLanguage,
+          TranslationTargetLanguage.followApp,
+        );
+        container.dispose();
+      }
+    },
+  );
+
   test('translated lyrics auto-save defaults to enabled and persists',
       () async {
     final container = ProviderContainer();
@@ -99,8 +163,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       TranslationLanguagePreferencesNotifier.keyTargetLanguage:
           TranslationTargetLanguage.english.value,
-      TranslationLanguagePreferencesNotifier.keyCustomTargetLanguage:
-          'Portuguese (Brazil)',
+      'translation_custom_target_language': 'Portuguese (Brazil)',
     });
     final container = ProviderContainer();
     addTearDown(container.dispose);
@@ -112,26 +175,18 @@ void main() {
 
     var preferences = container.read(translationLanguagePreferencesProvider);
     expect(preferences.targetLanguage, TranslationTargetLanguage.english);
-    expect(preferences.customTargetLanguage, 'Portuguese (Brazil)');
 
     final notifier =
         container.read(translationLanguagePreferencesProvider.notifier);
-    await notifier.updateTargetLanguage(TranslationTargetLanguage.custom);
-    await notifier.updateCustomTargetLanguage('  Korean  ');
+    await notifier.updateTargetLanguage(TranslationTargetLanguage.japanese);
 
     preferences = container.read(translationLanguagePreferencesProvider);
     final prefs = await SharedPreferences.getInstance();
 
-    expect(preferences.targetLanguage, TranslationTargetLanguage.custom);
-    expect(preferences.customTargetLanguage, 'Korean');
+    expect(preferences.targetLanguage, TranslationTargetLanguage.japanese);
     expect(
       prefs.getString(TranslationLanguagePreferencesNotifier.keyTargetLanguage),
-      TranslationTargetLanguage.custom.value,
-    );
-    expect(
-      prefs.getString(
-          TranslationLanguagePreferencesNotifier.keyCustomTargetLanguage),
-      'Korean',
+      TranslationTargetLanguage.japanese.value,
     );
   });
 
@@ -172,23 +227,21 @@ void main() {
     );
   });
 
-  test('LLM default prompt uses custom target language and auto source',
+  test('LLM default prompt uses supported target and keeps source automatic',
       () async {
     SharedPreferences.setMockInitialValues({
       'translation_source': TranslationSource.llm.value,
       'translation_source_language': 'custom',
       TranslationLanguagePreferencesNotifier.keyTargetLanguage:
-          TranslationTargetLanguage.custom.value,
+          TranslationTargetLanguage.japanese.value,
       'translation_custom_source_language': 'Korean',
-      TranslationLanguagePreferencesNotifier.keyCustomTargetLanguage:
-          'Portuguese (Brazil)',
     });
 
     final prompt =
         await TranslationService().getDefaultLLMPromptForCurrentLocale();
 
     expect(prompt, isNot(contains('from Korean')));
-    expect(prompt, contains('into Portuguese (Brazil)'));
+    expect(prompt, contains('into Japanese'));
   });
 
   test('identifies generated default LLM prompts', () {
@@ -207,17 +260,16 @@ void main() {
     );
   });
 
-  test('non-LLM prompt ignores custom languages and follows app language',
+  test('non-LLM prompt ignores legacy custom target and follows app language',
       () async {
     SharedPreferences.setMockInitialValues({
       'translation_source': TranslationSource.google.value,
       'locale_language': 'en',
       'translation_source_language': 'custom',
       TranslationLanguagePreferencesNotifier.keyTargetLanguage:
-          TranslationTargetLanguage.custom.value,
+          'custom',
       'translation_custom_source_language': 'Korean',
-      TranslationLanguagePreferencesNotifier.keyCustomTargetLanguage:
-          'Portuguese (Brazil)',
+      'translation_custom_target_language': 'Portuguese (Brazil)',
     });
 
     final prompt =
@@ -226,5 +278,30 @@ void main() {
     expect(prompt, isNot(contains('from Korean')));
     expect(prompt, isNot(contains('Portuguese (Brazil)')));
     expect(prompt, contains('into English'));
+  });
+
+  test('unsupported saved app locales resolve supported system preferences',
+      () async {
+    final platformDispatcher =
+        TestWidgetsFlutterBinding.ensureInitialized().platformDispatcher;
+    platformDispatcher.localesTestValue = const [Locale('fr'), Locale('ja')];
+    addTearDown(platformDispatcher.clearLocalesTestValue);
+
+    for (final savedLocale in [
+      {'locale_language': 'ru'},
+      {'locale_language': 'zh', 'locale_script': 'Hans'},
+    ]) {
+      SharedPreferences.setMockInitialValues({
+        ...savedLocale,
+        TranslationLanguagePreferencesNotifier.keyTargetLanguage:
+            TranslationTargetLanguage.followApp.value,
+      });
+
+      final prompt =
+          await TranslationService().getDefaultLLMPromptForCurrentLocale();
+
+      expect(prompt, contains('into Japanese'));
+      expect(prompt, isNot(contains('into Russian')));
+    }
   });
 }

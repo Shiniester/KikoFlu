@@ -185,8 +185,9 @@ page-turn and zoom gestures, keep-awake, and preload preferences.
 _Avoid_: Comic Source settings, Reader Controls
 
 **Chapter Page Preview (章节页面预览)**:
-A visual index of the individual comic images in the current chapter used to
-choose an image to read. It is distinct from the Cover Preview and chapter catalog.
+A visual index of the individual comic images in one chapter used to choose an
+image to read, opened from the Comic Details Screen or Reader Controls. It is
+distinct from the Cover Preview and chapter catalog.
 _Avoid_: Cover Preview, chapter catalog
 
 **Chapter Thumbnails (章节缩略图预览)**:

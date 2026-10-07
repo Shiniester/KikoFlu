@@ -239,8 +239,6 @@ extension TranslationTargetLanguageL10n on TranslationTargetLanguage {
       TranslationTargetLanguage.zhHant => s.translationLanguageZhHant,
       TranslationTargetLanguage.english => s.translationLanguageEnglish,
       TranslationTargetLanguage.japanese => s.translationLanguageJapanese,
-      TranslationTargetLanguage.russian => s.translationLanguageRussian,
-      TranslationTargetLanguage.custom => s.translationLanguageCustom,
     };
   }
 }

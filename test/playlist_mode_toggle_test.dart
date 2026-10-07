@@ -8,6 +8,7 @@ import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/widgets/animated_menu_anchor.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/playlist_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -49,18 +50,38 @@ void main() {
     await tester.pump();
 
     expect(find.byIcon(Icons.playlist_play), findsOneWidget);
-    expect(find.byType(PopupMenuButton<AudioTapPlaylistMode>), findsOneWidget);
+    expect(find.byType(AnimatedMenuAnchor), findsOneWidget);
 
-    await tester.tap(find.byType(PopupMenuButton<AudioTapPlaylistMode>));
+    await tester.tap(find.byType(AnimatedMenuAnchor));
     await tester.pumpAndSettle();
     expect(find.text('Replace Playback Queue'), findsOneWidget);
     expect(find.text('Play Next'), findsOneWidget);
     expect(find.text('Add to Playback Queue'), findsOneWidget);
+    final menuItems = find.byType(MenuItemButton);
+    final buttons = tester.widgetList<MenuItemButton>(menuItems).toList();
+    final selectedButton = buttons.singleWhere((button) => button.autofocus);
+    final unselectedButton = buttons.firstWhere((button) => !button.autofocus);
+    final colors = Theme.of(tester.element(menuItems.first)).colorScheme;
+    expect(
+      selectedButton.style?.foregroundColor?.resolve({}),
+      colors.onPrimaryContainer,
+    );
+    expect(
+      selectedButton.style?.backgroundColor?.resolve({}),
+      colors.primaryContainer,
+    );
+    expect(unselectedButton.style?.foregroundColor?.resolve({}), isNull);
+    expect(unselectedButton.style?.backgroundColor?.resolve({}), isNull);
+    expect(
+      find.descendant(of: menuItems, matching: find.byIcon(Icons.check)),
+      findsNothing,
+    );
+    expect(buttons.every((button) => button.trailingIcon == null), isTrue);
 
     await tester.tap(
       find.ancestor(
         of: find.text('Add to Playback Queue'),
-        matching: find.byType(CheckedPopupMenuItem<AudioTapPlaylistMode>),
+        matching: find.byType(MenuItemButton),
       ),
     );
     await tester.pumpAndSettle();
@@ -70,12 +91,12 @@ void main() {
       AudioTapPlaylistMode.addToQueue,
     );
 
-    await tester.tap(find.byType(PopupMenuButton<AudioTapPlaylistMode>));
+    await tester.tap(find.byType(AnimatedMenuAnchor));
     await tester.pumpAndSettle();
     await tester.tap(
       find.ancestor(
         of: find.text('Play Next'),
-        matching: find.byType(CheckedPopupMenuItem<AudioTapPlaylistMode>),
+        matching: find.byType(MenuItemButton),
       ),
     );
     await tester.pumpAndSettle();

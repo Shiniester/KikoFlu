@@ -10,6 +10,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../providers/audio_provider.dart';
 import '../../services/storage_service.dart';
 import '../../services/log_service.dart';
+import '../../widgets/animated_menu_anchor.dart';
 import '../../widgets/mini_player.dart';
 import '../../utils/snackbar_util.dart';
 import '../comic_models.dart';
@@ -74,7 +75,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   late final StateController<bool> _active;
   List<ComicPage> _pages = [];
   bool _controls = false, _loading = true;
-  bool _savingFavorite = false, _savingImage = false;
+  bool _savingFavorite = false, _choosingDownload = false, _savingImage = false;
   Object? _error;
   int _generation = 0;
   int _layoutGeneration = 0;
@@ -83,6 +84,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   ItemScrollController _continuous = ItemScrollController();
   final _positions = ItemPositionsListener.create();
   final Map<int, Future<Uint8List>> _images = {};
+  final Map<int, Uint8List> _loadedImages = {};
   final Map<int, Size> _imageSizes = {};
   Matrix4 _continuousTransform = Matrix4.identity();
   ScrollPosition? _continuousPosition;
@@ -332,7 +334,17 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
           .clamp(position.minScrollExtent, position.maxScrollExtent)
           .toDouble();
       if (target != position.pixels) {
-        position.jumpTo(target);
+        if (MediaQuery.disableAnimationsOf(context)) {
+          position.jumpTo(target);
+        } else {
+          unawaited(
+            position.animateTo(
+              target,
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOutCubic,
+            ),
+          );
+        }
       } else {
         final trailingEdge = _continuousLastPageTrailingEdge();
         if (trailingEdge != null) {
@@ -350,7 +362,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       }
       return;
     }
-    _step(1);
+    _step(1, animate: true);
   }
 
   Widget _controlLayer({
@@ -389,6 +401,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       _loading = true;
       _error = null;
       _images.clear();
+      _loadedImages.clear();
       _imageSizes.clear();
       _pages = [];
     });
@@ -442,45 +455,70 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     });
   }
 
-  Future<Uint8List> _image(int page) => _images.putIfAbsent(page, () async {
+  Future<Uint8List> _image(int page) {
+    final existing = _images[page];
+    if (existing != null) return existing;
     final generation = _generation;
-    final Uint8List bytes;
-    if (widget.isImageReader) {
-      bytes = await widget.loadImage!(page);
-    } else {
-      final source = ref
-          .read(comicSourcesProvider)
-          .firstWhere((s) => s.key == widget.comic!.source);
-      bytes = await ref.read(comicImageLoaderProvider)(source, _pages[page]);
-    }
-    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-    try {
-      final descriptor = await ui.ImageDescriptor.encoded(buffer);
+    late final Future<Uint8List> image;
+    image = () async {
+      final Uint8List bytes;
+      if (widget.isImageReader) {
+        bytes = await widget.loadImage!(page);
+      } else {
+        final source = ref
+            .read(comicSourcesProvider)
+            .firstWhere((s) => s.key == widget.comic!.source);
+        bytes = await ref.read(comicImageLoaderProvider)(source, _pages[page]);
+      }
+      final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
       try {
-        if (mounted && generation == _generation) {
-          _imageSizes[page] = Size(
-            descriptor.width.toDouble(),
-            descriptor.height.toDouble(),
-          );
+        final descriptor = await ui.ImageDescriptor.encoded(buffer);
+        try {
+          if (mounted && generation == _generation) {
+            _imageSizes[page] = Size(
+              descriptor.width.toDouble(),
+              descriptor.height.toDouble(),
+            );
+            if (identical(_images[page], image)) _loadedImages[page] = bytes;
+          }
+        } finally {
+          descriptor.dispose();
         }
       } finally {
-        descriptor.dispose();
+        buffer.dispose();
       }
-    } finally {
-      buffer.dispose();
-    }
-    return bytes;
-  });
+      return bytes;
+    }();
+    _images[page] = image;
+    return image;
+  }
+
   void _preload() {
     final count = StorageService.getInt('comic_preload') ?? 3;
     final first =
         ref.read(comicReadingModeProvider) == ComicReadingMode.continuous
         ? (_page - count).clamp(0, _pageCount - 1)
         : _page;
+    final generation = _generation;
     for (var i = first; i <= _page + count && i < _pageCount; i++) {
-      _image(i).then<void>((_) {}, onError: (Object _, StackTrace __) {});
+      final image = _image(i);
+      image.then<void>((bytes) {
+        if (mounted &&
+            generation == _generation &&
+            identical(_images[i], image)) {
+          unawaited(
+            precacheImage(
+              MemoryImage(bytes),
+              context,
+              onError: (Object _, StackTrace? __) {},
+            ),
+          );
+        }
+      }, onError: (Object _, StackTrace __) {});
     }
-    _images.removeWhere((i, _) => i < first - 2 || i > _page + count + 2);
+    bool outsideCache(int page) => page < first - 2 || page > _page + count + 2;
+    _images.removeWhere((page, _) => outsideCache(page));
+    _loadedImages.removeWhere((page, _) => outsideCache(page));
   }
 
   Future<void> _saveProgress(String chapter, int page) async {
@@ -631,6 +669,23 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     }
   }
 
+  Future<void> _download() async {
+    final comic = widget.comic;
+    final chapter = _chapter;
+    if (_choosingDownload || comic == null || chapter == null) return;
+    setState(() => _choosingDownload = true);
+    try {
+      await downloadComicChapters(
+        context,
+        ref,
+        comic,
+        initialChapterId: chapter.id,
+      );
+    } finally {
+      if (mounted) setState(() => _choosingDownload = false);
+    }
+  }
+
   List<int> _visibleImagePages() {
     final mode = ref.read(comicReadingModeProvider);
     if (!isComicSpread(mode)) return [_page];
@@ -776,6 +831,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   Widget _pageImage(int page, {bool continuous = false, bool zoomable = true}) {
     return FutureBuilder<Uint8List>(
       future: _image(page),
+      initialData: _loadedImages[page],
       builder: (context, snapshot) {
         Widget content;
         if (snapshot.hasError) {
@@ -785,6 +841,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
               tooltip: S.of(context).retry,
               onPressed: () => setState(() {
                 _images.remove(page);
+                _loadedImages.remove(page);
               }),
               icon: const Icon(Icons.refresh),
             ),
@@ -823,15 +880,20 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     );
   }
 
-  Widget _continuousPage(int page) => AnimatedSize(
-    key: ValueKey('comic-page-size-$page'),
-    alignment: Alignment.topCenter,
-    duration: MediaQuery.disableAnimationsOf(context)
-        ? Duration.zero
-        : const Duration(milliseconds: 250),
-    curve: Curves.easeOutCubic,
-    child: _pageImage(page, continuous: true),
-  );
+  Widget _continuousPage(int page) {
+    final key = ValueKey('comic-page-size-$page');
+    final image = _pageImage(page, continuous: true);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      return KeyedSubtree(key: key, child: image);
+    }
+    return AnimatedSize(
+      key: key,
+      alignment: Alignment.topCenter,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOutCubic,
+      child: image,
+    );
+  }
 
   Widget _body(ComicReadingMode mode) {
     if (_loading) return const Center(child: CircularProgressIndicator());
@@ -999,6 +1061,9 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
         focusNode: _focus,
         onKeyEvent: (event) {
           if (event is! KeyDownEvent) return;
+          if (_modeMenuController.isOpen || _orientationMenuController.isOpen) {
+            return;
+          }
           final reverse =
               mode == ComicReadingMode.rightToLeft ||
               mode == ComicReadingMode.reverseSpread;
@@ -1083,7 +1148,10 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                                 builder: (context, constraints) => SingleChildScrollView(
                                   scrollDirection: Axis.horizontal,
                                   child: SizedBox(
-                                    width: math.max(constraints.maxWidth, 336),
+                                    width: math.max(
+                                      constraints.maxWidth,
+                                      widget.isImageReader ? 336 : 384,
+                                    ),
                                     child: Row(
                                       children: [
                                         Expanded(
@@ -1146,28 +1214,16 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                                           ),
                                         ),
                                         Expanded(
-                                          child: PopupMenuButton<ComicReadingMode>(
+                                          child: _readerMenu<ComicReadingMode>(
                                             tooltip: s.comicReadingMode,
-                                            initialValue: mode,
-                                            constraints: const BoxConstraints(
-                                              minWidth: 112,
-                                              maxWidth: 224,
-                                            ),
-                                            menuPadding: EdgeInsets.zero,
+                                            controller: _modeMenuController,
+                                            value: mode,
+                                            options: ComicReadingMode.values,
+                                            label: (option) =>
+                                                comicModeLabel(s, option),
                                             icon: const Icon(
                                               Icons.chrome_reader_mode,
                                             ),
-                                            itemBuilder: (context) => [
-                                              for (final option
-                                                  in ComicReadingMode.values)
-                                                CheckedPopupMenuItem(
-                                                  value: option,
-                                                  checked: option == mode,
-                                                  child: Text(
-                                                    comicModeLabel(s, option),
-                                                  ),
-                                                ),
-                                            ],
                                             onSelected: (mode) {
                                               ref
                                                       .read(
@@ -1189,63 +1245,42 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                                               s,
                                               orientation,
                                             ),
-                                            child:
-                                                PopupMenuButton<
-                                                  ComicScreenOrientation
-                                                >(
-                                                  tooltip:
-                                                      s.comicScreenOrientation,
-                                                  initialValue: orientation,
-                                                  constraints:
-                                                      const BoxConstraints(
-                                                        minWidth: 112,
-                                                        maxWidth: 224,
-                                                      ),
-                                                  menuPadding: EdgeInsets.zero,
-                                                  icon: Icon(switch (orientation) {
-                                                    ComicScreenOrientation
-                                                        .system =>
-                                                      Icons.screen_rotation,
-                                                    ComicScreenOrientation
-                                                        .portrait =>
-                                                      Icons
-                                                          .screen_lock_portrait,
-                                                    ComicScreenOrientation
-                                                        .landscape =>
-                                                      Icons
-                                                          .screen_lock_landscape,
-                                                  }),
-                                                  itemBuilder: (context) => [
-                                                    for (final option
-                                                        in ComicScreenOrientation
-                                                            .values)
-                                                      CheckedPopupMenuItem(
-                                                        value: option,
-                                                        checked:
-                                                            option ==
-                                                            orientation,
-                                                        child: Text(
-                                                          comicOrientationLabel(
-                                                            s,
-                                                            option,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                  ],
-                                                  onSelected: (orientation) {
-                                                    ref
-                                                            .read(
-                                                              comicScreenOrientationProvider
-                                                                  .notifier,
-                                                            )
-                                                            .state =
-                                                        orientation;
-                                                    StorageService.setString(
-                                                      'comic_screen_orientation',
-                                                      orientation.name,
-                                                    );
-                                                  },
-                                                ),
+                                            child: _readerMenu<ComicScreenOrientation>(
+                                              tooltip: s.comicScreenOrientation,
+                                              controller:
+                                                  _orientationMenuController,
+                                              value: orientation,
+                                              options:
+                                                  ComicScreenOrientation.values,
+                                              label: (option) =>
+                                                  comicOrientationLabel(
+                                                    s,
+                                                    option,
+                                                  ),
+                                              icon: Icon(switch (orientation) {
+                                                ComicScreenOrientation.system =>
+                                                  Icons.screen_rotation,
+                                                ComicScreenOrientation
+                                                    .portrait =>
+                                                  Icons.screen_lock_portrait,
+                                                ComicScreenOrientation
+                                                    .landscape =>
+                                                  Icons.screen_lock_landscape,
+                                              }),
+                                              onSelected: (orientation) {
+                                                ref
+                                                        .read(
+                                                          comicScreenOrientationProvider
+                                                              .notifier,
+                                                        )
+                                                        .state =
+                                                    orientation;
+                                                StorageService.setString(
+                                                  'comic_screen_orientation',
+                                                  orientation.name,
+                                                );
+                                              },
+                                            ),
                                           ),
                                         ),
                                         if (!widget.isImageReader)
@@ -1258,6 +1293,22 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                                               onPressed: _savingFavorite
                                                   ? null
                                                   : _favorite,
+                                            ),
+                                          ),
+                                        if (!widget.isImageReader)
+                                          Expanded(
+                                            child: IconButton(
+                                              tooltip: s.download,
+                                              icon: const Icon(Icons.download),
+                                              onPressed:
+                                                  _loading ||
+                                                      _choosingDownload ||
+                                                      widget
+                                                          .comic!
+                                                          .chapters
+                                                          .isEmpty
+                                                  ? null
+                                                  : _download,
                                             ),
                                           ),
                                         Expanded(
@@ -1305,7 +1356,65 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     );
   }
 
+  Widget _readerMenu<T>({
+    required String tooltip,
+    required MenuController controller,
+    required T value,
+    required List<T> options,
+    required String Function(T) label,
+    required Widget icon,
+    required ValueChanged<T> onSelected,
+  }) => Builder(
+    builder: (anchorContext) => AnimatedMenuAnchor(
+      controller: controller,
+      crossAxisUnconstrained: false,
+      onOpen: _stopAutoPageTurn,
+      onClose: () {
+        if (mounted) _focus.requestFocus();
+      },
+      menuStyle: MenuStyle(
+        alignment: AlignmentDirectional.bottomStart,
+        padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+        maximumSize: WidgetStateProperty.resolveWith((_) {
+          final anchor = anchorContext.findRenderObject()! as RenderBox;
+          final top = anchor.localToGlobal(Offset.zero).dy;
+          return Size(
+            360,
+            math.max(0, top - MediaQuery.paddingOf(anchorContext).top - 8),
+          );
+        }),
+      ),
+      menuChildren: [
+        for (final option in options)
+          Semantics(
+            selected: option == value,
+            child: MenuItemButton(
+              autofocus: option == value,
+              style: AnimatedMenuAnchor.selectedItemStyle(
+                context,
+                option == value,
+              ),
+              onPressed: () => onSelected(option),
+              child: Text(
+                label(option),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+      ],
+      builder: (context, controller, _) => IconButton(
+        tooltip: tooltip,
+        icon: icon,
+        onPressed: () =>
+            controller.isOpen ? controller.close() : controller.open(),
+      ),
+    ),
+  );
+
   final _focus = FocusNode();
+  final _modeMenuController = MenuController();
+  final _orientationMenuController = MenuController();
 }
 
 class _ZoomableComicPage extends StatefulWidget {
@@ -1457,10 +1566,9 @@ class _ZoomableComicPageState extends State<_ZoomableComicPage>
         .clamp(minY, 0.0)
         .toDouble();
     if (dy == translation.y) return;
-    _interruptZoomAnimation();
-    _transform.value = _transform.value.clone()
+    final target = _transform.value.clone()
       ..setTranslationRaw(translation.x, dy, 0);
-    _transformChanged();
+    _animateTo(target, null, duration: const Duration(milliseconds: 250));
   }
 
   void _beginContinuousPinch() {
@@ -1626,6 +1734,11 @@ class _ZoomableComicPageState extends State<_ZoomableComicPage>
   }
 
   void _zoomAnimationStatusChanged(AnimationStatus status) {
+    if (status == AnimationStatus.completed && _targetScaleState == null) {
+      _zoomTween = null;
+      _transformChanged();
+      return;
+    }
     if ((status == AnimationStatus.completed ||
             status == AnimationStatus.dismissed) &&
         _targetScaleState != null) {
@@ -1674,12 +1787,12 @@ class _ZoomableComicPageState extends State<_ZoomableComicPage>
     _animateTo(target, nextState);
   }
 
-  void _animateTo(Matrix4 target, int targetState) {
+  void _animateTo(Matrix4 target, int? targetState, {Duration? duration}) {
     _interruptZoomAnimation();
     final current = _transform.value.clone();
     if (MediaQuery.disableAnimationsOf(context)) {
       _transform.value = target;
-      _scaleState = targetState;
+      if (targetState != null) _scaleState = targetState;
       _targetScaleState = null;
       _transformChanged();
       return;
@@ -1687,7 +1800,17 @@ class _ZoomableComicPageState extends State<_ZoomableComicPage>
     _zoomTween = Matrix4Tween(begin: current, end: target);
     _zoomAnimationController.value = 0;
     _targetScaleState = targetState;
-    _zoomAnimationController.fling(velocity: .4);
+    if (duration == null) {
+      _zoomAnimationController.fling(velocity: .4);
+    } else {
+      unawaited(
+        _zoomAnimationController.animateTo(
+          1,
+          duration: duration,
+          curve: Curves.easeOutCubic,
+        ),
+      );
+    }
   }
 
   void _interactionStarted() {
@@ -1722,9 +1845,9 @@ class _ZoomableComicPageState extends State<_ZoomableComicPage>
     }
     final tween = _zoomTween;
     final targetState = _targetScaleState;
-    if (tween != null && targetState != null) {
+    if (tween != null) {
       _transform.value = tween.end!;
-      _scaleState = targetState;
+      if (targetState != null) _scaleState = targetState;
     }
     _interruptZoomAnimation();
     _transformChanged();

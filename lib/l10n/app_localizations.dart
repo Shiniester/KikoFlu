@@ -7,7 +7,6 @@ import 'package:intl/intl.dart' as intl;
 
 import 'app_localizations_en.dart';
 import 'app_localizations_ja.dart';
-import 'app_localizations_ru.dart';
 import 'app_localizations_zh.dart';
 
 // ignore_for_file: type=lint
@@ -97,7 +96,6 @@ abstract class S {
   static const List<Locale> supportedLocales = <Locale>[
     Locale('en'),
     Locale('ja'),
-    Locale('ru'),
     Locale('zh'),
     Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
   ];
@@ -1830,42 +1828,6 @@ abstract class S {
   /// **'Japanese'**
   String get translationLanguageJapanese;
 
-  /// No description provided for @translationLanguageRussian.
-  ///
-  /// In en, this message translates to:
-  /// **'Russian'**
-  String get translationLanguageRussian;
-
-  /// No description provided for @translationLanguageCustom.
-  ///
-  /// In en, this message translates to:
-  /// **'Custom'**
-  String get translationLanguageCustom;
-
-  /// No description provided for @translationCustomTargetLanguage.
-  ///
-  /// In en, this message translates to:
-  /// **'Custom Target Language'**
-  String get translationCustomTargetLanguage;
-
-  /// No description provided for @translationCustomLanguageHint.
-  ///
-  /// In en, this message translates to:
-  /// **'Language name, e.g. Korean'**
-  String get translationCustomLanguageHint;
-
-  /// No description provided for @translationCustomLanguageLabel.
-  ///
-  /// In en, this message translates to:
-  /// **'Custom: {value}'**
-  String translationCustomLanguageLabel(String value);
-
-  /// No description provided for @translationCustomTargetRequiresLlm.
-  ///
-  /// In en, this message translates to:
-  /// **'Requires LLM translation'**
-  String get translationCustomTargetRequiresLlm;
-
   /// No description provided for @needsConfiguration.
   ///
   /// In en, this message translates to:
@@ -2471,12 +2433,6 @@ abstract class S {
   /// In en, this message translates to:
   /// **'日本語'**
   String get languageJa;
-
-  /// No description provided for @languageRu.
-  ///
-  /// In en, this message translates to:
-  /// **'Русский'**
-  String get languageRu;
 
   /// No description provided for @themeModeDark.
   ///
@@ -7080,6 +7036,12 @@ abstract class S {
   /// **'Continue reading'**
   String get comicContinue;
 
+  /// Comic details action when the comic has no saved reading history.
+  ///
+  /// In en, this message translates to:
+  /// **'Start reading'**
+  String get comicStart;
+
   /// No description provided for @comicRead.
   ///
   /// In en, this message translates to:
@@ -7481,7 +7443,7 @@ class _SDelegate extends LocalizationsDelegate<S> {
 
   @override
   bool isSupported(Locale locale) =>
-      <String>['en', 'ja', 'ru', 'zh'].contains(locale.languageCode);
+      <String>['en', 'ja', 'zh'].contains(locale.languageCode);
 
   @override
   bool shouldReload(_SDelegate old) => false;
@@ -7506,8 +7468,6 @@ S lookupS(Locale locale) {
       return SEn();
     case 'ja':
       return SJa();
-    case 'ru':
-      return SRu();
     case 'zh':
       return SZh();
   }
