@@ -16,12 +16,16 @@ class CachedImageWidget extends StatelessWidget {
     required this.hash,
     this.cacheKey,
     this.fit = BoxFit.contain,
+    this.onRetry,
+    this.cacheWidth,
   });
 
   final String imageUrl;
   final String hash;
   final String? cacheKey;
   final BoxFit fit;
+  final VoidCallback? onRetry;
+  final int? cacheWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -31,6 +35,7 @@ class CachedImageWidget extends StatelessWidget {
       if (!file.existsSync()) return _buildErrorWidget(context, localPath);
       return Image.file(
         file,
+        cacheWidth: cacheWidth,
         fit: fit,
         errorBuilder: (_, error, __) =>
             _buildErrorWidget(context, error.toString()),
@@ -38,6 +43,7 @@ class CachedImageWidget extends StatelessWidget {
     }
 
     return CachedNetworkImage(
+      memCacheWidth: cacheWidth,
       imageUrl: imageUrl,
       cacheKey:
           cacheKey ??
@@ -57,6 +63,18 @@ class CachedImageWidget extends StatelessWidget {
   }
 
   Widget _buildErrorWidget(BuildContext context, String error) {
+    if (onRetry != null) {
+      return SizedBox(
+        height: 100,
+        child: Center(
+          child: IconButton(
+            tooltip: S.of(context).retry,
+            icon: const Icon(Icons.broken_image_outlined),
+            onPressed: onRetry,
+          ),
+        ),
+      );
+    }
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,

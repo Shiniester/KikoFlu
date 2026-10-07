@@ -149,7 +149,9 @@ class ComicHttp {
       'picacg' => ['picaapi.picacomic.com'],
       'ehentai' => ['e-hentai.org', 'exhentai.org'],
       'nhentai' => ['nhentai.net'],
-      'jmcomic' => [host ?? 'www.cdntwice.org'],
+      'jmcomic' => [
+        host == null || host == 'www.cdntwice.org' ? 'www.cdnhjk.net' : host,
+      ],
       'htmanga' => [host ?? 'www.wnacg.com'],
       _ => <String>[],
     };

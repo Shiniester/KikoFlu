@@ -9,7 +9,9 @@ import '../comic_source.dart';
 import 'hitomi_search.dart';
 
 class HitomiSource extends ComicSource {
-  HitomiSource(super.http);
+  HitomiSource(super.http) {
+    http.dio.options.headers.putIfAbsent('Referer', () => '$website/');
+  }
   @override
   String get key => 'hitomi';
   @override

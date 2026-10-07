@@ -29,7 +29,8 @@ import 'file_tree_actions.dart';
 import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
 import 'file_delete_confirmation_dialog.dart';
-import 'image_gallery_screen.dart';
+import 'work_image_reader.dart';
+import 'work_resource_tabs.dart';
 import 'manual_subtitle_load_flow.dart';
 import 'text_preview_screen.dart';
 import 'pdf_preview_screen.dart';
@@ -301,7 +302,11 @@ class _OfflineFileExplorerWidgetState
   }
 
   // 播放音频文件（从本地）
-  Future<void> _playAudioFile(dynamic audioFile, String parentPath) async {
+  Future<void> _playAudioFile(
+    dynamic audioFile,
+    String parentPath, {
+    List<dynamic>? audioFiles,
+  }) async {
     final l10n = S.of(context);
     final title = FileTreeUtils.titleOf(audioFile, defaultValue: l10n.unknown);
     try {
@@ -365,6 +370,7 @@ class _OfflineFileExplorerWidgetState
         artworkUrl: target.artworkUrl,
         subtitleWorkDirPath: target.workDir,
         playlistMode: playlistMode,
+        audioFiles: audioFiles,
       );
 
       if (!mounted) return;
@@ -451,7 +457,8 @@ class _OfflineFileExplorerWidgetState
         final target = result.requireTarget;
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (context) => ImageGalleryScreen(
+            builder: (context) => WorkImageReader(
+              title: widget.work.title,
               images: target.toGalleryMaps(),
               initialIndex: target.initialIndex,
             ),
@@ -608,23 +615,13 @@ class _OfflineFileExplorerWidgetState
   }
 
   Widget _buildFileList() {
-    return FileExplorerTreePanel(
+    final tree = FileExplorerTreePanel(
       isLoading: _isLoading,
       errorMessage: _errorMessage,
       empty: _localFiles.isEmpty,
       emptyMessage: S.of(context).noDownloadedFiles,
       onRetry: _loadLocalFiles,
       title: S.of(context).offlineFiles,
-      trailing: TranslationToggleButton(
-        isTranslated: _translationController.showTranslation,
-        originalLabel: S.of(context).translationOriginal,
-        translatedLabel: S.of(context).translationTranslated,
-        onPressed: () {
-          setState(() {
-            _translationController.toggleShowTranslation();
-          });
-        },
-      ),
       items: _localFiles,
       expandedFolders: _expandedFolders,
       onToggleFolder: _toggleFolder,
@@ -633,6 +630,40 @@ class _OfflineFileExplorerWidgetState
       metadataBuilder: _buildFileMetadata,
       trailingBuilder: _buildFileActions,
       audioWithLibrarySubtitles: _audioWithLibrarySubtitles,
+      showHeader: false,
+    );
+    if (_isLoading || _errorMessage != null) return tree;
+    return WorkResourceTabs(
+      workId: widget.work.id,
+      fileTree: _localFiles,
+      audioVariants: _audioVariants,
+      resourceSliver: tree,
+      resourceTitle: S.of(context).resourceFiles,
+      toolbar: TranslationToggleButton(
+        isTranslated: _translationController.showTranslation,
+        originalLabel: S.of(context).translationOriginal,
+        translatedLabel: S.of(context).translationTranslated,
+        onPressed: () =>
+            setState(() => _translationController.toggleShowTranslation()),
+      ),
+      onPlayAudio: (file, path, files) =>
+          _playAudioFile(file, path, audioFiles: files),
+      onFileTap: _handleFileTap,
+      displayNameFor: _getDisplayName,
+      metadataBuilder: _buildFileMetadata,
+      trailingBuilder: _buildFileActions,
+      audioTrailingBuilder: _buildFileActions,
+      onImageTap: _previewImageFile,
+      resolveImage: (file) async {
+        final items = await _previewResolver.buildOfflineImageItems(
+          imageFiles: [file],
+          fileTree: _localFiles,
+          workId: widget.work.id,
+          unknownTitle: S.of(context).unknown,
+          workDirPath: _workDirPath,
+        );
+        return items.firstOrNull;
+      },
     );
   }
 

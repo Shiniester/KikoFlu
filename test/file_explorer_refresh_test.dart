@@ -156,13 +156,13 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(scans, 2);
-    expect(find.byIcon(Icons.check_circle), findsOneWidget);
+    expect(find.byIcon(Icons.download_done), findsOneWidget);
     await controller.refresh(forceRefresh: true);
     await tester.pump();
     expect(scans, 3);
     expect(resolves, 3);
     expect(hashes, ['hash-0', 'hash-0', 'hash-1']);
-    expect(find.byIcon(Icons.check_circle), findsOneWidget);
+    expect(find.byIcon(Icons.download_done), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     downloads.changes.add(const DownloadTaskChange.reset([]));
     await tester.pump();
@@ -267,10 +267,19 @@ void main() {
       expect(find.text('nested.wav'), findsOneWidget);
       expect(find.text('crowded-1.mp3'), findsNothing);
 
+      await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Preferred'));
       await tester.pump();
       await tester.tap(find.text('Manual'));
       await tester.pump();
+      expect(find.text('preferred.wav'), findsNothing);
+      expect(find.text('manual.flac'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('work-resource-audio-tab')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+      await tester.pumpAndSettle();
       expect(find.text('preferred.wav'), findsNothing);
       expect(find.text('manual.flac'), findsOneWidget);
 
@@ -387,6 +396,8 @@ void main() {
     expect(find.text('nested.wav'), findsOneWidget);
     expect(find.text('crowded-1.mp3'), findsNothing);
 
+    await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Preferred'));
     await tester.pump();
     await tester.tap(find.text('Manual'));

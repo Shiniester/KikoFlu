@@ -8,6 +8,7 @@ import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_title_header.dart';
 import 'package:kikoeru_flutter/src/services/log_service.dart';
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart' show kDoubleTapTimeout;
@@ -51,6 +52,8 @@ import 'package:kikoeru_flutter/src/comics/ui/comic_chapter_thumbnails.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_search_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 import 'package:kikoeru_flutter/src/widgets/settings_option_dialog.dart';
+import 'package:kikoeru_flutter/src/widgets/work_image_reader.dart';
+import 'package:kikoeru_flutter/src/utils/local_file_url.dart';
 
 Finder readerPageValue(String value) => find.byWidgetPredicate(
   (widget) => widget is Semantics && widget.properties.value == value,
@@ -254,19 +257,6 @@ class _Library extends ComicLibrary {
   @override
   Future<void> saveProgress(Comic comic, String chapter, int page) async {
     last = ComicProgress(comic, chapter, page, DateTime.now());
-  }
-}
-
-class _RecordingComicDownloads extends ComicDownloads {
-  _RecordingComicDownloads(_Library library, _Source source)
-    : super(library, (_) => source);
-  final enqueued = <List<ComicChapter>>[];
-  bool fail = false;
-
-  @override
-  Future<void> enqueue(Comic comic, List<ComicChapter> chapters) async {
-    if (fail) throw StateError('queue unavailable');
-    enqueued.add(chapters);
   }
 }
 
@@ -793,7 +783,7 @@ void main() {
       find.byTooltip('Reading mode'),
       find.byTooltip('Screen orientation'),
       find.byTooltip('Favorites'),
-      find.byTooltip('Download'),
+      find.byTooltip('Save Image'),
     ];
     for (final width in [320.0, 1000.0]) {
       tester.view.physicalSize = Size(width, 640);
@@ -1113,72 +1103,327 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-    'reader download defaults to current chapter and supports selection',
-    (tester) async {
+  testWidgets('reader saves the current image bytes and reports failures', (
+    tester,
+  ) async {
+    final library = _Library();
+    final source = _Source();
+    final saved = <({Uint8List bytes, String name})>[];
+    var failSave = false;
+    await pump(
+      tester,
+      ComicReaderScreen(
+        comic: _comic,
+        chapter: const ComicChapter('two', 'Chapter 2'),
+        initialPage: 3,
+        saveImage: (_, bytes, name) async {
+          if (failSave) throw StateError('disk full');
+          saved.add((bytes: bytes, name: name));
+        },
+      ),
+      library,
+      source,
+    );
+    await waitForDecodedImage(tester, find.byType(Image).first);
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Save Image'));
+    await tester.pumpAndSettle();
+    expect(saved, hasLength(1));
+    expect(saved.single.bytes, same(_png));
+    expect(saved.single.name, 'image_4');
+    expect(source.pageRequests, ['two']);
+
+    failSave = true;
+    await tester.tap(find.byTooltip('Save Image'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('disk full'), findsOneWidget);
+    expect(find.textContaining('Image saved'), findsNothing);
+    expect(saved, hasLength(1));
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final mode in ComicReadingMode.values) {
+    testWidgets('image reader shares comic interactions in ${mode.name}', (
+      tester,
+    ) async {
+      await StorageService.setString('comic_reading_mode', mode.name);
+      await StorageService.setInt('comic_auto_page_interval', 20);
       final library = _Library();
       final source = _Source();
-      final downloads = _RecordingComicDownloads(library, source);
+      final images = [_png, _widePng, _tallPng];
+      final saved = <({Uint8List bytes, String name})>[];
       await pump(
         tester,
-        const ComicReaderScreen(
-          comic: _comic,
-          chapter: ComicChapter('two', 'Chapter 2'),
-          initialPage: 3,
+        ComicReaderScreen.images(
+          title: 'Work title',
+          imageTitles: const ['First image', 'Second image', 'Last image'],
+          initialPage: 1,
+          loadImage: (index) async => images[index],
+          saveImage: (_, bytes, name) async {
+            saved.add((bytes: bytes, name: name));
+          },
         ),
         library,
         source,
-        downloads: downloads,
+        track: const AudioTrack(
+          id: 'audio',
+          title: 'Audio',
+          url: 'https://example.invalid/audio.mp3',
+        ),
+        reduceMotion: mode.index.isEven,
       );
+      await waitForDecodedImage(tester, find.byType(Image).first);
+
+      final zoom = find.byKey(
+        ValueKey(
+          mode == ComicReadingMode.continuous
+              ? 'comic-continuous-zoom'
+              : isComicSpread(mode)
+              ? 'comic-spread-zoom-0'
+              : 'comic-page-zoom-1',
+        ),
+      );
+      await doubleTapAt(tester, tester.getCenter(zoom));
+      await tester.pumpAndSettle();
+      if (mode == ComicReadingMode.continuous) {
+        expect(
+          tester
+              .widget<Transform>(
+                find.byKey(const ValueKey('comic-reader-canvas-transform')),
+              )
+              .transform
+              .getMaxScaleOnAxis(),
+          greaterThan(1),
+        );
+      } else {
+        final viewer = tester.widget<InteractiveViewer>(
+          find.descendant(of: zoom, matching: find.byType(InteractiveViewer)),
+        );
+        expect(
+          viewer.transformationController!.value.getMaxScaleOnAxis(),
+          greaterThan(1),
+        );
+      }
+
       await tester.sendKeyEvent(LogicalKeyboardKey.space);
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Download'));
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<CheckboxListTile>(
-              find.widgetWithText(CheckboxListTile, 'Chapter 1'),
-            )
-            .value,
-        false,
-      );
-      expect(
-        tester
-            .widget<CheckboxListTile>(
-              find.widgetWithText(CheckboxListTile, 'Chapter 2'),
-            )
-            .value,
-        true,
-      );
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
-      expect(downloads.enqueued, isEmpty);
-      await tester.tap(find.byTooltip('Download'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(CheckboxListTile, 'Chapter 1'));
-      await tester.tap(find.text('Download selected chapters'));
-      await tester.pumpAndSettle();
-      expect(downloads.enqueued.single.map((chapter) => chapter.id), [
-        'one',
-        'two',
-      ]);
-      expect(readerPageValue('4/8'), findsOneWidget);
-      downloads.fail = true;
-      await tester.tap(find.byTooltip('Download'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Download selected chapters'));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('queue unavailable'), findsOneWidget);
-      expect(downloads.enqueued, hasLength(1));
-      expect(
-        tester
-            .widget<IconButton>(find.widgetWithIcon(IconButton, Icons.download))
-            .onPressed,
-        isNotNull,
-      );
+      expect(find.text('Work title'), findsOneWidget);
+      expect(find.byTooltip('Choose chapters'), findsNothing);
+      expect(find.byTooltip('Favorites'), findsNothing);
+      expect(find.byTooltip('Reading mode'), findsOneWidget);
+      expect(find.byTooltip('Screen orientation'), findsOneWidget);
+      expect(find.byType(MiniPlayer), findsOneWidget);
+
+      final auto = find.byKey(const ValueKey('comic-auto-page-turn'));
+      await tester.tap(auto);
+      await tester.pump();
+      expect(tester.widget<IconButton>(auto).isSelected, isTrue);
+      await tester.tap(find.byTooltip('Save Image'));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(tester.widget<IconButton>(auto).isSelected, isFalse);
+
+      if (isComicSpread(mode)) {
+        final firstTitle = find.text('First image');
+        final secondTitle = find.text('Second image');
+        expect(firstTitle, findsOneWidget);
+        expect(secondTitle, findsOneWidget);
+        expect(
+          tester
+              .getTopLeft(
+                mode == ComicReadingMode.reverseSpread
+                    ? secondTitle
+                    : firstTitle,
+              )
+              .dy,
+          lessThan(
+            tester
+                .getTopLeft(
+                  mode == ComicReadingMode.reverseSpread
+                      ? firstTitle
+                      : secondTitle,
+                )
+                .dy,
+          ),
+        );
+        expect(find.byType(AlertDialog), findsOneWidget);
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+        expect(saved, isEmpty);
+        expect(find.textContaining('Image saved'), findsNothing);
+
+        await tester.tap(find.byTooltip('Save Image'));
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.byType(AlertDialog), findsOneWidget);
+        await tester.tap(secondTitle);
+        await tester.pumpAndSettle();
+      } else {
+        expect(find.byType(AlertDialog), findsNothing);
+      }
+
+      expect(saved.single.bytes, same(_widePng));
+      expect(saved.single.name, 'Second image');
+      expect(library.historyReads, 0);
+      expect(library.last, isNull);
+      expect(source.pageRequests, isEmpty);
       expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+      expect(library.last, isNull);
+    });
+  }
+
+  testWidgets('image reader retries a failed image load', (tester) async {
+    var loads = 0;
+    await pump(
+      tester,
+      ComicReaderScreen.images(
+        title: 'Work title',
+        imageTitles: const ['Image'],
+        loadImage: (_) async {
+          loads++;
+          if (loads == 1) throw StateError('temporary read failure');
+          return _png;
+        },
+      ),
+      _Library(),
+      _Source(),
+    );
+    expect(find.byTooltip('Retry'), findsOneWidget);
+    await tester.tap(find.byTooltip('Retry'));
+    await tester.pumpAndSettle();
+    expect(loads, 2);
+    expect(find.byType(Image), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'single covers and an unpaired final spread image save directly',
+    (tester) async {
+      await StorageService.setString('comic_reading_mode', 'spread');
+      for (final scenario in [
+        (titles: ['Cover'], initialPage: 0, bytes: _png),
+        (
+          titles: ['First image', 'Second image', 'Last image'],
+          initialPage: 2,
+          bytes: _tallPng,
+        ),
+      ]) {
+        final saved = <Uint8List>[];
+        await pump(
+          tester,
+          ComicReaderScreen.images(
+            title: 'Work title',
+            imageTitles: scenario.titles,
+            initialPage: scenario.initialPage,
+            loadImage: (_) async => scenario.bytes,
+            saveImage: (_, bytes, _) async => saved.add(bytes),
+          ),
+          _Library(),
+          _Source(),
+        );
+        await waitForDecodedImage(tester, find.byType(Image).first);
+        await tester.sendKeyEvent(LogicalKeyboardKey.space);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Save Image'));
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(saved.single, same(scenario.bytes));
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+        await tester.pumpAndSettle();
+      }
     },
   );
+
+  testWidgets('image reader ignores repeated save taps while saving', (
+    tester,
+  ) async {
+    final saveGate = Completer<void>();
+    var saveCalls = 0;
+    await pump(
+      tester,
+      ComicReaderScreen.images(
+        title: 'Work title',
+        imageTitles: const ['Image'],
+        loadImage: (_) async => _png,
+        saveImage: (_, _, _) {
+          saveCalls++;
+          return saveGate.future;
+        },
+      ),
+      _Library(),
+      _Source(),
+    );
+    await waitForDecodedImage(tester, find.byType(Image).first);
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    final saveButton = find.byTooltip('Save Image');
+    final savePosition = tester.getCenter(saveButton);
+    await tester.tap(saveButton);
+    await tester.pump();
+    await tester.pump();
+    expect(saveCalls, 1);
+    expect(find.byTooltip('Save Image'), findsNothing);
+    await tester.tapAt(savePosition);
+    await tester.pump();
+    expect(saveCalls, 1);
+    saveGate.complete();
+    await tester.pumpAndSettle();
+    expect(saveCalls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('WorkImageReader loads cached local bytes and initial index', (
+    tester,
+  ) async {
+    await StorageService.setString('comic_reading_mode', 'leftToRight');
+    final directory = Directory.systemTemp.createTempSync('work-image-reader');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final files = <String>[];
+    for (var index = 0; index < 3; index++) {
+      final file = File('${directory.path}/image-$index.png');
+      file.writeAsBytesSync([_png, _widePng, _tallPng][index]);
+      files.add(file.path);
+    }
+    final source = _Source();
+    await pump(
+      tester,
+      WorkImageReader(
+        title: 'Work title',
+        images: [
+          for (var index = 0; index < files.length; index++)
+            {
+              'title': 'Image $index',
+              'url': LocalFileUrl.fromPath(files[index]),
+            },
+        ],
+        initialIndex: 1,
+      ),
+      _Library(),
+      source,
+      settle: false,
+    );
+    for (
+      var attempt = 0;
+      attempt < 24 && find.byType(Image).evaluate().isEmpty;
+      attempt++
+    ) {
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+    }
+    await waitForDecodedImage(tester, find.byType(Image).first);
+    await tester.pumpAndSettle();
+    expect(find.byType(ComicReaderScreen), findsOneWidget);
+    expect(readerPageValue('2/3'), findsOneWidget);
+    expect(source.pageRequests, isEmpty);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpAndSettle();
+  });
 
   for (final mode in ComicReadingMode.values) {
     testWidgets('page preview jumps and resets zoom in ${mode.name}', (
