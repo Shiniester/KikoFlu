@@ -8,6 +8,7 @@ import 'package:kikoeru_flutter/src/services/file_preview_resolver.dart';
 import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/work_resource_tabs.dart';
+import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
 
 List<dynamic> _files({bool images = false}) => [
   {
@@ -54,6 +55,8 @@ Future<void> _pumpResources(
   ValueChanged<dynamic>? onImageTap,
   Future<PreviewFileItem?> Function(dynamic)? resolveImage,
   Map<String, bool> downloadedFiles = const {},
+  Set<String> expandedFolders = const {},
+  ValueChanged<List<String>>? onVisibleNamesChanged,
 }) => tester.pumpWidget(
   ProviderScope(
     child: MaterialApp(
@@ -78,6 +81,8 @@ Future<void> _pumpResources(
                 onImageTap: onImageTap ?? (_) {},
                 resolveImage: resolveImage ?? (_) async => null,
                 downloadedFiles: downloadedFiles,
+                expandedFolders: expandedFolders,
+                onVisibleNamesChanged: onVisibleNamesChanged,
               ),
             ],
           ),
@@ -128,7 +133,7 @@ void main() {
   });
 
   testWidgets(
-    'defaults to preferred audio and only shows the best work subtitle',
+    'defaults to preferred audio with an eye for the best work subtitle',
     (tester) async {
       final tree = ValueNotifier(_files());
       addTearDown(tree.dispose);
@@ -148,8 +153,9 @@ void main() {
       expect(find.text('track01.wav'), findsOneWidget);
       expect(find.text('track02.wav'), findsOneWidget);
       expect(find.text('track01.mp3'), findsNothing);
-      expect(find.text('track01.lrc'), findsOneWidget);
+      expect(find.text('track01.lrc'), findsNothing);
       expect(find.text('track01.srt'), findsNothing);
+      expect(find.byIcon(Icons.subtitles_outlined), findsNothing);
       expect(find.text('notes.txt'), findsNothing);
       expect(find.text('whole resource tree'), findsNothing);
       expect(
@@ -159,7 +165,9 @@ void main() {
       await tester.tap(find.text('track02.wav'));
       expect(selected['hash'], 'audio2');
       expect(queue!.map((file) => file['hash']), ['audio1', 'audio2']);
-      await tester.tap(find.text('track01.lrc'));
+      await tester.tap(
+        find.byKey(const ValueKey('work-audio-subtitle-A/track01.wav')),
+      );
       expect(subtitlePath, 'Captions');
 
       final container = ProviderScope.containerOf(
@@ -181,6 +189,97 @@ void main() {
       expect(find.text('whole resource tree'), findsOneWidget);
     },
   );
+
+  testWidgets('reports only names in the current tab and expanded folders', (
+    tester,
+  ) async {
+    final tree = ValueNotifier(_files(images: true));
+    addTearDown(tree.dispose);
+    final reports = <List<String>>[];
+    final expanded = <String>{};
+    await _pumpResources(
+      tester,
+      tree,
+      expandedFolders: expanded,
+      onVisibleNamesChanged: reports.add,
+    );
+    await tester.pumpAndSettle();
+    expect(reports.last, ['track01.wav', 'track02.wav']);
+    await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+    await tester.pumpAndSettle();
+    expect(reports.last, ['A', 'B', 'Captions', 'one.png', 'Artwork']);
+    expanded.add('Artwork');
+    await _pumpResources(
+      tester,
+      tree,
+      expandedFolders: expanded,
+      onVisibleNamesChanged: reports.add,
+    );
+    await tester.pumpAndSettle();
+    expect(reports.last, [
+      'A',
+      'B',
+      'Captions',
+      'one.png',
+      'Artwork',
+      'two.png',
+    ]);
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pumpAndSettle();
+    expect(reports.last, ['one.png', 'two.png']);
+    await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+    await tester.pumpAndSettle();
+    expect(reports.last.last, 'two.png');
+    final reportCount = reports.length;
+    await _pumpResources(
+      tester,
+      tree,
+      expandedFolders: expanded,
+      onVisibleNamesChanged: reports.add,
+    );
+    await tester.pumpAndSettle();
+    expect(reports.length, reportCount);
+  });
+
+  testWidgets('audio uses tree typography and colors and full content width', (
+    tester,
+  ) async {
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    for (final width in [390.0, 1200.0]) {
+      await tester.binding.setSurfaceSize(Size(width, 844));
+      final tree = ValueNotifier(_files());
+      await _pumpResources(tester, tree);
+      await tester.pumpAndSettle();
+      final audio = find.byKey(const ValueKey('work-audio-A/track01.wav'));
+      final tile = tester.widget<ListTile>(audio);
+      expect((tile.leading! as Icon).color, Colors.green);
+      expect((tile.title! as Text).style!.fontSize, 14);
+      expect(tester.getRect(audio).width, width);
+      expect(tester.getRect(find.byIcon(Icons.audiotrack).first).left, 0);
+      expect(tester.getRect(find.text('Resource Files')).left, 0);
+      final play = find.descendant(
+        of: audio,
+        matching: find.byIcon(Icons.play_arrow),
+      );
+      final eye = find.descendant(
+        of: audio,
+        matching: find.byIcon(Icons.visibility),
+      );
+      expect(tester.widget<Icon>(play).color, Colors.green);
+      expect(tester.getRect(eye).left, greaterThan(tester.getRect(play).left));
+      expect(
+        tester
+            .widget<IconButton>(
+              find.ancestor(of: eye, matching: find.byType(IconButton)),
+            )
+            .color,
+        Colors.blue,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      tree.dispose();
+    }
+  });
 
   testWidgets('empty audio tab stays available', (tester) async {
     final tree = ValueNotifier<List<dynamic>>([
@@ -208,6 +307,20 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('one.png'), findsOneWidget);
       expect(find.text('two.png'), findsOneWidget);
+      final clips = tester.widgetList<ClipRRect>(
+        find.descendant(
+          of: find.byType(WorkCoverClip),
+          matching: find.byType(ClipRRect),
+        ),
+      );
+      expect(clips, hasLength(2));
+      for (final clip in clips) {
+        expect(
+          clip.borderRadius,
+          BorderRadius.circular(workCoverCompactRadius),
+        );
+      }
+      expect(tester.getRect(find.byType(Card).first).left, 0);
       await tester.tap(find.text('two.png'));
       expect(selected['hash'], 'image2');
       tree.value = _files();

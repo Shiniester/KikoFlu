@@ -11,6 +11,7 @@ import '../../l10n/app_localizations.dart';
 
 import '../models/work.dart';
 import '../providers/auth_provider.dart';
+import '../providers/settings_provider.dart';
 import '../widgets/scrollable_appbar.dart';
 import '../services/work_track_file_builder.dart';
 import '../services/storage_service.dart';
@@ -68,6 +69,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   final _routeReadiness = WorkDetailRouteReadiness();
   bool _initialLoadStarted = false;
   bool _deferredContentScheduled = false;
+  bool _translationChoiceMade = false;
   int _metadataLoadGeneration = 0;
   Work get _currentWork => _detailedWork ?? widget.work;
   String? _errorMessage;
@@ -179,10 +181,23 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   }
 
   Future<void> _showDeferredContentWhenIdle() async {
+    final autoTranslateFuture = ref
+        .read(autoTranslateWorkDetailsProvider.notifier)
+        .resolvedEnabled();
     final ready = await _routeReadiness.waitForIdle();
     if (!mounted || !ready) return;
     _deferredContentReady.value = true;
     _scheduleHDImage();
+
+    final autoTranslate = await autoTranslateFuture;
+    if (!mounted) return;
+    if (!_routeReadiness.isIdle) {
+      final idle = await _routeReadiness.waitForIdle();
+      if (!mounted || !idle) return;
+    }
+    if (autoTranslate && !_translationChoiceMade) {
+      _setTranslationEnabled(true);
+    }
   }
 
   void _scheduleHDImage() {
@@ -355,24 +370,24 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     }
   }
 
-  // 翻译标题
-  Future<void> _translateTitle() async {
-    if (_isTranslating) return;
+  void _toggleTranslation() {
+    _translationChoiceMade = true;
+    _setTranslationEnabled(!_showTranslation);
+  }
 
-    final work = _detailedWork ?? widget.work;
-
-    // 如果已有翻译，直接切换显示
-    if (_translatedTitle != null) {
-      setState(() {
-        _showTranslation = !_showTranslation;
-      });
-      return;
-    }
-
+  void _setTranslationEnabled(bool enabled) {
+    if (_showTranslation == enabled) return;
+    final translateTitle =
+        enabled && _translatedTitle == null && !_isTranslating;
     setState(() {
-      _isTranslating = true;
+      _showTranslation = enabled;
+      if (translateTitle) _isTranslating = true;
     });
+    if (translateTitle) unawaited(_translateTitle());
+  }
 
+  Future<void> _translateTitle() async {
+    final work = _detailedWork ?? widget.work;
     try {
       final translationService = TranslationService();
       final translated = await translationService.translate(
@@ -383,7 +398,6 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       if (mounted) {
         setState(() {
           _translatedTitle = translated;
-          _showTranslation = true;
           _isTranslating = false;
         });
       }
@@ -844,6 +858,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
                     onLoadCompleted: () => _fileTreeReady.value = true,
                     controller: _fileExplorerController,
                     initialLoadReady: _routeReadiness.waitForIdle,
+                    translate: _showTranslation,
                   )
                 : const SliverToBoxAdapter(child: SizedBox.shrink()),
           ),
@@ -951,7 +966,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
               isTranslating: _isTranslating,
               showExternalLink:
                   displaySettings.showExternalLinks && work.sourceUrl != null,
-              onTranslate: _translateTitle,
+              onTranslate: _toggleTranslation,
               onOpenExternalLink: work.sourceUrl == null
                   ? null
                   : () => _openSourceUrl(work.sourceUrl!),

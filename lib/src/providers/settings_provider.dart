@@ -380,6 +380,50 @@ final autoSaveTranslatedLyricsProvider =
       return AutoSaveTranslatedLyricsNotifier();
     });
 
+/// Controls automatic translation of work titles, resources, and previews.
+class AutoTranslateWorkDetailsNotifier extends StateNotifier<bool> {
+  static const String preferenceKey = 'auto_translate_work_details';
+
+  AutoTranslateWorkDetailsNotifier() : super(false) {
+    _preferenceLoad = _loadPreference();
+  }
+
+  late final Future<void> _preferenceLoad;
+  bool _changedLocally = false;
+
+  Future<void> _loadPreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted || _changedLocally) return;
+      state = prefs.getBool(preferenceKey) ?? false;
+    } catch (_) {
+      if (!mounted || _changedLocally) return;
+      state = false;
+    }
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    _changedLocally = true;
+    state = enabled;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(preferenceKey, enabled);
+    } catch (_) {
+      // Keep the in-memory value when persistence is unavailable.
+    }
+  }
+
+  Future<bool> resolvedEnabled() async {
+    await _preferenceLoad;
+    return state;
+  }
+}
+
+final autoTranslateWorkDetailsProvider =
+    StateNotifierProvider<AutoTranslateWorkDetailsNotifier, bool>((ref) {
+      return AutoTranslateWorkDetailsNotifier();
+    });
+
 /// 翻译语言设置
 class TranslationLanguagePreferencesNotifier
     extends StateNotifier<TranslationLanguagePreferences> {

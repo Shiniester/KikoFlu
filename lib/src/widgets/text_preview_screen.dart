@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
@@ -13,8 +14,10 @@ import '../services/subtitle_library_service.dart';
 import '../services/storage_service.dart';
 import '../services/remote_asset_cache.dart';
 import '../services/remote_text_loader.dart';
+import '../providers/settings_provider.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/encoding_utils.dart';
+import '../utils/file_icon_utils.dart';
 import '../utils/local_file_url.dart';
 import '../utils/scroll_optimization.dart';
 import '../../l10n/app_localizations.dart';
@@ -23,13 +26,14 @@ import 'translation_toggle_button.dart';
 import 'responsive_dialog.dart';
 
 /// 文本预览屏幕
-class TextPreviewScreen extends StatefulWidget {
+class TextPreviewScreen extends ConsumerStatefulWidget {
   final String textUrl;
   final String title;
   final int? workId;
   final String? hash;
   final VoidCallback? onSavedToLibrary;
   final bool showSaveOptionsOnLoad;
+  final bool autoTranslate;
 
   const TextPreviewScreen({
     super.key,
@@ -39,13 +43,14 @@ class TextPreviewScreen extends StatefulWidget {
     this.hash,
     this.onSavedToLibrary,
     this.showSaveOptionsOnLoad = false,
+    this.autoTranslate = false,
   });
 
   @override
-  State<TextPreviewScreen> createState() => _TextPreviewScreenState();
+  ConsumerState<TextPreviewScreen> createState() => _TextPreviewScreenState();
 }
 
-class _TextPreviewScreenState extends State<TextPreviewScreen> {
+class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   static const TextStyle _contentTextStyle = TextStyle(
     fontFamily: 'monospace',
     fontSize: 14,
@@ -69,6 +74,7 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
   int _currentSearchMatchIndex = -1;
   bool _hasLoadedContent = false;
   bool _initialSaveOptionsShown = false;
+  bool _autoTranslationStarted = false;
   late TextEditingController _textController;
   late TextEditingController _translatedTextController;
   String _detectedEncoding = 'UTF-8'; // 记录检测到的原始编码
@@ -259,42 +265,7 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
     }
 
     try {
-      // 获取字幕库目录
-      final libraryDir =
-          await SubtitleLibraryService.getSubtitleLibraryDirectory();
-
-      // 创建“已保存”目录
-      final savedDir = Directory(
-        path.join(libraryDir.path, SubtitleLibraryService.savedFolderName),
-      );
-      if (!await savedDir.exists()) {
-        await savedDir.create();
-      }
-
-      // 生成文件名
-      String fileName = widget.title;
-      if (!fileName.contains('.')) {
-        fileName = '$fileName.txt';
-      }
-
-      // 检查文件是否已存在，如果存在则添加序号
-      String finalPath = path.join(savedDir.path, fileName);
-      int counter = 1;
-      while (await File(finalPath).exists()) {
-        final nameWithoutExt = path.basenameWithoutExtension(fileName);
-        final ext = path.extension(fileName);
-        finalPath = path.join(savedDir.path, '${nameWithoutExt}_$counter$ext');
-        counter++;
-      }
-
-      // 写入文件
-      final file = File(finalPath);
-      // 使用原始编码保存，保持编码一致性
-      final bytes = _encodeString(contentToSave);
-      await file.writeAsBytes(bytes);
-
-      // 局部刷新缓存以便字幕库更新该目录
-      await SubtitleLibraryService.refreshDirectoryCache(savedDir.path);
+      await _writeSubtitleToLibrary(contentToSave);
 
       // 触发字幕库重载回调
       if (!mounted) return;
@@ -310,6 +281,35 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
       if (!mounted) return;
       SnackBarUtil.showError(context, l10n.saveFailedWithError(e.toString()));
     }
+  }
+
+  Future<void> _writeSubtitleToLibrary(String contentToSave) async {
+    final libraryDir =
+        await SubtitleLibraryService.getSubtitleLibraryDirectory();
+    final savedDir = Directory(
+      path.join(libraryDir.path, SubtitleLibraryService.savedFolderName),
+    );
+    if (!await savedDir.exists()) {
+      await savedDir.create();
+    }
+
+    var fileName = widget.title;
+    if (!fileName.contains('.')) {
+      fileName = '$fileName.txt';
+    }
+
+    var finalPath = path.join(savedDir.path, fileName);
+    var counter = 1;
+    while (await File(finalPath).exists()) {
+      final nameWithoutExt = path.basenameWithoutExtension(fileName);
+      final ext = path.extension(fileName);
+      finalPath = path.join(savedDir.path, '${nameWithoutExt}_$counter$ext');
+      counter++;
+    }
+
+    final bytes = _encodeString(contentToSave);
+    await File(finalPath).writeAsBytes(bytes);
+    await SubtitleLibraryService.refreshDirectoryCache(savedDir.path);
   }
 
   String? _getCurrentContent() {
@@ -566,6 +566,7 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
             _isLoading = false;
           });
           _showInitialSaveOptionsIfNeeded();
+          _maybeAutoTranslateContent();
           return;
         } else {
           if (!mounted) return;
@@ -594,6 +595,7 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
             _isLoading = false;
           });
           _showInitialSaveOptionsIfNeeded();
+          _maybeAutoTranslateContent();
           return;
         }
       }
@@ -628,6 +630,7 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
         _isLoading = false;
       });
       _showInitialSaveOptionsIfNeeded();
+      _maybeAutoTranslateContent();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -638,7 +641,8 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
   }
 
   Future<void> _translateContent() async {
-    if (_content == null || _content!.isEmpty) return;
+    final sourceContent = _content;
+    if (sourceContent == null || sourceContent.isEmpty) return;
 
     final l10n = S.of(context);
     setState(() {
@@ -649,7 +653,7 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
     try {
       final translationService = TranslationService();
       final translated = await translationService.translateLongText(
-        _content!,
+        sourceContent,
         onProgress: (current, total) {
           if (!mounted) return;
           setState(() {
@@ -667,6 +671,7 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
         _translationProgress = '';
       });
       _refreshSearchResults();
+      await _autoSaveTranslatedContentIfEnabled(sourceContent, translated);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -675,6 +680,45 @@ class _TextPreviewScreenState extends State<TextPreviewScreen> {
       });
       SnackBarUtil.showError(context, l10n.translationFailed(e.toString()));
     }
+  }
+
+  Future<void> _autoSaveTranslatedContentIfEnabled(
+    String sourceContent,
+    String translatedContent,
+  ) async {
+    if (translatedContent.isEmpty ||
+        translatedContent == sourceContent ||
+        !FileIconUtils.isLyricFile(widget.title)) {
+      return;
+    }
+
+    try {
+      final enabled = await ref
+          .read(autoSaveTranslatedLyricsProvider.notifier)
+          .resolvedEnabled();
+      if (!enabled) return;
+
+      await _writeSubtitleToLibrary(translatedContent);
+      if (mounted) widget.onSavedToLibrary?.call();
+    } catch (e) {
+      LogService.instance.error(
+        'Failed to save translated subtitle: $e',
+        tag: 'TextPreview',
+      );
+    }
+  }
+
+  void _maybeAutoTranslateContent() {
+    if (!widget.autoTranslate ||
+        _autoTranslationStarted ||
+        !FileIconUtils.isLyricFile(widget.title) ||
+        _content == null ||
+        _content!.isEmpty) {
+      return;
+    }
+
+    _autoTranslationStarted = true;
+    unawaited(_translateContent());
   }
 
   @override

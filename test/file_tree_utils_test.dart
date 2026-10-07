@@ -162,6 +162,40 @@ void main() {
       },
     );
 
+    test('collectNames includes only descendants of expanded folders', () {
+      final tree = [
+        folderItem('Disc 1', [
+          fileItem('track01.wav'),
+          folderItem('Nested', [fileItem('scan.png')]),
+        ]),
+        folderItem('Disc 2', [fileItem('track02.wav')]),
+        fileItem('cover.jpg'),
+      ];
+      expect(FileTreeUtils.collectNames(tree, expandedFolders: {}), [
+        'Disc 1',
+        'Disc 2',
+        'cover.jpg',
+      ]);
+      expect(FileTreeUtils.collectNames(tree, expandedFolders: {'Disc 1'}), [
+        'Disc 1',
+        'track01.wav',
+        'Nested',
+        'Disc 2',
+        'cover.jpg',
+      ]);
+      expect(
+        FileTreeUtils.collectNames(tree, expandedFolders: {'Disc 1/Nested'}),
+        ['Disc 1', 'Disc 2', 'cover.jpg'],
+      );
+      expect(
+        FileTreeUtils.collectNames(
+          tree,
+          expandedFolders: {'Disc 1', 'Disc 1/Nested'},
+        ),
+        ['Disc 1', 'track01.wav', 'Nested', 'scan.png', 'Disc 2', 'cover.jpg'],
+      );
+    });
+
     test('finds nested relative path by hash', () {
       final tree = [
         {

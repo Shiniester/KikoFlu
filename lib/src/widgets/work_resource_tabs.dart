@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
@@ -12,6 +13,7 @@ import '../services/file_preview_resolver.dart';
 import '../services/player_audio_variant_classifier.dart';
 import '../utils/collection_grid_layout.dart';
 import '../utils/file_tree_utils.dart';
+import '../utils/file_icon_utils.dart';
 import '../utils/snackbar_util.dart';
 import 'cached_image_widget.dart';
 import 'file_explorer_header.dart';
@@ -40,14 +42,13 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
     required this.onFileTap,
     required this.resolveImage,
     required this.onImageTap,
-    this.toolbar,
     this.progressMessage,
     this.displayNameFor,
     this.metadataBuilder,
-    this.trailingBuilder,
     this.audioTrailingBuilder,
     this.onAudioLongPress,
-    this.onFileLongPress,
+    this.expandedFolders = const {},
+    this.onVisibleNamesChanged,
     this.downloadedFiles = const {},
   });
 
@@ -60,14 +61,13 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
   final FileTreeItemTap onFileTap;
   final Future<PreviewFileItem?> Function(dynamic) resolveImage;
   final ValueChanged<dynamic> onImageTap;
-  final Widget? toolbar;
   final String? progressMessage;
   final FileTreeDisplayNameBuilder? displayNameFor;
   final FileTreeMetadataBuilder? metadataBuilder;
-  final FileTreeTrailingBuilder? trailingBuilder;
   final FileTreeTrailingBuilder? audioTrailingBuilder;
   final ResourceAudioLongPress? onAudioLongPress;
-  final FileTreeItemLongPress? onFileLongPress;
+  final Set<String> expandedFolders;
+  final ValueChanged<List<String>>? onVisibleNamesChanged;
   final Map<String, bool> downloadedFiles;
 
   @override
@@ -86,6 +86,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs> {
   final _imageTargets = <dynamic, Future<PreviewFileItem?>>{};
   final _imageAttempts = <dynamic, int>{};
   Map<String, bool> _downloadedFiles = const {};
+  List<String>? _reportedNames;
 
   void _updateResources(AudioFormatPreference preference) {
     for (final image in _images) {
@@ -139,43 +140,38 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs> {
   @override
   Widget build(BuildContext context) {
     _updateResources(ref.watch(audioFormatPreferenceProvider));
+    _reportVisibleNames();
     final s = S.of(context);
     return SliverMainAxisGroup(
       slivers: [
         SliverToBoxAdapter(
           child: Column(
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: DefaultTabController(
-                      key: ValueKey(_images.isNotEmpty),
-                      length: _images.isEmpty ? 2 : 3,
-                      initialIndex: _selected,
-                      child: TabBar(
-                        isScrollable: true,
-                        tabAlignment: TabAlignment.start,
-                        onTap: (index) => setState(() => _selected = index),
-                        tabs: [
-                          Tab(
-                            key: const ValueKey('work-resource-files-tab'),
-                            text: widget.resourceTitle,
-                          ),
-                          Tab(
-                            key: const ValueKey('work-resource-audio-tab'),
-                            text: s.workResourceAudio,
-                          ),
-                          if (_images.isNotEmpty)
-                            Tab(
-                              key: const ValueKey('work-resource-images-tab'),
-                              text: s.workResourceImages,
-                            ),
-                        ],
-                      ),
+              DefaultTabController(
+                key: ValueKey(_images.isNotEmpty),
+                length: _images.isEmpty ? 2 : 3,
+                initialIndex: _selected,
+                child: TabBar(
+                  isScrollable: true,
+                  tabAlignment: TabAlignment.start,
+                  labelPadding: const EdgeInsets.only(right: 24),
+                  onTap: (index) => setState(() => _selected = index),
+                  tabs: [
+                    Tab(
+                      key: const ValueKey('work-resource-files-tab'),
+                      text: widget.resourceTitle,
                     ),
-                  ),
-                  if (widget.toolbar != null) widget.toolbar!,
-                ],
+                    Tab(
+                      key: const ValueKey('work-resource-audio-tab'),
+                      text: s.workResourceAudio,
+                    ),
+                    if (_images.isNotEmpty)
+                      Tab(
+                        key: const ValueKey('work-resource-images-tab'),
+                        text: s.workResourceImages,
+                      ),
+                  ],
+                ),
               ),
               if (widget.progressMessage case final message?
                   when message.isNotEmpty)
@@ -190,6 +186,24 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs> {
         },
       ],
     );
+  }
+
+  void _reportVisibleNames() {
+    final callback = widget.onVisibleNamesChanged;
+    if (callback == null) return;
+    final names = switch (_selected) {
+      0 => FileTreeUtils.collectNames(
+        widget.fileTree,
+        expandedFolders: widget.expandedFolders,
+      ),
+      2 => _images.map(FileTreeUtils.titleOf).toSet().toList(),
+      _ => _audio.map((variant) => variant.title).toSet().toList(),
+    };
+    if (listEquals(_reportedNames, names)) return;
+    _reportedNames = names;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && listEquals(_reportedNames, names)) callback(names);
+    });
   }
 
   String _displayName(String title) =>
@@ -226,81 +240,60 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs> {
         final hash = FileTreeUtils.property(variant.source, 'hash')?.toString();
         final metadata = widget.metadataBuilder?.call(context, entry);
         final actions = widget.audioTrailingBuilder?.call(context, entry);
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            ListTile(
-              key: ValueKey('work-audio-${variant.fullPath}'),
-              leading: Icon(
-                widget.downloadedFiles[hash] == true
-                    ? Icons.download_done
-                    : Icons.audiotrack,
+        final audioColor = FileIconUtils.getFileIconColorByName(variant.title);
+        return ListTile(
+          key: ValueKey('work-audio-${variant.fullPath}'),
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(
+            widget.downloadedFiles[hash] == true
+                ? Icons.download_done
+                : Icons.audiotrack,
+            color: audioColor,
+          ),
+          title: Text(entry.displayTitle, style: const TextStyle(fontSize: 14)),
+          subtitle: variant.parentPath.isEmpty
+              ? null
+              : Text(variant.parentPath, style: const TextStyle(fontSize: 12)),
+          onTap: () =>
+              widget.onPlayAudio(variant.source, variant.parentPath, _queue),
+          onLongPress: widget.onAudioLongPress == null
+              ? () => _copyName(entry.displayTitle)
+              : () => widget.onAudioLongPress!(
+                  variant.source,
+                  entry.displayTitle,
+                  variant.parentPath,
+                  _queue,
+                ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (metadata != null) metadata,
+              IconButton(
+                tooltip: entry.displayTitle,
+                icon: Icon(Icons.play_arrow, color: audioColor),
+                iconSize: 20,
+                onPressed: () => widget.onPlayAudio(
+                  variant.source,
+                  variant.parentPath,
+                  _queue,
+                ),
               ),
-              title: Text(entry.displayTitle),
-              subtitle: variant.parentPath.isEmpty
-                  ? null
-                  : Text(variant.parentPath),
-              onTap: () => widget.onPlayAudio(
-                variant.source,
-                variant.parentPath,
-                _queue,
-              ),
-              onLongPress: widget.onAudioLongPress == null
-                  ? () => _copyName(entry.displayTitle)
-                  : () => widget.onAudioLongPress!(
-                      variant.source,
-                      entry.displayTitle,
-                      variant.parentPath,
-                      _queue,
-                    ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (metadata != null) metadata,
-                  IconButton(
-                    tooltip: entry.displayTitle,
-                    icon: const Icon(Icons.play_arrow),
-                    onPressed: () => widget.onPlayAudio(
-                      variant.source,
-                      variant.parentPath,
-                      _queue,
-                    ),
-                  ),
-                  if (actions != null) actions,
-                ],
-              ),
-            ),
-            if (subtitle != null)
-              Padding(
-                padding: const EdgeInsets.only(left: 32),
-                child: ListTile(
+              if (subtitle != null)
+                IconButton(
                   key: ValueKey('work-audio-subtitle-${variant.fullPath}'),
-                  leading: const Icon(Icons.subtitles_outlined),
-                  title: Text(_displayName(subtitle.title)),
-                  subtitle: Text(subtitle.pathLabel),
-                  onTap: () => widget.onFileTap(
+                  tooltip: S.of(context).preview,
+                  icon: const Icon(Icons.visibility),
+                  color: Colors.blue,
+                  iconSize: 20,
+                  onPressed: () => widget.onFileTap(
                     subtitle.source,
                     _displayName(subtitle.title),
                     _subtitleParent(subtitle),
                   ),
-                  onLongPress: widget.onFileLongPress == null
-                      ? () => _copyName(_displayName(subtitle.title))
-                      : () => widget.onFileLongPress!(
-                          subtitle.source,
-                          _displayName(subtitle.title),
-                          _subtitleParent(subtitle),
-                        ),
-                  trailing: widget.trailingBuilder?.call(
-                    context,
-                    _entry(
-                      subtitle.source,
-                      _subtitleParent(subtitle),
-                      subtitle.title,
-                    ),
-                  ),
                 ),
-              ),
-          ],
+              if (actions != null) actions,
+            ],
+          ),
         );
       },
     );
@@ -325,6 +318,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs> {
         layoutType: LayoutType.bigGrid,
         cardSize: WorkCardSize.normal,
         availableWidth: constraints.crossAxisExtent,
+        padding: EdgeInsets.zero,
       );
       return SliverPadding(
         padding: metrics.padding,
@@ -346,46 +340,53 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    FutureBuilder<PreviewFileItem?>(
-                      future: _imageTargets.putIfAbsent(
-                        file,
-                        () => widget.resolveImage(file),
-                      ),
-                      builder: (context, snapshot) {
-                        if (snapshot.hasError ||
-                            (snapshot.connectionState == ConnectionState.done &&
-                                snapshot.data == null)) {
-                          return SizedBox(
-                            height: 100,
-                            child: Center(
-                              child: IconButton(
-                                tooltip: S.of(context).retry,
-                                icon: const Icon(Icons.broken_image_outlined),
-                                onPressed: () => _retryImage(file),
+                    WorkCoverClip(
+                      cornerRadius: workCoverCompactRadius,
+                      child: FutureBuilder<PreviewFileItem?>(
+                        future: _imageTargets.putIfAbsent(
+                          file,
+                          () => widget.resolveImage(file),
+                        ),
+                        builder: (context, snapshot) {
+                          if (snapshot.hasError ||
+                              (snapshot.connectionState ==
+                                      ConnectionState.done &&
+                                  snapshot.data == null)) {
+                            return SizedBox(
+                              height: 100,
+                              child: Center(
+                                child: IconButton(
+                                  tooltip: S.of(context).retry,
+                                  icon: const Icon(Icons.broken_image_outlined),
+                                  onPressed: () => _retryImage(file),
+                                ),
                               ),
-                            ),
+                            );
+                          }
+                          final target = snapshot.data;
+                          if (target == null) {
+                            return const SizedBox(
+                              height: 100,
+                              child: Center(child: CircularProgressIndicator()),
+                            );
+                          }
+                          return LayoutBuilder(
+                            builder: (context, constraints) =>
+                                CachedImageWidget(
+                                  key: ValueKey(_imageAttempts[file] ?? 0),
+                                  imageUrl: target.url,
+                                  hash: target.hash,
+                                  cacheWidth:
+                                      (constraints.maxWidth *
+                                              MediaQuery.devicePixelRatioOf(
+                                                context,
+                                              ))
+                                          .ceil(),
+                                  onRetry: () => _retryImage(file),
+                                ),
                           );
-                        }
-                        final target = snapshot.data;
-                        if (target == null) {
-                          return const SizedBox(
-                            height: 100,
-                            child: Center(child: CircularProgressIndicator()),
-                          );
-                        }
-                        return LayoutBuilder(
-                          builder: (context, constraints) => CachedImageWidget(
-                            key: ValueKey(_imageAttempts[file] ?? 0),
-                            imageUrl: target.url,
-                            hash: target.hash,
-                            cacheWidth:
-                                (constraints.maxWidth *
-                                        MediaQuery.devicePixelRatioOf(context))
-                                    .ceil(),
-                            onRetry: () => _retryImage(file),
-                          ),
-                        );
-                      },
+                        },
+                      ),
                     ),
                     Padding(
                       padding: const EdgeInsets.all(8),

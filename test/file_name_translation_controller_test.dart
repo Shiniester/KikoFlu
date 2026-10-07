@@ -3,40 +3,22 @@ import 'package:kikoeru_flutter/src/services/file_name_translation_controller.da
 
 void main() {
   group('FileNameTranslationController', () {
-    test('toggles existing translations and resolves display names', () {
+    test('display names follow the page state and use cached values', () {
       final controller = FileNameTranslationController();
       controller.translations['track01.mp3'] = 'translated track';
 
-      expect(controller.displayName('track01.mp3'), 'track01.mp3');
-      expect(controller.toggleExistingTranslations(), isTrue);
-      expect(controller.showTranslation, isTrue);
-      expect(controller.displayName('track01.mp3'), 'translated track');
-      expect(controller.displayName('track02.mp3'), 'track02.mp3');
-    });
-
-    test('reports missing display names only while translations are visible',
-        () {
-      final controller = FileNameTranslationController();
-      final queued = <String>[];
-
       expect(
-        controller.displayName(
-          'track01.mp3',
-          onMissingTranslation: queued.add,
-        ),
+        controller.displayName('track01.mp3', showTranslation: false),
         'track01.mp3',
       );
-      expect(queued, isEmpty);
-
-      controller.showTranslation = true;
       expect(
-        controller.displayName(
-          'track01.mp3',
-          onMissingTranslation: queued.add,
-        ),
-        'track01.mp3',
+        controller.displayName('track01.mp3', showTranslation: true),
+        'translated track',
       );
-      expect(queued, ['track01.mp3']);
+      expect(
+        controller.displayName('track02.mp3', showTranslation: true),
+        'track02.mp3',
+      );
     });
 
     test('bulk translation ignores stale progress and completion', () {
@@ -63,49 +45,49 @@ void main() {
         isTrue,
       );
       expect(
-        controller
-            .completeBulkTranslation(second, const {'name': 'translated'}),
+        controller.completeBulkTranslation(second, const {'name': 'translated'}),
         isTrue,
       );
       expect(controller.isBulkTranslating, isFalse);
       expect(controller.progress, isEmpty);
-      expect(controller.showTranslation, isTrue);
       expect(controller.translations, {'name': 'translated'});
+      expect(
+        controller.displayName('name', showTranslation: false),
+        'name',
+      );
     });
 
-    test('lazy translation deduplicates pending names and clears failures', () {
+    test('later visible-name batches merge into the existing cache', () {
       final controller = FileNameTranslationController();
-
-      final generation = controller.beginLazyTranslation('track01.mp3');
-      expect(generation, isNotNull);
-      expect(controller.pendingNames, {'track01.mp3'});
-      expect(controller.beginLazyTranslation('track01.mp3'), isNull);
-
+      final first = controller.beginBulkTranslation('First tab');
       expect(
-        controller.failLazyTranslation(generation!, 'track01.mp3'),
+        controller.completeBulkTranslation(first, const {'one': 'uno'}),
         isTrue,
       );
-      expect(controller.pendingNames, isEmpty);
-      expect(controller.translations, isEmpty);
+
+      final second = controller.beginBulkTranslation('Second tab');
+      expect(
+        controller.completeBulkTranslation(second, const {'two': 'dos'}),
+        isTrue,
+      );
+      expect(controller.translations, {'one': 'uno', 'two': 'dos'});
     });
 
-    test('dispose invalidates pending lazy translations', () {
+    test('dispose invalidates an in-flight batch', () {
       final controller = FileNameTranslationController();
-
-      final generation = controller.beginLazyTranslation('track01.mp3');
+      final generation = controller.beginBulkTranslation('Preparing');
       controller.dispose();
 
       expect(
-        controller.completeLazyTranslation(
-          generation!,
-          'track01.mp3',
-          'translated track',
+        controller.completeBulkTranslation(
+          generation,
+          const {'track01.mp3': 'translated track'},
         ),
         isFalse,
       );
-      expect(controller.pendingNames, isEmpty);
       expect(controller.translations, isEmpty);
       expect(controller.isBulkTranslating, isFalse);
+      expect(controller.progress, isEmpty);
     });
   });
 }

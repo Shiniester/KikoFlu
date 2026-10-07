@@ -439,6 +439,14 @@
   "translationTargetLanguage": "Target Language",
   "autoSaveTranslatedLyrics": "Automatically save translated lyrics",
   "autoSaveTranslatedLyricsDesc": "Save translations to the subtitle library; otherwise show them temporarily.",
+  "autoTranslateWorkDetails": "Automatic translation",
+  "@autoTranslateWorkDetails": {
+    "description": "Audio preference for translating work detail content automatically."
+  },
+  "autoTranslateWorkDetailsDesc": "Translate the work title, visible resources and subtitle previews automatically",
+  "@autoTranslateWorkDetailsDesc": {
+    "description": "Explains what the automatic work detail translation preference translates."
+  },
   "selectTranslationTargetLanguage": "Select target language:",
   "translationLanguageFollowApp": "Follow App Language",
   "translationLanguageZhHans": "Simplified Chinese",

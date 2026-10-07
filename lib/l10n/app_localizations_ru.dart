@@ -931,6 +931,13 @@ class SRu extends S {
       'Сохранять перевод в библиотеку; иначе показывать временно.';
 
   @override
+  String get autoTranslateWorkDetails => 'Автоматический перевод';
+
+  @override
+  String get autoTranslateWorkDetailsDesc =>
+      'Автоматически переводить названия произведений, видимые ресурсы и предпросмотр субтитров';
+
+  @override
   String get selectTranslationTargetLanguage => 'Выберите целевой язык:';
 
   @override

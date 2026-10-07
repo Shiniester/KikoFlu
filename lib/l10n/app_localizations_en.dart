@@ -926,6 +926,13 @@ class SEn extends S {
       'Save translations to the subtitle library; otherwise show them temporarily.';
 
   @override
+  String get autoTranslateWorkDetails => 'Automatic translation';
+
+  @override
+  String get autoTranslateWorkDetailsDesc =>
+      'Translate the work title, visible resources and subtitle previews automatically';
+
+  @override
   String get selectTranslationTargetLanguage => 'Select target language:';
 
   @override

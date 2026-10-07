@@ -36,9 +36,30 @@ class FileNameTranslationService {
     Duration throttleDelay = const Duration(milliseconds: 300),
     FileNameTranslationProgress? onProgress,
     FileNameTranslationError? onChunkError,
+  }) {
+    return translateNames(
+      names: FileTreeUtils.collectNames(fileTree),
+      sourceLang: sourceLang,
+      maxChunkSize: maxChunkSize,
+      throttleDelay: throttleDelay,
+      onProgress: onProgress,
+      onChunkError: onChunkError,
+    );
+  }
+
+  Future<FileNameTranslationResult> translateNames({
+    required List<String> names,
+    String sourceLang = 'ja',
+    int maxChunkSize = 500,
+    Duration throttleDelay = const Duration(milliseconds: 300),
+    FileNameTranslationProgress? onProgress,
+    FileNameTranslationError? onChunkError,
   }) async {
-    final names = FileTreeUtils.collectNames(fileTree);
-    if (names.isEmpty) {
+    final uniqueNames = names
+        .where((name) => name.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (uniqueNames.isEmpty) {
       return const FileNameTranslationResult(
         names: [],
         translations: {},
@@ -46,7 +67,7 @@ class FileNameTranslationService {
     }
 
     final chunks = splitNamesIntoChunks(
-      names,
+      uniqueNames,
       maxChunkSize: maxChunkSize,
     );
     final translatedChunks = <String>[];
@@ -71,12 +92,14 @@ class FileNameTranslationService {
     final translatedNames = translatedChunks.join('\n').split('\n');
     final translations = <String, String>{};
 
-    for (var i = 0; i < names.length && i < translatedNames.length; i++) {
-      translations[names[i]] = translatedNames[i];
+    for (var i = 0; i < uniqueNames.length; i++) {
+      translations[uniqueNames[i]] = i < translatedNames.length
+          ? translatedNames[i]
+          : uniqueNames[i];
     }
 
     return FileNameTranslationResult(
-      names: names,
+      names: uniqueNames,
       translations: translations,
     );
   }

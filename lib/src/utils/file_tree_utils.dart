@@ -386,11 +386,14 @@ class FileTreeUtils {
     return find(rootItems, '');
   }
 
-  static List<String> collectNames(List<dynamic> items) {
+  static List<String> collectNames(
+    List<dynamic> items, {
+    Set<String>? expandedFolders,
+  }) {
     final names = <String>[];
     final seen = <String>{};
 
-    void collect(List<dynamic> currentItems) {
+    void collect(List<dynamic> currentItems, String parentPath) {
       for (final item in currentItems) {
         final title = titleOf(item);
         if (title.isNotEmpty && seen.add(title)) {
@@ -398,15 +401,19 @@ class FileTreeUtils {
         }
 
         if (isFolder(item)) {
+          final path = itemPath(parentPath, item);
+          if (expandedFolders != null && !expandedFolders.contains(path)) {
+            continue;
+          }
           final children = childrenOf(item);
           if (children != null) {
-            collect(children);
+            collect(children, path);
           }
         }
       }
     }
 
-    collect(items);
+    collect(items, '');
     return names;
   }
 }

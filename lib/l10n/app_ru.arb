@@ -317,6 +317,8 @@
   "translationTargetLanguage": "Целевой язык",
   "autoSaveTranslatedLyrics": "Автоматически сохранять переведенный текст",
   "autoSaveTranslatedLyricsDesc": "Сохранять перевод в библиотеку; иначе показывать временно.",
+  "autoTranslateWorkDetails": "Автоматический перевод",
+  "autoTranslateWorkDetailsDesc": "Автоматически переводить названия произведений, видимые ресурсы и предпросмотр субтитров",
   "selectTranslationTargetLanguage": "Выберите целевой язык:",
   "translationLanguageFollowApp": "Язык приложения",
   "translationLanguageZhHans": "Упрощённый китайский",
