@@ -951,26 +951,6 @@ class SEn extends S {
   String get translationLanguageJapanese => 'Japanese';
 
   @override
-  String get translationLanguageRussian => 'Russian';
-
-  @override
-  String get translationLanguageCustom => 'Custom';
-
-  @override
-  String get translationCustomTargetLanguage => 'Custom Target Language';
-
-  @override
-  String get translationCustomLanguageHint => 'Language name, e.g. Korean';
-
-  @override
-  String translationCustomLanguageLabel(String value) {
-    return 'Custom: $value';
-  }
-
-  @override
-  String get translationCustomTargetRequiresLlm => 'Requires LLM translation';
-
-  @override
   String get needsConfiguration => 'Needs configuration';
 
   @override
@@ -1306,9 +1286,6 @@ class SEn extends S {
 
   @override
   String get languageJa => '日本語';
-
-  @override
-  String get languageRu => 'Русский';
 
   @override
   String get themeModeDark => 'Dark Mode';
@@ -3985,6 +3962,9 @@ class SEn extends S {
 
   @override
   String get comicContinue => 'Continue reading';
+
+  @override
+  String get comicStart => 'Start reading';
 
   @override
   String get comicRead => 'Read';

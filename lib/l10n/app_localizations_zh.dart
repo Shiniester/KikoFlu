@@ -928,26 +928,6 @@ class SZh extends S {
   String get translationLanguageJapanese => '日语';
 
   @override
-  String get translationLanguageRussian => '俄语';
-
-  @override
-  String get translationLanguageCustom => '自定义';
-
-  @override
-  String get translationCustomTargetLanguage => '自定义目标语言';
-
-  @override
-  String get translationCustomLanguageHint => '语言名称，例如 Korean';
-
-  @override
-  String translationCustomLanguageLabel(String value) {
-    return '自定义: $value';
-  }
-
-  @override
-  String get translationCustomTargetRequiresLlm => '需要使用 LLM 翻译才能使用';
-
-  @override
   String get needsConfiguration => '需要配置';
 
   @override
@@ -1268,9 +1248,6 @@ class SZh extends S {
 
   @override
   String get languageJa => '日本語';
-
-  @override
-  String get languageRu => 'Русский';
 
   @override
   String get themeModeDark => '深色模式';
@@ -3855,6 +3832,9 @@ class SZh extends S {
   String get comicContinue => '继续阅读';
 
   @override
+  String get comicStart => '开始阅读';
+
+  @override
   String get comicRead => '阅读';
 
   @override
@@ -4985,26 +4965,6 @@ class SZhHant extends SZh {
   String get translationLanguageJapanese => '日語';
 
   @override
-  String get translationLanguageRussian => '俄語';
-
-  @override
-  String get translationLanguageCustom => '自訂';
-
-  @override
-  String get translationCustomTargetLanguage => '自訂目標語言';
-
-  @override
-  String get translationCustomLanguageHint => '語言名稱，例如 Korean';
-
-  @override
-  String translationCustomLanguageLabel(String value) {
-    return '自訂: $value';
-  }
-
-  @override
-  String get translationCustomTargetRequiresLlm => '需要使用 LLM 翻譯才能使用';
-
-  @override
   String get needsConfiguration => '需要設定';
 
   @override
@@ -5325,9 +5285,6 @@ class SZhHant extends SZh {
 
   @override
   String get languageJa => '日本語';
-
-  @override
-  String get languageRu => 'Русский';
 
   @override
   String get themeModeDark => '深色模式';
@@ -7910,6 +7867,9 @@ class SZhHant extends SZh {
 
   @override
   String get comicContinue => '繼續閱讀';
+
+  @override
+  String get comicStart => '開始閱讀';
 
   @override
   String get comicRead => '閱讀';

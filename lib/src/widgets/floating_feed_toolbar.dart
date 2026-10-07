@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'animated_menu_anchor.dart';
 
 class FloatingFeedModeAction {
   const FloatingFeedModeAction({
@@ -7,9 +8,11 @@ class FloatingFeedModeAction {
     required this.label,
     required this.isSelected,
     required this.onPressed,
+    this.iconAsset,
   });
 
   final IconData icon;
+  final String? iconAsset;
   final String label;
   final bool isSelected;
   final VoidCallback onPressed;
@@ -204,55 +207,98 @@ class _ModeDropdown extends StatelessWidget {
       key: const ValueKey('feed-mode-dropdown'),
       height: 40,
       width: maxWidth,
-      child: PopupMenuButton<int>(
-        tooltip: selected.label,
-        position: PopupMenuPosition.under,
-        onSelected: (index) => actions[index].onPressed(),
-        itemBuilder: (context) => [
+      child: AnimatedMenuAnchor(
+        menuStyle: const MenuStyle(
+          alignment: AlignmentDirectional.bottomStart,
+          maximumSize: WidgetStatePropertyAll(Size(360, double.infinity)),
+        ),
+        crossAxisUnconstrained: false,
+        menuChildren: [
           for (var index = 0; index < actions.length; index++)
-            PopupMenuItem<int>(
-              value: index,
-              child: Row(
-                children: [
-                  Icon(actions[index].icon, size: 18),
-                  const SizedBox(width: 10),
-                  Expanded(child: Text(actions[index].label)),
-                  if (actions[index].isSelected) ...[
-                    const SizedBox(width: 12),
-                    Icon(
-                      Icons.check,
-                      size: 18,
-                      color: Theme.of(context).colorScheme.primary,
+            Semantics(
+              selected: actions[index].isSelected,
+              child: MenuItemButton(
+                autofocus: index == effectiveIndex,
+                style: AnimatedMenuAnchor.selectedItemStyle(
+                  context,
+                  actions[index].isSelected,
+                ),
+                onPressed: actions[index].onPressed,
+                child: Row(
+                  children: [
+                    _modeActionIcon(
+                      context,
+                      actions[index],
+                      color: actions[index].isSelected
+                          ? Theme.of(context).colorScheme.onPrimaryContainer
+                          : null,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        actions[index].label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ],
-                ],
+                ),
               ),
             ),
         ],
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            children: [
-              Icon(selected.icon, size: 18),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  selected.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-                ),
+        builder: (context, controller, _) => Tooltip(
+          message: selected.label,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(24),
+            onTap: () =>
+                controller.isOpen ? controller.close() : controller.open(),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                children: [
+                  _modeActionIcon(context, selected),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      selected.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: selected.isSelected
+                            ? Theme.of(context).colorScheme.primary
+                            : null,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.arrow_drop_down, size: 20),
+                ],
               ),
-              const SizedBox(width: 4),
-              const Icon(Icons.arrow_drop_down, size: 20),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
+}
+
+Widget _modeActionIcon(
+  BuildContext context,
+  FloatingFeedModeAction action, {
+  Color? color,
+}) {
+  final iconAsset = action.iconAsset;
+  if (iconAsset != null) {
+    return Image.asset(iconAsset, width: 18, height: 18, fit: BoxFit.contain);
+  }
+  return Icon(
+    action.icon,
+    size: 18,
+    color:
+        color ??
+        (action.isSelected ? Theme.of(context).colorScheme.primary : null),
+  );
 }
 
 /// Shared horizontal inset for all floating controls in feed-like screens.
@@ -416,9 +462,9 @@ class _ModeButton extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  action.icon,
-                  size: 18,
+                _modeActionIcon(
+                  context,
+                  action,
                   color: action.isSelected
                       ? colorScheme.primary
                       : colorScheme.onSurfaceVariant,

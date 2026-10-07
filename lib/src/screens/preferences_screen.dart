@@ -210,15 +210,7 @@ class PreferencesScreen extends ConsumerWidget {
     BuildContext pageContext,
     WidgetRef ref,
   ) {
-    final translationSource = ref.read(translationSourceProvider);
     final preferences = ref.read(translationLanguagePreferencesProvider);
-    final customLanguageEnabled = translationSource == TranslationSource.llm;
-    final currentLanguage = preferences.targetLanguage;
-    final groupValue =
-        currentLanguage == TranslationTargetLanguage.custom &&
-            !customLanguageEnabled
-        ? TranslationTargetLanguage.followApp
-        : currentLanguage;
     const options = TranslationTargetLanguage.values;
 
     showDialog(
@@ -227,47 +219,15 @@ class PreferencesScreen extends ConsumerWidget {
         title: S.of(dialogContext).translationTargetLanguage,
         icon: Icons.language,
         description: S.of(dialogContext).selectTranslationTargetLanguage,
-        value: groupValue,
+        value: preferences.targetLanguage,
         options: [
           for (final language in options)
             RadioOption(
               value: language,
-              enabled:
-                  customLanguageEnabled ||
-                  language != TranslationTargetLanguage.custom,
-              title: Text(
-                _languageOptionLabel(
-                  dialogContext,
-                  language.localizedName(dialogContext),
-                  language == TranslationTargetLanguage.custom
-                      ? preferences.customTargetLanguage
-                      : null,
-                ),
-              ),
-              subtitle:
-                  language == TranslationTargetLanguage.custom &&
-                      !customLanguageEnabled
-                  ? Text(S.of(dialogContext).translationCustomTargetRequiresLlm)
-                  : null,
+              title: Text(language.localizedName(dialogContext)),
             ),
         ],
         onChanged: (value) async {
-          if (value == TranslationTargetLanguage.custom &&
-              !customLanguageEnabled) {
-            return false;
-          }
-          if (value == TranslationTargetLanguage.custom) {
-            final customLanguage = await _showCustomLanguageDialog(
-              pageContext,
-              title: S.of(pageContext).translationCustomTargetLanguage,
-              initialValue: preferences.customTargetLanguage,
-            );
-            if (customLanguage == null) return false;
-            await ref
-                .read(translationLanguagePreferencesProvider.notifier)
-                .updateCustomTargetLanguage(customLanguage);
-          }
-
           await ref
               .read(translationLanguagePreferencesProvider.notifier)
               .updateTargetLanguage(value);
@@ -280,63 +240,6 @@ class PreferencesScreen extends ConsumerWidget {
         },
       ),
     );
-  }
-
-  Future<String?> _showCustomLanguageDialog(
-    BuildContext context, {
-    required String title,
-    required String initialValue,
-  }) async {
-    final controller = TextEditingController(text: initialValue);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(
-            hintText: S.of(dialogContext).translationCustomLanguageHint,
-          ),
-          textInputAction: TextInputAction.done,
-          onSubmitted: (_) {
-            final text = controller.text.trim();
-            if (text.isNotEmpty) {
-              Navigator.pop(dialogContext, text);
-            }
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: Text(S.of(dialogContext).cancel),
-          ),
-          TextButton(
-            onPressed: () {
-              final text = controller.text.trim();
-              if (text.isNotEmpty) {
-                Navigator.pop(dialogContext, text);
-              }
-            },
-            child: Text(S.of(dialogContext).confirm),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    return result;
-  }
-
-  String _languageOptionLabel(
-    BuildContext context,
-    String label,
-    String? customValue,
-  ) {
-    final trimmedValue = customValue?.trim();
-    if (trimmedValue == null || trimmedValue.isEmpty) {
-      return label;
-    }
-    return S.of(context).translationCustomLanguageLabel(trimmedValue);
   }
 
   /// 预加载阈值的当前展示文案
@@ -364,24 +267,6 @@ class PreferencesScreen extends ConsumerWidget {
       context: pageContext,
       builder: (_) => _PreloadThresholdDialog(pageContext: pageContext),
     );
-  }
-
-  String _targetLanguageLabel(
-    BuildContext context,
-    TranslationLanguagePreferences preferences,
-    bool customLanguageEnabled,
-  ) {
-    if (preferences.targetLanguage == TranslationTargetLanguage.custom &&
-        !customLanguageEnabled) {
-      return TranslationTargetLanguage.followApp.localizedName(context);
-    }
-    if (preferences.targetLanguage == TranslationTargetLanguage.custom &&
-        preferences.customTargetLanguage.isNotEmpty) {
-      return S
-          .of(context)
-          .translationCustomLanguageLabel(preferences.customTargetLanguage);
-    }
-    return preferences.targetLanguage.localizedName(context);
   }
 
   String _getTranslationSourceDescription(
@@ -441,11 +326,8 @@ class PreferencesScreen extends ConsumerWidget {
                 subtitle: S
                     .of(context)
                     .currentSettingLabel(
-                      _targetLanguageLabel(
-                        context,
-                        translationLanguagePreferences,
-                        translationSource == TranslationSource.llm,
-                      ),
+                      translationLanguagePreferences.targetLanguage
+                          .localizedName(context),
                     ),
                 onTap: () => _showTranslationTargetLanguageDialog(context, ref),
               ),

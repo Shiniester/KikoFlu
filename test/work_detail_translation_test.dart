@@ -18,6 +18,7 @@ import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/utils/theme.dart';
 import 'package:kikoeru_flutter/src/widgets/offline_file_explorer_widget.dart';
+import 'package:kikoeru_flutter/src/widgets/tab_page_motion.dart';
 import 'package:kikoeru_flutter/src/widgets/text_preview_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/translation_toggle_button.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_title_header.dart';
@@ -261,7 +262,8 @@ void main() {
       expect(find.text('秘密.md'), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('work-resource-audio-tab')));
       await tester.pump();
-      expect(find.text(audioTitle), findsOneWidget);
+      await tester.pump(tabPageDuration);
+      expect(find.text(audioTitle).hitTestable(), findsOneWidget);
       await tester.tap(
         find.byKey(const ValueKey('work-audio-subtitle-$audioTitle')),
       );

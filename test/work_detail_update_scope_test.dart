@@ -26,6 +26,7 @@ import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/file_explorer_widget.dart';
+import 'package:kikoeru_flutter/src/widgets/tab_page_motion.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_stats_section.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_title_header.dart';
@@ -967,6 +968,7 @@ void main() {
         expect(scanStarted, isTrue);
         await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
         await tester.pump();
+        await tester.pump(tabPageDuration);
         expect(find.text('loaded-while-scan-pending.txt'), findsOneWidget);
         expect(tester.takeException(), isNull);
         if (!pendingDownloadRoot.isCompleted) pendingDownloadRoot.complete('');
@@ -1386,6 +1388,7 @@ void main() {
             find.byKey(const ValueKey('work-resource-files-tab')),
           );
           await tester.pump();
+          await tester.pump(tabPageDuration);
           expect(find.text('loaded-file.txt'), findsOneWidget);
         }
         expect(tester.takeException(), isNull);
@@ -1640,6 +1643,7 @@ void main() {
     );
     await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
     await tester.pump();
+    await tester.pump(tabPageDuration);
     expect(find.text('covered-file.txt'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
