@@ -1,6 +1,13 @@
 import 'package:kikoeru_flutter/src/screens/settings_screen.dart';
+import 'dart:async';
+import 'dart:io';
+import 'dart:ui' as ui;
 import 'package:kikoeru_flutter/src/comics/ui/comic_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart'
+    show BaseCacheManager, FileResponse;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
@@ -13,11 +20,13 @@ import 'package:kikoeru_flutter/src/providers/works_provider.dart';
 import 'package:kikoeru_flutter/src/providers/subtitle_library_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_screen.dart';
 import 'package:kikoeru_flutter/src/screens/search_screen.dart';
-import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart';
+import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+    hide kikoeruApiServiceProvider;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart'
-    show AuthNotifier, AuthState, authProvider;
+    show AuthNotifier, AuthState, authProvider, kikoeruApiServiceProvider;
 import 'package:kikoeru_flutter/src/models/user.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/models/history_record.dart';
@@ -26,6 +35,7 @@ import 'package:kikoeru_flutter/src/providers/my_tabs_display_provider.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/screens/main_screen.dart';
 import 'package:kikoeru_flutter/src/screens/works_screen.dart';
+import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
 import 'package:kikoeru_flutter/src/screens/history_screen.dart';
 import 'package:kikoeru_flutter/src/screens/playlists_screen.dart';
 import 'package:kikoeru_flutter/src/screens/local_downloads_screen.dart';
@@ -110,6 +120,8 @@ class _Works extends WorksNotifier {
     );
   }
 
+  void useGrid() => state = state.copyWith(layoutType: LayoutType.bigGrid);
+
   @override
   Future<void> loadWorks({
     bool refresh = false,
@@ -121,6 +133,51 @@ class _Works extends WorksNotifier {
 
 class _SubtitleLibrary extends SubtitleLibraryNotifier {}
 
+class _PendingDetailsApi extends KikoeruApiService {
+  final metadata = Completer<Map<String, dynamic>>();
+  @override
+  Future<Map<String, dynamic>> getWork(
+    int id, {
+    bool forceRefresh = false,
+    dynamic cancelToken,
+  }) => metadata.future;
+
+  @override
+  Future<List<dynamic>> getWorkTracks(
+    int id, {
+    bool forceRefresh = false,
+  }) async => [];
+}
+
+class _PendingCoverLease extends Fake implements RemoteAssetLease {
+  final completed = Completer<File>();
+  @override
+  Future<File> get file => completed.future;
+  @override
+  Future<void> release() async {}
+}
+
+class _PendingCoverCache extends Fake implements RemoteAssetImageCacheManager {
+  @override
+  RemoteAssetLease acquireFile(
+    String url, {
+    String? key,
+    Map<String, String>? headers,
+    bool speculative = false,
+    bool forceRevalidate = false,
+  }) => _PendingCoverLease();
+}
+
+class _NoImageCache extends Fake implements BaseCacheManager {
+  @override
+  Stream<FileResponse> getFileStream(
+    String url, {
+    String? key,
+    Map<String, String>? headers,
+    bool withProgress = false,
+  }) => const Stream.empty();
+}
+
 Future<void> _pumpAudioScreen(
   WidgetTester tester,
   ValueNotifier<bool> reduced, {
@@ -129,10 +186,20 @@ Future<void> _pumpAudioScreen(
   AudioTrack? track,
   ThemeData? theme,
   VoidCallback? onHistoryCreated,
+  GlobalKey? sceneKey,
+  KikoeruApiService? detailApi,
 }) async {
   final app = ProviderScope(
     overrides: [
-      authProvider.overrideWith((ref) => _AuthenticatedAudio()),
+      if (detailApi != null)
+        kikoeruApiServiceProvider.overrideWithValue(detailApi),
+      if (detailApi != null)
+        workDetailCoverCacheProvider.overrideWithValue(_PendingCoverCache()),
+      authProvider.overrideWith(
+        (ref) => _AuthenticatedAudio(
+          host: detailApi == null ? 'https://api.asmr-200.com' : '',
+        ),
+      ),
       myReviewsProvider.overrideWith((ref) => _Reviews(ref)),
       worksProvider.overrideWith((ref) => _Works(ref)),
       subtitleLibraryProvider.overrideWith((ref) => _SubtitleLibrary()),
@@ -175,7 +242,9 @@ Future<void> _pumpAudioScreen(
       ),
     ),
   );
-  await tester.pumpWidget(app);
+  await tester.pumpWidget(
+    sceneKey == null ? app : RepaintBoundary(key: sceneKey, child: app),
+  );
   if (settle) await tester.pumpAndSettle();
 }
 
@@ -184,10 +253,11 @@ PageController _pages(WidgetTester tester) => tester
     .controller!;
 
 class _AuthenticatedAudio extends AuthNotifier {
-  _AuthenticatedAudio() : super(KikoeruApiService()) {
-    state = const AuthState(
-      currentUser: User(name: 'listener'),
-      host: 'https://api.asmr-200.com',
+  _AuthenticatedAudio({String host = 'https://api.asmr-200.com'})
+    : super(KikoeruApiService()) {
+    state = AuthState(
+      currentUser: const User(name: 'listener'),
+      host: host,
       isLoggedIn: true,
     );
   }
@@ -197,6 +267,7 @@ class _AuthenticatedAudio extends AuthNotifier {
 
 void main() {
   setUp(() async {
+    CachedNetworkImageProvider.defaultCacheManager = _NoImageCache();
     SharedPreferences.setMockInitialValues({
       'works_layout_type': 'list',
       'my_tabs_show_playlists': false,
@@ -206,6 +277,118 @@ void main() {
       preferences: await SharedPreferences.getInstance(),
     );
   });
+
+  testWidgets('audio home remains visible after rotating the main screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final reduced = ValueNotifier(false);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+    final audioState = tester.state(find.byType(AudioScreen));
+    final worksState = tester.state(find.byType(WorksScreen));
+    for (final size in [const Size(844, 390), const Size(390, 844)]) {
+      tester.view.physicalSize = size;
+      await tester.pumpAndSettle();
+      expect(find.byType(WorksScreen), findsOneWidget);
+      expect(find.text('Work 0'), findsOneWidget);
+      expect(tester.state(find.byType(AudioScreen)), same(audioState));
+      expect(tester.state(find.byType(WorksScreen)), same(worksState));
+      expect(tester.takeException(), isNull);
+    }
+    tester
+        .widget<NavigationBar>(find.byType(NavigationBar))
+        .onDestinationSelected!(2);
+    await tester.pumpAndSettle();
+    tester.view.physicalSize = const Size(844, 390);
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<NavigationRail>(find.byType(NavigationRail)).selectedIndex,
+      2,
+    );
+    final pages = tester
+        .widget<PageView>(find.byKey(const ValueKey('main-tab-pages')))
+        .controller!;
+    expect(pages.page, 2);
+    expect(pages.positions.length, 1);
+    expect(find.byType(SettingsSectionList), findsWidgets);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'Android system back restores the painted audio home after rotation',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(false);
+      addTearDown(reduced.dispose);
+      final scene = GlobalKey();
+      await _pumpAudioScreen(
+        tester,
+        reduced,
+        screen: const MainScreen(),
+        theme: AppTheme.lightTheme(
+          null,
+        ).copyWith(platform: TargetPlatform.android),
+        sceneKey: scene,
+        detailApi: _PendingDetailsApi(),
+      );
+      for (final size in [const Size(844, 390), const Size(390, 844)]) {
+        tester.view.physicalSize = size;
+        await tester.pumpAndSettle();
+      }
+      final source = tester.element(find.byType(WorksScreen));
+      (ProviderScope.containerOf(source).read(worksProvider.notifier) as _Works)
+          .useGrid();
+      await tester.pumpAndSettle();
+      Future<List<int>> homePixels() => tester
+          .runAsync(() async {
+            final boundary =
+                scene.currentContext!.findRenderObject()
+                    as RenderRepaintBoundary;
+            final image = await boundary.toImage();
+            try {
+              final pixels = (await image.toByteData(
+                format: ui.ImageByteFormat.rawRgba,
+              ))!;
+              return pixels.buffer.asUint8List().toList();
+            } finally {
+              image.dispose();
+            }
+          })
+          .then((value) => value!);
+      final before = await homePixels();
+      final homeState = tester.state(find.byType(WorksScreen));
+      pushWorkDetailRoute(
+        source,
+        builder: (_) =>
+            const WorkDetailScreen(work: Work(id: 1, title: 'Work 0')),
+      );
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(find.byType(WorkDetailScreen), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(WorkDetailScreen), findsNothing);
+      expect(tester.state(find.byType(WorksScreen)), same(homeState));
+      final after = await homePixels();
+      var changed = 0;
+      for (var i = 0; i < before.length; i++) {
+        if (before[i] != after[i]) changed++;
+      }
+      expect(
+        changed,
+        0,
+        reason: 'The home body must paint again after system back.',
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 
   for (final withTrack in [false, true]) {
     testWidgets('main content fills the moving Dock gap (track=$withTrack)', (

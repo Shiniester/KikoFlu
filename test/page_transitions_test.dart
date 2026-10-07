@@ -124,7 +124,9 @@ Future<void> _backEvent(
 );
 
 void main() {
-  testWidgets('home paints after a snapshotting detail is popped', (tester) async {
+  testWidgets('home paints after a snapshotting detail is popped', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -135,7 +137,9 @@ void main() {
         key: scene,
         child: MaterialApp(
           navigatorKey: navigator,
-          theme: AppTheme.lightTheme(null).copyWith(platform: TargetPlatform.android),
+          theme: AppTheme.lightTheme(
+            null,
+          ).copyWith(platform: TargetPlatform.android),
           home: const Scaffold(
             body: ColoredBox(color: Colors.red, child: SizedBox.expand()),
           ),
@@ -148,7 +152,8 @@ void main() {
     navigator.currentState!.pop();
     await tester.pumpAndSettle();
     final pixels = await tester.runAsync(() async {
-      final boundary = scene.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      final boundary =
+          scene.currentContext!.findRenderObject() as RenderRepaintBoundary;
       final image = await boundary.toImage();
       try {
         return await image.toByteData(format: ui.ImageByteFormat.rawRgba);
@@ -156,11 +161,12 @@ void main() {
         image.dispose();
       }
     });
-    final index = (200 * 390 + 200) * 4;
+    const index = (200 * 390 + 200) * 4;
     expect(
       pixels!.buffer.asUint8List(index, 4),
       [244, 67, 54, 255],
-      reason: 'The revealed home must paint its contents after the route returns.',
+      reason:
+          'The revealed home must paint its contents after the route returns.',
     );
     expect(tester.takeException(), isNull);
   });

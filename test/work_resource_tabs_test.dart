@@ -11,9 +11,9 @@ import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/services/file_preview_resolver.dart';
 import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/utils/local_file_url.dart';
 import 'package:kikoeru_flutter/src/widgets/work_resource_tabs.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
-import 'package:kikoeru_flutter/src/utils/local_file_url.dart';
 
 List<dynamic> _files({bool images = false}) => [
   {
@@ -99,27 +99,20 @@ Future<void> _pumpResources(
   ),
 );
 
-Future<void> _waitForImage(WidgetTester tester, Finder finder) async {
-  final image = tester.widget<Image>(finder);
-  final configuration = createLocalImageConfiguration(tester.element(finder));
-  await tester.runAsync(() async {
-    final stream = image.image.resolve(configuration);
-    final loaded = Completer<void>();
-    final listener = ImageStreamListener(
-      (_, __) {
-        if (!loaded.isCompleted) loaded.complete();
-      },
-      onError: (error, stackTrace) {
-        if (!loaded.isCompleted) loaded.completeError(error, stackTrace);
-      },
+Future<void> _pumpUntilImageLoaded(WidgetTester tester, Finder finder) async {
+  final rawImage = find.descendant(of: finder, matching: find.byType(RawImage));
+  expect(rawImage, findsOneWidget);
+  for (
+    var frame = 0;
+    frame < 100 && tester.widget<RawImage>(rawImage).image == null;
+    frame++
+  ) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
     );
-    stream.addListener(listener);
-    try {
-      await loaded.future.timeout(const Duration(seconds: 5));
-    } finally {
-      stream.removeListener(listener);
-    }
-  });
+    await tester.pump();
+  }
+  expect(tester.widget<RawImage>(rawImage).image, isNotNull);
 }
 
 void main() {
@@ -165,14 +158,19 @@ void main() {
   testWidgets('image cards keep their aspect ratio after scrolling back', (
     tester,
   ) async {
-    await tester.binding.setSurfaceSize(const Size(390, 844));
+    await tester.binding.setSurfaceSize(const Size(390, 400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final directory = Directory.systemTemp.createTempSync(
       'work-resource-images-',
     );
-    addTearDown(() => directory.deleteSync(recursive: true));
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+      directory.deleteSync(recursive: true);
+    });
     final imageFiles = <String, File>{};
-    final files = List<dynamic>.generate(12, (index) {
+    final files = List<dynamic>.generate(20, (index) {
       final hash = 'image$index';
       final file = File('${directory.path}/$hash.png')
         ..writeAsBytesSync(
@@ -207,10 +205,8 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    Finder firstCard() => find.ancestor(
-      of: find.text('image0.png'),
-      matching: find.byType(Card),
-    );
+    Finder firstCard() =>
+        find.ancestor(of: find.text('image0.png'), matching: find.byType(Card));
 
     final initialCard = firstCard();
     final initialImage = find.descendant(
@@ -218,17 +214,24 @@ void main() {
       matching: find.byType(Image),
     );
     expect(initialImage, findsOneWidget);
-    await _waitForImage(tester, initialImage);
-    await tester.pump();
+    await _pumpUntilImageLoaded(tester, initialImage);
+    await tester.pump(const Duration(milliseconds: 200));
     final initialCardHeight = tester.getRect(initialCard).height;
     expect(
       tester.getRect(initialImage).width / tester.getRect(initialImage).height,
       closeTo(0.5, 0.01),
     );
 
-    controller.jumpTo(controller.position.maxScrollExtent);
-    await tester.pump();
-    await tester.pump();
+    await tester.scrollUntilVisible(
+      find.text('image19.png'),
+      300,
+      scrollable: find
+          .descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
     expect(firstCard(), findsNothing);
     PaintingBinding.instance.imageCache.clear();
     PaintingBinding.instance.imageCache.clearLiveImages();
@@ -238,6 +241,89 @@ void main() {
     final returnedCard = firstCard();
     expect(returnedCard, findsOneWidget);
     expect(tester.getRect(returnedCard).height, closeTo(initialCardHeight, 1));
+    expect(tester.takeException(), isNull);
+    final returnedImage = find.descendant(
+      of: returnedCard,
+      matching: find.byType(Image),
+    );
+    for (
+      var frame = 0;
+      frame < 100 && returnedImage.evaluate().isEmpty;
+      frame++
+    ) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    expect(returnedImage, findsOneWidget);
+    await _pumpUntilImageLoaded(tester, returnedImage);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('new image cards stay hidden until their ratio is decoded', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final directory = Directory.systemTemp.createTempSync(
+      'work-resource-first-image-',
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+      directory.deleteSync(recursive: true);
+    });
+    final file = File('${directory.path}/portrait.png')
+      ..writeAsBytesSync(img.encodePng(img.Image(width: 80, height: 160)));
+    final tree = ValueNotifier<List<dynamic>>([
+      {'type': 'image', 'title': 'portrait.png', 'hash': 'portrait'},
+    ]);
+    addTearDown(tree.dispose);
+    final target = Completer<PreviewFileItem?>();
+    await _pumpResources(tester, tree, resolveImage: (_) => target.future);
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pump();
+    await tester.pump();
+
+    final card = find.ancestor(
+      of: find.text('portrait.png'),
+      matching: find.byType(Card),
+    );
+    expect(card, findsOneWidget);
+    final visibility = find
+        .ancestor(of: card, matching: find.byType(Visibility))
+        .first;
+    expect(tester.widget<Visibility>(visibility).visible, isFalse);
+    expect(tester.widget<Visibility>(visibility).maintainSize, isTrue);
+    expect(tester.widget<Visibility>(visibility).maintainAnimation, isTrue);
+    expect(tester.widget<Visibility>(visibility).maintainState, isTrue);
+
+    target.complete(
+      PreviewFileItem(
+        url: LocalFileUrl.fromPath(file.path),
+        title: 'portrait.png',
+        hash: 'portrait',
+      ),
+    );
+    await tester.pump();
+    final image = find.descendant(of: card, matching: find.byType(Image));
+    expect(image, findsOneWidget);
+    expect(tester.widget<Visibility>(visibility).visible, isFalse);
+    expect(
+      tester
+          .widget<RawImage>(
+            find.descendant(of: image, matching: find.byType(RawImage)),
+          )
+          .image,
+      isNull,
+    );
+
+    await _pumpUntilImageLoaded(tester, image);
+    await tester.pump();
+    expect(tester.widget<Visibility>(visibility).visible, isTrue);
+    expect(
+      tester.getRect(image).width / tester.getRect(image).height,
+      closeTo(0.5, 0.01),
+    );
     expect(tester.takeException(), isNull);
   });
 
