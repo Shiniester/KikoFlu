@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../../widgets/pagination_bar.dart';
+import '../../widgets/animated_menu_anchor.dart';
 import '../comic_models.dart';
 import '../comic_pagination.dart';
 import '../comic_providers.dart';
@@ -573,21 +574,42 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                           ),
                         if (_mode == ComicSearchMode.single &&
                             (selected?.searchSorts.isNotEmpty ?? false))
-                          PopupMenuButton<String>(
-                            tooltip: s.comicSort,
-                            icon: const Icon(Icons.sort),
-                            itemBuilder: (_) => selected!.searchSorts
-                                .map(
-                                  (sort) => PopupMenuItem(
-                                    value: sort,
+                          AnimatedMenuAnchor(
+                            menuStyle: const MenuStyle(
+                              alignment: AlignmentDirectional.bottomStart,
+                              minimumSize: WidgetStatePropertyAll(Size(112, 0)),
+                              maximumSize: WidgetStatePropertyAll(
+                                Size(280, double.infinity),
+                              ),
+                            ),
+                            panelPadding: const EdgeInsets.symmetric(
+                              vertical: 8,
+                            ),
+                            transformOrigin: Alignment.topCenter,
+                            crossAxisUnconstrained: false,
+                            menuChildren: [
+                              for (final sort in selected!.searchSorts)
+                                Semantics(
+                                  selected: sort == _sort,
+                                  child: MenuItemButton(
+                                    autofocus:
+                                        sort ==
+                                        (_sort ?? selected.searchSorts.first),
+                                    onPressed: () {
+                                      setState(() => _sort = sort);
+                                      if (_submitted) _search();
+                                    },
                                     child: Text(_sortLabel(sort)),
                                   ),
-                                )
-                                .toList(),
-                            onSelected: (sort) {
-                              setState(() => _sort = sort);
-                              if (_submitted) _search();
-                            },
+                                ),
+                            ],
+                            builder: (context, controller, _) => IconButton(
+                              tooltip: s.comicSort,
+                              icon: const Icon(Icons.sort),
+                              onPressed: () => controller.isOpen
+                                  ? controller.close()
+                                  : controller.open(),
+                            ),
                           ),
                       ],
                     ),

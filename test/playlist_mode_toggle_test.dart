@@ -8,6 +8,7 @@ import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/widgets/animated_menu_anchor.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/playlist_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -49,9 +50,9 @@ void main() {
     await tester.pump();
 
     expect(find.byIcon(Icons.playlist_play), findsOneWidget);
-    expect(find.byType(PopupMenuButton<AudioTapPlaylistMode>), findsOneWidget);
+    expect(find.byType(AnimatedMenuAnchor), findsOneWidget);
 
-    await tester.tap(find.byType(PopupMenuButton<AudioTapPlaylistMode>));
+    await tester.tap(find.byType(AnimatedMenuAnchor));
     await tester.pumpAndSettle();
     expect(find.text('Replace Playback Queue'), findsOneWidget);
     expect(find.text('Play Next'), findsOneWidget);
@@ -60,7 +61,7 @@ void main() {
     await tester.tap(
       find.ancestor(
         of: find.text('Add to Playback Queue'),
-        matching: find.byType(CheckedPopupMenuItem<AudioTapPlaylistMode>),
+        matching: find.byType(MenuItemButton),
       ),
     );
     await tester.pumpAndSettle();
@@ -70,12 +71,12 @@ void main() {
       AudioTapPlaylistMode.addToQueue,
     );
 
-    await tester.tap(find.byType(PopupMenuButton<AudioTapPlaylistMode>));
+    await tester.tap(find.byType(AnimatedMenuAnchor));
     await tester.pumpAndSettle();
     await tester.tap(
       find.ancestor(
         of: find.text('Play Next'),
-        matching: find.byType(CheckedPopupMenuItem<AudioTapPlaylistMode>),
+        matching: find.byType(MenuItemButton),
       ),
     );
     await tester.pumpAndSettle();

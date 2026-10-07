@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/widgets/floating_feed_toolbar.dart';
 
@@ -70,9 +71,7 @@ void main() {
     expect(toolTaps, 1);
   });
 
-  testWidgets('uses a bounded Material popup when modes do not fit', (
-    tester,
-  ) async {
+  testWidgets('animates a bounded menu when modes do not fit', (tester) async {
     var selectedMode = -1;
     await tester.pumpWidget(
       _testApp(
@@ -99,11 +98,81 @@ void main() {
 
     expect(find.byKey(const ValueKey('feed-mode-dropdown')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('feed-mode-dropdown')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 90));
+    final selectedItem = find.text('Filter option 1');
+    final scale = find.ancestor(
+      of: selectedItem,
+      matching: find.byType(ScaleTransition),
+    );
+    expect(scale, findsOneWidget);
+    final scaleTransition = tester.widget<ScaleTransition>(scale);
+    expect(scaleTransition.scale.value, inExclusiveRange(.96, 1));
+    final fade = find.ancestor(
+      of: scale,
+      matching: find.byType(FadeTransition),
+    );
+    expect(fade, findsAtLeastNWidgets(1));
+    expect(
+      tester.widget<FadeTransition>(fade.first).opacity.value,
+      inExclusiveRange(0, 1),
+    );
     await tester.pumpAndSettle();
     expect(find.text('Filter option 1'), findsOneWidget);
     await tester.tap(find.text('Filter option 1'));
     await tester.pumpAndSettle();
     expect(selectedMode, 1);
+
+    await tester.tap(find.byKey(const ValueKey('feed-mode-dropdown')));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(MenuItemButton), findsNothing);
+  });
+
+  testWidgets('skips the menu entrance when reduced motion is enabled', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(disableAnimations: true),
+          child: child!,
+        ),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 250,
+              child: FloatingFeedToolbar(
+                modeActions: [
+                  for (var index = 0; index < 8; index++)
+                    FloatingFeedModeAction(
+                      icon: Icons.filter_alt,
+                      label: 'Filter option $index',
+                      isSelected: index == 0,
+                      onPressed: () {},
+                    ),
+                ],
+                toolActions: const [],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('feed-mode-dropdown')));
+    await tester.pump();
+    final scale = find.ancestor(
+      of: find.widgetWithText(MenuItemButton, 'Filter option 0'),
+      matching: find.byType(ScaleTransition),
+    );
+    expect(tester.widget<ScaleTransition>(scale.first).scale.value, 1);
+    final fade = find.ancestor(
+      of: scale,
+      matching: find.byType(FadeTransition),
+    );
+    expect(tester.widget<FadeTransition>(fade.first).opacity.value, 1);
   });
 
   testWidgets('can keep every mode as scrolling buttons when requested', (

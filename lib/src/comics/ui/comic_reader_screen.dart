@@ -10,6 +10,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../providers/audio_provider.dart';
 import '../../services/storage_service.dart';
 import '../../services/log_service.dart';
+import '../../widgets/animated_menu_anchor.dart';
 import '../../widgets/mini_player.dart';
 import '../../utils/snackbar_util.dart';
 import '../comic_models.dart';
@@ -141,7 +142,6 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       _routeAnimation!.removeStatusListener(_routeStatusListener!);
     }
     _pager?.dispose();
-    _readerMenuHistory?.remove();
     _focus.dispose();
     Future.microtask(() {
       if (_active.mounted) _active.state = false;
@@ -1209,26 +1209,17 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     required Widget icon,
     required ValueChanged<T> onSelected,
   }) => Builder(
-    builder: (anchorContext) => MenuAnchor(
+    builder: (anchorContext) => AnimatedMenuAnchor(
       controller: controller,
-      useRootOverlay: true,
-      consumeOutsideTap: true,
       crossAxisUnconstrained: false,
-      onOpen: () {
-        _stopAutoPageTurn();
-        final entry = LocalHistoryEntry(onRemove: controller.close);
-        _readerMenuHistory = entry;
-        ModalRoute.of(context)?.addLocalHistoryEntry(entry);
-      },
+      transformOrigin: Alignment.bottomCenter,
+      panelPadding: EdgeInsets.zero,
+      onOpen: _stopAutoPageTurn,
       onClose: () {
-        final entry = _readerMenuHistory;
-        _readerMenuHistory = null;
-        entry?.remove();
         if (mounted) _focus.requestFocus();
       },
-      style: MenuStyle(
+      menuStyle: MenuStyle(
         alignment: AlignmentDirectional.bottomStart,
-        padding: const WidgetStatePropertyAll(EdgeInsets.zero),
         minimumSize: const WidgetStatePropertyAll(Size(112, 0)),
         maximumSize: WidgetStateProperty.resolveWith((_) {
           final anchor = anchorContext.findRenderObject()! as RenderBox;
@@ -1252,7 +1243,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
             ),
           ),
       ],
-      builder: (context, controller, child) => IconButton(
+      builder: (context, controller, _) => IconButton(
         tooltip: tooltip,
         icon: icon,
         onPressed: () =>
@@ -1264,7 +1255,6 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
   final _focus = FocusNode();
   final _modeMenuController = MenuController();
   final _orientationMenuController = MenuController();
-  LocalHistoryEntry? _readerMenuHistory;
 }
 
 class _ZoomableComicPage extends StatefulWidget {

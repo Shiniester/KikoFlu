@@ -157,6 +157,19 @@ class _Source extends ComicSource {
   }
 }
 
+class _SortedSource extends _Source {
+  final sortRequests = <String?>[];
+
+  @override
+  List<String> get searchSorts => const ['dd', 'da'];
+
+  @override
+  Future<ComicResult> search(String query, {String? cursor, String? sort}) {
+    sortRequests.add(sort);
+    return super.search(query, cursor: cursor, sort: sort);
+  }
+}
+
 class _ThreePageChapterSource extends _Source {
   @override
   Future<List<ComicPage>> pages(Comic comic, ComicChapter chapter) async {
@@ -953,7 +966,7 @@ void main() {
     expect(items, findsNWidgets(ComicReadingMode.values.length));
     expect(tester.getSize(items.first).width, lessThanOrEqualTo(224));
     final menu = find
-        .ancestor(of: items.first, matching: find.byType(Material))
+        .ancestor(of: items.first, matching: find.byType(SingleChildScrollView))
         .first;
     expect(tester.getRect(menu).bottom, lessThanOrEqualTo(modeButtonTop));
     await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
@@ -3705,6 +3718,36 @@ void main() {
       tester.widget<ComicGrid>(grid).comics.first.id,
       'transition-second-0',
     );
+  });
+
+  testWidgets('comic search sort menu closes on Escape and selects a sort', (
+    tester,
+  ) async {
+    final source = _SortedSource();
+    await pump(
+      tester,
+      const ComicSearchScreen(initialSource: 'fixture', initialQuery: 'book'),
+      _Library(),
+      source,
+    );
+
+    final sortButton = find.byIcon(Icons.sort);
+    expect(sortButton, findsOneWidget);
+    expect(source.sortRequests, [null]);
+    await tester.tap(sortButton);
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(MenuItemButton, 'Newest'), findsOneWidget);
+    expect(find.widgetWithText(MenuItemButton, 'Oldest'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(MenuItemButton), findsNothing);
+
+    await tester.tap(sortButton);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(MenuItemButton, 'Oldest'));
+    await tester.pumpAndSettle();
+    expect(source.sortRequests.last, 'da');
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('full comic search places list pagination at the scroll end', (

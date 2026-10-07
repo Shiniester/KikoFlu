@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'animated_menu_anchor.dart';
 
 class FloatingFeedModeAction {
   const FloatingFeedModeAction({
@@ -204,50 +205,69 @@ class _ModeDropdown extends StatelessWidget {
       key: const ValueKey('feed-mode-dropdown'),
       height: 40,
       width: maxWidth,
-      child: PopupMenuButton<int>(
-        tooltip: selected.label,
-        position: PopupMenuPosition.under,
-        onSelected: (index) => actions[index].onPressed(),
-        itemBuilder: (context) => [
+      child: AnimatedMenuAnchor(
+        menuStyle: MenuStyle(
+          alignment: AlignmentDirectional.bottomStart,
+          minimumSize: WidgetStatePropertyAll(
+            Size(maxWidth < 112 ? maxWidth : 112, 0),
+          ),
+          maximumSize: WidgetStatePropertyAll(Size(maxWidth, double.infinity)),
+        ),
+        panelPadding: const EdgeInsets.symmetric(vertical: 8),
+        transformOrigin: Alignment.topCenter,
+        crossAxisUnconstrained: false,
+        menuChildren: [
           for (var index = 0; index < actions.length; index++)
-            PopupMenuItem<int>(
-              value: index,
-              child: Row(
-                children: [
-                  Icon(actions[index].icon, size: 18),
-                  const SizedBox(width: 10),
-                  Expanded(child: Text(actions[index].label)),
-                  if (actions[index].isSelected) ...[
-                    const SizedBox(width: 12),
-                    Icon(
-                      Icons.check,
-                      size: 18,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
+            Semantics(
+              selected: actions[index].isSelected,
+              child: MenuItemButton(
+                autofocus: index == effectiveIndex,
+                onPressed: actions[index].onPressed,
+                child: Row(
+                  children: [
+                    Icon(actions[index].icon, size: 18),
+                    const SizedBox(width: 10),
+                    Expanded(child: Text(actions[index].label)),
+                    if (actions[index].isSelected) ...[
+                      const SizedBox(width: 12),
+                      Icon(
+                        Icons.check,
+                        size: 18,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
         ],
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            children: [
-              Icon(selected.icon, size: 18),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  selected.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-                ),
+        builder: (context, controller, _) => Tooltip(
+          message: selected.label,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(24),
+            onTap: () =>
+                controller.isOpen ? controller.close() : controller.open(),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                children: [
+                  Icon(selected.icon, size: 18),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      selected.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.arrow_drop_down, size: 20),
+                ],
               ),
-              const SizedBox(width: 4),
-              const Icon(Icons.arrow_drop_down, size: 20),
-            ],
+            ),
           ),
         ),
       ),

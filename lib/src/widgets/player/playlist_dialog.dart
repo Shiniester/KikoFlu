@@ -11,6 +11,7 @@ import '../../providers/settings_provider.dart';
 import '../../utils/l10n_extensions.dart';
 import '../../utils/local_file_url.dart';
 import '../responsive_dialog.dart';
+import '../animated_menu_anchor.dart';
 import 'player_glass_surface.dart';
 import 'player_cover_widget.dart';
 import 'player_action_icons.dart';
@@ -766,22 +767,37 @@ class PlaylistModeToggle extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(audioTapPlaylistModeProvider);
-    return PopupMenuButton<AudioTapPlaylistMode>(
-      tooltip:
-          '${S.of(context).audioTapPlaylistMode}: ${mode.localizedName(context)}',
-      initialValue: mode,
-      icon: Icon(modeIcon(mode)),
-      onSelected: (nextMode) {
-        ref.read(audioTapPlaylistModeProvider.notifier).updateMode(nextMode);
-      },
-      itemBuilder: (context) => [
+    return AnimatedMenuAnchor(
+      menuStyle: const MenuStyle(
+        alignment: AlignmentDirectional.bottomEnd,
+        minimumSize: WidgetStatePropertyAll(Size(112, 0)),
+      ),
+      panelPadding: const EdgeInsets.symmetric(vertical: 8),
+      transformOrigin: Alignment.topCenter,
+      crossAxisUnconstrained: false,
+      menuChildren: [
         for (final option in _playlistModeMenuOrder)
-          CheckedPopupMenuItem(
-            value: option,
-            checked: option == mode,
-            child: Text(option.localizedName(context)),
+          Semantics(
+            selected: option == mode,
+            child: MenuItemButton(
+              autofocus: option == mode,
+              trailingIcon: option == mode ? const Icon(Icons.check) : null,
+              onPressed: () {
+                ref
+                    .read(audioTapPlaylistModeProvider.notifier)
+                    .updateMode(option);
+              },
+              child: Text(option.localizedName(context)),
+            ),
           ),
       ],
+      builder: (context, controller, _) => IconButton(
+        tooltip:
+            '${S.of(context).audioTapPlaylistMode}: ${mode.localizedName(context)}',
+        icon: Icon(modeIcon(mode)),
+        onPressed: () =>
+            controller.isOpen ? controller.close() : controller.open(),
+      ),
     );
   }
 
