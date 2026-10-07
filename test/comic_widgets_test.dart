@@ -268,6 +268,20 @@ class _Library extends ComicLibrary {
   }
 }
 
+class _NotifyingLibrary extends _Library {
+  @override
+  Future<void> saveProgress(Comic comic, String chapter, int page) async {
+    await super.saveProgress(comic, chapter, page);
+    notifyListeners();
+  }
+
+  @override
+  Future<void> removeHistory(Comic comic) async {
+    last = null;
+    notifyListeners();
+  }
+}
+
 class _RecordingComicDownloads extends ComicDownloads {
   _RecordingComicDownloads(_Library library, _Source source)
     : super(library, (_) => source);
@@ -5201,8 +5215,107 @@ void main() {
     });
   }
 
+  for (final size in [const Size(320, 640), const Size(1000, 600)]) {
+    testWidgets('comic release and update dates share a row at $size', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      const comic = Comic(
+        source: 'fixture',
+        id: 'dated-book',
+        title: 'Dated book',
+        extra: {
+          'publishedAt': '2020-01-02T00:00:00Z',
+          'updatedAt': '2024-03-04T00:00:00Z',
+        },
+      );
+      await pump(
+        tester,
+        const ComicDetailScreen(comic: comic),
+        _Library(),
+        _Source()..detailResult = comic,
+      );
+      final labels = S.of(tester.element(find.byType(ComicDetailScreen)));
+      await tester.scrollUntilVisible(
+        find.text(labels.releaseDate),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      final release = find.text(labels.releaseDate);
+      final updated = find.text(labels.lastUpdated);
+      expect(
+        tester.getTopLeft(release).dy,
+        closeTo(tester.getTopLeft(updated).dy, 0.1),
+      );
+      expect(find.text('2020-01-02'), findsOneWidget);
+      expect(find.text('2024-03-04'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('detail history follows library changes and offline chapter metadata', (
+    tester,
+  ) async {
+    const comic = Comic(
+      source: 'fixture',
+      id: 'book',
+      title: 'Fixture book',
+      chapters: [ComicChapter('two', 'Online chapter')],
+    );
+    const progressComic = Comic(
+      source: 'fixture',
+      id: 'book',
+      title: 'Fixture book',
+      chapters: [ComicChapter('one', 'Saved offline chapter')],
+    );
+    final library = _NotifyingLibrary();
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: comic),
+      library,
+      _Source()..detailResult = comic,
+    );
+    expect(find.byIcon(Icons.history), findsNothing);
+
+    await library.saveProgress(progressComic, 'one', 0);
+    await tester.pumpAndSettle();
+    final page = S.of(tester.element(find.byType(ComicDetailScreen)));
+    expect(
+      find.text('Saved offline chapter ${page.comicPreviewPage(1)}'),
+      findsOneWidget,
+    );
+    expect(
+      tester.getTopLeft(
+        find.text('Saved offline chapter ${page.comicPreviewPage(1)}'),
+      ).dy,
+      greaterThan(
+        tester
+            .getRect(
+              find.ancestor(
+                of: find.text('Continue reading'),
+                matching: find.byType(FilledButton),
+              ),
+            )
+            .bottom,
+      ),
+    );
+    expect(find.byIcon(Icons.history), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await library.removeHistory(progressComic);
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.history), findsNothing);
+    expect(
+      find.text('Saved offline chapter ${page.comicPreviewPage(1)}'),
+      findsNothing,
+    );
+  });
+
   testWidgets(
-    'chapter thumbnails load nearby pages and open the selected page',
+    'chapter thumbnails open a page preview before reading a selected page',
     (tester) async {
       await StorageService.remove('comic_chapter_thumbnails');
       tester.view.physicalSize = const Size(320, 600);
@@ -5256,6 +5369,42 @@ void main() {
         'page-7',
       });
       await tester.tap(thumbnail);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      expect(find.byType(ComicPagePreview), findsOneWidget);
+      expect(find.byType(ComicReaderScreen), findsNothing);
+      expect(
+        tester.widget<ComicPagePreview>(find.byType(ComicPagePreview)).initialPage,
+        3,
+      );
+      expect(library.last?.page, 7);
+      final previewTile = find.byKey(const ValueKey('comic-page-preview-3'));
+      final previewImage = find.descendant(
+        of: previewTile,
+        matching: find.byType(Image),
+      );
+      await waitForPreviewContent(tester, previewImage);
+      await waitForDecodedImage(tester, previewImage);
+      await tester.tap(find.byKey(const ValueKey('comic-page-preview-close')));
+      await tester.pumpAndSettle();
+      expect(find.byType(ComicReaderScreen), findsNothing);
+      expect(library.last?.page, 7);
+
+      await tester.tap(thumbnail);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      final selectedTile = find.byKey(
+        const ValueKey('comic-page-preview-3'),
+      );
+      final selectedImage = find.descendant(
+        of: selectedTile,
+        matching: find.byType(Image),
+      );
+      await waitForPreviewContent(tester, selectedImage);
+      await waitForDecodedImage(tester, selectedImage);
+      await tester.tap(selectedTile);
       await tester.pumpAndSettle();
       expect(
         tester
@@ -5264,6 +5413,24 @@ void main() {
         3,
       );
       expect(readerPageValue('4/8'), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 250));
+      await tester.pumpAndSettle();
+      expect(library.last?.page, 3);
+      Navigator.of(tester.element(find.byType(ComicReaderScreen))).pop();
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byIcon(Icons.history),
+        -400,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      final historyPage = S.of(
+        tester.element(find.byType(ComicDetailScreen)),
+      );
+      expect(
+        find.text('Chapter 1 ${historyPage.comicPreviewPage(4)}'),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
     },
   );
@@ -5276,7 +5443,7 @@ void main() {
         body: ComicChapterThumbnails(
           comic: _comic,
           chapter: const ComicChapter('one', 'Chapter 1'),
-          onSelected: (_) {},
+          onSelected: (_, _) {},
         ),
       ),
       _Library(),
@@ -5295,8 +5462,9 @@ void main() {
   });
 
   testWidgets(
-    'chapter thumbnails reuse offline pages without source requests',
+    'chapter detail previews reuse offline pages without source requests',
     (tester) async {
+      await StorageService.remove('comic_chapter_thumbnails');
       final source = _Source()..failedChapter = 'one';
       final library = _Library();
       final downloads = _PreviewDownloads(
@@ -5310,13 +5478,7 @@ void main() {
       final loaded = <String?>[];
       await pump(
         tester,
-        Scaffold(
-          body: ComicChapterThumbnails(
-            comic: _comic,
-            chapter: const ComicChapter('one', 'Chapter 1'),
-            onSelected: (_) {},
-          ),
-        ),
+        const ComicDetailScreen(comic: _comic),
         library,
         source,
         downloads: downloads,
@@ -5325,12 +5487,42 @@ void main() {
           return _png;
         },
       );
+      await tester.scrollUntilVisible(
+        find.text('Chapter 1'),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      final thumbnail = find.byKey(
+        const ValueKey('comic-chapter-thumbnail-one-3'),
+      );
+      await waitForPreviewContent(tester, thumbnail);
       expect(source.pageRequests, isEmpty);
-      expect(loaded.toSet(), {
+      expect(loaded.whereType<String>().toSet(), {
         'offline-0.png',
         'offline-3.png',
         'offline-7.png',
       });
+      await tester.tap(thumbnail);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+      final selectedTile = find.byKey(
+        const ValueKey('comic-page-preview-3'),
+      );
+      final selectedImage = find.descendant(
+        of: selectedTile,
+        matching: find.byType(Image),
+      );
+      await waitForPreviewContent(tester, selectedImage);
+      await waitForDecodedImage(tester, selectedImage);
+      expect(loaded, contains('offline-3.png'));
+      await tester.tap(selectedTile);
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<ComicReaderScreen>(find.byType(ComicReaderScreen)).initialPage,
+        3,
+      );
+      expect(source.pageRequests, isEmpty);
       expect(tester.takeException(), isNull);
     },
   );
@@ -5459,7 +5651,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('comments sit between tags and chapters and remain read only', (
+  testWidgets('comments follow all chapters and remain read only', (
     tester,
   ) async {
     final source = _Source()..commentsEnabled = true;
@@ -5477,11 +5669,15 @@ void main() {
       tester.getTopLeft(find.text('Fixture tag')).dy,
       lessThan(tester.getTopLeft(comments).dy),
     );
+    await tester.scrollUntilVisible(
+      comments,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(
       tester.getTopLeft(comments).dy,
-      lessThan(tester.getTopLeft(find.text(labels.comicChapters)).dy),
+      greaterThan(tester.getTopLeft(find.text('Chapter 2')).dy),
     );
-    await tester.ensureVisible(comments);
     await tester.tap(comments);
     await tester.pumpAndSettle();
     expect(find.text('Existing comment'), findsOneWidget);

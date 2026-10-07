@@ -10,7 +10,6 @@ import '../../widgets/metadata_search_chip.dart';
 import '../../widgets/work_detail/work_cover_frame.dart';
 import '../../widgets/work_detail/work_title_header.dart';
 import '../../widgets/work_detail/work_detail_section_title.dart';
-import '../../widgets/work_detail/work_extra_sections.dart';
 import '../../providers/work_card_display_provider.dart';
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../utils/collection_grid_layout.dart';
@@ -23,6 +22,7 @@ import '../comic_models.dart';
 import '../comic_providers.dart';
 import 'comic_widgets.dart';
 import 'comic_reader_screen.dart';
+import 'comic_page_preview.dart';
 import 'comic_actions.dart';
 import 'comic_chapter_thumbnails.dart';
 
@@ -60,6 +60,8 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   Object? _chaptersError;
   bool _busy = false;
   Object? _favoriteError;
+  ComicProgress? _lastProgress;
+  int _progressGeneration = 0;
   MediaQueryData? _readerWindow;
   bool _readerReturning = false;
   Comic get _readyComic => _comic.withChapters(_chapters);
@@ -184,9 +186,62 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   void initState() {
     super.initState();
     _load();
+    unawaited(_refreshProgress());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _logTiming('first visible');
     });
+  }
+
+  Future<void> _refreshProgress() async {
+    final generation = ++_progressGeneration;
+    ComicProgress? progress;
+    try {
+      progress = await ref.read(comicLibraryProvider).progress(_comic);
+    } catch (_) {
+      // Reading progress is optional detail-page context.
+    }
+    if (!mounted || generation != _progressGeneration) return;
+    setState(() => _lastProgress = progress);
+  }
+
+  ComicChapter? _lastReadChapter(ComicProgress progress) =>
+      _chapters.where((chapter) => chapter.id == progress.chapterId).firstOrNull ??
+      progress.comic.chapters
+          .where((chapter) => chapter.id == progress.chapterId)
+          .firstOrNull;
+
+  Future<void> _showPagePreview(
+    Comic comic,
+    ComicChapter chapter,
+    int initialPage,
+    List<ComicPage> pages,
+  ) async {
+    final source = ref
+        .read(comicSourcesProvider)
+        .firstWhere((source) => source.key == comic.source);
+    final loadImage = ref.read(comicImageLoaderProvider);
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheetContext) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: .7,
+        minChildSize: .35,
+        maxChildSize: .95,
+        builder: (context, controller) => ComicPagePreview(
+          pageCount: pages.length,
+          initialPage: initialPage,
+          title: chapter.title,
+          scrollController: controller,
+          loadImage: (index) => loadImage(source, pages[index]),
+          onSelected: (page) => Navigator.pop(sheetContext, page),
+        ),
+      ),
+    );
+    if (!mounted || selected == null) return;
+    await _read(comic, chapter: chapter, initialPage: selected);
   }
 
   @override
@@ -257,7 +312,10 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
     );
     await Navigator.of(context).push(route);
     await route.completed;
-    if (mounted) setState(() => _readerReturning = true);
+    if (mounted) {
+      setState(() => _readerReturning = true);
+      await _refreshProgress();
+    }
   }
 
   Future<void> _favorite(Comic comic) async {
@@ -295,6 +353,9 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(comicLibraryProvider, (_, __) {
+      unawaited(_refreshProgress());
+    });
     ref.watch(comicSettingsRevisionProvider);
     final current = MediaQuery.of(context);
     final saved = _readerWindow;
@@ -376,7 +437,13 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
         .read(comicSourcesProvider)
         .firstWhere((source) => source.key == comic.source)
         .hasComments;
-    final sectionCount = hasComments ? 4 : 3;
+    const chapterStartIndex = 3;
+    final chapterEndIndex =
+        chapterStartIndex + (_initialContentVisible ? _chapters.length : 0);
+    final lastProgress = _lastProgress;
+    final lastChapter = lastProgress == null
+        ? null
+        : _lastReadChapter(lastProgress);
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
@@ -467,6 +534,34 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                 ),
               ),
             ),
+            if (lastProgress != null)
+              LayoutBuilder(
+                builder: (context, constraints) => Padding(
+                  padding: const EdgeInsets.only(top: 8, right: 8),
+                  child: SizedBox(
+                    width: constraints.maxWidth,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Icon(
+                          Icons.history,
+                          size: 16,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            '${lastChapter?.title ?? lastProgress.chapterId} ${s.comicPreviewPage(lastProgress.page + 1)}',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.end,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
           ],
         );
         return Center(
@@ -521,12 +616,11 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                         ),
                       ),
                       SliverList.builder(
-                        itemCount:
-                            sectionCount +
-                            (_initialContentVisible ? _chapters.length : 0),
+                        itemCount: chapterEndIndex + (hasComments ? 1 : 0),
                         itemBuilder: (context, index) {
-                          if (index >= sectionCount) {
-                            final chapter = _chapters[index - sectionCount];
+                          if (index >= chapterStartIndex &&
+                              index < chapterEndIndex) {
+                            final chapter = _chapters[index - chapterStartIndex];
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -548,10 +642,13 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                                       ),
                                       comic: comic,
                                       chapter: chapter,
-                                      onSelected: (page) => _read(
-                                        comic,
-                                        chapter: chapter,
-                                        initialPage: page,
+                                      onSelected: (page, pages) => unawaited(
+                                        _showPagePreview(
+                                          comic,
+                                          chapter,
+                                          page,
+                                          pages,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -637,25 +734,42 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                                   ),
                                   const SizedBox(height: 16),
                                 ],
-                                WorkReleaseDateSection(
-                                  release: comic.publishedDate,
-                                ),
-                                if (comic.updatedDate != null) ...[
-                                  WorkDetailSectionTitle(s.lastUpdated),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    comic.updatedDate!,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodyMedium
-                                        ?.copyWith(fontSize: 14),
-                                  ),
+                                if (comic.publishedDate != null ||
+                                    comic.updatedDate != null) ...[
+                                  if (comic.publishedDate != null &&
+                                      comic.updatedDate != null)
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(
+                                          child: _comicDateColumn(
+                                            s.releaseDate,
+                                            comic.publishedDate!,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 16),
+                                        Expanded(
+                                          child: _comicDateColumn(
+                                            s.lastUpdated,
+                                            comic.updatedDate!,
+                                          ),
+                                        ),
+                                      ],
+                                    )
+                                  else
+                                    _comicDateColumn(
+                                      comic.publishedDate != null
+                                          ? s.releaseDate
+                                          : s.lastUpdated,
+                                      comic.publishedDate ?? comic.updatedDate!,
+                                    ),
                                   const SizedBox(height: 16),
                                 ],
                               ],
                             );
                           }
-                          if (hasComments && index == 2) {
+                          if (hasComments && index == chapterEndIndex) {
                             return Padding(
                               padding: const EdgeInsets.only(top: 16),
                               child: ListTile(
@@ -710,6 +824,18 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   Widget _retryBanner(Object error, VoidCallback retry) => MaterialBanner(
     content: Text('$error'),
     actions: [TextButton(onPressed: retry, child: Text(S.of(context).retry))],
+  );
+
+  Widget _comicDateColumn(String title, String date) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      WorkDetailSectionTitle(title),
+      const SizedBox(height: 8),
+      Text(
+        date.split('T').first,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 14),
+      ),
+    ],
   );
 }
 
