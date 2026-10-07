@@ -21,6 +21,18 @@ class AnimatedMenuAnchor extends StatefulWidget {
   final VoidCallback? onOpen;
   final VoidCallback? onClose;
 
+  static ButtonStyle selectedItemStyle(BuildContext context, bool selected) {
+    final colors = Theme.of(context).colorScheme;
+    return ButtonStyle(
+      backgroundColor: WidgetStatePropertyAll<Color?>(
+        selected ? colors.primaryContainer : null,
+      ),
+      foregroundColor: WidgetStatePropertyAll<Color?>(
+        selected ? colors.onPrimaryContainer : null,
+      ),
+    );
+  }
+
   @override
   State<AnimatedMenuAnchor> createState() => _AnimatedMenuAnchorState();
 }

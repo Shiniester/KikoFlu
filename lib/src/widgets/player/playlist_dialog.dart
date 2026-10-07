@@ -771,6 +771,7 @@ class PlaylistModeToggle extends ConsumerWidget {
       menuStyle: const MenuStyle(
         alignment: AlignmentDirectional.bottomEnd,
         minimumSize: WidgetStatePropertyAll(Size(112, 0)),
+        maximumSize: WidgetStatePropertyAll(Size(360, double.infinity)),
       ),
       crossAxisUnconstrained: false,
       menuChildren: [
@@ -779,10 +780,9 @@ class PlaylistModeToggle extends ConsumerWidget {
             selected: option == mode,
             child: MenuItemButton(
               autofocus: option == mode,
-              style: ButtonStyle(
-                foregroundColor: WidgetStatePropertyAll<Color?>(
-                  option == mode ? Theme.of(context).colorScheme.primary : null,
-                ),
+              style: AnimatedMenuAnchor.selectedItemStyle(
+                context,
+                option == mode,
               ),
               onPressed: () {
                 ref

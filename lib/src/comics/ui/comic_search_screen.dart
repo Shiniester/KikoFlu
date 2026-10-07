@@ -593,19 +593,10 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                                     autofocus:
                                         sort ==
                                         (_sort ?? selected.searchSorts.first),
-                                    style: ButtonStyle(
-                                      foregroundColor:
-                                          WidgetStatePropertyAll<Color?>(
-                                            sort ==
-                                                    (_sort ??
-                                                        selected
-                                                            .searchSorts
-                                                            .first)
-                                                ? Theme.of(
-                                                    context,
-                                                  ).colorScheme.primary
-                                                : null,
-                                          ),
+                                    style: AnimatedMenuAnchor.selectedItemStyle(
+                                      context,
+                                      sort ==
+                                          (_sort ?? selected.searchSorts.first),
                                     ),
                                     onPressed: () {
                                       setState(() => _sort = sort);

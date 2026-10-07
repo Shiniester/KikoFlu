@@ -1219,7 +1219,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       menuStyle: MenuStyle(
         alignment: AlignmentDirectional.bottomStart,
         padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-        minimumSize: const WidgetStatePropertyAll(Size(280, 0)),
+        minimumSize: const WidgetStatePropertyAll(Size(112, 0)),
         maximumSize: WidgetStateProperty.resolveWith((_) {
           final anchor = anchorContext.findRenderObject()! as RenderBox;
           final top = anchor.localToGlobal(Offset.zero).dy;
@@ -1235,12 +1235,9 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
             selected: option == value,
             child: MenuItemButton(
               autofocus: option == value,
-              style: ButtonStyle(
-                foregroundColor: WidgetStatePropertyAll<Color?>(
-                  option == value
-                      ? Theme.of(context).colorScheme.primary
-                      : null,
-                ),
+              style: AnimatedMenuAnchor.selectedItemStyle(
+                context,
+                option == value,
               ),
               onPressed: () => onSelected(option),
               child: Text(

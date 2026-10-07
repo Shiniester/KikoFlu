@@ -977,15 +977,23 @@ void main() {
     final unselectedReaderButton = readerButtons.firstWhere(
       (button) => !button.autofocus,
     );
-    final primary = Theme.of(tester.element(items.first)).colorScheme.primary;
-    expect(selectedReaderButton.style?.foregroundColor?.resolve({}), primary);
+    final colors = Theme.of(tester.element(items.first)).colorScheme;
+    expect(
+      selectedReaderButton.style?.foregroundColor?.resolve({}),
+      colors.onPrimaryContainer,
+    );
+    expect(
+      selectedReaderButton.style?.backgroundColor?.resolve({}),
+      colors.primaryContainer,
+    );
     expect(unselectedReaderButton.style?.foregroundColor?.resolve({}), isNull);
+    expect(unselectedReaderButton.style?.backgroundColor?.resolve({}), isNull);
     expect(
       find.descendant(of: items, matching: find.byIcon(Icons.check)),
       findsNothing,
     );
     expect(readerButtons.every((button) => button.leadingIcon == null), isTrue);
-    expect(tester.getSize(items.first).width, greaterThanOrEqualTo(280));
+    expect(tester.getSize(items.first).width, greaterThanOrEqualTo(112));
     expect(tester.getSize(items.first).width, lessThanOrEqualTo(360));
     for (final text
         in find.descendant(of: items, matching: find.byType(Text)).evaluate()) {
@@ -1143,8 +1151,29 @@ void main() {
       final orientationButtonTop = tester
           .getRect(find.byTooltip('Screen orientation'))
           .top;
+      await tester.tap(find.byTooltip('Reading mode'));
+      await tester.pumpAndSettle();
+      final readingMenuWidth = tester
+          .getSize(find.byType(MenuItemButton).first)
+          .width;
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Screen orientation'));
       await tester.pumpAndSettle();
+      final orientationItems = find.byType(MenuItemButton);
+      final orientationWidth = tester.getSize(orientationItems.first).width;
+      expect(orientationWidth, lessThan(280));
+      expect(orientationWidth, lessThan(readingMenuWidth));
+      expect(orientationWidth, lessThanOrEqualTo(360));
+      final selectedOrientation = tester
+          .widgetList<MenuItemButton>(orientationItems)
+          .singleWhere((button) => button.autofocus);
+      expect(
+        selectedOrientation.style?.backgroundColor?.resolve({}),
+        Theme.of(
+          tester.element(orientationItems.first),
+        ).colorScheme.primaryContainer,
+      );
       expect(
         tester
             .getRect(
@@ -3798,11 +3827,17 @@ void main() {
     final unselectedSort = sortButtons.firstWhere(
       (button) => !button.autofocus,
     );
-    final primary = Theme.of(
-      tester.element(sortItems.first),
-    ).colorScheme.primary;
-    expect(selectedSort.style?.foregroundColor?.resolve({}), primary);
+    final colors = Theme.of(tester.element(sortItems.first)).colorScheme;
+    expect(
+      selectedSort.style?.foregroundColor?.resolve({}),
+      colors.onPrimaryContainer,
+    );
+    expect(
+      selectedSort.style?.backgroundColor?.resolve({}),
+      colors.primaryContainer,
+    );
     expect(unselectedSort.style?.foregroundColor?.resolve({}), isNull);
+    expect(unselectedSort.style?.backgroundColor?.resolve({}), isNull);
     expect(
       find.descendant(of: sortItems, matching: find.byIcon(Icons.check)),
       findsNothing,

@@ -119,11 +119,17 @@ void main() {
     final buttons = tester.widgetList<MenuItemButton>(menuItems).toList();
     final selectedButton = buttons.singleWhere((button) => button.autofocus);
     final unselectedButton = buttons.firstWhere((button) => !button.autofocus);
-    final primary = Theme.of(
-      tester.element(menuItems.first),
-    ).colorScheme.primary;
-    expect(selectedButton.style?.foregroundColor?.resolve({}), primary);
+    final colors = Theme.of(tester.element(menuItems.first)).colorScheme;
+    expect(
+      selectedButton.style?.foregroundColor?.resolve({}),
+      colors.onPrimaryContainer,
+    );
+    expect(
+      selectedButton.style?.backgroundColor?.resolve({}),
+      colors.primaryContainer,
+    );
     expect(unselectedButton.style?.foregroundColor?.resolve({}), isNull);
+    expect(unselectedButton.style?.backgroundColor?.resolve({}), isNull);
     expect(
       find.descendant(of: menuItems, matching: find.byIcon(Icons.check)),
       findsNothing,
@@ -141,7 +147,7 @@ void main() {
           .singleWhere((text) => text.style?.fontWeight == FontWeight.w700)
           .style
           ?.color,
-      primary,
+      colors.primary,
     );
     final selectedItem = find.widgetWithText(MenuItemButton, 'Filter option 1');
     final scale = find.ancestor(

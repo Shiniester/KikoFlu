@@ -220,17 +220,20 @@ class _ModeDropdown extends StatelessWidget {
               selected: actions[index].isSelected,
               child: MenuItemButton(
                 autofocus: index == effectiveIndex,
-                style: ButtonStyle(
-                  foregroundColor: WidgetStatePropertyAll<Color?>(
-                    actions[index].isSelected
-                        ? Theme.of(context).colorScheme.primary
-                        : null,
-                  ),
+                style: AnimatedMenuAnchor.selectedItemStyle(
+                  context,
+                  actions[index].isSelected,
                 ),
                 onPressed: actions[index].onPressed,
                 child: Row(
                   children: [
-                    _modeActionIcon(context, actions[index]),
+                    _modeActionIcon(
+                      context,
+                      actions[index],
+                      color: actions[index].isSelected
+                          ? Theme.of(context).colorScheme.onPrimaryContainer
+                          : null,
+                    ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
