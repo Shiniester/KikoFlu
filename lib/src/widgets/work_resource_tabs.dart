@@ -477,13 +477,18 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
               availableWidth: constraints.crossAxisExtent,
               padding: const EdgeInsets.only(top: 8),
             );
-            return SliverPadding(
-              padding: metrics.padding,
-              sliver: SliverMasonryGrid.count(
+            // Pages contain at most 20 images; keep their masonry viewport at
+            // offset zero when the outer scroll moves on to recommendations.
+            return SliverToBoxAdapter(
+              child: MasonryGridView.count(
+                primary: false,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                padding: metrics.padding,
                 crossAxisCount: metrics.crossAxisCount,
                 crossAxisSpacing: metrics.spacing,
                 mainAxisSpacing: metrics.spacing,
-                childCount: pageImages.length,
+                itemCount: pageImages.length,
                 itemBuilder: (context, index) {
                   final file = pageImages[index];
                   final imageAspectRatio = _imageAspectRatios.putIfAbsent(

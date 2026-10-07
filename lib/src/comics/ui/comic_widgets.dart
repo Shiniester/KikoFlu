@@ -10,6 +10,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import '../../../l10n/app_localizations.dart';
@@ -587,6 +588,67 @@ bool _comicCoverImageIsCached(ResizeImage image, BuildContext context) {
       PaintingBinding.instance.imageCache.statusForKey(key).keepAlive;
 }
 
+class _ComicMasonryTail extends SingleChildRenderObjectWidget {
+  const _ComicMasonryTail({required this.itemCount, required super.child});
+
+  final int itemCount;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderComicMasonryTail(itemCount);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderComicMasonryTail renderObject,
+  ) {
+    renderObject.itemCount = itemCount;
+  }
+}
+
+class _RenderComicMasonryTail extends RenderProxySliver {
+  _RenderComicMasonryTail(this.itemCount);
+
+  int itemCount;
+
+  @override
+  void performLayout() {
+    final grid = child! as RenderSliverMasonryGrid;
+    final previous = grid.geometry;
+    final cacheStart = constraints.scrollOffset + constraints.cacheOrigin;
+    final reachedEnd =
+        grid.lastChild != null &&
+        grid.indexOf(grid.lastChild!) == itemCount - 1;
+    if (!reachedEnd ||
+        previous == null ||
+        previous.scrollOffsetCorrection != null ||
+        cacheStart < previous.scrollExtent) {
+      super.performLayout();
+      return;
+    }
+
+    // The masonry implementation loses other columns after its last item
+    // leaves the cache. Keep this bounded page's columns while reading its tail.
+    grid.layout(
+      constraints.copyWith(
+        cacheOrigin: -constraints.scrollOffset,
+        remainingCacheExtent: constraints.remainingCacheExtent + cacheStart,
+      ),
+      parentUsesSize: true,
+    );
+    final result = grid.geometry!;
+    geometry = result.scrollOffsetCorrection != null
+        ? result
+        : result.copyWith(
+            cacheExtent: calculateCacheOffset(
+              constraints,
+              from: 0,
+              to: result.scrollExtent,
+            ),
+          );
+  }
+}
+
 class ComicGrid extends ConsumerStatefulWidget {
   const ComicGrid({
     super.key,
@@ -827,98 +889,104 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
           slivers: [
             SliverPadding(
               padding: metrics.padding,
-              sliver: SliverMasonryGrid.count(
-                crossAxisCount: metrics.crossAxisCount,
-                childCount: comics.length,
-                crossAxisSpacing: metrics.spacing,
-                mainAxisSpacing: metrics.spacing,
-                itemBuilder: (context, i) => _readyCard(
-                  comics[i],
-                  (placeholderAspectRatio, onFirstFrameReady) => Card(
-                    clipBehavior: Clip.antiAlias,
-                    margin: EdgeInsets.zero,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(
-                        workCoverCompactRadius,
+              sliver: _ComicMasonryTail(
+                itemCount: comics.length,
+                child: SliverMasonryGrid.count(
+                  crossAxisCount: metrics.crossAxisCount,
+                  childCount: comics.length,
+                  crossAxisSpacing: metrics.spacing,
+                  mainAxisSpacing: metrics.spacing,
+                  itemBuilder: (context, i) => _readyCard(
+                    comics[i],
+                    (placeholderAspectRatio, onFirstFrameReady) => Card(
+                      clipBehavior: Clip.antiAlias,
+                      margin: EdgeInsets.zero,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(
+                          workCoverCompactRadius,
+                        ),
                       ),
-                    ),
-                    child: InkWell(
-                      onTap: () => openComic(
-                        context,
-                        comics[i],
-                        gridCoverWidth: gridCoverWidth,
-                        initialCoverWidth: gridCoverWidth,
-                      ),
-                      onLongPress: onLongPress == null
-                          ? null
-                          : () => onLongPress(comics[i]),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Stack(
-                            children: [
-                              ComicCover(
-                                source: comics[i].source,
-                                page: comics[i].coverPage,
-                                placeholderAspectRatio: placeholderAspectRatio,
-                                onFirstFrameReady: onFirstFrameReady,
-                              ),
-                              if (comics[i].coverDate case final date?)
-                                Positioned(
-                                  right: 6,
-                                  bottom: 6,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(
-                                        alpha: 0.7,
+                      child: InkWell(
+                        onTap: () => openComic(
+                          context,
+                          comics[i],
+                          gridCoverWidth: gridCoverWidth,
+                          initialCoverWidth: gridCoverWidth,
+                        ),
+                        onLongPress: onLongPress == null
+                            ? null
+                            : () => onLongPress(comics[i]),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Stack(
+                              children: [
+                                ComicCover(
+                                  source: comics[i].source,
+                                  page: comics[i].coverPage,
+                                  placeholderAspectRatio:
+                                      placeholderAspectRatio,
+                                  onFirstFrameReady: onFirstFrameReady,
+                                ),
+                                if (comics[i].coverDate case final date?)
+                                  Positioned(
+                                    right: 6,
+                                    bottom: 6,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
                                       ),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      date,
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: isLandscape ? 13 : 10,
-                                        fontWeight: FontWeight.bold,
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.7,
+                                        ),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        date,
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: isLandscape ? 13 : 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                            ],
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.all(8),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  comics[i].title,
-                                  style: Theme.of(context).textTheme.titleSmall
-                                      ?.copyWith(
-                                        fontWeight: FontWeight.bold,
-                                        height: 1.1,
-                                        fontSize:
-                                            layoutType == LayoutType.smallGrid
-                                            ? (isLandscape ? 13.5 : 11)
-                                            : isLandscape
-                                            ? 14.5
-                                            : 12,
-                                      ),
-                                ),
                               ],
                             ),
-                          ),
-                        ],
+                            Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    comics[i].title,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                          height: 1.1,
+                                          fontSize:
+                                              layoutType == LayoutType.smallGrid
+                                              ? (isLandscape ? 13.5 : 11)
+                                              : isLandscape
+                                              ? 14.5
+                                              : 12,
+                                        ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
+                    coverWidth: gridCoverWidth,
                   ),
-                  coverWidth: gridCoverWidth,
                 ),
               ),
             ),

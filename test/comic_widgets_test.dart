@@ -204,6 +204,7 @@ class _PaginatedSearchSource extends _Source {
   final List<Comic> firstPage;
   final List<Comic> secondPage;
   final cursors = <String?>[];
+  Completer<ComicResult>? secondPageGate;
 
   @override
   Future<ComicResult> search(
@@ -213,6 +214,7 @@ class _PaginatedSearchSource extends _Source {
   }) async {
     searches++;
     cursors.add(cursor);
+    if (cursor != null && secondPageGate != null) return secondPageGate!.future;
     return cursor == null
         ? ComicResult(firstPage, next: 'search-next')
         : ComicResult(secondPage);
@@ -466,6 +468,7 @@ void main() {
     Future<Uint8List> Function(ComicPage)? loadImage,
     bool settle = true,
     bool reduceMotion = false,
+    double textScale = 1,
     ThemeData? theme,
     ComicDownloads? downloads,
   }) async {
@@ -508,9 +511,10 @@ void main() {
         child: MaterialApp(
           theme: theme,
           builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(
-              context,
-            ).copyWith(disableAnimations: reduceMotion),
+            data: MediaQuery.of(context).copyWith(
+              disableAnimations: reduceMotion,
+              textScaler: TextScaler.linear(textScale),
+            ),
             child: RepaintBoundary(
               key: const ValueKey('app-paint'),
               child: child!,
@@ -3293,6 +3297,84 @@ void main() {
   });
 
   for (final layout in [LayoutType.bigGrid, LayoutType.smallGrid]) {
+    for (final search in [false, true]) {
+      testWidgets(
+        'comic long paging error scrolls without jumping ($layout, search=$search)',
+        (tester) async {
+          await StorageService.setString('comic_layout_type', layout.name);
+          tester.view.physicalSize = const Size(390, 844);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.reset);
+          final comics = List.generate(
+            40,
+            (i) => Comic(
+              source: 'fixture',
+              id: 'error-$i',
+              title: 'Book $i',
+              cover: 'error-cover-$i',
+            ),
+          );
+          final gate = Completer<ComicResult>();
+          final _Source source;
+          if (search) {
+            source = _PaginatedSearchSource(comics, [])..secondPageGate = gate;
+          } else {
+            source = _PaginatedSource(comics, [])..secondPageGate = gate;
+          }
+          await pump(
+            tester,
+            search
+                ? const ComicSearchScreen(
+                    initialSource: 'fixture',
+                    initialQuery: 'book',
+                  )
+                : const ComicScreen(),
+            _Library(),
+            source,
+            textScale: 1.5,
+          );
+          final scrollable = find.descendant(
+            of: find.byType(ComicGrid),
+            matching: find.byType(Scrollable),
+          );
+          final position = tester.state<ScrollableState>(scrollable).position;
+          await tester.scrollUntilVisible(
+            find.text('Next').hitTestable(),
+            500,
+            scrollable: scrollable,
+          );
+          await tester.tap(find.text('Next'));
+          await tester.pump();
+          gate.completeError(
+            ComicSourceException(
+              List.generate(
+                160,
+                (i) => 'Paging failure $i: source unavailable',
+              ).join('\n'),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(find.byType(MaterialBanner), findsOneWidget);
+          for (var step = 0; step < 15; step++) {
+            final before = position.pixels;
+            await tester.drag(scrollable, const Offset(0, -240));
+            await tester.pumpAndSettle();
+            expect(position.pixels, greaterThanOrEqualTo(before));
+          }
+          tester.view.physicalSize = const Size(844, 390);
+          await tester.pumpAndSettle();
+          final before = position.pixels;
+          await tester.drag(scrollable, const Offset(0, -240));
+          await tester.pumpAndSettle();
+          expect(position.pixels, greaterThanOrEqualTo(before));
+          expect(
+            tester.widget<ComicGrid>(find.byType(ComicGrid)).comics.first.id,
+            'error-0',
+          );
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
     testWidgets(
       'ComicScreen keeps covers stable during fast down and reverse scroll in $layout',
       (tester) async {

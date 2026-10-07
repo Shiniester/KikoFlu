@@ -65,6 +65,7 @@ Future<void> _pumpResources(
   ValueChanged<List<String>>? onVisibleNamesChanged,
   ScrollController? controller,
   bool disableAnimations = false,
+  int recommendationCount = 0,
 }) => tester.pumpWidget(
   ProviderScope(
     child: MaterialApp(
@@ -100,6 +101,14 @@ Future<void> _pumpResources(
                     expandedFolders: expandedFolders,
                     onVisibleNamesChanged: onVisibleNamesChanged,
                   ),
+                  if (recommendationCount > 0)
+                    SliverList.builder(
+                      itemCount: recommendationCount,
+                      itemBuilder: (context, index) => SizedBox(
+                        height: 70,
+                        child: Text('recommendation $index'),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -127,6 +136,51 @@ Future<void> _pumpUntilImageLoaded(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
+  testWidgets('scrolling past image pages continues through recommendations', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final tree = ValueNotifier<List<dynamic>>([
+      for (var index = 0; index < 41; index++)
+        {'type': 'image', 'title': 'image$index.png', 'hash': 'image$index'},
+    ]);
+    final scroll = ScrollController();
+    addTearDown(tree.dispose);
+    addTearDown(scroll.dispose);
+    await _pumpResources(
+      tester,
+      tree,
+      controller: scroll,
+      recommendationCount: 100,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pumpAndSettle();
+    for (var step = 0; step < 25; step++) {
+      final before = scroll.offset;
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -240));
+      await tester.pumpAndSettle();
+      expect(scroll.offset, greaterThanOrEqualTo(before));
+    }
+    expect(scroll.offset, greaterThan(5000));
+    expect(find.textContaining('recommendation '), findsWidgets);
+    await tester.binding.setSurfaceSize(const Size(900, 500));
+    await tester.pumpAndSettle();
+    final beforeRotationScroll = scroll.offset;
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -240));
+    await tester.pumpAndSettle();
+    expect(scroll.offset, greaterThanOrEqualTo(beforeRotationScroll));
+    expect(find.textContaining('recommendation '), findsWidgets);
+    expect(
+      tester
+          .widget<TabBar>(find.byType(TabBar, skipOffstage: false))
+          .controller!
+          .index,
+      2,
+    );
+  });
+
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     await StorageService.initCritical(
@@ -243,7 +297,8 @@ void main() {
           )
           .first,
     );
-    expect(firstCard(), findsNothing);
+    await tester.pumpAndSettle();
+    expect(firstCard().hitTestable(), findsNothing);
     PaintingBinding.instance.imageCache.clear();
     PaintingBinding.instance.imageCache.clearLiveImages();
     controller.jumpTo(0);
