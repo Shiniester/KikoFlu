@@ -1219,7 +1219,6 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
       menuStyle: MenuStyle(
         alignment: AlignmentDirectional.bottomStart,
         padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-        minimumSize: const WidgetStatePropertyAll(Size(112, 0)),
         maximumSize: WidgetStateProperty.resolveWith((_) {
           final anchor = anchorContext.findRenderObject()! as RenderBox;
           final top = anchor.localToGlobal(Offset.zero).dy;

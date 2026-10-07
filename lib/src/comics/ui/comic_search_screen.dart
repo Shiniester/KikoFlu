@@ -577,7 +577,6 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                           AnimatedMenuAnchor(
                             menuStyle: const MenuStyle(
                               alignment: AlignmentDirectional.bottomStart,
-                              minimumSize: WidgetStatePropertyAll(Size(112, 0)),
                               maximumSize: WidgetStatePropertyAll(
                                 Size(360, double.infinity),
                               ),

@@ -770,7 +770,6 @@ class PlaylistModeToggle extends ConsumerWidget {
     return AnimatedMenuAnchor(
       menuStyle: const MenuStyle(
         alignment: AlignmentDirectional.bottomEnd,
-        minimumSize: WidgetStatePropertyAll(Size(112, 0)),
         maximumSize: WidgetStatePropertyAll(Size(360, double.infinity)),
       ),
       crossAxisUnconstrained: false,

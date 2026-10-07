@@ -210,7 +210,6 @@ class _ModeDropdown extends StatelessWidget {
       child: AnimatedMenuAnchor(
         menuStyle: const MenuStyle(
           alignment: AlignmentDirectional.bottomStart,
-          minimumSize: WidgetStatePropertyAll(Size(112, 0)),
           maximumSize: WidgetStatePropertyAll(Size(360, double.infinity)),
         ),
         crossAxisUnconstrained: false,

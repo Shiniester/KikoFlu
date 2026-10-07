@@ -487,6 +487,7 @@ void main() {
     Future<Uint8List> Function(ComicPage)? loadImage,
     bool settle = true,
     bool reduceMotion = false,
+    Locale locale = const Locale('en'),
     ThemeData? theme,
     ComicDownloads? downloads,
   }) async {
@@ -537,7 +538,7 @@ void main() {
               child: child!,
             ),
           ),
-          locale: const Locale('en'),
+          locale: locale,
           localizationsDelegates: S.localizationsDelegates,
           supportedLocales: S.supportedLocales,
           home: child,
@@ -993,7 +994,6 @@ void main() {
       findsNothing,
     );
     expect(readerButtons.every((button) => button.leadingIcon == null), isTrue);
-    expect(tester.getSize(items.first).width, greaterThanOrEqualTo(112));
     expect(tester.getSize(items.first).width, lessThanOrEqualTo(360));
     for (final text
         in find.descendant(of: items, matching: find.byType(Text)).evaluate()) {
@@ -1061,6 +1061,61 @@ void main() {
     await tester.pumpAndSettle();
     expect(items, findsNothing);
     expect(find.byTooltip('Reading mode'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Chinese reader menus fit labels without reserved icon space', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pump(
+      tester,
+      const ComicReaderScreen(
+        comic: _comic,
+        chapter: ComicChapter('one', 'Chapter 1'),
+      ),
+      _Library(),
+      _Source(),
+      locale: const Locale('zh'),
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+    for (final tooltip in ['阅读模式', '屏幕方向']) {
+      await tester.tap(find.byTooltip(tooltip));
+      await tester.pumpAndSettle();
+      final items = find.byType(MenuItemButton);
+      final panel = find
+          .ancestor(of: items.first, matching: find.byType(Material))
+          .first;
+      final panelRect = tester.getRect(panel);
+      final texts = find.descendant(of: items, matching: find.byType(Text));
+      var longestLabelWidth = 0.0;
+      for (final text in texts.evaluate()) {
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.byWidget(text.widget),
+        );
+        longestLabelWidth = math.max(
+          longestLabelWidth,
+          paragraph.getMaxIntrinsicWidth(double.infinity),
+        );
+        expect(paragraph.didExceedMaxLines, isFalse);
+      }
+      final inset = tester.getRect(texts.first).left - panelRect.left;
+      expect(panelRect.width, closeTo(longestLabelWidth + inset * 2, 0.5));
+      expect(panelRect.width, lessThanOrEqualTo(360));
+      expect(
+        tester
+            .widgetList<MenuItemButton>(items)
+            .every(
+              (item) => item.leadingIcon == null && item.trailingIcon == null,
+            ),
+        isTrue,
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+    }
     expect(tester.takeException(), isNull);
   });
 
