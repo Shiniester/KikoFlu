@@ -36,7 +36,8 @@ import '../utils/string_utils.dart';
 import 'file_tree_actions.dart';
 import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
-import 'image_gallery_screen.dart';
+import 'work_image_reader.dart';
+import 'work_resource_tabs.dart';
 import 'manual_subtitle_load_flow.dart';
 import 'text_preview_screen.dart';
 import 'pdf_preview_screen.dart';
@@ -393,6 +394,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     dynamic audioFile,
     String parentPath, {
     AudioTapPlaylistMode? modeOverride,
+    List<dynamic>? audioFiles,
   }) async {
     final l10n = S.of(context);
     final authState = ref.read(authProvider);
@@ -439,6 +441,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       unknownTitle: l10n.unknown,
       artworkUrl: coverUrl,
       playlistMode: playlistMode,
+      audioFiles: audioFiles,
     );
 
     if (!mounted) return;
@@ -575,8 +578,9 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   Future<void> _showFileActionMenu(
     dynamic file,
     String displayTitle,
-    String parentPath,
-  ) async {
+    String parentPath, {
+    List<dynamic>? audioFiles,
+  }) async {
     final isAudio = FileIconUtils.isAudioFile(file);
     await showModalBottomSheet<void>(
       context: context,
@@ -598,6 +602,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
                     file,
                     parentPath,
                     modeOverride: AudioTapPlaylistMode.addToQueue,
+                    audioFiles: audioFiles,
                   );
                 },
               ),
@@ -613,6 +618,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
                     file,
                     parentPath,
                     modeOverride: AudioTapPlaylistMode.playNext,
+                    audioFiles: audioFiles,
                   );
                 },
               ),
@@ -628,6 +634,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
                     file,
                     parentPath,
                     modeOverride: AudioTapPlaylistMode.replaceQueue,
+                    audioFiles: audioFiles,
                   );
                 },
               ),
@@ -703,7 +710,8 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
         final target = result.requireTarget;
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (context) => ImageGalleryScreen(
+            builder: (context) => WorkImageReader(
+              title: _work.title,
               images: target.toGalleryMaps(),
               initialIndex: target.initialIndex,
             ),
@@ -883,29 +891,13 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   }
 
   Widget _buildFileList() {
-    return FileExplorerTreePanel(
+    final tree = FileExplorerTreePanel(
       isLoading: _isLoading,
       errorMessage: _errorMessage,
       empty: _rootFiles.isEmpty,
       emptyMessage: S.of(context).noFiles,
       onRetry: _loadWorkTree,
-      title: _translationController.showTranslation
-          ? S
-                .of(context)
-                .resourceFilesTranslated(
-                  _translationController.translationCount,
-                )
-          : S.of(context).resourceFiles,
-      trailing: TranslationToggleButton(
-        isTranslated: _translationController.showTranslation,
-        isLoading: _translationController.isBulkTranslating,
-        originalLabel: S.of(context).translationOriginal,
-        translatedLabel: S.of(context).translationTranslated,
-        onPressed: _translateAllNames,
-      ),
-      progressMessage: _translationController.isBulkTranslating
-          ? _translationController.progress
-          : null,
+      title: S.of(context).resourceFiles,
       items: _rootFiles,
       expandedFolders: _expandedFolders,
       onToggleFolder: _toggleFolder,
@@ -918,6 +910,55 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       audioWithLibrarySubtitles: _audioWithLibrarySubtitles,
       showDownloadedBadge: true,
       fadeDownloadedItems: true,
+      showHeader: false,
+    );
+    if (_isLoading || _errorMessage != null) return tree;
+    return WorkResourceTabs(
+      workId: _work.id,
+      fileTree: _rootFiles,
+      audioVariants: _audioVariants,
+      resourceSliver: tree,
+      resourceTitle: _translationController.showTranslation
+          ? S
+                .of(context)
+                .resourceFilesTranslated(
+                  _translationController.translationCount,
+                )
+          : S.of(context).resourceFiles,
+      toolbar: TranslationToggleButton(
+        isTranslated: _translationController.showTranslation,
+        isLoading: _translationController.isBulkTranslating,
+        originalLabel: S.of(context).translationOriginal,
+        translatedLabel: S.of(context).translationTranslated,
+        onPressed: _translateAllNames,
+      ),
+      progressMessage: _translationController.isBulkTranslating
+          ? _translationController.progress
+          : null,
+      onPlayAudio: (file, path, files) =>
+          _playAudioFile(file, path, audioFiles: files),
+      onAudioLongPress: (file, title, path, files) =>
+          _showFileActionMenu(file, title, path, audioFiles: files),
+      onFileTap: _handleFileTap,
+      displayNameFor: _getDisplayName,
+      onFileLongPress: _showFileActionMenu,
+      metadataBuilder: _buildFileMetadata,
+      trailingBuilder: _buildFileActions,
+      downloadedFiles: _downloadedFiles,
+      onImageTap: _previewImageFile,
+      resolveImage: (file) async {
+        final auth = ref.read(authProvider);
+        final items = await _previewResolver.buildOnlineImageItems(
+          imageFiles: [file],
+          workId: _work.id,
+          host: auth.host ?? '',
+          token: auth.token ?? '',
+          downloadedFiles: _downloadedFiles,
+          fileRelativePaths: _fileRelativePaths,
+          unknownTitle: S.of(context).unknown,
+        );
+        return items.firstOrNull;
+      },
     );
   }
 

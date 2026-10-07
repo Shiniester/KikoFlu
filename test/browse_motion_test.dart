@@ -13,7 +13,6 @@ import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/screens/works_screen.dart';
 import 'package:kikoeru_flutter/src/screens/local_downloads_screen.dart';
 import 'package:kikoeru_flutter/src/screens/search_screen.dart';
-import 'package:kikoeru_flutter/src/widgets/image_gallery_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/search_condition_chip.dart';
 import 'package:kikoeru_flutter/src/widgets/virtualized_sliver_collection.dart';
 
@@ -90,6 +89,8 @@ void main() {
     'loads',
     (tester) async {
       late _Works works;
+      final reduced = ValueNotifier(false);
+      addTearDown(reduced.dispose);
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
@@ -99,7 +100,7 @@ void main() {
               (ref) => Stream.value(const DownloadTaskSummary.empty()),
             ),
           ],
-          child: _app(const WorksScreen()),
+          child: _app(const WorksScreen(), reduced: reduced),
         ),
       );
       await tester.pumpAndSettle();
@@ -112,7 +113,9 @@ void main() {
       await tester.pump();
       works.setDisplayMode(DisplayMode.popular);
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 40));
       expect(find.byType(CustomScrollView), findsOneWidget);
+      expect(initialAllController.positions, isEmpty);
       expect(initialAllController.hasClients, isFalse);
 
       final firstPopularController = currentController();
@@ -120,8 +123,8 @@ void main() {
       expect(firstPopularController.offset, 0);
       firstPopularController.jumpTo(300);
       await tester.pump();
-      final popularCollection =
-          tester.widget<VirtualizedSliverCollection<Work>>(
+      final popularCollection = tester
+          .widget<VirtualizedSliverCollection<Work>>(
             find.byType(VirtualizedSliverCollection<Work>),
           );
       expect(popularCollection.onLoadMore, isNotNull);
@@ -168,72 +171,14 @@ void main() {
             .offset,
         600,
       );
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    },
-  );
-
-  testWidgets(
-    'gallery double tap anchors its focal point and can be interrupted',
-    (tester) async {
-      final reduced = ValueNotifier(false);
-      addTearDown(reduced.dispose);
-      await tester.pumpWidget(
-        _app(
-          const ImageGalleryScreen(
-            images: [
-              {'url': 'file:///missing.png'},
-            ],
-          ),
-          reduced: reduced,
-        ),
-      );
-      await tester.pumpAndSettle();
-      final viewerFinder = find.byType(InteractiveViewer);
-      final viewer = tester.widget<InteractiveViewer>(viewerFinder);
-      final controller = viewer.transformationController!;
-      final rect = tester.getRect(viewerFinder);
-      final local = Offset(rect.width * .65, rect.height * .6);
-      final point = rect.topLeft + local;
-      Future<void> doubleTap() async {
-        await tester.tapAt(point);
-        await tester.pump(const Duration(milliseconds: 50));
-        await tester.tapAt(point);
-        await tester.pump();
-      }
-
-      await doubleTap();
-      await tester.pump(const Duration(milliseconds: 80));
-      expect(controller.value.getMaxScaleOnAxis(), inExclusiveRange(1, 2));
-      expect((controller.toScene(local) - local).distance, lessThan(.01));
-      final scale = controller.value.getMaxScaleOnAxis();
-      await tester.pump(const Duration(milliseconds: 310));
-      expect(controller.value.getMaxScaleOnAxis(), 2);
-      await doubleTap();
-      await tester.pump(const Duration(milliseconds: 80));
-      expect(controller.value.getMaxScaleOnAxis(), lessThan(2));
-      final reversing = controller.value.clone();
-      await doubleTap();
-      expect(controller.value, reversing);
-      await tester.pump(const Duration(milliseconds: 80));
-      expect(
-        controller.value.getMaxScaleOnAxis(),
-        greaterThan(reversing.getMaxScaleOnAxis()),
-      );
-      final touch = await tester.startGesture(point);
-      final stopped = controller.value.clone();
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(controller.value, stopped);
-      await touch.cancel();
-      await tester.pump(const Duration(milliseconds: 350));
-      await doubleTap();
-      await tester.pump(const Duration(milliseconds: 45));
+      final finalAllController = currentController();
       reduced.value = true;
       await tester.pump();
-      expect(controller.value.getMaxScaleOnAxis(), anyOf(1, 2));
-      expect(scale, greaterThan(1));
-      await tester.pumpWidget(const SizedBox());
+      expect(finalAllController.offset, 600);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(finalAllController.offset, 600);
       expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
     },
   );
 

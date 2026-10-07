@@ -10,6 +10,7 @@ import '../utils/ui_tokens.dart';
 import 'overscroll_next_page_detector.dart';
 import 'pagination_bar.dart';
 import 'async_state_view.dart';
+import 'tab_page_motion.dart';
 
 enum VirtualizedCollectionLayout { list, grid, masonry }
 
@@ -717,7 +718,11 @@ class _VirtualizedSliverCollectionState<T>
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      DeferredTabContent(builder: _buildContent);
+
+  Widget _buildContent(BuildContext context) {
+    _scheduleInspection();
     final delegate = _buildDelegate(_indexById);
     final viewportHeight = MediaQuery.sizeOf(context).height;
     final resolvedCacheExtent =

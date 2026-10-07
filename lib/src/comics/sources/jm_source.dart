@@ -8,6 +8,8 @@ import '../comic_models.dart';
 import '../comic_source.dart';
 
 class JmSource extends ComicSource {
+  static const _defaultWebsite = 'https://www.cdnhjk.net';
+
   JmSource(super.http);
   @override
   bool get hasComments => true;
@@ -16,9 +18,55 @@ class JmSource extends ComicSource {
   @override
   String get name => 'JMComic';
   @override
-  String get website =>
-      StorageService.getString('comic_jmcomic_endpoint') ??
-      'https://www.cdntwice.org';
+  String get website {
+    final configured = StorageService.getString('comic_jmcomic_endpoint');
+    if (configured == null) return _defaultWebsite;
+    final host = Uri.tryParse(configured)?.host;
+    return host == null || host == 'www.cdntwice.org'
+        ? _defaultWebsite
+        : configured;
+  }
+
+  String? _settingsEndpoint;
+  String? _settingsLoadingEndpoint;
+  Future<void>? _settingsLoading;
+
+  Future<void> _ensureSettings() async {
+    while (true) {
+      final endpoint = website;
+      if (_settingsEndpoint == endpoint) return;
+
+      final loading = _settingsLoading;
+      if (loading != null && _settingsLoadingEndpoint == endpoint) {
+        await loading;
+        continue;
+      }
+
+      final request = _loadSettings(endpoint);
+      _settingsLoading = request;
+      _settingsLoadingEndpoint = endpoint;
+      try {
+        await request;
+        if (website == endpoint) _settingsEndpoint = endpoint;
+      } finally {
+        if (identical(_settingsLoading, request)) {
+          _settingsLoading = null;
+          _settingsLoadingEndpoint = null;
+        }
+      }
+      if (website == endpoint) return;
+    }
+  }
+
+  Future<void> _loadSettings(String endpoint) async {
+    final settings = await _api('setting?app_img_shunt=1', endpoint: endpoint);
+    if (website != endpoint) return;
+    final host = settings['img_host'];
+    if (host is String && host.isNotEmpty) {
+      await StorageService.setString('comic_jmcomic_images', host);
+    }
+  }
+
   String get imageHost =>
       StorageService.getString('comic_jmcomic_images') ??
       'https://cdn-msp.jmapiproxy3.cc';
@@ -56,10 +104,11 @@ class JmSource extends ComicSource {
     String path, {
     String method = 'GET',
     Object? data,
+    String? endpoint,
   }) async {
     final time = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final result = await http.json(
-      '$website/$path',
+      '${endpoint ?? website}/$path',
       method: method,
       data: data,
       headers: {
@@ -100,11 +149,16 @@ class JmSource extends ComicSource {
     },
   );
   ComicResult _result(dynamic data, int page) {
-    final content = List<dynamic>.from(data['content'] ?? data['list'] ?? []);
-    final total = int.tryParse('${data['total']}') ?? content.length;
+    final content = data is List
+        ? List<dynamic>.from(data)
+        : List<dynamic>.from(data['content'] ?? data['list'] ?? []);
+    final total = data is List
+        ? content.length
+        : int.tryParse('${data['total']}') ?? content.length;
     return ComicResult(
       content.map(_comic).toList(),
-      next: content.isNotEmpty && page * content.length < total
+      next:
+          content.isNotEmpty && (data is List || page * content.length < total)
           ? '${page + 1}'
           : null,
     );
@@ -112,6 +166,7 @@ class JmSource extends ComicSource {
 
   @override
   Future<ComicResult> explore({String? cursor}) async {
+    await _ensureSettings();
     final page = int.parse(cursor ?? '1');
     return _result(await _api('latest?page=$page'), page);
   }
@@ -123,6 +178,7 @@ class JmSource extends ComicSource {
     String? sort,
   }) async {
     if (query.isEmpty) return explore(cursor: cursor);
+    await _ensureSettings();
     final page = int.parse(cursor ?? '1');
     return _result(
       await _api(
@@ -142,6 +198,7 @@ class JmSource extends ComicSource {
 
   @override
   Future<ComicResult> category(ComicCategory category, {String? cursor}) async {
+    await _ensureSettings();
     final page = int.parse(cursor ?? '1');
     return _result(
       await _api(
@@ -153,6 +210,7 @@ class JmSource extends ComicSource {
 
   @override
   Future<Comic> details(String id) async {
+    await _ensureSettings();
     final data = Map<String, dynamic>.from(await _api('album?id=$id'));
     data['id'] = id;
     final series = List<dynamic>.from(data['series'] ?? []);
@@ -173,6 +231,7 @@ class JmSource extends ComicSource {
 
   @override
   Future<List<ComicPage>> pages(Comic comic, ComicChapter chapter) async {
+    await _ensureSettings();
     final data = await _api('chapter?id=${chapter.id}');
     return (data['images'] as List)
         .map(
@@ -198,17 +257,12 @@ class JmSource extends ComicSource {
     );
     if (generation != http.sessionGeneration) return;
     await http.saveSession();
-    final settings = await _api('setting?app_img_shunt=1');
-    if (settings['img_host'] != null) {
-      await StorageService.setString(
-        'comic_jmcomic_images',
-        settings['img_host'],
-      );
-    }
+    await _ensureSettings();
   }
 
   @override
   Future<ComicResult> favorites({String? cursor}) async {
+    await _ensureSettings();
     final state = cursor == null
         ? <String, dynamic>{}
         : Map<String, dynamic>.from(jsonDecode(cursor));

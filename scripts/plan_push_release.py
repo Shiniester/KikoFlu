@@ -72,7 +72,7 @@ def read_commits(baseline, target, additional_baselines=()):
             if message.strip("\r\n")]
 
 
-def published_beta_ancestors(releases, base, target):
+def published_beta_baselines(releases, base, target):
     major, minor, patch = base
     prefix = f"{major}.{minor}.{patch + 1}-beta."
     candidates = []
@@ -92,6 +92,10 @@ def published_beta_ancestors(releases, base, target):
             raise ValueError(f"Could not resolve published Beta tag {tag}.") from error
         ancestry = subprocess.run(["git", "merge-base", "--is-ancestor", beta_target, target],
                                   cwd=ROOT)
+        if ancestry.returncode == 1:
+            # A newer Beta may have published before this queued push started.
+            ancestry = subprocess.run(["git", "merge-base", "--is-ancestor", target, beta_target],
+                                      cwd=ROOT)
         if ancestry.returncode == 0:
             eligible.append((tag, beta_target))
         elif ancestry.returncode != 1:
@@ -196,13 +200,13 @@ def main():
         write_outputs({"publish": "false"})
         print(f"No changes against stable {tag}; skipping release.")
         return
-    beta_ancestors = (published_beta_ancestors(releases, base, target)
+    beta_baselines = (published_beta_baselines(releases, base, target)
                       if branch != "main" else [])
-    beta_commits = [commit for _, commit in beta_ancestors]
+    beta_commits = [commit for _, commit in beta_baselines]
     decision = plan_commits(read_commits(baseline, target, beta_commits))
     summary = f"Baseline: {tag}\n"
-    if beta_ancestors:
-        summary += f"Beta baselines: {', '.join(tag for tag, _ in beta_ancestors)}\n"
+    if beta_baselines:
+        summary += f"Beta baselines: {', '.join(tag for tag, _ in beta_baselines)}\n"
     summary += f"Commit: {target}\nBranch: {branch}\n\n{decision['reason']}\n"
     if decision["bump"] != "none":
         existing = {r["tag_name"] for r in releases} | {t["name"] for t in inventory(repo, "tags")}

@@ -2409,6 +2409,12 @@ class SEn extends S {
   String get resourceFiles => 'Resource Files';
 
   @override
+  String get workResourceAudio => 'Audio';
+
+  @override
+  String get workResourceImages => 'Images';
+
+  @override
   String resourceFilesTranslated(int count) {
     return 'Resource Files (translated $count items)';
   }

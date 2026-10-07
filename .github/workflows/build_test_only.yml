@@ -18,6 +18,12 @@ jobs:
       - name: Test release upload recovery
         run: python3 scripts/test_release_uploads.py
 
+      - name: Test Android signing certificate consistency
+        run: python3 scripts/test_android_signing.py
+
+      - name: Test release metadata
+        run: python3 scripts/test_release_metadata.py
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:

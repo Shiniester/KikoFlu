@@ -36,9 +36,30 @@ playlists, or completed downloads.
 _Avoid_: global works search
 
 **Work Details Screen (作品详情页)**:
-The online or offline screen describing a work and its available audio files.
+The online or offline screen describing a work and its available resource files.
 It is distinct from the Player Audio Details Page for the current track.
 _Avoid_: Player details page, audio details page
+
+**Work Resource Tabs (作品资源标签)**:
+The Resource Files, Audio and Images views within a Work Details Screen. Audio
+contains preferred audio files and their best matching work subtitles; Images
+contains the work's resource images, separate from its cover.
+_Avoid_: App Tab Bar, Works Home Tab
+
+**Work Image Viewing (作品图片查看)**:
+Viewing a work's resource images or cover with shared reader controls and settings.
+It is separate from comic Reading Progress and does not add a comic history entry.
+_Avoid_: Comic chapter, Reading Progress
+
+**Best Work Subtitle (最佳匹配作品字幕)**:
+The highest-scoring matching subtitle among a work's available resource files.
+Equal scores prefer the audio's directory, then path order. The resource audio
+view and player use this same selection; the player's subtitle library and manual
+selection keep their own priority.
+
+**Save Current Image (保存当前图片)**:
+Exporting the reader's full loaded image bytes for the actual current page.
+A two-image spread requires choosing one visible image before saving.
 
 **Bottom Dock (底部 Dock)**:
 The portrait Main Screen region formed by the Mini Player and App Tab Bar.

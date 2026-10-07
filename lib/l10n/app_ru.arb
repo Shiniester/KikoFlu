@@ -807,6 +807,8 @@
   "playVideoError": "Ошибка воспроизведения видео: {error}",
   "noFiles": "Нет файлов",
   "resourceFiles": "Файлы ресурсов",
+  "workResourceAudio": "Аудио",
+  "workResourceImages": "Изображения",
   "resourceFilesTranslated": "Файлы ресурсов (переведено {count})",
   "translationOriginal": "Ориг",
   "translationTranslated": "Перев",

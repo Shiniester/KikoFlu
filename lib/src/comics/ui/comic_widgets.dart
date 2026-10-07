@@ -1,6 +1,7 @@
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/work_detail/work_cover_frame.dart';
 import '../../widgets/metadata_search_chip.dart';
+import '../../widgets/tab_page_motion.dart';
 import '../../providers/work_card_display_provider.dart';
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../utils/collection_grid_layout.dart';
@@ -631,11 +632,17 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
 
   @override
   Widget build(BuildContext context) {
+    final layoutType = ref.watch(comicLayoutProvider);
+    return DeferredTabContent(
+      builder: (context) => _buildContent(context, layoutType),
+    );
+  }
+
+  Widget _buildContent(BuildContext context, LayoutType layoutType) {
     final comics = widget.comics;
     final padding = widget.padding;
     final controller = widget.controller;
     final onLongPress = widget.onLongPress;
-    final layoutType = ref.watch(comicLayoutProvider);
     final isList = layoutType == LayoutType.list;
     final bottomPadding = SliverToBoxAdapter(
       child: SizedBox(height: MediaQuery.paddingOf(context).bottom),

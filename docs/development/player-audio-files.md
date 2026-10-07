@@ -22,6 +22,30 @@ WAV、有效果音和有射精音。支持 WAV、FLAC、MP3、Opus、M4A、AAC �
 播放器筛选面板高亮实际采用的组合。手动筛选仅作用于当前播放器详情；
 “重置”恢复当前全局偏好，修改全局偏好或切换作品也恢复默认筛选。
 
+## 作品资源标签
+
+在线和离线作品详情页的资源区包含“资源文件”“音频”和“图片”，每次打开
+默认显示音频。资源文件保留完整目录及手动展开状态；音频平铺展示全局
+偏好选出的全部文件，并标明所在目录。偏好变化立即更新列表。“替换播放
+队列”使用音频标签内的全部优选文件，按列表顺序从点击项开始；“添加到
+播放队列”和“下一首播放”只添加点击项。资源树仍使用所在目录的队列。
+
+每条音频下方只展示作品资源中最高匹配的一份字幕。候选覆盖整个作品的
+VTT、SRT、TXT 和 LRC 文件，复用播放器的匹配阈值及分数；分数优先，同分
+优先同目录，再按路径排序。点击字幕可预览，也可加载为字幕。播放器的
+作品字幕自动选择与候选列表使用同一逻辑；当前手动选择与字幕库优先级
+继续有效。音频标签不列出字幕库文件，离线仅使用本地可用字幕。
+
+图片标签按资源树顺序递归展示全部资源图片，固定采用漫画主页的大网格
+样式，不包含单独显示的作品封面；无图片时隐藏此标签。图片与封面入口
+共用漫画阅读器的翻页、缩放、预览、自动翻页、方向设置及播放条，但不
+写入漫画历史或阅读进度，不提供漫画章节与收藏操作。封面入口仅查看封面。
+
+阅读器的下载按钮保存当前图片的完整字节；双页模式先选择其中一张，
+单页和连续模式使用当前实际页。选择及保存期间暂停自动翻页。Android
+保存到相册，iOS 使用文件导出，桌面选择保存路径。漫画详情页及下载管理
+仍提供整章下载。
+
 ## 计算与缓存
 
 音频和字幕文件名复用现有 `SubtitleMatcher` 的预处理，原始字幕名与
@@ -32,8 +56,8 @@ WAV、有效果音和有射精音。支持 WAV、FLAC、MP3、Opus、M4A、AAC �
 音频列表由 `SliverList.builder` 按需构建。详情页仅在音频分类列表或筛选
 条件变化时计算筛选结果；排队状态、主题等页面重建复用结果。作品文件树
 变化时恢复默认筛选。分类缓存的键包含目录边界，音频移入字幕所在目录
-后会重新分类。资源目录同样缓存分类结果，偏好变化只重新选择文件，
-不重复匹配字幕。
+后会重新分类。资源目录同样缓存分类结果，偏好变化只重新选择音频变体。
+音频标签在文件树或优选音频变化时重新查询最佳作品字幕；其他重建复用结果。
 
 ## 微基准
 
@@ -64,8 +88,13 @@ flutter test --no-pub --reporter expanded tool/performance/player_audio_variant_
 保存后重新加载、重置默认、实际回退选项高亮，以及在线／离线资源目录
 展开多个优选目录、祖先目录和保留手动展开／收起状态。
 
+资源标签测试覆盖默认音频、无音频空态、无图隐藏、刷新回退、窄屏与宽屏、
+图片加载重试和下载状态变化后的路径更新。字幕候选测试覆盖跨目录评分、
+同分排序及与自动选择的一致性；阅读器测试覆盖共用图片入口与当前图片保存。
+
 ```powershell
 flutter test --no-pub test/audio_preferences_test.dart test/player_audio_variant_classifier_test.dart test/settings_subpage_test.dart test/player_audio_details_panel_test.dart test/file_explorer_refresh_test.dart test/file_tree_utils_test.dart test/work_detail_route_readiness_test.dart test/work_detail_refresh_guard_test.dart test/offline_work_detail_idle_test.dart
+flutter test --no-pub test/work_resource_tabs_test.dart test/audio_playback_plan_builder_test.dart test/player_subtitle_candidates_provider_test.dart test/comic_widgets_test.dart
 ```
 
 ## 限制与已知问题

@@ -807,6 +807,8 @@
   "playVideoError": "播放影片時出錯: {error}",
   "noFiles": "沒有檔案",
   "resourceFiles": "資源檔案",
+  "workResourceAudio": "音訊",
+  "workResourceImages": "圖片",
   "resourceFilesTranslated": "資源檔案 (已翻譯 {count} 項)",
   "translationOriginal": "原",
   "translationTranslated": "譯",

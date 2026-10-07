@@ -56,6 +56,7 @@ class AudioPlaybackPlanBuilder {
     required AudioUrlResolver resolveUrl,
     required Work work,
     required String unknownTitle,
+    List<dynamic>? audioFiles,
     String? artworkUrl,
     String? subtitleWorkDirPath,
     bool requireHash = false,
@@ -65,17 +66,16 @@ class AudioPlaybackPlanBuilder {
       selectedFile,
       defaultValue: unknownTitle,
     );
-    final audioFiles = FileTreeUtils.audioFilesInDirectory(
-      fileTree,
-      parentPath,
-    );
+    final availableAudio = audioFiles == null
+        ? FileTreeUtils.audioFilesInDirectory(fileTree, parentPath)
+        : audioFiles.where(FileTreeUtils.isAudio).toList(growable: false);
 
-    if (!_containsSelectedFile(audioFiles, selectedFile)) {
+    if (!_containsSelectedFile(availableAudio, selectedFile)) {
       return AudioPlaybackPlan.selectedFileMissing(selectedTitle);
     }
 
     final queueFiles = playlistMode == AudioTapPlaylistMode.replaceQueue
-        ? audioFiles
+        ? availableAudio
         : <dynamic>[selectedFile];
 
     final queue = await queueBuilder.build(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/my_reviews_provider.dart';
@@ -432,22 +433,28 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
             Positioned.fill(
               child: NotificationListener<ScrollNotification>(
                 onNotification: _handleScrollNotification,
-                child: PageView.builder(
-                  key: const ValueKey('audio-tab-pages'),
-                  controller: _pages,
-                  itemCount: tabs.length,
-                  findChildIndexCallback: (key) {
-                    final index = tabs.indexWhere(
-                      (tab) => ValueKey(tab.id) == key,
-                    );
-                    return index < 0 ? null : index;
-                  },
-                  itemBuilder: (context, index) => LazyTabPage(
-                    key: ValueKey(tabs[index].id),
-                    index: index,
-                    target: _pageTarget,
-                    pages: _pages,
-                    child: tabs[index].widget,
+                child: TabPageWarmup(
+                  pages: _pages,
+                  target: _pageTarget,
+                  builder: (cacheExtent) => PageView.builder(
+                    key: const ValueKey('audio-tab-pages'),
+                    controller: _pages,
+                    allowImplicitScrolling: cacheExtent > 0,
+                    scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
+                    itemCount: tabs.length,
+                    findChildIndexCallback: (key) {
+                      final index = tabs.indexWhere(
+                        (tab) => ValueKey(tab.id) == key,
+                      );
+                      return index < 0 ? null : index;
+                    },
+                    itemBuilder: (context, index) => LazyTabPage(
+                      key: ValueKey(tabs[index].id),
+                      index: index,
+                      target: _pageTarget,
+                      pages: _pages,
+                      child: tabs[index].widget,
+                    ),
                   ),
                 ),
               ),

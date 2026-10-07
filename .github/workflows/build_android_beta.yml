@@ -99,6 +99,18 @@ jobs:
             echo '::error::Version must use MAJOR.MINOR.PATCH-beta.N, for example 4.5.3-beta.1.'
             exit 1
           fi
+          # Use the same versionCode sequence for manual and reusable runs.
+          # ponytail: bounded version slots; use a shared release counter if these limits are reached.
+          build_number="$(python3 - "$version" <<'PY'
+          import sys
+
+          major, minor, patch, beta = map(int, sys.argv[1].replace('-beta.', '.').split('.'))
+          build_number = ((major * 100 + minor) * 1000 + patch) * 1000 + beta
+          if minor >= 100 or patch >= 1000 or beta >= 1000 or build_number + 2000 > 2100000000:
+              raise SystemExit('Beta versionCode requires minor < 100, patch/beta < 1000 and an Android-compatible major.')
+          print(build_number)
+          PY
+          )"
           tag="v${version}"
           if gh release view "$tag" >/dev/null 2>&1 ||
              gh api "repos/${GH_REPO}/git/ref/tags/${tag}" >/dev/null 2>&1; then
@@ -107,6 +119,7 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "build_number=$build_number" >> "$GITHUB_OUTPUT"
 
       - name: Configure Separate Beta Application
         run: |
@@ -176,19 +189,21 @@ jobs:
       - name: Build Android Beta APKs
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
         run: |
           set -euo pipefail
           mkdir -p dist
-          flutter build apk --release --build-name="$VERSION" --build-number="$GITHUB_RUN_NUMBER"
+          flutter build apk --release --build-name="$VERSION" --build-number="$BUILD_NUMBER"
           mv build/app/outputs/flutter-apk/app-release.apk \
             "dist/KikoFlu-android-universe_${VERSION}.apk"
-          flutter build apk --release --split-per-abi --build-name="$VERSION" --build-number="$GITHUB_RUN_NUMBER"
+          flutter build apk --release --split-per-abi --build-name="$VERSION" --build-number="$BUILD_NUMBER"
           mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
             "dist/KikoFlu-android-arm64-v8a_${VERSION}.apk"
 
       - name: Verify Beta Packages
         env:
           EXPECTED_VERSION: ${{ steps.version.outputs.version }}
+          EXPECTED_BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
         run: |
           set -euo pipefail
           build_tools_dir="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
@@ -197,8 +212,14 @@ jobs:
             package_line="$(sed -n '1p' <<< "$badging")"
             package_name="$(sed -n "s/.*package: name='\([^']*\)'.*/\1/p" <<< "$package_line")"
             version_name="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<< "$package_line")"
+            version_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<< "$package_line")"
+            expected_code="$EXPECTED_BUILD_NUMBER"
+            if [[ "$apk" == *-arm64-v8a_* ]]; then
+              expected_code=$((expected_code + 2000))
+            fi
             if [ "$package_name" != 'com.meteor.kikoeruflutter.beta' ] ||
-               [ "$version_name" != "$EXPECTED_VERSION" ]; then
+               [ "$version_name" != "$EXPECTED_VERSION" ] ||
+               [ "$version_code" != "$expected_code" ]; then
               echo "::error::Unexpected Beta package metadata: $package_line"
               exit 1
             fi

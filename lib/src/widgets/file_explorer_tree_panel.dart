@@ -27,6 +27,7 @@ class FileExplorerTreePanel extends StatelessWidget {
     this.audioWithLibrarySubtitles = const {},
     this.showDownloadedBadge = false,
     this.fadeDownloadedItems = false,
+    this.showHeader = true,
   });
 
   final bool isLoading;
@@ -49,6 +50,7 @@ class FileExplorerTreePanel extends StatelessWidget {
   final Set<String> audioWithLibrarySubtitles;
   final bool showDownloadedBadge;
   final bool fadeDownloadedItems;
+  final bool showHeader;
 
   @override
   Widget build(BuildContext context) {
@@ -70,8 +72,11 @@ class FileExplorerTreePanel extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              FileExplorerHeader(title: title, trailing: trailing),
-              if (progressMessage != null && progressMessage!.isNotEmpty)
+              if (showHeader)
+                FileExplorerHeader(title: title, trailing: trailing),
+              if (showHeader &&
+                  progressMessage != null &&
+                  progressMessage!.isNotEmpty)
                 FileExplorerProgressBanner(message: progressMessage!),
             ],
           ),
