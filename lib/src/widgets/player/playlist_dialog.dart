@@ -772,8 +772,6 @@ class PlaylistModeToggle extends ConsumerWidget {
         alignment: AlignmentDirectional.bottomEnd,
         minimumSize: WidgetStatePropertyAll(Size(112, 0)),
       ),
-      panelPadding: const EdgeInsets.symmetric(vertical: 8),
-      transformOrigin: Alignment.topCenter,
       crossAxisUnconstrained: false,
       menuChildren: [
         for (final option in _playlistModeMenuOrder)
@@ -781,13 +779,21 @@ class PlaylistModeToggle extends ConsumerWidget {
             selected: option == mode,
             child: MenuItemButton(
               autofocus: option == mode,
-              trailingIcon: option == mode ? const Icon(Icons.check) : null,
+              style: ButtonStyle(
+                foregroundColor: WidgetStatePropertyAll<Color?>(
+                  option == mode ? Theme.of(context).colorScheme.primary : null,
+                ),
+              ),
               onPressed: () {
                 ref
                     .read(audioTapPlaylistModeProvider.notifier)
                     .updateMode(option);
               },
-              child: Text(option.localizedName(context)),
+              child: Text(
+                option.localizedName(context),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
       ],

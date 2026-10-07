@@ -553,6 +553,14 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
         modes.add(
           FloatingFeedModeAction(
             icon: Icons.public,
+            iconAsset: const {
+              'picacg': 'assets/icons/comic_source_picacg.png',
+              'ehentai': 'assets/icons/comic_source_ehentai.png',
+              'jmcomic': 'assets/icons/comic_source_jmcomic.png',
+              'hitomi': 'assets/icons/comic_source_hitomi.png',
+              'htmanga': 'assets/icons/comic_source_htmanga.png',
+              'nhentai': 'assets/icons/comic_source_nhentai.png',
+            }[source.key],
             label: source.name,
             isSelected: source.key == _source,
             onPressed: () => _select(source.key),

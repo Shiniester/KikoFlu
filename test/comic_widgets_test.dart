@@ -961,10 +961,50 @@ void main() {
     await tester.pumpAndSettle();
     final modeButtonTop = tester.getRect(find.byTooltip('Reading mode')).top;
     await tester.tap(find.byTooltip('Reading mode'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 90));
     final items = find.byType(MenuItemButton);
+    final panel = find
+        .ancestor(of: items.first, matching: find.byType(Material))
+        .first;
+    expect(tester.getRect(panel).bottom, lessThanOrEqualTo(modeButtonTop));
+    await tester.pumpAndSettle();
     expect(items, findsNWidgets(ComicReadingMode.values.length));
-    expect(tester.getSize(items.first).width, lessThanOrEqualTo(224));
+    final readerButtons = tester.widgetList<MenuItemButton>(items).toList();
+    final selectedReaderButton = readerButtons.singleWhere(
+      (button) => button.autofocus,
+    );
+    final unselectedReaderButton = readerButtons.firstWhere(
+      (button) => !button.autofocus,
+    );
+    final primary = Theme.of(tester.element(items.first)).colorScheme.primary;
+    expect(selectedReaderButton.style?.foregroundColor?.resolve({}), primary);
+    expect(unselectedReaderButton.style?.foregroundColor?.resolve({}), isNull);
+    expect(
+      find.descendant(of: items, matching: find.byIcon(Icons.check)),
+      findsNothing,
+    );
+    expect(readerButtons.every((button) => button.leadingIcon == null), isTrue);
+    expect(tester.getSize(items.first).width, greaterThanOrEqualTo(280));
+    expect(tester.getSize(items.first).width, lessThanOrEqualTo(360));
+    for (final text
+        in find.descendant(of: items, matching: find.byType(Text)).evaluate()) {
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.byWidget(text.widget),
+      );
+      final label = text.widget as Text;
+      expect(
+        tester.getRect(find.byWidget(text.widget)).right,
+        lessThanOrEqualTo(tester.getRect(panel).right),
+        reason: label.data,
+      );
+      expect(
+        paragraph.getBoxesForSelection(
+          TextSelection(baseOffset: 0, extentOffset: label.data!.length),
+        ),
+        hasLength(1),
+      );
+    }
     final menu = find
         .ancestor(of: items.first, matching: find.byType(SingleChildScrollView))
         .first;
@@ -988,6 +1028,9 @@ void main() {
         .getRect(find.byTooltip('Reading mode'))
         .top;
     await tester.tap(find.byTooltip('Reading mode'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 90));
+    expect(tester.getRect(panel).bottom, lessThanOrEqualTo(landscapeButtonTop));
     await tester.pumpAndSettle();
     expect(tester.getRect(menu).bottom, lessThanOrEqualTo(landscapeButtonTop));
     await tester.ensureVisible(items.last);
@@ -3747,6 +3790,25 @@ void main() {
     await tester.tap(find.widgetWithText(MenuItemButton, 'Oldest'));
     await tester.pumpAndSettle();
     expect(source.sortRequests.last, 'da');
+    await tester.tap(sortButton);
+    await tester.pumpAndSettle();
+    final sortItems = find.byType(MenuItemButton);
+    final sortButtons = tester.widgetList<MenuItemButton>(sortItems).toList();
+    final selectedSort = sortButtons.singleWhere((button) => button.autofocus);
+    final unselectedSort = sortButtons.firstWhere(
+      (button) => !button.autofocus,
+    );
+    final primary = Theme.of(
+      tester.element(sortItems.first),
+    ).colorScheme.primary;
+    expect(selectedSort.style?.foregroundColor?.resolve({}), primary);
+    expect(unselectedSort.style?.foregroundColor?.resolve({}), isNull);
+    expect(
+      find.descendant(of: sortItems, matching: find.byIcon(Icons.check)),
+      findsNothing,
+    );
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
 

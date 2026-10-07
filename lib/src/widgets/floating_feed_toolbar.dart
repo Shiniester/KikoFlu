@@ -8,9 +8,11 @@ class FloatingFeedModeAction {
     required this.label,
     required this.isSelected,
     required this.onPressed,
+    this.iconAsset,
   });
 
   final IconData icon;
+  final String? iconAsset;
   final String label;
   final bool isSelected;
   final VoidCallback onPressed;
@@ -206,15 +208,11 @@ class _ModeDropdown extends StatelessWidget {
       height: 40,
       width: maxWidth,
       child: AnimatedMenuAnchor(
-        menuStyle: MenuStyle(
+        menuStyle: const MenuStyle(
           alignment: AlignmentDirectional.bottomStart,
-          minimumSize: WidgetStatePropertyAll(
-            Size(maxWidth < 112 ? maxWidth : 112, 0),
-          ),
-          maximumSize: WidgetStatePropertyAll(Size(maxWidth, double.infinity)),
+          minimumSize: WidgetStatePropertyAll(Size(112, 0)),
+          maximumSize: WidgetStatePropertyAll(Size(360, double.infinity)),
         ),
-        panelPadding: const EdgeInsets.symmetric(vertical: 8),
-        transformOrigin: Alignment.topCenter,
         crossAxisUnconstrained: false,
         menuChildren: [
           for (var index = 0; index < actions.length; index++)
@@ -222,20 +220,25 @@ class _ModeDropdown extends StatelessWidget {
               selected: actions[index].isSelected,
               child: MenuItemButton(
                 autofocus: index == effectiveIndex,
+                style: ButtonStyle(
+                  foregroundColor: WidgetStatePropertyAll<Color?>(
+                    actions[index].isSelected
+                        ? Theme.of(context).colorScheme.primary
+                        : null,
+                  ),
+                ),
                 onPressed: actions[index].onPressed,
                 child: Row(
                   children: [
-                    Icon(actions[index].icon, size: 18),
+                    _modeActionIcon(context, actions[index]),
                     const SizedBox(width: 10),
-                    Expanded(child: Text(actions[index].label)),
-                    if (actions[index].isSelected) ...[
-                      const SizedBox(width: 12),
-                      Icon(
-                        Icons.check,
-                        size: 18,
-                        color: Theme.of(context).colorScheme.primary,
+                    Expanded(
+                      child: Text(
+                        actions[index].label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ],
+                    ),
                   ],
                 ),
               ),
@@ -251,7 +254,7 @@ class _ModeDropdown extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
                 children: [
-                  Icon(selected.icon, size: 18),
+                  _modeActionIcon(context, selected),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -259,6 +262,9 @@ class _ModeDropdown extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: selected.isSelected
+                            ? Theme.of(context).colorScheme.primary
+                            : null,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -273,6 +279,24 @@ class _ModeDropdown extends StatelessWidget {
       ),
     );
   }
+}
+
+Widget _modeActionIcon(
+  BuildContext context,
+  FloatingFeedModeAction action, {
+  Color? color,
+}) {
+  final iconAsset = action.iconAsset;
+  if (iconAsset != null) {
+    return Image.asset(iconAsset, width: 18, height: 18, fit: BoxFit.contain);
+  }
+  return Icon(
+    action.icon,
+    size: 18,
+    color:
+        color ??
+        (action.isSelected ? Theme.of(context).colorScheme.primary : null),
+  );
 }
 
 /// Shared horizontal inset for all floating controls in feed-like screens.
@@ -436,9 +460,9 @@ class _ModeButton extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  action.icon,
-                  size: 18,
+                _modeActionIcon(
+                  context,
+                  action,
                   color: action.isSelected
                       ? colorScheme.primary
                       : colorScheme.onSurfaceVariant,

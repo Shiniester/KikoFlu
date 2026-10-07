@@ -1212,20 +1212,19 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
     builder: (anchorContext) => AnimatedMenuAnchor(
       controller: controller,
       crossAxisUnconstrained: false,
-      transformOrigin: Alignment.bottomCenter,
-      panelPadding: EdgeInsets.zero,
       onOpen: _stopAutoPageTurn,
       onClose: () {
         if (mounted) _focus.requestFocus();
       },
       menuStyle: MenuStyle(
         alignment: AlignmentDirectional.bottomStart,
-        minimumSize: const WidgetStatePropertyAll(Size(112, 0)),
+        padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+        minimumSize: const WidgetStatePropertyAll(Size(280, 0)),
         maximumSize: WidgetStateProperty.resolveWith((_) {
           final anchor = anchorContext.findRenderObject()! as RenderBox;
           final top = anchor.localToGlobal(Offset.zero).dy;
           return Size(
-            224,
+            360,
             math.max(0, top - MediaQuery.paddingOf(anchorContext).top - 8),
           );
         }),
@@ -1236,10 +1235,19 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
             selected: option == value,
             child: MenuItemButton(
               autofocus: option == value,
-              overflowAxis: Axis.vertical,
-              leadingIcon: Icon(option == value ? Icons.check : null),
+              style: ButtonStyle(
+                foregroundColor: WidgetStatePropertyAll<Color?>(
+                  option == value
+                      ? Theme.of(context).colorScheme.primary
+                      : null,
+                ),
+              ),
               onPressed: () => onSelected(option),
-              child: Text(label(option)),
+              child: Text(
+                label(option),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
       ],

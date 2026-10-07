@@ -57,6 +57,20 @@ void main() {
     expect(find.text('Replace Playback Queue'), findsOneWidget);
     expect(find.text('Play Next'), findsOneWidget);
     expect(find.text('Add to Playback Queue'), findsOneWidget);
+    final menuItems = find.byType(MenuItemButton);
+    final buttons = tester.widgetList<MenuItemButton>(menuItems).toList();
+    final selectedButton = buttons.singleWhere((button) => button.autofocus);
+    final unselectedButton = buttons.firstWhere((button) => !button.autofocus);
+    final primary = Theme.of(
+      tester.element(menuItems.first),
+    ).colorScheme.primary;
+    expect(selectedButton.style?.foregroundColor?.resolve({}), primary);
+    expect(unselectedButton.style?.foregroundColor?.resolve({}), isNull);
+    expect(
+      find.descendant(of: menuItems, matching: find.byIcon(Icons.check)),
+      findsNothing,
+    );
+    expect(buttons.every((button) => button.trailingIcon == null), isTrue);
 
     await tester.tap(
       find.ancestor(

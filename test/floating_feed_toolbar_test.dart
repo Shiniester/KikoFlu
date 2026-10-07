@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/widgets/floating_feed_toolbar.dart';
@@ -26,6 +27,7 @@ void main() {
           modeActions: [
             FloatingFeedModeAction(
               icon: Icons.grid_view,
+              iconAsset: 'assets/icons/comic_source_ehentai.png',
               label: 'All',
               isSelected: true,
               onPressed: () => selectedMode = 'all',
@@ -52,6 +54,14 @@ void main() {
     expect(find.byKey(const ValueKey('feed-mode-capsule')), findsOneWidget);
     expect(find.byKey(const ValueKey('feed-tool-capsule')), findsOneWidget);
     expect(find.byType(BackdropFilter), findsNothing);
+    expect(find.byType(Image), findsOneWidget);
+    final modeIcon = tester.widget<Image>(find.byType(Image));
+    expect(modeIcon.image, isA<AssetImage>());
+    expect(modeIcon.color, isNull);
+    expect(
+      tester.widget<Text>(find.text('All')).style?.color,
+      Theme.of(tester.element(find.text('All'))).colorScheme.primary,
+    );
     final surfaceMaterial = tester.widget<Material>(
       find
           .descendant(
@@ -80,7 +90,12 @@ void main() {
             for (var index = 0; index < 8; index++)
               FloatingFeedModeAction(
                 icon: Icons.filter_alt,
-                label: 'Filter option $index',
+                iconAsset: index == 0
+                    ? 'assets/icons/comic_source_ehentai.png'
+                    : null,
+                label: index == 7
+                    ? 'Filter option 7 long'
+                    : 'Filter option $index',
                 isSelected: index == 0,
                 onPressed: () => selectedMode = index,
               ),
@@ -100,16 +115,47 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('feed-mode-dropdown')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 90));
-    final selectedItem = find.text('Filter option 1');
+    final menuItems = find.byType(MenuItemButton);
+    final buttons = tester.widgetList<MenuItemButton>(menuItems).toList();
+    final selectedButton = buttons.singleWhere((button) => button.autofocus);
+    final unselectedButton = buttons.firstWhere((button) => !button.autofocus);
+    final primary = Theme.of(
+      tester.element(menuItems.first),
+    ).colorScheme.primary;
+    expect(selectedButton.style?.foregroundColor?.resolve({}), primary);
+    expect(unselectedButton.style?.foregroundColor?.resolve({}), isNull);
+    expect(
+      find.descendant(of: menuItems, matching: find.byIcon(Icons.check)),
+      findsNothing,
+    );
+    expect(find.byType(Image), findsNWidgets(2));
+    expect(
+      tester
+          .widgetList<Image>(find.byType(Image))
+          .every((image) => image.image is AssetImage && image.color == null),
+      isTrue,
+    );
+    expect(
+      tester
+          .widgetList<Text>(find.text('Filter option 0'))
+          .singleWhere((text) => text.style?.fontWeight == FontWeight.w700)
+          .style
+          ?.color,
+      primary,
+    );
+    final selectedItem = find.widgetWithText(MenuItemButton, 'Filter option 1');
     final scale = find.ancestor(
       of: selectedItem,
       matching: find.byType(ScaleTransition),
     );
-    expect(scale, findsOneWidget);
-    final scaleTransition = tester.widget<ScaleTransition>(scale);
-    expect(scaleTransition.scale.value, inExclusiveRange(.96, 1));
+    expect(scale, findsNothing);
+    final menu = find
+        .ancestor(of: selectedItem, matching: find.byType(Material))
+        .first;
+    final openingHeight = tester.getSize(menu).height;
+    expect(openingHeight, greaterThan(0));
     final fade = find.ancestor(
-      of: scale,
+      of: selectedItem,
       matching: find.byType(FadeTransition),
     );
     expect(fade, findsAtLeastNWidgets(1));
@@ -118,6 +164,32 @@ void main() {
       inExclusiveRange(0, 1),
     );
     await tester.pumpAndSettle();
+    expect(tester.getSize(menu).height, greaterThan(openingHeight));
+    expect(
+      tester.getSize(menu).width,
+      greaterThan(
+        tester.getSize(find.byKey(const ValueKey('feed-mode-dropdown'))).width,
+      ),
+    );
+    for (final text
+        in find
+            .descendant(
+              of: find.byType(MenuItemButton),
+              matching: find.byType(Text),
+            )
+            .evaluate()) {
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.byWidget(text.widget),
+      );
+      final label = text.widget as Text;
+      expect(paragraph.didExceedMaxLines, isFalse);
+      expect(
+        paragraph.getBoxesForSelection(
+          TextSelection(baseOffset: 0, extentOffset: label.data!.length),
+        ),
+        hasLength(1),
+      );
+    }
     expect(find.text('Filter option 1'), findsOneWidget);
     await tester.tap(find.text('Filter option 1'));
     await tester.pumpAndSettle();
@@ -163,16 +235,19 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('feed-mode-dropdown')));
     await tester.pump();
-    final scale = find.ancestor(
-      of: find.widgetWithText(MenuItemButton, 'Filter option 0'),
-      matching: find.byType(ScaleTransition),
-    );
-    expect(tester.widget<ScaleTransition>(scale.first).scale.value, 1);
+    final selectedItem = find.widgetWithText(MenuItemButton, 'Filter option 0');
+    final menu = find
+        .ancestor(of: selectedItem, matching: find.byType(Material))
+        .first;
+    final openingHeight = tester.getSize(menu).height;
+    expect(openingHeight, greaterThan(0));
     final fade = find.ancestor(
-      of: scale,
+      of: selectedItem,
       matching: find.byType(FadeTransition),
     );
     expect(tester.widget<FadeTransition>(fade.first).opacity.value, 1);
+    await tester.pump(const Duration(milliseconds: 90));
+    expect(tester.getSize(menu).height, openingHeight);
   });
 
   testWidgets('can keep every mode as scrolling buttons when requested', (

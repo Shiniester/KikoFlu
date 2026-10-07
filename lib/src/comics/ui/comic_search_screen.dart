@@ -579,27 +579,43 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                               alignment: AlignmentDirectional.bottomStart,
                               minimumSize: WidgetStatePropertyAll(Size(112, 0)),
                               maximumSize: WidgetStatePropertyAll(
-                                Size(280, double.infinity),
+                                Size(360, double.infinity),
                               ),
                             ),
-                            panelPadding: const EdgeInsets.symmetric(
-                              vertical: 8,
-                            ),
-                            transformOrigin: Alignment.topCenter,
                             crossAxisUnconstrained: false,
                             menuChildren: [
                               for (final sort in selected!.searchSorts)
                                 Semantics(
-                                  selected: sort == _sort,
+                                  selected:
+                                      sort ==
+                                      (_sort ?? selected.searchSorts.first),
                                   child: MenuItemButton(
                                     autofocus:
                                         sort ==
                                         (_sort ?? selected.searchSorts.first),
+                                    style: ButtonStyle(
+                                      foregroundColor:
+                                          WidgetStatePropertyAll<Color?>(
+                                            sort ==
+                                                    (_sort ??
+                                                        selected
+                                                            .searchSorts
+                                                            .first)
+                                                ? Theme.of(
+                                                    context,
+                                                  ).colorScheme.primary
+                                                : null,
+                                          ),
+                                    ),
                                     onPressed: () {
                                       setState(() => _sort = sort);
                                       if (_submitted) _search();
                                     },
-                                    child: Text(_sortLabel(sort)),
+                                    child: Text(
+                                      _sortLabel(sort),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
                                 ),
                             ],
