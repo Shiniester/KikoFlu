@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../l10n/app_localizations.dart';
 
 class LocaleNotifier extends StateNotifier<Locale?> {
   static const String _localeLanguageKey = 'locale_language';
@@ -19,9 +20,10 @@ class LocaleNotifier extends StateNotifier<Locale?> {
       return;
     }
     final script = prefs.getString(_localeScriptKey);
-    state = script != null
+    final locale = script != null
         ? Locale.fromSubtags(languageCode: language, scriptCode: script)
         : Locale(language);
+    state = S.supportedLocales.contains(locale) ? locale : null;
   }
 
   Future<void> setLocale(Locale? locale) async {
@@ -42,7 +44,6 @@ class LocaleNotifier extends StateNotifier<Locale?> {
 }
 
 /// null = follow system locale
-final localeProvider =
-    StateNotifierProvider<LocaleNotifier, Locale?>((ref) {
+final localeProvider = StateNotifierProvider<LocaleNotifier, Locale?>((ref) {
   return LocaleNotifier();
 });

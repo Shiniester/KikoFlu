@@ -149,9 +149,7 @@ enum TranslationTargetLanguage {
   zhHans('zh_hans'),
   zhHant('zh_hant'),
   english('en'),
-  japanese('ja'),
-  russian('ru'),
-  custom('custom');
+  japanese('ja');
 
   final String value;
   const TranslationTargetLanguage(this.value);
@@ -176,28 +174,22 @@ enum TranslationTargetLanguage {
       ),
       TranslationTargetLanguage.english => const Locale('en'),
       TranslationTargetLanguage.japanese => const Locale('ja'),
-      TranslationTargetLanguage.russian => const Locale('ru'),
-      TranslationTargetLanguage.custom => appLocale,
     };
   }
 }
 
 class TranslationLanguagePreferences {
   final TranslationTargetLanguage targetLanguage;
-  final String customTargetLanguage;
 
   const TranslationLanguagePreferences({
     this.targetLanguage = TranslationTargetLanguage.followApp,
-    this.customTargetLanguage = '',
   });
 
   TranslationLanguagePreferences copyWith({
     TranslationTargetLanguage? targetLanguage,
-    String? customTargetLanguage,
   }) {
     return TranslationLanguagePreferences(
       targetLanguage: targetLanguage ?? this.targetLanguage,
-      customTargetLanguage: customTargetLanguage ?? this.customTargetLanguage,
     );
   }
 }
@@ -384,8 +376,6 @@ final autoSaveTranslatedLyricsProvider =
 class TranslationLanguagePreferencesNotifier
     extends StateNotifier<TranslationLanguagePreferences> {
   static const String keyTargetLanguage = 'translation_target_language';
-  static const String keyCustomTargetLanguage =
-      'translation_custom_target_language';
 
   TranslationLanguagePreferencesNotifier()
     : super(const TranslationLanguagePreferences()) {
@@ -399,7 +389,6 @@ class TranslationLanguagePreferencesNotifier
         targetLanguage: TranslationTargetLanguage.fromValue(
           prefs.getString(keyTargetLanguage),
         ),
-        customTargetLanguage: prefs.getString(keyCustomTargetLanguage) ?? '',
       );
       if (!mounted) return;
       state = preferences;
@@ -416,19 +405,10 @@ class TranslationLanguagePreferencesNotifier
     await _savePreferences();
   }
 
-  Future<void> updateCustomTargetLanguage(String languageName) async {
-    state = state.copyWith(customTargetLanguage: languageName.trim());
-    await _savePreferences();
-  }
-
   Future<void> _savePreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(keyTargetLanguage, state.targetLanguage.value);
-      await prefs.setString(
-        keyCustomTargetLanguage,
-        state.customTargetLanguage,
-      );
     } catch (e) {
       // ignore
     }

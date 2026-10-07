@@ -35,11 +35,13 @@ def get_i18n_name(tag, lang_key):
     return name  # None if not available
 
 def load_extra_translations():
-    """Load manually maintained translation files (e.g. Russian)."""
+    """Load manually maintained translations for supported languages."""
     extra = {}
     for filename in os.listdir(SCRIPT_DIR):
         if filename.startswith('tag_translations_') and filename.endswith('.json'):
-            lang = filename[len('tag_translations_'):-len('.json')]  # e.g. 'ru'
+            lang = filename[len('tag_translations_'):-len('.json')]
+            if lang not in {'zh', 'zh_Hant', 'en', 'ja'}:
+                continue
             path = os.path.join(SCRIPT_DIR, filename)
             with open(path, 'r', encoding='utf-8') as f:
                 extra[lang] = json.load(f)

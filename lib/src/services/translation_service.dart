@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:translator/translator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
@@ -7,6 +6,7 @@ import 'youdao_translator.dart';
 import 'microsoft_translator.dart';
 import 'llm_translator.dart';
 import 'log_service.dart';
+import '../../l10n/app_localizations.dart';
 import '../providers/settings_provider.dart';
 import '../utils/global_keys.dart';
 import '../utils/snackbar_util.dart';
@@ -26,37 +26,28 @@ class TranslationService {
 
   Locale _getEffectiveLocaleFromPreferences(SharedPreferences prefs) {
     final language = prefs.getString('locale_language');
-    if (language == null) {
-      return PlatformDispatcher.instance.locale;
+    if (language != null) {
+      final script = prefs.getString('locale_script');
+      final savedLocale = script != null
+          ? Locale.fromSubtags(languageCode: language, scriptCode: script)
+          : Locale(language);
+      if (S.supportedLocales.contains(savedLocale)) return savedLocale;
     }
-    final script = prefs.getString('locale_script');
-    return script != null
-        ? Locale.fromSubtags(languageCode: language, scriptCode: script)
-        : Locale(language);
+    return basicLocaleListResolution(
+      WidgetsBinding.instance.platformDispatcher.locales,
+      S.supportedLocales,
+    );
   }
 
-  _TranslationLanguageConfig _getLanguageConfig(
-    SharedPreferences prefs,
-    String selectedSource,
-  ) {
+  _TranslationLanguageConfig _getLanguageConfig(SharedPreferences prefs) {
     final appLocale = _getEffectiveLocaleFromPreferences(prefs);
-    final preferences = TranslationLanguagePreferences(
-      targetLanguage: TranslationTargetLanguage.fromValue(
-        prefs.getString(
-          TranslationLanguagePreferencesNotifier.keyTargetLanguage,
-        ),
+    final targetLanguage = TranslationTargetLanguage.fromValue(
+      prefs.getString(
+        TranslationLanguagePreferencesNotifier.keyTargetLanguage,
       ),
-      customTargetLanguage:
-          prefs.getString(
-            TranslationLanguagePreferencesNotifier.keyCustomTargetLanguage,
-          ) ??
-          '',
     );
-
     return _TranslationLanguageConfig(
-      preferences: preferences,
-      allowCustomLanguage: selectedSource == TranslationSource.llm.value,
-      targetLocale: preferences.targetLanguage.resolveLocale(appLocale),
+      targetLocale: targetLanguage.resolveLocale(appLocale),
     );
   }
 
@@ -106,8 +97,6 @@ class TranslationService {
         return 'English';
       case 'ja':
         return 'Japanese';
-      case 'ru':
-        return 'Russian';
       default:
         return locale.languageCode;
     }
@@ -140,12 +129,10 @@ class TranslationService {
   /// 获取当前 locale 对应的默认 LLM prompt
   Future<String> getDefaultLLMPromptForCurrentLocale() async {
     final prefs = await SharedPreferences.getInstance();
-    final selectedSource = prefs.getString('translation_source') ?? 'google';
-    final languageConfig = _getLanguageConfig(prefs, selectedSource);
+    final languageConfig = _getLanguageConfig(prefs);
     return getDefaultLLMPrompt(
       languageConfig.targetLocale,
       sourceLanguageName: languageConfig.llmSourceLanguageName(null),
-      targetLanguageName: languageConfig.llmTargetLanguageName(),
     );
   }
 
@@ -155,7 +142,7 @@ class TranslationService {
 
     final prefs = await SharedPreferences.getInstance();
     final selectedSource = prefs.getString('translation_source') ?? 'google';
-    final languageConfig = _getLanguageConfig(prefs, selectedSource);
+    final languageConfig = _getLanguageConfig(prefs);
     final cacheSourceLang = languageConfig.cacheSourceLang(sourceLang);
     final cacheTargetLang = languageConfig.cacheTargetLang();
     final targetLocale = languageConfig.targetLocale;
@@ -211,7 +198,6 @@ class TranslationService {
             sourceLanguageName: languageConfig.llmSourceLanguageName(
               sourceLang,
             ),
-            targetLanguageName: languageConfig.llmTargetLanguageName(),
           );
         } else {
           // Google 翻译
@@ -425,13 +411,9 @@ class TranslationService {
 
 class _TranslationLanguageConfig {
   const _TranslationLanguageConfig({
-    required this.preferences,
-    required this.allowCustomLanguage,
     required this.targetLocale,
   });
 
-  final TranslationLanguagePreferences preferences;
-  final bool allowCustomLanguage;
   final Locale targetLocale;
 
   String googleSourceLang(String? sourceLang) {
@@ -451,11 +433,6 @@ class _TranslationLanguageConfig {
   }
 
   String cacheTargetLang() {
-    if (allowCustomLanguage &&
-        preferences.targetLanguage == TranslationTargetLanguage.custom &&
-        preferences.customTargetLanguage.isNotEmpty) {
-      return 'custom:${preferences.customTargetLanguage}';
-    }
     return targetLocale.scriptCode != null
         ? '${targetLocale.languageCode}_${targetLocale.scriptCode}'
         : targetLocale.languageCode;
@@ -464,15 +441,6 @@ class _TranslationLanguageConfig {
   String? llmSourceLanguageName(String? sourceLang) {
     if (sourceLang != null && sourceLang != 'auto') {
       return _llmLanguageNameForCode(sourceLang);
-    }
-    return null;
-  }
-
-  String? llmTargetLanguageName() {
-    if (allowCustomLanguage &&
-        preferences.targetLanguage == TranslationTargetLanguage.custom &&
-        preferences.customTargetLanguage.isNotEmpty) {
-      return preferences.customTargetLanguage;
     }
     return null;
   }

@@ -59,7 +59,7 @@
 - Detailed work information display
 
 ### 🌐 Internationalization
-- 简体中文 / 繁體中文 / English / 日本語 / Русский
+- 简体中文 / 繁體中文 / English / 日本語
 - Multi-format, multilingual translation support
 
 ### ⚙️ Settings
