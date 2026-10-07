@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/services.dart';
@@ -15,9 +17,13 @@ import '../utils/collection_grid_layout.dart';
 import '../utils/file_tree_utils.dart';
 import '../utils/file_icon_utils.dart';
 import '../utils/snackbar_util.dart';
+import '../utils/ui_tokens.dart';
 import 'cached_image_widget.dart';
 import 'file_explorer_header.dart';
 import 'file_tree_view.dart';
+import 'pagination_bar.dart';
+import 'sliver_tab_page_view.dart';
+import 'tab_page_motion.dart';
 import 'work_detail/work_cover_frame.dart';
 
 typedef ResourceAudioAction =
@@ -74,7 +80,10 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
   ConsumerState<WorkResourceTabs> createState() => _WorkResourceTabsState();
 }
 
-class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs> {
+class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
+    with TickerProviderStateMixin {
+  static const _imagesPerPage = 20;
+
   int _selected = 1;
   List<dynamic>? _tree;
   List<PlayerAudioVariant>? _variants;
@@ -89,6 +98,54 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs> {
   final _imageFailures = <dynamic, ValueNotifier<bool>>{};
   Map<String, bool> _downloadedFiles = const {};
   List<String>? _reportedNames;
+  late AnimationController _pagePosition;
+  late TabController _tabs;
+  final _tabHeaderKey = GlobalKey();
+  int _imagePage = 1;
+  bool _reduceMotion = false;
+  bool _tabSyncScheduled = false;
+  bool _configuringTabs = false;
+  int? _motionTarget;
+
+  @override
+  void initState() {
+    super.initState();
+    final tabCount = FileTreeUtils.imageFilesRecursive(widget.fileTree).isEmpty
+        ? 2
+        : 3;
+    _tabs = TabController(
+      length: tabCount,
+      initialIndex: _selected,
+      animationDuration: Duration.zero,
+      vsync: this,
+    );
+    _pagePosition = AnimationController(
+      vsync: this,
+      lowerBound: 0,
+      upperBound: 2,
+      value: _selected.toDouble(),
+    )..addListener(_handlePagePositionChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (reduceMotion && !_reduceMotion) {
+      _pagePosition.stop(canceled: true);
+      _pagePosition.value = (_motionTarget ?? _selected).toDouble();
+    }
+    _reduceMotion = reduceMotion;
+  }
+
+  @override
+  void dispose() {
+    _pagePosition
+      ..removeListener(_handlePagePositionChanged)
+      ..dispose();
+    _tabs.dispose();
+    super.dispose();
+  }
 
   void _updateResources(AudioFormatPreference preference) {
     for (final image in _images) {
@@ -107,11 +164,27 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs> {
     }
     if (treeChanged) {
       _images = FileTreeUtils.imageFilesRecursive(widget.fileTree);
+      _imagePage = 1;
       _imageTargets.clear();
       _imageAttempts.clear();
       _imageAspectRatios.clear();
       _imageFailures.clear();
+      _motionTarget = null;
       if (_images.isEmpty && _selected == 2) _selected = 1;
+      final tabCount = _images.isEmpty ? 2 : 3;
+      if (_tabs.length != tabCount) {
+        _configuringTabs = true;
+        _pagePosition.stop(canceled: true);
+        _pagePosition.value = _selected.toDouble();
+        _tabs.dispose();
+        _tabs = TabController(
+          length: tabCount,
+          initialIndex: _selected,
+          animationDuration: Duration.zero,
+          vsync: this,
+        );
+        _configuringTabs = false;
+      }
     }
     _tree = widget.fileTree;
     _variants = widget.audioVariants;
@@ -144,37 +217,35 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs> {
   @override
   Widget build(BuildContext context) {
     _updateResources(ref.watch(audioFormatPreferenceProvider));
+    _reduceMotion = MediaQuery.disableAnimationsOf(context);
     _reportVisibleNames();
     final s = S.of(context);
     return SliverMainAxisGroup(
       slivers: [
         SliverToBoxAdapter(
           child: Column(
+            key: _tabHeaderKey,
             children: [
-              DefaultTabController(
-                key: ValueKey(_images.isNotEmpty),
-                length: _images.isEmpty ? 2 : 3,
-                initialIndex: _selected,
-                child: TabBar(
-                  isScrollable: true,
-                  tabAlignment: TabAlignment.start,
-                  onTap: (index) => setState(() => _selected = index),
-                  tabs: [
+              TabBar(
+                controller: _tabs,
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                onTap: _moveToTab,
+                tabs: [
+                  Tab(
+                    key: const ValueKey('work-resource-files-tab'),
+                    text: widget.resourceTitle,
+                  ),
+                  Tab(
+                    key: const ValueKey('work-resource-audio-tab'),
+                    text: s.workResourceAudio,
+                  ),
+                  if (_images.isNotEmpty)
                     Tab(
-                      key: const ValueKey('work-resource-files-tab'),
-                      text: widget.resourceTitle,
+                      key: const ValueKey('work-resource-images-tab'),
+                      text: s.workResourceImages,
                     ),
-                    Tab(
-                      key: const ValueKey('work-resource-audio-tab'),
-                      text: s.workResourceAudio,
-                    ),
-                    if (_images.isNotEmpty)
-                      Tab(
-                        key: const ValueKey('work-resource-images-tab'),
-                        text: s.workResourceImages,
-                      ),
-                  ],
-                ),
+                ],
               ),
               if (widget.progressMessage case final message?
                   when message.isNotEmpty)
@@ -182,13 +253,87 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs> {
             ],
           ),
         ),
-        switch (_selected) {
-          0 => widget.resourceSliver,
-          2 => _imageGrid(context),
-          _ => _audioList(context),
-        },
+        SliverTabPageView(
+          position: _pagePosition,
+          onDragStart: () {
+            _motionTarget = null;
+            _pagePosition.stop(canceled: true);
+          },
+          onDragUpdate: _updatePagePosition,
+          onDragEnd: _settlePagePosition,
+          onDragCancel: () => _settlePagePosition(0),
+          pages: [
+            widget.resourceSliver,
+            _audioList(context),
+            if (_images.isNotEmpty) _imageGrid(context),
+          ],
+        ),
       ],
     );
+  }
+
+  void _moveToTab(int index) {
+    syncTabWithPagePosition(_tabs, _pagePosition.value);
+    _animateToPage(index.toDouble());
+  }
+
+  Future<void> _animateToPage(double target) async {
+    final page = target.clamp(0.0, (_tabs.length - 1).toDouble()).toDouble();
+    _motionTarget = page.round();
+    _pagePosition.stop(canceled: true);
+    if (_reduceMotion) {
+      _pagePosition.value = page;
+      return;
+    }
+    await _pagePosition.animateTo(
+      page,
+      duration: tabPageDuration,
+      curve: Curves.ease,
+    );
+  }
+
+  void _updatePagePosition(double pageDelta) {
+    _motionTarget = null;
+    final maxPage = (_tabs.length - 1).toDouble();
+    _pagePosition.value = (_pagePosition.value + pageDelta)
+        .clamp(0.0, maxPage)
+        .toDouble();
+  }
+
+  void _settlePagePosition(double velocity) {
+    final page = _pagePosition.value;
+    final target = velocity.abs() > 0.5
+        ? (velocity > 0 ? page.floor() + 1 : page.ceil() - 1)
+        : page.round();
+    _animateToPage(target.clamp(0, _tabs.length - 1).toDouble());
+  }
+
+  void _handlePagePositionChanged() {
+    if (!mounted || _configuringTabs) return;
+    final page = _pagePosition.value
+        .clamp(0.0, (_tabs.length - 1).toDouble())
+        .toDouble();
+    if (_tabs.indexIsChanging) {
+      _scheduleTabSync();
+    } else {
+      syncTabWithPagePosition(_tabs, page);
+    }
+    final selected = page.round();
+    if (selected != _selected) setState(() => _selected = selected);
+  }
+
+  void _scheduleTabSync() {
+    if (_tabSyncScheduled) return;
+    _tabSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _tabSyncScheduled = false;
+      if (!mounted) return;
+      if (_tabs.indexIsChanging) {
+        _scheduleTabSync();
+        return;
+      }
+      syncTabWithPagePosition(_tabs, _pagePosition.value);
+    });
   }
 
   void _reportVisibleNames() {
@@ -199,7 +344,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs> {
         widget.fileTree,
         expandedFolders: widget.expandedFolders,
       ),
-      2 => _images.map(FileTreeUtils.titleOf).toSet().toList(),
+      2 => _currentImagePage.map(FileTreeUtils.titleOf).toSet().toList(),
       _ => _audio.map((variant) => variant.title).toSet().toList(),
     };
     if (listEquals(_reportedNames, names)) return;
@@ -314,161 +459,228 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs> {
     }
   }
 
-  Widget _imageGrid(BuildContext context) => SliverLayoutBuilder(
-    builder: (context, constraints) {
-      final metrics = resolveCollectionGridMetrics(
-        context,
-        layoutType: LayoutType.bigGrid,
-        cardSize: WorkCardSize.normal,
-        availableWidth: constraints.crossAxisExtent,
-        padding: const EdgeInsets.only(top: 8),
-      );
-      return SliverPadding(
-        padding: metrics.padding,
-        sliver: SliverMasonryGrid.count(
-          crossAxisCount: metrics.crossAxisCount,
-          crossAxisSpacing: metrics.spacing,
-          mainAxisSpacing: metrics.spacing,
-          childCount: _images.length,
-          itemBuilder: (context, index) {
-            final file = _images[index];
-            final imageAspectRatio = _imageAspectRatios.putIfAbsent(
-              file,
-              () => ValueNotifier(null),
+  List<dynamic> get _currentImagePage {
+    final start = (_imagePage - 1) * _imagesPerPage;
+    return _images.skip(start).take(_imagesPerPage).toList(growable: false);
+  }
+
+  Widget _imageGrid(BuildContext context) {
+    final pageImages = _currentImagePage;
+    return SliverMainAxisGroup(
+      slivers: [
+        SliverLayoutBuilder(
+          builder: (context, constraints) {
+            final metrics = resolveCollectionGridMetrics(
+              context,
+              layoutType: LayoutType.bigGrid,
+              cardSize: WorkCardSize.normal,
+              availableWidth: constraints.crossAxisExtent,
+              padding: const EdgeInsets.only(top: 8),
             );
-            final imageFailure = _imageFailures.putIfAbsent(
-              file,
-              () => ValueNotifier(false),
-            );
-            final attempt = _imageAttempts[file] ?? 0;
-            return FutureBuilder<PreviewFileItem?>(
-              future: _imageTargets.putIfAbsent(
-                file,
-                () => widget.resolveImage(file),
-              ),
-              builder: (context, snapshot) {
-                final targetFailed =
-                    snapshot.hasError ||
-                    (snapshot.connectionState == ConnectionState.done &&
-                        snapshot.data == null);
-                final target = snapshot.data;
-                return ValueListenableBuilder<bool>(
-                  valueListenable: imageFailure,
-                  builder: (context, hasImageFailed, _) => ValueListenableBuilder<double?>(
-                    valueListenable: imageAspectRatio,
-                    builder: (context, knownAspectRatio, _) {
-                      final aspectRatio = knownAspectRatio ?? 2 / 3;
-                      return Visibility(
-                        visible:
-                            knownAspectRatio != null ||
-                            hasImageFailed ||
-                            targetFailed,
-                        maintainSize: true,
-                        maintainAnimation: true,
-                        maintainState: true,
-                        child: Card(
-                          margin: EdgeInsets.zero,
-                          clipBehavior: Clip.antiAlias,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                              workCoverCompactRadius,
-                            ),
-                          ),
-                          child: InkWell(
-                            onTap: () => widget.onImageTap(file),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                WorkCoverClip(
-                                  cornerRadius: workCoverCompactRadius,
-                                  child: AspectRatio(
-                                    aspectRatio: aspectRatio,
-                                    child: targetFailed
-                                        ? Center(
-                                            child: IconButton(
-                                              tooltip: S.of(context).retry,
-                                              icon: const Icon(
-                                                Icons.broken_image_outlined,
-                                              ),
-                                              onPressed: () =>
-                                                  _retryImage(file),
-                                            ),
-                                          )
-                                        : target == null
-                                        ? const Center(
-                                            child: CircularProgressIndicator(),
-                                          )
-                                        : LayoutBuilder(
-                                            builder: (context, constraints) =>
-                                                CachedImageWidget(
-                                                  key: ValueKey(attempt),
-                                                  imageUrl: target.url,
-                                                  hash: target.hash,
-                                                  cacheWidth:
-                                                      (constraints.maxWidth *
-                                                              MediaQuery.devicePixelRatioOf(
-                                                                context,
-                                                              ))
-                                                          .ceil(),
-                                                  onRetry: () =>
-                                                      _retryImage(file),
-                                                  onAspectRatio: (ratio) {
-                                                    if (mounted &&
-                                                        _imageAspectRatios[file] ==
-                                                            imageAspectRatio &&
-                                                        imageAspectRatio
-                                                                .value !=
-                                                            ratio) {
-                                                      imageAspectRatio.value =
-                                                          ratio;
-                                                    }
-                                                  },
-                                                  onImageError: () {
-                                                    if (mounted &&
-                                                        _imageFailures[file] ==
-                                                            imageFailure) {
-                                                      imageFailure.value = true;
-                                                    }
-                                                  },
+            return SliverPadding(
+              padding: metrics.padding,
+              sliver: SliverMasonryGrid.count(
+                crossAxisCount: metrics.crossAxisCount,
+                crossAxisSpacing: metrics.spacing,
+                mainAxisSpacing: metrics.spacing,
+                childCount: pageImages.length,
+                itemBuilder: (context, index) {
+                  final file = pageImages[index];
+                  final imageAspectRatio = _imageAspectRatios.putIfAbsent(
+                    file,
+                    () => ValueNotifier(null),
+                  );
+                  final imageFailure = _imageFailures.putIfAbsent(
+                    file,
+                    () => ValueNotifier(false),
+                  );
+                  final attempt = _imageAttempts[file] ?? 0;
+                  return FutureBuilder<PreviewFileItem?>(
+                    key: ObjectKey(file),
+                    future: _imageTargets.putIfAbsent(
+                      file,
+                      () => widget.resolveImage(file),
+                    ),
+                    builder: (context, snapshot) {
+                      final targetFailed =
+                          snapshot.hasError ||
+                          (snapshot.connectionState == ConnectionState.done &&
+                              snapshot.data == null);
+                      final target = snapshot.data;
+                      return ValueListenableBuilder<bool>(
+                        valueListenable: imageFailure,
+                        builder: (context, hasImageFailed, _) => ValueListenableBuilder<double?>(
+                          valueListenable: imageAspectRatio,
+                          builder: (context, knownAspectRatio, _) {
+                            final aspectRatio = knownAspectRatio ?? 2 / 3;
+                            return Visibility(
+                              visible:
+                                  knownAspectRatio != null ||
+                                  hasImageFailed ||
+                                  targetFailed,
+                              maintainSize: true,
+                              maintainAnimation: true,
+                              maintainState: true,
+                              child: Card(
+                                margin: EdgeInsets.zero,
+                                clipBehavior: Clip.antiAlias,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    workCoverCompactRadius,
+                                  ),
+                                ),
+                                child: InkWell(
+                                  onTap: () => widget.onImageTap(file),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      WorkCoverClip(
+                                        cornerRadius: workCoverCompactRadius,
+                                        child: AspectRatio(
+                                          aspectRatio: aspectRatio,
+                                          child: targetFailed
+                                              ? Center(
+                                                  child: IconButton(
+                                                    tooltip: S
+                                                        .of(context)
+                                                        .retry,
+                                                    icon: const Icon(
+                                                      Icons
+                                                          .broken_image_outlined,
+                                                    ),
+                                                    onPressed: () =>
+                                                        _retryImage(file),
+                                                  ),
+                                                )
+                                              : target == null
+                                              ? const Center(
+                                                  child:
+                                                      CircularProgressIndicator(),
+                                                )
+                                              : LayoutBuilder(
+                                                  builder:
+                                                      (
+                                                        context,
+                                                        constraints,
+                                                      ) => CachedImageWidget(
+                                                        key: ValueKey(attempt),
+                                                        imageUrl: target.url,
+                                                        hash: target.hash,
+                                                        cacheWidth:
+                                                            (constraints.maxWidth *
+                                                                    MediaQuery.devicePixelRatioOf(
+                                                                      context,
+                                                                    ))
+                                                                .ceil(),
+                                                        onRetry: () =>
+                                                            _retryImage(file),
+                                                        onAspectRatio: (ratio) {
+                                                          if (mounted &&
+                                                              _imageAspectRatios[file] ==
+                                                                  imageAspectRatio &&
+                                                              imageAspectRatio
+                                                                      .value !=
+                                                                  ratio) {
+                                                            imageAspectRatio
+                                                                    .value =
+                                                                ratio;
+                                                          }
+                                                        },
+                                                        onImageError: () {
+                                                          if (mounted &&
+                                                              _imageFailures[file] ==
+                                                                  imageFailure) {
+                                                            imageFailure.value =
+                                                                true;
+                                                          }
+                                                        },
+                                                      ),
                                                 ),
-                                          ),
-                                  ),
-                                ),
-                                Padding(
-                                  padding: const EdgeInsets.all(8),
-                                  child: Text(
-                                    _displayName(FileTreeUtils.titleOf(file)),
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleSmall
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.bold,
-                                          height: 1.1,
-                                          fontSize:
-                                              MediaQuery.orientationOf(
-                                                    context,
-                                                  ) ==
-                                                  Orientation.landscape
-                                              ? 14.5
-                                              : 12,
                                         ),
+                                      ),
+                                      Padding(
+                                        padding: const EdgeInsets.all(8),
+                                        child: Text(
+                                          _displayName(
+                                            FileTreeUtils.titleOf(file),
+                                          ),
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleSmall
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                                height: 1.1,
+                                                fontSize:
+                                                    MediaQuery.orientationOf(
+                                                          context,
+                                                        ) ==
+                                                        Orientation.landscape
+                                                    ? 14.5
+                                                    : 12,
+                                              ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
+                              ),
+                            );
+                          },
                         ),
                       );
                     },
-                  ),
-                );
-              },
+                  );
+                },
+              ),
             );
           },
         ),
-      );
-    },
-  );
+        if (_images.length > _imagesPerPage)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: PaginationBar(
+                currentPage: _imagePage,
+                pageSize: _imagesPerPage,
+                totalCount: _images.length,
+                hasMore: _imagePage * _imagesPerPage < _images.length,
+                isLoading: false,
+                onPreviousPage: _imagePage > 1
+                    ? () => _changeImagePage(_imagePage - 1)
+                    : null,
+                onNextPage: _imagePage * _imagesPerPage < _images.length
+                    ? () => _changeImagePage(_imagePage + 1)
+                    : null,
+                onGoToPage: _changeImagePage,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  void _changeImagePage(int page) {
+    final maxPage = (_images.length / _imagesPerPage).ceil();
+    if (page < 1 || page > maxPage || page == _imagePage) return;
+    setState(() => _imagePage = page);
+    unawaited(_scrollToTabHeader());
+  }
+
+  Future<void> _scrollToTabHeader() async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    final headerContext = _tabHeaderKey.currentContext;
+    if (headerContext == null || !headerContext.mounted) return;
+    await Scrollable.ensureVisible(
+      headerContext,
+      alignment: 0,
+      duration: MediaQuery.disableAnimationsOf(headerContext)
+          ? Duration.zero
+          : UiMotion.travel,
+      curve: UiMotion.curve,
+    );
+  }
 
   void _retryImage(dynamic file) => setState(() {
     _imageFailures[file]?.value = false;
