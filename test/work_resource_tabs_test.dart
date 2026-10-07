@@ -1,6 +1,10 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
@@ -9,6 +13,7 @@ import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dar
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/work_resource_tabs.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
+import 'package:kikoeru_flutter/src/utils/local_file_url.dart';
 
 List<dynamic> _files({bool images = false}) => [
   {
@@ -57,6 +62,7 @@ Future<void> _pumpResources(
   Map<String, bool> downloadedFiles = const {},
   Set<String> expandedFolders = const {},
   ValueChanged<List<String>>? onVisibleNamesChanged,
+  ScrollController? controller,
 }) => tester.pumpWidget(
   ProviderScope(
     child: MaterialApp(
@@ -67,6 +73,7 @@ Future<void> _pumpResources(
         body: ValueListenableBuilder<List<dynamic>>(
           valueListenable: tree,
           builder: (context, files, _) => CustomScrollView(
+            controller: controller,
             slivers: [
               WorkResourceTabs(
                 workId: 42,
@@ -91,6 +98,29 @@ Future<void> _pumpResources(
     ),
   ),
 );
+
+Future<void> _waitForImage(WidgetTester tester, Finder finder) async {
+  final image = tester.widget<Image>(finder);
+  final configuration = createLocalImageConfiguration(tester.element(finder));
+  await tester.runAsync(() async {
+    final stream = image.image.resolve(configuration);
+    final loaded = Completer<void>();
+    final listener = ImageStreamListener(
+      (_, __) {
+        if (!loaded.isCompleted) loaded.complete();
+      },
+      onError: (error, stackTrace) {
+        if (!loaded.isCompleted) loaded.completeError(error, stackTrace);
+      },
+    );
+    stream.addListener(listener);
+    try {
+      await loaded.future.timeout(const Duration(seconds: 5));
+    } finally {
+      stream.removeListener(listener);
+    }
+  });
+}
 
 void main() {
   setUp(() async {
@@ -130,6 +160,85 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(imageLoads, 2);
+  });
+
+  testWidgets('image cards keep their aspect ratio after scrolling back', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final directory = Directory.systemTemp.createTempSync(
+      'work-resource-images-',
+    );
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final imageFiles = <String, File>{};
+    final files = List<dynamic>.generate(12, (index) {
+      final hash = 'image$index';
+      final file = File('${directory.path}/$hash.png')
+        ..writeAsBytesSync(
+          img.encodePng(
+            img.Image(
+              width: index == 0 ? 80 : 160,
+              height: index == 0 ? 160 : 80,
+            ),
+          ),
+        );
+      imageFiles[hash] = file;
+      return {'type': 'image', 'title': '$hash.png', 'hash': hash};
+    });
+    final tree = ValueNotifier<List<dynamic>>(files);
+    addTearDown(tree.dispose);
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    await _pumpResources(
+      tester,
+      tree,
+      controller: controller,
+      resolveImage: (file) async {
+        final hash = file['hash'] as String;
+        return PreviewFileItem(
+          url: LocalFileUrl.fromPath(imageFiles[hash]!.path),
+          title: file['title'] as String,
+          hash: hash,
+        );
+      },
+    );
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pump();
+    await tester.pump();
+
+    Finder firstCard() => find.ancestor(
+      of: find.text('image0.png'),
+      matching: find.byType(Card),
+    );
+
+    final initialCard = firstCard();
+    final initialImage = find.descendant(
+      of: initialCard,
+      matching: find.byType(Image),
+    );
+    expect(initialImage, findsOneWidget);
+    await _waitForImage(tester, initialImage);
+    await tester.pump();
+    final initialCardHeight = tester.getRect(initialCard).height;
+    expect(
+      tester.getRect(initialImage).width / tester.getRect(initialImage).height,
+      closeTo(0.5, 0.01),
+    );
+
+    controller.jumpTo(controller.position.maxScrollExtent);
+    await tester.pump();
+    await tester.pump();
+    expect(firstCard(), findsNothing);
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+    controller.jumpTo(0);
+    await tester.pump();
+
+    final returnedCard = firstCard();
+    expect(returnedCard, findsOneWidget);
+    expect(tester.getRect(returnedCard).height, closeTo(initialCardHeight, 1));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(

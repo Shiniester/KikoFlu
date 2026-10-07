@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/utils/theme.dart';
@@ -123,6 +124,47 @@ Future<void> _backEvent(
 );
 
 void main() {
+  testWidgets('home paints after a snapshotting detail is popped', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final navigator = GlobalKey<NavigatorState>();
+    final scene = GlobalKey();
+    await tester.pumpWidget(
+      RepaintBoundary(
+        key: scene,
+        child: MaterialApp(
+          navigatorKey: navigator,
+          theme: AppTheme.lightTheme(null).copyWith(platform: TargetPlatform.android),
+          home: const Scaffold(
+            body: ColoredBox(color: Colors.red, child: SizedBox.expand()),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    _push(navigator, _page);
+    await tester.pumpAndSettle();
+    navigator.currentState!.pop();
+    await tester.pumpAndSettle();
+    final pixels = await tester.runAsync(() async {
+      final boundary = scene.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      final image = await boundary.toImage();
+      try {
+        return await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      } finally {
+        image.dispose();
+      }
+    });
+    final index = (200 * 390 + 200) * 4;
+    expect(
+      pixels!.buffer.asUint8List(index, 4),
+      [244, 67, 54, 255],
+      reason: 'The revealed home must paint its contents after the route returns.',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('source parallax does not allocate a full-screen raster', (
     tester,
   ) async {
