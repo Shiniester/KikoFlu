@@ -1,13 +1,16 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
+import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/file_preview_resolver.dart';
 import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
@@ -136,6 +139,11 @@ Future<void> _pumpUntilImageLoaded(WidgetTester tester, Finder finder) async {
   expect(tester.widget<RawImage>(rawImage).image, isNotNull);
 }
 
+Finder _loadingOverlaySpinner() => find.byKey(
+  const ValueKey('work-resource-images-loading'),
+  skipOffstage: false,
+);
+
 void main() {
   testWidgets('visible resource images resolve before the rest of the page', (
     tester,
@@ -146,7 +154,9 @@ void main() {
       for (var index = 0; index < 41; index++)
         {'type': 'image', 'title': 'image$index.png', 'hash': 'image$index'},
     ]);
+    final scroll = ScrollController();
     addTearDown(tree.dispose);
+    addTearDown(scroll.dispose);
     final calls = <String>[];
     final gates = <String, Completer<PreviewFileItem?>>{};
     Future<PreviewFileItem?> resolve(dynamic file) {
@@ -179,9 +189,32 @@ void main() {
     }
     expect(visibleHashes, isNotEmpty);
     expect(calls.every(visibleHashes.contains), isTrue);
+    final loadingSpinner = _loadingOverlaySpinner();
+    expect(loadingSpinner, findsOneWidget);
+    expect(
+      tester
+          .getRect(loadingSpinner)
+          .overlaps(Offset.zero & const Size(390, 500)),
+      isTrue,
+    );
     final pendingVisibleCalls = List<String>.of(calls);
     await tester.pump(const Duration(milliseconds: 100));
     expect(calls, pendingVisibleCalls);
+
+    gates[calls.first]!.complete(null);
+    await tester.pump();
+    await tester.pump();
+    final firstFailedCard = find.ancestor(
+      of: find.text('${calls.first}.png'),
+      matching: find.byType(Card),
+    );
+    final firstFailedCardVisibility = find
+        .ancestor(of: firstFailedCard, matching: find.byType(Visibility))
+        .first;
+    expect(
+      tester.widget<Visibility>(firstFailedCardVisibility).visible,
+      isFalse,
+    );
 
     for (var frame = 0; frame < 80 && calls.length < 20; frame++) {
       for (final hash in calls) {
@@ -203,6 +236,55 @@ void main() {
     expect(calls.toSet(), {
       for (var index = 0; index < 20; index++) 'image$index',
     });
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('pending first-screen spinner stays visible during fast scroll', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final tree = ValueNotifier<List<dynamic>>([
+      for (var index = 0; index < 20; index++)
+        {'type': 'image', 'title': 'image$index.png', 'hash': 'image$index'},
+    ]);
+    final scroll = ScrollController();
+    addTearDown(tree.dispose);
+    addTearDown(scroll.dispose);
+    final pending = <String, Completer<PreviewFileItem?>>{};
+    await _pumpResources(
+      tester,
+      tree,
+      controller: scroll,
+      resolveImage: (file) {
+        final hash = file['hash'] as String;
+        return (pending[hash] ??= Completer<PreviewFileItem?>()).future;
+      },
+    );
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+    });
+
+    final firstScreenSpinner = _loadingOverlaySpinner();
+    expect(firstScreenSpinner, findsOneWidget);
+    expect(
+      tester
+          .getRect(firstScreenSpinner)
+          .overlaps(Offset.zero & const Size(390, 500)),
+      isTrue,
+    );
+    expect(scroll.position.maxScrollExtent, greaterThan(0));
+    scroll.jumpTo(scroll.position.maxScrollExtent);
+    await tester.pump();
+
+    final spinner = _loadingOverlaySpinner();
+    expect(spinner, findsOneWidget);
+    expect(
+      tester.getRect(spinner).overlaps(Offset.zero & const Size(390, 500)),
+      isTrue,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -245,6 +327,81 @@ void main() {
     }
 
     expect(calls.toSet(), started);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('switching image pages resets the first-screen gate', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final tree = ValueNotifier<List<dynamic>>([
+      for (var index = 0; index < 41; index++)
+        {'type': 'image', 'title': 'image$index.png', 'hash': 'image$index'},
+    ]);
+    final scroll = ScrollController();
+    addTearDown(tree.dispose);
+    addTearDown(scroll.dispose);
+    final pending = <String, Completer<PreviewFileItem?>>{};
+    final calls = <String>[];
+    Future<PreviewFileItem?> resolve(dynamic file) {
+      final hash = file['hash'] as String;
+      calls.add(hash);
+      if (int.parse(hash.substring(5)) < 20) return Future.value(null);
+      return (pending[hash] ??= Completer<PreviewFileItem?>()).future;
+    }
+
+    await _pumpResources(
+      tester,
+      tree,
+      controller: scroll,
+      resolveImage: resolve,
+    );
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pumpAndSettle();
+    expect(_loadingOverlaySpinner(), findsNothing);
+
+    final scrollable = find
+        .descendant(
+          of: find.byType(CustomScrollView),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.scrollUntilVisible(
+      find.text('Next'),
+      180,
+      scrollable: scrollable,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Next'));
+    await tester.pump(const Duration(milliseconds: 300));
+    scroll.jumpTo(0);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final pageTwoSpinner = _loadingOverlaySpinner();
+    expect(pageTwoSpinner, findsOneWidget);
+    expect(
+      tester.getRect(pageTwoSpinner).overlaps(Offset.zero & const Size(390, 500)),
+      isTrue,
+    );
+    final firstPageTwoCard = find.ancestor(
+      of: find.text('image20.png'),
+      matching: find.byType(Card),
+    );
+    expect(
+      tester
+          .widget<Visibility>(
+            find
+                .ancestor(
+                  of: firstPageTwoCard,
+                  matching: find.byType(Visibility),
+                )
+                .first,
+          )
+          .visible,
+      isFalse,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -320,11 +477,16 @@ void main() {
       frame++
     ) {
       await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        () => Future<void>.delayed(const Duration(milliseconds: 16)),
       );
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
     }
-    expect(calls, hasLength(20));
+    expect(
+      calls,
+      hasLength(20),
+      reason:
+          'Visible local images must decode before background prefetch begins.',
+    );
     expect(calls.toSet(), hasLength(20));
     expect(
       PaintingBinding.instance.imageCache.statusForKey(cacheKey).keepAlive,
@@ -347,11 +509,7 @@ void main() {
       );
     }
     expect(find.byKey(ObjectKey(files.last)), findsNothing);
-    await tester.scrollUntilVisible(
-      find.text('warm19.png'),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
+    scroll.jumpTo(scroll.position.maxScrollExtent);
     await tester.pump();
     final returnedImage = find.descendant(
       of: find.ancestor(
@@ -361,8 +519,182 @@ void main() {
       matching: find.byType(RawImage),
     );
     expect(returnedImage, findsOneWidget);
+    final neverDisplayedCard = find.ancestor(
+      of: find.text('warm19.png'),
+      matching: find.byType(Card),
+    );
+    final neverDisplayedVisibility = find
+        .ancestor(of: neverDisplayedCard, matching: find.byType(Visibility))
+        .first;
+    expect(tester.widget<Visibility>(neverDisplayedVisibility).visible, isTrue);
     expect(tester.widget<RawImage>(returnedImage).image, isNotNull);
     expect(calls, hasLength(20));
+
+    scroll.jumpTo(0);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('work-resource-audio-tab')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pumpAndSettle();
+    expect(_loadingOverlaySpinner(), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('remote resource prefetch updates never-mounted cards', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final directory = Directory.systemTemp.createTempSync('remote-resource-');
+    const pathProvider = MethodChannel('plugins.flutter.io/path_provider');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      pathProvider,
+      (_) async => directory.path,
+    );
+    final previousCache = CachedNetworkImageProvider.defaultCacheManager;
+    CacheService.installImageCacheManager();
+    final id = DateTime.now().microsecondsSinceEpoch;
+    final files = <dynamic>[
+      for (var index = 0; index < 20; index++)
+        {
+          'type': 'image',
+          'title': 'remote$index.png',
+          'hash': 'remote-$id-$index',
+        },
+    ];
+    final urls = {
+      for (var index = 0; index < 20; index++)
+        'remote-$id-$index': 'https://assets.invalid/$id/$index.png',
+    };
+    final imageBytes = img.encodePng(img.Image(width: 60, height: 30));
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+      CachedNetworkImageProvider.defaultCacheManager = previousCache;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        pathProvider,
+        null,
+      );
+      directory.deleteSync(recursive: true);
+    });
+    await tester.runAsync(() async {
+      for (final entry in urls.entries) {
+        final cacheKey = CacheService.imageCacheKey(
+          imageUrl: entry.value,
+          hash: entry.key,
+        )!;
+        await CacheService.imageCacheManager.putFile(
+          entry.value,
+          imageBytes,
+          key: cacheKey,
+          fileExtension: 'png',
+        );
+        expect(
+          await CacheService.imageCacheManager.getFileFromCache(cacheKey),
+          isNotNull,
+        );
+      }
+    });
+
+    final tree = ValueNotifier<List<dynamic>>(files);
+    final scroll = ScrollController();
+    addTearDown(tree.dispose);
+    addTearDown(scroll.dispose);
+    final calls = <String>[];
+    await _pumpResources(
+      tester,
+      tree,
+      controller: scroll,
+      resolveImage: (file) async {
+        final hash = file['hash'] as String;
+        calls.add(hash);
+        return PreviewFileItem(
+          url: urls[hash]!,
+          title: file['title'] as String,
+          hash: hash,
+        );
+      },
+    );
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+    });
+    final firstCard = find
+        .ancestor(of: find.text('remote0.png'), matching: find.byType(Card))
+        .first;
+    final cacheWidth =
+        (tester.getSize(firstCard).width *
+                MediaQuery.devicePixelRatioOf(tester.element(firstCard)))
+            .ceil();
+    final lastHash = files.last['hash'] as String;
+    final preloadedProvider = CachedImageWidget.imageProvider(
+      imageUrl: urls[lastHash]!,
+      hash: lastHash,
+      cacheWidth: cacheWidth,
+    );
+    final cacheKey = await preloadedProvider.obtainKey(
+      ImageConfiguration.empty,
+    );
+    for (
+      var frame = 0;
+      frame < 300 &&
+          (calls.length < 20 ||
+              !PaintingBinding.instance.imageCache
+                  .statusForKey(cacheKey)
+                  .keepAlive);
+      frame++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 16)),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    final imageException = tester.takeException();
+    final rawImages = tester.widgetList<RawImage>(find.byType(RawImage));
+    expect(
+      calls,
+      hasLength(20),
+      reason:
+          'Remote visible images must decode before background prefetch begins; '
+          'calls=${calls.length}, warm19.keepAlive='
+          '${PaintingBinding.instance.imageCache.statusForKey(cacheKey).keepAlive}, '
+          'decodedFrames=${rawImages.where((image) => image.image != null).length}, '
+          'retryCards=${find.byIcon(Icons.broken_image_outlined).evaluate().length}, '
+          'exception=$imageException',
+    );
+    expect(imageException, isNull);
+    expect(
+      PaintingBinding.instance.imageCache.statusForKey(cacheKey).keepAlive,
+      isTrue,
+    );
+    expect(find.byKey(ObjectKey(files.last)), findsNothing);
+    scroll.jumpTo(scroll.position.maxScrollExtent);
+    await tester.pump();
+    final returnedImage = find.descendant(
+      of: find.ancestor(
+        of: find.text('remote19.png'),
+        matching: find.byType(Card),
+      ),
+      matching: find.byType(RawImage),
+    );
+    expect(returnedImage, findsOneWidget);
+    final returnedCard = find.ancestor(
+      of: find.text('remote19.png'),
+      matching: find.byType(Card),
+    );
+    expect(
+      tester
+          .widget<Visibility>(
+            find
+                .ancestor(of: returnedCard, matching: find.byType(Visibility))
+                .first,
+          )
+          .visible,
+      isTrue,
+    );
+    expect(tester.widget<RawImage>(returnedImage).image, isNotNull);
     expect(tester.takeException(), isNull);
   });
 

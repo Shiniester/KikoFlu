@@ -96,12 +96,14 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   List<dynamic> _queue = const [];
   List<PlayerSubtitleCandidate?> _subtitles = const [];
   final _imageTargets = <dynamic, Future<PreviewFileItem?>>{};
+  final _resolvedImageTargets = <dynamic, PreviewFileItem>{};
   final _imageTargetSignals =
       <dynamic, ValueNotifier<Future<PreviewFileItem?>?>>{};
   final _imageAttempts = <dynamic, int>{};
   final _imageAspectRatios = <dynamic, ValueNotifier<double?>>{};
   final _imageFailures = <dynamic, ValueNotifier<bool>>{};
   final _imageItemKeys = <dynamic, GlobalKey>{};
+  final _imagePageGatePassed = ValueNotifier(false);
   late final _imagePrefetchQueue = ImagePrefetchQueue<dynamic>(
     keyOf: (file) => (file, _imageAttempts[file] ?? 0, _imageCacheWidth),
     prepare: _prepareImage,
@@ -167,6 +169,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     for (final signal in _imageTargetSignals.values) {
       signal.dispose();
     }
+    _imagePageGatePassed.dispose();
     _pagePosition
       ..removeListener(_handlePagePositionChanged)
       ..dispose();
@@ -179,6 +182,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       final hash = FileTreeUtils.property(image, 'hash')?.toString();
       if (_downloadedFiles[hash] != widget.downloadedFiles[hash]) {
         _imageTargets.remove(image);
+        _resolvedImageTargets.remove(image);
         _imageTargetSignals[image]?.value = null;
         _imageAttempts[image] = (_imageAttempts[image] ?? 0) + 1;
       }
@@ -199,6 +203,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       _images = FileTreeUtils.imageFilesRecursive(widget.fileTree);
       _imagePage = 1;
       _imageTargets.clear();
+      _resolvedImageTargets.clear();
       for (final signal in _imageTargetSignals.values) {
         signal.dispose();
       }
@@ -207,6 +212,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       _imageAspectRatios.clear();
       _imageFailures.clear();
       _imageItemKeys.clear();
+      _imagePageGatePassed.value = false;
       _motionTarget = null;
       if (_images.isEmpty && _selected == 2) _selected = 1;
       final tabCount = _images.isEmpty ? 2 : 3;
@@ -528,14 +534,22 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       return;
     }
     final pageImages = _currentImagePage;
+    final visible = [
+      for (final file in pageImages)
+        if (_isImageVisible(file)) file,
+    ];
     _imagePrefetchQueue.update(
       items: pageImages,
-      visible: [
-        for (final file in pageImages)
-          if (_isImageVisible(file)) file,
-      ],
-      active: true,
+      visible: visible,
+      // Wait for a real viewport cohort before warming anything. After the
+      // page gate opens, keep prewarming even if the user scrolls past the grid.
+      active: visible.isNotEmpty || _imagePageGatePassed.value,
     );
+    if (!_imagePageGatePassed.value &&
+        visible.isNotEmpty &&
+        visible.every(_imageReady)) {
+      setState(() => _imagePageGatePassed.value = true);
+    }
   }
 
   bool _isImageVisible(dynamic file) {
@@ -562,6 +576,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   }
 
   Future<void> _prepareImage(dynamic file) async {
+    final attempt = _imageAttempts[file] ?? 0;
     if (!mounted ||
         !_shouldPrepareImageTab ||
         !_currentImagePage.contains(file)) {
@@ -569,31 +584,99 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     }
     final future = _imageTargets.putIfAbsent(
       file,
-      () => widget.resolveImage(file),
+      () => Future.sync(() => widget.resolveImage(file)),
     );
     final signal = _imageTargetSignals.putIfAbsent(
       file,
       () => ValueNotifier(null),
     );
     if (signal.value != future) signal.value = future;
-    final target = await future;
+    PreviewFileItem? target;
+    try {
+      target = await future;
+    } catch (_) {
+      if (!_shouldPrepareImageTab || !_currentImagePage.contains(file)) return;
+      _markImageFailed(file, attempt);
+      return;
+    }
+    if (!mounted ||
+        !_shouldPrepareImageTab ||
+        !_currentImagePage.contains(file) ||
+        (_imageAttempts[file] ?? 0) != attempt) {
+      return;
+    }
     final cacheWidth = _imageCacheWidth;
-    if (target == null ||
-        cacheWidth == null ||
-        !mounted ||
+    if (target == null) {
+      _markImageFailed(file, attempt);
+      return;
+    }
+    _resolvedImageTargets[file] = target;
+    if (cacheWidth == null) {
+      return;
+    }
+    ImageStream? stream;
+    ImageStreamListener? listener;
+    try {
+      final provider = CachedImageWidget.imageProvider(
+        imageUrl: target.url,
+        hash: target.hash,
+        cacheWidth: cacheWidth,
+      );
+      stream = provider.resolve(createLocalImageConfiguration(context));
+      listener = ImageStreamListener((info, _) {
+        final ratio = info.image.width / info.image.height;
+        info.dispose();
+        if (mounted &&
+            _shouldPrepareImageTab &&
+            _currentImagePage.contains(file) &&
+            (_imageAttempts[file] ?? 0) == attempt) {
+          _reportImageAspectRatio(file, ratio);
+        }
+      }, onError: (error, stackTrace) => _markImageFailed(file, attempt));
+      stream.addListener(listener);
+      await precacheImage(
+        provider,
+        context,
+        onError: (error, stackTrace) => _markImageFailed(file, attempt),
+      );
+    } catch (_) {
+      _markImageFailed(file, attempt);
+    } finally {
+      if (stream != null && listener != null) {
+        stream.removeListener(listener);
+      }
+    }
+  }
+
+  bool _imageReady(dynamic file) =>
+      _imageAspectRatios[file]?.value != null ||
+      _imageFailures[file]?.value == true;
+
+  void _reportImageAspectRatio(dynamic file, double ratio) {
+    if (!mounted ||
         !_shouldPrepareImageTab ||
         !_currentImagePage.contains(file)) {
       return;
     }
-    await precacheImage(
-      CachedImageWidget.imageProvider(
-        imageUrl: target.url,
-        hash: target.hash,
-        cacheWidth: cacheWidth,
-      ),
-      context,
-      onError: (error, stackTrace) {},
+    final signal = _imageAspectRatios.putIfAbsent(
+      file,
+      () => ValueNotifier(null),
     );
+    if (signal.value == ratio) return;
+    signal.value = ratio;
+    _scheduleImageInspection();
+  }
+
+  void _markImageFailed(dynamic file, int attempt) {
+    if (!mounted ||
+        !_shouldPrepareImageTab ||
+        (_imageAttempts[file] ?? 0) != attempt ||
+        !_currentImagePage.contains(file)) {
+      return;
+    }
+    final signal = _imageFailures.putIfAbsent(file, () => ValueNotifier(false));
+    if (!signal.value) signal.value = true;
+    _scheduleImageInspection();
   }
 
   List<dynamic> get _currentImagePage {
@@ -603,244 +686,289 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
 
   Widget _imageGrid(BuildContext context) {
     final pageImages = _currentImagePage;
-    return SliverMainAxisGroup(
-      slivers: [
-        SliverLayoutBuilder(
-          builder: (context, constraints) {
-            final metrics = resolveCollectionGridMetrics(
-              context,
-              layoutType: LayoutType.bigGrid,
-              cardSize: WorkCardSize.normal,
-              availableWidth: constraints.crossAxisExtent,
-              padding: const EdgeInsets.only(top: 8),
-            );
-            final cardWidth =
-                (constraints.crossAxisExtent -
-                    metrics.padding.horizontal -
-                    metrics.spacing * (metrics.crossAxisCount - 1)) /
-                metrics.crossAxisCount;
-            _imageCacheWidth =
-                (cardWidth * MediaQuery.devicePixelRatioOf(context)).ceil();
-            _scheduleImageInspection();
-            return SliverPadding(
-              padding: metrics.padding,
-              sliver: SliverMasonryGridTail(
-                itemCount: pageImages.length,
-                child: SliverMasonryGrid.count(
-                  crossAxisCount: metrics.crossAxisCount,
-                  crossAxisSpacing: metrics.spacing,
-                  mainAxisSpacing: metrics.spacing,
-                  childCount: pageImages.length,
-                  itemBuilder: (context, index) {
-                    final file = pageImages[index];
-                    final itemKey = _imageItemKeys.putIfAbsent(
-                      file,
-                      GlobalKey.new,
-                    );
-                    final imageAspectRatio = _imageAspectRatios.putIfAbsent(
-                      file,
-                      () => ValueNotifier(null),
-                    );
-                    final imageFailure = _imageFailures.putIfAbsent(
-                      file,
-                      () => ValueNotifier(false),
-                    );
-                    final imageTarget = _imageTargetSignals.putIfAbsent(
-                      file,
-                      () => ValueNotifier(_imageTargets[file]),
-                    );
-                    final attempt = _imageAttempts[file] ?? 0;
-                    return NotificationListener<SizeChangedLayoutNotification>(
-                      onNotification: (_) {
-                        _scheduleImageInspection();
-                        return false;
-                      },
-                      child: SizedBox(
-                        key: itemKey,
-                        child: SizeChangedLayoutNotifier(
-                          child: ValueListenableBuilder<Future<PreviewFileItem?>?>(
-                            valueListenable: imageTarget,
-                            builder: (context, future, _) => FutureBuilder<PreviewFileItem?>(
-                              key: ObjectKey(file),
-                              future: future,
-                              builder: (context, snapshot) {
-                                final targetFailed =
-                                    snapshot.hasError ||
-                                    (snapshot.connectionState ==
-                                            ConnectionState.done &&
-                                        snapshot.data == null);
-                                final target = snapshot.data;
-                                return ValueListenableBuilder<bool>(
-                                  valueListenable: imageFailure,
-                                  builder: (context, hasImageFailed, _) => ValueListenableBuilder<double?>(
-                                    valueListenable: imageAspectRatio,
-                                    builder: (context, knownAspectRatio, _) {
-                                      final aspectRatio =
-                                          knownAspectRatio ?? 2 / 3;
-                                      return Visibility(
-                                        visible:
-                                            knownAspectRatio != null ||
-                                            hasImageFailed ||
-                                            targetFailed,
-                                        maintainSize: true,
-                                        maintainAnimation: true,
-                                        maintainState: true,
-                                        child: Card(
-                                          margin: EdgeInsets.zero,
-                                          clipBehavior: Clip.antiAlias,
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              workCoverCompactRadius,
-                                            ),
-                                          ),
-                                          child: InkWell(
-                                            onTap: () =>
-                                                widget.onImageTap(file),
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.stretch,
-                                              children: [
-                                                WorkCoverClip(
-                                                  cornerRadius:
-                                                      workCoverCompactRadius,
-                                                  child: AspectRatio(
-                                                    aspectRatio: aspectRatio,
-                                                    child: targetFailed
-                                                        ? Center(
-                                                            child: IconButton(
-                                                              tooltip: S
-                                                                  .of(context)
-                                                                  .retry,
-                                                              icon: const Icon(
-                                                                Icons
-                                                                    .broken_image_outlined,
-                                                              ),
-                                                              onPressed: () =>
-                                                                  _retryImage(
-                                                                    file,
+    final loading = _shouldPrepareImageTab && !_imagePageGatePassed.value;
+    return _SliverLoadingOverlay(
+      loading: loading,
+      sliver: SliverMainAxisGroup(
+        slivers: [
+          SliverLayoutBuilder(
+            builder: (context, constraints) {
+              final metrics = resolveCollectionGridMetrics(
+                context,
+                layoutType: LayoutType.bigGrid,
+                cardSize: WorkCardSize.normal,
+                availableWidth: constraints.crossAxisExtent,
+                padding: const EdgeInsets.only(top: 8),
+              );
+              final cardWidth =
+                  (constraints.crossAxisExtent -
+                      metrics.padding.horizontal -
+                      metrics.spacing * (metrics.crossAxisCount - 1)) /
+                  metrics.crossAxisCount;
+              _imageCacheWidth =
+                  (cardWidth * MediaQuery.devicePixelRatioOf(context)).ceil();
+              _scheduleImageInspection();
+              return SliverPadding(
+                padding: metrics.padding,
+                sliver: SliverMasonryGridTail(
+                  itemCount: pageImages.length,
+                  child: SliverMasonryGrid.count(
+                    crossAxisCount: metrics.crossAxisCount,
+                    crossAxisSpacing: metrics.spacing,
+                    mainAxisSpacing: metrics.spacing,
+                    childCount: pageImages.length,
+                    itemBuilder: (context, index) {
+                      final file = pageImages[index];
+                      final itemKey = _imageItemKeys.putIfAbsent(
+                        file,
+                        GlobalKey.new,
+                      );
+                      final imageAspectRatio = _imageAspectRatios.putIfAbsent(
+                        file,
+                        () => ValueNotifier(null),
+                      );
+                      final imageFailure = _imageFailures.putIfAbsent(
+                        file,
+                        () => ValueNotifier(false),
+                      );
+                      final imageTarget = _imageTargetSignals.putIfAbsent(
+                        file,
+                        () => ValueNotifier(_imageTargets[file]),
+                      );
+                      final attempt = _imageAttempts[file] ?? 0;
+                      return NotificationListener<
+                        SizeChangedLayoutNotification
+                      >(
+                        onNotification: (_) {
+                          _scheduleImageInspection();
+                          return false;
+                        },
+                        child: SizedBox(
+                          key: itemKey,
+                          child: SizeChangedLayoutNotifier(
+                            child: ValueListenableBuilder<Future<PreviewFileItem?>?>(
+                              valueListenable: imageTarget,
+                              builder: (context, future, _) => FutureBuilder<PreviewFileItem?>(
+                                key: ObjectKey(file),
+                                future: future,
+                                initialData: _resolvedImageTargets[file],
+                                builder: (context, snapshot) {
+                                  final targetFutureFailed =
+                                      snapshot.hasError ||
+                                      (snapshot.connectionState ==
+                                              ConnectionState.done &&
+                                          snapshot.data == null);
+                                  final target = snapshot.data;
+                                  return ValueListenableBuilder<bool>(
+                                    valueListenable: imageFailure,
+                                    builder: (context, hasImageFailed, _) {
+                                      final targetFailed =
+                                          targetFutureFailed ||
+                                          (hasImageFailed && target == null);
+                                      return ValueListenableBuilder<double?>(
+                                        valueListenable: imageAspectRatio,
+                                        builder: (context, knownAspectRatio, _) {
+                                          final aspectRatio =
+                                              knownAspectRatio ?? 2 / 3;
+                                          return ValueListenableBuilder<bool>(
+                                            valueListenable:
+                                                _imagePageGatePassed,
+                                            builder: (context, pageReady, _) => Visibility(
+                                              visible:
+                                                  pageReady &&
+                                                  (knownAspectRatio != null ||
+                                                      hasImageFailed ||
+                                                      targetFailed ||
+                                                      attempt > 0),
+                                              maintainSize: true,
+                                              maintainAnimation: true,
+                                              maintainState: true,
+                                              child: Card(
+                                                margin: EdgeInsets.zero,
+                                                clipBehavior: Clip.antiAlias,
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                        workCoverCompactRadius,
+                                                      ),
+                                                ),
+                                                child: InkWell(
+                                                  onTap: () =>
+                                                      widget.onImageTap(file),
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .stretch,
+                                                    children: [
+                                                      WorkCoverClip(
+                                                        cornerRadius:
+                                                            workCoverCompactRadius,
+                                                        child: AspectRatio(
+                                                          aspectRatio:
+                                                              aspectRatio,
+                                                          child: targetFailed
+                                                              ? Center(
+                                                                  child: IconButton(
+                                                                    tooltip: S
+                                                                        .of(
+                                                                          context,
+                                                                        )
+                                                                        .retry,
+                                                                    icon: const Icon(
+                                                                      Icons
+                                                                          .broken_image_outlined,
+                                                                    ),
+                                                                    onPressed: () =>
+                                                                        _retryImage(
+                                                                          file,
+                                                                        ),
                                                                   ),
-                                                            ),
-                                                          )
-                                                        : target == null
-                                                        ? const TickerMode(
-                                                            enabled: false,
-                                                            child: Center(
-                                                              child:
-                                                                  CircularProgressIndicator(),
-                                                            ),
-                                                          )
-                                                        : LayoutBuilder(
-                                                            builder: (context, _) => CachedImageWidget(
-                                                              key: ValueKey(
-                                                                attempt,
-                                                              ),
-                                                              imageUrl:
-                                                                  target.url,
-                                                              hash: target.hash,
-                                                              cacheWidth:
-                                                                  _imageCacheWidth!,
-                                                              fadeInDuration:
-                                                                  Duration.zero,
-                                                              fadeOutDuration:
-                                                                  Duration.zero,
-                                                              onRetry: () =>
-                                                                  _retryImage(
-                                                                    file,
+                                                                )
+                                                              : target == null
+                                                              ? const TickerMode(
+                                                                  enabled:
+                                                                      false,
+                                                                  child: Center(
+                                                                    child:
+                                                                        CircularProgressIndicator(),
                                                                   ),
-                                                              onAspectRatio: (ratio) {
-                                                                if (mounted &&
-                                                                    _imageAspectRatios[file] ==
-                                                                        imageAspectRatio &&
-                                                                    imageAspectRatio
-                                                                            .value !=
-                                                                        ratio) {
-                                                                  imageAspectRatio
-                                                                          .value =
-                                                                      ratio;
-                                                                }
-                                                              },
-                                                              onImageError: () {
-                                                                if (mounted &&
-                                                                    _imageFailures[file] ==
-                                                                        imageFailure) {
-                                                                  imageFailure
-                                                                          .value =
-                                                                      true;
-                                                                }
-                                                              },
+                                                                )
+                                                              : LayoutBuilder(
+                                                                  builder: (context, _) => CachedImageWidget(
+                                                                    key: ValueKey(
+                                                                      attempt,
+                                                                    ),
+                                                                    imageUrl:
+                                                                        target
+                                                                            .url,
+                                                                    hash: target
+                                                                        .hash,
+                                                                    cacheWidth:
+                                                                        _imageCacheWidth!,
+                                                                    fadeInDuration:
+                                                                        Duration
+                                                                            .zero,
+                                                                    fadeOutDuration:
+                                                                        Duration
+                                                                            .zero,
+                                                                    onRetry: () =>
+                                                                        _retryImage(
+                                                                          file,
+                                                                        ),
+                                                                    onAspectRatio: (ratio) {
+                                                                      if (mounted &&
+                                                                          _shouldPrepareImageTab &&
+                                                                          _currentImagePage.contains(
+                                                                            file,
+                                                                          ) &&
+                                                                          _imageAspectRatios[file] ==
+                                                                              imageAspectRatio &&
+                                                                          imageAspectRatio.value !=
+                                                                              ratio) {
+                                                                        imageAspectRatio.value =
+                                                                            ratio;
+                                                                      }
+                                                                    },
+                                                                    onImageError: () {
+                                                                      if (mounted &&
+                                                                          _shouldPrepareImageTab &&
+                                                                          _currentImagePage.contains(
+                                                                            file,
+                                                                          ) &&
+                                                                          _imageFailures[file] ==
+                                                                              imageFailure) {
+                                                                        imageFailure.value =
+                                                                            true;
+                                                                      }
+                                                                    },
+                                                                  ),
+                                                                ),
+                                                        ),
+                                                      ),
+                                                      Padding(
+                                                        padding:
+                                                            const EdgeInsets.all(
+                                                              8,
+                                                            ),
+                                                        child: Text(
+                                                          _displayName(
+                                                            FileTreeUtils.titleOf(
+                                                              file,
                                                             ),
                                                           ),
-                                                  ),
-                                                ),
-                                                Padding(
-                                                  padding: const EdgeInsets.all(
-                                                    8,
-                                                  ),
-                                                  child: Text(
-                                                    _displayName(
-                                                      FileTreeUtils.titleOf(
-                                                        file,
-                                                      ),
-                                                    ),
-                                                    style: Theme.of(context)
-                                                        .textTheme
-                                                        .titleSmall
-                                                        ?.copyWith(
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                          height: 1.1,
-                                                          fontSize:
-                                                              MediaQuery.orientationOf(
-                                                                    context,
-                                                                  ) ==
-                                                                  Orientation
-                                                                      .landscape
-                                                              ? 14.5
-                                                              : 12,
+                                                          style: Theme.of(context)
+                                                              .textTheme
+                                                              .titleSmall
+                                                              ?.copyWith(
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .bold,
+                                                                height: 1.1,
+                                                                fontSize:
+                                                                    MediaQuery.orientationOf(
+                                                                          context,
+                                                                        ) ==
+                                                                        Orientation
+                                                                            .landscape
+                                                                    ? 14.5
+                                                                    : 12,
+                                                              ),
                                                         ),
+                                                      ),
+                                                    ],
                                                   ),
                                                 ),
-                                              ],
+                                              ),
                                             ),
-                                          ),
-                                        ),
+                                          );
+                                        },
                                       );
                                     },
-                                  ),
-                                );
-                              },
+                                  );
+                                },
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
+                ),
+              );
+            },
+          ),
+          if (_images.length > _imagesPerPage)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: PaginationBar(
+                  currentPage: _imagePage,
+                  pageSize: _imagesPerPage,
+                  totalCount: _images.length,
+                  hasMore: _imagePage * _imagesPerPage < _images.length,
+                  isLoading: false,
+                  onPreviousPage: _imagePage > 1
+                      ? () => _changeImagePage(_imagePage - 1)
+                      : null,
+                  onNextPage: _imagePage * _imagesPerPage < _images.length
+                      ? () => _changeImagePage(_imagePage + 1)
+                      : null,
+                  onGoToPage: _changeImagePage,
                 ),
               ),
-            );
-          },
-        ),
-        if (_images.length > _imagesPerPage)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: PaginationBar(
-                currentPage: _imagePage,
-                pageSize: _imagesPerPage,
-                totalCount: _images.length,
-                hasMore: _imagePage * _imagesPerPage < _images.length,
-                isLoading: false,
-                onPreviousPage: _imagePage > 1
-                    ? () => _changeImagePage(_imagePage - 1)
-                    : null,
-                onNextPage: _imagePage * _imagesPerPage < _images.length
-                    ? () => _changeImagePage(_imagePage + 1)
-                    : null,
-                onGoToPage: _changeImagePage,
-              ),
             ),
-          ),
-      ],
+        ],
+      ),
+      overlay: loading
+          ? ColoredBox(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              child: const Center(
+                child: CircularProgressIndicator(
+                  key: ValueKey('work-resource-images-loading'),
+                ),
+              ),
+            )
+          : const SizedBox.shrink(),
     );
   }
 
@@ -852,7 +980,10 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       visible: const [],
       active: false,
     );
-    setState(() => _imagePage = page);
+    setState(() {
+      _imagePage = page;
+      _imagePageGatePassed.value = false;
+    });
     unawaited(_scrollToTabHeader());
   }
 
@@ -875,9 +1006,127 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     setState(() {
       _imageFailures[file]?.value = false;
       _imageTargets.remove(file);
+      _resolvedImageTargets.remove(file);
       _imageTargetSignals[file]?.value = null;
       _imageAttempts[file] = (_imageAttempts[file] ?? 0) + 1;
     });
     _scheduleImageInspection();
+  }
+}
+
+class _SliverLoadingOverlay extends MultiChildRenderObjectWidget {
+  _SliverLoadingOverlay({
+    required Widget sliver,
+    required this.loading,
+    required Widget overlay,
+  }) : super(children: [sliver, overlay]);
+
+  final bool loading;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderSliverLoadingOverlay(loading);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderSliverLoadingOverlay renderObject,
+  ) {
+    renderObject.loading = loading;
+  }
+}
+
+class _SliverLoadingOverlayParentData extends SliverPhysicalParentData
+    with ContainerParentDataMixin<RenderObject> {}
+
+class _RenderSliverLoadingOverlay extends RenderSliver
+    with
+        ContainerRenderObjectMixin<
+          RenderObject,
+          _SliverLoadingOverlayParentData
+        > {
+  _RenderSliverLoadingOverlay(this._loading);
+
+  bool _loading;
+
+  set loading(bool value) {
+    if (_loading == value) return;
+    _loading = value;
+    markNeedsLayout();
+    markNeedsSemanticsUpdate();
+  }
+
+  RenderSliver get _sliver => firstChild! as RenderSliver;
+  RenderBox get _overlay => childAfter(_sliver)! as RenderBox;
+
+  @override
+  void setupParentData(RenderObject child) {
+    if (child.parentData is! _SliverLoadingOverlayParentData) {
+      child.parentData = _SliverLoadingOverlayParentData();
+    }
+  }
+
+  @override
+  void performLayout() {
+    final sliver = _sliver;
+    sliver.layout(constraints, parentUsesSize: true);
+    final sliverGeometry = sliver.geometry!;
+    geometry = sliverGeometry;
+    (_parentData(sliver)).paintOffset = Offset.zero;
+
+    final overlay = _overlay;
+    if (!_loading || sliverGeometry.scrollOffsetCorrection != null) {
+      overlay.layout(BoxConstraints.tight(Size.zero));
+      _parentData(overlay).paintOffset = Offset.zero;
+      return;
+    }
+
+    final size = constraints.axis == Axis.vertical
+        ? Size(constraints.crossAxisExtent, sliverGeometry.paintExtent)
+        : Size(sliverGeometry.paintExtent, constraints.crossAxisExtent);
+    overlay.layout(BoxConstraints.tight(size), parentUsesSize: true);
+    _parentData(overlay).paintOffset = Offset.zero;
+  }
+
+  _SliverLoadingOverlayParentData _parentData(RenderObject child) =>
+      child.parentData! as _SliverLoadingOverlayParentData;
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    if (geometry?.visible != true) return;
+    final child = _loading ? _overlay : _sliver;
+    context.paintChild(child, offset + _parentData(child).paintOffset);
+  }
+
+  @override
+  bool hitTestChildren(
+    SliverHitTestResult result, {
+    required double mainAxisPosition,
+    required double crossAxisPosition,
+  }) =>
+      !_loading &&
+      _sliver.hitTest(
+        result,
+        mainAxisPosition: mainAxisPosition,
+        crossAxisPosition: crossAxisPosition,
+      );
+
+  @override
+  bool hitTestSelf({
+    required double mainAxisPosition,
+    required double crossAxisPosition,
+  }) => _loading;
+
+  @override
+  void visitChildrenForSemantics(RenderObjectVisitor visitor) {
+    visitor(_loading ? _overlay : _sliver);
+  }
+
+  @override
+  double childMainAxisPosition(covariant RenderObject child) => 0;
+
+  @override
+  void applyPaintTransform(RenderObject child, Matrix4 transform) {
+    _parentData(child).applyPaintTransform(transform);
   }
 }

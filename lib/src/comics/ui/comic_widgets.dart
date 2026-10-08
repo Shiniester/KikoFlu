@@ -96,30 +96,43 @@ final _comicImageBytesProvider = FutureProvider.autoDispose
       final source = ref
           .read(comicSourcesProvider)
           .firstWhere((source) => source.key == request.source);
-      final bytes = await ref.read(comicImageLoaderProvider)(
-        source,
-        request.page,
-      );
-      final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+      var retainedState = false;
       try {
-        final descriptor = await ui.ImageDescriptor.encoded(buffer);
+        final bytes = await ref.read(comicImageLoaderProvider)(
+          source,
+          request.page,
+        );
+        final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
         try {
-          final picture = _ComicCoverPicture(
-            bytes,
-            descriptor.width / descriptor.height,
-            descriptor.width,
-          );
-          if (!disposed) {
-            final release = ref.keepAlive().close;
-            retention.retain(request, bytes.lengthInBytes, release);
-            ref.onDispose(() => retention.remove(request, release));
+          final descriptor = await ui.ImageDescriptor.encoded(buffer);
+          try {
+            final picture = _ComicCoverPicture(
+              bytes,
+              descriptor.width / descriptor.height,
+              descriptor.width,
+            );
+            if (!disposed) {
+              final release = ref.keepAlive().close;
+              retention.retain(request, bytes.lengthInBytes, release);
+              ref.onDispose(() => retention.remove(request, release));
+              retainedState = true;
+            }
+            return picture;
+          } finally {
+            descriptor.dispose();
           }
-          return picture;
         } finally {
-          descriptor.dispose();
+          buffer.dispose();
         }
-      } finally {
-        buffer.dispose();
+      } catch (_) {
+        if (!disposed && !retainedState) {
+          // Keep bounded failures stable across scroll-away/back. Explicit
+          // retries invalidate this provider through the visible queue.
+          final release = ref.keepAlive().close;
+          retention.retain(request, 0, release);
+          ref.onDispose(() => retention.remove(request, release));
+        }
+        rethrow;
       }
     });
 
@@ -231,6 +244,7 @@ class ComicCover extends ConsumerStatefulWidget {
     this.onFirstFrameReady,
     this.onRetry,
     this.loadImage = true,
+    this.useCachedFrame = false,
     this.initialCacheWidth,
     this.initialAspectRatio,
     this.deferCacheUpgradeUntilRouteCompleted = false,
@@ -247,6 +261,7 @@ class ComicCover extends ConsumerStatefulWidget {
   final VoidCallback? onFirstFrameReady;
   final VoidCallback? onRetry;
   final bool loadImage;
+  final bool useCachedFrame;
   final int? initialCacheWidth;
   final double? initialAspectRatio;
   final bool deferCacheUpgradeUntilRouteCompleted;
@@ -378,8 +393,13 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
     final image = widget.loadImage
         ? ref.watch(_comicImageBytesProvider(request))
         : null;
+    final provider = _comicImageBytesProvider(request);
+    final cachedPicture =
+        !widget.loadImage && widget.useCachedFrame && ref.exists(provider)
+        ? ref.read(provider).valueOrNull
+        : null;
     if (image?.valueOrNull != null) _lastPicture = image!.valueOrNull;
-    final nextPicture = image?.valueOrNull ?? _lastPicture;
+    final nextPicture = image?.valueOrNull ?? cachedPicture ?? _lastPicture;
     if (!_routeMoving || !_hasVisibleState) {
       final oldRatio =
           _layoutPicture?.aspectRatio ?? widget.placeholderAspectRatio ?? 2 / 3;
@@ -525,6 +545,7 @@ class _ComicCardWhenReady extends ConsumerStatefulWidget {
     required this.buildChild,
     required this.coverWidth,
     required this.loadImage,
+    required this.useCachedFrame,
     this.placeholderAspectRatio,
     this.onAspectRatio,
   });
@@ -534,6 +555,7 @@ class _ComicCardWhenReady extends ConsumerStatefulWidget {
   final Widget Function(VoidCallback onFirstFrameReady) buildChild;
   final double coverWidth;
   final bool loadImage;
+  final bool useCachedFrame;
   final double? placeholderAspectRatio;
   final ValueChanged<double>? onAspectRatio;
 
@@ -545,10 +567,12 @@ class _ComicCardWhenReady extends ConsumerStatefulWidget {
 class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady>
     with AutomaticKeepAliveClientMixin {
   bool _shown = false;
+  bool _shownFromCachedFrame = false;
+  bool _wasForeground = false;
   int _generation = 0;
 
   @override
-  bool get wantKeepAlive => _shown;
+  bool get wantKeepAlive => _shown && _wasForeground;
 
   @override
   void didUpdateWidget(_ComicCardWhenReady oldWidget) {
@@ -556,6 +580,8 @@ class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady>
     if (oldWidget.source != widget.source ||
         oldWidget.page.url != widget.page.url) {
       _shown = false;
+      _shownFromCachedFrame = false;
+      _wasForeground = false;
       _generation++;
       updateKeepAlive();
     }
@@ -573,9 +599,12 @@ class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady>
     final request = _ComicImageRequest(widget.source, widget.page);
     final image = widget.loadImage
         ? ref.watch(_comicImageBytesProvider(request))
-        : const AsyncLoading<_ComicCoverPicture>();
+        : null;
+    final cachedPicture = !widget.loadImage && widget.useCachedFrame
+        ? _readCachedCoverPicture(ref, request, context, widget.coverWidth)
+        : null;
     if (widget.loadImage) ref.read(_comicCoverRetentionProvider).touch(request);
-    final picture = image.valueOrNull;
+    final picture = image?.valueOrNull ?? cachedPicture;
     if (picture != null) {
       widget.onAspectRatio?.call(picture.aspectRatio);
       final resizeImage = ResizeImage(
@@ -588,11 +617,19 @@ class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady>
       );
       if (_comicCoverImageIsCached(resizeImage, context)) {
         _shown = true;
+        _shownFromCachedFrame = !widget.loadImage;
       }
     }
-    if (image.hasError) {
+    if (widget.loadImage) _wasForeground = true;
+    if (image?.hasError ?? false) {
       widget.onAspectRatio?.call(widget.placeholderAspectRatio ?? 2 / 3);
       _shown = true;
+      _shownFromCachedFrame = false;
+    } else if (cachedPicture == null &&
+        _shownFromCachedFrame &&
+        !_wasForeground) {
+      _shown = false;
+      _shownFromCachedFrame = false;
     }
     updateKeepAlive();
     final generation = _generation;
@@ -601,9 +638,36 @@ class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady>
       maintainSize: true,
       maintainAnimation: true,
       maintainState: true,
-      child: widget.buildChild(() => _showWhenReady(generation)),
+      child: IgnorePointer(
+        ignoring: !_shown,
+        child: widget.buildChild(() => _showWhenReady(generation)),
+      ),
     );
   }
+}
+
+_ComicCoverPicture? _readCachedCoverPicture(
+  WidgetRef ref,
+  _ComicImageRequest request,
+  BuildContext context,
+  double logicalWidth,
+) {
+  final provider = _comicImageBytesProvider(request);
+  if (!ref.exists(provider) || logicalWidth < 1) return null;
+  final picture = ref.read(provider).valueOrNull;
+  if (picture == null) return null;
+  final cacheWidth = _comicCoverCacheWidth(
+    context,
+    logicalWidth,
+    picture.sourceWidth,
+  );
+  if (!_comicCoverImageIsCached(
+    ResizeImage(MemoryImage(picture.bytes), width: cacheWidth),
+    context,
+  )) {
+    return null;
+  }
+  return picture;
 }
 
 bool _comicCoverImageIsCached(ResizeImage image, BuildContext context) {
@@ -643,9 +707,12 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
   final _coverItemKeys = <String, GlobalKey>{};
   final _coverAttempts = <String, int>{};
   final _pendingCoverRetries = <String>{};
+  final _openedCoverPages = <String>{};
   final _admittedCoverKeys = <Object>{};
   final _preparedCoverKeys = <Object>{};
+  final _failedCoverKeys = <Object>{};
   final _backgroundFailedCoverKeys = <Object>{};
+  final _provisionallyCachedCoverKeys = <String>{};
   late final _coverPrefetchQueue = ImagePrefetchQueue<Comic>(
     keyOf: _coverQueueKey,
     prepare: _prepareCover,
@@ -656,13 +723,21 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
   int? _coverCachePixelWidth;
   bool _coverPreparationActive = true;
   bool _coverInspectionScheduled = false;
+  bool _coverInspectionInProgress = false;
+  bool _initialCoverGateReleased = false;
 
   @override
   void didUpdateWidget(ComicGrid oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!_sameComicPage(oldWidget.comics, widget.comics)) {
+      _initialCoverGateReleased = _openedCoverPages.contains(
+        _coverPageKey(widget.comics),
+      );
+    }
     if (!_samePage(oldWidget.comics, widget.comics)) {
       _visibleCoverCandidates = {};
       _admittedCoverKeys.clear();
+      _provisionallyCachedCoverKeys.clear();
       _foregroundCoverKeys.value = {};
       _coverPrefetchQueue.update(
         items: const [],
@@ -696,6 +771,17 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
     return true;
   }
 
+  bool _sameComicPage(List<Comic> first, List<Comic> second) {
+    if (first.length != second.length) return false;
+    for (var index = 0; index < first.length; index++) {
+      if (first[index].key != second[index].key) return false;
+    }
+    return true;
+  }
+
+  String _coverPageKey(List<Comic> comics) =>
+      jsonEncode([for (final comic in comics) comic.key]);
+
   Object _coverQueueKey(Comic comic) {
     final request = _ComicImageRequest(comic.source, comic.coverPage);
     return (
@@ -705,24 +791,47 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
     );
   }
 
-  void _allowForegroundCover(String requestKey) {
-    if (_foregroundCoverKeys.value.contains(requestKey)) return;
-    _foregroundCoverKeys.value = {..._foregroundCoverKeys.value, requestKey};
-  }
-
-  void _syncForegroundCoverKeys() {
-    final visibleKeys = <String>{};
-    for (final comic in widget.comics) {
+  void _syncForegroundCoverKeys({
+    bool notifyEvenIfUnchanged = false,
+    bool refreshProvisional = false,
+  }) {
+    final visibleItems = widget.comics.where(
+      (comic) => _visibleCoverCandidates.contains(_coverQueueKey(comic)),
+    );
+    final visibleReady = visibleItems.every((comic) {
       final queueKey = _coverQueueKey(comic);
-      if (_visibleCoverCandidates.contains(queueKey) &&
-          (_admittedCoverKeys.contains(queueKey) ||
-              _preparedCoverKeys.contains(queueKey))) {
+      return _preparedCoverKeys.contains(queueKey) ||
+          _failedCoverKeys.contains(queueKey);
+    });
+    if (_coverPreparationActive &&
+        !_initialCoverGateReleased &&
+        widget.comics.isEmpty) {
+      _initialCoverGateReleased = true;
+      if (mounted) setState(() {});
+    } else if (_coverPreparationActive &&
+        !_initialCoverGateReleased &&
+        visibleItems.isNotEmpty &&
+        visibleReady) {
+      if (_coverInspectionInProgress) {
+        _initialCoverGateReleased = true;
+        _openedCoverPages.add(_coverPageKey(widget.comics));
+        if (mounted) setState(() {});
+      } else {
+        _scheduleCoverInspection();
+      }
+    }
+    final visibleKeys = <String>{};
+    if (_coverPreparationActive) {
+      for (final comic in visibleItems) {
         visibleKeys.add(_ComicImageRequest(comic.source, comic.coverPage).key);
       }
     }
-    if (!_sameKeys(_foregroundCoverKeys.value, visibleKeys)) {
+    if (notifyEvenIfUnchanged ||
+        (refreshProvisional && _provisionallyCachedCoverKeys.isNotEmpty) ||
+        !_sameKeys(_foregroundCoverKeys.value, visibleKeys)) {
       _foregroundCoverKeys.value = visibleKeys;
     }
+    if (refreshProvisional) _provisionallyCachedCoverKeys.clear();
   }
 
   bool _sameKeys(Set<String> first, Set<String> second) =>
@@ -742,7 +851,8 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
   void _onCoverActivityChanged(bool active) {
     _coverPreparationActive = active;
     if (!active) {
-      _admittedCoverKeys.retainAll(_visibleCoverCandidates);
+      _provisionallyCachedCoverKeys.clear();
+      _foregroundCoverKeys.value = {};
       _coverPrefetchQueue.update(
         items: const [],
         visible: const [],
@@ -758,13 +868,24 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
     _coverInspectionScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _coverInspectionScheduled = false;
-      if (mounted) _updateCoverPrefetch();
+      if (mounted) {
+        _coverInspectionInProgress = true;
+        _updateCoverPrefetch();
+        _coverInspectionInProgress = false;
+      }
     });
+  }
+
+  void _refreshProvisionalCoverFrames() {
+    if (_provisionallyCachedCoverKeys.isEmpty) return;
+    _provisionallyCachedCoverKeys.clear();
+    _foregroundCoverKeys.value = {..._foregroundCoverKeys.value};
   }
 
   void _updateCoverPrefetch() {
     if (!_coverPreparationActive || _coverCachePixelWidth == null) {
       _visibleCoverCandidates = {};
+      _refreshProvisionalCoverFrames();
       _coverPrefetchQueue.update(
         items: const [],
         visible: const [],
@@ -781,7 +902,8 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
       final queueKey = _coverQueueKey(comic);
       final request = _ComicImageRequest(comic.source, comic.coverPage);
       if (_backgroundFailedCoverKeys.remove(queueKey) ||
-          (_preparedCoverKeys.contains(queueKey) &&
+          ((_preparedCoverKeys.contains(queueKey) ||
+                  _failedCoverKeys.contains(queueKey)) &&
               !ref.exists(_comicImageBytesProvider(request)))) {
         final requestKey = request.key;
         _coverAttempts.update(
@@ -795,6 +917,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
     final pageKeys = comics.map(_coverQueueKey).toSet();
     _admittedCoverKeys.retainAll(pageKeys);
     _preparedCoverKeys.retainAll(pageKeys);
+    _failedCoverKeys.retainAll(pageKeys);
     _backgroundFailedCoverKeys.retainAll(pageKeys);
     _coverAttempts.removeWhere(
       (requestKey, _) => !comics.any(
@@ -809,14 +932,27 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
       ),
     );
     _visibleCoverCandidates = visible.map(_coverQueueKey).toSet();
-    _coverPrefetchQueue.update(items: comics, visible: visible, active: true);
-    _syncForegroundCoverKeys();
+    _coverPrefetchQueue.update(
+      items: comics,
+      visible: visible,
+      active: visible.isNotEmpty || _initialCoverGateReleased,
+    );
+    _syncForegroundCoverKeys(refreshProvisional: true);
+  }
+
+  bool _hasComicLayout(Comic comic) {
+    final itemContext = _coverItemKeys[comic.key]?.currentContext;
+    if (itemContext is! Element) return false;
+    final renderObject = itemContext.renderObject;
+    return renderObject is RenderBox &&
+        renderObject.attached &&
+        renderObject.hasSize;
   }
 
   bool _isComicVisible(Comic comic) {
     final itemContext = _coverItemKeys[comic.key]?.currentContext;
-    if (itemContext == null) return false;
-    final renderObject = itemContext.findRenderObject();
+    if (itemContext is! Element) return false;
+    final renderObject = itemContext.renderObject;
     if (renderObject is! RenderBox ||
         !renderObject.attached ||
         !renderObject.hasSize) {
@@ -854,16 +990,18 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
     if (_pendingCoverRetries.remove(request.key)) {
       ref.invalidate(imageProvider);
     }
-    if (_visibleCoverCandidates.contains(queueKey)) {
-      _allowForegroundCover(request.key);
-    }
     final subscription = ref.listenManual(imageProvider, (previous, next) {});
     late final _ComicCoverPicture picture;
     try {
       picture = await ref.read(imageProvider.future);
     } catch (_) {
-      if (!_visibleCoverCandidates.contains(queueKey)) {
-        _backgroundFailedCoverKeys.add(queueKey);
+      if (mounted) {
+        _admittedCoverKeys.remove(queueKey);
+        _failedCoverKeys.add(queueKey);
+        if (!_visibleCoverCandidates.contains(queueKey)) {
+          _backgroundFailedCoverKeys.add(queueKey);
+        }
+        _syncForegroundCoverKeys(notifyEvenIfUnchanged: true);
       }
       rethrow;
     } finally {
@@ -878,7 +1016,12 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
               _ComicImageRequest(item.source, item.coverPage).key ==
               request.key,
         )) {
+      _admittedCoverKeys.remove(queueKey);
       return;
+    }
+    if (_coverAspectRatios[request.key] != picture.aspectRatio) {
+      _coverAspectRatios[request.key] = picture.aspectRatio;
+      _scheduleCoverInspection();
     }
     final cacheWidth = _comicCoverCacheWidth(
       context,
@@ -890,16 +1033,29 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
       context,
       onError: (error, stackTrace) {},
     );
+    if (!mounted ||
+        !_coverPreparationActive ||
+        !widget.comics.any(
+          (item) =>
+              _ComicImageRequest(item.source, item.coverPage).key ==
+              request.key,
+        )) {
+      return;
+    }
     _preparedCoverKeys.add(queueKey);
+    _admittedCoverKeys.remove(queueKey);
+    _failedCoverKeys.remove(queueKey);
     _backgroundFailedCoverKeys.remove(queueKey);
-    _syncForegroundCoverKeys();
+    _syncForegroundCoverKeys(notifyEvenIfUnchanged: true);
   }
 
   Widget _readyCard(
     Comic comic,
-    Widget Function(double?, VoidCallback, bool, VoidCallback) buildCard, {
+    Widget Function(double?, VoidCallback, bool, bool, VoidCallback)
+    buildCard, {
     required double coverWidth,
     required bool loadImage,
+    required bool useCachedFrame,
   }) {
     final page = comic.coverPage;
     final request = _ComicImageRequest(comic.source, page);
@@ -909,6 +1065,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
       page: page,
       coverWidth: coverWidth,
       loadImage: loadImage,
+      useCachedFrame: useCachedFrame,
       placeholderAspectRatio: placeholderAspectRatio,
       onAspectRatio: (ratio) {
         if (_coverAspectRatios[request.key] == ratio) return;
@@ -919,6 +1076,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
         placeholderAspectRatio,
         onFirstFrameReady,
         loadImage,
+        useCachedFrame,
         () => _retryCover(comic),
       ),
     );
@@ -926,15 +1084,32 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
 
   Widget _trackedCard(
     Comic comic,
-    Widget Function(double?, VoidCallback, bool, VoidCallback) buildCard, {
+    Widget Function(double?, VoidCallback, bool, bool, VoidCallback)
+    buildCard, {
     required double coverWidth,
   }) => ValueListenableBuilder<Set<String>>(
     valueListenable: _foregroundCoverKeys,
     builder: (context, visibleKeys, _) {
       final request = _ComicImageRequest(comic.source, comic.coverPage);
-      final reuseDecodedFrame =
-          _coverAspectRatios.containsKey(request.key) &&
-          _hasCachedCoverFrame(request, context);
+      final hasLayout = _hasComicLayout(comic);
+      final visible =
+          _coverPreparationActive && visibleKeys.contains(request.key);
+      final provisional =
+          _coverPreparationActive && _initialCoverGateReleased && !hasLayout;
+      final queueKey = _coverQueueKey(comic);
+      final provider = _comicImageBytesProvider(request);
+      final queueAdmitted =
+          _admittedCoverKeys.contains(queueKey) ||
+          (_preparedCoverKeys.contains(queueKey) && ref.exists(provider)) ||
+          (_failedCoverKeys.contains(queueKey) && ref.exists(provider));
+      final foreground = visible && queueAdmitted;
+      final cachedPicture =
+          _initialCoverGateReleased && (visible || provisional) && !foreground
+          ? _readCachedCoverPicture(ref, request, context, coverWidth)
+          : null;
+      if (provisional && cachedPicture != null) {
+        _provisionallyCachedCoverKeys.add(request.key);
+      }
       return SizedBox(
         key: _coverItemKey(comic),
         child: SizeChangedLayoutNotifier(
@@ -942,31 +1117,13 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
             comic,
             buildCard,
             coverWidth: coverWidth,
-            loadImage: visibleKeys.contains(request.key) || reuseDecodedFrame,
+            loadImage: foreground,
+            useCachedFrame: cachedPicture != null,
           ),
         ),
       );
     },
   );
-
-  bool _hasCachedCoverFrame(_ComicImageRequest request, BuildContext context) {
-    final provider = _comicImageBytesProvider(request);
-    final displayWidth = _coverDisplayWidth;
-    if (displayWidth == null || !ref.exists(provider)) return false;
-    final picture = ref.read(provider).valueOrNull;
-    if (picture == null) return false;
-    return _comicCoverImageIsCached(
-      ResizeImage(
-        MemoryImage(picture.bytes),
-        width: _comicCoverCacheWidth(
-          context,
-          displayWidth,
-          picture.sourceWidth,
-        ),
-      ),
-      context,
-    );
-  }
 
   GlobalKey _coverItemKey(Comic comic) =>
       _coverItemKeys.putIfAbsent(comic.key, GlobalKey.new);
@@ -988,11 +1145,40 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
         ),
       );
 
+  Widget _withInitialCoverGate(Widget child) {
+    if (widget.comics.isEmpty) return child;
+    final mediaQuery = MediaQuery.of(context);
+    return TickerMode(
+      enabled: _coverPreparationActive,
+      child: MediaQuery(
+        data: mediaQuery.copyWith(
+          disableAnimations:
+              mediaQuery.disableAnimations || !_initialCoverGateReleased,
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Offstage(offstage: !_initialCoverGateReleased, child: child),
+            if (!_initialCoverGateReleased)
+              ValueListenableBuilder<Set<String>>(
+                valueListenable: _foregroundCoverKeys,
+                builder: (context, visibleKeys, _) => TickerMode(
+                  enabled: _coverPreparationActive && visibleKeys.isNotEmpty,
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final layoutType = ref.watch(comicLayoutProvider);
     return DeferredTabContent(
-      builder: (context) => _buildContent(context, layoutType),
+      builder: (context) =>
+          _withInitialCoverGate(_buildContent(context, layoutType)),
       prepareDuringMotion: true,
       onActivityChanged: _onCoverActivityChanged,
     );
@@ -1096,6 +1282,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                           placeholderAspectRatio,
                           onFirstFrameReady,
                           loadImage,
+                          useCachedFrame,
                           onRetry,
                         ) => Card(
                           margin: const EdgeInsets.symmetric(
@@ -1132,6 +1319,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                                     onFirstFrameReady: onFirstFrameReady,
                                     onRetry: onRetry,
                                     loadImage: loadImage,
+                                    useCachedFrame: useCachedFrame,
                                     animateLoadingIndicator: loadImage,
                                   ),
                                   const SizedBox(width: 12),
@@ -1229,6 +1417,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                         placeholderAspectRatio,
                         onFirstFrameReady,
                         loadImage,
+                        useCachedFrame,
                         onRetry,
                       ) => Card(
                         clipBehavior: Clip.antiAlias,
@@ -1262,6 +1451,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                                     onFirstFrameReady: onFirstFrameReady,
                                     onRetry: onRetry,
                                     loadImage: loadImage,
+                                    useCachedFrame: useCachedFrame,
                                     animateLoadingIndicator: loadImage,
                                   ),
                                   if (comics[i].coverDate case final date?)
