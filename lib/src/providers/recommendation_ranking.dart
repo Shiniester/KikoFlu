@@ -2,6 +2,116 @@ import 'dart:math';
 
 import '../models/work.dart';
 
+List<Work> filterPreferredChineseEditions(
+  Work current,
+  Iterable<Work> candidates,
+) {
+  final candidateWorks = candidates.toList(growable: false);
+  final works = <Work>[current, ...candidateWorks];
+  final neighbors = <int, Set<int>>{};
+  final languages = <int, List<String>>{};
+
+  for (final work in works) {
+    neighbors.putIfAbsent(work.id, () => {});
+    final language = work.lang?.trim();
+    if (language != null && language.isNotEmpty) {
+      languages.putIfAbsent(work.id, () => []).add(language);
+    }
+    for (final edition in work.otherLanguageEditions ?? const []) {
+      neighbors.putIfAbsent(work.id, () => {}).add(edition.id);
+      neighbors.putIfAbsent(edition.id, () => {}).add(work.id);
+      languages.putIfAbsent(edition.id, () => []).add(edition.lang);
+    }
+  }
+
+  int? editionRank(int id) {
+    final evidence = languages[id] ?? const <String>[];
+    if (evidence.isEmpty) return null;
+    var best = 3;
+    for (final language in evidence) {
+      final chineseRank = _chineseLanguageRank(language);
+      if (chineseRank != null && chineseRank < best) best = chineseRank;
+    }
+    return best;
+  }
+
+  final checked = <int>{};
+  final chineseFamilyIds = <int>{};
+  final preferredIds = <int>{};
+  for (final start in neighbors.keys) {
+    if (!checked.add(start)) continue;
+    final family = <int>[];
+    final pending = [start];
+    while (pending.isNotEmpty) {
+      final id = pending.removeLast();
+      family.add(id);
+      for (final neighbor in neighbors[id] ?? const <int>{}) {
+        if (checked.add(neighbor)) pending.add(neighbor);
+      }
+    }
+
+    final chineseRanks = family
+        .map(editionRank)
+        .whereType<int>()
+        .where((rank) => rank < 3)
+        .toList(growable: false);
+    if (chineseRanks.isEmpty) continue;
+    final preferredRank = chineseRanks.reduce((a, b) => a < b ? a : b);
+    chineseFamilyIds.addAll(family);
+    for (final id in family) {
+      if (editionRank(id) == preferredRank) preferredIds.add(id);
+    }
+  }
+
+  return candidateWorks
+      .where((work) => work.id != current.id)
+      .where(
+        (work) =>
+            !chineseFamilyIds.contains(work.id) ||
+            preferredIds.contains(work.id),
+      )
+      .toList(growable: false);
+}
+
+int? _chineseLanguageRank(String language) {
+  final normalized = language.trim().toLowerCase().replaceAll(
+    RegExp(r'[\s-]+'),
+    '_',
+  );
+  if (const {
+        'chi_hans',
+        'zh_cn',
+        'zh_sg',
+        'zh_hans',
+        'simplified_chinese',
+        '简体中文',
+        '簡體中文',
+        '簡体中文',
+        '简体字',
+        '簡體字',
+      }.contains(normalized) ||
+      normalized.startsWith('zh_hans_')) {
+    return 0;
+  }
+  if (const {
+        'chi_hant',
+        'zh_tw',
+        'zh_hk',
+        'zh_mo',
+        'zh_hant',
+        'traditional_chinese',
+        '繁体中文',
+        '繁體中文',
+        '繁体字',
+        '繁體字',
+      }.contains(normalized) ||
+      normalized.startsWith('zh_hant_')) {
+    return 1;
+  }
+  if (const {'chi', 'zh', 'chinese', '中文'}.contains(normalized)) return 2;
+  return null;
+}
+
 class RecommendationSample {
   final Work work;
   final double weight;
@@ -237,6 +347,7 @@ double recommendationScore({
           ) +
       (sameVa ? 20 : 0) +
       (sameCircle ? 10 : 0) +
+      (candidate.hasSubtitle == true ? 10 : 0) +
       (candidate.rateAverage ?? 0) -
       (heard ? 10 : 0);
 }

@@ -748,7 +748,9 @@ void main() {
           child: const MaterialApp(
             localizationsDelegates: S.localizationsDelegates,
             supportedLocales: S.supportedLocales,
-            home: WorkDetailScreen(work: Work(id: 555, title: 'Work')),
+            home: WorkDetailScreen(
+              work: Work(id: 555, title: 'Work', lang: 'JPN'),
+            ),
           ),
         ),
       );
@@ -788,6 +790,17 @@ void main() {
       );
       await tester.pump();
       expect(recommendations!.requests, 1);
+      api.metadata.complete({'id': 555, 'title': 'Work'});
+      await _pumpFrames(tester);
+      expect(
+        tester
+            .widget<RecommendationSection>(
+              find.byType(RecommendationSection, skipOffstage: false),
+            )
+            .work
+            .lang,
+        'JPN',
+      );
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     },

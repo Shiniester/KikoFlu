@@ -17,6 +17,7 @@ Work _$WorkFromJson(Map<String, dynamic> json) => Work(
       tags: (json['tags'] as List<dynamic>?)
           ?.map((e) => Tag.fromJson(e as Map<String, dynamic>))
           .toList(),
+      lang: json['lang'] as String?,
       age: json['age'] as String?,
       release: json['release'] as String?,
       dlCount: (json['dl_count'] as num?)?.toInt(),
@@ -52,6 +53,7 @@ Map<String, dynamic> _$WorkToJson(Work instance) => <String, dynamic>{
       'name': instance.name,
       'vas': instance.vas,
       'tags': instance.tags,
+      'lang': instance.lang,
       'age': instance.age,
       'release': instance.release,
       'dl_count': instance.dlCount,
@@ -73,7 +75,8 @@ Map<String, dynamic> _$WorkToJson(Work instance) => <String, dynamic>{
     };
 
 OtherLanguageEdition _$OtherLanguageEditionFromJson(
-        Map<String, dynamic> json) =>
+  Map<String, dynamic> json,
+) =>
     OtherLanguageEdition(
       id: (json['id'] as num).toInt(),
       lang: json['lang'] as String,
@@ -84,7 +87,8 @@ OtherLanguageEdition _$OtherLanguageEditionFromJson(
     );
 
 Map<String, dynamic> _$OtherLanguageEditionToJson(
-        OtherLanguageEdition instance) =>
+  OtherLanguageEdition instance,
+) =>
     <String, dynamic>{
       'id': instance.id,
       'lang': instance.lang,
@@ -107,20 +111,16 @@ Map<String, dynamic> _$RatingDetailToJson(RatingDetail instance) =>
       'ratio': instance.ratio,
     };
 
-Circle _$CircleFromJson(Map<String, dynamic> json) => Circle(
-      id: (json['id'] as num).toInt(),
-      title: json['name'] as String,
-    );
+Circle _$CircleFromJson(Map<String, dynamic> json) =>
+    Circle(id: (json['id'] as num).toInt(), title: json['name'] as String);
 
 Map<String, dynamic> _$CircleToJson(Circle instance) => <String, dynamic>{
       'id': instance.id,
       'name': instance.title,
     };
 
-Va _$VaFromJson(Map<String, dynamic> json) => Va(
-      id: json['id'] as String,
-      name: json['name'] as String,
-    );
+Va _$VaFromJson(Map<String, dynamic> json) =>
+    Va(id: json['id'] as String, name: json['name'] as String);
 
 Map<String, dynamic> _$VaToJson(Va instance) => <String, dynamic>{
       'id': instance.id,

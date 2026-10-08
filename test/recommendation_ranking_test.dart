@@ -12,6 +12,7 @@ Work _work(
   String? name,
   double? rating,
   int? userRating,
+  bool? hasSubtitle,
 }) => Work(
   id: id,
   title: 'Work $id',
@@ -21,6 +22,16 @@ Work _work(
   name: name,
   rateAverage: rating,
   userRating: userRating,
+  hasSubtitle: hasSubtitle,
+);
+
+OtherLanguageEdition _edition(int id, String language) => OtherLanguageEdition(
+  id: id,
+  lang: language,
+  title: 'Edition $id',
+  sourceId: 'RJ$id',
+  isOriginal: false,
+  sourceType: 'RJ',
 );
 
 double _score(
@@ -110,6 +121,97 @@ void main() {
           _score(current, _work(2, rating: 4)),
       closeTo(.8, .00001),
     );
+  });
+
+  test('subtitle availability adds ten points and can change ranking', () {
+    final current = _work(100);
+    expect(_score(current, _work(1, hasSubtitle: true)), 10);
+    expect(_score(current, _work(2, hasSubtitle: false)), 0);
+    expect(_score(current, _work(3)), 0);
+    expect(
+      _score(current, _work(4, rating: 5)),
+      lessThan(_score(current, _work(5, rating: 0, hasSubtitle: true))),
+    );
+  });
+
+  test('Chinese edition filtering prefers simplified then traditional', () {
+    final current = _work(100).copyWith(
+      lang: 'JPN',
+      otherLanguageEditions: [
+        _edition(200, 'CHI_HANS'),
+        _edition(300, '繁體中文'),
+        _edition(400, 'JPN'),
+      ],
+    );
+    final candidates = [
+      _work(200).copyWith(lang: 'zh-cn'),
+      _work(300).copyWith(lang: 'CHI_HANT'),
+      _work(400).copyWith(lang: 'Japanese'),
+    ];
+
+    expect(
+      filterPreferredChineseEditions(current, candidates).map((w) => w.id),
+      [200],
+    );
+    expect(
+      filterPreferredChineseEditions(
+        current.copyWith(
+          otherLanguageEditions: [_edition(300, '繁体中文'), _edition(400, 'JPN')],
+        ),
+        candidates.skip(1),
+      ).map((w) => w.id),
+      [300],
+    );
+  });
+
+  test(
+    'metadata-only preferred ID filters foreign candidates and allows recall',
+    () {
+      final current = _work(100).copyWith(
+        lang: 'JPN',
+        otherLanguageEditions: [
+          _edition(200, '簡体中文'),
+          _edition(300, '繁體中文'),
+          _edition(400, 'JPN'),
+        ],
+      );
+      final candidates = [
+        _work(300).copyWith(lang: 'CHI_HANT'),
+        _work(400).copyWith(lang: 'JPN'),
+      ];
+      expect(filterPreferredChineseEditions(current, candidates), isEmpty);
+
+      final recalledSimplified = _work(200).copyWith(
+        lang: 'CHI_HANS',
+        otherLanguageEditions: [_edition(100, 'JPN')],
+      );
+      expect(
+        filterPreferredChineseEditions(_work(100).copyWith(lang: 'JPN'), [
+          recalledSimplified,
+        ]).map((work) => work.id),
+        [200],
+      );
+    },
+  );
+
+  test('current Chinese edition filters its linked alternatives only', () {
+    final current = _work(100).copyWith(
+      lang: 'CHI_HANS',
+      otherLanguageEditions: [_edition(200, 'CHI_HANT'), _edition(300, 'JPN')],
+    );
+    const unrelatedSameTitle = Work(id: 400, title: 'Same title', lang: 'JPN');
+    expect(
+      filterPreferredChineseEditions(current, [
+        current,
+        _work(200).copyWith(lang: 'CHI_HANT'),
+        _work(300).copyWith(lang: 'JPN'),
+        unrelatedSameTitle,
+      ]).map((work) => work.id),
+      [400],
+    );
+    expect(filterPreferredChineseEditions(_work(101), [unrelatedSameTitle]), [
+      unrelatedSameTitle,
+    ]);
   });
 
   test(

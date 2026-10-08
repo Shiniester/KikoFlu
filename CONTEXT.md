@@ -42,8 +42,10 @@ _Avoid_: Player details page, audio details page
 
 **Related Recommendations (相关推荐)**:
 Works shown at the bottom of a Work Details Screen, ranked using subject tags,
-personal preferences, voice actors, circles and public ratings. Previously
-played works can remain in the list at a lower rank.
+personal preferences, voice actors, circles, subtitle availability and public
+ratings. Previously played works can remain in the list at a lower rank. When
+the same work has Chinese editions, simplified Chinese is preferred over
+traditional Chinese and other languages in recommendations.
 _Avoid_: Popular works, random works
 
 **Explicit Preference (明确喜好)**:

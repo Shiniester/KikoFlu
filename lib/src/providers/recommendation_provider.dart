@@ -498,8 +498,12 @@ class RecommendationNotifier extends StateNotifier<RecommendationState> {
     RecommendationProfile profile,
     BlockedItemsState blocked,
   ) {
+    final preferredEditions = filterPreferredChineseEditions(
+      current,
+      candidates,
+    );
     final byId = <int, Work>{};
-    for (final candidate in candidates) {
+    for (final candidate in preferredEditions) {
       if (candidate.id == current.id ||
           isExplicitlyExcluded(candidate, profile) ||
           _isBlocked(candidate, blocked)) {

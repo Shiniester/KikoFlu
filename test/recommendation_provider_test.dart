@@ -43,6 +43,15 @@ const _preferenceSample = Work(
   tags: [_preferenceTag],
 );
 
+OtherLanguageEdition _edition(int id, String language) => OtherLanguageEdition(
+  id: id,
+  lang: language,
+  title: 'Edition $id',
+  sourceId: 'RJ$id',
+  isOriginal: false,
+  sourceType: 'RJ',
+);
+
 Map<String, dynamic> _json(Work work) =>
     jsonDecode(jsonEncode(work)) as Map<String, dynamic>;
 
@@ -751,4 +760,136 @@ void main() {
     pendingProfile.complete({'reviews': []});
     await load(secondContainer, createRecommendationAccessId());
   });
+
+  test(
+    'low-rated simplified edition does not fall back to foreign editions',
+    () async {
+      const simplified = Work(
+        id: 200,
+        title: 'Simplified',
+        lang: 'CHI_HANS',
+        tags: [_currentTag],
+      );
+      final current = Work(
+        id: 100,
+        title: 'Japanese original',
+        lang: 'JPN',
+        tags: const [_currentTag],
+        vas: const [_voice],
+        otherLanguageEditions: [
+          _edition(200, 'CHI_HANS'),
+          _edition(300, 'CHI_HANT'),
+          _edition(400, 'JPN'),
+        ],
+      );
+      final api = _Api(
+        scope: 'server|low-rated-edition',
+        reviewWork: simplified,
+        reviewRating: 1,
+        candidateWorks: [
+          simplified,
+          const Work(id: 300, title: 'Traditional', lang: 'CHI_HANT'),
+          const Work(id: 400, title: 'Japanese', lang: 'JPN'),
+          const Work(id: 500, title: 'Unrelated'),
+        ],
+      );
+      final container = _container(api);
+      addTearDown(container.dispose);
+
+      Future<List<int>> load() async {
+        final id = createRecommendationAccessId();
+        final subscription = container.listen(
+          recommendationProvider(id),
+          (_, _) {},
+        );
+        addTearDown(subscription.close);
+        await container
+            .read(recommendationProvider(id).notifier)
+            .loadRecommendations(current);
+        return container
+            .read(recommendationProvider(id))
+            .recommendations
+            .map((work) => work.id)
+            .toList();
+      }
+
+      expect(await load(), contains(200));
+      final nextVisit = await load();
+      expect(nextVisit, [500]);
+      expect(api.vaCalls, greaterThanOrEqualTo(2));
+    },
+  );
+
+  test(
+    'blocked preferred Chinese edition does not restore foreign versions',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'blocked_tags': ['Blocked Chinese'],
+      });
+      const simplified = Work(
+        id: 200,
+        title: 'Simplified',
+        lang: 'CHI_HANS',
+        tags: [
+          _currentTag,
+          Tag(id: 8, name: 'Blocked Chinese'),
+        ],
+      );
+      final current = Work(
+        id: 100,
+        title: 'Japanese original',
+        lang: 'JPN',
+        tags: const [_currentTag],
+        vas: const [_voice],
+        otherLanguageEditions: [
+          _edition(200, 'CHI_HANS'),
+          _edition(300, 'CHI_HANT'),
+          _edition(400, 'JPN'),
+        ],
+      );
+      final api = _Api(
+        authenticated: false,
+        scope: 'server|anonymous-language-filter',
+        candidateWorks: [
+          simplified,
+          const Work(id: 300, title: 'Traditional', lang: 'CHI_HANT'),
+          const Work(id: 400, title: 'Japanese', lang: 'JPN'),
+          const Work(id: 500, title: 'Unrelated'),
+        ],
+      );
+      final container = _container(api);
+      addTearDown(container.dispose);
+      final blocksReady = Completer<void>();
+      final blockSubscription = container.listen(blockedItemsProvider, (
+        _,
+        state,
+      ) {
+        if (state.tags.contains('Blocked Chinese') &&
+            !blocksReady.isCompleted) {
+          blocksReady.complete();
+        }
+      });
+      addTearDown(blockSubscription.close);
+      await blocksReady.future;
+
+      final id = createRecommendationAccessId();
+      final subscription = container.listen(
+        recommendationProvider(id),
+        (_, _) {},
+      );
+      addTearDown(subscription.close);
+      await container
+          .read(recommendationProvider(id).notifier)
+          .loadRecommendations(current);
+
+      expect(
+        container
+            .read(recommendationProvider(id))
+            .recommendations
+            .map((work) => work.id),
+        [500],
+      );
+      expect(api.vaCalls, 1);
+    },
+  );
 }
