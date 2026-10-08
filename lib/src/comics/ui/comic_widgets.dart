@@ -2,6 +2,8 @@ import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/work_detail/work_cover_frame.dart';
 import '../../widgets/metadata_search_chip.dart';
 import '../../widgets/tab_page_motion.dart';
+import '../../widgets/image_prefetch_queue.dart';
+import '../../widgets/sliver_masonry_grid_tail.dart';
 import '../../providers/work_card_display_provider.dart';
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../utils/collection_grid_layout.dart';
@@ -130,6 +132,7 @@ class ComicImage extends StatelessWidget {
     this.onRetry,
     this.onFirstFrameReady,
     this.deferImage = false,
+    this.animateLoadingIndicator = true,
   });
 
   final ComicPage page;
@@ -139,17 +142,21 @@ class ComicImage extends StatelessWidget {
   final VoidCallback? onRetry;
   final VoidCallback? onFirstFrameReady;
   final bool deferImage;
+  final bool animateLoadingIndicator;
   BoxFit get fit => BoxFit.contain;
 
   @override
   Widget build(BuildContext context) {
     if (deferImage) {
-      return const RepaintBoundary(
-        child: Center(
-          child: SizedBox(
-            width: 24,
-            height: 24,
-            child: CircularProgressIndicator(strokeWidth: 2),
+      return TickerMode(
+        enabled: animateLoadingIndicator,
+        child: const RepaintBoundary(
+          child: Center(
+            child: SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
           ),
         ),
       );
@@ -197,12 +204,15 @@ class ComicImage extends StatelessWidget {
         ),
       );
     }
-    return const RepaintBoundary(
-      child: Center(
-        child: SizedBox(
-          width: 24,
-          height: 24,
-          child: CircularProgressIndicator(strokeWidth: 2),
+    return TickerMode(
+      enabled: animateLoadingIndicator,
+      child: const RepaintBoundary(
+        child: Center(
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
         ),
       ),
     );
@@ -219,10 +229,13 @@ class ComicCover extends ConsumerStatefulWidget {
     this.placeholderAspectRatio,
     this.cornerRadius = workCoverCompactRadius,
     this.onFirstFrameReady,
+    this.onRetry,
+    this.loadImage = true,
     this.initialCacheWidth,
     this.initialAspectRatio,
     this.deferCacheUpgradeUntilRouteCompleted = false,
     this.preservePreviousImage = false,
+    this.animateLoadingIndicator = true,
   });
 
   final String source;
@@ -232,10 +245,13 @@ class ComicCover extends ConsumerStatefulWidget {
   final double? placeholderAspectRatio;
   final double cornerRadius;
   final VoidCallback? onFirstFrameReady;
+  final VoidCallback? onRetry;
+  final bool loadImage;
   final int? initialCacheWidth;
   final double? initialAspectRatio;
   final bool deferCacheUpgradeUntilRouteCompleted;
   final bool preservePreviousImage;
+  final bool animateLoadingIndicator;
 
   @override
   ConsumerState<ComicCover> createState() => _ComicCoverState();
@@ -326,7 +342,9 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
     if (oldWidget.source != widget.source ||
         oldWidget.page.url != widget.page.url) {
       final previous = _visiblePicture ?? _lastPicture;
-      if (widget.preservePreviousImage && previous != null) {
+      if (widget.loadImage &&
+          widget.preservePreviousImage &&
+          previous != null) {
         _lastPicture = previous;
         _layoutPicture = previous;
         _visiblePicture = previous;
@@ -357,9 +375,11 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
   @override
   Widget build(BuildContext context) {
     final request = _ComicImageRequest(widget.source, widget.page);
-    final image = ref.watch(_comicImageBytesProvider(request));
-    if (image.valueOrNull != null) _lastPicture = image.valueOrNull;
-    final nextPicture = image.valueOrNull ?? _lastPicture;
+    final image = widget.loadImage
+        ? ref.watch(_comicImageBytesProvider(request))
+        : null;
+    if (image?.valueOrNull != null) _lastPicture = image!.valueOrNull;
+    final nextPicture = image?.valueOrNull ?? _lastPicture;
     if (!_routeMoving || !_hasVisibleState) {
       final oldRatio =
           _layoutPicture?.aspectRatio ?? widget.placeholderAspectRatio ?? 2 / 3;
@@ -385,7 +405,7 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
         _visiblePicture = nextPicture;
         _pendingReveal = null;
         _sizeSettled = true;
-        _visibleFailed = image.hasError && nextPicture == null;
+        _visibleFailed = (image?.hasError ?? false) && nextPicture == null;
       }
       _hasVisibleState = true;
     }
@@ -415,9 +435,14 @@ class _ComicCoverState extends ConsumerState<ComicCover> {
               : hasInitialDecode
               ? widget.initialCacheWidth
               : _comicCoverCacheWidth(context, coverWidth, picture.sourceWidth),
-          onRetry: () => ref.invalidate(_comicImageBytesProvider(request)),
+          onRetry:
+              widget.onRetry ??
+              () => ref.invalidate(_comicImageBytesProvider(request)),
           onFirstFrameReady: widget.onFirstFrameReady,
-          deferImage: holdForRoute && !hasInitialDecode,
+          animateLoadingIndicator: widget.animateLoadingIndicator,
+          deferImage:
+              (picture == null && !widget.loadImage) ||
+              (holdForRoute && !hasInitialDecode),
         );
         final cover = SizedBox(
           width: coverWidth,
@@ -499,6 +524,7 @@ class _ComicCardWhenReady extends ConsumerStatefulWidget {
     required this.page,
     required this.buildChild,
     required this.coverWidth,
+    required this.loadImage,
     this.placeholderAspectRatio,
     this.onAspectRatio,
   });
@@ -507,6 +533,7 @@ class _ComicCardWhenReady extends ConsumerStatefulWidget {
   final ComicPage page;
   final Widget Function(VoidCallback onFirstFrameReady) buildChild;
   final double coverWidth;
+  final bool loadImage;
   final double? placeholderAspectRatio;
   final ValueChanged<double>? onAspectRatio;
 
@@ -544,8 +571,10 @@ class _ComicCardWhenReadyState extends ConsumerState<_ComicCardWhenReady>
   Widget build(BuildContext context) {
     super.build(context);
     final request = _ComicImageRequest(widget.source, widget.page);
-    final image = ref.watch(_comicImageBytesProvider(request));
-    ref.read(_comicCoverRetentionProvider).touch(request);
+    final image = widget.loadImage
+        ? ref.watch(_comicImageBytesProvider(request))
+        : const AsyncLoading<_ComicCoverPicture>();
+    if (widget.loadImage) ref.read(_comicCoverRetentionProvider).touch(request);
     final picture = image.valueOrNull;
     if (picture != null) {
       widget.onAspectRatio?.call(picture.aspectRatio);
@@ -588,67 +617,6 @@ bool _comicCoverImageIsCached(ResizeImage image, BuildContext context) {
       PaintingBinding.instance.imageCache.statusForKey(key).keepAlive;
 }
 
-class _ComicMasonryTail extends SingleChildRenderObjectWidget {
-  const _ComicMasonryTail({required this.itemCount, required super.child});
-
-  final int itemCount;
-
-  @override
-  RenderObject createRenderObject(BuildContext context) =>
-      _RenderComicMasonryTail(itemCount);
-
-  @override
-  void updateRenderObject(
-    BuildContext context,
-    _RenderComicMasonryTail renderObject,
-  ) {
-    renderObject.itemCount = itemCount;
-  }
-}
-
-class _RenderComicMasonryTail extends RenderProxySliver {
-  _RenderComicMasonryTail(this.itemCount);
-
-  int itemCount;
-
-  @override
-  void performLayout() {
-    final grid = child! as RenderSliverMasonryGrid;
-    final previous = grid.geometry;
-    final cacheStart = constraints.scrollOffset + constraints.cacheOrigin;
-    final reachedEnd =
-        grid.lastChild != null &&
-        grid.indexOf(grid.lastChild!) == itemCount - 1;
-    if (!reachedEnd ||
-        previous == null ||
-        previous.scrollOffsetCorrection != null ||
-        cacheStart < previous.scrollExtent) {
-      super.performLayout();
-      return;
-    }
-
-    // The masonry implementation loses other columns after its last item
-    // leaves the cache. Keep this bounded page's columns while reading its tail.
-    grid.layout(
-      constraints.copyWith(
-        cacheOrigin: -constraints.scrollOffset,
-        remainingCacheExtent: constraints.remainingCacheExtent + cacheStart,
-      ),
-      parentUsesSize: true,
-    );
-    final result = grid.geometry!;
-    geometry = result.scrollOffsetCorrection != null
-        ? result
-        : result.copyWith(
-            cacheExtent: calculateCacheOffset(
-              constraints,
-              from: 0,
-              to: result.scrollExtent,
-            ),
-          );
-  }
-}
-
 class ComicGrid extends ConsumerStatefulWidget {
   const ComicGrid({
     super.key,
@@ -672,11 +640,266 @@ class ComicGrid extends ConsumerStatefulWidget {
 
 class _ComicGridState extends ConsumerState<ComicGrid> {
   final _coverAspectRatios = <String, double>{};
+  final _coverItemKeys = <String, GlobalKey>{};
+  final _coverAttempts = <String, int>{};
+  final _pendingCoverRetries = <String>{};
+  final _admittedCoverKeys = <Object>{};
+  final _preparedCoverKeys = <Object>{};
+  final _backgroundFailedCoverKeys = <Object>{};
+  late final _coverPrefetchQueue = ImagePrefetchQueue<Comic>(
+    keyOf: _coverQueueKey,
+    prepare: _prepareCover,
+  );
+  final _foregroundCoverKeys = ValueNotifier<Set<String>>({});
+  Set<Object> _visibleCoverCandidates = {};
+  double? _coverDisplayWidth;
+  int? _coverCachePixelWidth;
+  bool _coverPreparationActive = true;
+  bool _coverInspectionScheduled = false;
+
+  @override
+  void didUpdateWidget(ComicGrid oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_samePage(oldWidget.comics, widget.comics)) {
+      _visibleCoverCandidates = {};
+      _admittedCoverKeys.clear();
+      _foregroundCoverKeys.value = {};
+      _coverPrefetchQueue.update(
+        items: const [],
+        visible: const [],
+        active: false,
+      );
+      _scheduleCoverInspection();
+    }
+  }
+
+  @override
+  void dispose() {
+    _coverPrefetchQueue.dispose();
+    _foregroundCoverKeys.dispose();
+    super.dispose();
+  }
+
+  bool _samePage(List<Comic> first, List<Comic> second) {
+    if (first.length != second.length) return false;
+    for (var index = 0; index < first.length; index++) {
+      final firstRequest = _ComicImageRequest(
+        first[index].source,
+        first[index].coverPage,
+      );
+      final secondRequest = _ComicImageRequest(
+        second[index].source,
+        second[index].coverPage,
+      );
+      if (firstRequest.key != secondRequest.key) return false;
+    }
+    return true;
+  }
+
+  Object _coverQueueKey(Comic comic) {
+    final request = _ComicImageRequest(comic.source, comic.coverPage);
+    return (
+      request.key,
+      _coverCachePixelWidth,
+      _coverAttempts[request.key] ?? 0,
+    );
+  }
+
+  void _allowForegroundCover(String requestKey) {
+    if (_foregroundCoverKeys.value.contains(requestKey)) return;
+    _foregroundCoverKeys.value = {..._foregroundCoverKeys.value, requestKey};
+  }
+
+  void _syncForegroundCoverKeys() {
+    final visibleKeys = <String>{};
+    for (final comic in widget.comics) {
+      final queueKey = _coverQueueKey(comic);
+      if (_visibleCoverCandidates.contains(queueKey) &&
+          (_admittedCoverKeys.contains(queueKey) ||
+              _preparedCoverKeys.contains(queueKey))) {
+        visibleKeys.add(_ComicImageRequest(comic.source, comic.coverPage).key);
+      }
+    }
+    if (!_sameKeys(_foregroundCoverKeys.value, visibleKeys)) {
+      _foregroundCoverKeys.value = visibleKeys;
+    }
+  }
+
+  bool _sameKeys(Set<String> first, Set<String> second) =>
+      first.length == second.length && first.containsAll(second);
+
+  void _retryCover(Comic comic) {
+    final request = _ComicImageRequest(comic.source, comic.coverPage);
+    _coverAttempts.update(
+      request.key,
+      (attempt) => attempt + 1,
+      ifAbsent: () => 1,
+    );
+    _pendingCoverRetries.add(request.key);
+    _updateCoverPrefetch();
+  }
+
+  void _onCoverActivityChanged(bool active) {
+    _coverPreparationActive = active;
+    if (!active) {
+      _admittedCoverKeys.retainAll(_visibleCoverCandidates);
+      _coverPrefetchQueue.update(
+        items: const [],
+        visible: const [],
+        active: false,
+      );
+    } else {
+      _scheduleCoverInspection();
+    }
+  }
+
+  void _scheduleCoverInspection() {
+    if (_coverInspectionScheduled) return;
+    _coverInspectionScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _coverInspectionScheduled = false;
+      if (mounted) _updateCoverPrefetch();
+    });
+  }
+
+  void _updateCoverPrefetch() {
+    if (!_coverPreparationActive || _coverCachePixelWidth == null) {
+      _visibleCoverCandidates = {};
+      _coverPrefetchQueue.update(
+        items: const [],
+        visible: const [],
+        active: false,
+      );
+      return;
+    }
+    final comics = widget.comics;
+    final visible = [
+      for (final comic in comics)
+        if (_isComicVisible(comic)) comic,
+    ];
+    for (final comic in visible) {
+      final queueKey = _coverQueueKey(comic);
+      final request = _ComicImageRequest(comic.source, comic.coverPage);
+      if (_backgroundFailedCoverKeys.remove(queueKey) ||
+          (_preparedCoverKeys.contains(queueKey) &&
+              !ref.exists(_comicImageBytesProvider(request)))) {
+        final requestKey = request.key;
+        _coverAttempts.update(
+          requestKey,
+          (attempt) => attempt + 1,
+          ifAbsent: () => 1,
+        );
+        _pendingCoverRetries.add(requestKey);
+      }
+    }
+    final pageKeys = comics.map(_coverQueueKey).toSet();
+    _admittedCoverKeys.retainAll(pageKeys);
+    _preparedCoverKeys.retainAll(pageKeys);
+    _backgroundFailedCoverKeys.retainAll(pageKeys);
+    _coverAttempts.removeWhere(
+      (requestKey, _) => !comics.any(
+        (comic) =>
+            _ComicImageRequest(comic.source, comic.coverPage).key == requestKey,
+      ),
+    );
+    _pendingCoverRetries.removeWhere(
+      (requestKey) => !comics.any(
+        (comic) =>
+            _ComicImageRequest(comic.source, comic.coverPage).key == requestKey,
+      ),
+    );
+    _visibleCoverCandidates = visible.map(_coverQueueKey).toSet();
+    _coverPrefetchQueue.update(items: comics, visible: visible, active: true);
+    _syncForegroundCoverKeys();
+  }
+
+  bool _isComicVisible(Comic comic) {
+    final itemContext = _coverItemKeys[comic.key]?.currentContext;
+    if (itemContext == null) return false;
+    final renderObject = itemContext.findRenderObject();
+    if (renderObject is! RenderBox ||
+        !renderObject.attached ||
+        !renderObject.hasSize) {
+      return false;
+    }
+    final viewport = RenderAbstractViewport.maybeOf(renderObject);
+    final position = Scrollable.maybeOf(
+      itemContext,
+      axis: Axis.vertical,
+    )?.position;
+    if (viewport == null || position == null) return false;
+    final leading = viewport.getOffsetToReveal(renderObject, 0).offset;
+    final trailing =
+        viewport.getOffsetToReveal(renderObject, 1).offset +
+        position.viewportDimension;
+    return trailing > position.pixels &&
+        leading < position.pixels + position.viewportDimension;
+  }
+
+  Future<void> _prepareCover(Comic comic) async {
+    final request = _ComicImageRequest(comic.source, comic.coverPage);
+    final queueKey = _coverQueueKey(comic);
+    if (!mounted ||
+        !_coverPreparationActive ||
+        !widget.comics.any(
+          (item) =>
+              _ComicImageRequest(item.source, item.coverPage).key ==
+              request.key,
+        )) {
+      return;
+    }
+    _admittedCoverKeys.add(queueKey);
+    _syncForegroundCoverKeys();
+    final imageProvider = _comicImageBytesProvider(request);
+    if (_pendingCoverRetries.remove(request.key)) {
+      ref.invalidate(imageProvider);
+    }
+    if (_visibleCoverCandidates.contains(queueKey)) {
+      _allowForegroundCover(request.key);
+    }
+    final subscription = ref.listenManual(imageProvider, (previous, next) {});
+    late final _ComicCoverPicture picture;
+    try {
+      picture = await ref.read(imageProvider.future);
+    } catch (_) {
+      if (!_visibleCoverCandidates.contains(queueKey)) {
+        _backgroundFailedCoverKeys.add(queueKey);
+      }
+      rethrow;
+    } finally {
+      subscription.close();
+    }
+    final displayWidth = _coverDisplayWidth;
+    if (!mounted ||
+        !_coverPreparationActive ||
+        displayWidth == null ||
+        !widget.comics.any(
+          (item) =>
+              _ComicImageRequest(item.source, item.coverPage).key ==
+              request.key,
+        )) {
+      return;
+    }
+    final cacheWidth = _comicCoverCacheWidth(
+      context,
+      displayWidth,
+      picture.sourceWidth,
+    );
+    await precacheImage(
+      ResizeImage(MemoryImage(picture.bytes), width: cacheWidth),
+      context,
+      onError: (error, stackTrace) {},
+    );
+    _preparedCoverKeys.add(queueKey);
+    _backgroundFailedCoverKeys.remove(queueKey);
+    _syncForegroundCoverKeys();
+  }
 
   Widget _readyCard(
     Comic comic,
-    Widget Function(double?, VoidCallback) buildCard, {
+    Widget Function(double?, VoidCallback, bool, VoidCallback) buildCard, {
     required double coverWidth,
+    required bool loadImage,
   }) {
     final page = comic.coverPage;
     final request = _ComicImageRequest(comic.source, page);
@@ -685,18 +908,93 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
       source: comic.source,
       page: page,
       coverWidth: coverWidth,
+      loadImage: loadImage,
       placeholderAspectRatio: placeholderAspectRatio,
-      onAspectRatio: (ratio) => _coverAspectRatios[request.key] = ratio,
-      buildChild: (onFirstFrameReady) =>
-          buildCard(placeholderAspectRatio, onFirstFrameReady),
+      onAspectRatio: (ratio) {
+        if (_coverAspectRatios[request.key] == ratio) return;
+        _coverAspectRatios[request.key] = ratio;
+        _scheduleCoverInspection();
+      },
+      buildChild: (onFirstFrameReady) => buildCard(
+        placeholderAspectRatio,
+        onFirstFrameReady,
+        loadImage,
+        () => _retryCover(comic),
+      ),
     );
   }
+
+  Widget _trackedCard(
+    Comic comic,
+    Widget Function(double?, VoidCallback, bool, VoidCallback) buildCard, {
+    required double coverWidth,
+  }) => ValueListenableBuilder<Set<String>>(
+    valueListenable: _foregroundCoverKeys,
+    builder: (context, visibleKeys, _) {
+      final request = _ComicImageRequest(comic.source, comic.coverPage);
+      final reuseDecodedFrame =
+          _coverAspectRatios.containsKey(request.key) &&
+          _hasCachedCoverFrame(request, context);
+      return SizedBox(
+        key: _coverItemKey(comic),
+        child: SizeChangedLayoutNotifier(
+          child: _readyCard(
+            comic,
+            buildCard,
+            coverWidth: coverWidth,
+            loadImage: visibleKeys.contains(request.key) || reuseDecodedFrame,
+          ),
+        ),
+      );
+    },
+  );
+
+  bool _hasCachedCoverFrame(_ComicImageRequest request, BuildContext context) {
+    final provider = _comicImageBytesProvider(request);
+    final displayWidth = _coverDisplayWidth;
+    if (displayWidth == null || !ref.exists(provider)) return false;
+    final picture = ref.read(provider).valueOrNull;
+    if (picture == null) return false;
+    return _comicCoverImageIsCached(
+      ResizeImage(
+        MemoryImage(picture.bytes),
+        width: _comicCoverCacheWidth(
+          context,
+          displayWidth,
+          picture.sourceWidth,
+        ),
+      ),
+      context,
+    );
+  }
+
+  GlobalKey _coverItemKey(Comic comic) =>
+      _coverItemKeys.putIfAbsent(comic.key, GlobalKey.new);
+
+  Widget _trackCoverScroll(Widget child) =>
+      NotificationListener<SizeChangedLayoutNotification>(
+        onNotification: (_) {
+          _scheduleCoverInspection();
+          return false;
+        },
+        child: NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            if (notification.metrics.axis == Axis.vertical) {
+              _scheduleCoverInspection();
+            }
+            return false;
+          },
+          child: child,
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
     final layoutType = ref.watch(comicLayoutProvider);
     return DeferredTabContent(
       builder: (context) => _buildContent(context, layoutType),
+      prepareDuringMotion: true,
+      onActivityChanged: _onCoverActivityChanged,
     );
   }
 
@@ -706,6 +1004,8 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
     final controller = widget.controller;
     final onLongPress = widget.onLongPress;
     final isList = layoutType == LayoutType.list;
+    final comicKeys = comics.map((comic) => comic.key).toSet();
+    _coverItemKeys.removeWhere((key, _) => !comicKeys.contains(key));
     final bottomPadding = SliverToBoxAdapter(
       child: SizedBox(height: MediaQuery.paddingOf(context).bottom),
     );
@@ -745,44 +1045,194 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                 detailMetrics.padding.horizontal -
                 detailMetrics.spacing * (detailMetrics.crossAxisCount - 1)) /
             detailMetrics.crossAxisCount;
+        _coverDisplayWidth = isList ? 80 : gridCoverWidth;
+        _coverCachePixelWidth =
+            (_coverDisplayWidth! * MediaQuery.devicePixelRatioOf(context))
+                .ceil();
+        _scheduleCoverInspection();
         if (comics.isEmpty) {
-          return CustomScrollView(
-            controller: controller,
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child:
-                    widget.emptyContent ??
-                    Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Center(child: Text(S.of(context).comicNoResults)),
-                    ),
-              ),
-              if (widget.footer != null)
-                SliverToBoxAdapter(child: widget.footer!),
-              bottomPadding,
-            ],
+          _coverPrefetchQueue.update(
+            items: const [],
+            visible: const [],
+            active: false,
+          );
+          return _trackCoverScroll(
+            CustomScrollView(
+              controller: controller,
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child:
+                      widget.emptyContent ??
+                      Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Center(
+                          child: Text(S.of(context).comicNoResults),
+                        ),
+                      ),
+                ),
+                if (widget.footer != null)
+                  SliverToBoxAdapter(child: widget.footer!),
+                bottomPadding,
+              ],
+            ),
           );
         }
         final isLandscape =
             MediaQuery.orientationOf(context) == Orientation.landscape;
         if (isList) {
-          return CustomScrollView(
+          return _trackCoverScroll(
+            CustomScrollView(
+              controller: controller,
+              slivers: [
+                SliverPadding(
+                  padding: metrics.padding,
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) => _trackedCard(
+                        comics[i],
+                        (
+                          placeholderAspectRatio,
+                          onFirstFrameReady,
+                          loadImage,
+                          onRetry,
+                        ) => Card(
+                          margin: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              workCoverCompactRadius,
+                            ),
+                          ),
+                          child: InkWell(
+                            onTap: () => openComic(
+                              context,
+                              comics[i],
+                              gridCoverWidth: gridCoverWidth,
+                              initialCoverWidth: 80,
+                            ),
+                            onLongPress: onLongPress == null
+                                ? null
+                                : () => onLongPress(comics[i]),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  ComicCover(
+                                    source: comics[i].source,
+                                    page: comics[i].coverPage,
+                                    maxWidth: 80,
+                                    placeholderAspectRatio:
+                                        placeholderAspectRatio,
+                                    onFirstFrameReady: onFirstFrameReady,
+                                    onRetry: onRetry,
+                                    loadImage: loadImage,
+                                    animateLoadingIndicator: loadImage,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          comics[i].title,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleSmall
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                                height: 1.3,
+                                                fontSize: isLandscape ? 16 : 14,
+                                              ),
+                                        ),
+                                        if (comics[i].tags.isNotEmpty) ...[
+                                          const SizedBox(height: 6),
+                                          Wrap(
+                                            spacing: 3,
+                                            runSpacing: 2,
+                                            children: comics[i].tags
+                                                .map(
+                                                  (tag) => IgnorePointer(
+                                                    child: MetadataSearchChip(
+                                                      label: tag,
+                                                      searchKeyword: tag,
+                                                      searchTypeLabel: S
+                                                          .of(context)
+                                                          .searchTypeTag,
+                                                      searchParams: const {},
+                                                      chipTone: MetadataChipTone
+                                                          .secondary,
+                                                      customTone:
+                                                          MetadataChipTone
+                                                              .primary,
+                                                      fontSize: isLandscape
+                                                          ? 13
+                                                          : 11,
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 4,
+                                                            vertical: 1,
+                                                          ),
+                                                      borderRadius: 6,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                )
+                                                .toList(),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        coverWidth: 80,
+                      ),
+                      childCount: comics.length,
+                    ),
+                  ),
+                ),
+                if (widget.footer != null)
+                  SliverToBoxAdapter(child: widget.footer!),
+                bottomPadding,
+              ],
+            ),
+          );
+        }
+        return _trackCoverScroll(
+          CustomScrollView(
             controller: controller,
             slivers: [
               SliverPadding(
                 padding: metrics.padding,
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, i) => _readyCard(
+                sliver: SliverMasonryGridTail(
+                  itemCount: comics.length,
+                  child: SliverMasonryGrid.count(
+                    crossAxisCount: metrics.crossAxisCount,
+                    childCount: comics.length,
+                    crossAxisSpacing: metrics.spacing,
+                    mainAxisSpacing: metrics.spacing,
+                    itemBuilder: (context, i) => _trackedCard(
                       comics[i],
-                      (placeholderAspectRatio, onFirstFrameReady) => Card(
-                        margin: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
+                      (
+                        placeholderAspectRatio,
+                        onFirstFrameReady,
+                        loadImage,
+                        onRetry,
+                      ) => Card(
                         clipBehavior: Clip.antiAlias,
+                        margin: EdgeInsets.zero,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(
                             workCoverCompactRadius,
@@ -793,88 +1243,88 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                             context,
                             comics[i],
                             gridCoverWidth: gridCoverWidth,
-                            initialCoverWidth: 80,
+                            initialCoverWidth: gridCoverWidth,
                           ),
                           onLongPress: onLongPress == null
                               ? null
                               : () => onLongPress(comics[i]),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                ComicCover(
-                                  source: comics[i].source,
-                                  page: comics[i].coverPage,
-                                  maxWidth: 80,
-                                  placeholderAspectRatio:
-                                      placeholderAspectRatio,
-                                  onFirstFrameReady: onFirstFrameReady,
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        comics[i].title,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleSmall
-                                            ?.copyWith(
-                                              fontWeight: FontWeight.bold,
-                                              height: 1.3,
-                                              fontSize: isLandscape ? 16 : 14,
-                                            ),
-                                      ),
-                                      if (comics[i].tags.isNotEmpty) ...[
-                                        const SizedBox(height: 6),
-                                        Wrap(
-                                          spacing: 3,
-                                          runSpacing: 2,
-                                          children: comics[i].tags
-                                              .map(
-                                                (tag) => IgnorePointer(
-                                                  child: MetadataSearchChip(
-                                                    label: tag,
-                                                    searchKeyword: tag,
-                                                    searchTypeLabel: S
-                                                        .of(context)
-                                                        .searchTypeTag,
-                                                    searchParams: const {},
-                                                    chipTone: MetadataChipTone
-                                                        .secondary,
-                                                    customTone: MetadataChipTone
-                                                        .primary,
-                                                    fontSize: isLandscape
-                                                        ? 13
-                                                        : 11,
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          horizontal: 4,
-                                                          vertical: 1,
-                                                        ),
-                                                    borderRadius: 6,
-                                                    fontWeight: FontWeight.w500,
-                                                  ),
-                                                ),
-                                              )
-                                              .toList(),
-                                        ),
-                                      ],
-                                    ],
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Stack(
+                                children: [
+                                  ComicCover(
+                                    source: comics[i].source,
+                                    page: comics[i].coverPage,
+                                    placeholderAspectRatio:
+                                        placeholderAspectRatio,
+                                    onFirstFrameReady: onFirstFrameReady,
+                                    onRetry: onRetry,
+                                    loadImage: loadImage,
+                                    animateLoadingIndicator: loadImage,
                                   ),
+                                  if (comics[i].coverDate case final date?)
+                                    Positioned(
+                                      right: 6,
+                                      bottom: 6,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.7,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          date,
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: isLandscape ? 13 : 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.all(8),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      comics[i].title,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleSmall
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                            height: 1.1,
+                                            fontSize:
+                                                layoutType ==
+                                                    LayoutType.smallGrid
+                                                ? (isLandscape ? 13.5 : 11)
+                                                : isLandscape
+                                                ? 14.5
+                                                : 12,
+                                          ),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                         ),
                       ),
-                      coverWidth: 80,
+                      coverWidth: gridCoverWidth,
                     ),
-                    childCount: comics.length,
                   ),
                 ),
               ),
@@ -882,118 +1332,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                 SliverToBoxAdapter(child: widget.footer!),
               bottomPadding,
             ],
-          );
-        }
-        return CustomScrollView(
-          controller: controller,
-          slivers: [
-            SliverPadding(
-              padding: metrics.padding,
-              sliver: _ComicMasonryTail(
-                itemCount: comics.length,
-                child: SliverMasonryGrid.count(
-                  crossAxisCount: metrics.crossAxisCount,
-                  childCount: comics.length,
-                  crossAxisSpacing: metrics.spacing,
-                  mainAxisSpacing: metrics.spacing,
-                  itemBuilder: (context, i) => _readyCard(
-                    comics[i],
-                    (placeholderAspectRatio, onFirstFrameReady) => Card(
-                      clipBehavior: Clip.antiAlias,
-                      margin: EdgeInsets.zero,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(
-                          workCoverCompactRadius,
-                        ),
-                      ),
-                      child: InkWell(
-                        onTap: () => openComic(
-                          context,
-                          comics[i],
-                          gridCoverWidth: gridCoverWidth,
-                          initialCoverWidth: gridCoverWidth,
-                        ),
-                        onLongPress: onLongPress == null
-                            ? null
-                            : () => onLongPress(comics[i]),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Stack(
-                              children: [
-                                ComicCover(
-                                  source: comics[i].source,
-                                  page: comics[i].coverPage,
-                                  placeholderAspectRatio:
-                                      placeholderAspectRatio,
-                                  onFirstFrameReady: onFirstFrameReady,
-                                ),
-                                if (comics[i].coverDate case final date?)
-                                  Positioned(
-                                    right: 6,
-                                    bottom: 6,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withValues(
-                                          alpha: 0.7,
-                                        ),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: Text(
-                                        date,
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: isLandscape ? 13 : 10,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.all(8),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    comics[i].title,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleSmall
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.bold,
-                                          height: 1.1,
-                                          fontSize:
-                                              layoutType == LayoutType.smallGrid
-                                              ? (isLandscape ? 13.5 : 11)
-                                              : isLandscape
-                                              ? 14.5
-                                              : 12,
-                                        ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    coverWidth: gridCoverWidth,
-                  ),
-                ),
-              ),
-            ),
-            if (widget.footer != null)
-              SliverToBoxAdapter(child: widget.footer!),
-            bottomPadding,
-          ],
+          ),
         );
       },
     );

@@ -152,7 +152,7 @@ class _CoverCache extends Fake implements RemoteAssetImageCacheManager {
 }
 
 class _Recommendations extends RecommendationNotifier {
-  _Recommendations(super.ref, super.workId);
+  _Recommendations(super.ref, super.accessId);
   int requests = 0;
   @override
   Future<void> loadRecommendations(Work work) async {
@@ -724,13 +724,14 @@ void main() {
         preferences: await SharedPreferences.getInstance(),
       );
       final api = _Api();
+      _Recommendations? recommendations;
       final container = ProviderContainer(
         overrides: [
           authProvider.overrideWith((ref) => _EmptyAuth()),
           kikoeruApiServiceProvider.overrideWithValue(api),
           currentTrackProvider.overrideWith((ref) => Stream.value(null)),
           recommendationProvider.overrideWith(
-            (ref, id) => _Recommendations(ref, id),
+            (ref, id) => recommendations = _Recommendations(ref, id),
           ),
           downloadedFileStateScannerProvider.overrideWithValue(
             DownloadedFileStateScanner(
@@ -752,10 +753,7 @@ void main() {
         ),
       );
       await tester.pump();
-      final recommendations =
-          container.read(recommendationProvider(555).notifier)
-              as _Recommendations;
-      expect(recommendations.requests, 0);
+      expect(recommendations, isNull);
       expect(
         find.byType(RecommendationSection, skipOffstage: false),
         findsNothing,
@@ -781,7 +779,7 @@ void main() {
         find.byType(RecommendationSection, skipOffstage: false),
         findsOneWidget,
       );
-      expect(recommendations.requests, 0);
+      expect(recommendations?.requests ?? 0, 0);
       await tester.scrollUntilVisible(
         find.text('file-999.wav'),
         3000,
@@ -789,7 +787,7 @@ void main() {
         maxScrolls: 60,
       );
       await tester.pump();
-      expect(recommendations.requests, 1);
+      expect(recommendations!.requests, 1);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     },

@@ -7,6 +7,7 @@ import '../../models/work.dart';
 import '../../providers/recommendation_provider.dart';
 import '../../providers/work_card_display_provider.dart';
 import '../../providers/work_detail_display_provider.dart';
+import '../../providers/settings_provider.dart' show blockedItemsProvider;
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../utils/collection_grid_layout.dart';
 import '../enhanced_work_card.dart';
@@ -26,6 +27,7 @@ class RecommendationSection extends ConsumerStatefulWidget {
 class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
   bool _activated = false;
   bool _attempted = false;
+  int _accessId = createRecommendationAccessId();
 
   @override
   void didUpdateWidget(RecommendationSection oldWidget) {
@@ -33,23 +35,27 @@ class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
     if (oldWidget.work.id != widget.work.id) {
       _activated = false;
       _attempted = false;
+      _accessId = createRecommendationAccessId();
     }
   }
 
   void _loadWhenVisible() {
     if (_attempted) return;
     _attempted = true;
+    final accessId = _accessId;
+    final work = widget.work;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      if (accessId != _accessId || work.id != widget.work.id) return;
       if (!ref.read(workDetailDisplayProvider).showRecommendations) {
         _attempted = false;
         return;
       }
-      final state = ref.read(recommendationProvider(widget.work.id));
+      final state = ref.read(recommendationProvider(accessId));
       if (state.recommendations.isEmpty && !state.isLoading) {
         ref
-            .read(recommendationProvider(widget.work.id).notifier)
-            .loadRecommendations(widget.work);
+            .read(recommendationProvider(accessId).notifier)
+            .loadRecommendations(work);
       }
     });
   }
@@ -59,9 +65,27 @@ class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
     final visible = ref.watch(
       workDetailDisplayProvider.select((s) => s.showRecommendations),
     );
-    if (!visible) return const SliverToBoxAdapter(child: SizedBox.shrink());
-    final state = ref.watch(recommendationProvider(widget.work.id));
-    final cardSize = ref.watch(workCardDisplayProvider.select((s) => s.cardSize));
+    final state = ref.watch(recommendationProvider(_accessId));
+    if (!visible) {
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
+    final blockedItems = ref.watch(blockedItemsProvider);
+    final recommendations = state.recommendations
+        .where((work) {
+          if (work.tags?.any((tag) => blockedItems.tags.contains(tag.name)) ??
+              false) {
+            return false;
+          }
+          if (work.vas?.any((va) => blockedItems.cvs.contains(va.name)) ??
+              false) {
+            return false;
+          }
+          return work.name == null || !blockedItems.circles.contains(work.name);
+        })
+        .toList(growable: false);
+    final cardSize = ref.watch(
+      workCardDisplayProvider.select((s) => s.cardSize),
+    );
     return SliverLayoutBuilder(
       builder: (context, constraints) {
         if (!_activated && constraints.remainingCacheExtent <= 0) {
@@ -69,7 +93,7 @@ class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
         }
         _activated = true;
         _loadWhenVisible();
-        if (!state.isLoading && state.recommendations.isEmpty) {
+        if (!state.isLoading && recommendations.isEmpty) {
           return const SliverToBoxAdapter(child: SizedBox.shrink());
         }
         final metrics = resolveCollectionGridMetrics(
@@ -102,12 +126,12 @@ class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
                 crossAxisCount: metrics.crossAxisCount,
                 crossAxisSpacing: metrics.spacing,
                 mainAxisSpacing: metrics.spacing,
-                childCount: state.isLoading ? 6 : state.recommendations.length,
+                childCount: state.isLoading ? 6 : recommendations.length,
                 itemBuilder: (context, index) => state.isLoading
                     ? _buildShimmerCard(context)
                     : EnhancedWorkCard(
-                        key: ValueKey(state.recommendations[index].id),
-                        work: state.recommendations[index],
+                        key: ValueKey(recommendations[index].id),
+                        work: recommendations[index],
                         crossAxisCount: metrics.crossAxisCount,
                         isListLayout: false,
                       ),

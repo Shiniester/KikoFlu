@@ -96,9 +96,16 @@ class _TabPageWarmupState extends State<TabPageWarmup> {
 
 /// Defers content's first presentation until its owning pagers settle.
 class DeferredTabContent extends StatefulWidget {
-  const DeferredTabContent({super.key, required this.builder});
+  const DeferredTabContent({
+    super.key,
+    required this.builder,
+    this.prepareDuringMotion = false,
+    this.onActivityChanged,
+  });
 
   final WidgetBuilder builder;
+  final bool prepareDuringMotion;
+  final ValueChanged<bool>? onActivityChanged;
 
   @override
   State<DeferredTabContent> createState() => _DeferredTabContentState();
@@ -110,37 +117,75 @@ class _DeferredTabContentState extends State<DeferredTabContent> {
   ValueNotifier<bool>? _scrolling;
   bool _presented = false;
   bool _releaseScheduled = false;
+  bool? _activeForPreparation;
+  bool _motionBuilderVisible = false;
 
   bool get _canPresent =>
       _scrolling?.value != true && (_tab?.canPresent ?? true);
 
+  bool get _canPrepare => _tab?.canPrepareContent ?? true;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_presented) return;
     _motion?.removeListener(_onMotionChanged);
     _tab = context.dependOnInheritedWidgetOfExactType<_TabPageScope>();
     _scrolling = Scrollable.maybeOf(
       context,
       axis: Axis.horizontal,
     )?.position.isScrollingNotifier;
-    if (_canPresent) {
+    _updateActivity();
+    _motionBuilderVisible = widget.prepareDuringMotion && _canPrepare;
+    if (!_presented && _canPresent) {
       _presented = true;
-      _motion = null;
-    } else {
+    }
+    if (!_presented || widget.onActivityChanged != null) {
       _motion = Listenable.merge([_scrolling, ...?_tab?.motion]);
       _motion!.addListener(_onMotionChanged);
+    } else {
+      _motion = null;
     }
   }
 
+  @override
+  void didUpdateWidget(DeferredTabContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _motionBuilderVisible = widget.prepareDuringMotion && _canPrepare;
+    if (oldWidget.onActivityChanged != widget.onActivityChanged) {
+      _activeForPreparation = null;
+      _updateActivity();
+      if (_presented && widget.onActivityChanged != null) {
+        _motion?.removeListener(_onMotionChanged);
+        _motion = Listenable.merge([_scrolling, ...?_tab?.motion]);
+        _motion!.addListener(_onMotionChanged);
+      }
+    }
+  }
+
+  void _updateActivity() {
+    final active = _canPrepare;
+    if (_activeForPreparation == active) return;
+    _activeForPreparation = active;
+    widget.onActivityChanged?.call(active);
+  }
+
   void _onMotionChanged() {
+    _updateActivity();
+    final showMotionContent = widget.prepareDuringMotion && _canPrepare;
+    if (!_presented && showMotionContent != _motionBuilderVisible) {
+      _motionBuilderVisible = showMotionContent;
+      setState(() {});
+    }
     if (!_canPresent || _releaseScheduled) return;
+    if (_presented) return;
     _releaseScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _releaseScheduled = false;
       if (!mounted || !_canPresent || _presented) return;
-      _motion?.removeListener(_onMotionChanged);
-      _motion = null;
+      if (widget.onActivityChanged == null) {
+        _motion?.removeListener(_onMotionChanged);
+        _motion = null;
+      }
       setState(() => _presented = true);
     });
   }
@@ -148,11 +193,12 @@ class _DeferredTabContentState extends State<DeferredTabContent> {
   @override
   void dispose() {
     _motion?.removeListener(_onMotionChanged);
+    widget.onActivityChanged?.call(false);
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => _presented
+  Widget build(BuildContext context) => _presented || _motionBuilderVisible
       ? widget.builder(context)
       : const TickerMode(
           enabled: false,
@@ -164,12 +210,14 @@ class _TabPageScope extends InheritedWidget {
   const _TabPageScope({
     required this.index,
     required this.pages,
+    required this.target,
     required this.parent,
     required super.child,
   });
 
   final int index;
   final PageController pages;
+  final ValueNotifier<int?> target;
   final _TabPageScope? parent;
 
   bool get canPresent =>
@@ -179,6 +227,7 @@ class _TabPageScope extends InheritedWidget {
 
   Iterable<Listenable> get motion sync* {
     yield pages;
+    yield target;
     if (pages.hasClients) yield pages.position.isScrollingNotifier;
     if (parent != null) yield* parent!.motion;
   }
@@ -190,10 +239,21 @@ class _TabPageScope extends InheritedWidget {
     return page.round() == index;
   }
 
+  bool get canPrepareContent {
+    final page = pages.hasClients && pages.position.hasContentDimensions
+        ? pages.page!
+        : pages.initialPage.toDouble();
+    final isActive = target.value == null
+        ? page.floor() == index || page.ceil() == index
+        : target.value == index;
+    return isActive && (parent?.canPrepareContent ?? true);
+  }
+
   @override
   bool updateShouldNotify(_TabPageScope oldWidget) =>
       index != oldWidget.index ||
       pages != oldWidget.pages ||
+      target != oldWidget.target ||
       parent != oldWidget.parent;
 }
 
@@ -242,6 +302,7 @@ class _LazyTabPageState extends State<LazyTabPage>
       child: _TabPageScope(
         index: widget.index,
         pages: widget.pages,
+        target: widget.target,
         parent: context.dependOnInheritedWidgetOfExactType<_TabPageScope>(),
         child: widget.child,
       ),

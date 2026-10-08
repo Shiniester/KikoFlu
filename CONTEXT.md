@@ -40,6 +40,22 @@ The online or offline screen describing a work and its available resource files.
 It is distinct from the Player Audio Details Page for the current track.
 _Avoid_: Player details page, audio details page
 
+**Related Recommendations (相关推荐)**:
+Works shown at the bottom of a Work Details Screen, ranked using subject tags,
+personal preferences, voice actors, circles and public ratings. Previously
+played works can remain in the list at a lower rank.
+_Avoid_: Popular works, random works
+
+**Explicit Preference (明确喜好)**:
+A preference signal from an account's ratings, replay or marked status, and
+playlist membership. Device playback history is a separate, weaker signal.
+_Avoid_: Listening history, public rating
+
+**Exploration Recommendation (探索推荐)**:
+A supplementary Related Recommendation selected from highly ranked remaining
+candidates to add variety while keeping the same detail visit stable.
+_Avoid_: Random recommendation, refresh result
+
 **Work Resource Tabs (作品资源标签)**:
 The Resource Files, Audio and Images views within a Work Details Screen. Audio
 contains preferred audio files and their best matching work subtitles; Images

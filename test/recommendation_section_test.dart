@@ -11,7 +11,7 @@ import 'package:kikoeru_flutter/src/widgets/enhanced_work_card.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/recommendation_section.dart';
 
 class _Recommendations extends RecommendationNotifier {
-  _Recommendations(super.ref, super.workId);
+  _Recommendations(super.ref, super.accessId);
   int requests = 0;
   void show(List<Work> works) {
     state = RecommendationState(recommendations: works);
@@ -34,20 +34,15 @@ void main() {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
+      late _Recommendations recommendations;
       final container = ProviderContainer(
         overrides: [
           recommendationProvider.overrideWith(
-            (ref, id) => _Recommendations(ref, id),
+            (ref, id) => recommendations = _Recommendations(ref, id),
           ),
         ],
       );
       addTearDown(container.dispose);
-      final recommendations =
-          container.read(recommendationProvider(9).notifier)
-              as _Recommendations;
-      recommendations.show([
-        for (var id = 1; id <= 6; id++) Work(id: id, title: 'Related work $id'),
-      ]);
       await tester.pumpWidget(
         UncontrolledProviderScope(
           container: container,
@@ -71,6 +66,9 @@ void main() {
         ),
       );
       await tester.pump();
+      recommendations.show([
+        for (var id = 1; id <= 6; id++) Work(id: id, title: 'Related work $id'),
+      ]);
       await tester.pump();
       expect(find.byIcon(Icons.recommend_outlined), findsNothing);
       expect(tester.getRect(find.text('Related Works')).left, 16);
@@ -94,10 +92,11 @@ void main() {
     'hidden and offscreen recommendations do not load; approaching loads once',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
+      late _Recommendations recommendations;
       final container = ProviderContainer(
         overrides: [
           recommendationProvider.overrideWith(
-            (ref, id) => _Recommendations(ref, id),
+            (ref, id) => recommendations = _Recommendations(ref, id),
           ),
         ],
       );
@@ -124,32 +123,36 @@ void main() {
           ),
         ),
       );
-      final requests =
-          container.read(recommendationProvider(9).notifier)
-              as _Recommendations;
       await tester.pump();
-      expect(requests.requests, 0);
+      expect(recommendations.requests, 0);
       scroll.jumpTo(scroll.position.maxScrollExtent);
       await tester.pump();
-      expect(requests.requests, 0);
+      expect(recommendations.requests, 0);
       scroll.jumpTo(0);
       await settings.toggleRecommendations();
       await tester.pump();
       await tester.pump();
-      expect(requests.requests, 0);
+      expect(recommendations.requests, 0);
       scroll.jumpTo(scroll.position.maxScrollExtent);
       await tester.pump();
       await tester.pump();
-      expect(requests.requests, 1);
+      expect(recommendations.requests, 1);
+      recommendations.show([const Work(id: 10, title: 'Visit result')]);
+      await tester.pump();
       scroll.jumpTo(0);
       await tester.pump();
       scroll.jumpTo(scroll.position.maxScrollExtent);
       await tester.pump();
       await settings.toggleRecommendations();
       await tester.pump();
+      await tester.pump();
       await settings.toggleRecommendations();
       await tester.pump();
-      expect(requests.requests, 1);
+      await tester.pump();
+      expect(recommendations.requests, 1);
+      scroll.jumpTo(scroll.position.maxScrollExtent);
+      await tester.pump();
+      expect(find.text('Visit result'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
     },

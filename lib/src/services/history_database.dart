@@ -108,6 +108,17 @@ class HistoryDatabase {
     return HistoryRecord.fromMap(result.first);
   }
 
+  Future<Set<int>> getPlayedWorkIds(Iterable<int> workIds) async {
+    final ids = workIds.toSet();
+    if (ids.isEmpty) return const {};
+    final db = await database;
+    final rows = await db.rawQuery(
+      'SELECT work_id FROM history WHERE work_id IN (${List.filled(ids.length, '?').join(',')})',
+      ids.toList(growable: false),
+    );
+    return rows.map((row) => row['work_id'] as int).toSet();
+  }
+
   Future<void> updateWorkMetadata(
     Work work, {
     bool Function()? shouldUpdate,

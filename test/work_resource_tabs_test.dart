@@ -12,6 +12,7 @@ import 'package:kikoeru_flutter/src/services/file_preview_resolver.dart';
 import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/utils/local_file_url.dart';
+import 'package:kikoeru_flutter/src/widgets/cached_image_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 import 'package:kikoeru_flutter/src/widgets/work_resource_tabs.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
@@ -136,6 +137,235 @@ Future<void> _pumpUntilImageLoaded(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
+  testWidgets('visible resource images resolve before the rest of the page', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final tree = ValueNotifier<List<dynamic>>([
+      for (var index = 0; index < 41; index++)
+        {'type': 'image', 'title': 'image$index.png', 'hash': 'image$index'},
+    ]);
+    addTearDown(tree.dispose);
+    final calls = <String>[];
+    final gates = <String, Completer<PreviewFileItem?>>{};
+    Future<PreviewFileItem?> resolve(dynamic file) {
+      final hash = file['hash'] as String;
+      calls.add(hash);
+      final gate = Completer<PreviewFileItem?>();
+      gates[hash] = gate;
+      return gate.future;
+    }
+
+    await _pumpResources(tester, tree, resolveImage: resolve);
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(calls, isNotEmpty);
+    expect(calls.length, lessThan(20));
+    expect(calls.toSet().length, calls.length);
+    final visibleHashes = <String>{};
+    for (var index = 0; index < 20; index++) {
+      final card = find.ancestor(
+        of: find.text('image$index.png'),
+        matching: find.byType(Card),
+      );
+      if (card.evaluate().isEmpty) continue;
+      final rect = tester.getRect(card);
+      if (rect.bottom > 0 && rect.top < 500) {
+        visibleHashes.add('image$index');
+      }
+    }
+    expect(visibleHashes, isNotEmpty);
+    expect(calls.every(visibleHashes.contains), isTrue);
+    final pendingVisibleCalls = List<String>.of(calls);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(calls, pendingVisibleCalls);
+
+    for (var frame = 0; frame < 80 && calls.length < 20; frame++) {
+      for (final hash in calls) {
+        final gate = gates[hash]!;
+        if (!gate.isCompleted) gate.complete(null);
+      }
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    for (final hash in calls) {
+      final gate = gates[hash]!;
+      if (!gate.isCompleted) gate.complete(null);
+    }
+    for (var frame = 0; frame < 4; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    expect(calls, hasLength(20));
+    expect(calls.toSet(), {
+      for (var index = 0; index < 20; index++) 'image$index',
+    });
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('leaving the resource image tab drops queued preloads', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final tree = ValueNotifier<List<dynamic>>([
+      for (var index = 0; index < 41; index++)
+        {'type': 'image', 'title': 'image$index.png', 'hash': 'image$index'},
+    ]);
+    addTearDown(tree.dispose);
+    final calls = <String>[];
+    final gates = <String, Completer<PreviewFileItem?>>{};
+    Future<PreviewFileItem?> resolve(dynamic file) {
+      final hash = file['hash'] as String;
+      calls.add(hash);
+      final gate = Completer<PreviewFileItem?>();
+      gates[hash] = gate;
+      return gate.future;
+    }
+
+    await _pumpResources(tester, tree, resolveImage: resolve);
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    final started = calls.toSet();
+    expect(started, isNotEmpty);
+    expect(started.length, lessThan(20));
+
+    await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    for (final hash in started) {
+      gates[hash]!.complete(null);
+    }
+    for (var frame = 0; frame < 8; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    expect(calls.toSet(), started);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('background resource images reuse the displayed decode size', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final directory = Directory.systemTemp.createTempSync('resource-prewarm-');
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+      directory.deleteSync(recursive: true);
+    });
+    final files = <dynamic>[
+      for (var index = 0; index < 20; index++)
+        {'type': 'image', 'title': 'warm$index.png', 'hash': 'warm$index'},
+    ];
+    final imageFiles = <String, File>{};
+    for (final file in files) {
+      final hash = file['hash'] as String;
+      imageFiles[hash] = File('${directory.path}/$hash.png')
+        ..writeAsBytesSync(img.encodePng(img.Image(width: 60, height: 30)));
+    }
+    final tree = ValueNotifier(files);
+    final scroll = ScrollController();
+    addTearDown(tree.dispose);
+    addTearDown(scroll.dispose);
+    final calls = <String>[];
+    await _pumpResources(
+      tester,
+      tree,
+      controller: scroll,
+      resolveImage: (file) async {
+        final hash = file['hash'] as String;
+        calls.add(hash);
+        return PreviewFileItem(
+          url: LocalFileUrl.fromPath(imageFiles[hash]!.path),
+          title: file['title'] as String,
+          hash: hash,
+        );
+      },
+    );
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    final firstImage = find.descendant(
+      of: find.ancestor(
+        of: find.text('warm0.png'),
+        matching: find.byType(Card),
+      ),
+      matching: find.byType(Image),
+    );
+    for (var frame = 0; frame < 10 && firstImage.evaluate().isEmpty; frame++) {
+      await tester.pump();
+    }
+    await _pumpUntilImageLoaded(tester, firstImage);
+    final displayedProvider =
+        tester.widget<Image>(firstImage).image as ResizeImage;
+    final preloadedProvider = CachedImageWidget.imageProvider(
+      imageUrl: LocalFileUrl.fromPath(imageFiles['warm19']!.path),
+      hash: 'warm19',
+      cacheWidth: displayedProvider.width,
+    );
+    final cacheKey = await preloadedProvider.obtainKey(
+      ImageConfiguration.empty,
+    );
+    for (
+      var frame = 0;
+      frame < 100 &&
+          !PaintingBinding.instance.imageCache.statusForKey(cacheKey).keepAlive;
+      frame++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
+    expect(calls, hasLength(20));
+    expect(calls.toSet(), hasLength(20));
+    expect(
+      PaintingBinding.instance.imageCache.statusForKey(cacheKey).keepAlive,
+      isTrue,
+    );
+    for (final card in find.byType(Card).evaluate()) {
+      final cardFinder = find.byWidget(card.widget);
+      final rect = tester.getRect(cardFinder);
+      if (rect.bottom <= 0 || rect.top >= 500) continue;
+      expect(
+        tester
+            .widget<Visibility>(
+              find
+                  .ancestor(of: cardFinder, matching: find.byType(Visibility))
+                  .first,
+            )
+            .visible,
+        isTrue,
+        reason: 'Visible cards must update after wide images shorten the grid.',
+      );
+    }
+    expect(find.byKey(ObjectKey(files.last)), findsNothing);
+    await tester.scrollUntilVisible(
+      find.text('warm19.png'),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+    final returnedImage = find.descendant(
+      of: find.ancestor(
+        of: find.text('warm19.png'),
+        matching: find.byType(Card),
+      ),
+      matching: find.byType(RawImage),
+    );
+    expect(returnedImage, findsOneWidget);
+    expect(tester.widget<RawImage>(returnedImage).image, isNotNull);
+    expect(calls, hasLength(20));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('scrolling past image pages continues through recommendations', (
     tester,
   ) async {
@@ -268,7 +498,8 @@ void main() {
       },
     );
     await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
     Finder firstCard() =>
         find.ancestor(of: find.text('image0.png'), matching: find.byType(Card));
@@ -278,6 +509,13 @@ void main() {
       of: initialCard,
       matching: find.byType(Image),
     );
+    for (
+      var frame = 0;
+      frame < 10 && initialImage.evaluate().isEmpty;
+      frame++
+    ) {
+      await tester.pump();
+    }
     expect(initialImage, findsOneWidget);
     await _pumpUntilImageLoaded(tester, initialImage);
     await tester.pump(const Duration(milliseconds: 200));
@@ -297,7 +535,7 @@ void main() {
           )
           .first,
     );
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
     expect(firstCard().hitTestable(), findsNothing);
     PaintingBinding.instance.imageCache.clear();
     PaintingBinding.instance.imageCache.clearLiveImages();
@@ -372,6 +610,9 @@ void main() {
     );
     await tester.pump();
     final image = find.descendant(of: card, matching: find.byType(Image));
+    for (var frame = 0; frame < 10 && image.evaluate().isEmpty; frame++) {
+      await tester.pump();
+    }
     expect(image, findsOneWidget);
     expect(tester.widget<Visibility>(visibility).visible, isFalse);
     expect(
