@@ -4,12 +4,14 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../models/work.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/recommendation_provider.dart';
 import '../../providers/work_card_display_provider.dart';
 import '../../providers/work_detail_display_provider.dart';
 import '../../providers/settings_provider.dart' show blockedItemsProvider;
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../utils/collection_grid_layout.dart';
+import '../../utils/work_cover_prefetch.dart';
 import '../enhanced_work_card.dart';
 import 'work_detail_section_title.dart';
 
@@ -25,21 +27,21 @@ class RecommendationSection extends ConsumerStatefulWidget {
 }
 
 class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
-  bool _activated = false;
   bool _attempted = false;
   int _accessId = createRecommendationAccessId();
+  Object? _coverPrefetchKey;
 
   @override
   void didUpdateWidget(RecommendationSection oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.work.id != widget.work.id) {
-      _activated = false;
       _attempted = false;
       _accessId = createRecommendationAccessId();
+      _coverPrefetchKey = null;
     }
   }
 
-  void _loadWhenVisible() {
+  void _loadRecommendations() {
     if (_attempted) return;
     _attempted = true;
     final accessId = _accessId;
@@ -67,8 +69,13 @@ class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
     );
     final state = ref.watch(recommendationProvider(_accessId));
     if (!visible) {
+      _coverPrefetchKey = null;
       return const SliverToBoxAdapter(child: SizedBox.shrink());
     }
+    _loadRecommendations();
+    final auth = ref.watch(
+      authProvider.select((state) => (state.host ?? '', state.token ?? '')),
+    );
     final blockedItems = ref.watch(blockedItemsProvider);
     final recommendations = state.recommendations
         .where((work) {
@@ -86,60 +93,103 @@ class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
     final cardSize = ref.watch(
       workCardDisplayProvider.select((s) => s.cardSize),
     );
-    return SliverLayoutBuilder(
-      builder: (context, constraints) {
-        if (!_activated && constraints.remainingCacheExtent <= 0) {
-          return const SliverToBoxAdapter(child: SizedBox.shrink());
-        }
-        _activated = true;
-        _loadWhenVisible();
-        if (!state.isLoading && recommendations.isEmpty) {
-          return const SliverToBoxAdapter(child: SizedBox.shrink());
-        }
-        final metrics = resolveCollectionGridMetrics(
-          context,
-          layoutType: LayoutType.bigGrid,
-          cardSize: cardSize,
-          availableWidth: constraints.crossAxisExtent,
-          padding: const EdgeInsets.only(bottom: 16),
-        );
-        return SliverMainAxisGroup(
-          slivers: [
-            SliverToBoxAdapter(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 8),
-                  const Divider(height: 1),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    child: WorkDetailSectionTitle(
-                      S.of(context).relatedRecommendations,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            SliverPadding(
-              padding: metrics.padding,
-              sliver: SliverMasonryGrid.count(
+    return WorkCoverPrefetchScope(
+      sourceKey: (_accessId, auth),
+      builder: (context, coverPrefetch) => SliverLayoutBuilder(
+        builder: (context, constraints) {
+          if (!state.isLoading && recommendations.isEmpty) {
+            return const SliverToBoxAdapter(child: SizedBox.shrink());
+          }
+          final metrics = resolveCollectionGridMetrics(
+            context,
+            layoutType: LayoutType.bigGrid,
+            cardSize: cardSize,
+            availableWidth: constraints.crossAxisExtent,
+            padding: const EdgeInsets.only(bottom: 16),
+          );
+          final viewportHeight =
+              Scrollable.maybeOf(context)?.position.viewportDimension ??
+              MediaQuery.sizeOf(context).height;
+          final coverWidth =
+              (constraints.crossAxisExtent -
+                  metrics.padding.horizontal -
+                  metrics.spacing * (metrics.crossAxisCount - 1)) /
+              metrics.crossAxisCount;
+          final coverCount =
+              metrics.crossAxisCount *
+              (viewportHeight / (coverWidth / collectionCoverAspectRatio))
+                  .ceil();
+          final prefetchKey = (
+            _accessId,
+            auth,
+            state.recommendations,
+            blockedItems,
+            cardSize,
+            constraints.crossAxisExtent,
+            viewportHeight,
+            MediaQuery.devicePixelRatioOf(context),
+          );
+          if (!state.isLoading &&
+              recommendations.isNotEmpty &&
+              _coverPrefetchKey != prefetchKey) {
+            _coverPrefetchKey = prefetchKey;
+            final covers = recommendations
+                .take(coverCount)
+                .toList(growable: false);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted ||
+                  _coverPrefetchKey != prefetchKey ||
+                  !ref.read(workDetailDisplayProvider).showRecommendations) {
+                return;
+              }
+              coverPrefetch.prefetch(
+                context,
+                covers,
+                host: auth.$1,
+                token: auth.$2,
                 crossAxisCount: metrics.crossAxisCount,
-                crossAxisSpacing: metrics.spacing,
-                mainAxisSpacing: metrics.spacing,
-                childCount: state.isLoading ? 6 : recommendations.length,
-                itemBuilder: (context, index) => state.isLoading
-                    ? _buildShimmerCard(context)
-                    : EnhancedWorkCard(
-                        key: ValueKey(recommendations[index].id),
-                        work: recommendations[index],
-                        crossAxisCount: metrics.crossAxisCount,
-                        isListLayout: false,
+                isListCard: false,
+              );
+            });
+          }
+          return SliverMainAxisGroup(
+            slivers: [
+              SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 8),
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: WorkDetailSectionTitle(
+                        S.of(context).relatedRecommendations,
                       ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
-        );
-      },
+              SliverPadding(
+                padding: metrics.padding,
+                sliver: SliverMasonryGrid.count(
+                  crossAxisCount: metrics.crossAxisCount,
+                  crossAxisSpacing: metrics.spacing,
+                  mainAxisSpacing: metrics.spacing,
+                  childCount: state.isLoading ? 6 : recommendations.length,
+                  itemBuilder: (context, index) => state.isLoading
+                      ? _buildShimmerCard(context)
+                      : EnhancedWorkCard(
+                          key: ValueKey(recommendations[index].id),
+                          work: recommendations[index],
+                          crossAxisCount: metrics.crossAxisCount,
+                          isListLayout: false,
+                        ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 

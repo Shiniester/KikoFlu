@@ -59,6 +59,8 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
     this.expandedFolders = const {},
     this.onVisibleNamesChanged,
     this.downloadedFiles = const {},
+    this.resourcesReady = true,
+    this.onInitialContentReady,
   });
 
   final int workId;
@@ -78,6 +80,8 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
   final Set<String> expandedFolders;
   final ValueChanged<List<String>>? onVisibleNamesChanged;
   final Map<String, bool> downloadedFiles;
+  final bool resourcesReady;
+  final VoidCallback? onInitialContentReady;
 
   @override
   ConsumerState<WorkResourceTabs> createState() => _WorkResourceTabsState();
@@ -115,11 +119,13 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   List<String>? _reportedNames;
   late AnimationController _pagePosition;
   late TabController _tabs;
-  final _tabHeaderKey = GlobalKey();
+  final _resourceGroupKey = GlobalKey();
   int _imagePage = 1;
   bool _reduceMotion = false;
   bool _tabSyncScheduled = false;
   bool _configuringTabs = false;
+  bool _initialContentReadyScheduled = false;
+  bool _initialContentReadyReported = false;
   int? _motionTarget;
 
   @override
@@ -263,44 +269,48 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     _updateResources(ref.watch(audioFormatPreferenceProvider));
     _reduceMotion = MediaQuery.disableAnimationsOf(context);
     _reportVisibleNames();
+    _scheduleInitialContentReady();
     final s = S.of(context);
+    final tabBar = TabBar(
+      controller: _tabs,
+      isScrollable: true,
+      tabAlignment: TabAlignment.start,
+      onTap: _moveToTab,
+      tabs: [
+        Tab(
+          key: const ValueKey('work-resource-files-tab'),
+          text: widget.resourceTitle,
+        ),
+        Tab(
+          key: const ValueKey('work-resource-audio-tab'),
+          text: s.workResourceAudio,
+        ),
+        if (_images.isNotEmpty)
+          Tab(
+            key: const ValueKey('work-resource-images-tab'),
+            text: s.workResourceImages,
+          ),
+      ],
+    );
     return SliverMainAxisGroup(
+      key: _resourceGroupKey,
       slivers: [
-        SliverToBoxAdapter(
-          child: Column(
-            key: _tabHeaderKey,
-            children: [
-              TabBar(
-                controller: _tabs,
-                isScrollable: true,
-                tabAlignment: TabAlignment.start,
-                onTap: _moveToTab,
-                tabs: [
-                  Tab(
-                    key: const ValueKey('work-resource-files-tab'),
-                    text: widget.resourceTitle,
-                  ),
-                  Tab(
-                    key: const ValueKey('work-resource-audio-tab'),
-                    text: s.workResourceAudio,
-                  ),
-                  if (_images.isNotEmpty)
-                    Tab(
-                      key: const ValueKey('work-resource-images-tab'),
-                      text: s.workResourceImages,
-                    ),
-                ],
-              ),
-              if (widget.progressMessage case final message?
-                  when message.isNotEmpty)
-                FileExplorerProgressBanner(message: message),
-            ],
+        SliverPersistentHeader(
+          pinned: true,
+          delegate: _ResourceTabsHeaderDelegate(
+            tabBar: tabBar,
+            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
           ),
         ),
+        if (widget.progressMessage case final message? when message.isNotEmpty)
+          SliverToBoxAdapter(
+            child: FileExplorerProgressBanner(message: message),
+          ),
         SliverTabPageView(
           position: _pagePosition,
           onDragStart: () {
             _motionTarget = null;
+            unawaited(_scrollToResourceTop());
             _pagePosition.stop(canceled: true);
           },
           onDragUpdate: _updatePagePosition,
@@ -316,6 +326,32 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     );
   }
 
+  bool get _selectedContentReady {
+    final page = _motionTarget ?? _selected;
+    return widget.resourcesReady && (page != 2 || _imagePageGatePassed.value);
+  }
+
+  void _scheduleInitialContentReady() {
+    if (widget.onInitialContentReady == null ||
+        _initialContentReadyReported ||
+        _initialContentReadyScheduled ||
+        !_selectedContentReady) {
+      return;
+    }
+    _initialContentReadyScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initialContentReadyScheduled = false;
+      if (!mounted ||
+          _initialContentReadyReported ||
+          widget.onInitialContentReady == null ||
+          !_selectedContentReady) {
+        return;
+      }
+      _initialContentReadyReported = true;
+      widget.onInitialContentReady!.call();
+    });
+  }
+
   void _moveToTab(int index) {
     syncTabWithPagePosition(_tabs, _pagePosition.value);
     _animateToPage(index.toDouble());
@@ -325,6 +361,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     final page = target.clamp(0.0, (_tabs.length - 1).toDouble()).toDouble();
     _motionTarget = page.round();
     _updateImagePrefetch();
+    unawaited(_scrollToResourceTop());
     _pagePosition.stop(canceled: true);
     if (_reduceMotion) {
       _pagePosition.value = page;
@@ -985,20 +1022,20 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       _imagePage = page;
       _imagePageGatePassed.value = false;
     });
-    unawaited(_scrollToTabHeader());
+    unawaited(_scrollToResourceTop(animate: true));
   }
 
-  Future<void> _scrollToTabHeader() async {
-    await WidgetsBinding.instance.endOfFrame;
-    if (!mounted) return;
-    final headerContext = _tabHeaderKey.currentContext;
-    if (headerContext == null || !headerContext.mounted) return;
-    await Scrollable.ensureVisible(
-      headerContext,
+  Future<void> _scrollToResourceTop({bool animate = false}) {
+    final groupContext = _resourceGroupKey.currentContext;
+    if (!mounted || groupContext == null || !groupContext.mounted) {
+      return Future<void>.value();
+    }
+    return Scrollable.ensureVisible(
+      groupContext,
       alignment: 0,
-      duration: MediaQuery.disableAnimationsOf(headerContext)
-          ? Duration.zero
-          : UiMotion.travel,
+      duration: animate && !MediaQuery.disableAnimationsOf(groupContext)
+          ? UiMotion.travel
+          : Duration.zero,
       curve: UiMotion.curve,
     );
   }
@@ -1013,6 +1050,36 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     });
     _scheduleImageInspection();
   }
+}
+
+class _ResourceTabsHeaderDelegate extends SliverPersistentHeaderDelegate {
+  const _ResourceTabsHeaderDelegate({
+    required this.tabBar,
+    required this.backgroundColor,
+  });
+
+  final TabBar tabBar;
+  final Color backgroundColor;
+
+  @override
+  double get minExtent => tabBar.preferredSize.height;
+
+  @override
+  double get maxExtent => tabBar.preferredSize.height;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) => SizedBox.expand(
+    child: Material(color: backgroundColor, child: tabBar),
+  );
+
+  @override
+  bool shouldRebuild(_ResourceTabsHeaderDelegate oldDelegate) =>
+      tabBar != oldDelegate.tabBar ||
+      backgroundColor != oldDelegate.backgroundColor;
 }
 
 class _SliverLoadingOverlay extends MultiChildRenderObjectWidget {

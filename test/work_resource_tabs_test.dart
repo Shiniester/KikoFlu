@@ -70,6 +70,10 @@ Future<void> _pumpResources(
   ScrollController? controller,
   bool disableAnimations = false,
   int recommendationCount = 0,
+  Widget? introSliver,
+  Widget? resourceSliver,
+  bool resourcesReady = true,
+  VoidCallback? onInitialContentReady,
 }) => tester.pumpWidget(
   ProviderScope(
     child: MaterialApp(
@@ -87,15 +91,18 @@ Future<void> _pumpResources(
               builder: (context, files, _) => CustomScrollView(
                 controller: controller,
                 slivers: [
+                  if (introSliver != null) introSliver,
                   WorkResourceTabs(
                     workId: 42,
                     fileTree: files,
                     audioVariants: const PlayerAudioVariantClassifier().scan(
                       files,
                     ),
-                    resourceSliver: const SliverToBoxAdapter(
-                      child: Text('whole resource tree'),
-                    ),
+                    resourceSliver:
+                        resourceSliver ??
+                        const SliverToBoxAdapter(
+                          child: Text('whole resource tree'),
+                        ),
                     resourceTitle: 'Resource Files',
                     onPlayAudio: onPlay ?? (_, __, ___) {},
                     onFileTap: onFileTap ?? (_, __, ___) {},
@@ -104,6 +111,8 @@ Future<void> _pumpResources(
                     downloadedFiles: downloadedFiles,
                     expandedFolders: expandedFolders,
                     onVisibleNamesChanged: onVisibleNamesChanged,
+                    resourcesReady: resourcesReady,
+                    onInitialContentReady: onInitialContentReady,
                   ),
                   if (recommendationCount > 0)
                     SliverList.builder(
@@ -145,6 +154,143 @@ Finder _loadingOverlaySpinner() => find.byKey(
 );
 
 void main() {
+  testWidgets('reports initial readiness after resources become ready once', (
+    tester,
+  ) async {
+    final tree = ValueNotifier<List<dynamic>>(_files());
+    addTearDown(tree.dispose);
+    var readyCalls = 0;
+
+    await _pumpResources(
+      tester,
+      tree,
+      resourcesReady: false,
+      onInitialContentReady: () => readyCalls++,
+    );
+    await tester.pump();
+    expect(readyCalls, 0);
+
+    await _pumpResources(
+      tester,
+      tree,
+      resourcesReady: true,
+      onInitialContentReady: () => readyCalls++,
+    );
+    await tester.pump();
+    expect(readyCalls, 1);
+
+    await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+    await tester.pumpAndSettle();
+    expect(readyCalls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('direct resource tabs are ready by default', (tester) async {
+    final tree = ValueNotifier<List<dynamic>>(_files());
+    addTearDown(tree.dispose);
+    var readyCalls = 0;
+
+    await _pumpResources(
+      tester,
+      tree,
+      onInitialContentReady: () => readyCalls++,
+    );
+    await tester.pump();
+
+    expect(readyCalls, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('an image failure completes the selected image readiness gate', (
+    tester,
+  ) async {
+    final tree = ValueNotifier<List<dynamic>>([
+      {'type': 'image', 'title': 'broken.png', 'hash': 'broken'},
+    ]);
+    addTearDown(tree.dispose);
+    final image = Completer<PreviewFileItem?>();
+    var readyCalls = 0;
+    Future<PreviewFileItem?> resolveImage(dynamic _) => image.future;
+
+    await _pumpResources(
+      tester,
+      tree,
+      resourcesReady: false,
+      onInitialContentReady: () => readyCalls++,
+      resolveImage: resolveImage,
+    );
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await _pumpResources(
+      tester,
+      tree,
+      resourcesReady: true,
+      onInitialContentReady: () => readyCalls++,
+      resolveImage: resolveImage,
+    );
+    expect(readyCalls, 0);
+
+    image.complete(null);
+    await tester.pumpAndSettle();
+
+    expect(readyCalls, 1);
+    expect(_loadingOverlaySpinner(), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('resource tab changes return to the section top', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final tree = ValueNotifier<List<dynamic>>(_files());
+    final scroll = ScrollController();
+    addTearDown(tree.dispose);
+    addTearDown(scroll.dispose);
+
+    await _pumpResources(
+      tester,
+      tree,
+      controller: scroll,
+      introSliver: const SliverToBoxAdapter(
+        child: SizedBox(height: 180, child: Text('work introduction')),
+      ),
+      resourceSliver: SliverList.builder(
+        itemCount: 36,
+        itemBuilder: (context, index) =>
+            SizedBox(height: 48, child: Text('resource item $index')),
+      ),
+      recommendationCount: 12,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+    await tester.pumpAndSettle();
+    expect(scroll.offset, closeTo(180, 1));
+    expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(0, 1));
+
+    scroll.jumpTo(scroll.offset + 500);
+    await tester.pump();
+    expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(0, 1));
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('resource item 12')),
+    );
+    await gesture.moveBy(const Offset(-430, 0));
+    await tester.pump();
+    expect(scroll.offset, closeTo(180, 1));
+    expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(0, 1));
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(scroll.offset, closeTo(180, 1));
+    expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(0, 1));
+
+    scroll.jumpTo(scroll.position.maxScrollExtent);
+    await tester.pump();
+    expect(find.text('recommendation 11'), findsOneWidget);
+    expect(find.byType(TabBar), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('visible resource images resolve before the rest of the page', (
     tester,
   ) async {

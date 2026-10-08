@@ -700,7 +700,7 @@ void main() {
   });
 
   testWidgets(
-    'recommendations wait for the loaded file tree and its viewport',
+    'recommendations load after resource readiness before scrolling to them',
     (tester) async {
       final directory = Directory.systemTemp.createTempSync(
         'detail-recommendation-',
@@ -781,7 +781,7 @@ void main() {
         find.byType(RecommendationSection, skipOffstage: false),
         findsOneWidget,
       );
-      expect(recommendations?.requests ?? 0, 0);
+      expect(recommendations!.requests, 1);
       await tester.scrollUntilVisible(
         find.text('file-999.wav'),
         3000,

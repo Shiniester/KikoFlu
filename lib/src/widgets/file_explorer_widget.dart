@@ -80,6 +80,7 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
   final Work work;
   final Work Function()? currentWork;
   final VoidCallback? onLoadCompleted;
+  final VoidCallback? onInitialContentReady;
   final FileExplorerController? controller;
   final Future<bool> Function()? initialLoadReady;
   final bool translate;
@@ -89,6 +90,7 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
     required this.work,
     this.currentWork,
     this.onLoadCompleted,
+    this.onInitialContentReady,
     this.controller,
     this.initialLoadReady,
     this.translate = false,
@@ -111,6 +113,8 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   bool _isLoading = true;
   String? _errorMessage;
   bool _audioVariantsReady = false;
+  bool _initialContentReadyScheduled = false;
+  bool _initialContentReadyReported = false;
   int _preferenceUpdateGeneration = 0;
   StreamSubscription<DownloadTaskChange>? _downloadTasksSubscription;
   int _loadGeneration = 0;
@@ -919,7 +923,10 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       fadeDownloadedItems: true,
       showHeader: false,
     );
-    if (_isLoading || _errorMessage != null) return tree;
+    if (_isLoading || _errorMessage != null) {
+      if (_errorMessage != null) _scheduleInitialContentReadyAfterError();
+      return tree;
+    }
     return WorkResourceTabs(
       workId: _work.id,
       fileTree: _rootFiles,
@@ -939,6 +946,8 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       downloadedFiles: _downloadedFiles,
       expandedFolders: _expandedFolders,
       onVisibleNamesChanged: _onVisibleNamesChanged,
+      resourcesReady: _audioVariantsReady,
+      onInitialContentReady: _reportInitialContentReady,
       onImageTap: _previewImageFile,
       resolveImage: (file) async {
         final auth = ref.read(authProvider);
@@ -954,6 +963,28 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
         return items.firstOrNull;
       },
     );
+  }
+
+  void _scheduleInitialContentReadyAfterError() {
+    if (_initialContentReadyReported ||
+        _initialContentReadyScheduled ||
+        widget.onInitialContentReady == null) {
+      return;
+    }
+    _initialContentReadyScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initialContentReadyScheduled = false;
+      if (!mounted || _isLoading || _errorMessage == null) return;
+      _reportInitialContentReady();
+    });
+  }
+
+  void _reportInitialContentReady() {
+    if (_initialContentReadyReported || widget.onInitialContentReady == null) {
+      return;
+    }
+    _initialContentReadyReported = true;
+    widget.onInitialContentReady!.call();
   }
 
   Widget? _buildFileMetadata(BuildContext context, FileTreeEntry entry) {

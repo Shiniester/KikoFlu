@@ -42,6 +42,24 @@ class _TreeApi extends KikoeruApiService {
   ];
 }
 
+class _DeferredTreeApi extends KikoeruApiService {
+  final tracks = Completer<List<dynamic>>();
+
+  @override
+  Future<List<dynamic>> getWorkTracks(
+    int workId, {
+    bool forceRefresh = false,
+  }) => tracks.future;
+}
+
+class _EmptyTreeApi extends KikoeruApiService {
+  @override
+  Future<List<dynamic>> getWorkTracks(
+    int workId, {
+    bool forceRefresh = false,
+  }) async => [];
+}
+
 class _PreferredTreeApi extends KikoeruApiService {
   @override
   Future<List<dynamic>> getWorkTracks(
@@ -207,6 +225,124 @@ void main() {
     await tester.pump();
 
     expect(apiService.forceRefreshCalls, [false, true]);
+  });
+
+  testWidgets('initial content readiness follows prepared audio resources', (
+    tester,
+  ) async {
+    final apiService = _DeferredTreeApi();
+    final downloads = _Downloads();
+    addTearDown(downloads.changes.close);
+    final loaded = Completer<void>();
+    var initialContentReady = false;
+    final scanner = DownloadedFileStateScanner(
+      downloadRootPath: () async => '/downloads',
+      resolveDownloadedPath: (_, __) async => null,
+      fileExists: (_) async => false,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          kikoeruApiServiceProvider.overrideWithValue(apiService),
+          downloadServiceProvider.overrideWithValue(downloads),
+          downloadedFileStateScannerProvider.overrideWithValue(scanner),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: Scaffold(
+            body: CustomScrollView(
+              slivers: [
+                FileExplorerWidget(
+                  work: const Work(id: 39, title: 'Work'),
+                  onLoadCompleted: () {
+                    if (!loaded.isCompleted) loaded.complete();
+                  },
+                  onInitialContentReady: () => initialContentReady = true,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(initialContentReady, isFalse);
+
+    apiService.tracks.complete(_preferredAudioTree());
+    await tester.runAsync(() => loaded.future);
+    expect(initialContentReady, isFalse);
+
+    await tester.pump();
+    expect(initialContentReady, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('initial content readiness releases for empty and failed trees', (
+    tester,
+  ) async {
+    final downloads = _Downloads();
+    addTearDown(downloads.changes.close);
+    final scanner = DownloadedFileStateScanner(
+      downloadRootPath: () async => '/downloads',
+      resolveDownloadedPath: (_, __) async => null,
+      fileExists: (_) async => false,
+    );
+    var readyCalls = 0;
+    var errorWasVisibleAtReady = false;
+    var loaded = Completer<void>();
+
+    Future<void> pumpExplorer(KikoeruApiService apiService) async {
+      loaded = Completer<void>();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            kikoeruApiServiceProvider.overrideWithValue(apiService),
+            downloadServiceProvider.overrideWithValue(downloads),
+            downloadedFileStateScannerProvider.overrideWithValue(scanner),
+          ],
+          child: MaterialApp(
+            locale: const Locale('en'),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: Scaffold(
+              body: CustomScrollView(
+                slivers: [
+                  FileExplorerWidget(
+                    work: const Work(id: 39, title: 'Work'),
+                    onLoadCompleted: () {
+                      if (!loaded.isCompleted) loaded.complete();
+                    },
+                    onInitialContentReady: () {
+                      readyCalls++;
+                      errorWasVisibleAtReady = find
+                          .textContaining('network unavailable')
+                          .evaluate()
+                          .isNotEmpty;
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    await pumpExplorer(_EmptyTreeApi());
+    await tester.runAsync(() => loaded.future);
+    await tester.pump();
+    expect(readyCalls, 1);
+    expect(errorWasVisibleAtReady, isFalse);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    readyCalls = 0;
+    await pumpExplorer(_FailingApiService());
+    await tester.runAsync(() => loaded.future);
+    await tester.pump();
+    expect(readyCalls, 1);
+    expect(errorWasVisibleAtReady, isTrue);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(
