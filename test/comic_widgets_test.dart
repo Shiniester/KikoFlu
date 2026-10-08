@@ -5786,6 +5786,70 @@ void main() {
     },
   );
 
+  testWidgets('chapter previews stay loaded when scrolling between chapters', (
+    tester,
+  ) async {
+    await StorageService.remove('comic_chapter_thumbnails');
+    tester.view.physicalSize = const Size(320, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final comic = Comic(
+      source: 'fixture',
+      id: 'book',
+      title: 'Fixture book',
+      chapters: List.generate(
+        12,
+        (i) => ComicChapter('chapter-$i', 'Chapter ${i + 1}'),
+      ),
+    );
+    final source = _Source()..detailResult = comic;
+    await pump(
+      tester,
+      ComicDetailScreen(comic: comic),
+      _Library(),
+      source,
+    );
+    final scrollable = find.byType(Scrollable).first;
+    final thumbnail = find.byKey(
+      const ValueKey('comic-chapter-thumbnail-chapter-0-0'),
+    );
+    await tester.scrollUntilVisible(thumbnail, 250, scrollable: scrollable);
+    await waitForPreviewContent(tester, thumbnail);
+    final image = find.descendant(of: thumbnail, matching: find.byType(Image));
+    await waitForPreviewContent(tester, image);
+    await waitForDecodedImage(tester, image);
+    await pumpFrames(tester, frames: 3);
+    final position = tester.state<ScrollableState>(scrollable).position;
+    final firstChapterOffset = position.pixels;
+
+    for (var revisit = 0; revisit < 2; revisit++) {
+      await tester.scrollUntilVisible(
+        find.text('Chapter 12'),
+        300,
+        scrollable: scrollable,
+      );
+      await tester.pumpAndSettle();
+      expect(thumbnail.hitTestable(), findsNothing);
+      position.jumpTo(firstChapterOffset);
+      await tester.pump();
+      expect(
+        source.pageRequests.where((chapter) => chapter == 'chapter-0'),
+        hasLength(1),
+      );
+      expect(thumbnail.hitTestable(), findsOneWidget);
+      expect(
+        tester.widget<RawImage>(
+          find.descendant(of: thumbnail, matching: find.byType(RawImage)),
+        ).image,
+        isNotNull,
+      );
+      await tester.pumpAndSettle();
+    }
+    expect(source.pageRequests, containsAll(['chapter-0', 'chapter-11']));
+    expect(source.pageRequests, hasLength(source.pageRequests.toSet().length));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('chapter thumbnails retry a failed page listing', (tester) async {
     final source = _Source()..failedChapter = 'one';
     await pump(
