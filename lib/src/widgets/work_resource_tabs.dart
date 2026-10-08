@@ -639,6 +639,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
         context,
         onError: (error, stackTrace) => _markImageFailed(file, attempt),
       );
+      _imagePrefetchQueue.retainImage((file, attempt, cacheWidth), stream);
     } catch (_) {
       _markImageFailed(file, attempt);
     } finally {

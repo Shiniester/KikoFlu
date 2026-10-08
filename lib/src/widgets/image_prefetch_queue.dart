@@ -1,14 +1,14 @@
 import 'dart:async';
 
+import 'package:flutter/painting.dart';
+
 /// Warms visible images before the rest of one bounded page.
 class ImagePrefetchQueue<T> {
-  ImagePrefetchQueue({
-    required this._keyOf,
-    required this._prepare,
-  });
+  ImagePrefetchQueue({required this._keyOf, required this._prepare});
 
-  static const _maxConcurrent = 2;
-  static const _maxBackgroundConcurrent = 1;
+  static const _maxConcurrent = 4;
+  static const _maxBackgroundConcurrent = 2;
+  static const _maxRetainedBytes = 32 * 1024 * 1024;
 
   final Object Function(T item) _keyOf;
   final Future<void> Function(T item) _prepare;
@@ -16,6 +16,13 @@ class ImagePrefetchQueue<T> {
   List<T> _visible = const [];
   final Set<Object> _ready = {};
   final Set<Object> _running = {};
+  List<Object> _upcomingKeys = const [];
+  final _retainedImages =
+      <
+        Object,
+        ({ImageStream stream, ImageStreamListener listener, int bytes})
+      >{};
+  int _retainedBytes = 0;
   bool _active = false;
   bool _disposed = false;
 
@@ -38,8 +45,62 @@ class ImagePrefetchQueue<T> {
     ];
     _items = uniqueItems.values.toList(growable: false);
     _ready.retainAll(pageKeys);
+    final lastVisibleIndex = _items.lastIndexWhere(
+      (item) => visibleKeys.contains(_keyOf(item)),
+    );
+    final upcomingKeys = active && _visible.isNotEmpty
+        ? _items
+              .skip(lastVisibleIndex + 1)
+              .take(_visible.length.clamp(2, 8))
+              .map(_keyOf)
+              .toList(growable: false)
+        : <Object>[];
+    for (final key in upcomingKeys) {
+      // Full-page warming may have evicted a frame before it enters this window.
+      if (!_upcomingKeys.contains(key)) _ready.remove(key);
+    }
+    _upcomingKeys = upcomingKeys;
+    for (final key in _retainedImages.keys.toList()) {
+      if (!upcomingKeys.contains(key)) _releaseImage(key);
+    }
     _active = active;
     _pump();
+  }
+
+  void retainImage(Object key, ImageStream stream) {
+    if (_disposed ||
+        !_active ||
+        !_upcomingKeys.contains(key) ||
+        _retainedImages.containsKey(key)) {
+      return;
+    }
+    final listener = ImageStreamListener((info, _) {
+      final bytes = info.image.width * info.image.height * 4;
+      info.dispose();
+      final retained = _retainedImages[key];
+      if (retained == null) return;
+      _retainedBytes += bytes - retained.bytes;
+      _retainedImages[key] = (
+        stream: retained.stream,
+        listener: retained.listener,
+        bytes: bytes,
+      );
+      while (_retainedBytes > _maxRetainedBytes) {
+        final furthest = _upcomingKeys.reversed.firstWhere(
+          _retainedImages.containsKey,
+        );
+        _releaseImage(furthest);
+      }
+    }, onError: (_, __) => _releaseImage(key));
+    _retainedImages[key] = (stream: stream, listener: listener, bytes: 0);
+    stream.addListener(listener);
+  }
+
+  void _releaseImage(Object key) {
+    final retained = _retainedImages.remove(key);
+    if (retained == null) return;
+    _retainedBytes -= retained.bytes;
+    retained.stream.removeListener(retained.listener);
   }
 
   void dispose() {
@@ -48,6 +109,10 @@ class ImagePrefetchQueue<T> {
     _items = const [];
     _visible = const [];
     _ready.clear();
+    _upcomingKeys = const [];
+    for (final key in _retainedImages.keys.toList()) {
+      _releaseImage(key);
+    }
   }
 
   void _pump() {
@@ -71,7 +136,13 @@ class ImagePrefetchQueue<T> {
       if (waitingForVisible) return;
       final backgroundRunning = _running.difference(visibleKeys).length;
       if (backgroundRunning >= _maxBackgroundConcurrent) return;
-      final nextBackground = _items
+      final lastVisibleIndex = _items.lastIndexWhere(
+        (item) => visibleKeys.contains(_keyOf(item)),
+      );
+      final nearbyFirst = _items
+          .skip(lastVisibleIndex + 1)
+          .followedBy(_items.take(lastVisibleIndex + 1));
+      final nextBackground = nearbyFirst
           .where(
             (item) =>
                 !_ready.contains(_keyOf(item)) &&

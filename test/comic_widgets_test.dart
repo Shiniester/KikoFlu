@@ -8068,7 +8068,7 @@ void main() {
       expect(starts.length, lessThan(comics.length));
       expect(
         starts.length,
-        lessThanOrEqualTo(2),
+        lessThanOrEqualTo(4),
         reason: 'Visible cards must enter the bounded queue before loading.',
       );
       for (var frame = 0; frame < 80; frame++) {
@@ -8422,6 +8422,322 @@ void main() {
     );
   }
 
+  testWidgets(
+    'high-DPI comic grid admits two new visible covers while background work is held',
+    (tester) async {
+      await StorageService.setString(
+        'comic_layout_type',
+        LayoutType.smallGrid.name,
+      );
+      tester.view.physicalSize = const Size(1170, 2532);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      final comics = List.generate(
+        40,
+        (index) => Comic(
+          source: 'fixture',
+          id: 'dpr3-scroll-$index',
+          title: 'DPR3 Scroll $index',
+          cover: 'dpr3-scroll-cover-$index',
+        ),
+      );
+      final largeCoverBytes = img.encodePng(
+        img.Image(width: 1200, height: 1800),
+      );
+      final bytes = {
+        for (final comic in comics)
+          comic.cover: Uint8List.fromList(largeCoverBytes),
+      };
+      final gates = {
+        for (final comic in comics) comic.cover: Completer<Uint8List>(),
+      };
+      final starts = <String, int>{};
+
+      await pump(
+        tester,
+        Scaffold(
+          body: ComicGrid(comics: comics, footer: const SizedBox(height: 80)),
+        ),
+        _Library(),
+        _Source(),
+        loadImage: (page) {
+          starts.update(page.url, (count) => count + 1, ifAbsent: () => 1);
+          return gates[page.url]!.future;
+        },
+        settle: false,
+      );
+
+      final scrollable = find.descendant(
+        of: find.byType(ComicGrid, skipOffstage: false),
+        matching: find.byType(Scrollable, skipOffstage: false),
+        skipOffstage: false,
+      );
+      final viewport = find.descendant(
+        of: scrollable,
+        matching: find.byType(Viewport, skipOffstage: false),
+        skipOffstage: false,
+      );
+      Set<String> visibleCovers() {
+        final rect = tester.getRect(viewport.first);
+        return {
+          for (final comic in comics)
+            if (comicCardForTitle(
+                  comic.title,
+                  skipOffstage: false,
+                ).evaluate().isNotEmpty &&
+                tester
+                    .getRect(
+                      comicCardForTitle(comic.title, skipOffstage: false),
+                    )
+                    .overlaps(rect))
+              comic.cover,
+        };
+      }
+
+      final initialVisible = visibleCovers();
+      expect(initialVisible, isNotEmpty);
+      for (var frame = 0; frame < 320; frame++) {
+        for (final cover in initialVisible) {
+          final gate = gates[cover]!;
+          if (starts.containsKey(cover) && !gate.isCompleted) {
+            gate.complete(bytes[cover]!);
+          }
+        }
+        if (starts.keys.any((cover) => !initialVisible.contains(cover))) break;
+        await tester.pump(const Duration(milliseconds: 16));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+      }
+      final backgroundStarted = starts.keys
+          .where((cover) => !initialVisible.contains(cover))
+          .toSet();
+      expect(backgroundStarted, isNotEmpty);
+      expect(
+        backgroundStarted.every((cover) => !gates[cover]!.isCompleted),
+        isTrue,
+      );
+
+      final visibleBeforeScroll = visibleCovers();
+      final startsBeforeScroll = starts.keys.toSet();
+      tester.state<ScrollableState>(scrollable.first).position.jumpTo(600);
+      await tester.pump();
+      await tester.pump();
+
+      final visibleAfterScroll = visibleCovers();
+      final newlyVisible = visibleAfterScroll.difference(visibleBeforeScroll);
+      expect(newlyVisible.length, greaterThanOrEqualTo(2));
+      final newlyStarted = starts.keys
+          .toSet()
+          .difference(startsBeforeScroll)
+          .where(newlyVisible.contains)
+          .toSet();
+      expect(
+        newlyStarted.length,
+        greaterThanOrEqualTo(2),
+        reason:
+            'Two newly visible high-DPI covers should get foreground loader '
+            'slots while background requests remain unresolved. '
+            'started=$newlyStarted, visible=$newlyVisible, '
+            'allStarts=${starts.keys.toList()}.',
+      );
+
+      for (final cover in newlyStarted) {
+        gates[cover]!.complete(bytes[cover]!);
+      }
+      for (var frame = 0; frame < 120; frame++) {
+        final allReady = newlyStarted.every((cover) {
+          final card = comicCardForTitle(
+            comics.firstWhere((comic) => comic.cover == cover).title,
+            skipOffstage: false,
+          );
+          final image = find.descendant(
+            of: card,
+            matching: find.byType(RawImage, skipOffstage: false),
+            skipOffstage: false,
+          );
+          return image.evaluate().isNotEmpty &&
+              tester.widget<RawImage>(image.first).image != null;
+        });
+        if (allReady) break;
+        await tester.pump(const Duration(milliseconds: 16));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+      }
+      for (final cover in newlyStarted) {
+        final comic = comics.firstWhere((item) => item.cover == cover);
+        expectComicCardReady(tester, comic.title);
+      }
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'next-screen high-DPI comic cover stays decoded under page cache pressure',
+    (tester) async {
+      await StorageService.setString(
+        'comic_layout_type',
+        LayoutType.smallGrid.name,
+      );
+      tester.view.physicalSize = const Size(1170, 2532);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+
+      final cache = PaintingBinding.instance.imageCache;
+      final oldMaximumSizeBytes = cache.maximumSizeBytes;
+      cache.clear();
+      cache.clearLiveImages();
+      cache.maximumSizeBytes = 12 * 1024 * 1024;
+      addTearDown(() {
+        cache.clear();
+        cache.maximumSizeBytes = oldMaximumSizeBytes;
+      });
+
+      final comics = List.generate(
+        40,
+        (index) => Comic(
+          source: 'fixture',
+          id: 'dpr3-window-$index',
+          title: 'DPR3 Window $index',
+          cover: 'dpr3-window-cover-$index',
+        ),
+      );
+      final coverBytes = img.encodePng(img.Image(width: 1200, height: 1800));
+      final bytes = {
+        for (final comic in comics) comic.cover: Uint8List.fromList(coverBytes),
+      };
+      final starts = <String, int>{};
+      await pump(
+        tester,
+        Scaffold(body: ComicGrid(comics: comics)),
+        _Library(),
+        _Source(),
+        loadImage: (page) {
+          starts.update(page.url, (count) => count + 1, ifAbsent: () => 1);
+          return Future.value(bytes[page.url]!);
+        },
+        settle: false,
+      );
+
+      final scrollable = find.descendant(
+        of: find.byType(ComicGrid, skipOffstage: false),
+        matching: find.byType(Scrollable, skipOffstage: false),
+        skipOffstage: false,
+      );
+      final viewport = find.descendant(
+        of: scrollable,
+        matching: find.byType(Viewport, skipOffstage: false),
+        skipOffstage: false,
+      );
+      Set<String> visibleCovers() {
+        final viewportRect = tester.getRect(viewport.first);
+        return {
+          for (final comic in comics)
+            if (comicCardForTitle(
+                  comic.title,
+                  skipOffstage: false,
+                ).evaluate().isNotEmpty &&
+                tester
+                    .getRect(
+                      comicCardForTitle(comic.title, skipOffstage: false),
+                    )
+                    .overlaps(viewportRect))
+              comic.cover,
+        };
+      }
+
+      final initialVisible = visibleCovers();
+      expect(initialVisible, isNotEmpty);
+      for (var frame = 0; frame < 640; frame++) {
+        final startedAll = starts.length == comics.length;
+        final pendingImages = cache.pendingImageCount;
+        if (startedAll && pendingImages == 0) break;
+        await tester.pump(const Duration(milliseconds: 16));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+      }
+      expect(starts.keys.toSet(), {for (final comic in comics) comic.cover});
+
+      final firstImage = find.descendant(
+        of: comicCardForTitle(comics.first.title, skipOffstage: false),
+        matching: find.byType(Image, skipOffstage: false),
+        skipOffstage: false,
+      );
+      final cacheWidth =
+          (tester.widget<Image>(firstImage.first).image as ResizeImage).width!;
+      final lastProvider = ResizeImage(
+        MemoryImage(bytes[comics.last.cover]!),
+        width: cacheWidth,
+      );
+      final lastKey = await lastProvider.obtainKey(ImageConfiguration.empty);
+      for (var frame = 0; frame < 160; frame++) {
+        final lastStatus = cache.statusForKey(lastKey);
+        if (cache.pendingImageCount == 0 &&
+            lastStatus.keepAlive &&
+            !lastStatus.pending) {
+          break;
+        }
+        await tester.pump(const Duration(milliseconds: 16));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+      }
+
+      final lastVisibleIndex = comics.lastIndexWhere(
+        (comic) => initialVisible.contains(comic.cover),
+      );
+      final targetIndex =
+          lastVisibleIndex + initialVisible.length.clamp(2, 8).toInt() - 2;
+      expect(targetIndex, lessThan(comics.length));
+      final target = comics[targetIndex];
+      expect(initialVisible, isNot(contains(target.cover)));
+      final targetProvider = ResizeImage(
+        MemoryImage(bytes[target.cover]!),
+        width: cacheWidth,
+      );
+      final targetKey = await targetProvider.obtainKey(
+        ImageConfiguration.empty,
+      );
+      final targetStatus = cache.statusForKey(targetKey);
+      expect(
+        targetStatus.live && !targetStatus.pending,
+        isTrue,
+        reason:
+            'A decoded cover in the next-screen window should retain its '
+            'frame while the full page is prewarmed; status=$targetStatus, '
+            'current=${cache.currentSizeBytes}, maximum=${cache.maximumSizeBytes}.',
+      );
+
+      tester.state<ScrollableState>(scrollable.first).position.jumpTo(600);
+      await tester.pump();
+      final visibleAfterScroll = visibleCovers();
+      expect(visibleAfterScroll, contains(target.cover));
+      final targetCard = comicCardForTitle(target.title, skipOffstage: false);
+      final visibility = find.ancestor(
+        of: targetCard,
+        matching: find.byType(Visibility, skipOffstage: false),
+      );
+      expect(tester.widget<Visibility>(visibility.first).visible, isTrue);
+      final rawImage = find.descendant(
+        of: targetCard,
+        matching: find.byType(RawImage, skipOffstage: false),
+        skipOffstage: false,
+      );
+      expect(
+        tester.widget<RawImage>(rawImage.first).image,
+        isNotNull,
+        reason:
+            'The next-screen card should paint its decoded frame on the '
+            'first scroll frame under decoded-cache pressure.',
+      );
+      expect(starts.values, everyElement(1));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('visible comic cards wait together behind their spinners', (
     tester,
   ) async {
@@ -8739,7 +9055,7 @@ void main() {
     tester,
   ) async {
     await StorageService.setString('comic_layout_type', LayoutType.list.name);
-    tester.view.physicalSize = const Size(390, 500);
+    tester.view.physicalSize = const Size(390, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final comics = List.generate(
@@ -8751,9 +9067,11 @@ void main() {
         cover: 'retry-cover-$index',
       ),
     );
-    final firstRetry = Completer<Uint8List>();
-    final secondCover = Completer<Uint8List>();
-    final thirdCover = Completer<Uint8List>();
+    final retry = Completer<Uint8List>();
+    final pendingCovers = {
+      for (final index in [8, 9, 10, 11])
+        'retry-cover-$index': Completer<Uint8List>(),
+    };
     final starts = <String, int>{};
     var activeLoads = 0;
     var maxActiveLoads = 0;
@@ -8769,9 +9087,9 @@ void main() {
         'retry-cover-0' when attempt == 1 => Future<Uint8List>.error(
           StateError('cover failed'),
         ),
-        'retry-cover-0' => firstRetry.future,
-        'retry-cover-9' => secondCover.future,
-        'retry-cover-10' => thirdCover.future,
+        'retry-cover-0' => retry.future,
+        _ when pendingCovers.containsKey(page.url) =>
+          pendingCovers[page.url]!.future,
         _ => Future<Uint8List>.value(_png),
       };
       return future.whenComplete(() => activeLoads--);
@@ -8787,7 +9105,7 @@ void main() {
     );
     for (
       var frame = 0;
-      frame < 24 && find.byTooltip('Retry').evaluate().isEmpty;
+      frame < 40 && find.byTooltip('Retry').evaluate().isEmpty;
       frame++
     ) {
       await tester.pump(const Duration(milliseconds: 16));
@@ -8795,14 +9113,7 @@ void main() {
         () => Future<void>.delayed(const Duration(milliseconds: 10)),
       );
     }
-    expect(
-      find.byTooltip('Retry'),
-      findsWidgets,
-      reason:
-          'The failed first-screen cover should be revealed after the ready '
-          'cohort completes; starts=$starts, active=$activeLoads, '
-          'spinner=${find.byType(CircularProgressIndicator).evaluate().length}.',
-    );
+    expect(find.byTooltip('Retry'), findsWidgets);
 
     final scrollable = find
         .descendant(
@@ -8816,7 +9127,7 @@ void main() {
     for (
       var frame = 0;
       frame < 80 &&
-          (starts['retry-cover-9'] != 1 || starts['retry-cover-10'] != 1);
+          [8, 9, 10, 11].any((index) => starts['retry-cover-$index'] != 1);
       frame++
     ) {
       await tester.pump(const Duration(milliseconds: 16));
@@ -8835,10 +9146,11 @@ void main() {
         visibleAtBottom.add(index);
       }
     }
-    expect(visibleAtBottom, containsAll([9, 10]));
-    expect(starts['retry-cover-9'], 1);
-    expect(starts['retry-cover-10'], 1);
-    expect(activeLoads, 2);
+    expect(visibleAtBottom, containsAll([8, 9, 10, 11]));
+    expect(activeLoads, 4);
+    for (final index in [8, 9, 10, 11]) {
+      expect(starts['retry-cover-$index'], 1);
+    }
 
     position.jumpTo(0);
     await tester.pump();
@@ -8853,38 +9165,158 @@ void main() {
         () => Future<void>.delayed(const Duration(milliseconds: 10)),
       );
     }
-    expect(
-      starts['retry-cover-0'],
-      1,
-      reason:
-          'Returning to a failed cover must not retry before tapping Retry.',
-    );
     expect(visibleRetryButton, findsOneWidget);
-
-    await tester.tap(find.byTooltip('Retry').first);
+    expect(starts['retry-cover-0'], 1);
+    await tester.tap(visibleRetryButton);
     await tester.pump();
     expect(
       starts['retry-cover-0'],
       1,
-      reason: 'Retry must wait for a queue slot before invalidating the image.',
+      reason: 'A visible retry must wait while all four queue slots are held.',
     );
-    secondCover.complete(_png);
-    for (var frame = 0; frame < 24 && starts['retry-cover-0'] != 2; frame++) {
+    pendingCovers['retry-cover-8']!.complete(_png);
+    for (var frame = 0; frame < 80 && starts['retry-cover-0'] != 2; frame++) {
       await tester.pump(const Duration(milliseconds: 16));
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 10)),
       );
     }
     expect(starts['retry-cover-0'], 2);
-    expect(maxActiveLoads, lessThanOrEqualTo(2));
+    expect(maxActiveLoads, lessThanOrEqualTo(4));
 
-    firstRetry.complete(_png);
-    thirdCover.complete(_png);
+    retry.complete(_png);
+    for (final gate in pendingCovers.values) {
+      if (!gate.isCompleted) gate.complete(_png);
+    }
     await waitForComicCardImage(tester, 'Retry 0');
-    expect(maxActiveLoads, lessThanOrEqualTo(2));
+    expect(maxActiveLoads, lessThanOrEqualTo(4));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets(
+    'a failed visible cover stays failed after entering the upcoming window',
+    (tester) async {
+      await StorageService.setString('comic_layout_type', LayoutType.list.name);
+      tester.view.physicalSize = const Size(390, 500);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final comics = List.generate(
+        12,
+        (index) => Comic(
+          source: 'fixture',
+          id: 'failed-window-$index',
+          title: 'Failed window $index',
+          cover: 'failed-window-cover-$index',
+        ),
+      );
+      final failedCover = Completer<Uint8List>();
+      final starts = <String, int>{};
+      await pump(
+        tester,
+        Scaffold(body: ComicGrid(comics: comics)),
+        _Library(),
+        _Source(),
+        loadImage: (page) {
+          starts.update(page.url, (count) => count + 1, ifAbsent: () => 1);
+          return page.url == comics[5].cover
+              ? failedCover.future
+              : Future.value(_png);
+        },
+        settle: false,
+      );
+      for (
+        var frame = 0;
+        frame < 40 &&
+            find
+                .byType(CircularProgressIndicator)
+                .hitTestable()
+                .evaluate()
+                .isNotEmpty;
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 16));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+      }
+
+      final scrollable = find
+          .descendant(
+            of: find.byType(ComicGrid),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      final targetTitle = find.text(comics[5].title, skipOffstage: false);
+      await tester.scrollUntilVisible(
+        targetTitle,
+        120,
+        scrollable: scrollable,
+        maxScrolls: 20,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+      final viewport = find.descendant(
+        of: scrollable,
+        matching: find.byType(Viewport),
+      );
+      expect(
+        tester
+            .getRect(targetTitle.first)
+            .overlaps(tester.getRect(viewport.first)),
+        isTrue,
+      );
+      expect(starts[comics[5].cover], 1);
+      failedCover.completeError(StateError('cover failed'));
+
+      final targetRetry = find.descendant(
+        of: comicCardForTitle(comics[5].title, skipOffstage: false),
+        matching: find.byTooltip('Retry', skipOffstage: false),
+      );
+      for (
+        var frame = 0;
+        frame < 24 && targetRetry.evaluate().isEmpty;
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 16));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+      }
+      expect(targetRetry, findsOneWidget);
+      expect(starts[comics[5].cover], 1);
+
+      final position = tester.state<ScrollableState>(scrollable).position;
+      position.jumpTo(0);
+      await tester.pump();
+      for (var frame = 0; frame < 24; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+      }
+      await tester.scrollUntilVisible(
+        targetTitle,
+        120,
+        scrollable: scrollable,
+        maxScrolls: 20,
+      );
+      for (var frame = 0; frame < 4; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+
+      expect(
+        starts[comics[5].cover],
+        1,
+        reason:
+            'Re-preparing a cached visible failure in the nearby window must '
+            'not turn it into an automatic retry.',
+      );
+      expect(targetRetry, findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets(
     'first comic History click warms its cover before page movement',

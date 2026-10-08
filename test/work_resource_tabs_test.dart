@@ -382,7 +382,9 @@ void main() {
     final pageTwoSpinner = _loadingOverlaySpinner();
     expect(pageTwoSpinner, findsOneWidget);
     expect(
-      tester.getRect(pageTwoSpinner).overlaps(Offset.zero & const Size(390, 500)),
+      tester
+          .getRect(pageTwoSpinner)
+          .overlaps(Offset.zero & const Size(390, 500)),
       isTrue,
     );
     final firstPageTwoCard = find.ancestor(
@@ -537,6 +539,207 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
     await tester.pumpAndSettle();
     expect(_loadingOverlaySpinner(), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a slow resource picture does not block background progress', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final files = <dynamic>[
+      for (var index = 0; index < 20; index++)
+        {
+          'type': 'image',
+          'title': 'pending$index.png',
+          'hash': 'pending$index',
+        },
+    ];
+    final tree = ValueNotifier(files);
+    final gates = <int, Completer<PreviewFileItem?>>{};
+    addTearDown(tree.dispose);
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      for (final gate in gates.values) {
+        if (!gate.isCompleted) gate.complete();
+      }
+      await tester.pump();
+    });
+    await _pumpResources(
+      tester,
+      tree,
+      resolveImage: (file) {
+        final index = files.indexOf(file);
+        return (gates[index] = Completer<PreviewFileItem?>()).future;
+      },
+    );
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    final visible = <int>{};
+    for (var index = 0; index < files.length; index++) {
+      final card = find.ancestor(
+        of: find.text('pending$index.png'),
+        matching: find.byType(Card),
+      );
+      if (card.evaluate().isNotEmpty &&
+          tester.getRect(card).overlaps(const Rect.fromLTWH(0, 0, 390, 500))) {
+        visible.add(index);
+      }
+    }
+    expect(visible, isNotEmpty);
+    for (var frame = 0; frame < 30; frame++) {
+      for (final index in visible) {
+        final gate = gates[index];
+        if (gate != null && !gate.isCompleted) gate.complete();
+      }
+      await tester.pump(const Duration(milliseconds: 16));
+      if (_loadingOverlaySpinner().evaluate().isEmpty) break;
+    }
+    expect(_loadingOverlaySpinner(), findsNothing);
+    final background = gates.keys
+        .where((index) => !visible.contains(index))
+        .toList();
+    expect(
+      background,
+      hasLength(2),
+      reason: 'One slow target must leave another background picture loading.',
+    );
+    gates[background.last]!.complete();
+    await tester.pump();
+    await tester.pump();
+    expect(gates.length, visible.length + 3);
+    expect(gates[background.first]!.isCompleted, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('resource scrolling keeps upcoming frames under cache pressure', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1170, 1500);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    final cache = PaintingBinding.instance.imageCache;
+    final oldLimit = cache.maximumSizeBytes;
+    cache.maximumSizeBytes = 12 * 1024 * 1024;
+    final directory = Directory.systemTemp.createTempSync('resource-scroll-');
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      cache.clear();
+      cache.clearLiveImages();
+      cache.maximumSizeBytes = oldLimit;
+      directory.deleteSync(recursive: true);
+    });
+    final bytes = img.encodePng(img.Image(width: 600, height: 900));
+    final files = <dynamic>[
+      for (var index = 0; index < 20; index++)
+        {'type': 'image', 'title': 'scroll$index.png', 'hash': 'scroll$index'},
+    ];
+    final imageFiles = <String, File>{
+      for (final file in files)
+        file['hash'] as String: File('${directory.path}/${file['hash']}.png')
+          ..writeAsBytesSync(bytes),
+    };
+    final tree = ValueNotifier(files);
+    final scroll = ScrollController();
+    addTearDown(tree.dispose);
+    addTearDown(scroll.dispose);
+    final calls = <String>[];
+    await _pumpResources(
+      tester,
+      tree,
+      controller: scroll,
+      resolveImage: (file) async {
+        final hash = file['hash'] as String;
+        calls.add(hash);
+        return PreviewFileItem(
+          url: LocalFileUrl.fromPath(imageFiles[hash]!.path),
+          title: file['title'] as String,
+          hash: hash,
+        );
+      },
+    );
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    final firstImage = find.descendant(
+      of: find.ancestor(
+        of: find.text('scroll0.png'),
+        matching: find.byType(Card),
+      ),
+      matching: find.byType(Image),
+    );
+    for (var frame = 0; frame < 10 && firstImage.evaluate().isEmpty; frame++) {
+      await tester.pump();
+    }
+    await _pumpUntilImageLoaded(tester, firstImage);
+    final width =
+        (tester.widget<Image>(firstImage).image as ResizeImage).width!;
+    expect(width, greaterThan(500));
+    final lastKey = await CachedImageWidget.imageProvider(
+      imageUrl: LocalFileUrl.fromPath(imageFiles['scroll19']!.path),
+      hash: 'scroll19',
+      cacheWidth: width,
+    ).obtainKey(ImageConfiguration.empty);
+    for (
+      var frame = 0;
+      frame < 180 &&
+          (!cache.statusForKey(lastKey).keepAlive ||
+              cache.pendingImageCount > 0);
+      frame++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 16)),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(calls, hasLength(20));
+    expect(cache.statusForKey(lastKey).keepAlive, isTrue);
+    expect(find.byKey(ObjectKey(files[6])), findsNothing);
+    final upcomingKey = await CachedImageWidget.imageProvider(
+      imageUrl: LocalFileUrl.fromPath(imageFiles['scroll6']!.path),
+      hash: 'scroll6',
+      cacheWidth: width,
+    ).obtainKey(ImageConfiguration.empty);
+    expect(
+      cache.statusForKey(upcomingKey).keepAlive,
+      isFalse,
+      reason:
+          'The regression must exercise a decoded frame evicted by background warming.',
+    );
+    expect(cache.statusForKey(upcomingKey).live, isTrue);
+
+    scroll.jumpTo(600);
+    await tester.pump();
+    final nextCard = find.ancestor(
+      of: find.text('scroll6.png'),
+      matching: find.byType(Card),
+    );
+    expect(
+      tester.getRect(nextCard).overlaps(const Rect.fromLTWH(0, 0, 390, 500)),
+      isTrue,
+    );
+    final nextFrame = find.descendant(
+      of: nextCard,
+      matching: find.byType(RawImage),
+    );
+    expect(nextFrame, findsOneWidget);
+    expect(
+      tester.widget<RawImage>(nextFrame).image,
+      isNotNull,
+      reason:
+          'Nearby prewarmed pictures must remain ready for downward scrolling.',
+    );
+    expect(calls, hasLength(20));
+    scroll.jumpTo(0);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('work-resource-audio-tab')));
+    await tester.pumpAndSettle();
+    expect(
+      cache.statusForKey(upcomingKey).live,
+      isFalse,
+      reason: 'Leaving the image tab must release the upcoming frame.',
+    );
     expect(tester.takeException(), isNull);
   });
 
