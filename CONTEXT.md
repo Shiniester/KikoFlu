@@ -108,6 +108,14 @@ and ejaculation audio. They guide preferred work resources and default player
 audio filtering.
 _Avoid_: Audio Format Preference, player-only preferences
 
+**Sound Effects (效果音)**:
+The sound-effect component of an audio variant. A no-effects variant removes
+that component while retaining the voice audio.
+
+**Ejaculation Audio (射精音)**:
+The ejaculation or climax audio component of an audio variant, classified
+separately from Sound Effects.
+
 **Player Lyrics Page (播放器字幕页)**:
 The full-screen player page containing the current track's synchronized lyrics
 or subtitles.
