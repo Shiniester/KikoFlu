@@ -718,12 +718,18 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
   Work _workFromDetailResponse(Map<String, dynamic> response) {
     final currentWork = _currentWork;
-    return Work.fromJson(response).copyWith(
+    final responseWork = Work.fromJson(response);
+    final hasLanguageMetadata =
+        response.containsKey('lang') ||
+        response.containsKey('translation_info') ||
+        response.containsKey('language_editions');
+    return responseWork.copyWith(
       circleId: response.containsKey('circle_id') ? null : currentWork.circleId,
       name: response.containsKey('name') ? null : currentWork.name,
       vas: response.containsKey('vas') ? null : currentWork.vas,
       tags: response.containsKey('tags') ? null : currentWork.tags,
       release: response.containsKey('release') ? null : currentWork.release,
+      lang: hasLanguageMetadata ? responseWork.lang : currentWork.lang,
       otherLanguageEditions:
           response.containsKey('other_language_editions_in_db')
           ? null

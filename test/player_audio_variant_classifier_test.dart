@@ -119,6 +119,128 @@ void main() {
     expect(variant.ejaculation, PlayerBinaryTrait.absent);
   });
 
+  test('no-effects markers work in filenames and directories', () {
+    for (final marker in const [
+      'SECut',
+      'seCUT',
+      'ＳＥＣｕｔ',
+      'SE cut',
+      'SE-cut',
+      'SE_cut',
+      'SE off',
+      'SE-off',
+      'SEoff',
+      'SEなし',
+      'SE無し',
+      'SEカット',
+      'SEオフ',
+      '効果音なし',
+      '効果音無し',
+      '効果音カット',
+      '效果音剪辑',
+      '效果音剪輯',
+      '音效剪辑',
+      '音效剪輯',
+      'without sound effects',
+      'no SFX',
+      'without SFX',
+    ]) {
+      final variants = classifier.scan([
+        _audio('$marker.wav', 'filename'),
+        _folder(marker, [_audio('track.wav', 'directory')]),
+      ]);
+      for (final variant in variants) {
+        expect(variant.se, PlayerBinaryTrait.absent, reason: variant.fullPath);
+        expect(variant.ejaculation, PlayerBinaryTrait.present);
+      }
+    }
+  });
+
+  test('no-ejaculation markers work in filenames and directories', () {
+    for (final marker in const [
+      '无射精音',
+      '無射精音',
+      '射精音なし',
+      '射精音無し',
+      '射精無し',
+      '射精音カット',
+      '射精カット',
+      '射精音剪辑',
+      '射精音剪輯',
+      '絶頂なし',
+      '絶頂無し',
+      '無絕頂',
+      '无高潮',
+      '無高潮',
+      'no orgasm',
+      'without ejaculation',
+    ]) {
+      final variants = classifier.scan([
+        _audio('$marker.wav', 'filename'),
+        _folder(marker, [_audio('track.wav', 'directory')]),
+      ]);
+      for (final variant in variants) {
+        expect(
+          variant.ejaculation,
+          PlayerBinaryTrait.absent,
+          reason: variant.fullPath,
+        );
+        expect(variant.se, PlayerBinaryTrait.present);
+      }
+    }
+  });
+
+  test('positive markers retain effects and ejaculation', () {
+    for (final marker in const [
+      'SEあり_射精音あり',
+      'SE有り_射精音有り',
+      'ＳＥあり_射精あり',
+      'SE on_絶頂あり',
+      'SE付き_絶頂有り',
+      '効果音あり_高潮',
+      '効果音有り_絕頂',
+      'with sound effects_with ejaculation',
+      'SFX_with orgasm',
+    ]) {
+      final variants = classifier.scan([
+        _audio('$marker.wav', 'filename'),
+        _folder(marker, [_audio('track.wav', 'directory')]),
+      ]);
+      for (final variant in variants) {
+        expect(variant.se, PlayerBinaryTrait.present, reason: variant.fullPath);
+        expect(variant.ejaculation, PlayerBinaryTrait.present);
+      }
+    }
+  });
+
+  test('negative markers win across directories and drive filtering', () {
+    final variants = classifier.scan([
+      _folder('SEなし_射精音なし', [_audio('SEあり_射精音あり.wav', 'negative-directory')]),
+      _folder('効果音あり_射精音あり', [_audio('SECut_絶頂なし.wav', 'negative-filename')]),
+      _audio('効果音あり_射精音あり.wav', 'positive'),
+    ]);
+    const preference = AudioFormatPreference(
+      se: PlayerBinaryTrait.absent,
+      ejaculation: PlayerBinaryTrait.absent,
+    );
+    final best = classifier.selectBest(variants, preference: preference);
+    expect(best.map((variant) => variant.source['hash']).toSet(), {
+      'negative-directory',
+      'negative-filename',
+    });
+    expect(
+      classifier.applyFilter(
+        variants,
+        const PlayerAudioVariantFilter(
+          seValues: {PlayerBinaryTrait.absent},
+          ejaculationValues: {PlayerBinaryTrait.absent},
+        ),
+      ),
+      best,
+    );
+    expect(classifier.selectBest(variants).single.source['hash'], 'positive');
+  });
+
   test('unmarked regular files default to effects and ejaculation present', () {
     final variants = classifier.scan([
       _folder('简中_有SE_射精音', [

@@ -16,6 +16,7 @@ class Work extends Equatable {
 
   final List<Va>? vas;
   final List<Tag>? tags;
+  final String? lang;
   final String? age;
   final String? release;
 
@@ -67,6 +68,7 @@ class Work extends Equatable {
     this.name,
     this.vas,
     this.tags,
+    this.lang,
     this.age,
     this.release,
     this.dlCount,
@@ -91,13 +93,20 @@ class Work extends Equatable {
     Map<String, dynamic> processingJson = json;
     bool isModified = false;
 
+    final language = _resolveLanguage(json);
+    if (processingJson['lang'] != language) {
+      processingJson = Map<String, dynamic>.from(json);
+      processingJson['lang'] = language;
+      isModified = true;
+    }
+
     // ASMR.one/Kikoeru returns the age rating as age_category_string.
     // Keep accepting age for custom servers that already use the app's field.
     if ((processingJson['age'] == null ||
             (processingJson['age'] is String &&
                 (processingJson['age'] as String).trim().isEmpty)) &&
         processingJson['age_category_string'] != null) {
-      processingJson = Map<String, dynamic>.from(json);
+      processingJson = Map<String, dynamic>.from(processingJson);
       processingJson['age'] = processingJson['age_category_string'];
       isModified = true;
     }
@@ -169,6 +178,7 @@ class Work extends Equatable {
     String? name,
     List<Va>? vas,
     List<Tag>? tags,
+    String? lang,
     String? age,
     String? release,
     int? dlCount,
@@ -195,6 +205,7 @@ class Work extends Equatable {
       name: name ?? this.name,
       vas: vas ?? this.vas,
       tags: tags ?? this.tags,
+      lang: lang ?? this.lang,
       age: age ?? this.age,
       release: release ?? this.release,
       dlCount: dlCount ?? this.dlCount,
@@ -225,6 +236,7 @@ class Work extends Equatable {
         name,
         vas,
         tags,
+        lang,
         age,
         release,
         dlCount,
@@ -244,6 +256,61 @@ class Work extends Equatable {
         sourceId,
         otherLanguageEditions,
       ];
+}
+
+String? _resolveLanguage(Map<String, dynamic> json) {
+  String? clean(dynamic value) {
+    if (value is! String) return null;
+    final result = value.trim();
+    return result.isEmpty ? null : result;
+  }
+
+  final direct = clean(json['lang']);
+  if (direct != null) return direct;
+
+  final translationInfo = json['translation_info'];
+  if (translationInfo is Map) {
+    final translated = clean(translationInfo['lang']);
+    if (translated != null) return translated;
+  }
+
+  final editions = json['language_editions'];
+  if (editions is! Iterable) return null;
+
+  final sourceId = clean(json['source_id'] ?? json['sourceId']);
+  final workId = _numericWorkId(json['id']);
+  for (final value in editions) {
+    if (value is! Map) continue;
+    final language = clean(value['lang']);
+    if (language == null) continue;
+    final editionId = clean(
+      value['workno'] ??
+          value['workNo'] ??
+          value['source_id'] ??
+          value['sourceId'],
+    );
+    if (sourceId != null) {
+      if (editionId != null &&
+          editionId.toUpperCase() == sourceId.toUpperCase()) {
+        return language;
+      }
+    } else if (workId != null &&
+        editionId != null &&
+        _numericWorkId(editionId) == workId) {
+      return language;
+    }
+  }
+  return null;
+}
+
+int? _numericWorkId(dynamic value) {
+  if (value is num) return value.toInt();
+  if (value is! String) return null;
+  final normalized = value.trim().toUpperCase();
+  final digits =
+      normalized.startsWith('RJ') ? normalized.substring(2) : normalized;
+  if (!RegExp(r'^\d+$').hasMatch(digits)) return null;
+  return int.tryParse(digits);
 }
 
 @JsonSerializable()

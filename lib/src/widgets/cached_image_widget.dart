@@ -20,6 +20,8 @@ class CachedImageWidget extends StatelessWidget {
     this.cacheWidth,
     this.onAspectRatio,
     this.onImageError,
+    this.fadeInDuration,
+    this.fadeOutDuration,
   });
 
   final String imageUrl;
@@ -30,6 +32,28 @@ class CachedImageWidget extends StatelessWidget {
   final int? cacheWidth;
   final ValueChanged<double>? onAspectRatio;
   final VoidCallback? onImageError;
+  final Duration? fadeInDuration;
+  final Duration? fadeOutDuration;
+
+  static ImageProvider<Object> imageProvider({
+    required String imageUrl,
+    required String hash,
+    String? cacheKey,
+    int? cacheWidth,
+  }) {
+    final localPath = LocalFileUrl.pathFromUrl(imageUrl);
+    final ImageProvider<Object> provider = localPath == null
+        ? CachedNetworkImageProvider(
+            imageUrl,
+            cacheKey:
+                cacheKey ??
+                CacheService.imageCacheKey(imageUrl: imageUrl, hash: hash),
+            cacheManager: CacheService.imageCacheManager,
+            headers: StorageService.serverCookieHeaders,
+          )
+        : FileImage(File(localPath));
+    return ResizeImage.resizeIfNeeded(cacheWidth, null, provider);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -38,10 +62,11 @@ class CachedImageWidget extends StatelessWidget {
       final file = File(localPath);
       if (!file.existsSync()) return _buildErrorWidget(context, localPath);
       if (onAspectRatio != null) {
-        final imageProvider = ResizeImage.resizeIfNeeded(
-          cacheWidth,
-          null,
-          FileImage(file),
+        final imageProvider = CachedImageWidget.imageProvider(
+          imageUrl: imageUrl,
+          hash: hash,
+          cacheKey: cacheKey,
+          cacheWidth: cacheWidth,
         );
         return _ImageAspectRatioReporter(
           imageProvider: imageProvider,
@@ -74,6 +99,8 @@ class CachedImageWidget extends StatelessWidget {
       httpHeaders: StorageService.serverCookieHeaders,
       fit: fit,
       useOldImageOnUrlChange: true,
+      fadeInDuration: fadeInDuration ?? const Duration(milliseconds: 500),
+      fadeOutDuration: fadeOutDuration ?? const Duration(milliseconds: 1000),
       imageBuilder: onAspectRatio == null
           ? null
           : (context, imageProvider) {

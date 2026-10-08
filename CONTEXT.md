@@ -40,6 +40,24 @@ The online or offline screen describing a work and its available resource files.
 It is distinct from the Player Audio Details Page for the current track.
 _Avoid_: Player details page, audio details page
 
+**Related Recommendations (相关推荐)**:
+Works shown at the bottom of a Work Details Screen, ranked using subject tags,
+personal preferences, voice actors, circles, subtitle availability and public
+ratings. Previously played works can remain in the list at a lower rank. When
+the same work has Chinese editions, simplified Chinese is preferred over
+traditional Chinese and other languages in recommendations.
+_Avoid_: Popular works, random works
+
+**Explicit Preference (明确喜好)**:
+A preference signal from an account's ratings, replay or marked status, and
+playlist membership. Device playback history is a separate, weaker signal.
+_Avoid_: Listening history, public rating
+
+**Exploration Recommendation (探索推荐)**:
+A supplementary Related Recommendation selected from highly ranked remaining
+candidates to add variety while keeping the same detail visit stable.
+_Avoid_: Random recommendation, refresh result
+
 **Work Resource Tabs (作品资源标签)**:
 The Resource Files, Audio and Images views within a Work Details Screen. Audio
 contains preferred audio files and their best matching work subtitles; Images
@@ -107,6 +125,14 @@ The shared preferences for subtitle language, audio format order, sound effects
 and ejaculation audio. They guide preferred work resources and default player
 audio filtering.
 _Avoid_: Audio Format Preference, player-only preferences
+
+**Sound Effects (效果音)**:
+The sound-effect component of an audio variant. A no-effects variant removes
+that component while retaining the voice audio.
+
+**Ejaculation Audio (射精音)**:
+The ejaculation or climax audio component of an audio variant, classified
+separately from Sound Effects.
 
 **Player Lyrics Page (播放器字幕页)**:
 The full-screen player page containing the current track's synchronized lyrics

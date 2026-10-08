@@ -22,6 +22,7 @@ class KikoeruApiService {
   String? _host;
   String? _accountScope;
   int _sessionGeneration = 0;
+  static final Map<String, int> _preferenceRevisions = {};
   final int _subtitle = 0; // 1: 带字幕, 0: 不限制 (默认显示所有作品)
   final String _order = 'create_date';
   final String _sort = 'desc'; // 默认降序排列
@@ -146,6 +147,11 @@ class KikoeruApiService {
           final cacheFamilies = _cacheFamiliesForMutation(
             response.requestOptions,
           );
+          if (_changesRecommendationPreferences(response.requestOptions)) {
+            final scope = recommendationPreferenceScope;
+            _preferenceRevisions[scope] =
+                (_preferenceRevisions[scope] ?? 0) + 1;
+          }
           if (cacheFamilies.isNotEmpty) {
             try {
               await _conditionalGetCache.invalidatePathFamilies(cacheFamilies);
@@ -210,6 +216,31 @@ class KikoeruApiService {
     return '${uri.scheme.toLowerCase()}://${uri.host.toLowerCase()}$port'
         '$basePath'
         '|${_accountScope ?? ''}';
+  }
+
+  String get recommendationPreferenceScope =>
+      _host == null ? 'uninitialized' : _cacheScope;
+
+  int get recommendationPreferenceRevision =>
+      _preferenceRevisions[recommendationPreferenceScope] ?? 0;
+
+  bool get hasAuthenticatedAccount =>
+      _token != null && _token!.isNotEmpty && _accountScope != 'anonymous';
+
+  bool _changesRecommendationPreferences(RequestOptions options) {
+    if (const {
+      'GET',
+      'HEAD',
+      'OPTIONS',
+    }.contains(options.method.toUpperCase())) {
+      return false;
+    }
+    final path = options.uri.path.toLowerCase();
+    return path.startsWith('/api/review') ||
+        path.startsWith('/api/favourites') ||
+        path.startsWith('/api/progress') ||
+        path.startsWith('/api/playlist') ||
+        path.startsWith('/api/playlists');
   }
 
   Set<String> _cacheFamiliesForMutation(RequestOptions options) {
