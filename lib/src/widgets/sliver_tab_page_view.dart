@@ -383,7 +383,6 @@ class RenderSliverTabPageView extends RenderSliver
       return;
     }
 
-    // shortcut: Content above an unpinned group is clickable after settling; rebase early if transition taps are needed.
     paintEnd = math.min(constraints.remainingPaintExtent, paintEnd);
     layoutEnd = math.min(paintEnd, layoutEnd);
     hitTestEnd = math.min(paintEnd, hitTestEnd);

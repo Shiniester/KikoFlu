@@ -244,6 +244,10 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
     await tester.pumpAndSettle();
+    expect(scroll.offset, closeTo(0, 1));
+    expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(180, 1));
+    scroll.jumpTo(180);
+    await tester.pump();
     expect(scroll.offset, closeTo(180, 1));
     expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(0, 1));
 
@@ -428,6 +432,69 @@ void main() {
     },
   );
 
+  for (final shortPage in [false, true]) {
+    for (final reduceMotion in [false, true]) {
+      testWidgets(
+        'taps keep an unpinned bar through every frame ($shortPage, $reduceMotion)',
+        (tester) async {
+          await tester.binding.setSurfaceSize(const Size(390, 500));
+          addTearDown(() => tester.binding.setSurfaceSize(null));
+          final tree = ValueNotifier<List<dynamic>>(_audioFiles(40));
+          final scroll = ScrollController();
+          addTearDown(tree.dispose);
+          addTearDown(scroll.dispose);
+          await _pumpResources(
+            tester,
+            tree,
+            controller: scroll,
+            disableAnimations: reduceMotion,
+            introSliver: const SliverToBoxAdapter(child: SizedBox(height: 180)),
+            resourceSliver: shortPage
+                ? const SliverToBoxAdapter(child: Text('short resource page'))
+                : SliverList.builder(
+                    itemCount: 40,
+                    itemBuilder: (context, index) => SizedBox(
+                      height: 48,
+                      child: Text('resource item $index'),
+                    ),
+                  ),
+          );
+          if (!shortPage) {
+            await tester.tap(
+              find.byKey(const ValueKey('work-resource-files-tab')),
+            );
+            await tester.pumpAndSettle();
+            scroll.jumpTo(600);
+            await tester.pump();
+            await tester.tap(
+              find.byKey(const ValueKey('work-resource-audio-tab')),
+            );
+            await tester.pumpAndSettle();
+          }
+          scroll.jumpTo(80);
+          await tester.pump();
+          final barTop = tester.getTopLeft(find.byType(TabBar)).dy;
+          expect(barTop, closeTo(100, 1));
+          for (final key in [
+            const ValueKey('work-resource-files-tab'),
+            const ValueKey('work-resource-audio-tab'),
+          ]) {
+            await tester.tap(find.byKey(key));
+            for (var frame = 0; frame < 30; frame++) {
+              await tester.pump(const Duration(milliseconds: 16));
+              expect(scroll.offset, closeTo(80, 1));
+              expect(
+                tester.getTopLeft(find.byType(TabBar)).dy,
+                closeTo(barTop, 1),
+              );
+            }
+          }
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
   testWidgets('a short unvisited page cannot overwrite a long page offset', (
     tester,
   ) async {
@@ -464,7 +531,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('unpulled tab taps show the target at its restored position', (
+  testWidgets('unpinned tab taps keep the bar and both pages in place', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(390, 500));
@@ -500,6 +567,7 @@ void main() {
       count: 50,
     );
     final audioTop = _textTop(tester, audioTitle);
+    final barTop = tester.getTopLeft(find.byType(TabBar)).dy;
 
     await _tapWithoutPump(
       tester,
@@ -513,6 +581,8 @@ void main() {
     const viewport = Rect.fromLTWH(0, 0, 390, 500);
     for (var frame = 0; frame < 30 && firstResourceTop == null; frame++) {
       await tester.pump(const Duration(milliseconds: 16));
+      expect(scroll.offset, closeTo(80, 1));
+      expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(barTop, 1));
       final visibleAudio = find.text(audioTitle).hitTestable();
       if (visibleAudio.evaluate().isNotEmpty) {
         expect(_textTop(tester, audioTitle), closeTo(audioTop, 1));
@@ -527,7 +597,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 350));
     await tester.pump();
     final resourceTop = _textTop(tester, 'resource item 0');
-    expect(scroll.offset, closeTo(180, 1));
+    expect(scroll.offset, closeTo(80, 1));
+    expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(barTop, 1));
     expect(find.text('Loading resource files'), findsOneWidget);
     expect(resourceTop, closeTo(firstResourceTop!, 1));
     expect(find.text('resource item 0').hitTestable(), findsOneWidget);
@@ -762,6 +833,8 @@ void main() {
       recommendationBuilder: (_) => const SliverToBoxAdapter(),
     );
     expect(find.text('资源'), findsOneWidget);
+    expect(find.text('推荐'), findsOneWidget);
+    expect(find.text('相关推荐'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -802,6 +875,34 @@ void main() {
     await swipe.up();
     await tester.pumpAndSettle();
     expect(tester.getRect(find.byType(ListTile).first).left, closeTo(16, 1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('image and recommendation pages share a top gutter', (
+    tester,
+  ) async {
+    final tree = ValueNotifier<List<dynamic>>(_audioFiles(2, images: true));
+    addTearDown(tree.dispose);
+    await _pumpResources(
+      tester,
+      tree,
+      recommendationCount: 3,
+      resolveImage: (_) async => null,
+    );
+    for (final key in [
+      const ValueKey('work-resource-images-tab'),
+      const ValueKey('work-resource-recommendations-tab'),
+    ]) {
+      await tester.tap(find.byKey(key));
+      await tester.pumpAndSettle();
+      final firstContent = key.value == 'work-resource-images-tab'
+          ? find.byType(Card).first
+          : find.text('recommendation 0');
+      final gap =
+          tester.getTopLeft(firstContent).dy -
+          tester.getBottomLeft(find.byType(TabBar)).dy;
+      expect(gap, closeTo(16, 0.1));
+    }
     expect(tester.takeException(), isNull);
   });
 
@@ -2172,7 +2273,7 @@ void main() {
       expect(
         tester.getRect(find.byType(Card).first).top -
             tester.getRect(find.byType(TabBar)).bottom,
-        8,
+        16,
       );
       expect(tester.getRect(find.byType(Card).first).left, 16);
       await tester.tap(find.byTooltip('Retry').first);

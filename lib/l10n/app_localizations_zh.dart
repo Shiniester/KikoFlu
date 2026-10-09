@@ -1456,7 +1456,7 @@ class SZh extends S {
   String get showMetadata => '显示元数据';
 
   @override
-  String get relatedRecommendations => '相关推荐';
+  String get relatedRecommendations => '推荐';
 
   @override
   String get myTabsDisplaySettings => '\"音声\"界面设置';
@@ -5496,7 +5496,7 @@ class SZhHant extends SZh {
   String get showMetadata => '顯示元資料';
 
   @override
-  String get relatedRecommendations => '相關推薦';
+  String get relatedRecommendations => '推薦';
 
   @override
   String get myTabsDisplaySettings => '「音聲」介面設定';

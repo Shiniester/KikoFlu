@@ -130,7 +130,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   bool _reduceMotion = false;
   bool _tabSyncScheduled = false;
   bool _configuringTabs = false;
-  double? _unpinnedSwipeOffset;
+  double? _unpinnedTransitionOffset;
   bool _fillResourceViewport = false;
   bool _recommendationVisited = false;
   int? _motionTarget;
@@ -346,8 +346,6 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                     onDragStart: () {
                       _tabMotionGeneration++;
                       _motionTarget = null;
-                      final offset = _resourceScrollOffset();
-                      _unpinnedSwipeOffset = offset < 0 ? offset : null;
                       _beginTabTransition();
                       _pagePosition.stop(canceled: true);
                     },
@@ -356,7 +354,9 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                     onDragCancel: () => _settlePagePosition(0),
                     pageResourceOffsets: [
                       for (final tab in _pageKinds)
-                        _unpinnedSwipeOffset ?? _tabScrollOffsets[tab] ?? 0,
+                        _unpinnedTransitionOffset ??
+                            _tabScrollOffsets[tab] ??
+                            0,
                     ],
                     leadingExtent: leadingExtent,
                     transitionSourceIndex: _transitionSource == null
@@ -381,7 +381,13 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                       for (final tab in _pageKinds)
                         SliverPadding(
                           key: ValueKey(tab),
-                          padding: _resourcePagePadding,
+                          padding: _resourcePagePadding.copyWith(
+                            top:
+                                tab == WorkResourceTab.images ||
+                                    tab == WorkResourceTab.recommendations
+                                ? 16
+                                : 0,
+                          ),
                           sliver: _pageFor(tab, context),
                         ),
                     ],
@@ -461,7 +467,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     final selected = nextTabs.indexOf(selectedTab);
     _tabMotionGeneration++;
     _transitionSource = null;
-    _unpinnedSwipeOffset = null;
+    _unpinnedTransitionOffset = null;
     _configuringTabs = true;
     _pagePosition.stop(canceled: true);
     _pagePosition.value = selected.toDouble();
@@ -502,17 +508,17 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
         (_transitionSource != null && _motionTarget == index)) {
       return;
     }
-    _unpinnedSwipeOffset = null;
+    _beginTabTransition();
     _visitRecommendation(_tabKinds[index]);
     _animateToPage(index.toDouble());
   }
 
   void _beginTabTransition() {
+    final resourceOffset = _resourceScrollOffset();
+    _unpinnedTransitionOffset = resourceOffset < 0 ? resourceOffset : null;
     if (_transitionSource != null) return;
     final source = _tabKinds[_selected.clamp(0, _tabKinds.length - 1)];
-    final offset = _resourceScrollOffset()
-        .clamp(0.0, double.infinity)
-        .toDouble();
+    final offset = resourceOffset.clamp(0.0, double.infinity).toDouble();
     setState(() {
       _fillResourceViewport = true;
       _transitionSource = source;
@@ -919,7 +925,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                 layoutType: LayoutType.bigGrid,
                 cardSize: WorkCardSize.normal,
                 availableWidth: constraints.crossAxisExtent,
-                padding: const EdgeInsets.only(top: 8),
+                padding: EdgeInsets.zero,
               );
               final cardWidth =
                   (constraints.crossAxisExtent -
@@ -1240,7 +1246,8 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
         viewport != null) {
       final resourceTop = viewport.getOffsetToReveal(renderObject, 0).offset;
       final offset =
-          (resourceTop + (_unpinnedSwipeOffset ?? _tabScrollOffsets[tab] ?? 0))
+          (resourceTop +
+                  (_unpinnedTransitionOffset ?? _tabScrollOffsets[tab] ?? 0))
               .clamp(position.minScrollExtent, position.maxScrollExtent)
               .toDouble();
       if (position.pixels != offset) position.jumpTo(offset);
@@ -1249,7 +1256,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       setState(() {
         _transitionSource = null;
         _motionTarget = null;
-        _unpinnedSwipeOffset = null;
+        _unpinnedTransitionOffset = null;
       });
     }
   }
