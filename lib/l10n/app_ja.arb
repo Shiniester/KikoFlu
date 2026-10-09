@@ -802,6 +802,7 @@
   "playVideoError": "動画再生エラー: {error}",
   "noFiles": "ファイルがありません",
   "resourceFiles": "リソースファイル",
+  "workResources": "リソース",
   "workResourceAudio": "音声",
   "workResourceImages": "画像",
   "resourceFilesTranslated": "リソースファイル (翻訳済み {count} 項目)",

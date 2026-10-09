@@ -2393,6 +2393,9 @@ class SEn extends S {
   String get resourceFiles => 'Resource Files';
 
   @override
+  String get workResources => 'Resources';
+
+  @override
   String get workResourceAudio => 'Audio';
 
   @override

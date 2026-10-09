@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
@@ -13,8 +14,17 @@ class SliverTabPageView extends MultiChildRenderObjectWidget {
     required this.onDragUpdate,
     required this.onDragEnd,
     required this.onDragCancel,
+    this.pageResourceOffsets,
+    this.leadingExtent = 0,
+    this.transitionSourceIndex,
+    this.onPageResourceOffsetCorrected,
+    this.crossAxisPadding = 0,
     required List<Widget> pages,
   }) : assert(pages.length >= 2),
+       assert(
+         pageResourceOffsets == null ||
+             pageResourceOffsets.length == pages.length,
+       ),
        super(children: pages);
 
   final Animation<double> position;
@@ -26,6 +36,12 @@ class SliverTabPageView extends MultiChildRenderObjectWidget {
   /// Reports page-space velocity, where positive values move to the next page.
   final ValueChanged<double> onDragEnd;
   final VoidCallback onDragCancel;
+  final List<double>? pageResourceOffsets;
+  final double leadingExtent;
+  final int? transitionSourceIndex;
+  final double crossAxisPadding;
+  final void Function(int pageIndex, double correction)?
+  onPageResourceOffsetCorrected;
 
   @override
   MultiChildRenderObjectElement createElement() =>
@@ -39,6 +55,11 @@ class SliverTabPageView extends MultiChildRenderObjectWidget {
         onDragUpdate: onDragUpdate,
         onDragEnd: onDragEnd,
         onDragCancel: onDragCancel,
+        pageResourceOffsets: pageResourceOffsets,
+        leadingExtent: leadingExtent,
+        transitionSourceIndex: transitionSourceIndex,
+        onPageResourceOffsetCorrected: onPageResourceOffsetCorrected,
+        crossAxisPadding: crossAxisPadding,
       );
 
   @override
@@ -51,7 +72,12 @@ class SliverTabPageView extends MultiChildRenderObjectWidget {
       ..onDragStart = onDragStart
       ..onDragUpdate = onDragUpdate
       ..onDragEnd = onDragEnd
-      ..onDragCancel = onDragCancel;
+      ..onDragCancel = onDragCancel
+      ..pageResourceOffsets = pageResourceOffsets
+      ..leadingExtent = leadingExtent
+      ..transitionSourceIndex = transitionSourceIndex
+      ..crossAxisPadding = crossAxisPadding
+      ..onPageResourceOffsetCorrected = onPageResourceOffsetCorrected;
   }
 }
 
@@ -94,6 +120,11 @@ class RenderSliverTabPageView extends RenderSliver
     required this._onDragUpdate,
     required this._onDragEnd,
     required this._onDragCancel,
+    required this._pageResourceOffsets,
+    required this._leadingExtent,
+    required this._transitionSourceIndex,
+    required this._onPageResourceOffsetCorrected,
+    required this._crossAxisPadding,
   }) {
     _position.addListener(_handlePositionChanged);
     _dragRecognizer = HorizontalDragGestureRecognizer(debugOwner: this);
@@ -118,6 +149,12 @@ class RenderSliverTabPageView extends RenderSliver
   ValueChanged<double> _onDragUpdate;
   ValueChanged<double> _onDragEnd;
   VoidCallback _onDragCancel;
+  List<double>? _pageResourceOffsets;
+  double _leadingExtent;
+  int? _transitionSourceIndex;
+  double _crossAxisPadding;
+  void Function(int pageIndex, double correction)?
+  _onPageResourceOffsetCorrected;
   final _laidOutPages = <RenderSliver>[];
 
   Animation<double> get position => _position;
@@ -133,6 +170,34 @@ class RenderSliverTabPageView extends RenderSliver
   set onDragUpdate(ValueChanged<double> value) => _onDragUpdate = value;
   set onDragEnd(ValueChanged<double> value) => _onDragEnd = value;
   set onDragCancel(VoidCallback value) => _onDragCancel = value;
+
+  set crossAxisPadding(double value) {
+    if (value == _crossAxisPadding) return;
+    _crossAxisPadding = value;
+    markNeedsPaint();
+  }
+
+  set pageResourceOffsets(List<double>? value) {
+    if (listEquals(_pageResourceOffsets, value)) return;
+    _pageResourceOffsets = value;
+    markNeedsLayout();
+  }
+
+  set leadingExtent(double value) {
+    if (value == _leadingExtent) return;
+    _leadingExtent = value;
+    markNeedsLayout();
+  }
+
+  set transitionSourceIndex(int? value) {
+    if (value == _transitionSourceIndex) return;
+    _transitionSourceIndex = value;
+    markNeedsLayout();
+  }
+
+  set onPageResourceOffsetCorrected(
+    void Function(int pageIndex, double correction)? value,
+  ) => _onPageResourceOffsetCorrected = value;
 
   @override
   void setupParentData(RenderObject child) {
@@ -178,17 +243,82 @@ class RenderSliverTabPageView extends RenderSliver
         .toDouble();
     final firstPage = page.floor();
     final lastPage = page.ceil();
-    final activePages = firstPage == lastPage
-        ? [firstPage]
-        : [firstPage, lastPage];
+    final activePages = <int>{firstPage, lastPage};
+    final sourceIndex = _transitionSourceIndex;
+    final transitionSource =
+        sourceIndex != null && sourceIndex >= 0 && sourceIndex < childCount
+        ? sourceIndex
+        : null;
+    if (transitionSource != null) {
+      activePages.add(transitionSource);
+    }
+    final layoutPages = activePages.toList()..sort();
     _laidOutPages.clear();
     final corrections = <int, double>{};
+    var paintOrigin = 0.0;
+    var paintEnd = 0.0;
+    var layoutEnd = 0.0;
+    var hitTestEnd = 0.0;
+    var scrollExtent = 0.0;
+    var maxPaintExtent = 0.0;
+    var maxScrollObstructionExtent = 0.0;
+    var visible = false;
 
-    for (final index in activePages) {
+    for (final index in layoutPages) {
       final child = _childAt(index);
-      child.layout(constraints, parentUsesSize: true);
-      final childGeometry = child.geometry!;
-      final correction = childGeometry.scrollOffsetCorrection;
+      final isVirtualPage =
+          transitionSource != null && index != transitionSource;
+      var resourceOffset = _pageResourceOffsets?[index] ?? 0.0;
+      ({SliverConstraints constraints, double paintOffset}) virtualLayout(
+        double offset,
+      ) {
+        final pageScrollOffset = math.max(0.0, offset - _leadingExtent);
+        final virtualHostY = math.max(0.0, _leadingExtent - offset);
+        final currentHostY =
+            constraints.viewportMainAxisExtent -
+            constraints.remainingPaintExtent;
+        final paintOffset = virtualHostY - currentHostY;
+        final cacheOrigin = (constraints.cacheOrigin - paintOffset)
+            .clamp(-pageScrollOffset, 0.0)
+            .toDouble();
+        return (
+          constraints: constraints.copyWith(
+            scrollOffset: pageScrollOffset,
+            remainingPaintExtent: math.max(
+              0.0,
+              constraints.viewportMainAxisExtent - virtualHostY,
+            ),
+            cacheOrigin: cacheOrigin,
+            remainingCacheExtent: math.max(
+              0.0,
+              constraints.remainingCacheExtent +
+                  constraints.cacheOrigin -
+                  paintOffset -
+                  cacheOrigin,
+            ),
+          ),
+          paintOffset: paintOffset,
+        );
+      }
+
+      var pageLayout = isVirtualPage
+          ? virtualLayout(resourceOffset)
+          : (constraints: constraints, paintOffset: 0.0);
+      child.layout(pageLayout.constraints, parentUsesSize: true);
+      var childGeometry = child.geometry!;
+      var correction = childGeometry.scrollOffsetCorrection;
+      var totalCorrection = 0.0;
+      while (isVirtualPage && correction != null) {
+        totalCorrection += correction;
+        resourceOffset += correction;
+        pageLayout = virtualLayout(resourceOffset);
+        child.layout(pageLayout.constraints, parentUsesSize: true);
+        childGeometry = child.geometry!;
+        correction = childGeometry.scrollOffsetCorrection;
+      }
+      if (totalCorrection != 0) {
+        _onPageResourceOffsetCorrected?.call(index, totalCorrection);
+      }
       if (correction != null) {
         corrections[index] = correction;
         continue;
@@ -199,11 +329,30 @@ class RenderSliverTabPageView extends RenderSliver
       final crossAxisOffset =
           (index - page) * constraints.crossAxisExtent * direction;
       final childParentData = child.parentData! as _SliverTabPageParentData;
-      childParentData.paintOffset = Offset(
-        crossAxisOffset,
-        childGeometry.paintOrigin,
-      );
+      final childPaintOrigin =
+          childGeometry.paintOrigin + pageLayout.paintOffset;
+      childParentData.paintOffset = Offset(crossAxisOffset, childPaintOrigin);
       _laidOutPages.add(child);
+      paintOrigin = math.min(paintOrigin, childPaintOrigin);
+      paintEnd = math.max(
+        paintEnd,
+        childPaintOrigin + childGeometry.paintExtent,
+      );
+      layoutEnd = math.max(
+        layoutEnd,
+        childPaintOrigin + childGeometry.layoutExtent,
+      );
+      hitTestEnd = math.max(
+        hitTestEnd,
+        childPaintOrigin + childGeometry.hitTestExtent,
+      );
+      scrollExtent = math.max(scrollExtent, childGeometry.scrollExtent);
+      maxPaintExtent = math.max(maxPaintExtent, childGeometry.maxPaintExtent);
+      maxScrollObstructionExtent = math.max(
+        maxScrollObstructionExtent,
+        childGeometry.maxScrollObstructionExtent,
+      );
+      visible = visible || childGeometry.visible;
     }
 
     // Previously visited pages may rebuild asynchronously; isolate their
@@ -234,22 +383,39 @@ class RenderSliverTabPageView extends RenderSliver
       return;
     }
 
-    final first = _laidOutPages.first.geometry!;
-    final second = _laidOutPages.last.geometry!;
+    paintEnd = math.min(constraints.remainingPaintExtent, paintEnd);
+    layoutEnd = math.min(paintEnd, layoutEnd);
+    hitTestEnd = math.min(paintEnd, hitTestEnd);
+    for (final child in _laidOutPages) {
+      final childParentData = child.parentData! as _SliverTabPageParentData;
+      childParentData.paintOffset = Offset(
+        childParentData.paintOffset.dx,
+        childParentData.paintOffset.dy - paintOrigin,
+      );
+    }
+    scrollExtent = math.max(
+      scrollExtent,
+      constraints.scrollOffset + constraints.remainingPaintExtent,
+    );
     geometry = SliverGeometry(
-      scrollExtent: math.max(first.scrollExtent, second.scrollExtent),
-      paintExtent: math.max(first.paintExtent, second.paintExtent),
-      layoutExtent: math.max(first.layoutExtent, second.layoutExtent),
-      maxPaintExtent: math.max(first.maxPaintExtent, second.maxPaintExtent),
-      maxScrollObstructionExtent: math.max(
-        first.maxScrollObstructionExtent,
-        second.maxScrollObstructionExtent,
+      scrollExtent: scrollExtent,
+      paintOrigin: paintOrigin,
+      paintExtent: paintEnd - paintOrigin,
+      layoutExtent: layoutEnd
+          .clamp(0.0, constraints.remainingPaintExtent)
+          .toDouble(),
+      maxPaintExtent: math.max(
+        maxPaintExtent,
+        constraints.remainingPaintExtent - paintOrigin,
       ),
+      maxScrollObstructionExtent: maxScrollObstructionExtent,
       crossAxisExtent: constraints.crossAxisExtent,
-      hitTestExtent: math.max(first.hitTestExtent, second.hitTestExtent),
-      visible: first.visible || second.visible,
+      hitTestExtent: (hitTestEnd - paintOrigin)
+          .clamp(0.0, paintEnd - paintOrigin)
+          .toDouble(),
+      visible: visible,
       hasVisualOverflow: true,
-      cacheExtent: math.max(first.cacheExtent, second.cacheExtent),
+      cacheExtent: calculateCacheOffset(constraints, from: 0, to: scrollExtent),
     );
   }
 
@@ -289,6 +455,23 @@ class RenderSliverTabPageView extends RenderSliver
   void applyPaintTransform(RenderSliver child, Matrix4 transform) {
     final childParentData = child.parentData! as _SliverTabPageParentData;
     childParentData.applyPaintTransform(transform);
+  }
+
+  @override
+  bool hitTest(
+    SliverHitTestResult result, {
+    required double mainAxisPosition,
+    required double crossAxisPosition,
+  }) {
+    if (crossAxisPosition < _crossAxisPadding ||
+        crossAxisPosition >= constraints.crossAxisExtent - _crossAxisPadding) {
+      return false;
+    }
+    return super.hitTest(
+      result,
+      mainAxisPosition: mainAxisPosition,
+      crossAxisPosition: crossAxisPosition,
+    );
   }
 
   @override
@@ -335,7 +518,12 @@ class RenderSliverTabPageView extends RenderSliver
     context.pushClipRect(
       needsCompositing,
       offset,
-      Rect.fromLTWH(0, 0, constraints.crossAxisExtent, geometry!.paintExtent),
+      Rect.fromLTWH(
+        _crossAxisPadding,
+        0,
+        math.max(0.0, constraints.crossAxisExtent - _crossAxisPadding * 2),
+        geometry!.paintExtent,
+      ),
       (context, offset) {
         for (final child in _laidOutPages) {
           if (child.geometry!.visible) {

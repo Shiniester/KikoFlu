@@ -2327,6 +2327,9 @@ class SJa extends S {
   String get resourceFiles => 'リソースファイル';
 
   @override
+  String get workResources => 'リソース';
+
+  @override
   String get workResourceAudio => '音声';
 
   @override

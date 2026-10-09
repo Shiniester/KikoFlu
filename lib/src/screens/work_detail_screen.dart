@@ -64,7 +64,6 @@ class WorkDetailScreen extends ConsumerStatefulWidget {
 class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   Work? _detailedWork;
   final _metadataChanges = ValueNotifier(0);
-  final _fileTreeReady = ValueNotifier(false);
   final _deferredContentReady = ValueNotifier(false);
   final _routeReadiness = WorkDetailRouteReadiness();
   bool _initialLoadStarted = false;
@@ -291,7 +290,6 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   @override
   void dispose() {
     _metadataChanges.dispose();
-    _fileTreeReady.dispose();
     _deferredContentReady.dispose();
     _showDetailCover.dispose();
     _hdImageProvider.dispose();
@@ -847,12 +845,15 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
     // 信息内容组件
     final infoWidget = SliverPadding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       sliver: SliverMainAxisGroup(
         slivers: [
           ListenableBuilder(
             listenable: _metadataChanges,
-            builder: (context, _) => _buildMetadata(_currentWork),
+            builder: (context, _) => SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              sliver: _buildMetadata(_currentWork),
+            ),
           ),
           // 文件浏览器组件 - 移除固定高度，让它自由展开
           ValueListenableBuilder<bool>(
@@ -861,19 +862,15 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
                 ? FileExplorerWidget(
                     work: widget.work,
                     currentWork: () => _currentWork,
-                    onLoadCompleted: () => _fileTreeReady.value = true,
+                    recommendationBuilder: (context) => ListenableBuilder(
+                      listenable: _metadataChanges,
+                      builder: (context, _) =>
+                          RecommendationSection(work: _currentWork),
+                    ),
                     controller: _fileExplorerController,
                     initialLoadReady: _routeReadiness.waitForIdle,
                     translate: _showTranslation,
                   )
-                : const SliverToBoxAdapter(child: SizedBox.shrink()),
-          ),
-
-          // 相关推荐
-          ListenableBuilder(
-            listenable: Listenable.merge([_metadataChanges, _fileTreeReady]),
-            builder: (context, _) => _fileTreeReady.value
-                ? RecommendationSection(work: _currentWork)
                 : const SliverToBoxAdapter(child: SizedBox.shrink()),
           ),
         ],

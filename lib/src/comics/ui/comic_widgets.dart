@@ -677,8 +677,9 @@ bool _comicCoverImageIsCached(ResizeImage image, BuildContext context) {
       .obtainKey(createLocalImageConfiguration(context))
       .then((key) => cacheKey = key);
   final key = cacheKey;
-  return key != null &&
-      PaintingBinding.instance.imageCache.statusForKey(key).keepAlive;
+  if (key == null) return false;
+  final status = PaintingBinding.instance.imageCache.statusForKey(key);
+  return status.keepAlive || (status.live && !status.pending);
 }
 
 class ComicGrid extends ConsumerStatefulWidget {
@@ -984,9 +985,14 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
         )) {
       return;
     }
+    final imageProvider = _comicImageBytesProvider(request);
+    if (_failedCoverKeys.contains(queueKey) &&
+        ref.exists(imageProvider) &&
+        ref.read(imageProvider).hasError) {
+      return;
+    }
     _admittedCoverKeys.add(queueKey);
     _syncForegroundCoverKeys();
-    final imageProvider = _comicImageBytesProvider(request);
     if (_pendingCoverRetries.remove(request.key)) {
       ref.invalidate(imageProvider);
     }
@@ -1028,11 +1034,14 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
       displayWidth,
       picture.sourceWidth,
     );
-    await precacheImage(
-      ResizeImage(MemoryImage(picture.bytes), width: cacheWidth),
-      context,
-      onError: (error, stackTrace) {},
+    final resizedImage = ResizeImage(
+      MemoryImage(picture.bytes),
+      width: cacheWidth,
     );
+    final imageStream = resizedImage.resolve(
+      createLocalImageConfiguration(context),
+    );
+    await precacheImage(resizedImage, context, onError: (error, stackTrace) {});
     if (!mounted ||
         !_coverPreparationActive ||
         !widget.comics.any(
@@ -1046,6 +1055,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
     _admittedCoverKeys.remove(queueKey);
     _failedCoverKeys.remove(queueKey);
     _backgroundFailedCoverKeys.remove(queueKey);
+    _coverPrefetchQueue.retainImage(queueKey, imageStream);
     _syncForegroundCoverKeys(notifyEvenIfUnchanged: true);
   }
 

@@ -4366,6 +4366,12 @@ abstract class S {
   /// **'Resource Files'**
   String get resourceFiles;
 
+  /// Short label for the resources tab on work details
+  ///
+  /// In en, this message translates to:
+  /// **'Resources'**
+  String get workResources;
+
   /// Tab listing preferred audio files in a work's resource section
   ///
   /// In en, this message translates to:

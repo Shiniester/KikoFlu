@@ -38,6 +38,7 @@ import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
 import 'work_image_reader.dart';
 import 'work_resource_tabs.dart';
+import 'work_detail/recommendation_section.dart';
 import 'manual_subtitle_load_flow.dart';
 import 'text_preview_screen.dart';
 import 'pdf_preview_screen.dart';
@@ -80,6 +81,7 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
   final Work work;
   final Work Function()? currentWork;
   final VoidCallback? onLoadCompleted;
+  final WidgetBuilder? recommendationBuilder;
   final FileExplorerController? controller;
   final Future<bool> Function()? initialLoadReady;
   final bool translate;
@@ -89,6 +91,7 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
     required this.work,
     this.currentWork,
     this.onLoadCompleted,
+    this.recommendationBuilder,
     this.controller,
     this.initialLoadReady,
     this.translate = false,
@@ -919,13 +922,24 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       fadeDownloadedItems: true,
       showHeader: false,
     );
-    if (_isLoading || _errorMessage != null) return tree;
+    if (_isLoading) {
+      return SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        sliver: tree,
+      );
+    }
     return WorkResourceTabs(
       workId: _work.id,
       fileTree: _rootFiles,
       audioVariants: _audioVariants,
       resourceSliver: tree,
-      resourceTitle: S.of(context).resourceFiles,
+      resourceTitle: S.of(context).workResources,
+      initialTab: _errorMessage == null
+          ? WorkResourceTab.audio
+          : WorkResourceTab.resources,
+      recommendationBuilder:
+          widget.recommendationBuilder ??
+          (context) => RecommendationSection(work: _work),
       progressMessage: _translationController.isBulkTranslating
           ? _translationController.progress
           : null,

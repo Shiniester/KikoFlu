@@ -71,7 +71,8 @@ void main() {
       ]);
       await tester.pump();
       expect(find.byIcon(Icons.recommend_outlined), findsNothing);
-      expect(tester.getRect(find.text('Related Works')).left, 16);
+      expect(find.text('Related Works'), findsNothing);
+      expect(find.byType(Divider), findsNothing);
       final cards = find.byType(EnhancedWorkCard);
       expect(cards, findsNWidgets(6));
       final first = tester.getRect(cards.at(0));
@@ -89,7 +90,7 @@ void main() {
   );
 
   testWidgets(
-    'hidden and offscreen recommendations do not load; approaching loads once',
+    'hidden recommendations wait; mounted recommendations load once',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
       late _Recommendations recommendations;
@@ -132,7 +133,7 @@ void main() {
       await settings.toggleRecommendations();
       await tester.pump();
       await tester.pump();
-      expect(recommendations.requests, 0);
+      expect(recommendations.requests, 1);
       scroll.jumpTo(scroll.position.maxScrollExtent);
       await tester.pump();
       await tester.pump();

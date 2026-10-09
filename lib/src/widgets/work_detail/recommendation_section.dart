@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
-import '../../../l10n/app_localizations.dart';
 import '../../models/work.dart';
 import '../../providers/recommendation_provider.dart';
 import '../../providers/work_card_display_provider.dart';
@@ -11,9 +10,8 @@ import '../../providers/settings_provider.dart' show blockedItemsProvider;
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../utils/collection_grid_layout.dart';
 import '../enhanced_work_card.dart';
-import 'work_detail_section_title.dart';
 
-/// 作品详情页底部的相关推荐网格。
+/// 作品详情页相关推荐标签的网格。
 class RecommendationSection extends ConsumerStatefulWidget {
   final Work work;
 
@@ -25,7 +23,6 @@ class RecommendationSection extends ConsumerStatefulWidget {
 }
 
 class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
-  bool _activated = false;
   bool _attempted = false;
   int _accessId = createRecommendationAccessId();
 
@@ -33,13 +30,12 @@ class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
   void didUpdateWidget(RecommendationSection oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.work.id != widget.work.id) {
-      _activated = false;
       _attempted = false;
       _accessId = createRecommendationAccessId();
     }
   }
 
-  void _loadWhenVisible() {
+  void _loadRecommendations() {
     if (_attempted) return;
     _attempted = true;
     final accessId = _accessId;
@@ -69,6 +65,7 @@ class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
     if (!visible) {
       return const SliverToBoxAdapter(child: SizedBox.shrink());
     }
+    _loadRecommendations();
     final blockedItems = ref.watch(blockedItemsProvider);
     final recommendations = state.recommendations
         .where((work) {
@@ -88,11 +85,6 @@ class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
     );
     return SliverLayoutBuilder(
       builder: (context, constraints) {
-        if (!_activated && constraints.remainingCacheExtent <= 0) {
-          return const SliverToBoxAdapter(child: SizedBox.shrink());
-        }
-        _activated = true;
-        _loadWhenVisible();
         if (!state.isLoading && recommendations.isEmpty) {
           return const SliverToBoxAdapter(child: SizedBox.shrink());
         }
@@ -103,41 +95,22 @@ class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
           availableWidth: constraints.crossAxisExtent,
           padding: const EdgeInsets.only(bottom: 16),
         );
-        return SliverMainAxisGroup(
-          slivers: [
-            SliverToBoxAdapter(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 8),
-                  const Divider(height: 1),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    child: WorkDetailSectionTitle(
-                      S.of(context).relatedRecommendations,
-                    ),
+        return SliverPadding(
+          padding: metrics.padding,
+          sliver: SliverMasonryGrid.count(
+            crossAxisCount: metrics.crossAxisCount,
+            crossAxisSpacing: metrics.spacing,
+            mainAxisSpacing: metrics.spacing,
+            childCount: state.isLoading ? 6 : recommendations.length,
+            itemBuilder: (context, index) => state.isLoading
+                ? _buildShimmerCard(context)
+                : EnhancedWorkCard(
+                    key: ValueKey(recommendations[index].id),
+                    work: recommendations[index],
+                    crossAxisCount: metrics.crossAxisCount,
+                    isListLayout: false,
                   ),
-                ],
-              ),
-            ),
-            SliverPadding(
-              padding: metrics.padding,
-              sliver: SliverMasonryGrid.count(
-                crossAxisCount: metrics.crossAxisCount,
-                crossAxisSpacing: metrics.spacing,
-                mainAxisSpacing: metrics.spacing,
-                childCount: state.isLoading ? 6 : recommendations.length,
-                itemBuilder: (context, index) => state.isLoading
-                    ? _buildShimmerCard(context)
-                    : EnhancedWorkCard(
-                        key: ValueKey(recommendations[index].id),
-                        work: recommendations[index],
-                        crossAxisCount: metrics.crossAxisCount,
-                        isListLayout: false,
-                      ),
-              ),
-            ),
-          ],
+          ),
         );
       },
     );

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:kikoeru_flutter/src/models/download_task_change.dart';
 import 'package:kikoeru_flutter/src/providers/download_provider.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
+import 'package:kikoeru_flutter/src/providers/recommendation_provider.dart';
 import 'package:kikoeru_flutter/src/services/downloaded_file_state_scanner.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +16,7 @@ import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
 import 'package:kikoeru_flutter/src/widgets/file_explorer_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/offline_file_explorer_widget.dart';
+import 'package:kikoeru_flutter/src/widgets/work_detail/recommendation_section.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -28,6 +30,17 @@ class _FailingApiService extends KikoeruApiService {
   }) async {
     forceRefreshCalls.add(forceRefresh);
     throw StateError('network unavailable');
+  }
+}
+
+class _Recommendations extends RecommendationNotifier {
+  _Recommendations(super.ref, super.accessId);
+
+  int requests = 0;
+
+  @override
+  Future<void> loadRecommendations(Work work) async {
+    requests++;
   }
 }
 
@@ -207,6 +220,66 @@ void main() {
     await tester.pump();
 
     expect(apiService.forceRefreshCalls, [false, true]);
+  });
+
+  testWidgets('failed online trees still expose recommendations on selection', (
+    tester,
+  ) async {
+    final downloads = _Downloads();
+    addTearDown(downloads.changes.close);
+    final loaded = Completer<void>();
+    final scanner = DownloadedFileStateScanner(
+      downloadRootPath: () async => '/downloads',
+      resolveDownloadedPath: (_, __) async => null,
+      fileExists: (_) async => false,
+    );
+    _Recommendations? recommendations;
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          kikoeruApiServiceProvider.overrideWithValue(_FailingApiService()),
+          downloadServiceProvider.overrideWithValue(downloads),
+          downloadedFileStateScannerProvider.overrideWithValue(scanner),
+          recommendationProvider.overrideWith(
+            (ref, id) => recommendations = _Recommendations(ref, id),
+          ),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: Scaffold(
+            body: CustomScrollView(
+              slivers: [
+                FileExplorerWidget(
+                  work: const Work(id: 39, title: 'Work'),
+                  onLoadCompleted: () {
+                    if (!loaded.isCompleted) loaded.complete();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.runAsync(() => loaded.future);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('work-resource-recommendations-tab')),
+      findsOneWidget,
+    );
+    expect(
+      find.byType(RecommendationSection, skipOffstage: false),
+      findsNothing,
+    );
+    expect(recommendations, isNull);
+    await tester.tap(
+      find.byKey(const ValueKey('work-resource-recommendations-tab')),
+    );
+    await tester.pumpAndSettle();
+    expect(recommendations!.requests, 1);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(

@@ -645,13 +645,18 @@ class _OfflineFileExplorerWidgetState
       audioWithLibrarySubtitles: _audioWithLibrarySubtitles,
       showHeader: false,
     );
-    if (_isLoading || _errorMessage != null) return tree;
+    if (_isLoading || _errorMessage != null) {
+      return SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        sliver: tree,
+      );
+    }
     return WorkResourceTabs(
       workId: widget.work.id,
       fileTree: _localFiles,
       audioVariants: _audioVariants,
       resourceSliver: tree,
-      resourceTitle: S.of(context).resourceFiles,
+      resourceTitle: S.of(context).workResources,
       onPlayAudio: (file, path, files) =>
           _playAudioFile(file, path, audioFiles: files),
       onFileTap: _handleFileTap,
