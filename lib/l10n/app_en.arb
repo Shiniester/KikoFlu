@@ -1021,6 +1021,8 @@
   "@playVideoError": { "placeholders": { "error": { "type": "String" } } },
   "noFiles": "No files",
   "resourceFiles": "Resource Files",
+  "workResources": "Resources",
+  "@workResources": { "description": "Short label for the resources tab on work details" },
   "workResourceAudio": "Audio",
   "@workResourceAudio": { "description": "Tab listing preferred audio files in a work's resource section" },
   "workResourceImages": "Images",

@@ -793,6 +793,7 @@
   "playVideoError": "播放视频时出错: {error}",
   "noFiles": "没有文件",
   "resourceFiles": "资源文件",
+  "workResources": "资源",
   "workResourceAudio": "音频",
   "workResourceImages": "图片",
   "resourceFilesTranslated": "资源文件 (已翻译 {count} 项)",

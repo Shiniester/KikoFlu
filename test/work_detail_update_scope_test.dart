@@ -700,7 +700,7 @@ void main() {
   });
 
   testWidgets(
-    'recommendations load after resource readiness before scrolling to them',
+    'recommendations load only after selecting their tab and remain cached',
     (tester) async {
       final directory = Directory.systemTemp.createTempSync(
         'detail-recommendation-',
@@ -763,24 +763,30 @@ void main() {
       api.tracks.complete(
         List.generate(1000, (i) => {'type': 'audio', 'title': 'file-$i.wav'}),
       );
-      for (
-        var i = 0;
-        i < 100 &&
-            find
-                .byType(RecommendationSection, skipOffstage: false)
-                .evaluate()
-                .isEmpty;
-        i++
-      ) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)),
-        );
-        await tester.pump();
-      }
+      const recommendationsTab = ValueKey('work-resource-recommendations-tab');
+      await _pumpUntil(
+        tester,
+        () => find.byKey(recommendationsTab).evaluate().isNotEmpty,
+      );
+      expect(
+        find.byType(RecommendationSection, skipOffstage: false),
+        findsNothing,
+      );
+      expect(recommendations, isNull);
+
+      await tester.ensureVisible(find.byKey(recommendationsTab));
+      await tester.tap(find.byKey(recommendationsTab));
+      await tester.pumpAndSettle();
       expect(
         find.byType(RecommendationSection, skipOffstage: false),
         findsOneWidget,
       );
+      expect(recommendations!.requests, 1);
+
+      const audioTab = ValueKey('work-resource-audio-tab');
+      await tester.ensureVisible(find.byKey(audioTab));
+      await tester.tap(find.byKey(audioTab));
+      await tester.pumpAndSettle();
       expect(recommendations!.requests, 1);
       await tester.scrollUntilVisible(
         find.text('file-999.wav'),
@@ -789,6 +795,9 @@ void main() {
         maxScrolls: 60,
       );
       await tester.pump();
+      await tester.ensureVisible(find.byKey(recommendationsTab));
+      await tester.tap(find.byKey(recommendationsTab));
+      await tester.pumpAndSettle();
       expect(recommendations!.requests, 1);
       api.metadata.complete({'id': 555, 'title': 'Work'});
       await _pumpFrames(tester);

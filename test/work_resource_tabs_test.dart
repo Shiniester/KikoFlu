@@ -10,6 +10,7 @@ import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
+import 'package:kikoeru_flutter/src/providers/work_detail_display_provider.dart';
 import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/file_preview_resolver.dart';
 import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
@@ -57,6 +58,27 @@ List<dynamic> _files({bool images = false}) => [
   ],
 ];
 
+class _RecommendationProbe extends StatefulWidget {
+  const _RecommendationProbe({required this.onCreate});
+
+  final VoidCallback onCreate;
+
+  @override
+  State<_RecommendationProbe> createState() => _RecommendationProbeState();
+}
+
+class _RecommendationProbeState extends State<_RecommendationProbe> {
+  @override
+  void initState() {
+    super.initState();
+    widget.onCreate();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      const SliverToBoxAdapter(child: Text('recommendation page content'));
+}
+
 Future<void> _pumpResources(
   WidgetTester tester,
   ValueNotifier<List<dynamic>> tree, {
@@ -70,67 +92,73 @@ Future<void> _pumpResources(
   ScrollController? controller,
   bool disableAnimations = false,
   int recommendationCount = 0,
+  WidgetBuilder? recommendationBuilder,
   Widget? introSliver,
   Widget? resourceSliver,
-  bool resourcesReady = true,
-  VoidCallback? onInitialContentReady,
-}) => tester.pumpWidget(
-  ProviderScope(
-    child: MaterialApp(
-      locale: const Locale('en'),
-      localizationsDelegates: S.localizationsDelegates,
-      supportedLocales: S.supportedLocales,
-      home: Builder(
-        builder: (context) => Scaffold(
-          body: MediaQuery(
-            data: MediaQuery.of(
-              context,
-            ).copyWith(disableAnimations: disableAnimations),
-            child: ValueListenableBuilder<List<dynamic>>(
-              valueListenable: tree,
-              builder: (context, files, _) => CustomScrollView(
-                controller: controller,
-                slivers: [
-                  if (introSliver != null) introSliver,
-                  WorkResourceTabs(
-                    workId: 42,
-                    fileTree: files,
-                    audioVariants: const PlayerAudioVariantClassifier().scan(
-                      files,
-                    ),
-                    resourceSliver:
-                        resourceSliver ??
-                        const SliverToBoxAdapter(
-                          child: Text('whole resource tree'),
-                        ),
-                    resourceTitle: 'Resource Files',
-                    onPlayAudio: onPlay ?? (_, __, ___) {},
-                    onFileTap: onFileTap ?? (_, __, ___) {},
-                    onImageTap: onImageTap ?? (_) {},
-                    resolveImage: resolveImage ?? (_) async => null,
-                    downloadedFiles: downloadedFiles,
-                    expandedFolders: expandedFolders,
-                    onVisibleNamesChanged: onVisibleNamesChanged,
-                    resourcesReady: resourcesReady,
-                    onInitialContentReady: onInitialContentReady,
+  Locale locale = const Locale('en'),
+  WorkResourceTab initialTab = WorkResourceTab.audio,
+  ProviderContainer? providerContainer,
+}) async {
+  final recommendation =
+      recommendationBuilder ??
+      (recommendationCount == 0
+          ? null
+          : (context) => SliverList.builder(
+              itemCount: recommendationCount,
+              itemBuilder: (context, index) =>
+                  SizedBox(height: 70, child: Text('recommendation $index')),
+            ));
+  final app = MaterialApp(
+    locale: locale,
+    localizationsDelegates: S.localizationsDelegates,
+    supportedLocales: S.supportedLocales,
+    home: Builder(
+      builder: (context) => Scaffold(
+        body: MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(disableAnimations: disableAnimations),
+          child: ValueListenableBuilder<List<dynamic>>(
+            valueListenable: tree,
+            builder: (context, files, _) => CustomScrollView(
+              controller: controller,
+              slivers: [
+                if (introSliver != null) introSliver,
+                WorkResourceTabs(
+                  workId: 42,
+                  fileTree: files,
+                  audioVariants: const PlayerAudioVariantClassifier().scan(
+                    files,
                   ),
-                  if (recommendationCount > 0)
-                    SliverList.builder(
-                      itemCount: recommendationCount,
-                      itemBuilder: (context, index) => SizedBox(
-                        height: 70,
-                        child: Text('recommendation $index'),
+                  resourceSliver:
+                      resourceSliver ??
+                      const SliverToBoxAdapter(
+                        child: Text('whole resource tree'),
                       ),
-                    ),
-                ],
-              ),
+                  resourceTitle: S.of(context).workResources,
+                  recommendationBuilder: recommendation,
+                  initialTab: initialTab,
+                  onPlayAudio: onPlay ?? (_, __, ___) {},
+                  onFileTap: onFileTap ?? (_, __, ___) {},
+                  onImageTap: onImageTap ?? (_) {},
+                  resolveImage: resolveImage ?? (_) async => null,
+                  downloadedFiles: downloadedFiles,
+                  expandedFolders: expandedFolders,
+                  onVisibleNamesChanged: onVisibleNamesChanged,
+                ),
+              ],
             ),
           ),
         ),
       ),
     ),
-  ),
-);
+  );
+  await tester.pumpWidget(
+    providerContainer == null
+        ? ProviderScope(child: app)
+        : UncontrolledProviderScope(container: providerContainer, child: app),
+  );
+}
 
 Future<void> _pumpUntilImageLoaded(WidgetTester tester, Finder finder) async {
   final rawImage = find.descendant(of: finder, matching: find.byType(RawImage));
@@ -154,90 +182,7 @@ Finder _loadingOverlaySpinner() => find.byKey(
 );
 
 void main() {
-  testWidgets('reports initial readiness after resources become ready once', (
-    tester,
-  ) async {
-    final tree = ValueNotifier<List<dynamic>>(_files());
-    addTearDown(tree.dispose);
-    var readyCalls = 0;
-
-    await _pumpResources(
-      tester,
-      tree,
-      resourcesReady: false,
-      onInitialContentReady: () => readyCalls++,
-    );
-    await tester.pump();
-    expect(readyCalls, 0);
-
-    await _pumpResources(
-      tester,
-      tree,
-      resourcesReady: true,
-      onInitialContentReady: () => readyCalls++,
-    );
-    await tester.pump();
-    expect(readyCalls, 1);
-
-    await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
-    await tester.pumpAndSettle();
-    expect(readyCalls, 1);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('direct resource tabs are ready by default', (tester) async {
-    final tree = ValueNotifier<List<dynamic>>(_files());
-    addTearDown(tree.dispose);
-    var readyCalls = 0;
-
-    await _pumpResources(
-      tester,
-      tree,
-      onInitialContentReady: () => readyCalls++,
-    );
-    await tester.pump();
-
-    expect(readyCalls, 1);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('an image failure completes the selected image readiness gate', (
-    tester,
-  ) async {
-    final tree = ValueNotifier<List<dynamic>>([
-      {'type': 'image', 'title': 'broken.png', 'hash': 'broken'},
-    ]);
-    addTearDown(tree.dispose);
-    final image = Completer<PreviewFileItem?>();
-    var readyCalls = 0;
-    Future<PreviewFileItem?> resolveImage(dynamic _) => image.future;
-
-    await _pumpResources(
-      tester,
-      tree,
-      resourcesReady: false,
-      onInitialContentReady: () => readyCalls++,
-      resolveImage: resolveImage,
-    );
-    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
-    await tester.pump(const Duration(milliseconds: 50));
-
-    await _pumpResources(
-      tester,
-      tree,
-      resourcesReady: true,
-      onInitialContentReady: () => readyCalls++,
-      resolveImage: resolveImage,
-    );
-    expect(readyCalls, 0);
-
-    image.complete(null);
-    await tester.pumpAndSettle();
-
-    expect(readyCalls, 1);
-    expect(_loadingOverlaySpinner(), findsNothing);
-    expect(tester.takeException(), isNull);
-  });
+  setUp(() => SharedPreferences.setMockInitialValues({}));
 
   testWidgets('resource tab changes return to the section top', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 500));
@@ -276,20 +221,169 @@ void main() {
     );
     await gesture.moveBy(const Offset(-430, 0));
     await tester.pump();
-    expect(scroll.offset, closeTo(180, 1));
-    expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(0, 1));
+    expect(scroll.offset, lessThanOrEqualTo(180));
+    expect(tester.getBottomLeft(find.byType(TabBar)).dy, greaterThan(0));
+    expect(find.text('recommendation 11'), findsNothing);
     await gesture.up();
     await tester.pumpAndSettle();
 
-    expect(scroll.offset, closeTo(180, 1));
-    expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(0, 1));
+    expect(tester.getBottomLeft(find.byType(TabBar)).dy, greaterThan(0));
+    expect(find.text('recommendation 11'), findsNothing);
 
-    scroll.jumpTo(scroll.position.maxScrollExtent);
-    await tester.pump();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('work-resource-recommendations-tab')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('work-resource-recommendations-tab')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('recommendation 0'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('recommendation 11'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+      maxScrolls: 10,
+    );
     expect(find.text('recommendation 11'), findsOneWidget);
-    expect(find.byType(TabBar), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('resource tabs use equal widths and localized resource labels', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final tree = ValueNotifier<List<dynamic>>(_files(images: true));
+    addTearDown(tree.dispose);
+
+    await _pumpResources(
+      tester,
+      tree,
+      recommendationBuilder: (_) => const SliverToBoxAdapter(),
+    );
+    final tabKeys = [
+      const ValueKey('work-resource-files-tab'),
+      const ValueKey('work-resource-audio-tab'),
+      const ValueKey('work-resource-images-tab'),
+      const ValueKey('work-resource-recommendations-tab'),
+    ];
+    final tabs = find.descendant(
+      of: find.byType(TabBar),
+      matching: find.byType(InkWell),
+    );
+    expect(tabs, findsNWidgets(tabKeys.length));
+    final widths = [
+      for (var index = 0; index < tabKeys.length; index++)
+        tester.getSize(tabs.at(index)).width,
+    ];
+    expect(widths, everyElement(closeTo(widths.first, 0.1)));
+    expect(find.text('Resources'), findsOneWidget);
+    expect(find.text('Related Works'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await _pumpResources(
+      tester,
+      tree,
+      locale: const Locale('zh'),
+      recommendationBuilder: (_) => const SliverToBoxAdapter(),
+    );
+    expect(find.text('资源'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'recommendations build only after selection and retain their tab identity',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final tree = ValueNotifier<List<dynamic>>(_files());
+      addTearDown(tree.dispose);
+      var recommendationCreates = 0;
+      final display = WorkDetailDisplayNotifier();
+      final container = ProviderContainer(
+        overrides: [workDetailDisplayProvider.overrideWith((ref) => display)],
+      );
+      addTearDown(container.dispose);
+
+      await _pumpResources(
+        tester,
+        tree,
+        providerContainer: container,
+        recommendationBuilder: (_) =>
+            _RecommendationProbe(onCreate: () => recommendationCreates++),
+      );
+      expect(recommendationCreates, 0);
+      expect(
+        find.byKey(const ValueKey('work-resource-recommendations-tab')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('work-resource-recommendations-tab')),
+      );
+      await tester.pumpAndSettle();
+      expect(recommendationCreates, 1);
+      expect(find.text('recommendation page content'), findsOneWidget);
+      expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 2);
+
+      tree.value = _files(images: true);
+      await tester.pumpAndSettle();
+      expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 3);
+      expect(recommendationCreates, 1);
+
+      await display.toggleRecommendations();
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('work-resource-recommendations-tab')),
+        findsNothing,
+      );
+      expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 2);
+
+      await display.toggleRecommendations();
+      await tester.pumpAndSettle();
+      expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 2);
+      await tester.tap(
+        find.byKey(const ValueKey('work-resource-recommendations-tab')),
+      );
+      await tester.pumpAndSettle();
+      expect(recommendationCreates, 1);
+
+      tree.value = _files();
+      await tester.pumpAndSettle();
+      expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 2);
+      expect(recommendationCreates, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'hidden recommendation preference removes its tab without building it',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final tree = ValueNotifier<List<dynamic>>(_files(images: true));
+      addTearDown(tree.dispose);
+      final display = WorkDetailDisplayNotifier();
+      await display.toggleRecommendations();
+      final container = ProviderContainer(
+        overrides: [workDetailDisplayProvider.overrideWith((ref) => display)],
+      );
+      addTearDown(container.dispose);
+      var recommendationCreates = 0;
+
+      await _pumpResources(
+        tester,
+        tree,
+        providerContainer: container,
+        recommendationBuilder: (_) =>
+            _RecommendationProbe(onCreate: () => recommendationCreates++),
+      );
+      expect(
+        find.byKey(const ValueKey('work-resource-recommendations-tab')),
+        findsNothing,
+      );
+      expect(recommendationCreates, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('visible resource images resolve before the rest of the page', (
     tester,
@@ -1047,7 +1141,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('scrolling past image pages continues through recommendations', (
+  testWidgets('image scrolling stays separate from the recommendation tab', (
     tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(390, 500));
@@ -1074,21 +1168,36 @@ void main() {
       await tester.pumpAndSettle();
       expect(scroll.offset, greaterThanOrEqualTo(before));
     }
-    expect(scroll.offset, greaterThan(5000));
-    expect(find.textContaining('recommendation '), findsWidgets);
-    await tester.binding.setSurfaceSize(const Size(900, 500));
-    await tester.pumpAndSettle();
-    final beforeRotationScroll = scroll.offset;
-    await tester.drag(find.byType(CustomScrollView), const Offset(0, -240));
-    await tester.pumpAndSettle();
-    expect(scroll.offset, greaterThanOrEqualTo(beforeRotationScroll));
-    expect(find.textContaining('recommendation '), findsWidgets);
+    expect(scroll.offset, greaterThan(1000));
+    expect(find.textContaining('recommendation '), findsNothing);
     expect(
       tester
           .widget<TabBar>(find.byType(TabBar, skipOffstage: false))
           .controller!
           .index,
       2,
+    );
+    await tester.binding.setSurfaceSize(const Size(900, 500));
+    await tester.pumpAndSettle();
+    final beforeRotationScroll = scroll.offset;
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -240));
+    await tester.pumpAndSettle();
+    expect(scroll.offset, greaterThanOrEqualTo(beforeRotationScroll));
+    expect(find.textContaining('recommendation '), findsNothing);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('work-resource-recommendations-tab')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey('work-resource-recommendations-tab')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('recommendation 0'), findsOneWidget);
+    expect(
+      tester
+          .widget<TabBar>(find.byType(TabBar, skipOffstage: false))
+          .controller!
+          .index,
+      3,
     );
   });
 
@@ -1439,7 +1548,14 @@ void main() {
       expect((tile.title! as Text).style!.fontSize, 14);
       expect(tester.getRect(audio).width, width);
       expect(tester.getRect(find.byIcon(Icons.audiotrack).first).left, 0);
-      expect(tester.getRect(find.text('Resource Files')).left, 16);
+      final resourceTab = tester.getRect(
+        find
+            .descendant(of: find.byType(TabBar), matching: find.byType(InkWell))
+            .first,
+      );
+      expect(resourceTab.left, 0);
+      expect(resourceTab.width, closeTo(width / 2, 1));
+      expect(find.text('Resources'), findsOneWidget);
       final play = find.descendant(
         of: audio,
         matching: find.byIcon(Icons.play_arrow),

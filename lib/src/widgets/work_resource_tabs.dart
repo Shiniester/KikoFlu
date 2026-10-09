@@ -11,6 +11,7 @@ import '../../l10n/app_localizations.dart';
 import '../providers/player_subtitle_candidates_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/work_card_display_provider.dart';
+import '../providers/work_detail_display_provider.dart';
 import '../providers/works_provider.dart' show LayoutType;
 import '../services/file_preview_resolver.dart';
 import '../services/player_audio_variant_classifier.dart';
@@ -39,6 +40,8 @@ typedef ResourceAudioLongPress =
       List<dynamic> audioFiles,
     );
 
+enum WorkResourceTab { resources, audio, images, recommendations }
+
 class WorkResourceTabs extends ConsumerStatefulWidget {
   const WorkResourceTabs({
     super.key,
@@ -47,6 +50,8 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
     required this.audioVariants,
     required this.resourceSliver,
     required this.resourceTitle,
+    this.recommendationBuilder,
+    this.initialTab = WorkResourceTab.audio,
     required this.onPlayAudio,
     required this.onFileTap,
     required this.resolveImage,
@@ -59,8 +64,6 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
     this.expandedFolders = const {},
     this.onVisibleNamesChanged,
     this.downloadedFiles = const {},
-    this.resourcesReady = true,
-    this.onInitialContentReady,
   });
 
   final int workId;
@@ -68,6 +71,8 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
   final List<PlayerAudioVariant> audioVariants;
   final Widget resourceSliver;
   final String resourceTitle;
+  final WidgetBuilder? recommendationBuilder;
+  final WorkResourceTab initialTab;
   final ResourceAudioAction onPlayAudio;
   final FileTreeItemTap onFileTap;
   final Future<PreviewFileItem?> Function(dynamic) resolveImage;
@@ -80,8 +85,6 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
   final Set<String> expandedFolders;
   final ValueChanged<List<String>>? onVisibleNamesChanged;
   final Map<String, bool> downloadedFiles;
-  final bool resourcesReady;
-  final VoidCallback? onInitialContentReady;
 
   @override
   ConsumerState<WorkResourceTabs> createState() => _WorkResourceTabsState();
@@ -124,18 +127,28 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   bool _reduceMotion = false;
   bool _tabSyncScheduled = false;
   bool _configuringTabs = false;
-  bool _initialContentReadyScheduled = false;
-  bool _initialContentReadyReported = false;
+  bool _dragScrollPending = false;
+  bool _recommendationVisited = false;
   int? _motionTarget;
+  late List<WorkResourceTab> _pageKinds;
+  late List<WorkResourceTab> _tabKinds;
 
   @override
   void initState() {
     super.initState();
-    final tabCount = FileTreeUtils.imageFilesRecursive(widget.fileTree).isEmpty
-        ? 2
-        : 3;
+    _images = FileTreeUtils.imageFilesRecursive(widget.fileTree);
+    _pageKinds = _buildPageKinds();
+    _tabKinds = _visibleTabKinds(
+      widget.recommendationBuilder != null &&
+          ref.read(workDetailDisplayProvider).showRecommendations,
+    );
+    _selected = _tabKinds.indexOf(widget.initialTab);
+    if (_selected < 0) _selected = _tabKinds.indexOf(WorkResourceTab.audio);
+    if (_selected < 0) _selected = 0;
+    _recommendationVisited =
+        _tabKinds[_selected] == WorkResourceTab.recommendations;
     _tabs = TabController(
-      length: tabCount,
+      length: _tabKinds.length,
       initialIndex: _selected,
       animationDuration: Duration.zero,
       vsync: this,
@@ -143,7 +156,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     _pagePosition = AnimationController(
       vsync: this,
       lowerBound: 0,
-      upperBound: 2,
+      upperBound: 3,
       value: _selected.toDouble(),
     )..addListener(_handlePagePositionChanged);
   }
@@ -219,22 +232,6 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       _imageFailures.clear();
       _imageItemKeys.clear();
       _imagePageGatePassed.value = false;
-      _motionTarget = null;
-      if (_images.isEmpty && _selected == 2) _selected = 1;
-      final tabCount = _images.isEmpty ? 2 : 3;
-      if (_tabs.length != tabCount) {
-        _configuringTabs = true;
-        _pagePosition.stop(canceled: true);
-        _pagePosition.value = _selected.toDouble();
-        _tabs.dispose();
-        _tabs = TabController(
-          length: tabCount,
-          initialIndex: _selected,
-          animationDuration: Duration.zero,
-          vsync: this,
-        );
-        _configuringTabs = false;
-      }
     }
     _tree = widget.fileTree;
     _variants = widget.audioVariants;
@@ -267,29 +264,46 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   @override
   Widget build(BuildContext context) {
     _updateResources(ref.watch(audioFormatPreferenceProvider));
+    final showRecommendations =
+        widget.recommendationBuilder != null &&
+        ref.watch(
+          workDetailDisplayProvider.select(
+            (settings) => settings.showRecommendations,
+          ),
+        );
+    _syncTabs(showRecommendations: showRecommendations);
     _reduceMotion = MediaQuery.disableAnimationsOf(context);
     _reportVisibleNames();
-    _scheduleInitialContentReady();
     final s = S.of(context);
     final tabBar = TabBar(
       controller: _tabs,
-      isScrollable: true,
-      tabAlignment: TabAlignment.start,
+      isScrollable: false,
+      labelPadding: const EdgeInsets.symmetric(horizontal: 4),
       onTap: _moveToTab,
       tabs: [
-        Tab(
-          key: const ValueKey('work-resource-files-tab'),
-          text: widget.resourceTitle,
-        ),
-        Tab(
-          key: const ValueKey('work-resource-audio-tab'),
-          text: s.workResourceAudio,
-        ),
-        if (_images.isNotEmpty)
-          Tab(
-            key: const ValueKey('work-resource-images-tab'),
-            text: s.workResourceImages,
-          ),
+        for (final tab in _tabKinds)
+          switch (tab) {
+            WorkResourceTab.resources => Tab(
+              key: const ValueKey('work-resource-files-tab'),
+              text: widget.resourceTitle,
+            ),
+            WorkResourceTab.audio => Tab(
+              key: const ValueKey('work-resource-audio-tab'),
+              text: s.workResourceAudio,
+            ),
+            WorkResourceTab.images => Tab(
+              key: const ValueKey('work-resource-images-tab'),
+              text: s.workResourceImages,
+            ),
+            WorkResourceTab.recommendations => Tab(
+              key: const ValueKey('work-resource-recommendations-tab'),
+              child: Text(
+                s.relatedRecommendations,
+                maxLines: 2,
+                textAlign: TextAlign.center,
+              ),
+            ),
+          },
       ],
     );
     return SliverMainAxisGroup(
@@ -310,50 +324,108 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
           position: _pagePosition,
           onDragStart: () {
             _motionTarget = null;
-            unawaited(_scrollToResourceTop());
+            _dragScrollPending = true;
             _pagePosition.stop(canceled: true);
           },
           onDragUpdate: _updatePagePosition,
           onDragEnd: _settlePagePosition,
           onDragCancel: () => _settlePagePosition(0),
           pages: [
-            widget.resourceSliver,
-            _audioList(context),
-            if (_images.isNotEmpty) _imageGrid(context),
+            for (final tab in _pageKinds)
+              SliverPadding(
+                key: ValueKey(tab),
+                padding: EdgeInsets.zero,
+                sliver: _pageFor(tab, context),
+              ),
           ],
         ),
       ],
     );
   }
 
-  bool get _selectedContentReady {
-    final page = _motionTarget ?? _selected;
-    return widget.resourcesReady && (page != 2 || _imagePageGatePassed.value);
+  List<WorkResourceTab> _buildPageKinds() => [
+    WorkResourceTab.resources,
+    WorkResourceTab.audio,
+    if (_images.isNotEmpty) WorkResourceTab.images,
+    if (widget.recommendationBuilder != null) WorkResourceTab.recommendations,
+  ];
+
+  List<WorkResourceTab> _visibleTabKinds(bool showRecommendations) => [
+    for (final tab in _pageKinds)
+      if (tab != WorkResourceTab.recommendations || showRecommendations) tab,
+  ];
+
+  WorkResourceTab _fallbackTab({
+    required WorkResourceTab current,
+    required int oldIndex,
+    required List<WorkResourceTab> nextTabs,
+  }) {
+    if (nextTabs.contains(current)) return current;
+    for (var index = oldIndex - 1; index >= 0; index--) {
+      final previous = _tabKinds[index];
+      if (nextTabs.contains(previous)) return previous;
+    }
+    if (nextTabs.contains(WorkResourceTab.audio)) return WorkResourceTab.audio;
+    return nextTabs.first;
   }
 
-  void _scheduleInitialContentReady() {
-    if (widget.onInitialContentReady == null ||
-        _initialContentReadyReported ||
-        _initialContentReadyScheduled ||
-        !_selectedContentReady) {
+  void _syncTabs({required bool showRecommendations}) {
+    final nextPages = _buildPageKinds();
+    final nextTabs = [
+      for (final tab in nextPages)
+        if (tab != WorkResourceTab.recommendations || showRecommendations) tab,
+    ];
+    if (listEquals(_pageKinds, nextPages) && listEquals(_tabKinds, nextTabs)) {
       return;
     }
-    _initialContentReadyScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initialContentReadyScheduled = false;
-      if (!mounted ||
-          _initialContentReadyReported ||
-          widget.onInitialContentReady == null ||
-          !_selectedContentReady) {
-        return;
-      }
-      _initialContentReadyReported = true;
-      widget.onInitialContentReady!.call();
-    });
+
+    final oldIndex = (_motionTarget ?? _selected)
+        .clamp(0, _tabKinds.length - 1)
+        .toInt();
+    final current = _tabKinds[oldIndex];
+    final selectedTab = _fallbackTab(
+      current: current,
+      oldIndex: oldIndex,
+      nextTabs: nextTabs,
+    );
+    final selected = nextTabs.indexOf(selectedTab);
+    _configuringTabs = true;
+    _pagePosition.stop(canceled: true);
+    _pagePosition.value = selected.toDouble();
+    _pageKinds = nextPages;
+    _tabKinds = nextTabs;
+    _selected = selected;
+    _motionTarget = null;
+    _tabs.dispose();
+    _tabs = TabController(
+      length: nextTabs.length,
+      initialIndex: selected,
+      animationDuration: Duration.zero,
+      vsync: this,
+    );
+    _configuringTabs = false;
+  }
+
+  Widget _pageFor(WorkResourceTab tab, BuildContext context) => switch (tab) {
+    WorkResourceTab.resources => widget.resourceSliver,
+    WorkResourceTab.audio => _audioList(context),
+    WorkResourceTab.images => _imageGrid(context),
+    WorkResourceTab.recommendations =>
+      _recommendationVisited
+          ? widget.recommendationBuilder!(context)
+          : const SliverToBoxAdapter(child: SizedBox.shrink()),
+  };
+
+  void _visitRecommendation(WorkResourceTab tab) {
+    if (tab != WorkResourceTab.recommendations || _recommendationVisited) {
+      return;
+    }
+    setState(() => _recommendationVisited = true);
   }
 
   void _moveToTab(int index) {
     syncTabWithPagePosition(_tabs, _pagePosition.value);
+    _visitRecommendation(_tabKinds[index]);
     _animateToPage(index.toDouble());
   }
 
@@ -361,10 +433,10 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     final page = target.clamp(0.0, (_tabs.length - 1).toDouble()).toDouble();
     _motionTarget = page.round();
     _updateImagePrefetch();
-    unawaited(_scrollToResourceTop());
     _pagePosition.stop(canceled: true);
     if (_reduceMotion) {
       _pagePosition.value = page;
+      await _scrollToResourceTop();
       return;
     }
     await _pagePosition.animateTo(
@@ -372,6 +444,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       duration: tabPageDuration,
       curve: Curves.ease,
     );
+    await _scrollToResourceTop();
   }
 
   void _updatePagePosition(double pageDelta) {
@@ -380,10 +453,15 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     _pagePosition.value = (_pagePosition.value + pageDelta)
         .clamp(0.0, maxPage)
         .toDouble();
+    if (_dragScrollPending) {
+      _dragScrollPending = false;
+      unawaited(_scrollToResourceTop());
+    }
     _scheduleImageInspection();
   }
 
   void _settlePagePosition(double velocity) {
+    _dragScrollPending = false;
     final page = _pagePosition.value;
     final target = velocity.abs() > 0.5
         ? (velocity > 0 ? page.floor() + 1 : page.ceil() - 1)
@@ -402,7 +480,16 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       syncTabWithPagePosition(_tabs, page);
     }
     final selected = page.round();
-    if (selected != _selected) setState(() => _selected = selected);
+    if (selected != _selected ||
+        (_tabKinds[selected] == WorkResourceTab.recommendations &&
+            !_recommendationVisited)) {
+      setState(() {
+        _selected = selected;
+        if (_tabKinds[selected] == WorkResourceTab.recommendations) {
+          _recommendationVisited = true;
+        }
+      });
+    }
     _scheduleImageInspection();
   }
 
@@ -423,13 +510,16 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   void _reportVisibleNames() {
     final callback = widget.onVisibleNamesChanged;
     if (callback == null) return;
-    final names = switch (_selected) {
-      0 => FileTreeUtils.collectNames(
+    final List<String> names = switch (_tabKinds[_selected]) {
+      WorkResourceTab.resources => FileTreeUtils.collectNames(
         widget.fileTree,
         expandedFolders: widget.expandedFolders,
       ),
-      2 => _currentImagePage.map(FileTreeUtils.titleOf).toSet().toList(),
-      _ => _audio.map((variant) => variant.title).toSet().toList(),
+      WorkResourceTab.images =>
+        _currentImagePage.map(FileTreeUtils.titleOf).toSet().toList(),
+      WorkResourceTab.audio =>
+        _audio.map((variant) => variant.title).toSet().toList(),
+      WorkResourceTab.recommendations => const [],
     };
     if (listEquals(_reportedNames, names)) return;
     _reportedNames = names;
@@ -546,9 +636,12 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   bool get _shouldPrepareImageTab {
     if (_images.isEmpty) return false;
     final target = _motionTarget;
-    if (target != null) return target == 2;
+    if (target != null) {
+      return _tabKinds[target] == WorkResourceTab.images;
+    }
     final page = _pagePosition.value;
-    return page.floor() == 2 || page.ceil() == 2;
+    return _tabKinds[page.floor()] == WorkResourceTab.images ||
+        _tabKinds[page.ceil()] == WorkResourceTab.images;
   }
 
   void _scheduleImageInspection() {
@@ -1025,12 +1118,13 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     unawaited(_scrollToResourceTop(animate: true));
   }
 
-  Future<void> _scrollToResourceTop({bool animate = false}) {
+  Future<void> _scrollToResourceTop({bool animate = false}) async {
+    await WidgetsBinding.instance.endOfFrame;
     final groupContext = _resourceGroupKey.currentContext;
     if (!mounted || groupContext == null || !groupContext.mounted) {
-      return Future<void>.value();
+      return;
     }
-    return Scrollable.ensureVisible(
+    await Scrollable.ensureVisible(
       groupContext,
       alignment: 0,
       duration: animate && !MediaQuery.disableAnimationsOf(groupContext)

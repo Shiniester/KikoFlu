@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:kikoeru_flutter/src/models/download_task_change.dart';
 import 'package:kikoeru_flutter/src/providers/download_provider.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
+import 'package:kikoeru_flutter/src/providers/recommendation_provider.dart';
 import 'package:kikoeru_flutter/src/services/downloaded_file_state_scanner.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +16,7 @@ import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     show KikoeruApiService;
 import 'package:kikoeru_flutter/src/widgets/file_explorer_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/offline_file_explorer_widget.dart';
+import 'package:kikoeru_flutter/src/widgets/work_detail/recommendation_section.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -31,6 +33,17 @@ class _FailingApiService extends KikoeruApiService {
   }
 }
 
+class _Recommendations extends RecommendationNotifier {
+  _Recommendations(super.ref, super.accessId);
+
+  int requests = 0;
+
+  @override
+  Future<void> loadRecommendations(Work work) async {
+    requests++;
+  }
+}
+
 class _TreeApi extends KikoeruApiService {
   int calls = 0;
   @override
@@ -40,24 +53,6 @@ class _TreeApi extends KikoeruApiService {
   }) async => [
     {'type': 'audio', 'title': 'track.mp3', 'hash': 'hash-${calls++}'},
   ];
-}
-
-class _DeferredTreeApi extends KikoeruApiService {
-  final tracks = Completer<List<dynamic>>();
-
-  @override
-  Future<List<dynamic>> getWorkTracks(
-    int workId, {
-    bool forceRefresh = false,
-  }) => tracks.future;
-}
-
-class _EmptyTreeApi extends KikoeruApiService {
-  @override
-  Future<List<dynamic>> getWorkTracks(
-    int workId, {
-    bool forceRefresh = false,
-  }) async => [];
 }
 
 class _PreferredTreeApi extends KikoeruApiService {
@@ -227,26 +222,28 @@ void main() {
     expect(apiService.forceRefreshCalls, [false, true]);
   });
 
-  testWidgets('initial content readiness follows prepared audio resources', (
+  testWidgets('failed online trees still expose recommendations on selection', (
     tester,
   ) async {
-    final apiService = _DeferredTreeApi();
     final downloads = _Downloads();
     addTearDown(downloads.changes.close);
     final loaded = Completer<void>();
-    var initialContentReady = false;
     final scanner = DownloadedFileStateScanner(
       downloadRootPath: () async => '/downloads',
       resolveDownloadedPath: (_, __) async => null,
       fileExists: (_) async => false,
     );
+    _Recommendations? recommendations;
 
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          kikoeruApiServiceProvider.overrideWithValue(apiService),
+          kikoeruApiServiceProvider.overrideWithValue(_FailingApiService()),
           downloadServiceProvider.overrideWithValue(downloads),
           downloadedFileStateScannerProvider.overrideWithValue(scanner),
+          recommendationProvider.overrideWith(
+            (ref, id) => recommendations = _Recommendations(ref, id),
+          ),
         ],
         child: MaterialApp(
           localizationsDelegates: S.localizationsDelegates,
@@ -259,7 +256,6 @@ void main() {
                   onLoadCompleted: () {
                     if (!loaded.isCompleted) loaded.complete();
                   },
-                  onInitialContentReady: () => initialContentReady = true,
                 ),
               ],
             ),
@@ -267,81 +263,22 @@ void main() {
         ),
       ),
     );
-    expect(initialContentReady, isFalse);
-
-    apiService.tracks.complete(_preferredAudioTree());
     await tester.runAsync(() => loaded.future);
-    expect(initialContentReady, isFalse);
-
-    await tester.pump();
-    expect(initialContentReady, isTrue);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('initial content readiness releases for empty and failed trees', (
-    tester,
-  ) async {
-    final downloads = _Downloads();
-    addTearDown(downloads.changes.close);
-    final scanner = DownloadedFileStateScanner(
-      downloadRootPath: () async => '/downloads',
-      resolveDownloadedPath: (_, __) async => null,
-      fileExists: (_) async => false,
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('work-resource-recommendations-tab')),
+      findsOneWidget,
     );
-    var readyCalls = 0;
-    var errorWasVisibleAtReady = false;
-    var loaded = Completer<void>();
-
-    Future<void> pumpExplorer(KikoeruApiService apiService) async {
-      loaded = Completer<void>();
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            kikoeruApiServiceProvider.overrideWithValue(apiService),
-            downloadServiceProvider.overrideWithValue(downloads),
-            downloadedFileStateScannerProvider.overrideWithValue(scanner),
-          ],
-          child: MaterialApp(
-            locale: const Locale('en'),
-            localizationsDelegates: S.localizationsDelegates,
-            supportedLocales: S.supportedLocales,
-            home: Scaffold(
-              body: CustomScrollView(
-                slivers: [
-                  FileExplorerWidget(
-                    work: const Work(id: 39, title: 'Work'),
-                    onLoadCompleted: () {
-                      if (!loaded.isCompleted) loaded.complete();
-                    },
-                    onInitialContentReady: () {
-                      readyCalls++;
-                      errorWasVisibleAtReady = find
-                          .textContaining('network unavailable')
-                          .evaluate()
-                          .isNotEmpty;
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    await pumpExplorer(_EmptyTreeApi());
-    await tester.runAsync(() => loaded.future);
-    await tester.pump();
-    expect(readyCalls, 1);
-    expect(errorWasVisibleAtReady, isFalse);
-
-    await tester.pumpWidget(const SizedBox.shrink());
-    readyCalls = 0;
-    await pumpExplorer(_FailingApiService());
-    await tester.runAsync(() => loaded.future);
-    await tester.pump();
-    expect(readyCalls, 1);
-    expect(errorWasVisibleAtReady, isTrue);
+    expect(
+      find.byType(RecommendationSection, skipOffstage: false),
+      findsNothing,
+    );
+    expect(recommendations, isNull);
+    await tester.tap(
+      find.byKey(const ValueKey('work-resource-recommendations-tab')),
+    );
+    await tester.pumpAndSettle();
+    expect(recommendations!.requests, 1);
     expect(tester.takeException(), isNull);
   });
 

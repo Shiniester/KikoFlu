@@ -64,7 +64,6 @@ class WorkDetailScreen extends ConsumerStatefulWidget {
 class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   Work? _detailedWork;
   final _metadataChanges = ValueNotifier(0);
-  final _initialContentReady = ValueNotifier(false);
   final _deferredContentReady = ValueNotifier(false);
   final _routeReadiness = WorkDetailRouteReadiness();
   bool _initialLoadStarted = false;
@@ -180,17 +179,6 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     unawaited(_showDeferredContentWhenIdle());
   }
 
-  void _onInitialContentReady() {
-    if (_initialContentReady.value) return;
-    unawaited(_publishInitialContentReadyWhenIdle());
-  }
-
-  Future<void> _publishInitialContentReadyWhenIdle() async {
-    final ready = await _routeReadiness.waitForIdle();
-    if (!mounted || !ready || _initialContentReady.value) return;
-    _initialContentReady.value = true;
-  }
-
   Future<void> _showDeferredContentWhenIdle() async {
     final autoTranslateFuture = ref
         .read(autoTranslateWorkDetailsProvider.notifier)
@@ -302,7 +290,6 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   @override
   void dispose() {
     _metadataChanges.dispose();
-    _initialContentReady.dispose();
     _deferredContentReady.dispose();
     _showDetailCover.dispose();
     _hdImageProvider.dispose();
@@ -872,22 +859,15 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
                 ? FileExplorerWidget(
                     work: widget.work,
                     currentWork: () => _currentWork,
-                    onInitialContentReady: _onInitialContentReady,
+                    recommendationBuilder: (context) => ListenableBuilder(
+                      listenable: _metadataChanges,
+                      builder: (context, _) =>
+                          RecommendationSection(work: _currentWork),
+                    ),
                     controller: _fileExplorerController,
                     initialLoadReady: _routeReadiness.waitForIdle,
                     translate: _showTranslation,
                   )
-                : const SliverToBoxAdapter(child: SizedBox.shrink()),
-          ),
-
-          // 相关推荐
-          ListenableBuilder(
-            listenable: Listenable.merge([
-              _metadataChanges,
-              _initialContentReady,
-            ]),
-            builder: (context, _) => _initialContentReady.value
-                ? RecommendationSection(work: _currentWork)
                 : const SliverToBoxAdapter(child: SizedBox.shrink()),
           ),
         ],

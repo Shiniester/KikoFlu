@@ -41,7 +41,8 @@ It is distinct from the Player Audio Details Page for the current track.
 _Avoid_: Player details page, audio details page
 
 **Related Recommendations (相关推荐)**:
-Works shown at the bottom of a Work Details Screen, ranked using subject tags,
+Works shown in the rightmost resource tab of an online Work Details Screen,
+ranked using subject tags,
 personal preferences, voice actors, circles, subtitle availability and public
 ratings. Previously played works can remain in the list at a lower rank. When
 the same work has Chinese editions, simplified Chinese is preferred over
@@ -59,7 +60,9 @@ candidates to add variety while keeping the same detail visit stable.
 _Avoid_: Random recommendation, refresh result
 
 **Work Resource Tabs (作品资源标签)**:
-The Resource Files, Audio and Images views within a Work Details Screen. Audio
+The Resources, Audio, Images and Related Recommendations views within a Work
+Details Screen. Related Recommendations is the rightmost tab of online details
+when enabled; Images is present only when the work has resource images. Audio
 contains preferred audio files and their best matching work subtitles; Images
 contains the work's resource images, separate from its cover.
 _Avoid_: App Tab Bar, Works Home Tab

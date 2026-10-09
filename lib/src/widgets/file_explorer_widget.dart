@@ -38,6 +38,7 @@ import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
 import 'work_image_reader.dart';
 import 'work_resource_tabs.dart';
+import 'work_detail/recommendation_section.dart';
 import 'manual_subtitle_load_flow.dart';
 import 'text_preview_screen.dart';
 import 'pdf_preview_screen.dart';
@@ -80,7 +81,7 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
   final Work work;
   final Work Function()? currentWork;
   final VoidCallback? onLoadCompleted;
-  final VoidCallback? onInitialContentReady;
+  final WidgetBuilder? recommendationBuilder;
   final FileExplorerController? controller;
   final Future<bool> Function()? initialLoadReady;
   final bool translate;
@@ -90,7 +91,7 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
     required this.work,
     this.currentWork,
     this.onLoadCompleted,
-    this.onInitialContentReady,
+    this.recommendationBuilder,
     this.controller,
     this.initialLoadReady,
     this.translate = false,
@@ -113,8 +114,6 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   bool _isLoading = true;
   String? _errorMessage;
   bool _audioVariantsReady = false;
-  bool _initialContentReadyScheduled = false;
-  bool _initialContentReadyReported = false;
   int _preferenceUpdateGeneration = 0;
   StreamSubscription<DownloadTaskChange>? _downloadTasksSubscription;
   int _loadGeneration = 0;
@@ -923,16 +922,19 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       fadeDownloadedItems: true,
       showHeader: false,
     );
-    if (_isLoading || _errorMessage != null) {
-      if (_errorMessage != null) _scheduleInitialContentReadyAfterError();
-      return tree;
-    }
+    if (_isLoading) return tree;
     return WorkResourceTabs(
       workId: _work.id,
       fileTree: _rootFiles,
       audioVariants: _audioVariants,
       resourceSliver: tree,
-      resourceTitle: S.of(context).resourceFiles,
+      resourceTitle: S.of(context).workResources,
+      initialTab: _errorMessage == null
+          ? WorkResourceTab.audio
+          : WorkResourceTab.resources,
+      recommendationBuilder:
+          widget.recommendationBuilder ??
+          (context) => RecommendationSection(work: _work),
       progressMessage: _translationController.isBulkTranslating
           ? _translationController.progress
           : null,
@@ -946,8 +948,6 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       downloadedFiles: _downloadedFiles,
       expandedFolders: _expandedFolders,
       onVisibleNamesChanged: _onVisibleNamesChanged,
-      resourcesReady: _audioVariantsReady,
-      onInitialContentReady: _reportInitialContentReady,
       onImageTap: _previewImageFile,
       resolveImage: (file) async {
         final auth = ref.read(authProvider);
@@ -963,28 +963,6 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
         return items.firstOrNull;
       },
     );
-  }
-
-  void _scheduleInitialContentReadyAfterError() {
-    if (_initialContentReadyReported ||
-        _initialContentReadyScheduled ||
-        widget.onInitialContentReady == null) {
-      return;
-    }
-    _initialContentReadyScheduled = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initialContentReadyScheduled = false;
-      if (!mounted || _isLoading || _errorMessage == null) return;
-      _reportInitialContentReady();
-    });
-  }
-
-  void _reportInitialContentReady() {
-    if (_initialContentReadyReported || widget.onInitialContentReady == null) {
-      return;
-    }
-    _initialContentReadyReported = true;
-    widget.onInitialContentReady!.call();
   }
 
   Widget? _buildFileMetadata(BuildContext context, FileTreeEntry entry) {

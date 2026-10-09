@@ -2321,6 +2321,9 @@ class SZh extends S {
   String get resourceFiles => '资源文件';
 
   @override
+  String get workResources => '资源';
+
+  @override
   String get workResourceAudio => '音频';
 
   @override
@@ -6356,6 +6359,9 @@ class SZhHant extends SZh {
 
   @override
   String get resourceFiles => '資源檔案';
+
+  @override
+  String get workResources => '資源';
 
   @override
   String get workResourceAudio => '音訊';

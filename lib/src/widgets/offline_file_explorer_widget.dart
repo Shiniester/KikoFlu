@@ -651,7 +651,7 @@ class _OfflineFileExplorerWidgetState
       fileTree: _localFiles,
       audioVariants: _audioVariants,
       resourceSliver: tree,
-      resourceTitle: S.of(context).resourceFiles,
+      resourceTitle: S.of(context).workResources,
       onPlayAudio: (file, path, files) =>
           _playAudioFile(file, path, audioFiles: files),
       onFileTap: _handleFileTap,
