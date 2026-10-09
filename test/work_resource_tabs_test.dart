@@ -102,6 +102,7 @@ Future<void> _pumpResources(
   WidgetBuilder? recommendationBuilder,
   Widget? introSliver,
   Widget? resourceSliver,
+  String? progressMessage,
   Locale locale = const Locale('en'),
   WorkResourceTab initialTab = WorkResourceTab.audio,
   ProviderContainer? providerContainer,
@@ -144,6 +145,7 @@ Future<void> _pumpResources(
                       ),
                   resourceTitle: S.of(context).workResources,
                   recommendationBuilder: recommendation,
+                  progressMessage: progressMessage,
                   initialTab: initialTab,
                   onPlayAudio: onPlay ?? (_, __, ___) {},
                   onFileTap: onFileTap ?? (_, __, ___) {},
@@ -188,6 +190,30 @@ Finder _loadingOverlaySpinner() => find.byKey(
   skipOffstage: false,
 );
 
+String _firstVisibleNumberedText(
+  WidgetTester tester, {
+  required String prefix,
+  required String suffix,
+  required int count,
+}) {
+  for (var index = 0; index < count; index++) {
+    final title = '$prefix$index$suffix';
+    final finder = find.text(title);
+    if (finder.evaluate().isEmpty) continue;
+    final rect = tester.getRect(finder);
+    if (rect.top >= 60 && rect.bottom <= 500) return title;
+  }
+  throw TestFailure('No visible title matched "$prefix…$suffix"');
+}
+
+double _textTop(WidgetTester tester, String title) =>
+    tester.getTopLeft(find.text(title)).dy;
+
+Future<void> _tapWithoutPump(WidgetTester tester, Finder finder) async {
+  final gesture = await tester.startGesture(tester.getCenter(finder));
+  await gesture.up();
+}
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -224,19 +250,21 @@ void main() {
     scroll.jumpTo(scroll.offset + 500);
     await tester.pump();
     expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(0, 1));
+    final sourceOffset = scroll.offset;
 
     final gesture = await tester.startGesture(
       tester.getCenter(find.text('resource item 12')),
     );
     await gesture.moveBy(const Offset(-430, 0));
     await tester.pump();
-    expect(scroll.offset, lessThanOrEqualTo(180));
-    expect(tester.getBottomLeft(find.byType(TabBar)).dy, greaterThan(0));
+    expect(scroll.offset, closeTo(sourceOffset, 1));
+    expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(0, 1));
     expect(find.text('recommendation 11'), findsNothing);
     await gesture.up();
     await tester.pumpAndSettle();
 
-    expect(tester.getBottomLeft(find.byType(TabBar)).dy, greaterThan(0));
+    expect(scroll.offset, closeTo(180, 1));
+    expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(0, 1));
     expect(find.text('recommendation 11'), findsNothing);
 
     await tester.ensureVisible(
@@ -435,6 +463,212 @@ void main() {
     expect(scroll.offset, closeTo(450, 1));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('unpulled tab taps show the target at its restored position', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final tree = ValueNotifier<List<dynamic>>(_audioFiles(50));
+    final scroll = ScrollController();
+    var resourceTapped = false;
+    addTearDown(tree.dispose);
+    addTearDown(scroll.dispose);
+
+    await _pumpResources(
+      tester,
+      tree,
+      controller: scroll,
+      introSliver: const SliverToBoxAdapter(
+        child: SizedBox(height: 180, child: Text('work introduction')),
+      ),
+      resourceSliver: SliverList.builder(
+        itemCount: 50,
+        itemBuilder: (context, index) => GestureDetector(
+          onTap: () => resourceTapped = true,
+          child: SizedBox(height: 48, child: Text('resource item $index')),
+        ),
+      ),
+      progressMessage: 'Loading resource files',
+    );
+    scroll.jumpTo(80);
+    await tester.pump();
+    final audioTitle = _firstVisibleNumberedText(
+      tester,
+      prefix: 'track',
+      suffix: '.wav',
+      count: 50,
+    );
+    final audioTop = _textTop(tester, audioTitle);
+
+    await _tapWithoutPump(
+      tester,
+      find.byKey(const ValueKey('work-resource-files-tab')),
+    );
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(find.text(audioTitle).hitTestable(), findsOneWidget);
+    expect(_textTop(tester, audioTitle), closeTo(audioTop, 1));
+
+    double? firstResourceTop;
+    const viewport = Rect.fromLTWH(0, 0, 390, 500);
+    for (var frame = 0; frame < 30 && firstResourceTop == null; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      final visibleAudio = find.text(audioTitle).hitTestable();
+      if (visibleAudio.evaluate().isNotEmpty) {
+        expect(_textTop(tester, audioTitle), closeTo(audioTop, 1));
+      }
+      final candidate = find.text('resource item 0', skipOffstage: false);
+      if (candidate.evaluate().isNotEmpty) {
+        final rect = tester.getRect(candidate.first);
+        if (rect.overlaps(viewport)) firstResourceTop = rect.top;
+      }
+    }
+    expect(firstResourceTop, isNotNull);
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pump();
+    final resourceTop = _textTop(tester, 'resource item 0');
+    expect(scroll.offset, closeTo(180, 1));
+    expect(find.text('Loading resource files'), findsOneWidget);
+    expect(resourceTop, closeTo(firstResourceTop!, 1));
+    expect(find.text('resource item 0').hitTestable(), findsOneWidget);
+    await tester.tap(find.text('resource item 0'));
+    expect(resourceTapped, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'each page keeps its content position through tap and swipe frames',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 500));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final tree = ValueNotifier<List<dynamic>>(_audioFiles(50));
+      final scroll = ScrollController();
+      addTearDown(tree.dispose);
+      addTearDown(scroll.dispose);
+
+      await _pumpResources(
+        tester,
+        tree,
+        controller: scroll,
+        introSliver: const SliverToBoxAdapter(
+          child: SizedBox(height: 180, child: Text('work introduction')),
+        ),
+        resourceSliver: SliverList.builder(
+          itemCount: 50,
+          itemBuilder: (context, index) =>
+              SizedBox(height: 48, child: Text('resource item $index')),
+        ),
+      );
+
+      scroll.jumpTo(450);
+      await tester.pump();
+      final audioTitle = _firstVisibleNumberedText(
+        tester,
+        prefix: 'track',
+        suffix: '.wav',
+        count: 50,
+      );
+      final audioTop = _textTop(tester, audioTitle);
+      void expectVisibleTop(String title, double expectedTop) {
+        final visible = find.text(title).hitTestable();
+        if (visible.evaluate().isNotEmpty) {
+          expect(_textTop(tester, title), closeTo(expectedTop, 1));
+        }
+      }
+
+      await _tapWithoutPump(
+        tester,
+        find.byKey(const ValueKey('work-resource-files-tab')),
+      );
+      double? firstResourceTop;
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(find.text(audioTitle).hitTestable(), findsOneWidget);
+      expect(_textTop(tester, audioTitle), closeTo(audioTop, 1));
+      for (final duration in [
+        const Duration(milliseconds: 120),
+        const Duration(milliseconds: 120),
+        const Duration(milliseconds: 120),
+      ]) {
+        await tester.pump(duration);
+        expectVisibleTop(audioTitle, audioTop);
+        final visibleResource = find.text('resource item 0').hitTestable();
+        if (visibleResource.evaluate().isNotEmpty) {
+          final top = _textTop(tester, 'resource item 0');
+          firstResourceTop ??= top;
+          expect(top, closeTo(firstResourceTop, 1));
+        }
+      }
+      expect(firstResourceTop, isNotNull);
+      await tester.pumpAndSettle();
+      final resourceTop = _textTop(tester, 'resource item 0');
+      expect(
+        resourceTop,
+        closeTo(tester.getBottomLeft(find.byType(TabBar)).dy, 1),
+      );
+      if (firstResourceTop != null) {
+        expect(resourceTop, closeTo(firstResourceTop, 1));
+      }
+
+      scroll.jumpTo(600);
+      await tester.pump();
+      final resourceTitle = _firstVisibleNumberedText(
+        tester,
+        prefix: 'resource item ',
+        suffix: '',
+        count: 50,
+      );
+      final resourceItemTop = _textTop(tester, resourceTitle);
+
+      await _tapWithoutPump(
+        tester,
+        find.byKey(const ValueKey('work-resource-audio-tab')),
+      );
+      double? firstAudioTop;
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(find.text(resourceTitle).hitTestable(), findsOneWidget);
+      expect(_textTop(tester, resourceTitle), closeTo(resourceItemTop, 1));
+      for (final duration in [
+        const Duration(milliseconds: 120),
+        const Duration(milliseconds: 120),
+        const Duration(milliseconds: 120),
+      ]) {
+        await tester.pump(duration);
+        expectVisibleTop(resourceTitle, resourceItemTop);
+        final visibleAudio = find.text(audioTitle).hitTestable();
+        if (visibleAudio.evaluate().isNotEmpty) {
+          final top = _textTop(tester, audioTitle);
+          firstAudioTop ??= top;
+          expect(top, closeTo(audioTop, 1));
+          expect(top, closeTo(firstAudioTop, 1));
+        }
+      }
+      expect(firstAudioTop, isNotNull);
+      await tester.pumpAndSettle();
+      expect(_textTop(tester, audioTitle), closeTo(audioTop, 1));
+
+      final swipeToResources = await tester.startGesture(
+        tester.getCenter(find.text(audioTitle)),
+      );
+      await swipeToResources.moveBy(const Offset(70, 0));
+      await tester.pump(const Duration(milliseconds: 80));
+      expectVisibleTop(audioTitle, audioTop);
+      expectVisibleTop(resourceTitle, resourceItemTop);
+
+      await swipeToResources.moveBy(const Offset(170, 0));
+      await tester.pump(const Duration(milliseconds: 80));
+      expectVisibleTop(audioTitle, audioTop);
+      expectVisibleTop(resourceTitle, resourceItemTop);
+      await swipeToResources.moveBy(const Offset(80, 0));
+      await tester.pump(const Duration(milliseconds: 80));
+      await swipeToResources.up();
+      await tester.pump(const Duration(milliseconds: 120));
+      expectVisibleTop(audioTitle, audioTop);
+      expectVisibleTop(resourceTitle, resourceItemTop);
+      await tester.pumpAndSettle();
+      expect(_textTop(tester, resourceTitle), closeTo(resourceItemTop, 1));
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('a new swipe cancels a pending reduced-motion offset restore', (
     tester,

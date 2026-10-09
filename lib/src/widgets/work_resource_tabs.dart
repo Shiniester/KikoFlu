@@ -128,7 +128,6 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   bool _reduceMotion = false;
   bool _tabSyncScheduled = false;
   bool _configuringTabs = false;
-  bool _dragScrollPending = false;
   double? _unpinnedSwipeOffset;
   bool _fillResourceViewport = false;
   bool _recommendationVisited = false;
@@ -311,72 +310,100 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
           },
       ],
     );
-    return SliverMainAxisGroup(
-      key: _resourceGroupKey,
-      slivers: [
-        SliverPersistentHeader(
-          pinned: true,
-          delegate: _ResourceTabsHeaderDelegate(
-            tabBar: tabBar,
-            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+    return SliverLayoutBuilder(
+      builder: (context, groupConstraints) => SliverMainAxisGroup(
+        key: _resourceGroupKey,
+        slivers: [
+          SliverPersistentHeader(
+            pinned: true,
+            delegate: _ResourceTabsHeaderDelegate(
+              tabBar: tabBar,
+              backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+            ),
           ),
-        ),
-        if (widget.progressMessage case final message? when message.isNotEmpty)
-          SliverToBoxAdapter(
-            child: FileExplorerProgressBanner(message: message),
-          ),
-        SliverLayoutBuilder(
-          builder: (context, constraints) => SliverMainAxisGroup(
-            slivers: [
-              SliverTabPageView(
-                position: _pagePosition,
-                onDragStart: () {
-                  _tabMotionGeneration++;
-                  _motionTarget = null;
-                  _dragScrollPending = true;
-                  final offset = _resourceScrollOffset();
-                  _unpinnedSwipeOffset = offset < 0 ? offset : null;
-                  // Keep short destinations from shrinking the scroll range.
-                  if (offset < 0 && !_fillResourceViewport) {
-                    setState(() => _fillResourceViewport = true);
-                  }
-                  _beginTabTransition();
-                  _pagePosition.stop(canceled: true);
-                },
-                onDragUpdate: _updatePagePosition,
-                onDragEnd: _settlePagePosition,
-                onDragCancel: () => _settlePagePosition(0),
-                pages: [
-                  for (final tab in _pageKinds)
-                    SliverPadding(
-                      key: ValueKey(tab),
-                      padding: EdgeInsets.zero,
-                      sliver: _pageFor(tab, context),
-                    ),
+          if (widget.progressMessage case final message?
+              when message.isNotEmpty)
+            SliverToBoxAdapter(
+              child: FileExplorerProgressBanner(message: message),
+            ),
+          SliverLayoutBuilder(
+            builder: (context, constraints) {
+              final leadingExtent =
+                  constraints.precedingScrollExtent -
+                  groupConstraints.precedingScrollExtent;
+              final transitionPages = _pageKinds;
+              final transitionGeneration = _tabMotionGeneration;
+              return SliverMainAxisGroup(
+                slivers: [
+                  SliverTabPageView(
+                    position: _pagePosition,
+                    onDragStart: () {
+                      _tabMotionGeneration++;
+                      _motionTarget = null;
+                      final offset = _resourceScrollOffset();
+                      _unpinnedSwipeOffset = offset < 0 ? offset : null;
+                      _beginTabTransition();
+                      _pagePosition.stop(canceled: true);
+                    },
+                    onDragUpdate: _updatePagePosition,
+                    onDragEnd: _settlePagePosition,
+                    onDragCancel: () => _settlePagePosition(0),
+                    pageResourceOffsets: [
+                      for (final tab in _pageKinds)
+                        _unpinnedSwipeOffset ?? _tabScrollOffsets[tab] ?? 0,
+                    ],
+                    leadingExtent: leadingExtent,
+                    transitionSourceIndex: _transitionSource == null
+                        ? null
+                        : _pageKinds.indexOf(_transitionSource!),
+                    onPageResourceOffsetCorrected: (pageIndex, correction) {
+                      final tab = transitionPages[pageIndex];
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!mounted ||
+                            transitionGeneration != _tabMotionGeneration ||
+                            !_pageKinds.contains(tab)) {
+                          return;
+                        }
+                        _tabScrollOffsets[tab] =
+                            ((_tabScrollOffsets[tab] ?? 0) + correction)
+                                .clamp(0.0, double.infinity)
+                                .toDouble();
+                        setState(() {});
+                      });
+                    },
+                    pages: [
+                      for (final tab in _pageKinds)
+                        SliverPadding(
+                          key: ValueKey(tab),
+                          padding: EdgeInsets.zero,
+                          sliver: _pageFor(tab, context),
+                        ),
+                    ],
+                  ),
+                  SliverLayoutBuilder(
+                    builder: (context, tailConstraints) {
+                      final pageExtent =
+                          tailConstraints.precedingScrollExtent -
+                          constraints.precedingScrollExtent;
+                      final tailExtent =
+                          ((_fillResourceViewport
+                                      ? constraints.viewportMainAxisExtent -
+                                            tabBar.preferredSize.height
+                                      : 0) -
+                                  pageExtent)
+                              .clamp(0.0, double.infinity)
+                              .toDouble();
+                      return SliverToBoxAdapter(
+                        child: SizedBox(height: tailExtent),
+                      );
+                    },
+                  ),
                 ],
-              ),
-              SliverLayoutBuilder(
-                builder: (context, tailConstraints) {
-                  final pageExtent =
-                      tailConstraints.precedingScrollExtent -
-                      constraints.precedingScrollExtent;
-                  final tailExtent =
-                      ((_fillResourceViewport
-                                  ? constraints.viewportMainAxisExtent -
-                                        tabBar.preferredSize.height
-                                  : 0) -
-                              pageExtent)
-                          .clamp(0.0, double.infinity)
-                          .toDouble();
-                  return SliverToBoxAdapter(
-                    child: SizedBox(height: tailExtent),
-                  );
-                },
-              ),
-            ],
+              );
+            },
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -477,10 +504,14 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   void _beginTabTransition() {
     if (_transitionSource != null) return;
     final source = _tabKinds[_selected.clamp(0, _tabKinds.length - 1)];
-    _transitionSource = source;
-    _tabScrollOffsets[source] = _resourceScrollOffset()
+    final offset = _resourceScrollOffset()
         .clamp(0.0, double.infinity)
         .toDouble();
+    setState(() {
+      _fillResourceViewport = true;
+      _transitionSource = source;
+      _tabScrollOffsets[source] = offset;
+    });
   }
 
   Future<void> _animateToPage(double target) async {
@@ -512,17 +543,10 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     _pagePosition.value = (_pagePosition.value + pageDelta)
         .clamp(0.0, maxPage)
         .toDouble();
-    if (_dragScrollPending) {
-      _dragScrollPending = false;
-      if (_unpinnedSwipeOffset == null) {
-        unawaited(_scrollToResourceTop());
-      }
-    }
     _scheduleImageInspection();
   }
 
   void _settlePagePosition(double velocity) {
-    _dragScrollPending = false;
     final page = _pagePosition.value;
     final target = velocity.abs() > 0.5
         ? (velocity > 0 ? page.floor() + 1 : page.ceil() - 1)
@@ -1216,10 +1240,12 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
               .toDouble();
       if (position.pixels != offset) position.jumpTo(offset);
     }
-    if (generation == _tabMotionGeneration) {
-      _transitionSource = null;
-      _motionTarget = null;
-      _unpinnedSwipeOffset = null;
+    if (generation == _tabMotionGeneration && mounted) {
+      setState(() {
+        _transitionSource = null;
+        _motionTarget = null;
+        _unpinnedSwipeOffset = null;
+      });
     }
   }
 

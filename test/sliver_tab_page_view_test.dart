@@ -55,7 +55,172 @@ Widget _fixture(
   ),
 );
 
+Widget _offsetFixture(
+  ValueNotifier<double> page,
+  ScrollController scroll,
+  ValueNotifier<int?> transitionSource, {
+  List<double> pageResourceOffsets = const [270, 0],
+  bool masonryTarget = false,
+  void Function(int pageIndex, double correction)?
+  onPageResourceOffsetCorrected,
+}) => MaterialApp(
+  home: Scaffold(
+    body: ValueListenableBuilder<double>(
+      valueListenable: page,
+      builder: (context, position, _) => ValueListenableBuilder<int?>(
+        valueListenable: transitionSource,
+        builder: (context, source, _) => CustomScrollView(
+          controller: scroll,
+          slivers: [
+            const SliverToBoxAdapter(child: SizedBox(height: 80)),
+            SliverTabPageView(
+              position: AlwaysStoppedAnimation(position),
+              onDragStart: () {},
+              onDragUpdate: (delta) =>
+                  page.value = (page.value + delta).clamp(0.0, 1.0),
+              onDragEnd: (_) => page.value = page.value.roundToDouble(),
+              onDragCancel: () {},
+              pageResourceOffsets: pageResourceOffsets,
+              leadingExtent: 0,
+              transitionSourceIndex: source,
+              onPageResourceOffsetCorrected: onPageResourceOffsetCorrected,
+              pages: [
+                SliverList.builder(
+                  key: const ValueKey('resource-page'),
+                  itemCount: 80,
+                  itemBuilder: (context, index) =>
+                      SizedBox(height: 48, child: Text('resource $index')),
+                ),
+                masonryTarget
+                    ? SliverLayoutBuilder(
+                        builder: (context, constraints) =>
+                            SliverMasonryGrid.count(
+                              key: const ValueKey('image-page'),
+                              crossAxisCount: constraints.crossAxisExtent > 600
+                                  ? 4
+                                  : 2,
+                              childCount: 80,
+                              itemBuilder: (context, index) => SizedBox(
+                                height: index.isEven ? 96 : 152,
+                                child: Text('image $index'),
+                              ),
+                            ),
+                      )
+                    : SliverList.builder(
+                        key: const ValueKey('audio-page'),
+                        itemCount: 80,
+                        itemBuilder: (context, index) =>
+                            SizedBox(height: 52, child: Text('audio $index')),
+                      ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  ),
+);
+
 void main() {
+  testWidgets('transition lays out each page at its saved offset', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final page = ValueNotifier(0.0);
+    final transitionSource = ValueNotifier<int?>(null);
+    final scroll = ScrollController();
+    addTearDown(page.dispose);
+    addTearDown(transitionSource.dispose);
+    addTearDown(scroll.dispose);
+
+    await tester.pumpWidget(_offsetFixture(page, scroll, transitionSource));
+    scroll.jumpTo(350);
+    await tester.pump();
+
+    final resourcePage = tester.renderObject<RenderSliver>(
+      find.byKey(const ValueKey('resource-page')),
+    );
+    expect(resourcePage.constraints.scrollOffset, closeTo(270, 1));
+
+    transitionSource.value = 0;
+    page.value = 0.5;
+    await tester.pump();
+    final audioPage = tester.renderObject<RenderSliver>(
+      find.byKey(const ValueKey('audio-page')),
+    );
+    expect(resourcePage.constraints.scrollOffset, closeTo(270, 1));
+    expect(audioPage.constraints.scrollOffset, closeTo(0, 1));
+
+    page.value = 1;
+    await tester.pump();
+    scroll.jumpTo(80);
+    await tester.pump();
+    transitionSource.value = null;
+    await tester.pump();
+    expect(audioPage.constraints.scrollOffset, closeTo(0, 1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'a masonry target correction stays local during a tab transition',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 500));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final page = ValueNotifier(1.0);
+      final transitionSource = ValueNotifier<int?>(null);
+      final scroll = ScrollController();
+      final corrections = <double>[];
+      int? correctedPage;
+      addTearDown(page.dispose);
+      addTearDown(transitionSource.dispose);
+      addTearDown(scroll.dispose);
+
+      await tester.pumpWidget(
+        _offsetFixture(
+          page,
+          scroll,
+          transitionSource,
+          pageResourceOffsets: const [600, 600],
+          masonryTarget: true,
+          onPageResourceOffsetCorrected: (pageIndex, correction) {
+            correctedPage = pageIndex;
+            corrections.add(correction);
+          },
+        ),
+      );
+      scroll.jumpTo(680);
+      await tester.pump();
+      expect(find.text('image 12').hitTestable(), findsOneWidget);
+
+      page.value = 0;
+      await tester.pump();
+      final sourceBeforeResize = tester.getTopLeft(find.text('resource 13')).dy;
+      await tester.binding.setSurfaceSize(const Size(700, 500));
+      await tester.pump();
+      expect(scroll.offset, closeTo(680, 1));
+      expect(
+        tester.getTopLeft(find.text('resource 13')).dy,
+        closeTo(sourceBeforeResize, 1),
+      );
+
+      transitionSource.value = 0;
+      page.value = 0.5;
+      await tester.pump();
+      expect(scroll.offset, closeTo(680, 1));
+      expect(correctedPage, 1);
+      expect(corrections, hasLength(1));
+      final imagePage = tester.renderObject<RenderSliver>(
+        find.byKey(const ValueKey('image-page')),
+      );
+      expect(
+        imagePage.constraints.scrollOffset,
+        closeTo(600 + corrections.single, 1),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets(
     'sliding preserves lazy outer scrolling and selected page extent',
     (tester) async {
