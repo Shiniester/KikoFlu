@@ -58,6 +58,13 @@ List<dynamic> _files({bool images = false}) => [
   ],
 ];
 
+List<dynamic> _audioFiles(int count, {bool images = false}) => [
+  for (var index = 0; index < count; index++)
+    {'type': 'audio', 'title': 'track$index.wav', 'hash': 'audio$index'},
+  if (images) {'type': 'image', 'title': 'one.png', 'hash': 'image1'},
+  if (images) {'type': 'image', 'title': 'two.png', 'hash': 'image2'},
+];
+
 class _RecommendationProbe extends StatefulWidget {
   const _RecommendationProbe({required this.onCreate});
 
@@ -184,7 +191,9 @@ Finder _loadingOverlaySpinner() => find.byKey(
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('resource tab changes return to the section top', (tester) async {
+  testWidgets('unvisited resource tabs start at the section top', (
+    tester,
+  ) async {
     await tester.binding.setSurfaceSize(const Size(390, 500));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final tree = ValueNotifier<List<dynamic>>(_files());
@@ -245,6 +254,177 @@ void main() {
       maxScrolls: 10,
     );
     expect(find.text('recommendation 11'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'resource tabs restore independent offsets across taps and swipes',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(390, 500));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final tree = ValueNotifier<List<dynamic>>(_audioFiles(40));
+      final scroll = ScrollController();
+      addTearDown(tree.dispose);
+      addTearDown(scroll.dispose);
+
+      await _pumpResources(
+        tester,
+        tree,
+        controller: scroll,
+        introSliver: const SliverToBoxAdapter(
+          child: SizedBox(height: 180, child: Text('work introduction')),
+        ),
+        resourceSliver: SliverList.builder(
+          itemCount: 40,
+          itemBuilder: (context, index) =>
+              SizedBox(height: 48, child: Text('resource item $index')),
+        ),
+        recommendationCount: 40,
+      );
+
+      scroll.jumpTo(450);
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+      await tester.pumpAndSettle();
+      expect(scroll.offset, closeTo(180, 1));
+
+      scroll.jumpTo(600);
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+      await tester.pumpAndSettle();
+      expect(scroll.offset, closeTo(600, 1));
+
+      await tester.tap(
+        find.byKey(const ValueKey('work-resource-recommendations-tab')),
+      );
+      await tester.pumpAndSettle();
+      expect(scroll.offset, closeTo(180, 1));
+      scroll.jumpTo(700);
+      await tester.pump();
+
+      await tester.tap(find.byKey(const ValueKey('work-resource-audio-tab')));
+      await tester.pumpAndSettle();
+      expect(scroll.offset, closeTo(450, 1));
+
+      await tester.tap(
+        find.byKey(const ValueKey('work-resource-recommendations-tab')),
+      );
+      await tester.pumpAndSettle();
+      expect(scroll.offset, closeTo(700, 1));
+
+      final swipeToAudio = await tester.startGesture(const Offset(195, 250));
+      await swipeToAudio.moveBy(const Offset(200, 0));
+      await tester.pump();
+      await swipeToAudio.up();
+      await tester.pumpAndSettle();
+      expect(scroll.offset, closeTo(450, 1));
+
+      final swipeToResources = await tester.startGesture(
+        const Offset(195, 250),
+      );
+      await swipeToResources.moveBy(const Offset(200, 0));
+      await tester.pump();
+      await swipeToResources.up();
+      await tester.pumpAndSettle();
+      expect(scroll.offset, closeTo(600, 1));
+
+      final canceledSwipe = await tester.startGesture(const Offset(195, 250));
+      await canceledSwipe.moveBy(const Offset(-60, 0));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 300));
+      await canceledSwipe.up();
+      await tester.pumpAndSettle();
+      expect(scroll.offset, closeTo(600, 1));
+      expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('a short unvisited page cannot overwrite a long page offset', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final tree = ValueNotifier<List<dynamic>>(_audioFiles(40, images: true));
+    final scroll = ScrollController();
+    addTearDown(tree.dispose);
+    addTearDown(scroll.dispose);
+
+    await _pumpResources(
+      tester,
+      tree,
+      controller: scroll,
+      introSliver: const SliverToBoxAdapter(
+        child: SizedBox(height: 80, child: Text('work introduction')),
+      ),
+      resourceSliver: SliverList.builder(
+        itemCount: 40,
+        itemBuilder: (context, index) =>
+            SizedBox(height: 48, child: Text('resource item $index')),
+      ),
+    );
+
+    scroll.jumpTo(450);
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('work-resource-images-tab')));
+    await tester.pumpAndSettle();
+    expect(scroll.offset, lessThan(450));
+
+    await tester.tap(find.byKey(const ValueKey('work-resource-audio-tab')));
+    await tester.pumpAndSettle();
+    expect(scroll.offset, closeTo(450, 1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a new swipe cancels a pending reduced-motion offset restore', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final tree = ValueNotifier<List<dynamic>>(_audioFiles(40));
+    final scroll = ScrollController();
+    addTearDown(tree.dispose);
+    addTearDown(scroll.dispose);
+
+    await _pumpResources(
+      tester,
+      tree,
+      controller: scroll,
+      disableAnimations: true,
+      introSliver: const SliverToBoxAdapter(
+        child: SizedBox(height: 180, child: Text('work introduction')),
+      ),
+      resourceSliver: SliverList.builder(
+        itemCount: 40,
+        itemBuilder: (context, index) =>
+            SizedBox(height: 48, child: Text('resource item $index')),
+      ),
+      recommendationCount: 40,
+    );
+    scroll.jumpTo(450);
+    await tester.pump();
+
+    final selectResources = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('work-resource-files-tab'))),
+    );
+    await selectResources.up();
+
+    final swipeToAudio = await tester.startGesture(const Offset(195, 250));
+    await swipeToAudio.moveBy(const Offset(-270, 0));
+    await tester.pump();
+    await swipeToAudio.up();
+
+    final selectRecommendations = await tester.startGesture(
+      tester.getCenter(
+        find.byKey(const ValueKey('work-resource-recommendations-tab')),
+      ),
+    );
+    await selectRecommendations.up();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('work-resource-audio-tab')));
+    await tester.pumpAndSettle();
+    expect(scroll.offset, closeTo(450, 1));
     expect(tester.takeException(), isNull);
   });
 

@@ -116,6 +116,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     prepare: _prepareImage,
   );
   ScrollPosition? _verticalPosition;
+  final _tabScrollOffsets = <WorkResourceTab, double>{};
   int? _imageCacheWidth;
   bool _imageInspectionScheduled = false;
   Map<String, bool> _downloadedFiles = const {};
@@ -130,6 +131,8 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   bool _dragScrollPending = false;
   bool _recommendationVisited = false;
   int? _motionTarget;
+  int _tabMotionGeneration = 0;
+  WorkResourceTab? _transitionSource;
   late List<WorkResourceTab> _pageKinds;
   late List<WorkResourceTab> _tabKinds;
 
@@ -323,8 +326,10 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
         SliverTabPageView(
           position: _pagePosition,
           onDragStart: () {
+            _tabMotionGeneration++;
             _motionTarget = null;
             _dragScrollPending = true;
+            _beginTabTransition();
             _pagePosition.stop(canceled: true);
           },
           onDragUpdate: _updatePagePosition,
@@ -389,6 +394,8 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       nextTabs: nextTabs,
     );
     final selected = nextTabs.indexOf(selectedTab);
+    _tabMotionGeneration++;
+    _transitionSource = null;
     _configuringTabs = true;
     _pagePosition.stop(canceled: true);
     _pagePosition.value = selected.toDouble();
@@ -425,18 +432,34 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
 
   void _moveToTab(int index) {
     syncTabWithPagePosition(_tabs, _pagePosition.value);
+    if ((_transitionSource == null && index == _selected) ||
+        (_transitionSource != null && _motionTarget == index)) {
+      return;
+    }
     _visitRecommendation(_tabKinds[index]);
     _animateToPage(index.toDouble());
   }
 
+  void _beginTabTransition() {
+    if (_transitionSource != null) return;
+    final source = _tabKinds[_selected.clamp(0, _tabKinds.length - 1)];
+    _transitionSource = source;
+    _tabScrollOffsets[source] = _resourceScrollOffset();
+  }
+
   Future<void> _animateToPage(double target) async {
     final page = target.clamp(0.0, (_tabs.length - 1).toDouble()).toDouble();
+    final targetTab = _tabKinds[page.round()];
+    if (_transitionSource == null && page.round() != _selected) {
+      _beginTabTransition();
+    }
+    final generation = ++_tabMotionGeneration;
     _motionTarget = page.round();
     _updateImagePrefetch();
     _pagePosition.stop(canceled: true);
     if (_reduceMotion) {
       _pagePosition.value = page;
-      await _scrollToResourceTop();
+      await _restoreResourceOffset(targetTab, generation);
       return;
     }
     await _pagePosition.animateTo(
@@ -444,7 +467,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       duration: tabPageDuration,
       curve: Curves.ease,
     );
-    await _scrollToResourceTop();
+    await _restoreResourceOffset(targetTab, generation);
   }
 
   void _updatePagePosition(double pageDelta) {
@@ -1115,7 +1138,51 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       _imagePage = page;
       _imagePageGatePassed.value = false;
     });
+    _tabScrollOffsets[WorkResourceTab.images] = 0;
     unawaited(_scrollToResourceTop(animate: true));
+  }
+
+  double _resourceScrollOffset() {
+    final position = _verticalPosition;
+    final renderObject = _resourceGroupKey.currentContext?.findRenderObject();
+    if (position == null ||
+        !position.hasContentDimensions ||
+        renderObject == null) {
+      return 0;
+    }
+    final viewport = RenderAbstractViewport.maybeOf(renderObject);
+    if (viewport == null) return 0;
+    final resourceTop = viewport.getOffsetToReveal(renderObject, 0).offset;
+    return (position.pixels - resourceTop)
+        .clamp(0.0, double.infinity)
+        .toDouble();
+  }
+
+  Future<void> _restoreResourceOffset(
+    WorkResourceTab tab,
+    int generation,
+  ) async {
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || generation != _tabMotionGeneration) return;
+    final position = _verticalPosition;
+    final renderObject = _resourceGroupKey.currentContext?.findRenderObject();
+    final viewport = renderObject == null
+        ? null
+        : RenderAbstractViewport.maybeOf(renderObject);
+    if (position != null &&
+        position.hasContentDimensions &&
+        renderObject != null &&
+        viewport != null) {
+      final resourceTop = viewport.getOffsetToReveal(renderObject, 0).offset;
+      final offset = (resourceTop + (_tabScrollOffsets[tab] ?? 0))
+          .clamp(position.minScrollExtent, position.maxScrollExtent)
+          .toDouble();
+      if (position.pixels != offset) position.jumpTo(offset);
+    }
+    if (generation == _tabMotionGeneration) {
+      _transitionSource = null;
+      _motionTarget = null;
+    }
   }
 
   Future<void> _scrollToResourceTop({bool animate = false}) async {
