@@ -67,6 +67,7 @@ contains preferred audio files and their best matching work subtitles; Images
 contains the work's resource images, separate from its cover.
 Each tab retains its resource-section scroll position during the current detail
 visit; an unvisited tab starts at the resource section's top.
+Swiping before the tab bar pins preserves its position on screen.
 _Avoid_: App Tab Bar, Works Home Tab
 
 **Work Image Viewing (作品图片查看)**:

@@ -129,6 +129,8 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   bool _tabSyncScheduled = false;
   bool _configuringTabs = false;
   bool _dragScrollPending = false;
+  double? _unpinnedSwipeOffset;
+  bool _fillResourceViewport = false;
   bool _recommendationVisited = false;
   int? _motionTarget;
   int _tabMotionGeneration = 0;
@@ -323,26 +325,56 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
           SliverToBoxAdapter(
             child: FileExplorerProgressBanner(message: message),
           ),
-        SliverTabPageView(
-          position: _pagePosition,
-          onDragStart: () {
-            _tabMotionGeneration++;
-            _motionTarget = null;
-            _dragScrollPending = true;
-            _beginTabTransition();
-            _pagePosition.stop(canceled: true);
-          },
-          onDragUpdate: _updatePagePosition,
-          onDragEnd: _settlePagePosition,
-          onDragCancel: () => _settlePagePosition(0),
-          pages: [
-            for (final tab in _pageKinds)
-              SliverPadding(
-                key: ValueKey(tab),
-                padding: EdgeInsets.zero,
-                sliver: _pageFor(tab, context),
+        SliverLayoutBuilder(
+          builder: (context, constraints) => SliverMainAxisGroup(
+            slivers: [
+              SliverTabPageView(
+                position: _pagePosition,
+                onDragStart: () {
+                  _tabMotionGeneration++;
+                  _motionTarget = null;
+                  _dragScrollPending = true;
+                  final offset = _resourceScrollOffset();
+                  _unpinnedSwipeOffset = offset < 0 ? offset : null;
+                  // Keep short destinations from shrinking the scroll range.
+                  if (offset < 0 && !_fillResourceViewport) {
+                    setState(() => _fillResourceViewport = true);
+                  }
+                  _beginTabTransition();
+                  _pagePosition.stop(canceled: true);
+                },
+                onDragUpdate: _updatePagePosition,
+                onDragEnd: _settlePagePosition,
+                onDragCancel: () => _settlePagePosition(0),
+                pages: [
+                  for (final tab in _pageKinds)
+                    SliverPadding(
+                      key: ValueKey(tab),
+                      padding: EdgeInsets.zero,
+                      sliver: _pageFor(tab, context),
+                    ),
+                ],
               ),
-          ],
+              SliverLayoutBuilder(
+                builder: (context, tailConstraints) {
+                  final pageExtent =
+                      tailConstraints.precedingScrollExtent -
+                      constraints.precedingScrollExtent;
+                  final tailExtent =
+                      ((_fillResourceViewport
+                                  ? constraints.viewportMainAxisExtent -
+                                        tabBar.preferredSize.height
+                                  : 0) -
+                              pageExtent)
+                          .clamp(0.0, double.infinity)
+                          .toDouble();
+                  return SliverToBoxAdapter(
+                    child: SizedBox(height: tailExtent),
+                  );
+                },
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -396,6 +428,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     final selected = nextTabs.indexOf(selectedTab);
     _tabMotionGeneration++;
     _transitionSource = null;
+    _unpinnedSwipeOffset = null;
     _configuringTabs = true;
     _pagePosition.stop(canceled: true);
     _pagePosition.value = selected.toDouble();
@@ -436,6 +469,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
         (_transitionSource != null && _motionTarget == index)) {
       return;
     }
+    _unpinnedSwipeOffset = null;
     _visitRecommendation(_tabKinds[index]);
     _animateToPage(index.toDouble());
   }
@@ -444,7 +478,9 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     if (_transitionSource != null) return;
     final source = _tabKinds[_selected.clamp(0, _tabKinds.length - 1)];
     _transitionSource = source;
-    _tabScrollOffsets[source] = _resourceScrollOffset();
+    _tabScrollOffsets[source] = _resourceScrollOffset()
+        .clamp(0.0, double.infinity)
+        .toDouble();
   }
 
   Future<void> _animateToPage(double target) async {
@@ -478,7 +514,9 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
         .toDouble();
     if (_dragScrollPending) {
       _dragScrollPending = false;
-      unawaited(_scrollToResourceTop());
+      if (_unpinnedSwipeOffset == null) {
+        unawaited(_scrollToResourceTop());
+      }
     }
     _scheduleImageInspection();
   }
@@ -1153,9 +1191,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     final viewport = RenderAbstractViewport.maybeOf(renderObject);
     if (viewport == null) return 0;
     final resourceTop = viewport.getOffsetToReveal(renderObject, 0).offset;
-    return (position.pixels - resourceTop)
-        .clamp(0.0, double.infinity)
-        .toDouble();
+    return position.pixels - resourceTop;
   }
 
   Future<void> _restoreResourceOffset(
@@ -1174,14 +1210,16 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
         renderObject != null &&
         viewport != null) {
       final resourceTop = viewport.getOffsetToReveal(renderObject, 0).offset;
-      final offset = (resourceTop + (_tabScrollOffsets[tab] ?? 0))
-          .clamp(position.minScrollExtent, position.maxScrollExtent)
-          .toDouble();
+      final offset =
+          (resourceTop + (_unpinnedSwipeOffset ?? _tabScrollOffsets[tab] ?? 0))
+              .clamp(position.minScrollExtent, position.maxScrollExtent)
+              .toDouble();
       if (position.pixels != offset) position.jumpTo(offset);
     }
     if (generation == _tabMotionGeneration) {
       _transitionSource = null;
       _motionTarget = null;
+      _unpinnedSwipeOffset = null;
     }
   }
 

@@ -257,6 +257,66 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final shortPage in [false, true]) {
+    testWidgets('swiping keeps an unpinned tab bar in place ($shortPage)', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(390, 500));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final tree = ValueNotifier<List<dynamic>>(_audioFiles(40));
+      final scroll = ScrollController();
+      addTearDown(tree.dispose);
+      addTearDown(scroll.dispose);
+      await _pumpResources(
+        tester,
+        tree,
+        controller: scroll,
+        introSliver: const SliverToBoxAdapter(child: SizedBox(height: 180)),
+        resourceSliver: shortPage
+            ? const SliverToBoxAdapter(child: Text('short resource page'))
+            : SliverList.builder(
+                itemCount: 40,
+                itemBuilder: (context, index) =>
+                    SizedBox(height: 48, child: Text('resource item $index')),
+              ),
+      );
+      if (!shortPage) {
+        await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
+        await tester.pumpAndSettle();
+        scroll.jumpTo(600);
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey('work-resource-audio-tab')));
+        await tester.pumpAndSettle();
+      }
+      scroll.jumpTo(80);
+      await tester.pump();
+      final barTop = tester.getTopLeft(find.byType(TabBar)).dy;
+      expect(barTop, closeTo(100, 1));
+
+      final gesture = await tester.startGesture(const Offset(195, 300));
+      await gesture.moveBy(const Offset(230, 0));
+      await tester.pump();
+      expect(scroll.offset, closeTo(80, 1));
+      expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(barTop, 1));
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(scroll.offset, closeTo(80, 1));
+      expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(barTop, 1));
+      expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 0);
+
+      final canceled = await tester.startGesture(const Offset(195, 300));
+      await canceled.moveBy(const Offset(-60, 0));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 300));
+      await canceled.up();
+      await tester.pumpAndSettle();
+      expect(scroll.offset, closeTo(80, 1));
+      expect(tester.getTopLeft(find.byType(TabBar)).dy, closeTo(barTop, 1));
+      expect(tester.widget<TabBar>(find.byType(TabBar)).controller!.index, 0);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets(
     'resource tabs restore independent offsets across taps and swipes',
     (tester) async {
