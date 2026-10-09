@@ -645,7 +645,12 @@ class _OfflineFileExplorerWidgetState
       audioWithLibrarySubtitles: _audioWithLibrarySubtitles,
       showHeader: false,
     );
-    if (_isLoading || _errorMessage != null) return tree;
+    if (_isLoading || _errorMessage != null) {
+      return SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        sliver: tree,
+      );
+    }
     return WorkResourceTabs(
       workId: widget.work.id,
       fileTree: _localFiles,

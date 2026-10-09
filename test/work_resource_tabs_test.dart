@@ -765,6 +765,46 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('resource pages retain their own gutters while sliding', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(390, 500));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final tree = ValueNotifier<List<dynamic>>(_audioFiles(2));
+    addTearDown(tree.dispose);
+    const probeKey = ValueKey('resource-width-probe');
+    await _pumpResources(
+      tester,
+      tree,
+      initialTab: WorkResourceTab.resources,
+      resourceSliver: const SliverToBoxAdapter(
+        child: SizedBox(
+          key: probeKey,
+          height: 120,
+          child: ColoredBox(color: Colors.red),
+        ),
+      ),
+    );
+    final source = find.byKey(probeKey);
+    expect(tester.getRect(source).left, closeTo(16, 1));
+    expect(tester.getRect(source).width, closeTo(358, 1));
+    expect(tester.getRect(find.byType(TabBar)).left, closeTo(16, 1));
+    expect(tester.getRect(find.byType(TabBar)).width, closeTo(358, 1));
+
+    final swipe = await tester.startGesture(tester.getCenter(source));
+    await swipe.moveBy(const Offset(-195, 0));
+    await tester.pump();
+    final sourceRect = tester.getRect(source);
+    final audioRect = tester.getRect(find.byType(ListTile).first);
+    expect(sourceRect.width, closeTo(358, 1));
+    expect(audioRect.width, closeTo(358, 1));
+    expect(audioRect.left - sourceRect.right, closeTo(32, 1));
+    await swipe.up();
+    await tester.pumpAndSettle();
+    expect(tester.getRect(find.byType(ListTile).first).left, closeTo(16, 1));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'recommendations build only after selection and retain their tab identity',
     (tester) async {
@@ -2007,7 +2047,7 @@ void main() {
     expect(reports.length, reportCount);
   });
 
-  testWidgets('audio uses tree typography and colors and full content width', (
+  testWidgets('audio uses tree typography and colors within page padding', (
     tester,
   ) async {
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -2020,15 +2060,15 @@ void main() {
       final tile = tester.widget<ListTile>(audio);
       expect((tile.leading! as Icon).color, Colors.green);
       expect((tile.title! as Text).style!.fontSize, 14);
-      expect(tester.getRect(audio).width, width);
-      expect(tester.getRect(find.byIcon(Icons.audiotrack).first).left, 0);
+      expect(tester.getRect(audio).width, width - 32);
+      expect(tester.getRect(find.byIcon(Icons.audiotrack).first).left, 16);
       final resourceTab = tester.getRect(
         find
             .descendant(of: find.byType(TabBar), matching: find.byType(InkWell))
             .first,
       );
-      expect(resourceTab.left, 0);
-      expect(resourceTab.width, closeTo(width / 2, 1));
+      expect(resourceTab.left, 16);
+      expect(resourceTab.width, closeTo((width - 32) / 2, 1));
       expect(find.text('Resources'), findsOneWidget);
       final play = find.descendant(
         of: audio,
@@ -2094,7 +2134,7 @@ void main() {
           BorderRadius.circular(workCoverCompactRadius),
         );
       }
-      expect(tester.getRect(find.byType(Card).first).left, 0);
+      expect(tester.getRect(find.byType(Card).first).left, 16);
       await tester.tap(find.text('two.png'));
       expect(selected['hash'], 'image2');
       tree.value = _files();
@@ -2134,7 +2174,7 @@ void main() {
             tester.getRect(find.byType(TabBar)).bottom,
         8,
       );
-      expect(tester.getRect(find.byType(Card).first).left, 0);
+      expect(tester.getRect(find.byType(Card).first).left, 16);
       await tester.tap(find.byTooltip('Retry').first);
       await tester.pumpAndSettle();
       expect(attempts, 3);

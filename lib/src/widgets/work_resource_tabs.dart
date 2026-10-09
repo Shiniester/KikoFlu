@@ -40,6 +40,8 @@ typedef ResourceAudioLongPress =
       List<dynamic> audioFiles,
     );
 
+const _resourcePagePadding = EdgeInsets.symmetric(horizontal: 16);
+
 enum WorkResourceTab { resources, audio, images, recommendations }
 
 class WorkResourceTabs extends ConsumerStatefulWidget {
@@ -324,7 +326,10 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
           if (widget.progressMessage case final message?
               when message.isNotEmpty)
             SliverToBoxAdapter(
-              child: FileExplorerProgressBanner(message: message),
+              child: Padding(
+                padding: _resourcePagePadding,
+                child: FileExplorerProgressBanner(message: message),
+              ),
             ),
           SliverLayoutBuilder(
             builder: (context, constraints) {
@@ -336,6 +341,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
               return SliverMainAxisGroup(
                 slivers: [
                   SliverTabPageView(
+                    crossAxisPadding: _resourcePagePadding.left,
                     position: _pagePosition,
                     onDragStart: () {
                       _tabMotionGeneration++;
@@ -375,7 +381,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                       for (final tab in _pageKinds)
                         SliverPadding(
                           key: ValueKey(tab),
-                          padding: EdgeInsets.zero,
+                          padding: _resourcePagePadding,
                           sliver: _pageFor(tab, context),
                         ),
                     ],
@@ -526,14 +532,13 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     _pagePosition.stop(canceled: true);
     if (_reduceMotion) {
       _pagePosition.value = page;
-      await _restoreResourceOffset(targetTab, generation);
-      return;
+    } else {
+      await _pagePosition.animateTo(
+        page,
+        duration: tabPageDuration,
+        curve: Curves.ease,
+      );
     }
-    await _pagePosition.animateTo(
-      page,
-      duration: tabPageDuration,
-      curve: Curves.ease,
-    );
     await _restoreResourceOffset(targetTab, generation);
   }
 
@@ -1298,7 +1303,10 @@ class _ResourceTabsHeaderDelegate extends SliverPersistentHeaderDelegate {
     double shrinkOffset,
     bool overlapsContent,
   ) => SizedBox.expand(
-    child: Material(color: backgroundColor, child: tabBar),
+    child: Material(
+      color: backgroundColor,
+      child: Padding(padding: _resourcePagePadding, child: tabBar),
+    ),
   );
 
   @override

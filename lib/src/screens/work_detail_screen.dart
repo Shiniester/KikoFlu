@@ -845,12 +845,15 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
     // 信息内容组件
     final infoWidget = SliverPadding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       sliver: SliverMainAxisGroup(
         slivers: [
           ListenableBuilder(
             listenable: _metadataChanges,
-            builder: (context, _) => _buildMetadata(_currentWork),
+            builder: (context, _) => SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              sliver: _buildMetadata(_currentWork),
+            ),
           ),
           // 文件浏览器组件 - 移除固定高度，让它自由展开
           ValueListenableBuilder<bool>(

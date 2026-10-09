@@ -429,32 +429,35 @@ class _OfflineWorkDetailScreenState
 
     // 信息内容组件
     final infoWidget = SliverPadding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       sliver: SliverMainAxisGroup(
         slivers: [
           SliverToBoxAdapter(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 标题（可长按复制）+ 翻译按钮
-                WorkTitleHeader(
-                  title: work.title,
-                  translatedTitle: _translatedTitle,
-                  showTranslation: _showTranslation,
-                  isTranslating: _isTranslating,
-                  onTranslate: _toggleTranslation,
-                  onCopy: (title) =>
-                      _copyToClipboard(title, S.of(context).titleLabel),
-                ),
-                const SizedBox(height: 16),
-                WorkCreatorChipsSection(work: work, onCopy: _copyToClipboard),
-                WorkTagChipsSection(
-                  tags: work.tags,
-                  onTagLongPress: (tag) =>
-                      _copyToClipboard(tag.name, S.of(context).tagLabel),
-                ),
-                WorkReleaseDateSection(release: work.release),
-              ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 标题（可长按复制）+ 翻译按钮
+                  WorkTitleHeader(
+                    title: work.title,
+                    translatedTitle: _translatedTitle,
+                    showTranslation: _showTranslation,
+                    isTranslating: _isTranslating,
+                    onTranslate: _toggleTranslation,
+                    onCopy: (title) =>
+                        _copyToClipboard(title, S.of(context).titleLabel),
+                  ),
+                  const SizedBox(height: 16),
+                  WorkCreatorChipsSection(work: work, onCopy: _copyToClipboard),
+                  WorkTagChipsSection(
+                    tags: work.tags,
+                    onTagLongPress: (tag) =>
+                        _copyToClipboard(tag.name, S.of(context).tagLabel),
+                  ),
+                  WorkReleaseDateSection(release: work.release),
+                ],
+              ),
             ),
           ),
           // 文件浏览器

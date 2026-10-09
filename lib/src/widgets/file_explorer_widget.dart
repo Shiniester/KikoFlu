@@ -922,7 +922,12 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       fadeDownloadedItems: true,
       showHeader: false,
     );
-    if (_isLoading) return tree;
+    if (_isLoading) {
+      return SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        sliver: tree,
+      );
+    }
     return WorkResourceTabs(
       workId: _work.id,
       fileTree: _rootFiles,
