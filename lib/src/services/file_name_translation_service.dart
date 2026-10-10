@@ -1,4 +1,5 @@
 import '../utils/file_tree_utils.dart';
+import '../utils/string_utils.dart';
 
 typedef FileNameTranslator = Future<String> Function(
   String text, {
@@ -49,6 +50,7 @@ class FileNameTranslationService {
 
   Future<FileNameTranslationResult> translateNames({
     required List<String> names,
+    bool skipSimplifiedChinese = false,
     String sourceLang = 'ja',
     int maxChunkSize = 500,
     Duration throttleDelay = const Duration(milliseconds: 300),
@@ -66,8 +68,13 @@ class FileNameTranslationService {
       );
     }
 
+    final namesToTranslate = uniqueNames
+        .where(
+          (name) => !skipSimplifiedChinese || !isClearlySimplifiedChinese(name),
+        )
+        .toList(growable: false);
     final chunks = splitNamesIntoChunks(
-      uniqueNames,
+      namesToTranslate,
       maxChunkSize: maxChunkSize,
     );
     final translatedChunks = <String>[];
@@ -90,12 +97,12 @@ class FileNameTranslationService {
     }
 
     final translatedNames = translatedChunks.join('\n').split('\n');
-    final translations = <String, String>{};
+    final translations = {for (final name in uniqueNames) name: name};
 
-    for (var i = 0; i < uniqueNames.length; i++) {
-      translations[uniqueNames[i]] = i < translatedNames.length
+    for (var i = 0; i < namesToTranslate.length; i++) {
+      translations[namesToTranslate[i]] = i < translatedNames.length
           ? translatedNames[i]
-          : uniqueNames[i];
+          : namesToTranslate[i];
     }
 
     return FileNameTranslationResult(

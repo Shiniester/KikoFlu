@@ -85,10 +85,14 @@ selection keep their own priority.
 **Work Details Translation (作品详情翻译)**:
 The translated view of a work's title and currently displayed resource names.
 It remains active within that details page until the user switches back to the original.
+When the translation target is Simplified Chinese, clearly Simplified Chinese
+text remains unchanged; manual translation remains available for other text.
 
 **Automatic Work Details Translation (自动作品详情翻译)**:
 The preference that enables Work Details Translation when a details page opens,
 without requiring a manual translation action.
+Simplified Chinese editions keep their original view when the translation
+target is Simplified Chinese.
 
 **Subtitle Preview Translation (字幕预览翻译)**:
 The translated text shown while inspecting a work subtitle when Work Details

@@ -66,7 +66,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   final _metadataChanges = ValueNotifier(0);
   final _deferredContentReady = ValueNotifier(false);
   final _routeReadiness = WorkDetailRouteReadiness();
-  bool _initialLoadStarted = false;
+  Future<void>? _initialDetailLoad;
   bool _deferredContentScheduled = false;
   bool _translationChoiceMade = false;
   int _metadataLoadGeneration = 0;
@@ -149,10 +149,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       animation?.addStatusListener(_onRouteStatus);
       animation?.addListener(_onRouteFrame);
     }
-    if (!_initialLoadStarted) {
-      _initialLoadStarted = true;
-      unawaited(_loadWorkDetail());
-    }
+    _initialDetailLoad ??= _loadWorkDetail();
     _scheduleDeferredContent();
     _scheduleHDImage();
   }
@@ -195,7 +192,19 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       if (!mounted || !idle) return;
     }
     if (autoTranslate && !_translationChoiceMade) {
-      _setTranslationEnabled(true);
+      if (_currentWork.lang?.trim().isNotEmpty != true &&
+          await TranslationService().targetsSimplifiedChinese()) {
+        await _initialDetailLoad;
+        if (!mounted || _translationChoiceMade) return;
+      }
+      final skipTranslation = await TranslationService()
+          .shouldSkipAutomaticWorkDetailsTranslation(_currentWork.lang);
+      if (!mounted || _translationChoiceMade) return;
+      if (!_routeReadiness.isIdle) {
+        final idle = await _routeReadiness.waitForIdle();
+        if (!mounted || !idle || _translationChoiceMade) return;
+      }
+      if (!skipTranslation) _setTranslationEnabled(true);
     }
   }
 

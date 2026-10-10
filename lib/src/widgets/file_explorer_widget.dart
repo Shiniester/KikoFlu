@@ -1028,6 +1028,8 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
         translate: TranslationService().translate,
       ).translateNames(
         names: names,
+        skipSimplifiedChinese: await TranslationService()
+            .targetsSimplifiedChinese(),
         onProgress: (current, total) {
           final updated = _translationController.updateBulkProgress(
             generation,

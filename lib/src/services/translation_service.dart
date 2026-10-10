@@ -10,6 +10,7 @@ import '../../l10n/app_localizations.dart';
 import '../providers/settings_provider.dart';
 import '../utils/global_keys.dart';
 import '../utils/snackbar_util.dart';
+import '../utils/string_utils.dart';
 
 final _log = LogService.instance;
 
@@ -56,6 +57,19 @@ class TranslationService {
     return locale.scriptCode == 'Hant' ||
         locale.countryCode == 'TW' ||
         locale.countryCode == 'HK';
+  }
+
+  Future<bool> targetsSimplifiedChinese() async {
+    final prefs = await SharedPreferences.getInstance();
+    final locale = _getLanguageConfig(prefs).targetLocale;
+    return locale.languageCode == 'zh' && !_isTraditionalChinese(locale);
+  }
+
+  Future<bool> shouldSkipAutomaticWorkDetailsTranslation(
+    String? workLanguage,
+  ) async {
+    return workLanguage?.trim().toUpperCase() == 'CHI_HANS' &&
+        await targetsSimplifiedChinese();
   }
 
   /// 获取 Google Translate 目标语言代码
@@ -146,6 +160,12 @@ class TranslationService {
     final cacheSourceLang = languageConfig.cacheSourceLang(sourceLang);
     final cacheTargetLang = languageConfig.cacheTargetLang();
     final targetLocale = languageConfig.targetLocale;
+
+    if (targetLocale.languageCode == 'zh' &&
+        !_isTraditionalChinese(targetLocale) &&
+        isClearlySimplifiedChinese(text)) {
+      return text;
+    }
 
     // 检查缓存
     final cachedTranslation = await _getCachedTranslation(

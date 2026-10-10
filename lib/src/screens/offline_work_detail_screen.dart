@@ -92,7 +92,14 @@ class _OfflineWorkDetailScreenState
       if (!mounted || !idle) return;
     }
     if (autoTranslate && !_translationChoiceMade) {
-      _setTranslationEnabled(true);
+      final skipTranslation = await TranslationService()
+          .shouldSkipAutomaticWorkDetailsTranslation(widget.work.lang);
+      if (!mounted || _translationChoiceMade) return;
+      if (!_routeReadiness.isIdle) {
+        final idle = await _routeReadiness.waitForIdle();
+        if (!mounted || !idle || _translationChoiceMade) return;
+      }
+      if (!skipTranslation) _setTranslationEnabled(true);
     }
   }
 

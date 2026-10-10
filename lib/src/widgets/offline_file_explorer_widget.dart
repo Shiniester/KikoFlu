@@ -737,7 +737,11 @@ class _OfflineFileExplorerWidgetState
     try {
       final result = await FileNameTranslationService(
         translate: TranslationService().translate,
-      ).translateNames(names: names);
+      ).translateNames(
+        names: names,
+        skipSimplifiedChinese: await TranslationService()
+            .targetsSimplifiedChinese(),
+      );
       if (!mounted ||
           !_translationController.completeBulkTranslation(
             generation,

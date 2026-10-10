@@ -19,6 +19,56 @@ Map<String, dynamic> folderItem(String title, List<dynamic> children) {
 
 void main() {
   group('FileNameTranslationService', () {
+    test('preserves Chinese names in a mixed translation batch', () async {
+      final requests = <String>[];
+      final service = FileNameTranslationService(
+        translate: (text, {sourceLang}) async {
+          requests.add(text);
+          return text.split('\n').map((line) => 'translated:$line').join('\n');
+        },
+        delay: (_) async {},
+      );
+      final result = await service.translateNames(
+        names: ['轻声耳语.wav', 'こんにちは.wav', '简体标题.txt', '少女.wav'],
+        skipSimplifiedChinese: true,
+      );
+      expect(requests, ['こんにちは.wav\n少女.wav']);
+      expect(result.names, ['轻声耳语.wav', 'こんにちは.wav', '简体标题.txt', '少女.wav']);
+      expect(result.translations, {
+        '轻声耳语.wav': '轻声耳语.wav',
+        'こんにちは.wav': 'translated:こんにちは.wav',
+        '简体标题.txt': '简体标题.txt',
+        '少女.wav': 'translated:少女.wav',
+      });
+    });
+
+    test(
+      'all simplified names require no request, progress or delay',
+      () async {
+        final service = FileNameTranslationService(
+          translate: (text, {sourceLang}) async => fail('unexpected request'),
+          delay: (_) async => fail('unexpected delay'),
+        );
+        final result = await service.translateNames(
+          names: ['简体标题', '轻声耳语.wav'],
+          skipSimplifiedChinese: true,
+          onProgress: (_, _) => fail('unexpected progress'),
+        );
+        expect(result.translations, {'简体标题': '简体标题', '轻声耳语.wav': '轻声耳语.wav'});
+      },
+    );
+
+    test(
+      'Chinese names remain translatable when skipping is disabled',
+      () async {
+        final service = FileNameTranslationService(
+          translate: (text, {sourceLang}) async => 'translated:$text',
+        );
+        final result = await service.translateNames(names: ['简体标题']);
+        expect(result.translations, {'简体标题': 'translated:简体标题'});
+      },
+    );
+
     test(
         'splits names into newline chunks without exceeding limit when possible',
         () {
