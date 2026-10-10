@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -17,11 +18,13 @@ class ComicChapterThumbnails extends ConsumerStatefulWidget {
     super.key,
     required this.comic,
     required this.chapter,
+    required this.pagesCache,
     required this.onSelected,
   });
 
   final Comic comic;
   final ComicChapter chapter;
+  final Map<String, Future<List<ComicPage>>> pagesCache;
   final void Function(int page, List<ComicPage> pages) onSelected;
 
   @override
@@ -33,16 +36,29 @@ class _ComicChapterThumbnailsState
     extends ConsumerState<ComicChapterThumbnails> {
   late Future<List<ComicPage>> _pages = _loadPages();
 
-  Future<List<ComicPage>> _loadPages() async {
-    final offline = await ref
-        .read(comicDownloadsProvider)
-        .offlinePages(widget.comic, widget.chapter);
-    if (offline != null) return offline;
-    if (!mounted) return const [];
-    final source = ref
-        .read(comicSourcesProvider)
-        .firstWhere((source) => source.key == widget.comic.source);
-    return source.pages(widget.comic, widget.chapter);
+  Future<List<ComicPage>> _loadPages() =>
+      widget.pagesCache.putIfAbsent(widget.chapter.id, _fetchPages);
+
+  Future<List<ComicPage>> _fetchPages() async {
+    final comic = widget.comic;
+    final chapter = widget.chapter;
+    final cache = widget.pagesCache;
+    final downloads = ref.read(comicDownloadsProvider);
+    final sources = ref.read(comicSourcesProvider);
+    try {
+      final offline = await downloads.offlinePages(comic, chapter);
+      final pages =
+          offline ??
+          await sources
+              .firstWhere((source) => source.key == comic.source)
+              .pages(comic, chapter);
+      // Rebuilt rows can use completed pages without a loading frame.
+      cache[chapter.id] = SynchronousFuture(pages);
+      return pages;
+    } catch (_) {
+      cache.remove(chapter.id);
+      rethrow;
+    }
   }
 
   @override

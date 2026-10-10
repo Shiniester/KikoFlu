@@ -173,6 +173,17 @@ class _SortedSource extends _Source {
   }
 }
 
+class _DistinctChapterPageSource extends _Source {
+  final pageGates = <String, Completer<List<ComicPage>>>{};
+
+  @override
+  Future<List<ComicPage>> pages(Comic comic, ComicChapter chapter) async {
+    pageRequests.add(chapter.id);
+    return pageGates[chapter.id]?.future ??
+        List.generate(8, (i) => ComicPage('${chapter.id}/page-$i'));
+  }
+}
+
 class _ThreePageChapterSource extends _Source {
   @override
   Future<List<ComicPage>> pages(Comic comic, ComicChapter chapter) async {
@@ -6042,14 +6053,167 @@ void main() {
     },
   );
 
+  testWidgets('chapter previews retain distinct images after scrolling away', (
+    tester,
+  ) async {
+    await StorageService.remove('comic_chapter_thumbnails');
+    tester.view.physicalSize = const Size(320, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final comic = Comic(
+      source: 'fixture',
+      id: 'book',
+      title: 'Fixture book',
+      chapters: List.generate(
+        12,
+        (i) => ComicChapter('chapter-$i', 'Chapter ${i + 1}'),
+      ),
+    );
+    final source = _DistinctChapterPageSource()..detailResult = comic;
+    final imageRequests = <String>[];
+    final images = <String, Uint8List>{};
+    await pump(
+      tester,
+      ComicDetailScreen(comic: comic),
+      _Library(),
+      source,
+      loadImage: (page) async {
+        imageRequests.add(page.url);
+        await Future<void>.delayed(Duration.zero);
+        return images.putIfAbsent(page.url, () => Uint8List.fromList(_png));
+      },
+    );
+    final scrollable = find.byType(Scrollable).first;
+    final thumbnails = [
+      for (final page in [0, 3, 7])
+        find.byKey(ValueKey('comic-chapter-thumbnail-chapter-0-$page')),
+    ];
+    await tester.scrollUntilVisible(
+      thumbnails.first,
+      250,
+      scrollable: scrollable,
+    );
+    for (final thumbnail in thumbnails) {
+      await waitForPreviewContent(tester, thumbnail);
+      final image = find.descendant(of: thumbnail, matching: find.byType(Image));
+      await waitForPreviewContent(tester, image);
+      await waitForDecodedImage(tester, image);
+    }
+    await pumpFrames(tester, frames: 3);
+    final position = tester.state<ScrollableState>(scrollable).position;
+    final firstChapterOffset = position.pixels;
+
+    for (var revisit = 0; revisit < 2; revisit++) {
+      await tester.scrollUntilVisible(
+        find.text('Chapter 12'),
+        300,
+        scrollable: scrollable,
+      );
+      for (final page in [0, 3, 7]) {
+        final image = find.descendant(
+          of: find.byKey(
+            ValueKey('comic-chapter-thumbnail-chapter-11-$page'),
+          ),
+          matching: find.byType(Image),
+        );
+        await waitForPreviewContent(tester, image);
+        await waitForDecodedImage(tester, image);
+      }
+      await tester.pumpAndSettle();
+      expect(thumbnails.first.hitTestable(), findsNothing);
+      position.jumpTo(firstChapterOffset);
+      await tester.pump();
+      for (final thumbnail in thumbnails) {
+        expect(thumbnail.hitTestable(), findsOneWidget);
+        expect(
+          tester.widget<RawImage>(
+            find.descendant(of: thumbnail, matching: find.byType(RawImage)),
+          ).image,
+          isNotNull,
+        );
+        expect(
+          find.descendant(
+            of: thumbnail,
+            matching: find.byType(CircularProgressIndicator),
+          ),
+          findsNothing,
+        );
+      }
+      await tester.pumpAndSettle();
+    }
+    expect(source.pageRequests, containsAll(['chapter-0', 'chapter-11']));
+    expect(source.pageRequests, hasLength(source.pageRequests.toSet().length));
+    expect(imageRequests, contains('chapter-11/page-0'));
+    expect(imageRequests, hasLength(imageRequests.toSet().length));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('chapter previews reuse an in-flight listing after scrolling', (
+    tester,
+  ) async {
+    await StorageService.remove('comic_chapter_thumbnails');
+    tester.view.physicalSize = const Size(320, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final comic = Comic(
+      source: 'fixture',
+      id: 'book',
+      title: 'Fixture book',
+      chapters: List.generate(
+        12,
+        (i) => ComicChapter('chapter-$i', 'Chapter ${i + 1}'),
+      ),
+    );
+    final gate = Completer<List<ComicPage>>();
+    final source = _DistinctChapterPageSource()
+      ..detailResult = comic
+      ..pageGates['chapter-0'] = gate;
+    await pump(
+      tester,
+      ComicDetailScreen(comic: comic),
+      _Library(),
+      source,
+      settle: false,
+    );
+    final scrollable = find.byType(Scrollable).first;
+    await tester.scrollUntilVisible(
+      find.text('Chapter 1'),
+      250,
+      scrollable: scrollable,
+    );
+    await pumpFrames(tester, frames: 3);
+    final position = tester.state<ScrollableState>(scrollable).position;
+    final firstChapterOffset = position.pixels;
+    await tester.scrollUntilVisible(
+      find.text('Chapter 12'),
+      300,
+      scrollable: scrollable,
+    );
+    await tester.pumpAndSettle();
+    position.jumpTo(firstChapterOffset);
+    await pumpFrames(tester, frames: 3);
+    expect(source.pageRequests.where((id) => id == 'chapter-0'), hasLength(1));
+    gate.complete(List.generate(8, (i) => ComicPage('chapter-0/page-$i')));
+    final thumbnail = find.byKey(
+      const ValueKey('comic-chapter-thumbnail-chapter-0-0'),
+    );
+    await waitForPreviewContent(tester, thumbnail);
+    await tester.pumpAndSettle();
+    expect(thumbnail.hitTestable(), findsOneWidget);
+    expect(source.pageRequests.where((id) => id == 'chapter-0'), hasLength(1));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('chapter thumbnails retry a failed page listing', (tester) async {
     final source = _Source()..failedChapter = 'one';
+    final pagesCache = <String, Future<List<ComicPage>>>{};
     await pump(
       tester,
       Scaffold(
         body: ComicChapterThumbnails(
           comic: _comic,
           chapter: const ComicChapter('one', 'Chapter 1'),
+          pagesCache: pagesCache,
           onSelected: (_, _) {},
         ),
       ),
