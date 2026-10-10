@@ -47,6 +47,7 @@ class ComicDetailScreen extends ConsumerStatefulWidget {
 class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   late Comic _comic = widget.comic;
   late List<ComicChapter> _chapters = widget.comic.chapters;
+  final _chapterPreviewPages = <String, Future<List<ComicPage>>>{};
   final Stopwatch _loadTime = Stopwatch()..start();
   final Completer<void> _initialContentReady = Completer<void>();
   Animation<double>? _routeAnimation;
@@ -644,6 +645,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                                       ),
                                       comic: comic,
                                       chapter: chapter,
+                                      pagesCache: _chapterPreviewPages,
                                       onSelected: (page, pages) => unawaited(
                                         _showPagePreview(
                                           comic,
