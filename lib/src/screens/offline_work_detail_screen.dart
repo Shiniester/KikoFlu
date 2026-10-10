@@ -137,7 +137,7 @@ class _OfflineWorkDetailScreenState
       final translationService = TranslationService();
       final translated = await translationService.translate(
         work.title,
-        sourceLang: 'ja',
+        sourceLang: TranslationService.sourceLanguageForWork(work.lang),
       );
 
       if (mounted) {

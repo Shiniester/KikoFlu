@@ -112,6 +112,11 @@ flutter:
     - assets/icons/
     - LICENSE
     - third_party/picacomic/LICENSE
+    - third_party/opencc/STPhrases.txt
+    - third_party/opencc/STCharacters.txt
+    - third_party/opencc/TSPhrases.txt
+    - third_party/opencc/TSCharacters.txt
+    - third_party/opencc/LICENSE
 
   # fonts:
   #   - family: NotoSans

@@ -1,10 +1,9 @@
 import '../utils/file_tree_utils.dart';
-import '../utils/string_utils.dart';
 
-typedef FileNameTranslator = Future<String> Function(
-  String text, {
-  String? sourceLang,
-});
+typedef FileNameTranslator =
+    Future<String> Function(String text, {String? sourceLang});
+typedef LocalFileNameTranslator =
+    Future<String?> Function(String text, {String? sourceLang});
 typedef FileNameTranslationDelay = Future<void> Function(Duration duration);
 typedef FileNameTranslationProgress = void Function(int current, int total);
 typedef FileNameTranslationError = void Function(int index, Object error);
@@ -24,15 +23,17 @@ class FileNameTranslationResult {
 class FileNameTranslationService {
   const FileNameTranslationService({
     required this.translate,
+    this.convertLocally,
     this.delay = _defaultDelay,
   });
 
   final FileNameTranslator translate;
+  final LocalFileNameTranslator? convertLocally;
   final FileNameTranslationDelay delay;
 
   Future<FileNameTranslationResult> translateFileTree({
     required List<dynamic> fileTree,
-    String sourceLang = 'ja',
+    String? sourceLang,
     int maxChunkSize = 500,
     Duration throttleDelay = const Duration(milliseconds: 300),
     FileNameTranslationProgress? onProgress,
@@ -50,8 +51,7 @@ class FileNameTranslationService {
 
   Future<FileNameTranslationResult> translateNames({
     required List<String> names,
-    bool skipSimplifiedChinese = false,
-    String sourceLang = 'ja',
+    String? sourceLang,
     int maxChunkSize = 500,
     Duration throttleDelay = const Duration(milliseconds: 300),
     FileNameTranslationProgress? onProgress,
@@ -62,17 +62,22 @@ class FileNameTranslationService {
         .toSet()
         .toList(growable: false);
     if (uniqueNames.isEmpty) {
-      return const FileNameTranslationResult(
-        names: [],
-        translations: {},
-      );
+      return const FileNameTranslationResult(names: [], translations: {});
     }
 
-    final namesToTranslate = uniqueNames
-        .where(
-          (name) => !skipSimplifiedChinese || !isClearlySimplifiedChinese(name),
-        )
-        .toList(growable: false);
+    final translations = {for (final name in uniqueNames) name: name};
+    final namesToTranslate = <String>[];
+    for (final name in uniqueNames) {
+      final localConversion = await convertLocally?.call(
+        name,
+        sourceLang: sourceLang,
+      );
+      if (localConversion != null) {
+        translations[name] = localConversion;
+      } else {
+        namesToTranslate.add(name);
+      }
+    }
     final chunks = splitNamesIntoChunks(
       namesToTranslate,
       maxChunkSize: maxChunkSize,
@@ -97,7 +102,6 @@ class FileNameTranslationService {
     }
 
     final translatedNames = translatedChunks.join('\n').split('\n');
-    final translations = {for (final name in uniqueNames) name: name};
 
     for (var i = 0; i < namesToTranslate.length; i++) {
       translations[namesToTranslate[i]] = i < translatedNames.length

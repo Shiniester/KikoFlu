@@ -130,7 +130,15 @@ class _OfflineFileExplorerWidgetState
   @override
   void didUpdateWidget(covariant OfflineFileExplorerWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!oldWidget.translate && widget.translate) {
+    final sourceChanged =
+        TranslationService.sourceLanguageForWork(oldWidget.work.lang) !=
+        TranslationService.sourceLanguageForWork(widget.work.lang);
+    if (sourceChanged) {
+      _translationController.translations.clear();
+      final generation = _translationController.beginBulkTranslation('');
+      _translationController.failBulkTranslation(generation);
+    }
+    if (widget.translate && (sourceChanged || !oldWidget.translate)) {
       unawaited(_translateVisibleNames());
     }
   }
@@ -735,13 +743,16 @@ class _OfflineFileExplorerWidgetState
 
     final generation = _translationController.beginBulkTranslation('');
     try {
-      final result = await FileNameTranslationService(
-        translate: TranslationService().translate,
-      ).translateNames(
-        names: names,
-        skipSimplifiedChinese: await TranslationService()
-            .targetsSimplifiedChinese(),
-      );
+      final result =
+          await FileNameTranslationService(
+            translate: TranslationService().translate,
+            convertLocally: TranslationService().convertChineseLocally,
+          ).translateNames(
+            names: names,
+            sourceLang: TranslationService.sourceLanguageForWork(
+              widget.work.lang,
+            ),
+          );
       if (!mounted ||
           !_translationController.completeBulkTranslation(
             generation,

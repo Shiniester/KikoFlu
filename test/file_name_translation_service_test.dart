@@ -1,24 +1,52 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/services/file_name_translation_service.dart';
+import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
+import 'package:kikoeru_flutter/src/services/translation_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 Map<String, dynamic> fileItem(String title) {
-  return {
-    'type': 'audio',
-    'title': title,
-    'hash': title,
-  };
+  return {'type': 'audio', 'title': title, 'hash': title};
 }
 
 Map<String, dynamic> folderItem(String title, List<dynamic> children) {
-  return {
-    'type': 'folder',
-    'title': title,
-    'children': children,
-  };
+  return {'type': 'folder', 'title': title, 'children': children};
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('FileNameTranslationService', () {
+    for (final target in ['zh_hans', 'zh_hant']) {
+      test(
+        'converts Chinese filenames locally in a mixed $target batch',
+        () async {
+          SharedPreferences.setMockInitialValues({
+            TranslationLanguagePreferencesNotifier.keyTargetLanguage: target,
+          });
+          final requests = <String>[];
+          final chinese = target == 'zh_hans' ? '輕聲耳語.wav' : '轻声耳语.wav';
+          final expected = target == 'zh_hans' ? '轻声耳语.wav' : '輕聲耳語.wav';
+          final service = FileNameTranslationService(
+            convertLocally: TranslationService().convertChineseLocally,
+            translate: (text, {sourceLang}) async {
+              requests.add(text);
+              return 'translated:first';
+            },
+            delay: (_) async {},
+          );
+          final result = await service.translateNames(
+            names: ['こんにちは.wav', chinese, '少女.wav'],
+          );
+          expect(requests, ['こんにちは.wav\n少女.wav']);
+          expect(result.translations, {
+            'こんにちは.wav': 'translated:first',
+            chinese: expected,
+            '少女.wav': '少女.wav',
+          });
+        },
+      );
+    }
+
     test('preserves Chinese names in a mixed translation batch', () async {
       final requests = <String>[];
       final service = FileNameTranslationService(
@@ -27,10 +55,13 @@ void main() {
           return text.split('\n').map((line) => 'translated:$line').join('\n');
         },
         delay: (_) async {},
+        convertLocally: (text, {sourceLang}) async => switch (text) {
+          '轻声耳语.wav' || '简体标题.txt' => text,
+          _ => null,
+        },
       );
       final result = await service.translateNames(
         names: ['轻声耳语.wav', 'こんにちは.wav', '简体标题.txt', '少女.wav'],
-        skipSimplifiedChinese: true,
       );
       expect(requests, ['こんにちは.wav\n少女.wav']);
       expect(result.names, ['轻声耳语.wav', 'こんにちは.wav', '简体标题.txt', '少女.wav']);
@@ -48,10 +79,10 @@ void main() {
         final service = FileNameTranslationService(
           translate: (text, {sourceLang}) async => fail('unexpected request'),
           delay: (_) async => fail('unexpected delay'),
+          convertLocally: (text, {sourceLang}) async => text,
         );
         final result = await service.translateNames(
           names: ['简体标题', '轻声耳语.wav'],
-          skipSimplifiedChinese: true,
           onProgress: (_, _) => fail('unexpected progress'),
         );
         expect(result.translations, {'简体标题': '简体标题', '轻声耳语.wav': '轻声耳语.wav'});
@@ -59,7 +90,7 @@ void main() {
     );
 
     test(
-      'Chinese names remain translatable when skipping is disabled',
+      'Chinese names remain translatable without a local converter',
       () async {
         final service = FileNameTranslationService(
           translate: (text, {sourceLang}) async => 'translated:$text',
@@ -70,24 +101,31 @@ void main() {
     );
 
     test(
-        'splits names into newline chunks without exceeding limit when possible',
-        () {
-      final chunks = FileNameTranslationService.splitNamesIntoChunks(
-        ['aaaa', 'bbbb', 'cc'],
-        maxChunkSize: 9,
-      );
+      'splits names into newline chunks without exceeding limit when possible',
+      () {
+        final chunks = FileNameTranslationService.splitNamesIntoChunks([
+          'aaaa',
+          'bbbb',
+          'cc',
+        ], maxChunkSize: 9);
 
-      expect(chunks, ['aaaa\nbbbb', 'cc']);
-    });
+        expect(chunks, ['aaaa\nbbbb', 'cc']);
+      },
+    );
 
     test('translates collected file tree names and reports progress', () async {
       final translatedChunks = <String>[];
+      final localSourceLanguages = <String?>[];
       final progress = <String>[];
       final service = FileNameTranslationService(
         translate: (text, {sourceLang}) async {
           expect(sourceLang, 'ja');
           translatedChunks.add(text);
           return text.split('\n').map((line) => 'translated:$line').join('\n');
+        },
+        convertLocally: (text, {sourceLang}) async {
+          localSourceLanguages.add(sourceLang);
+          return null;
         },
         delay: (_) async {},
       );
@@ -99,11 +137,13 @@ void main() {
             fileItem('track02.mp3'),
           ]),
         ],
+        sourceLang: 'ja',
         maxChunkSize: 100,
         onProgress: (current, total) => progress.add('$current/$total'),
       );
 
       expect(translatedChunks, ['Disc\ntrack01.mp3\ntrack02.mp3']);
+      expect(localSourceLanguages, ['ja', 'ja', 'ja']);
       expect(progress, ['1/1']);
       expect(result.names, ['Disc', 'track01.mp3', 'track02.mp3']);
       expect(result.translations, {
@@ -117,6 +157,7 @@ void main() {
       final translatedChunks = <String>[];
       final service = FileNameTranslationService(
         translate: (text, {sourceLang}) async {
+          expect(sourceLang, isNull);
           translatedChunks.add(text);
           return text.split('\n').map((line) => 'translated:$line').join('\n');
         },
@@ -149,10 +190,7 @@ void main() {
       );
 
       final result = await service.translateFileTree(
-        fileTree: [
-          fileItem('good'),
-          fileItem('bad'),
-        ],
+        fileTree: [fileItem('good'), fileItem('bad')],
         maxChunkSize: 20,
         onChunkError: (index, error) {
           chunkErrors.add('$index:${error.runtimeType}');
@@ -160,10 +198,7 @@ void main() {
       );
 
       expect(chunkErrors, ['0:StateError']);
-      expect(result.translations, {
-        'good': 'good',
-        'bad': 'bad',
-      });
+      expect(result.translations, {'good': 'good', 'bad': 'bad'});
     });
 
     test('keeps untranslated names when a response omits a line', () async {
@@ -177,7 +212,10 @@ void main() {
         maxChunkSize: 100,
       );
 
-      expect(result.translations, {'first': 'translated:first', 'second': 'second'});
+      expect(result.translations, {
+        'first': 'translated:first',
+        'second': 'second',
+      });
     });
 
     test('delays only between multiple chunks', () async {
@@ -190,11 +228,7 @@ void main() {
       );
 
       await service.translateFileTree(
-        fileTree: [
-          fileItem('aaaa'),
-          fileItem('bbbb'),
-          fileItem('cccc'),
-        ],
+        fileTree: [fileItem('aaaa'), fileItem('bbbb'), fileItem('cccc')],
         maxChunkSize: 4,
         throttleDelay: const Duration(milliseconds: 12),
       );

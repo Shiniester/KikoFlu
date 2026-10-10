@@ -41,14 +41,17 @@ String formatRJCode(int id) {
 }
 
 final _simplifiedChineseCharacters = RegExp(
-  '[这们说语让听觉过还给远边轻欢爱亲够练经绪线绵软细钟错门关录档风纸书读优务专业丝动对从无贝见车东乐买产仅传伤兴军农决况冻净减凑刘则创剧办势华协卖卢卫县变叹吗呜员响哑唤啰简标题频视览译备缩缓]',
+  '[这们说语让听觉过还给远边轻欢爱亲够练经绪线绵软细钟错门关录档风纸书读优务专业丝动对从无贝见车东乐买产仅传伤兴军农决况冻净减凑刘则创剧办势华协卖卢卫县变叹吗呜员响哑唤啰简标题频视览译备缩缓发头]',
 );
-final _traditionalChineseOrKana = RegExp(
-  '[\\u3040-\\u30ff\\uff66-\\uff9f這們說語讓聽覺沒過還給遠邊輕歡愛親夠練經緒線綿軟細鐘鍾錯門關錄檔風紙書讀寫優務專業與絲動對從無貝見車東樂買產僅傳傷興軍農決況凍淨減湊劉則創劇辦勢華協賣盧衛卻縣雙變嘆號嗎嗚員響啞喚囉簡標題頻視覽譯備註縮緩體聲國學會時來個圖廣萬歲實師龍長發髮後裡裏臺灣點數據隻慾]',
+final _distinctiveTraditionalChineseCharacters = RegExp(
+  '[這們說聽覺輕夠經關錄檔讀專絲對從產傳淨辦賣變嗎啞囉譯體聲戀發髮灣]',
 );
+final _kanaCharacters = RegExp('[\\u3040-\\u30ff\\uff66-\\uff9f]');
+final _latinPhrase = RegExp(r'\b[a-zA-Z]+(?:\s+[a-zA-Z]+)+\b');
 
-bool isClearlySimplifiedChinese(String text) {
-  // shortcut: only distinctive common simplified characters are recognized; use language detection if broader coverage is needed.
-  return _simplifiedChineseCharacters.hasMatch(text) &&
-      !_traditionalChineseOrKana.hasMatch(text);
+bool isClearlyChinese(String text) {
+  // shortcut: unknown Chinese/Japanese shared characters still need translation; use language detection if broader coverage is needed.
+  if (_kanaCharacters.hasMatch(text) || _latinPhrase.hasMatch(text)) return false;
+  return _simplifiedChineseCharacters.hasMatch(text) ||
+      _distinctiveTraditionalChineseCharacters.hasMatch(text);
 }

@@ -64,6 +64,7 @@ class WorkDetailScreen extends ConsumerStatefulWidget {
 class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   Work? _detailedWork;
   final _metadataChanges = ValueNotifier(0);
+  final _translationSourceLanguage = ValueNotifier<String?>(null);
   final _deferredContentReady = ValueNotifier(false);
   final _routeReadiness = WorkDetailRouteReadiness();
   Future<void>? _initialDetailLoad;
@@ -123,6 +124,8 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   @override
   void initState() {
     super.initState();
+    _translationSourceLanguage.value =
+        TranslationService.sourceLanguageForWork(widget.work.lang);
     // 初始化收藏状态（从传入的work中获取）
     _currentProgress = widget.work.progress;
     _currentRating = widget.work.userRating;
@@ -192,8 +195,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       if (!mounted || !idle) return;
     }
     if (autoTranslate && !_translationChoiceMade) {
-      if (_currentWork.lang?.trim().isNotEmpty != true &&
-          await TranslationService().targetsSimplifiedChinese()) {
+      if (TranslationService.sourceLanguageForWork(_currentWork.lang) == null) {
         await _initialDetailLoad;
         if (!mounted || _translationChoiceMade) return;
       }
@@ -206,6 +208,15 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       }
       if (!skipTranslation) _setTranslationEnabled(true);
     }
+  }
+
+  Future<bool> _waitForWorkTranslationReady() async {
+    if (TranslationService.sourceLanguageForWork(_currentWork.lang) == null) {
+      await _initialDetailLoad;
+      if (!mounted) return false;
+    }
+    if (!mounted) return false;
+    return _routeReadiness.waitForIdle();
   }
 
   void _scheduleHDImage() {
@@ -299,6 +310,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   @override
   void dispose() {
     _metadataChanges.dispose();
+    _translationSourceLanguage.dispose();
     _deferredContentReady.dispose();
     _showDetailCover.dispose();
     _hdImageProvider.dispose();
@@ -394,19 +406,40 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   }
 
   Future<void> _translateTitle() async {
-    final work = _detailedWork ?? widget.work;
     try {
+      final ready = await _waitForWorkTranslationReady();
+      if (!mounted || !ready || !_showTranslation) {
+        if (mounted) setState(() => _isTranslating = false);
+        return;
+      }
+      final work = _currentWork;
+      final sourceLang = TranslationService.sourceLanguageForWork(work.lang);
       final translationService = TranslationService();
       final translated = await translationService.translate(
         work.title,
-        sourceLang: 'ja',
+        sourceLang: sourceLang,
       );
 
       if (mounted) {
-        setState(() {
-          _translatedTitle = translated;
-          _isTranslating = false;
-        });
+        if (!_showTranslation) {
+          setState(() => _isTranslating = false);
+          return;
+        }
+        final currentSourceLang = TranslationService.sourceLanguageForWork(
+          _currentWork.lang,
+        );
+        if (sourceLang != currentSourceLang) {
+          setState(() {
+            _translatedTitle = null;
+            _isTranslating = _showTranslation;
+          });
+          if (_showTranslation) unawaited(_translateTitle());
+        } else {
+          setState(() {
+            _translatedTitle = translated;
+            _isTranslating = false;
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -421,6 +454,57 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         );
       }
     }
+  }
+
+  Future<void> _syncAutomaticTranslationForWork(Work work) async {
+    final autoTranslate = await ref
+        .read(autoTranslateWorkDetailsProvider.notifier)
+        .resolvedEnabled();
+    if (!mounted ||
+        _translationChoiceMade ||
+        !autoTranslate ||
+        TranslationService.sourceLanguageForWork(work.lang) !=
+            TranslationService.sourceLanguageForWork(_currentWork.lang)) {
+      return;
+    }
+    final skipTranslation = await TranslationService()
+        .shouldSkipAutomaticWorkDetailsTranslation(work.lang);
+    if (!mounted ||
+        _translationChoiceMade ||
+        !autoTranslate ||
+        TranslationService.sourceLanguageForWork(work.lang) !=
+            TranslationService.sourceLanguageForWork(_currentWork.lang)) {
+      return;
+    }
+    if (!_routeReadiness.isIdle) {
+      final idle = await _routeReadiness.waitForIdle();
+      if (!mounted ||
+          !idle ||
+          _translationChoiceMade ||
+          !autoTranslate ||
+          TranslationService.sourceLanguageForWork(work.lang) !=
+              TranslationService.sourceLanguageForWork(_currentWork.lang)) {
+        return;
+      }
+    }
+    if (skipTranslation) {
+      if (_showTranslation) _setTranslationEnabled(false);
+    } else if (!_showTranslation) {
+      _setTranslationEnabled(true);
+    } else if (!_isTranslating) {
+      setState(() => _isTranslating = true);
+      unawaited(_translateTitle());
+    }
+  }
+
+  void _onWorkLanguageChanged(Work work) {
+    if (_translationChoiceMade) {
+      if (!_showTranslation || _isTranslating) return;
+      setState(() => _isTranslating = true);
+      unawaited(_translateTitle());
+      return;
+    }
+    unawaited(_syncAutomaticTranslationForWork(work));
   }
 
   // 复制文本到剪贴板并显示提示
@@ -615,13 +699,22 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         return;
       }
       final detailedWork = _workFromDetailResponse(response);
+      final sourceChanged =
+          TranslationService.sourceLanguageForWork(_currentWork.lang) !=
+          TranslationService.sourceLanguageForWork(detailedWork.lang);
 
       _updateMetadata(() {
         _detailedWork = detailedWork;
+        if (sourceChanged) _translatedTitle = null;
         // 更新收藏状态（从API响应中获取最新状态）
         _currentProgress = detailedWork.progress;
         _currentRating = detailedWork.userRating;
       });
+      if (sourceChanged) {
+        _translationSourceLanguage.value =
+            TranslationService.sourceLanguageForWork(detailedWork.lang);
+        _onWorkLanguageChanged(detailedWork);
+      }
     } catch (e) {
       if (await _routeReadiness.waitForIdle() &&
           mounted &&
@@ -691,13 +784,22 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       }
       final response = refreshResults.first as Map<String, dynamic>;
       final detailedWork = _workFromDetailResponse(response);
+      final sourceChanged =
+          TranslationService.sourceLanguageForWork(_currentWork.lang) !=
+          TranslationService.sourceLanguageForWork(detailedWork.lang);
 
       if (mounted && generation == _metadataLoadGeneration) {
         _updateMetadata(() {
           _detailedWork = detailedWork;
+          if (sourceChanged) _translatedTitle = null;
           _currentProgress = detailedWork.progress;
           _currentRating = detailedWork.userRating;
         });
+        if (sourceChanged) {
+          _translationSourceLanguage.value =
+              TranslationService.sourceLanguageForWork(detailedWork.lang);
+          _onWorkLanguageChanged(detailedWork);
+        }
 
         // 显示刷新成功提示
         SnackBarUtil.showSuccess(
@@ -736,7 +838,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       vas: response.containsKey('vas') ? null : currentWork.vas,
       tags: response.containsKey('tags') ? null : currentWork.tags,
       release: response.containsKey('release') ? null : currentWork.release,
-      lang: hasLanguageMetadata ? responseWork.lang : currentWork.lang,
+      lang: hasLanguageMetadata ? responseWork.lang ?? '' : currentWork.lang,
       otherLanguageEditions:
           response.containsKey('other_language_editions_in_db')
           ? null
@@ -868,17 +970,22 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
           ValueListenableBuilder<bool>(
             valueListenable: _deferredContentReady,
             builder: (context, ready, _) => ready
-                ? FileExplorerWidget(
-                    work: widget.work,
-                    currentWork: () => _currentWork,
-                    recommendationBuilder: (context) => ListenableBuilder(
-                      listenable: _metadataChanges,
-                      builder: (context, _) =>
-                          RecommendationSection(work: _currentWork),
+                ? ValueListenableBuilder<String?>(
+                    valueListenable: _translationSourceLanguage,
+                    builder: (context, sourceLang, _) => FileExplorerWidget(
+                      work: widget.work,
+                      currentWork: () => _currentWork,
+                      translationSourceLang: sourceLang,
+                      translationReady: _waitForWorkTranslationReady,
+                      recommendationBuilder: (context) => ListenableBuilder(
+                        listenable: _metadataChanges,
+                        builder: (context, _) =>
+                            RecommendationSection(work: _currentWork),
+                      ),
+                      controller: _fileExplorerController,
+                      initialLoadReady: _routeReadiness.waitForIdle,
+                      translate: _showTranslation,
                     ),
-                    controller: _fileExplorerController,
-                    initialLoadReady: _routeReadiness.waitForIdle,
-                    translate: _showTranslation,
                   )
                 : const SliverToBoxAdapter(child: SizedBox.shrink()),
           ),

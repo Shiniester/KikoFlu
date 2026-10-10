@@ -85,14 +85,21 @@ selection keep their own priority.
 **Work Details Translation (作品详情翻译)**:
 The translated view of a work's title and currently displayed resource names.
 It remains active within that details page until the user switches back to the original.
-When the translation target is Simplified Chinese, clearly Simplified Chinese
-text remains unchanged; manual translation remains available for other text.
+Automatic and manual translation use the work's recognized language and the
+effective translation target. Matching languages keep the original text;
+Simplified and Traditional Chinese use local OpenCC conversion. Other recognized
+languages are sent to translation sources with the work's source language.
+When the work language is missing or unknown, clearly Chinese text targeting
+Chinese uses local conversion; other text uses automatic source detection.
+Original text and local conversion take precedence over translation-source caches.
+Local conversions of titles, resource names, and full subtitle text are cached
+persistently by source and target language, separately from remote translations.
 
 **Automatic Work Details Translation (自动作品详情翻译)**:
 The preference that enables Work Details Translation when a details page opens,
 without requiring a manual translation action.
-Simplified Chinese editions keep their original view when the translation
-target is Simplified Chinese.
+Works whose recognized language matches the effective translation target keep
+their original view. Manual translation remains available under the same policy.
 
 **Subtitle Preview Translation (字幕预览翻译)**:
 The translated text shown while inspecting a work subtitle when Work Details

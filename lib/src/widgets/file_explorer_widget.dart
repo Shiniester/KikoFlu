@@ -80,6 +80,8 @@ class FileExplorerController {
 class FileExplorerWidget extends ConsumerStatefulWidget {
   final Work work;
   final Work Function()? currentWork;
+  final String? translationSourceLang;
+  final Future<bool> Function()? translationReady;
   final VoidCallback? onLoadCompleted;
   final WidgetBuilder? recommendationBuilder;
   final FileExplorerController? controller;
@@ -90,6 +92,8 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
     super.key,
     required this.work,
     this.currentWork,
+    this.translationSourceLang,
+    this.translationReady,
     this.onLoadCompleted,
     this.recommendationBuilder,
     this.controller,
@@ -115,6 +119,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   String? _errorMessage;
   bool _audioVariantsReady = false;
   int _preferenceUpdateGeneration = 0;
+  int _translationSourceGeneration = 0;
   StreamSubscription<DownloadTaskChange>? _downloadTasksSubscription;
   int _loadGeneration = 0;
   bool _downloadScanRunning = false;
@@ -168,7 +173,15 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   @override
   void didUpdateWidget(covariant FileExplorerWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!oldWidget.translate && widget.translate) {
+    final sourceChanged =
+        oldWidget.translationSourceLang != widget.translationSourceLang;
+    if (sourceChanged) {
+      _translationSourceGeneration++;
+      _translationController.translations.clear();
+      final generation = _translationController.beginBulkTranslation('');
+      _translationController.failBulkTranslation(generation);
+    }
+    if (widget.translate && (sourceChanged || !oldWidget.translate)) {
       unawaited(_translateVisibleNames());
     }
     if (!identical(oldWidget.controller, widget.controller)) {
@@ -1017,6 +1030,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
         .toList(growable: false);
     if (names.isEmpty) return;
 
+    final sourceGeneration = _translationSourceGeneration;
     final l10n = S.of(context);
     final generation = _translationController.beginBulkTranslation(
       l10n.preparingTranslation,
@@ -1024,29 +1038,45 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     setState(() {});
 
     try {
-      final result = await FileNameTranslationService(
-        translate: TranslationService().translate,
-      ).translateNames(
-        names: names,
-        skipSimplifiedChinese: await TranslationService()
-            .targetsSimplifiedChinese(),
-        onProgress: (current, total) {
-          final updated = _translationController.updateBulkProgress(
-            generation,
-            l10n.translatingProgress(current, total),
+      final ready = await widget.translationReady?.call() ?? true;
+      if (!mounted ||
+          !ready ||
+          !widget.translate ||
+          sourceGeneration != _translationSourceGeneration) {
+        _translationController.failBulkTranslation(generation);
+        if (mounted) setState(() {});
+        return;
+      }
+      final sourceLang = TranslationService.sourceLanguageForWork(_work.lang);
+      final result =
+          await FileNameTranslationService(
+            translate: TranslationService().translate,
+            convertLocally: TranslationService().convertChineseLocally,
+          ).translateNames(
+            names: names,
+            sourceLang: sourceLang,
+            onProgress: (current, total) {
+              final updated = _translationController.updateBulkProgress(
+                generation,
+                l10n.translatingProgress(current, total),
+              );
+              if (updated && mounted) setState(() {});
+            },
+            onChunkError: (index, error) {
+              _log.captureOutput('[FileExplorer] 翻译块 $index 失败: $error');
+            },
           );
-          if (updated && mounted) setState(() {});
-        },
-        onChunkError: (index, error) {
-          _log.captureOutput('[FileExplorer] 翻译块 $index 失败: $error');
-        },
-      );
 
       if (!mounted ||
+          !widget.translate ||
+          sourceGeneration != _translationSourceGeneration ||
+          sourceLang != TranslationService.sourceLanguageForWork(_work.lang) ||
           !_translationController.completeBulkTranslation(
             generation,
             result.translations,
           )) {
+        final failed = _translationController.failBulkTranslation(generation);
+        if (mounted && failed) setState(() {});
         return;
       }
       setState(() {});

@@ -1,6 +1,7 @@
 import 'package:translator/translator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
+import 'package:crypto/crypto.dart';
 import 'dart:convert';
 import 'youdao_translator.dart';
 import 'microsoft_translator.dart';
@@ -11,6 +12,7 @@ import '../providers/settings_provider.dart';
 import '../utils/global_keys.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/string_utils.dart';
+import '../utils/chinese_script_converter.dart';
 
 final _log = LogService.instance;
 
@@ -24,6 +26,42 @@ class TranslationService {
   final MicrosoftTranslator _microsoftTranslator = MicrosoftTranslator();
   final LLMTranslator _llmTranslator = LLMTranslator();
   static const String _cachePrefix = 'translation_cache_';
+  static const String _localCachePrefix = 'translation_cache_opencc_';
+
+  static String? sourceLanguageForWork(String? marker) {
+    return switch (marker?.trim().toUpperCase()) {
+      'CHI_HANS' => 'zh-cn',
+      'CHI_HANT' => 'zh-tw',
+      'JPN' => 'ja',
+      'ENG' => 'en',
+      'KOR' => 'ko',
+      'FRA' || 'FRE' => 'fr',
+      'DEU' || 'GER' => 'de',
+      'SPA' => 'es',
+      'ITA' => 'it',
+      'POR' => 'pt',
+      'RUS' => 'ru',
+      _ => null,
+    };
+  }
+
+  @visibleForTesting
+  static String? youdaoSourceLanguageCode(String? sourceLang) {
+    return switch (sourceLang) {
+      'zh-cn' => 'zh-CHS',
+      'zh-tw' => 'zh-CHT',
+      _ => sourceLang,
+    };
+  }
+
+  @visibleForTesting
+  static String? microsoftSourceLanguageCode(String? sourceLang) {
+    return switch (sourceLang) {
+      'zh-cn' => 'zh-Hans',
+      'zh-tw' => 'zh-Hant',
+      _ => sourceLang,
+    };
+  }
 
   Locale _getEffectiveLocaleFromPreferences(SharedPreferences prefs) {
     final language = prefs.getString('locale_language');
@@ -43,9 +81,7 @@ class TranslationService {
   _TranslationLanguageConfig _getLanguageConfig(SharedPreferences prefs) {
     final appLocale = _getEffectiveLocaleFromPreferences(prefs);
     final targetLanguage = TranslationTargetLanguage.fromValue(
-      prefs.getString(
-        TranslationLanguagePreferencesNotifier.keyTargetLanguage,
-      ),
+      prefs.getString(TranslationLanguagePreferencesNotifier.keyTargetLanguage),
     );
     return _TranslationLanguageConfig(
       targetLocale: targetLanguage.resolveLocale(appLocale),
@@ -59,17 +95,130 @@ class TranslationService {
         locale.countryCode == 'HK';
   }
 
-  Future<bool> targetsSimplifiedChinese() async {
-    final prefs = await SharedPreferences.getInstance();
-    final locale = _getLanguageConfig(prefs).targetLocale;
-    return locale.languageCode == 'zh' && !_isTraditionalChinese(locale);
-  }
-
   Future<bool> shouldSkipAutomaticWorkDetailsTranslation(
     String? workLanguage,
   ) async {
-    return workLanguage?.trim().toUpperCase() == 'CHI_HANS' &&
-        await targetsSimplifiedChinese();
+    final sourceLang = sourceLanguageForWork(workLanguage);
+    if (sourceLang == null) return false;
+    final prefs = await SharedPreferences.getInstance();
+    return _isSameLanguageTarget(
+      sourceLang,
+      _getLanguageConfig(prefs).targetLocale,
+    );
+  }
+
+  Future<String?> convertChineseLocally(
+    String text, {
+    String? sourceLang,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return await _convertChineseLocally(
+        text,
+        _getLanguageConfig(prefs).targetLocale,
+        sourceLang: sourceLang,
+        prefs: prefs,
+      );
+    } catch (e) {
+      _log.captureOutput('Local translation error: $e');
+      return null;
+    }
+  }
+
+  Future<String?> _convertChineseLocally(
+    String text,
+    Locale targetLocale, {
+    String? sourceLang,
+    SharedPreferences? prefs,
+  }) async {
+    final normalizedSourceLang = _normalizeSourceLanguage(sourceLang);
+    if (normalizedSourceLang != null &&
+        _isSameLanguageTarget(normalizedSourceLang, targetLocale)) {
+      return text;
+    }
+    if (targetLocale.languageCode != 'zh') return null;
+
+    final knownChineseSource = normalizedSourceLang?.startsWith('zh') == true;
+    if (!knownChineseSource &&
+        (normalizedSourceLang != null || !isClearlyChinese(text))) {
+      return null;
+    }
+
+    final cacheSourceLang = normalizedSourceLang ?? 'auto';
+    final cacheTargetLang = _localCacheTargetLang(targetLocale);
+    final cacheKey = _getLocalCacheKey(text, cacheSourceLang, cacheTargetLang);
+    SharedPreferences? cachePrefs = prefs;
+    try {
+      cachePrefs ??= await SharedPreferences.getInstance();
+      final cached = cachePrefs.getString(cacheKey);
+      if (cached != null) return cached;
+    } catch (e) {
+      _log.captureOutput('Local translation cache read error: $e');
+    }
+
+    late final String converted;
+    try {
+      converted = await convertChineseScript(
+        text,
+        toTraditional: _isTraditionalChinese(targetLocale),
+      );
+    } catch (e) {
+      _log.captureOutput('Local translation error: $e');
+      return text;
+    }
+
+    try {
+      cachePrefs ??= await SharedPreferences.getInstance();
+      await cachePrefs.setString(cacheKey, converted);
+    } catch (e) {
+      _log.captureOutput('Local translation cache write error: $e');
+    }
+    return converted;
+  }
+
+  static String? _normalizeSourceLanguage(String? sourceLang) {
+    final workLanguage = sourceLanguageForWork(sourceLang);
+    if (workLanguage != null) return workLanguage;
+
+    final normalized = sourceLang?.trim().toLowerCase().replaceAll('_', '-');
+    if (normalized == null || normalized.isEmpty) return null;
+    if (normalized == 'zh') return 'zh';
+    if (normalized.startsWith('zh-')) {
+      final subtags = normalized.substring(3).split('-');
+      if (subtags.any((part) => part == 'hans' || part == 'chs') ||
+          subtags.any((part) => part == 'cn' || part == 'sg')) {
+        return 'zh-cn';
+      }
+      if (subtags.any((part) => part == 'hant' || part == 'cht') ||
+          subtags.any((part) => part == 'tw' || part == 'hk' || part == 'mo')) {
+        return 'zh-tw';
+      }
+    }
+    return RegExp(r'^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$').hasMatch(normalized)
+        ? normalized
+        : null;
+  }
+
+  bool _isSameLanguageTarget(String sourceLang, Locale targetLocale) {
+    if (sourceLang.startsWith('zh')) {
+      return sourceLang == _targetLanguageCode(targetLocale);
+    }
+    return sourceLang.split('-').first ==
+        targetLocale.languageCode.toLowerCase();
+  }
+
+  String _localCacheTargetLang(Locale locale) {
+    if (locale.languageCode == 'zh') {
+      return _isTraditionalChinese(locale) ? 'zh-hant' : 'zh-hans';
+    }
+    return locale.languageCode.toLowerCase();
+  }
+
+  String _targetLanguageCode(Locale locale) {
+    if (locale.languageCode == 'zh') {
+      return _isTraditionalChinese(locale) ? 'zh-tw' : 'zh-cn';
+    }
+    return locale.languageCode.toLowerCase();
   }
 
   /// 获取 Google Translate 目标语言代码
@@ -157,15 +306,20 @@ class TranslationService {
     final prefs = await SharedPreferences.getInstance();
     final selectedSource = prefs.getString('translation_source') ?? 'google';
     final languageConfig = _getLanguageConfig(prefs);
-    final cacheSourceLang = languageConfig.cacheSourceLang(sourceLang);
+    final normalizedSourceLang = _normalizeSourceLanguage(sourceLang);
+    final cacheSourceLang = languageConfig.cacheSourceLang(
+      normalizedSourceLang,
+    );
     final cacheTargetLang = languageConfig.cacheTargetLang();
     final targetLocale = languageConfig.targetLocale;
 
-    if (targetLocale.languageCode == 'zh' &&
-        !_isTraditionalChinese(targetLocale) &&
-        isClearlySimplifiedChinese(text)) {
-      return text;
-    }
+    final localConversion = await _convertChineseLocally(
+      text,
+      targetLocale,
+      sourceLang: normalizedSourceLang,
+      prefs: prefs,
+    );
+    if (localConversion != null) return localConversion;
 
     // 检查缓存
     final cachedTranslation = await _getCachedTranslation(
@@ -201,29 +355,33 @@ class TranslationService {
         if (source == 'youdao') {
           result = await _youdaoTranslator.translate(
             text,
-            sourceLang: languageConfig.youdaoSourceLang(sourceLang),
+            sourceLang: languageConfig.youdaoSourceLang(normalizedSourceLang),
             targetLang: _youdaoTargetLang(targetLocale),
           );
         } else if (source == 'microsoft') {
           result = await _microsoftTranslator.translate(
             text,
-            sourceLang: languageConfig.microsoftSourceLang(sourceLang),
+            sourceLang: languageConfig.microsoftSourceLang(
+              normalizedSourceLang,
+            ),
             targetLang: _microsoftTargetLang(targetLocale),
           );
         } else if (source == 'llm') {
           result = await _llmTranslator.translate(
             text,
-            sourceLang: languageConfig.llmSourceLanguageName(sourceLang),
+            sourceLang: languageConfig.llmSourceLanguageName(
+              normalizedSourceLang,
+            ),
             locale: targetLocale,
             sourceLanguageName: languageConfig.llmSourceLanguageName(
-              sourceLang,
+              normalizedSourceLang,
             ),
           );
         } else {
           // Google 翻译
           final translation = await _googleTranslator.translate(
             text,
-            from: languageConfig.googleSourceLang(sourceLang),
+            from: languageConfig.googleSourceLang(normalizedSourceLang),
             to: _googleTargetLang(targetLocale),
           );
           result = translation.text;
@@ -277,6 +435,15 @@ class TranslationService {
     Function(int current, int total)? onProgress,
   }) async {
     if (text.isEmpty) return text;
+
+    final localConversion = await convertChineseLocally(
+      text,
+      sourceLang: sourceLang,
+    );
+    if (localConversion != null) {
+      onProgress?.call(1, 1);
+      return localConversion;
+    }
 
     // Google Translate 通过 URL 传参，URL 长度有限制
     // 考虑到 URL 编码后长度会增加，保守设置为 1500 字符
@@ -413,6 +580,13 @@ class TranslationService {
     return '$_cachePrefix${sourceLang}_${targetLang}_${text.hashCode}';
   }
 
+  String _getLocalCacheKey(String text, String sourceLang, String targetLang) {
+    final digest = sha256.convert(
+      utf8.encode('$sourceLang\u0000$targetLang\u0000$text'),
+    );
+    return '$_localCachePrefix$digest';
+  }
+
   /// 清除所有翻译缓存
   Future<void> clearCache() async {
     try {
@@ -430,9 +604,7 @@ class TranslationService {
 }
 
 class _TranslationLanguageConfig {
-  const _TranslationLanguageConfig({
-    required this.targetLocale,
-  });
+  const _TranslationLanguageConfig({required this.targetLocale});
 
   final Locale targetLocale;
 
@@ -441,11 +613,11 @@ class _TranslationLanguageConfig {
   }
 
   String? youdaoSourceLang(String? sourceLang) {
-    return sourceLang;
+    return TranslationService.youdaoSourceLanguageCode(sourceLang);
   }
 
   String? microsoftSourceLang(String? sourceLang) {
-    return sourceLang;
+    return TranslationService.microsoftSourceLanguageCode(sourceLang);
   }
 
   String cacheSourceLang(String? sourceLang) {
