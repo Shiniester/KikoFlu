@@ -19,7 +19,7 @@ import 'download_disk_inventory_scanner.dart';
 import 'download_task_persistence.dart';
 import 'local_work_metadata_service.dart';
 import 'log_service.dart';
-import 'audio_stream_cache.dart';
+import 'audio_cache_files.dart';
 import 'remote_asset_cache.dart';
 import 'resumable_file_transfer.dart';
 
@@ -897,7 +897,7 @@ class DownloadService implements DownloadTaskRepository {
           final cachedFile = File(cachedPath);
           if (await cachedFile.exists()) {
             if (isAudio) {
-              AudioStreamCache.markCachePathActive(cachedPath);
+              AudioCacheFiles.markCachePathActive(cachedPath);
             } else {
               FileRemoteAssetCache.markCachePathActive(cachedPath);
             }
@@ -907,7 +907,7 @@ class DownloadService implements DownloadTaskRepository {
               }
             } finally {
               if (isAudio) {
-                AudioStreamCache.unmarkCachePathActive(cachedPath);
+                AudioCacheFiles.unmarkCachePathActive(cachedPath);
               } else {
                 FileRemoteAssetCache.unmarkCachePathActive(cachedPath);
               }
@@ -947,18 +947,23 @@ class DownloadService implements DownloadTaskRepository {
           task.hash!,
         );
         if (await audioPrefix.exists() &&
-            !AudioStreamCache.isCachePathActive(audioPrefix.path)) {
+            !AudioCacheFiles.isCachePathActive(audioPrefix.path)) {
           final sourceLength = await audioPrefix.length();
           final sourceModified = await audioPrefix.lastModified();
-          await audioPrefix.copy(tempFilePath);
+          final lease = AudioCacheFiles.holdCacheFile(audioPrefix.path);
+          try {
+            await audioPrefix.copy(tempFilePath);
+          } finally {
+            lease.release();
+          }
           final sourceStayedInactive =
               await audioPrefix.exists() &&
-              !AudioStreamCache.isCachePathActive(audioPrefix.path) &&
+              !AudioCacheFiles.isCachePathActive(audioPrefix.path) &&
               await audioPrefix.length() == sourceLength &&
               await audioPrefix.lastModified() == sourceModified;
           if (sourceStayedInactive) {
             _log.info(
-              '复用在线播放音频前缀: ${await tempFile.length()} bytes',
+              '复用后台音频缓存前缀: ${await tempFile.length()} bytes',
               tag: 'Download',
             );
           } else if (await tempFile.exists()) {

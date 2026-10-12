@@ -169,6 +169,18 @@ Moving to a selected time within the current track from the player's progress
 control or lyrics. The current track and its queue position remain the same.
 _Avoid_: Track Switch, 曲目切换
 
+**Automatic Audio Cache (音频自动缓存)**:
+Saving online audio in the background for later playback. A cache entry becomes
+playable only when the entire file is saved. Cache progress, failure, or
+cancellation does not change the current playback source.
+_Avoid_: Audio Download, playback buffer
+
+**Next Track Preload (下一首预加载)**:
+Saving the next queued track ahead of a Track Switch, using the configured
+remaining-time threshold. It is separate from preparing the current playback
+source and may reuse Automatic Audio Cache.
+_Avoid_: Track Switch, playback buffer
+
 **Track Presentation Transition (曲目视觉过渡)**:
 The existing cover and title animation after a committed track is published.
 Its direction follows the accepted playback request. It is separate from source

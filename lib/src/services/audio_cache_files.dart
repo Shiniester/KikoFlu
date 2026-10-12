@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -8,14 +7,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'cache_file_transaction.dart';
 import 'storage_service.dart';
 
-class AudioPartialCacheMetadata {
-  const AudioPartialCacheMetadata({this.sourceLength, this.contentType});
+/// Keeps a cache file out of eviction while playback or a transfer owns it.
+final class AudioCacheFileLease {
+  AudioCacheFileLease._(this.path);
 
-  final int? sourceLength;
-  final String? contentType;
+  final String path;
+  bool _released = false;
+
+  void release() {
+    if (_released) return;
+    _released = true;
+    AudioCacheFiles.unmarkCachePathActive(path);
+  }
 }
 
-/// Owns the on-disk representation of streaming audio cache entries.
+/// Owns the on-disk representation and leases of complete and partial audio.
 class AudioCacheFiles {
   AudioCacheFiles({
     Future<Directory> Function()? directoryProvider,
@@ -29,6 +35,34 @@ class AudioCacheFiles {
   final Future<SharedPreferences> Function() _preferencesProvider;
   final void Function()? onChanged;
   final Duration cacheDuration;
+  static final Map<String, int> _activePathCounts = {};
+
+  static bool isCachePathActive(String path) =>
+      _activePathCounts.containsKey(p.normalize(path)) ||
+      isCacheFileTransactionActive(path);
+
+  static AudioCacheFileLease holdCacheFile(String path) {
+    markCachePathActive(path);
+    return AudioCacheFileLease._(path);
+  }
+
+  static void markCachePathActive(String path) {
+    _activePathCounts.update(
+      p.normalize(path),
+      (count) => count + 1,
+      ifAbsent: () => 1,
+    );
+  }
+
+  static void unmarkCachePathActive(String path) {
+    final normalized = p.normalize(path);
+    final count = _activePathCounts[normalized];
+    if (count == null || count <= 1) {
+      _activePathCounts.remove(normalized);
+    } else {
+      _activePathCounts[normalized] = count - 1;
+    }
+  }
 
   static String safeHash(String hash) => hash.replaceAll('/', '_');
 
@@ -91,6 +125,7 @@ class AudioCacheFiles {
       }
     }
 
+    if (isCachePathActive(file.path)) return file.path;
     await file.delete();
     await preferences.remove(completeMetadataKey(hash));
     await resetPartial(hash);
@@ -100,52 +135,10 @@ class AudioCacheFiles {
 
   Future<void> removeExpiredPartial(String hash) async {
     final file = await partialFile(hash);
-    if (!await file.exists()) return;
+    if (isCachePathActive(file.path) || !await file.exists()) return;
     final modifiedAt = await file.lastModified();
     if (DateTime.now().difference(modifiedAt) <= cacheDuration) return;
     await resetPartial(hash);
-  }
-
-  Future<AudioPartialCacheMetadata?> readPartialMetadata(String hash) async {
-    final preferences = await _preferencesProvider();
-    final encoded = preferences.getString(partialMetadataKey(hash));
-    if (encoded == null) return null;
-
-    try {
-      final decoded = jsonDecode(encoded);
-      if (decoded is! Map<String, dynamic>) return null;
-      final rawLength = decoded['sourceLength'];
-      final rawContentType = decoded['contentType'];
-      return AudioPartialCacheMetadata(
-        sourceLength: rawLength is int && rawLength >= 0 ? rawLength : null,
-        contentType: rawContentType is String && rawContentType.isNotEmpty
-            ? rawContentType
-            : null,
-      );
-    } on FormatException {
-      await preferences.remove(partialMetadataKey(hash));
-      return null;
-    }
-  }
-
-  Future<void> writePartialMetadata(
-    String hash, {
-    int? sourceLength,
-    String? contentType,
-  }) async {
-    final previous = await readPartialMetadata(hash);
-    final resolvedLength = sourceLength ?? previous?.sourceLength;
-    final resolvedContentType = contentType ?? previous?.contentType;
-    if (resolvedLength == null && resolvedContentType == null) return;
-
-    final preferences = await _preferencesProvider();
-    await preferences.setString(
-      partialMetadataKey(hash),
-      jsonEncode({
-        if (resolvedLength != null) 'sourceLength': resolvedLength,
-        if (resolvedContentType != null) 'contentType': resolvedContentType,
-      }),
-    );
   }
 
   Future<bool> finalize(String hash, {required int expectedSize}) async {

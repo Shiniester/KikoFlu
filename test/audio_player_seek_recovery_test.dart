@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
+import 'package:kikoeru_flutter/src/services/audio_cache_downloader.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
@@ -45,7 +46,8 @@ void main() {
       player,
       sessionStore: MemorySessionStore(),
       androidSeekRecovery: true,
-      localSeekTimeout: const Duration(milliseconds: 100),
+      seekRecoveryTimeout: const Duration(milliseconds: 100),
+      cacheDownloader: _NoopCacheDownloader(),
     );
     service.updatePreloadThreshold(null);
     await service.updateQueue([track], autoplay: true);
@@ -55,6 +57,167 @@ void main() {
   tearDown(() async {
     await service.dispose();
     await root.delete(recursive: true);
+  });
+
+  Future<AudioTrack> loadOnline(
+    String extension, {
+    bool caching = false,
+  }) async {
+    final online = AudioTrack(
+      id: 'online',
+      title: 'online.$extension',
+      url: caching
+          ? 'https://example.invalid/api/media/stream/online-$extension'
+          : 'https://example.invalid/online.$extension',
+      hash: caching ? 'online-$extension' : null,
+    );
+    await service.updateQueue([online], autoplay: true);
+    player.reloadPositions.clear();
+    player.position = const Duration(minutes: 1);
+    player.completeSeekImmediately = true;
+    return online;
+  }
+
+  for (final extension in [
+    'mp3',
+    'wav',
+    'flac',
+    'm4a',
+    'aac',
+    'ogg',
+    'opus',
+    'wma',
+    'm4b',
+  ]) {
+    for (final withHash in [false, true]) {
+      test('Android $extension seek uses the same native source path '
+          '(hash: $withHash)', () async {
+        final online = await loadOnline(extension, caching: withHash);
+        final source = player.audioSource;
+        final published = <AudioTrack?>[];
+        final subscription = service.currentTrackStream.listen(published.add);
+        const target = Duration(minutes: 15);
+
+        await service.seek(target);
+
+        expect(player.reloadPositions, isEmpty);
+        expect(player.stopCount, 0);
+        expect(player.seeks, [target]);
+        expect(player.audioSource, same(source));
+        expect(player.position, target);
+        expect(player.playing, isTrue);
+        expect(service.currentTrack, online);
+        expect(published, isEmpty);
+        await subscription.cancel();
+      });
+    }
+  }
+
+  test('other platforms keep online lossless native seeking', () async {
+    await service.dispose();
+    player = SeekPlayer();
+    service = AudioPlayerService.forTesting(
+      player,
+      sessionStore: MemorySessionStore(),
+      cacheDownloader: _NoopCacheDownloader(),
+    );
+    service.updatePreloadThreshold(null);
+    await loadOnline('wav');
+    const target = Duration(minutes: 15);
+    await service.seek(target);
+    expect(player.reloadPositions, isEmpty);
+    expect(player.seeks, [target]);
+  });
+
+  for (final caching in [false, true]) {
+    test(
+      'online seek error recovers at the target (caching: $caching)',
+      () async {
+        await loadOnline('flac', caching: caching);
+        player.completeSeekImmediately = false;
+        const target = Duration(seconds: 70);
+        final seeking = service.seek(target);
+        player.failSeek();
+        await seeking;
+        expect(player.reloadPositions, [target]);
+        expect(player.position, target);
+        expect(player.playing, isTrue);
+      },
+    );
+  }
+
+  test('online FLAC seek stuck buffering has bounded recovery', () async {
+    await loadOnline('flac', caching: true);
+    player.completeSeekImmediately = false;
+    const target = Duration(seconds: 70);
+    await service.seek(target).timeout(const Duration(seconds: 10));
+    expect(player.reloadPositions, [target]);
+    expect(player.position, target);
+    expect(player.processingState, ProcessingState.ready);
+  });
+
+  test('late online seek error reloads the same stream on play', () async {
+    await loadOnline('flac', caching: true);
+    const target = Duration(seconds: 70);
+    await service.seek(target);
+    final source = player.audioSource;
+    player.failSeek();
+    await until(() => !player.playing);
+    await service.play();
+    expect(player.reloadPositions, [target]);
+    expect(player.audioSource, same(source));
+    expect(player.position, target);
+    expect(player.playing, isTrue);
+  });
+
+  test(
+    'pause during failed online seek recovery keeps playback paused',
+    () async {
+      await loadOnline('wav', caching: true);
+      player.holdNextLoad = true;
+      player.completeSeekImmediately = false;
+      const target = Duration(minutes: 15);
+      final seeking = service.seek(target);
+      player.failSeek();
+      await until(() => player.pendingLoad != null);
+      await service.pause();
+      player.finishLoad();
+      await seeking;
+      expect(player.position, target);
+      expect(player.playing, isFalse);
+    },
+  );
+
+  test('stop cancels failed online seek recovery', () async {
+    await loadOnline('wav', caching: true);
+    player.holdNextLoad = true;
+    player.completeSeekImmediately = false;
+    final seeking = service.seek(const Duration(minutes: 15));
+    player.failSeek();
+    await until(() => player.pendingLoad != null);
+    await service.stop();
+    await seeking;
+    expect(player.playing, isFalse);
+    expect(service.isTrackLoading, isFalse);
+  });
+
+  test('new track wins over failed online seek recovery', () async {
+    await loadOnline('wav', caching: true);
+    player.holdNextLoad = true;
+    player.completeSeekImmediately = false;
+    final seeking = service.seek(const Duration(minutes: 15));
+    player.failSeek();
+    await until(() => player.pendingLoad != null);
+    const next = AudioTrack(
+      id: 'next',
+      title: 'next.mp3',
+      url: 'https://example.invalid/next.mp3',
+    );
+    await service.updateQueue([next], autoplay: true);
+    await seeking;
+    expect(service.currentTrack, next);
+    expect(player.source, next.url);
+    expect(player.playing, isTrue);
   });
 
   test(
@@ -281,21 +444,18 @@ void main() {
     },
   );
 
-  test(
-    'a local seek stuck buffering recovers once after its deadline',
-    () async {
-      const target = Duration(minutes: 3);
-      final seeking = service.seek(target);
-      expect(player.reloadPositions, isEmpty);
-      await seeking.timeout(const Duration(seconds: 10));
-      expect(player.reloadPositions, [target]);
-      expect(player.processingState, ProcessingState.ready);
-      expect(player.playing, isTrue);
-      player.failSeek();
-      await Future<void>.delayed(Duration.zero);
-      expect(player.reloadPositions, [target]);
-    },
-  );
+  test('a seek stuck buffering recovers once after its deadline', () async {
+    const target = Duration(minutes: 3);
+    final seeking = service.seek(target);
+    expect(player.reloadPositions, isEmpty);
+    await seeking.timeout(const Duration(seconds: 10));
+    expect(player.reloadPositions, [target]);
+    expect(player.processingState, ProcessingState.ready);
+    expect(player.playing, isTrue);
+    player.failSeek();
+    await Future<void>.delayed(Duration.zero);
+    expect(player.reloadPositions, [target]);
+  });
 
   test('a no-op seek without a READY transition does not reload', () async {
     await service.pause();
@@ -532,7 +692,7 @@ void main() {
 class SeekPlayer extends ControlledPlayer {
   final events = StreamController<PlaybackEvent>.broadcast(sync: true);
   final reloadPositions = <Duration?>[];
-  Completer<void>? pendingSeek;
+  bool completeSeekImmediately = false;
   bool failReload = false;
   bool failNextStop = false;
   bool leaveLoadPendingOnStop = false;
@@ -542,25 +702,26 @@ class SeekPlayer extends ControlledPlayer {
   Stream<PlaybackEvent> get playbackEventStream => events.stream;
 
   @override
-  AudioSource? get audioSource => source == null
-      ? null
-      : AudioSource.uri(
-          source!.startsWith('https:') ? Uri.parse(source!) : Uri.file(source!),
-        );
-
-  @override
   Future<void> seek(Duration? position, {int? index}) {
     this.position = position ?? Duration.zero;
     seeks.add(this.position);
+    if (completeSeekImmediately) {
+      processingState = ProcessingState.ready;
+      emitPlayerState();
+      return Future<void>.value();
+    }
     processingState = ProcessingState.buffering;
+    emitPlayerState();
     pendingSeek = Completer<void>();
     return pendingSeek!.future;
   }
 
   void failSeek() => events.addError(PlayerException(2, 'Native seek failed'));
 
+  @override
   void finishSeek() {
     processingState = ProcessingState.ready;
+    emitPlayerState();
     pendingSeek!.complete();
   }
 
@@ -574,6 +735,7 @@ class SeekPlayer extends ControlledPlayer {
       stopCount++;
       playing = false;
       processingState = ProcessingState.idle;
+      emitPlayerState();
       return;
     }
     await super.stop();
@@ -586,13 +748,10 @@ class SeekPlayer extends ControlledPlayer {
     int? initialIndex,
     Duration? initialPosition,
   }) async {
-    reloadPositions.add(initialPosition);
+    if (initialPosition != null) reloadPositions.add(initialPosition);
     if (failReload) throw PlayerException(2, 'Native prepare failed');
     try {
-      await super.setUrl(
-        (source as UriAudioSource).uri.toFilePath(),
-        initialPosition: initialPosition,
-      );
+      await super.setAudioSource(source, initialPosition: initialPosition);
     } finally {
       final gate = loadUnwindGate;
       if (gate != null) {
@@ -603,10 +762,21 @@ class SeekPlayer extends ControlledPlayer {
         processingState = ProcessingState.idle;
       }
     }
+    loadedAudioSource = source;
     position = initialPosition ?? Duration.zero;
     return duration;
   }
 
   @override
-  Future<void> dispose() async => events.close();
+  Future<void> dispose() async {
+    await events.close();
+    await super.dispose();
+  }
+}
+
+class _NoopCacheDownloader extends AudioCacheDownloader {
+  _NoopCacheDownloader() : super(files: CacheService.audioCacheFiles);
+
+  @override
+  Future<bool> setTarget(AudioCacheRequest? request) async => true;
 }
