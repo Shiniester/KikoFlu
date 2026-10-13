@@ -4176,4 +4176,78 @@ class SEn extends S {
 
   @override
   String get comicPopularMonth => 'Popular this month';
+
+  @override
+  String get subtitleGenerationTitle => 'Generate audio subtitles';
+
+  @override
+  String get subtitleGenerateAll => 'Generate all subtitles';
+
+  @override
+  String get subtitleGenerationDescription =>
+      'Recognize Japanese on this device. Audio stays on your device. The first use downloads about 160 MB of models. Supports MP3, WAV and FLAC. Translate manually after generation.';
+
+  @override
+  String get subtitleGenerationQueued => 'Queued';
+
+  @override
+  String get subtitleGenerationChecking => 'Checking existing subtitles';
+
+  @override
+  String get subtitleGenerationDownloadingAudio => 'Downloading complete audio';
+
+  @override
+  String get subtitleGenerationDownloadingModel =>
+      'Downloading recognition model';
+
+  @override
+  String get subtitleGenerationTranscribing => 'Recognizing Japanese';
+
+  @override
+  String get subtitleGenerationSaving => 'Saving subtitles';
+
+  @override
+  String get subtitleGenerationCompleted => 'Generated';
+
+  @override
+  String get subtitleGenerationSkipped => 'Existing subtitles';
+
+  @override
+  String get subtitleGenerationUnsupported =>
+      'Unsupported format (MP3, WAV and FLAC only)';
+
+  @override
+  String get subtitleGenerationCancelled => 'Cancelled';
+
+  @override
+  String get subtitleGenerationCancelAll => 'Cancel all';
+
+  @override
+  String get subtitleGenerationCloseHint =>
+      'Tasks continue after closing this panel.';
+
+  @override
+  String subtitleGenerationFailed(String stage) {
+    return 'Failed: $stage';
+  }
+
+  @override
+  String subtitleGenerationProgress(String stage, double progress) {
+    final intl.NumberFormat progressNumberFormat =
+        intl.NumberFormat.percentPattern(localeName);
+    final String progressString = progressNumberFormat.format(progress);
+
+    return '$stage · $progressString';
+  }
+
+  @override
+  String subtitleGenerationSummary(
+    int completed,
+    int skipped,
+    int unsupported,
+    int failed,
+    int cancelled,
+  ) {
+    return 'Generated: $completed · Existing: $skipped · Unsupported: $unsupported · Failed: $failed · Cancelled: $cancelled';
+  }
 }

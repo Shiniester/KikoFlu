@@ -63,8 +63,10 @@ class AudioSubtitleRequest {
   String get identity => GeneratedSubtitleStore.audioIdentity(track);
 }
 
-typedef AudioSubtitleGenerationResult =
-    ({AudioSubtitleGenerationStatus status, String? path});
+typedef AudioSubtitleGenerationResult = ({
+  AudioSubtitleGenerationStatus status,
+  String? path,
+});
 
 typedef AudioSubtitleProgress =
     void Function(AudioSubtitleGenerationStatus status, double progress);
@@ -128,7 +130,7 @@ class AudioSubtitleGenerationService {
                 : AudioFileUrlResolver.normalizeMediaHost(request.host);
             if (url.startsWith('/')) url = '$host$url';
             if (url.isEmpty && host.isNotEmpty) {
-              url = '$host/api/media/download/$hash';
+              url = '$host/api/media/stream/$hash';
             }
             if (url.isEmpty) continue;
             if (request.token.isNotEmpty && !url.contains('token=')) {
@@ -152,6 +154,7 @@ class AudioSubtitleGenerationService {
             }
           }
         }
+        if (cancelToken.isCancelled) throw cancelToken.cancelError!;
         LyricParser.parse(text);
         return true;
       } catch (_) {
@@ -212,7 +215,7 @@ class AudioSubtitleGenerationService {
     final hash = track.hash;
     if (hash != null && hash.isNotEmpty) {
       final cached = await CacheService.getCachedAudioFile(hash);
-      if (cached != null) return cached.path;
+      if (cached != null) return cached;
     }
     if (cancelToken.isCancelled) throw cancelToken.cancelError!;
     final downloadUrl = request.downloadUrl;
@@ -231,6 +234,11 @@ class AudioSubtitleGenerationService {
       workMetadata: request.workMetadata,
       coverUrl: track.artworkUrl,
     );
+    if (cancelToken.isCancelled) throw cancelToken.cancelError!;
+    if (task.status == DownloadStatus.failed ||
+        task.status == DownloadStatus.paused) {
+      await downloads.resumeTask(task.id);
+    }
     final completed = await waitForDownload(
       repository: downloads,
       taskId: task.id,
@@ -266,14 +274,17 @@ class AudioSubtitleGenerationService {
         completion.complete(task);
       } else if (task.status == DownloadStatus.failed ||
           task.status == DownloadStatus.paused) {
-        completion.completeError(StateError('Audio download ${task.status.name}.'));
+        completion.completeError(
+          StateError('Audio download ${task.status.name}.'),
+        );
       } else {
         onProgress(task.progress.clamp(0.0, 1.0));
       }
     }
 
     final subscription = repository.taskChangesStream.listen((event) {
-      if (event.type == DownloadTaskChangeType.reset || event.taskId == taskId) {
+      if (event.type == DownloadTaskChangeType.reset ||
+          event.taskId == taskId) {
         update();
       }
     });

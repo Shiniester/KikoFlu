@@ -4042,6 +4042,77 @@ class SZh extends S {
 
   @override
   String get comicPopularMonth => '本月热门';
+
+  @override
+  String get subtitleGenerationTitle => '生成音频字幕';
+
+  @override
+  String get subtitleGenerateAll => '生成全部字幕';
+
+  @override
+  String get subtitleGenerationDescription =>
+      '在本设备识别日语，音频不会上传。首次使用需下载约 160 MB 模型，支持 MP3、WAV、FLAC。生成后可手动翻译。';
+
+  @override
+  String get subtitleGenerationQueued => '等待生成';
+
+  @override
+  String get subtitleGenerationChecking => '检查已有字幕';
+
+  @override
+  String get subtitleGenerationDownloadingAudio => '下载完整音频';
+
+  @override
+  String get subtitleGenerationDownloadingModel => '下载识别模型';
+
+  @override
+  String get subtitleGenerationTranscribing => '识别日语';
+
+  @override
+  String get subtitleGenerationSaving => '保存字幕';
+
+  @override
+  String get subtitleGenerationCompleted => '已生成';
+
+  @override
+  String get subtitleGenerationSkipped => '已有字幕';
+
+  @override
+  String get subtitleGenerationUnsupported => '暂不支持此格式（仅支持 MP3、WAV、FLAC）';
+
+  @override
+  String get subtitleGenerationCancelled => '已取消';
+
+  @override
+  String get subtitleGenerationCancelAll => '取消全部';
+
+  @override
+  String get subtitleGenerationCloseHint => '关闭此面板后任务继续。';
+
+  @override
+  String subtitleGenerationFailed(String stage) {
+    return '失败：$stage';
+  }
+
+  @override
+  String subtitleGenerationProgress(String stage, double progress) {
+    final intl.NumberFormat progressNumberFormat =
+        intl.NumberFormat.percentPattern(localeName);
+    final String progressString = progressNumberFormat.format(progress);
+
+    return '$stage · $progressString';
+  }
+
+  @override
+  String subtitleGenerationSummary(
+    int completed,
+    int skipped,
+    int unsupported,
+    int failed,
+    int cancelled,
+  ) {
+    return '已生成 $completed · 已有字幕 $skipped · 不支持 $unsupported · 失败 $failed · 取消 $cancelled';
+  }
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -8082,4 +8153,75 @@ class SZhHant extends SZh {
 
   @override
   String get comicPopularMonth => '本月熱門';
+
+  @override
+  String get subtitleGenerationTitle => '產生音訊字幕';
+
+  @override
+  String get subtitleGenerateAll => '產生全部字幕';
+
+  @override
+  String get subtitleGenerationDescription =>
+      '在本裝置辨識日語，音訊不會上傳。首次使用需下載約 160 MB 模型，支援 MP3、WAV、FLAC。產生後可手動翻譯。';
+
+  @override
+  String get subtitleGenerationQueued => '等待產生';
+
+  @override
+  String get subtitleGenerationChecking => '檢查現有字幕';
+
+  @override
+  String get subtitleGenerationDownloadingAudio => '下載完整音訊';
+
+  @override
+  String get subtitleGenerationDownloadingModel => '下載辨識模型';
+
+  @override
+  String get subtitleGenerationTranscribing => '辨識日語';
+
+  @override
+  String get subtitleGenerationSaving => '儲存字幕';
+
+  @override
+  String get subtitleGenerationCompleted => '已產生';
+
+  @override
+  String get subtitleGenerationSkipped => '已有字幕';
+
+  @override
+  String get subtitleGenerationUnsupported => '暫不支援此格式（僅支援 MP3、WAV、FLAC）';
+
+  @override
+  String get subtitleGenerationCancelled => '已取消';
+
+  @override
+  String get subtitleGenerationCancelAll => '取消全部';
+
+  @override
+  String get subtitleGenerationCloseHint => '關閉此面板後任務繼續。';
+
+  @override
+  String subtitleGenerationFailed(String stage) {
+    return '失敗：$stage';
+  }
+
+  @override
+  String subtitleGenerationProgress(String stage, double progress) {
+    final intl.NumberFormat progressNumberFormat =
+        intl.NumberFormat.percentPattern(localeName);
+    final String progressString = progressNumberFormat.format(progress);
+
+    return '$stage · $progressString';
+  }
+
+  @override
+  String subtitleGenerationSummary(
+    int completed,
+    int skipped,
+    int unsupported,
+    int failed,
+    int cancelled,
+  ) {
+    return '已產生 $completed · 已有字幕 $skipped · 不支援 $unsupported · 失敗 $failed · 取消 $cancelled';
+  }
 }

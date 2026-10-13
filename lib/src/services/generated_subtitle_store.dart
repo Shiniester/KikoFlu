@@ -13,7 +13,7 @@ import 'subtitle_library_service.dart';
 class GeneratedSubtitleStore {
   const GeneratedSubtitleStore();
 
-  static final relativeDirectory =
+  static const relativeDirectory =
       '${SubtitleLibraryService.savedFolderName}/生成字幕';
 
   static String audioIdentity(AudioTrack track) {

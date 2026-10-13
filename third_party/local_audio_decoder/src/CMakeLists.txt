@@ -16,5 +16,6 @@ target_compile_features(local_audio_decoder PRIVATE c_std_99)
 target_compile_definitions(local_audio_decoder PUBLIC DART_SHARED_LIB)
 
 if (ANDROID)
-  target_link_options(local_audio_decoder PRIVATE "-Wl,-z,max-page-size=16384")
+  set_property(TARGET local_audio_decoder APPEND_STRING PROPERTY
+    LINK_FLAGS " -Wl,-z,max-page-size=16384")
 endif()

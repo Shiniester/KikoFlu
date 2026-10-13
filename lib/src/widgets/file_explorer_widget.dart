@@ -11,6 +11,7 @@ import '../models/download_task_change.dart';
 import '../providers/auth_provider.dart';
 import '../providers/download_provider.dart';
 import '../providers/audio_provider.dart';
+import '../providers/audio_subtitle_generation_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/download_service.dart';
@@ -36,6 +37,7 @@ import '../utils/string_utils.dart';
 import 'file_tree_actions.dart';
 import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
+import 'audio_subtitle_generation_sheet.dart';
 import 'work_image_reader.dart';
 import 'work_resource_tabs.dart';
 import 'work_detail/recommendation_section.dart';
@@ -514,6 +516,25 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     // 不需要手动调用 loadLyricForTrack
   }
 
+  Future<void> _generateSubtitles(List<PlayerAudioVariant> variants) async {
+    try {
+      await ref
+          .read(audioSubtitleActionsProvider)
+          .startWork(
+            work: _work,
+            fileTree: _rootFiles,
+            variants: variants,
+            downloadedFiles: _downloadedFiles,
+            fileRelativePaths: _fileRelativePaths,
+          );
+      if (!mounted) return;
+      await showAudioSubtitleGenerationSheet(context);
+    } catch (error) {
+      if (!mounted) return;
+      SnackBarUtil.showError(context, error.toString());
+    }
+  }
+
   Future<void> _copyFileName(String title) async {
     await Clipboard.setData(ClipboardData(text: title));
     if (!mounted) return;
@@ -960,6 +981,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
           _playAudioFile(file, path, audioFiles: files),
       onAudioLongPress: (file, title, path, files) =>
           _showFileActionMenu(file, title, path, audioFiles: files),
+      onGenerateSubtitles: _generateSubtitles,
       onFileTap: _handleFileTap,
       displayNameFor: _getDisplayName,
       metadataBuilder: _buildFileMetadata,
@@ -1082,8 +1104,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       setState(() {});
       if (widget.translate) unawaited(_translateVisibleNames());
     } catch (e) {
-      if (!mounted ||
-          !_translationController.failBulkTranslation(generation)) {
+      if (!mounted || !_translationController.failBulkTranslation(generation)) {
         return;
       }
       _log.captureOutput('[FileExplorer] 名称翻译失败: $e');
@@ -1097,6 +1118,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       showTranslation: widget.translate,
     );
   }
+
   // 处理文件点击
   void _handleFileTap(dynamic file, String title, String parentPath) {
     switch (_tapResolver.resolve(file)) {

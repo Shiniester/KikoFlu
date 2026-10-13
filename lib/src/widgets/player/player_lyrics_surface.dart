@@ -5,8 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../providers/audio_subtitle_generation_provider.dart';
 import '../../providers/lyric_provider.dart';
 import '../../providers/player_lyric_style_provider.dart';
+import '../../utils/snackbar_util.dart';
+import '../audio_subtitle_generation_sheet.dart';
 import '../responsive_dialog.dart';
 import 'lyric_display_widget.dart';
 import 'player_glass_surface.dart';
@@ -68,6 +71,33 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
   int _matchCenterGeneration = 0;
   int? _matchedLyricsSignature;
   double _currentVisibleBottomInset = 0;
+  bool _startingSubtitleGeneration = false;
+
+  Future<void> _openSubtitlePicker() async {
+    final lyrics = ref.read(lyricControllerProvider);
+    if (!lyrics.isLoading && lyrics.lyrics.isNotEmpty) {
+      await showPlayerSubtitlePickerSheet(context);
+      return;
+    }
+    if (_startingSubtitleGeneration) return;
+    setState(() => _startingSubtitleGeneration = true);
+    try {
+      final started = await ref
+          .read(audioSubtitleActionsProvider)
+          .startCurrentTrack();
+      if (!mounted) return;
+      setState(() => _startingSubtitleGeneration = false);
+      if (started) {
+        await showAudioSubtitleGenerationSheet(context);
+      } else {
+        await showPlayerSubtitlePickerSheet(context);
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _startingSubtitleGeneration = false);
+      SnackBarUtil.showError(context, error.toString());
+    }
+  }
 
   @override
   void initState() {
@@ -217,14 +247,17 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                                 'lyric-subtitle-picker-button',
                               ),
                               icon: Icons.subtitles_outlined,
-                              label:
-                                  Localizations.of<S>(
-                                    context,
-                                    S,
-                                  )?.playerSubtitleSelection ??
-                                  _label(context, 'subtitleSelection'),
-                              onPressed: () =>
-                                  showPlayerSubtitlePickerSheet(context),
+                              label: _startingSubtitleGeneration
+                                  ? S.of(context).subtitleGenerationChecking
+                                  : Localizations.of<S>(
+                                          context,
+                                          S,
+                                        )?.playerSubtitleSelection ??
+                                        _label(context, 'subtitleSelection'),
+                              isLoading: _startingSubtitleGeneration,
+                              onPressed: _startingSubtitleGeneration
+                                  ? null
+                                  : _openSubtitlePicker,
                             ),
                             _ActionButton(
                               key: const ValueKey('lyric-download-button'),
@@ -648,17 +681,28 @@ class _ActionButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onPressed,
+    this.isLoading = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback? onPressed;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: 48,
-      child: IconButton(tooltip: label, onPressed: onPressed, icon: Icon(icon)),
+      child: IconButton(
+        tooltip: label,
+        onPressed: isLoading ? null : onPressed,
+        icon: isLoading
+            ? const SizedBox.square(
+                dimension: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Icon(icon),
+      ),
     );
   }
 }

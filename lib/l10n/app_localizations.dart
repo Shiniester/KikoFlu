@@ -7449,6 +7449,120 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Popular this month'**
   String get comicPopularMonth;
+
+  /// Title of local audio subtitle generation progress panel.
+  ///
+  /// In en, this message translates to:
+  /// **'Generate audio subtitles'**
+  String get subtitleGenerationTitle;
+
+  /// Audio tab action applying to all audio in the current filtered list.
+  ///
+  /// In en, this message translates to:
+  /// **'Generate all subtitles'**
+  String get subtitleGenerateAll;
+
+  /// Explains local Japanese recognition, first-use model download, supported formats and separate manual translation.
+  ///
+  /// In en, this message translates to:
+  /// **'Recognize Japanese on this device. Audio stays on your device. The first use downloads about 160 MB of models. Supports MP3, WAV and FLAC. Translate manually after generation.'**
+  String get subtitleGenerationDescription;
+
+  /// No description provided for @subtitleGenerationQueued.
+  ///
+  /// In en, this message translates to:
+  /// **'Queued'**
+  String get subtitleGenerationQueued;
+
+  /// No description provided for @subtitleGenerationChecking.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking existing subtitles'**
+  String get subtitleGenerationChecking;
+
+  /// No description provided for @subtitleGenerationDownloadingAudio.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading complete audio'**
+  String get subtitleGenerationDownloadingAudio;
+
+  /// No description provided for @subtitleGenerationDownloadingModel.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading recognition model'**
+  String get subtitleGenerationDownloadingModel;
+
+  /// No description provided for @subtitleGenerationTranscribing.
+  ///
+  /// In en, this message translates to:
+  /// **'Recognizing Japanese'**
+  String get subtitleGenerationTranscribing;
+
+  /// No description provided for @subtitleGenerationSaving.
+  ///
+  /// In en, this message translates to:
+  /// **'Saving subtitles'**
+  String get subtitleGenerationSaving;
+
+  /// No description provided for @subtitleGenerationCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Generated'**
+  String get subtitleGenerationCompleted;
+
+  /// No description provided for @subtitleGenerationSkipped.
+  ///
+  /// In en, this message translates to:
+  /// **'Existing subtitles'**
+  String get subtitleGenerationSkipped;
+
+  /// No description provided for @subtitleGenerationUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Unsupported format (MP3, WAV and FLAC only)'**
+  String get subtitleGenerationUnsupported;
+
+  /// No description provided for @subtitleGenerationCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get subtitleGenerationCancelled;
+
+  /// No description provided for @subtitleGenerationCancelAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel all'**
+  String get subtitleGenerationCancelAll;
+
+  /// No description provided for @subtitleGenerationCloseHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Tasks continue after closing this panel.'**
+  String get subtitleGenerationCloseHint;
+
+  /// Failed task with the processing stage where it stopped.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed: {stage}'**
+  String subtitleGenerationFailed(String stage);
+
+  /// Current processing stage and localized percentage.
+  ///
+  /// In en, this message translates to:
+  /// **'{stage} · {progress}'**
+  String subtitleGenerationProgress(String stage, double progress);
+
+  /// Counts of completed audio subtitle generation tasks by outcome.
+  ///
+  /// In en, this message translates to:
+  /// **'Generated: {completed} · Existing: {skipped} · Unsupported: {unsupported} · Failed: {failed} · Cancelled: {cancelled}'**
+  String subtitleGenerationSummary(
+    int completed,
+    int skipped,
+    int unsupported,
+    int failed,
+    int cancelled,
+  );
 }
 
 class _SDelegate extends LocalizationsDelegate<S> {

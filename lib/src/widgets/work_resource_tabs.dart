@@ -63,6 +63,7 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
     this.metadataBuilder,
     this.audioTrailingBuilder,
     this.onAudioLongPress,
+    this.onGenerateSubtitles,
     this.expandedFolders = const {},
     this.onVisibleNamesChanged,
     this.downloadedFiles = const {},
@@ -84,6 +85,7 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
   final FileTreeMetadataBuilder? metadataBuilder;
   final FileTreeTrailingBuilder? audioTrailingBuilder;
   final ResourceAudioLongPress? onAudioLongPress;
+  final ValueChanged<List<PlayerAudioVariant>>? onGenerateSubtitles;
   final Set<String> expandedFolders;
   final ValueChanged<List<String>>? onVisibleNamesChanged;
   final Map<String, bool> downloadedFiles;
@@ -649,71 +651,105 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
         ),
       );
     }
-    return SliverList.builder(
-      itemCount: _audio.length,
-      itemBuilder: (context, index) {
-        final variant = _audio[index];
-        final entry = _entry(variant.source, variant.parentPath, variant.title);
-        final subtitle = _subtitles[index];
-        final hash = FileTreeUtils.property(variant.source, 'hash')?.toString();
-        final metadata = widget.metadataBuilder?.call(context, entry);
-        final actions = widget.audioTrailingBuilder?.call(context, entry);
-        final audioColor = FileIconUtils.getFileIconColorByName(variant.title);
-        return ListTile(
-          key: ValueKey('work-audio-${variant.fullPath}'),
-          contentPadding: EdgeInsets.zero,
-          leading: Icon(
-            widget.downloadedFiles[hash] == true
-                ? Icons.download_done
-                : Icons.audiotrack,
-            color: audioColor,
-          ),
-          title: Text(entry.displayTitle, style: const TextStyle(fontSize: 14)),
-          subtitle: variant.parentPath.isEmpty
-              ? null
-              : Text(variant.parentPath, style: const TextStyle(fontSize: 12)),
-          onTap: () =>
-              widget.onPlayAudio(variant.source, variant.parentPath, _queue),
-          onLongPress: widget.onAudioLongPress == null
-              ? () => _copyName(entry.displayTitle)
-              : () => widget.onAudioLongPress!(
-                  variant.source,
-                  entry.displayTitle,
-                  variant.parentPath,
-                  _queue,
-                ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (metadata != null) metadata,
-              IconButton(
-                tooltip: entry.displayTitle,
-                icon: Icon(Icons.play_arrow, color: audioColor),
-                iconSize: 20,
-                onPressed: () => widget.onPlayAudio(
-                  variant.source,
-                  variant.parentPath,
-                  _queue,
-                ),
+    return SliverMainAxisGroup(
+      slivers: [
+        if (widget.onGenerateSubtitles case final onGenerateSubtitles?)
+          SliverToBoxAdapter(
+            child: Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: TextButton.icon(
+                key: const ValueKey('work-resource-generate-all-subtitles'),
+                onPressed: () => onGenerateSubtitles(_audio),
+                icon: const Icon(Icons.subtitles_outlined),
+                label: Text(S.of(context).subtitleGenerateAll),
               ),
-              if (subtitle != null)
-                IconButton(
-                  key: ValueKey('work-audio-subtitle-${variant.fullPath}'),
-                  tooltip: S.of(context).preview,
-                  icon: const Icon(Icons.visibility),
-                  color: Colors.blue,
-                  iconSize: 20,
-                  onPressed: () => widget.onFileTap(
-                    subtitle.source,
-                    _displayName(subtitle.title),
-                    _subtitleParent(subtitle),
-                  ),
-                ),
-              if (actions != null) actions,
-            ],
+            ),
           ),
-        );
-      },
+        SliverList.builder(
+          itemCount: _audio.length,
+          itemBuilder: (context, index) {
+            final variant = _audio[index];
+            final entry = _entry(
+              variant.source,
+              variant.parentPath,
+              variant.title,
+            );
+            final subtitle = _subtitles[index];
+            final hash = FileTreeUtils.property(
+              variant.source,
+              'hash',
+            )?.toString();
+            final metadata = widget.metadataBuilder?.call(context, entry);
+            final actions = widget.audioTrailingBuilder?.call(context, entry);
+            final audioColor = FileIconUtils.getFileIconColorByName(
+              variant.title,
+            );
+            return ListTile(
+              key: ValueKey('work-audio-${variant.fullPath}'),
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                widget.downloadedFiles[hash] == true
+                    ? Icons.download_done
+                    : Icons.audiotrack,
+                color: audioColor,
+              ),
+              title: Text(
+                entry.displayTitle,
+                style: const TextStyle(fontSize: 14),
+              ),
+              subtitle: variant.parentPath.isEmpty
+                  ? null
+                  : Text(
+                      variant.parentPath,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+              onTap: () => widget.onPlayAudio(
+                variant.source,
+                variant.parentPath,
+                _queue,
+              ),
+              onLongPress: widget.onAudioLongPress == null
+                  ? () => _copyName(entry.displayTitle)
+                  : () => widget.onAudioLongPress!(
+                      variant.source,
+                      entry.displayTitle,
+                      variant.parentPath,
+                      _queue,
+                    ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (metadata != null) metadata,
+                  IconButton(
+                    tooltip: entry.displayTitle,
+                    icon: Icon(Icons.play_arrow, color: audioColor),
+                    iconSize: 20,
+                    onPressed: () => widget.onPlayAudio(
+                      variant.source,
+                      variant.parentPath,
+                      _queue,
+                    ),
+                  ),
+                  if (subtitle != null)
+                    IconButton(
+                      key: ValueKey('work-audio-subtitle-${variant.fullPath}'),
+                      tooltip: S.of(context).preview,
+                      icon: const Icon(Icons.visibility),
+                      color: Colors.blue,
+                      iconSize: 20,
+                      onPressed: () => widget.onFileTap(
+                        subtitle.source,
+                        _displayName(subtitle.title),
+                        _subtitleParent(subtitle),
+                      ),
+                    ),
+                  if (actions != null) actions,
+                ],
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 
