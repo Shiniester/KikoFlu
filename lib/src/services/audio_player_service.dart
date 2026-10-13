@@ -184,6 +184,7 @@ class AudioPlayerService {
   static const Duration _androidCacheContinueBuffer = Duration(seconds: 5);
 
   AudioPlayerService._() {
+    _androidNativePreload = Platform.isAndroid;
     if (Platform.isAndroid) {
       _androidLoudnessEnhancer = AndroidLoudnessEnhancer();
       _player = AudioPlayer(
@@ -216,12 +217,14 @@ class AudioPlayerService {
     PlaybackSessionStore sessionStore =
         const SharedPreferencesPlaybackSessionStore(),
     bool androidSeekRecovery = false,
+    bool androidNativePreload = false,
     Duration seekRecoveryTimeout = const Duration(seconds: 8),
     AudioCacheDownloader? cacheDownloader,
   }) {
     _player = player;
     _playbackSessionStore = sessionStore;
     _androidSeekRecovery = androidSeekRecovery;
+    _androidNativePreload = androidNativePreload;
     _seekRecoveryTimeout = seekRecoveryTimeout;
     _audioCacheDownloader = cacheDownloader ?? _createAudioCacheDownloader();
     _listenForPlaybackErrors();
@@ -266,9 +269,21 @@ class AudioPlayerService {
   bool _desiredPlaying = false;
   bool _sourceNeedsReload = false;
   bool _androidSeekRecovery = Platform.isAndroid;
+  late final bool _androidNativePreload;
+  ConcatenatingAudioSource? _androidSourceWindow;
+  String? _nativePreparedTrackId;
+  String? _nativePreparingTrackId;
+  String? _nativePreloadUnavailableTrackId;
+  Duration? _nativePreloadCurrentPosition;
+  Future<void>? _nativeWindowRefresh;
+  int _nativeWindowRevision = 0;
+  int _nativeWindowHandledRevision = -1;
+  bool _shuffleEnabled = false;
+  StreamSubscription<int?>? _currentIndexSubscription;
   int _seekRevision = 0;
   Completer<void>? _seekCancellation;
   Completer<void>? _seekError;
+  Completer<void>? _nativeWindowError;
   int? _seekRecoveryGeneration;
   StreamSubscription<PlaybackEvent>? _playbackErrorSubscription;
   AudioSource? _failedSeekSource;
@@ -495,6 +510,9 @@ class AudioPlayerService {
         });
 
     _positionSubscription = _player.positionStream.listen((position) {
+      if (_nativePreparedTrackId != null && _player.currentIndex == 0) {
+        _nativePreloadCurrentPosition = position;
+      }
       if (position > Duration.zero &&
           _player.playing &&
           !_isSwitchingTrack &&
@@ -511,6 +529,11 @@ class AudioPlayerService {
     _playerStateSubscription = _player.playerStateStream.listen(
       _handlePlayerState,
     );
+    if (_androidNativePreload) {
+      _currentIndexSubscription = _player.currentIndexStream.listen(
+        _handleNativeWindowIndex,
+      );
+    }
   }
 
   void _handlePlayerState(PlayerState state) {
@@ -677,6 +700,9 @@ class AudioPlayerService {
     Future<void> Function(_TrackLoadRequest request)? beforeCommit,
     AudioSource? sourceToReload,
     Duration? initialPosition,
+    int? nativeWindowIndex,
+    bool nativeWindowAlreadyCurrent = false,
+    String? nativeWindowTrackId,
   }) {
     if (_disposed) throw StateError('AudioPlayerService is disposed');
 
@@ -688,6 +714,9 @@ class AudioPlayerService {
       beforeCommit: beforeCommit,
       sourceToReload: sourceToReload,
       initialPosition: initialPosition,
+      nativeWindowIndex: nativeWindowIndex,
+      nativeWindowAlreadyCurrent: nativeWindowAlreadyCurrent,
+      nativeWindowTrackId: nativeWindowTrackId,
       performanceRequestId: PerformanceRecorder.instance.beginPlaybackRequest(
         track.id,
         mode: _performanceModeForTrack(track),
@@ -911,9 +940,14 @@ class AudioPlayerService {
         _log.captureOutput('[Audio] Failed to update media item: $error');
       }),
     );
+    if (request.nativeWindowTrackId != null) {
+      _finishNativeWindowPromotion(request.track);
+    }
     unawaited(persistPlaybackSession());
     if (_desiredPlaying) {
-      _startPlaybackWithSideEffects();
+      _startPlaybackWithSideEffects(
+        startHaptics: request.nativeWindowTrackId == null,
+      );
     }
   }
 
@@ -924,6 +958,75 @@ class AudioPlayerService {
 
   Future<void> _loadTrack(_TrackLoadRequest request) async {
     final track = request.track;
+    if (request.nativeWindowAlreadyCurrent) {
+      try {
+        await _waitForNativeWindowReady(request);
+        request.nativeWindowTrackId = track.id;
+        return;
+      } catch (error) {
+        if (!_isCurrentTrackLoad(request)) {
+          throw const _TrackLoadSuperseded();
+        }
+        _log.captureOutput('[Audio] Native next was not ready: $error');
+        try {
+          await _player.stop().timeout(_seekRecoveryTimeout);
+        } catch (stopError) {
+          _log.captureOutput(
+            '[Audio] Failed to stop unready native next: $stopError',
+          );
+        }
+        _clearNativeWindowState();
+      }
+    }
+    if (request.nativeWindowIndex != null &&
+        _nativePreparedTrackId == track.id &&
+        _androidSourceWindow?.children.length == 2) {
+      try {
+        final errorSignal = Completer<void>();
+        final cancellation = Completer<void>();
+        final previousCancellation = _seekCancellation;
+        _seekCancellation = cancellation;
+        _nativeWindowError = errorSignal;
+        try {
+          await Future.any<void>([
+            _player.seek(null, index: request.nativeWindowIndex),
+            errorSignal.future.then((_) {
+              throw StateError('Native next source failed during seek');
+            }),
+            cancellation.future.then((_) {
+              throw const _TrackLoadSuperseded();
+            }),
+          ]).timeout(const Duration(seconds: 3));
+        } finally {
+          if (identical(_seekCancellation, cancellation)) {
+            _seekCancellation = previousCancellation;
+          }
+          if (identical(_nativeWindowError, errorSignal)) {
+            _nativeWindowError = null;
+          }
+        }
+        _ensureCurrentTrackLoad(request);
+        if (_player.currentIndex != request.nativeWindowIndex) {
+          throw StateError('Prepared audio source did not become current');
+        }
+        await _waitForNativeWindowReady(request);
+        request.nativeWindowTrackId = track.id;
+        return;
+      } catch (error) {
+        if (!_isCurrentTrackLoad(request)) {
+          throw const _TrackLoadSuperseded();
+        }
+        _log.captureOutput('[Audio] Prepared next source seek failed: $error');
+        try {
+          await _player.stop().timeout(_seekRecoveryTimeout);
+        } catch (stopError) {
+          _log.captureOutput(
+            '[Audio] Failed to stop prepared source: $stopError',
+          );
+        }
+        _clearNativeWindowState();
+      }
+    }
     _emitPlaybackDiagnostic(
       PlaybackDiagnosticEventType.trackLoadStarted,
       track,
@@ -1079,6 +1182,55 @@ class AudioPlayerService {
     }
   }
 
+  Future<void> _waitForNativeWindowReady(_TrackLoadRequest request) async {
+    if (_player.currentIndex != 1 ||
+        _nativePreparedTrackId != request.track.id) {
+      throw StateError('Native next is no longer the prepared child');
+    }
+    if (_player.processingState == ProcessingState.ready) return;
+
+    final ready = Completer<void>();
+    final cancellation = Completer<void>();
+    final error = Completer<void>();
+    final previousCancellation = _seekCancellation;
+    _seekCancellation = cancellation;
+    _nativeWindowError = error;
+    final subscription = _player.playerStateStream.listen((state) {
+      if (_player.currentIndex == 1 &&
+          state.processingState == ProcessingState.ready) {
+        if (!ready.isCompleted) ready.complete();
+      } else if (state.processingState == ProcessingState.idle ||
+          state.processingState == ProcessingState.completed) {
+        if (!ready.isCompleted) {
+          ready.completeError(StateError('Native next stopped before ready'));
+        }
+      }
+    });
+    try {
+      await Future.any<void>([
+        ready.future,
+        cancellation.future.then((_) {
+          throw const _TrackLoadSuperseded();
+        }),
+        error.future.then((_) {
+          throw StateError('Native next source failed before ready');
+        }),
+      ]).timeout(_seekRecoveryTimeout);
+      _ensureCurrentTrackLoad(request);
+      if (_nativePreparedTrackId != request.track.id ||
+          _player.currentIndex != 1 ||
+          _player.processingState != ProcessingState.ready) {
+        throw StateError('Native next did not remain ready');
+      }
+    } finally {
+      await subscription.cancel();
+      if (identical(_seekCancellation, cancellation)) {
+        _seekCancellation = previousCancellation;
+      }
+      if (identical(_nativeWindowError, error)) _nativeWindowError = null;
+    }
+  }
+
   Future<void> _setAudioSourceForTrackLoad(
     _TrackLoadRequest request,
     AudioSource source, {
@@ -1087,6 +1239,15 @@ class AudioPlayerService {
     _ensureCurrentTrackLoad(request);
     _sourceNeedsReload = true;
     _nativeLoadInFlight = true;
+    if (_androidNativePreload) {
+      _clearNativeWindowState();
+      final window = ConcatenatingAudioSource(
+        children: [source],
+        useLazyPreparation: false,
+      );
+      _androidSourceWindow = window;
+      source = window;
+    }
     final loading = _player.setAudioSource(
       source,
       initialPosition: initialPosition,
@@ -1292,7 +1453,7 @@ class AudioPlayerService {
         !SpeculativeTransferCoordinator
             .instance
             .shouldPauseSpeculativeTransfers) {
-      final source = _player.audioSource;
+      final source = _currentNativeSource() ?? _player.audioSource;
       final position = _player.position;
       final duration = _player.duration;
       final threshold = _preloadThreshold;
@@ -1303,7 +1464,10 @@ class AudioPlayerService {
           duration > Duration.zero &&
           duration - position <= threshold &&
           hasNext) {
-        target = _audioCacheRequestForTrack(_queue[_currentIndex + 1]);
+        if (!_androidNativePreload ||
+            defaultTargetPlatform != TargetPlatform.android) {
+          target = _audioCacheRequestForTrack(_queue[_currentIndex + 1]);
+        }
       }
       target ??= _audioCacheRequestForTrack(currentTrack);
       if (target != null &&
@@ -1331,6 +1495,307 @@ class AudioPlayerService {
       }
     }
     _setAudioCacheTarget(target);
+    _scheduleNativeWindowRefresh();
+  }
+
+  void _scheduleNativeWindowRefresh() {
+    if (!_androidNativePreload || _disposed) return;
+    _nativeWindowRevision++;
+    if (_nativeWindowRefresh != null) return;
+    final refresh = _drainNativeWindowRefreshes();
+    _nativeWindowRefresh = refresh;
+    unawaited(
+      refresh.whenComplete(() {
+        if (!identical(_nativeWindowRefresh, refresh)) return;
+        _nativeWindowRefresh = null;
+        if (!_disposed &&
+            _nativeWindowHandledRevision != _nativeWindowRevision) {
+          _scheduleNativeWindowRefresh();
+        }
+      }),
+    );
+  }
+
+  Future<void> _drainNativeWindowRefreshes() async {
+    while (!_disposed &&
+        _nativeWindowHandledRevision != _nativeWindowRevision) {
+      _nativeWindowHandledRevision = _nativeWindowRevision;
+      await _refreshNativeWindow();
+    }
+  }
+
+  Future<void> _refreshNativeWindow() async {
+    final window = _androidSourceWindow;
+    if (window == null) return;
+    final preparedId = _nativePreparedTrackId;
+    // The player has already entered the prepared child; let the index handler
+    // commit it before any cache/buffer update can remove it.
+    if (_player.currentIndex == 1 && preparedId != null) return;
+
+    final current = currentTrack;
+    final next = _currentIndex + 1 < _queue.length
+        ? _queue[_currentIndex + 1]
+        : null;
+    if (next?.id != _nativePreloadUnavailableTrackId) {
+      _nativePreloadUnavailableTrackId = null;
+    }
+    final threshold = _preloadThreshold;
+    final duration = _player.duration;
+    final requiredBuffer = _nativePreparedTrackId == next?.id
+        ? _androidCacheContinueBuffer
+        : _androidCacheStartBuffer;
+    final remaining = duration == null
+        ? requiredBuffer
+        : duration - _player.position;
+    final minimumBuffer = remaining <= Duration.zero
+        ? Duration.zero
+        : remaining < requiredBuffer
+        ? remaining
+        : requiredBuffer;
+    final eligible =
+        !_disposed &&
+        _desiredPlaying &&
+        _player.playing &&
+        _player.processingState == ProcessingState.ready &&
+        !_isSwitchingTrack &&
+        _activeTrackLoad == null &&
+        _latestTrackLoad == null &&
+        !SpeculativeTransferCoordinator
+            .instance
+            .shouldPauseSpeculativeTransfers &&
+        threshold != null &&
+        threshold > Duration.zero &&
+        _appLoopMode != LoopMode.one &&
+        !_shuffleEnabled &&
+        current != null &&
+        next != null &&
+        duration != null &&
+        duration - _player.position <= threshold &&
+        remaining > Duration.zero &&
+        _player.bufferedPosition - _player.position >= minimumBuffer &&
+        _player.currentIndex == 0;
+    final uri = next == null ? null : Uri.tryParse(next.url);
+    if (!eligible ||
+        uri == null ||
+        (uri.scheme != 'http' && uri.scheme != 'https')) {
+      if (window.children.length > 1) await _removeNativeNext(window);
+      return;
+    }
+    if (_nativePreloadUnavailableTrackId == next.id) {
+      if (window.children.length > 1) await _removeNativeNext(window);
+      return;
+    }
+    if (_nativePreparedTrackId == next.id ||
+        _nativePreparingTrackId == next.id) {
+      return;
+    }
+    if (window.children.length > 1) await _removeNativeNext(window);
+
+    final capturedCurrentId = current.id;
+    final capturedNextId = next.id;
+    final capturedIntent = _intentRevision;
+    final capturedGeneration = _trackLoadGeneration;
+    final hash = next.hash;
+    if (hash != null && hash.isNotEmpty) {
+      try {
+        // Complete cache files still use the ordinary leased load path on tap.
+        final cachedPath = await CacheService.getCachedAudioFile(hash);
+        if (cachedPath != null) {
+          _nativePreloadUnavailableTrackId = capturedNextId;
+          return;
+        }
+      } catch (error) {
+        _log.captureOutput('[Audio] Next cache lookup failed: $error');
+      }
+    }
+    if (!_canPrepareNativeNext(
+      capturedCurrentId,
+      capturedNextId,
+      capturedIntent,
+      capturedGeneration,
+    )) {
+      return;
+    }
+
+    final source = AudioSource.uri(
+      uri,
+      headers: mediaRequestHeaders(
+        uri,
+        StorageService.serverCookieHeaders,
+        forceIdentityEncoding: true,
+      ),
+    );
+    _nativePreparingTrackId = capturedNextId;
+    _nativePreloadCurrentPosition = _player.position;
+    try {
+      await window.add(source);
+      if (!_canPrepareNativeNext(
+        capturedCurrentId,
+        capturedNextId,
+        capturedIntent,
+        capturedGeneration,
+      )) {
+        if (window.children.length > 1) await _removeNativeNext(window);
+        return;
+      }
+      _nativePreparedTrackId = capturedNextId;
+    } catch (error) {
+      _nativePreloadUnavailableTrackId = capturedNextId;
+      _log.captureOutput('[Audio] Native next preparation failed: $error');
+      if (window.children.length > 1) {
+        try {
+          await _removeNativeNext(window);
+        } catch (_) {}
+      }
+    } finally {
+      if (_nativePreparingTrackId == capturedNextId) {
+        _nativePreparingTrackId = null;
+      }
+    }
+  }
+
+  bool _canPrepareNativeNext(
+    String currentId,
+    String nextId,
+    int intentRevision,
+    int trackLoadGeneration,
+  ) {
+    final duration = _player.duration;
+    final threshold = _preloadThreshold;
+    final requiredBuffer =
+        _nativePreparingTrackId == nextId || _nativePreparedTrackId == nextId
+        ? _androidCacheContinueBuffer
+        : _androidCacheStartBuffer;
+    final remaining = duration == null
+        ? Duration.zero
+        : duration - _player.position;
+    final minimumBuffer = remaining <= Duration.zero
+        ? Duration.zero
+        : remaining < requiredBuffer
+        ? remaining
+        : requiredBuffer;
+    return !_disposed &&
+        _intentRevision == intentRevision &&
+        _trackLoadGeneration == trackLoadGeneration &&
+        currentTrack?.id == currentId &&
+        _currentIndex + 1 < _queue.length &&
+        _queue[_currentIndex + 1].id == nextId &&
+        threshold != null &&
+        threshold > Duration.zero &&
+        duration != null &&
+        duration - _player.position <= threshold &&
+        _appLoopMode != LoopMode.one &&
+        !_shuffleEnabled &&
+        _desiredPlaying &&
+        _player.playing &&
+        _player.processingState == ProcessingState.ready &&
+        _player.currentIndex == 0 &&
+        remaining > Duration.zero &&
+        _player.bufferedPosition - _player.position >= minimumBuffer &&
+        !SpeculativeTransferCoordinator
+            .instance
+            .shouldPauseSpeculativeTransfers;
+  }
+
+  Future<void> _removeNativeNext(ConcatenatingAudioSource window) async {
+    if (window.children.length < 2 || _player.currentIndex == 1) return;
+    _clearNativePreparedTrack();
+    await window.removeAt(1);
+  }
+
+  void _clearNativePreparedTrack() {
+    _nativePreparedTrackId = null;
+    _nativePreparingTrackId = null;
+    _nativePreloadCurrentPosition = null;
+  }
+
+  void _clearNativeWindowState() {
+    _clearNativePreparedTrack();
+    _androidSourceWindow = null;
+  }
+
+  AudioSource? _currentNativeSource() {
+    final window = _androidSourceWindow;
+    if (window == null) return _player.audioSource;
+    final index = _player.currentIndex ?? 0;
+    if (index < 0 || index >= window.children.length) return null;
+    return window.children[index];
+  }
+
+  void _handleNativeWindowIndex(int? index) {
+    if (!_androidNativePreload ||
+        index != 1 ||
+        _disposed ||
+        _activeTrackLoad != null ||
+        _latestTrackLoad != null ||
+        _nativePreparedTrackId == null ||
+        _currentIndex + 1 >= _queue.length ||
+        _queue[_currentIndex + 1].id != _nativePreparedTrackId ||
+        _player.currentIndex != 1) {
+      return;
+    }
+    final next = _queue[_currentIndex + 1];
+    final request = _enqueueTrackLoad(
+      next,
+      emitCurrentTrack: true,
+      autoplay: _desiredPlaying,
+      direction: PlayerTrackChangeDirection.next,
+      nativeWindowAlreadyCurrent: true,
+      nativeWindowTrackId: next.id,
+    );
+    unawaited(
+      request.future.catchError((Object error) {
+        _log.captureOutput('[Audio] Native next commit failed: $error');
+      }),
+    );
+  }
+
+  void _finishNativeWindowPromotion(AudioTrack track) {
+    final window = _androidSourceWindow;
+    if (window == null || window.children.length < 2) return;
+    _clearNativePreparedTrack();
+    final committedGeneration = _committedTrackGeneration;
+    unawaited(_prepareNativePromotionHaptics(track, committedGeneration));
+    final previousLease = _cachedPlaybackLease;
+    if (identical(_cachedPlaybackLease, previousLease)) {
+      _cachedPlaybackLease = null;
+    }
+    unawaited(
+      window
+          .removeAt(0)
+          .then((_) {
+            previousLease?.release();
+            if (_shuffleEnabled) {
+              unawaited(_player.setShuffleModeEnabled(true));
+            }
+            _scheduleNativeWindowRefresh();
+          })
+          .catchError((Object error) {
+            _log.captureOutput(
+              '[Audio] Failed to roll native source window: $error',
+            );
+          }),
+    );
+  }
+
+  Future<void> _prepareNativePromotionHaptics(
+    AudioTrack track,
+    int generation,
+  ) async {
+    await _hapticsService.stop();
+    if (_disposed ||
+        generation != _committedTrackGeneration ||
+        currentTrack?.id != track.id ||
+        !_hapticsEnabled) {
+      return;
+    }
+    await _hapticsService.prepareForTrack(track);
+    if (!_disposed &&
+        generation == _committedTrackGeneration &&
+        currentTrack?.id == track.id &&
+        _desiredPlaying) {
+      _hapticsService.start();
+    }
   }
 
   AudioCacheRequest? _audioCacheRequestForTrack(AudioTrack? track) {
@@ -1388,7 +1853,7 @@ class AudioPlayerService {
     _startPlaybackWithSideEffects();
   }
 
-  void _startPlaybackWithSideEffects() {
+  void _startPlaybackWithSideEffects({bool startHaptics = true}) {
     _sessionCompleted = false;
 
     final playbackGeneration = _committedTrackGeneration;
@@ -1396,7 +1861,7 @@ class AudioPlayerService {
     final playback = _player.play();
     _updatePlaybackState();
     _updateAudioCacheTarget();
-    if (_hapticsEnabled) {
+    if (_hapticsEnabled && startHaptics) {
       _hapticsService.start();
     }
     // Position persistence is serialized by the session store and is not
@@ -1469,6 +1934,14 @@ class AudioPlayerService {
     _playbackErrorSubscription = _player.playbackEventStream.listen(
       (_) {},
       onError: (Object error, StackTrace stackTrace) {
+        final nativeCandidate =
+            _nativePreparingTrackId ?? _nativePreparedTrackId;
+        if (_androidNativePreload &&
+            nativeCandidate != null &&
+            _seekError == null) {
+          _handleNativePreloadError(nativeCandidate, error, stackTrace);
+          return;
+        }
         if (_disposed ||
             _sourceNeedsReload ||
             _stopOperation != null ||
@@ -1478,7 +1951,7 @@ class AudioPlayerService {
             currentTrack == null) {
           return;
         }
-        final source = _player.audioSource;
+        final source = _currentNativeSource();
         if (source == null) return;
         _failedSeekSource = source;
         _failedSeekPosition = _player.position;
@@ -1509,6 +1982,50 @@ class AudioPlayerService {
     );
   }
 
+  void _handleNativePreloadError(
+    String candidateId,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    final window = _androidSourceWindow;
+    final track = currentTrack;
+    if (_disposed ||
+        window == null ||
+        window.children.isEmpty ||
+        track == null) {
+      return;
+    }
+    _nativePreloadUnavailableTrackId = candidateId;
+    final currentSource = window.children.first;
+    final position = _nativePreloadCurrentPosition ?? _player.position;
+    final nativeWindowError = _nativeWindowError;
+    if (nativeWindowError != null && !nativeWindowError.isCompleted) {
+      nativeWindowError.complete();
+    }
+    _clearNativePreparedTrack();
+    _log.captureOutput('[Audio] Native next source error: $error');
+    if (_activeTrackLoad != null || _latestTrackLoad != null) return;
+
+    final request = _enqueueTrackLoad(
+      track,
+      emitCurrentTrack: false,
+      autoplay: _desiredPlaying,
+      direction: PlayerTrackChangeDirection.none,
+      sourceToReload: currentSource,
+      initialPosition: position,
+    );
+    unawaited(
+      request.future.catchError((
+        Object recoveryError,
+        StackTrace recoveryStack,
+      ) {
+        _log.captureOutput(
+          '[Audio] Current source recovery after next error failed: $recoveryError',
+        );
+      }),
+    );
+  }
+
   Future<void> seek(Duration position) async {
     if (_sourceNeedsReload ||
         _isSwitchingTrack ||
@@ -1526,7 +2043,7 @@ class AudioPlayerService {
     bool isCurrentSeekLoad(_TrackLoadRequest request) =>
         !_disposed && revision == _seekRevision && _isLatestTrackLoad(request);
 
-    final source = _androidSeekRecovery ? _player.audioSource : null;
+    final source = _androidSeekRecovery ? _currentNativeSource() : null;
     final track = currentTrack;
     _TrackLoadRequest? cachedTrackLoad;
     if (source is UriAudioSource &&
@@ -1699,11 +2216,18 @@ class AudioPlayerService {
   }) async {
     if (index < 0 || index >= _queue.length) return;
     _desiredPlaying = true;
+    final useNativeNext =
+        _androidNativePreload &&
+        direction == PlayerTrackChangeDirection.next &&
+        index == _currentIndex + 1 &&
+        _nativePreparedTrackId == _queue[index].id &&
+        _androidSourceWindow?.children.length == 2;
     final request = _enqueueTrackLoad(
       _queue[index],
       emitCurrentTrack: true,
       autoplay: true,
       direction: direction,
+      nativeWindowIndex: useNativeNext ? 1 : null,
     );
     await request.future;
   }
@@ -2138,7 +2662,24 @@ class AudioPlayerService {
   }
 
   Future<void> setShuffleMode(bool enabled) async {
-    await _player.setShuffleModeEnabled(enabled);
+    _shuffleEnabled = enabled;
+    if (!enabled) {
+      await _player.setShuffleModeEnabled(false);
+      _scheduleNativeWindowRefresh();
+      _updateAudioCacheTarget();
+      return;
+    }
+
+    // Drain a pending source-window add before deciding whether native shuffle
+    // can safely operate on the remaining source list.
+    if (_androidNativePreload && _androidSourceWindow != null) {
+      _scheduleNativeWindowRefresh();
+      await _nativeWindowRefresh;
+    }
+    await _player.setShuffleModeEnabled(
+      enabled && (_androidSourceWindow?.children.length ?? 0) < 2,
+    );
+    _updateAudioCacheTarget();
   }
 
   Future<void> setVolume(double volume) async {
@@ -2245,6 +2786,7 @@ class AudioPlayerService {
     _disposed = true;
     _desiredPlaying = false;
     await _playbackErrorSubscription?.cancel();
+    await _currentIndexSubscription?.cancel();
     ++_intentRevision;
     final stoppedNativeLoad = await _invalidateTrackLoads();
     await _positionSubscription?.cancel();
@@ -2556,6 +3098,9 @@ class _TrackLoadRequest {
     required this.performanceRequestId,
     this.sourceToReload,
     this.initialPosition,
+    this.nativeWindowIndex,
+    this.nativeWindowAlreadyCurrent = false,
+    this.nativeWindowTrackId,
   });
 
   final int generation;
@@ -2565,6 +3110,9 @@ class _TrackLoadRequest {
   final Future<void> Function(_TrackLoadRequest request)? beforeCommit;
   final AudioSource? sourceToReload;
   final Duration? initialPosition;
+  final int? nativeWindowIndex;
+  final bool nativeWindowAlreadyCurrent;
+  String? nativeWindowTrackId;
   final Completer<void> completer = Completer<void>();
   bool superseded = false;
   final int? performanceRequestId;

@@ -176,9 +176,9 @@ cancellation does not change the current playback source.
 _Avoid_: Audio Download, playback buffer
 
 **Next Track Preload (下一首预加载)**:
-Saving the next queued track ahead of a Track Switch, using the configured
-remaining-time threshold. It is separate from preparing the current playback
-source and may reuse Automatic Audio Cache.
+Preparing the next queued track ahead of a Track Switch, using the configured
+remaining-time threshold. It may prepare a playback source or save audio through
+Automatic Audio Cache, without changing the currently published track.
 _Avoid_: Track Switch, playback buffer
 
 **Track Presentation Transition (曲目视觉过渡)**:
