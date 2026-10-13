@@ -387,6 +387,10 @@ class TranslationService {
           result = translation.text;
         }
 
+        if (result.trim().isEmpty) {
+          throw const FormatException('Translation source returned no text.');
+        }
+
         // 如果成功且不是首选源，提示用户
         if (source != selectedSource) {
           _showFallbackNotification(source);
@@ -546,13 +550,25 @@ class TranslationService {
         final timestamp = data['timestamp'] as int;
         if (DateTime.now().millisecondsSinceEpoch - timestamp <
             7 * 24 * 60 * 60 * 1000) {
-          return data['translation'] as String;
+          final translation = data['translation'] as String;
+          if (_isLegacyTranslationFailure(translation)) {
+            await prefs.remove(key);
+            return null;
+          }
+          return translation;
         }
       }
     } catch (e) {
       _log.captureOutput('Cache read error: $e');
     }
     return null;
+  }
+
+  bool _isLegacyTranslationFailure(String translation) {
+    return translation.trim().isEmpty ||
+        translation ==
+            'Error: API Key is missing. Please configure LLM settings.' ||
+        RegExp(r'^Error: \d{3} - ').hasMatch(translation);
   }
 
   /// 缓存翻译结果

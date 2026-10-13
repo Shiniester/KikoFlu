@@ -30,7 +30,7 @@ void main() {
             convertLocally: TranslationService().convertChineseLocally,
             translate: (text, {sourceLang}) async {
               requests.add(text);
-              return 'translated:first';
+              return 'translated:first\ntranslated:second';
             },
             delay: (_) async {},
           );
@@ -41,7 +41,7 @@ void main() {
           expect(result.translations, {
             'こんにちは.wav': 'translated:first',
             chinese: expected,
-            '少女.wav': '少女.wav',
+            '少女.wav': 'translated:second',
           });
         },
       );
@@ -201,7 +201,7 @@ void main() {
       expect(result.translations, {'good': 'good', 'bad': 'bad'});
     });
 
-    test('keeps untranslated names when a response omits a line', () async {
+    test('keeps a whole chunk original when a response omits a line', () async {
       final service = FileNameTranslationService(
         translate: (text, {sourceLang}) async => 'translated:first',
         delay: (_) async {},
@@ -212,10 +212,37 @@ void main() {
         maxChunkSize: 100,
       );
 
-      expect(result.translations, {
-        'first': 'translated:first',
-        'second': 'second',
+      expect(result.translations, {'first': 'first', 'second': 'second'});
+    });
+
+    for (final invalidResponse in {
+      'missing line': 'A',
+      'extra line': 'A\nB\nextra',
+      'empty line': 'A\n',
+    }.entries) {
+      test('${invalidResponse.key} does not shift later names', () async {
+        final errors = <int>[];
+        final service = FileNameTranslationService(
+          translate: (text, {sourceLang}) async =>
+              text == 'a\nb' ? invalidResponse.value : 'C\r\nD\r\n',
+          delay: (_) async {},
+        );
+        final result = await service.translateNames(
+          names: ['a', 'b', 'c', 'd'],
+          maxChunkSize: 3,
+          onChunkError: (index, error) => errors.add(index),
+        );
+        expect(errors, [0]);
+        expect(result.translations, {'a': 'a', 'b': 'b', 'c': 'C', 'd': 'D'});
       });
+    }
+
+    test('blank translated names keep their chunk original', () async {
+      final result = await FileNameTranslationService(
+        translate: (text, {sourceLang}) async => 'A\n \nC',
+        delay: (_) async {},
+      ).translateNames(names: ['a', 'b', 'c']);
+      expect(result.translations, {'a': 'a', 'b': 'b', 'c': 'c'});
     });
 
     test('delays only between multiple chunks', () async {

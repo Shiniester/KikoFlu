@@ -413,10 +413,11 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         return;
       }
       final work = _currentWork;
+      final title = work.title;
       final sourceLang = TranslationService.sourceLanguageForWork(work.lang);
       final translationService = TranslationService();
       final translated = await translationService.translate(
-        work.title,
+        title,
         sourceLang: sourceLang,
       );
 
@@ -425,10 +426,11 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
           setState(() => _isTranslating = false);
           return;
         }
+        final currentWork = _currentWork;
         final currentSourceLang = TranslationService.sourceLanguageForWork(
-          _currentWork.lang,
+          currentWork.lang,
         );
-        if (sourceLang != currentSourceLang) {
+        if (sourceLang != currentSourceLang || title != currentWork.title) {
           setState(() {
             _translatedTitle = null;
             _isTranslating = _showTranslation;
@@ -702,10 +704,11 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       final sourceChanged =
           TranslationService.sourceLanguageForWork(_currentWork.lang) !=
           TranslationService.sourceLanguageForWork(detailedWork.lang);
+      final titleChanged = _currentWork.title != detailedWork.title;
 
       _updateMetadata(() {
         _detailedWork = detailedWork;
-        if (sourceChanged) _translatedTitle = null;
+        if (sourceChanged || titleChanged) _translatedTitle = null;
         // 更新收藏状态（从API响应中获取最新状态）
         _currentProgress = detailedWork.progress;
         _currentRating = detailedWork.userRating;
@@ -713,6 +716,8 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       if (sourceChanged) {
         _translationSourceLanguage.value =
             TranslationService.sourceLanguageForWork(detailedWork.lang);
+      }
+      if (sourceChanged || titleChanged) {
         _onWorkLanguageChanged(detailedWork);
       }
     } catch (e) {
@@ -787,17 +792,20 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       final sourceChanged =
           TranslationService.sourceLanguageForWork(_currentWork.lang) !=
           TranslationService.sourceLanguageForWork(detailedWork.lang);
+      final titleChanged = _currentWork.title != detailedWork.title;
 
       if (mounted && generation == _metadataLoadGeneration) {
         _updateMetadata(() {
           _detailedWork = detailedWork;
-          if (sourceChanged) _translatedTitle = null;
+          if (sourceChanged || titleChanged) _translatedTitle = null;
           _currentProgress = detailedWork.progress;
           _currentRating = detailedWork.userRating;
         });
         if (sourceChanged) {
           _translationSourceLanguage.value =
               TranslationService.sourceLanguageForWork(detailedWork.lang);
+        }
+        if (sourceChanged || titleChanged) {
           _onWorkLanguageChanged(detailedWork);
         }
 

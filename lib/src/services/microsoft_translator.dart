@@ -78,8 +78,11 @@ class MicrosoftTranslator {
     23
   ];
 
-  Future<String> translate(String text,
-      {String? sourceLang, String targetLang = 'zh-Hans'}) async {
+  Future<String> translate(
+    String text, {
+    String? sourceLang,
+    String targetLang = 'zh-Hans',
+  }) async {
     if (text.isEmpty) return text;
 
     final from = sourceLang != null ? '&from=$sourceLang' : '';
@@ -95,7 +98,7 @@ class MicrosoftTranslator {
       final response = await _dio.post(
         'https://$urlPath',
         data: [
-          {'Text': text}
+          {'Text': text},
         ],
         options: Options(
           headers: {
@@ -106,22 +109,37 @@ class MicrosoftTranslator {
         ),
       );
 
-      if (response.statusCode == 200) {
-        final data = response.data;
-        if (data is List && data.isNotEmpty) {
-          final first = data[0];
-          if (first is Map && first['translations'] is List) {
-            final translations = first['translations'] as List;
-            if (translations.isNotEmpty) {
-              return translations[0]['text'] ?? text;
-            }
-          }
-        }
+      if (response.statusCode != 200) {
+        throw HttpException(
+          'Microsoft Translator returned HTTP ${response.statusCode}.',
+        );
       }
-      return text;
+
+      final data = response.data;
+      if (data is! List || data.isEmpty) {
+        throw const FormatException('Invalid Microsoft translation response.');
+      }
+      final first = data.first;
+      if (first is! Map || first['translations'] is! List) {
+        throw const FormatException('Invalid Microsoft translation result.');
+      }
+      final translations = first['translations'] as List;
+      if (translations.isEmpty ||
+          translations.first is! Map ||
+          translations.first['text'] is! String) {
+        throw const FormatException('Invalid Microsoft translation item.');
+      }
+
+      final translation = translations.first['text'] as String;
+      if (translation.trim().isEmpty) {
+        throw const FormatException(
+          'Microsoft Translator returned an empty translation.',
+        );
+      }
+      return translation;
     } catch (e) {
       logOutput('Microsoft translation error: $e');
-      return text;
+      rethrow;
     }
   }
 

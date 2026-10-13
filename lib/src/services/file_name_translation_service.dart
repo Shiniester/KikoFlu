@@ -82,31 +82,29 @@ class FileNameTranslationService {
       namesToTranslate,
       maxChunkSize: maxChunkSize,
     );
-    final translatedChunks = <String>[];
-
     for (var i = 0; i < chunks.length; i++) {
       onProgress?.call(i + 1, chunks.length);
 
       try {
-        translatedChunks.add(
-          await translate(chunks[i], sourceLang: sourceLang),
-        );
+        final chunkNames = chunks[i].split('\n');
+        final translated = await translate(chunks[i], sourceLang: sourceLang);
+        final translatedNames = translated.trim().split(RegExp(r'\r?\n'));
+        if (translatedNames.length != chunkNames.length ||
+            translatedNames.any((name) => name.trim().isEmpty)) {
+          throw const FormatException(
+            'Filename translation lines do not match',
+          );
+        }
+        for (var j = 0; j < chunkNames.length; j++) {
+          translations[chunkNames[j]] = translatedNames[j];
+        }
       } catch (e) {
         onChunkError?.call(i, e);
-        translatedChunks.add(chunks[i]);
       }
 
       if (i < chunks.length - 1) {
         await delay(throttleDelay);
       }
-    }
-
-    final translatedNames = translatedChunks.join('\n').split('\n');
-
-    for (var i = 0; i < namesToTranslate.length; i++) {
-      translations[namesToTranslate[i]] = i < translatedNames.length
-          ? translatedNames[i]
-          : namesToTranslate[i];
     }
 
     return FileNameTranslationResult(

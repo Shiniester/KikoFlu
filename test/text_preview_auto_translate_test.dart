@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -9,6 +10,7 @@ import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/utils/local_file_url.dart';
 import 'package:kikoeru_flutter/src/widgets/text_preview_screen.dart';
+import 'package:kikoeru_flutter/src/widgets/translation_toggle_button.dart';
 import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -22,6 +24,33 @@ Widget _testApp(String path, {required String title}) {
         textUrl: LocalFileUrl.fromPath(path),
         title: title,
         autoTranslate: true,
+      ),
+    ),
+  );
+}
+
+Widget _testPreviewApp(
+  String filePath, {
+  required String title,
+  required bool autoTranslate,
+  Future<String> Function(String source)? translateContentForTesting,
+  AutoSaveTranslatedLyricsNotifier? autoSaveNotifier,
+}) {
+  final notifier = autoSaveNotifier;
+  return ProviderScope(
+    overrides: [
+      if (notifier != null)
+        autoSaveTranslatedLyricsProvider.overrideWith((ref) => notifier),
+    ],
+    child: MaterialApp(
+      locale: const Locale('en'),
+      localizationsDelegates: S.localizationsDelegates,
+      supportedLocales: S.supportedLocales,
+      home: TextPreviewScreen(
+        textUrl: LocalFileUrl.fromPath(filePath),
+        title: title,
+        autoTranslate: autoTranslate,
+        translateContentForTesting: translateContentForTesting,
       ),
     ),
   );
@@ -63,6 +92,34 @@ Future<void> _pumpUntilContent(WidgetTester tester, String expected) async {
   ) {
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     await tester.pump();
+  }
+}
+
+Future<void> _pumpUntil(WidgetTester tester, bool Function() ready) async {
+  for (var attempt = 0; attempt < 40 && !ready(); attempt++) {
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+  }
+  expect(ready(), isTrue);
+}
+
+Future<void> _toggleEditMode(WidgetTester tester) async {
+  final l10n = S.of(tester.element(find.byType(TextPreviewScreen)));
+  final editing = find.byType(TextField).evaluate().isNotEmpty;
+  await tester.tap(find.byTooltip(editing ? l10n.previewMode : l10n.editMode));
+  await tester.pump();
+}
+
+class _PendingAutoSaveNotifier extends AutoSaveTranslatedLyricsNotifier {
+  _PendingAutoSaveNotifier(this.enabled);
+
+  final Completer<bool> enabled;
+  bool requested = false;
+
+  @override
+  Future<bool> resolvedEnabled() {
+    requested = true;
+    return enabled.future;
   }
 }
 
@@ -183,4 +240,233 @@ void main() {
     expect(content.data, source);
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
+
+  testWidgets('first manual translation uses the edited original subtitle', (
+    tester,
+  ) async {
+    const source = 'Original subtitle';
+    const edited = 'Edited subtitle';
+    const translated = 'Translated edited subtitle';
+    final tempDir = await _createPreviewRoot(autoSaveTranslated: false);
+    final subtitle = File('${tempDir.path}/track01.srt')
+      ..writeAsStringSync(source);
+    final requests = <String>[];
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(() => tempDir.delete(recursive: true));
+    });
+
+    await tester.pumpWidget(
+      _testPreviewApp(
+        subtitle.path,
+        title: 'track01.srt',
+        autoTranslate: false,
+        translateContentForTesting: (content) async {
+          requests.add(content);
+          return translated;
+        },
+      ),
+    );
+    await _pumpUntilContent(tester, source);
+
+    await _toggleEditMode(tester);
+    await tester.enterText(find.byType(TextField), edited);
+    await _toggleEditMode(tester);
+    await _pumpUntilContent(tester, edited);
+    await tester.tap(find.byType(TranslationToolbarButton));
+    await _pumpUntilContent(tester, translated);
+
+    expect(requests, [edited]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('editing the original clears and replaces its old translation', (
+    tester,
+  ) async {
+    const source = 'Original subtitle';
+    const edited = 'Edited subtitle';
+    final tempDir = await _createPreviewRoot(autoSaveTranslated: false);
+    final subtitle = File('${tempDir.path}/track01.srt')
+      ..writeAsStringSync(source);
+    final requests = <String>[];
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(() => tempDir.delete(recursive: true));
+    });
+
+    await tester.pumpWidget(
+      _testPreviewApp(
+        subtitle.path,
+        title: 'track01.srt',
+        autoTranslate: false,
+        translateContentForTesting: (content) async {
+          requests.add(content);
+          return 'Translated: $content';
+        },
+      ),
+    );
+    await _pumpUntilContent(tester, source);
+    await tester.tap(find.byType(TranslationToolbarButton));
+    await _pumpUntilContent(tester, 'Translated: $source');
+
+    await tester.tap(find.byType(TranslationToolbarButton));
+    await _pumpUntilContent(tester, source);
+    await _toggleEditMode(tester);
+    await tester.enterText(find.byType(TextField), edited);
+    await _toggleEditMode(tester);
+    await _pumpUntilContent(tester, edited);
+    await tester.tap(find.byType(TranslationToolbarButton));
+    await _pumpUntilContent(tester, 'Translated: $edited');
+
+    expect(requests, [source, edited]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('late translation is discarded after the original is edited', (
+    tester,
+  ) async {
+    const source = 'Original subtitle';
+    const edited = 'Edited while translating';
+    const currentTranslation = 'Current translation';
+    final translations = [Completer<String>(), Completer<String>()];
+    final autoSave = Completer<bool>();
+    final autoSaveNotifier = _PendingAutoSaveNotifier(autoSave);
+    final tempDir = await _createPreviewRoot(autoSaveTranslated: true);
+    final subtitle = File('${tempDir.path}/track01.srt')
+      ..writeAsStringSync(source);
+    final requests = <String>[];
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      if (!autoSave.isCompleted) autoSave.complete(false);
+      await tester.runAsync(() => tempDir.delete(recursive: true));
+    });
+
+    await tester.pumpWidget(
+      _testPreviewApp(
+        subtitle.path,
+        title: 'track01.srt',
+        autoTranslate: false,
+        autoSaveNotifier: autoSaveNotifier,
+        translateContentForTesting: (content) {
+          requests.add(content);
+          return translations[requests.length - 1].future;
+        },
+      ),
+    );
+    await _pumpUntilContent(tester, source);
+    await tester.tap(find.byType(TranslationToolbarButton));
+    await _pumpUntil(tester, () => requests.isNotEmpty);
+
+    await _toggleEditMode(tester);
+    await tester.enterText(find.byType(TextField), edited);
+    await tester.pump();
+    expect(
+      tester
+          .widget<TranslationToolbarButton>(
+            find.byType(TranslationToolbarButton),
+          )
+          .isLoading,
+      isFalse,
+    );
+    expect(
+      find.text(
+        S
+            .of(tester.element(find.byType(TextPreviewScreen)))
+            .preparingTranslation,
+      ),
+      findsNothing,
+    );
+    await tester.tap(find.byType(TranslationToolbarButton));
+    await _pumpUntil(tester, () => requests.length == 2);
+
+    translations[0].complete('Late old translation');
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    expect(
+      tester
+          .widget<TranslationToolbarButton>(
+            find.byType(TranslationToolbarButton),
+          )
+          .isLoading,
+      isTrue,
+    );
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      edited,
+    );
+    expect(autoSaveNotifier.requested, isFalse);
+
+    translations[1].complete(currentTranslation);
+    await _pumpUntil(
+      tester,
+      () => !tester
+          .widget<TranslationToolbarButton>(
+            find.byType(TranslationToolbarButton),
+          )
+          .isLoading,
+    );
+    await _toggleEditMode(tester);
+    await _pumpUntilContent(tester, currentTranslation);
+    expect(autoSaveNotifier.requested, isTrue);
+    autoSave.complete(false);
+
+    expect(requests, [source, edited]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'auto-save drops a translation if its source changes while waiting',
+    (tester) async {
+      const source = 'Original subtitle';
+      const edited = 'Edited before auto-save';
+      const translated = 'Translated subtitle';
+      final autoSave = Completer<bool>();
+      final autoSaveNotifier = _PendingAutoSaveNotifier(autoSave);
+      final tempDir = await _createPreviewRoot(autoSaveTranslated: true);
+      final subtitle = File('${tempDir.path}/track01.srt')
+        ..writeAsStringSync(source);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        if (!autoSave.isCompleted) autoSave.complete(false);
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.runAsync(() => tempDir.delete(recursive: true));
+      });
+
+      await tester.pumpWidget(
+        _testPreviewApp(
+          subtitle.path,
+          title: 'track01.srt',
+          autoTranslate: false,
+          autoSaveNotifier: autoSaveNotifier,
+          translateContentForTesting: (_) async => translated,
+        ),
+      );
+      await _pumpUntilContent(tester, source);
+      await tester.tap(find.byType(TranslationToolbarButton));
+      await _pumpUntilContent(tester, translated);
+      await _pumpUntil(tester, () => autoSaveNotifier.requested);
+
+      await tester.tap(find.byType(TranslationToolbarButton));
+      await _pumpUntilContent(tester, source);
+      await _toggleEditMode(tester);
+      await tester.enterText(find.byType(TextField), edited);
+      autoSave.complete(true);
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+
+      expect(
+        await tester.runAsync(
+          () => Directory(
+            path.join(tempDir.path, 'subtitle_library', '已保存'),
+          ).exists(),
+        ),
+        isFalse,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

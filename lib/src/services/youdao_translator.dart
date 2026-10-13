@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'log_service.dart';
@@ -8,8 +9,11 @@ class YoudaoTranslator {
   static const String _url = 'https://dict.youdao.com/dicttranslate';
   static const String _key = 'cybibtzhdwayqjmrncst';
 
-  Future<String> translate(String text,
-      {String? sourceLang, String targetLang = 'zh-CHS'}) async {
+  Future<String> translate(
+    String text, {
+    String? sourceLang,
+    String targetLang = 'zh-CHS',
+  }) async {
     if (text.isEmpty) return text;
 
     final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
@@ -58,27 +62,37 @@ class YoudaoTranslator {
         ),
       );
 
-      if (response.statusCode == 200) {
-        final data = response.data;
-        if (data != null && data['translateResult'] != null) {
-          final results = data['translateResult'] as List;
-          final sb = StringBuffer();
-          for (var result in results) {
-            if (result is List) {
-              for (var item in result) {
-                if (item['tgt'] != null) {
-                  sb.write(item['tgt']);
-                }
-              }
-            }
+      if (response.statusCode != 200) {
+        throw HttpException('Youdao returned HTTP ${response.statusCode}.');
+      }
+
+      final data = response.data;
+      if (data is! Map || data['translateResult'] is! List) {
+        throw const FormatException('Invalid Youdao translation response.');
+      }
+
+      final results = data['translateResult'] as List;
+      final sb = StringBuffer();
+      for (final result in results) {
+        if (result is! List) {
+          throw const FormatException('Invalid Youdao translation result.');
+        }
+        for (final item in result) {
+          if (item is! Map || item['tgt'] is! String) {
+            throw const FormatException('Invalid Youdao translation item.');
           }
-          return sb.toString();
+          sb.write(item['tgt']);
         }
       }
-      return text;
+
+      final translation = sb.toString();
+      if (translation.trim().isEmpty) {
+        throw const FormatException('Youdao returned an empty translation.');
+      }
+      return translation;
     } catch (e) {
       logOutput('Youdao translation error: $e');
-      return text;
+      rethrow;
     }
   }
 

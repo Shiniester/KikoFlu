@@ -94,6 +94,9 @@ Chinese uses local conversion; other text uses automatic source detection.
 Original text and local conversion take precedence over translation-source caches.
 Local conversions of titles, resource names, and full subtitle text are cached
 persistently by source and target language, separately from remote translations.
+Translation-source failures trigger fallback sources before returning the original;
+only successful responses enter the remote cache. Resource-name batches keep their
+original names when the response has missing, extra, or empty lines.
 
 **Automatic Work Details Translation (自动作品详情翻译)**:
 The preference that enables Work Details Translation when a details page opens,
@@ -104,6 +107,8 @@ their original view. Manual translation remains available under the same policy.
 **Subtitle Preview Translation (字幕预览翻译)**:
 The translated text shown while inspecting a work subtitle when Work Details
 Translation is active. Otherwise, subtitle previews show the original text.
+Translation uses the current original text, including edits. Editing the original
+invalidates its previous translation.
 
 **Save Current Image (保存当前图片)**:
 Exporting the reader's full loaded image bytes for the actual current page.

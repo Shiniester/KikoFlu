@@ -52,12 +52,14 @@ class _OnlineApi extends KikoeruApiService {
     this.pendingWork,
     this.lang = 'CHI_HANS',
     this.tracks = const [],
+    this.refreshedTitle,
   });
 
   final String title;
   final Completer<Map<String, dynamic>>? pendingWork;
   final String? lang;
   final List<dynamic> tracks;
+  final String? refreshedTitle;
   int workRequests = 0;
   bool workCompleted = false;
 
@@ -68,9 +70,13 @@ class _OnlineApi extends KikoeruApiService {
     CancelToken? cancelToken,
   }) async {
     workRequests++;
-    final response = pendingWork == null
-        ? {'id': id, 'title': title, 'lang': lang}
-        : await pendingWork!.future;
+    final response = pendingWork != null && !forceRefresh
+        ? await pendingWork!.future
+        : {
+            'id': id,
+            'title': forceRefresh ? refreshedTitle ?? title : title,
+            'lang': lang,
+          };
     workCompleted = true;
     return response;
   }
@@ -752,4 +758,189 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'online initial detail retitles a translated same-language work',
+    (tester) async {
+      const initialTitle = '初期タイトル';
+      const detailedTitle = '詳細タイトル';
+      const initialTranslation = 'Initial title';
+      const detailedTranslation = 'Detailed title';
+      final workResponse = Completer<Map<String, dynamic>>();
+      SharedPreferences.setMockInitialValues({
+        'locale_language': 'en',
+        TranslationLanguagePreferencesNotifier.keyTargetLanguage:
+            TranslationTargetLanguage.english.value,
+        AutoTranslateWorkDetailsNotifier.preferenceKey: false,
+        'translation_cache_ja_en_${initialTitle.hashCode}': _cache(
+          initialTranslation,
+        ),
+        'translation_cache_ja_en_${detailedTitle.hashCode}': _cache(
+          detailedTranslation,
+        ),
+      });
+      await StorageService.initCritical(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      final api = _OnlineApi(
+        initialTitle,
+        lang: 'JPN',
+        pendingWork: workResponse,
+      );
+      final container = ProviderContainer(
+        overrides: [
+          authProvider.overrideWith((ref) => _Auth()),
+          kikoeruApiServiceProvider.overrideWithValue(api),
+          currentTrackProvider.overrideWith((ref) => Stream.value(null)),
+        ],
+      );
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        container.dispose();
+      });
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(
+            locale: Locale('en'),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: WorkDetailScreen(
+              work: Work(id: 815, title: initialTitle, lang: 'JPN'),
+            ),
+          ),
+        ),
+      );
+      await _pumpUntil(tester, () => api.workRequests == 1);
+      await _pumpUntil(
+        tester,
+        () => find.byType(InlineTranslationButton).evaluate().isNotEmpty,
+      );
+      await tester.ensureVisible(find.byType(InlineTranslationButton));
+      await tester.tap(find.byType(InlineTranslationButton));
+      await _pumpUntil(
+        tester,
+        () =>
+            tester
+                .widget<WorkTitleHeader>(find.byType(WorkTitleHeader))
+                .displayTitle ==
+            initialTranslation,
+      );
+
+      workResponse.complete({'id': 815, 'title': detailedTitle, 'lang': 'JPN'});
+      await _pumpUntil(tester, () => api.workCompleted);
+      await _pumpUntil(
+        tester,
+        () =>
+            tester
+                .widget<WorkTitleHeader>(find.byType(WorkTitleHeader))
+                .displayTitle ==
+            detailedTranslation,
+      );
+      expect(
+        tester.widget<WorkTitleHeader>(find.byType(WorkTitleHeader)).title,
+        detailedTitle,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('online same-language title refresh replaces its translation', (
+    tester,
+  ) async {
+    const initialTitle = '初期タイトル';
+    const refreshedTitle = '更新タイトル';
+    const initialTranslation = 'Initial title';
+    const refreshedTranslation = 'Refreshed title';
+    SharedPreferences.setMockInitialValues({
+      'locale_language': 'en',
+      TranslationLanguagePreferencesNotifier.keyTargetLanguage:
+          TranslationTargetLanguage.english.value,
+      AutoTranslateWorkDetailsNotifier.preferenceKey: false,
+      'translation_cache_ja_en_${initialTitle.hashCode}': _cache(
+        initialTranslation,
+      ),
+      'translation_cache_ja_en_${refreshedTitle.hashCode}': _cache(
+        refreshedTranslation,
+      ),
+    });
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
+    final api = _OnlineApi(
+      initialTitle,
+      lang: 'JPN',
+      refreshedTitle: refreshedTitle,
+    );
+    final container = ProviderContainer(
+      overrides: [
+        authProvider.overrideWith((ref) => _Auth()),
+        kikoeruApiServiceProvider.overrideWithValue(api),
+        currentTrackProvider.overrideWith((ref) => Stream.value(null)),
+      ],
+    );
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      container.dispose();
+    });
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(
+          locale: Locale('en'),
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          home: WorkDetailScreen(
+            work: Work(id: 816, title: initialTitle, lang: 'JPN'),
+          ),
+        ),
+      ),
+    );
+    await _pumpUntil(tester, () => api.workRequests == 1);
+    await _pumpUntil(
+      tester,
+      () => find.byType(InlineTranslationButton).evaluate().isNotEmpty,
+    );
+    await tester.ensureVisible(find.byType(InlineTranslationButton));
+    await tester.tap(find.byType(InlineTranslationButton));
+    await _pumpUntil(
+      tester,
+      () =>
+          tester
+              .widget<WorkTitleHeader>(find.byType(WorkTitleHeader))
+              .displayTitle ==
+          initialTranslation,
+    );
+
+    var refreshCompleted = false;
+    final refresh = tester
+        .widget<RefreshIndicator>(find.byType(RefreshIndicator))
+        .onRefresh()
+        .then<void>(
+          (_) {
+            refreshCompleted = true;
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            refreshCompleted = true;
+            Error.throwWithStackTrace(error, stackTrace);
+          },
+        );
+    await _pumpUntil(tester, () => api.workRequests == 2 && refreshCompleted);
+    await refresh;
+    await _pumpUntil(
+      tester,
+      () =>
+          tester
+              .widget<WorkTitleHeader>(find.byType(WorkTitleHeader))
+              .displayTitle ==
+          refreshedTranslation,
+    );
+    expect(
+      tester.widget<WorkTitleHeader>(find.byType(WorkTitleHeader)).title,
+      refreshedTitle,
+    );
+    expect(tester.takeException(), isNull);
+  });
 }
