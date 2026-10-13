@@ -13,6 +13,7 @@ void main() {
     for (final text in [
       '简体中文标题',
       '轻声耳语.wav',
+      '轻声耳语・',
       '听我说话',
       '缓存',
       '輕聲耳語',
@@ -52,51 +53,49 @@ void main() {
     }
   });
 
-  for (final target in ['zh_hans', 'zh_hant', 'en', 'ja']) {
-    test(
-      'skips automatic translation only for matching source $target',
-      () async {
-        SharedPreferences.setMockInitialValues({
-          'locale_language': 'en',
-          TranslationLanguagePreferencesNotifier.keyTargetLanguage: target,
-        });
-        final service = TranslationService();
-        expect(
-          await service.shouldSkipAutomaticWorkDetailsTranslation('CHI_HANS'),
-          target == 'zh_hans',
-        );
-        for (final (language, sourceTarget) in <(String, String)>[
-          ('JPN', 'ja'),
-          ('CHI_HANT', 'zh_hant'),
-          ('ENG', 'en'),
-        ]) {
-          expect(
-            await service.shouldSkipAutomaticWorkDetailsTranslation(language),
-            sourceTarget == target,
-          );
-        }
-        expect(
-          await service.shouldSkipAutomaticWorkDetailsTranslation(null),
-          isFalse,
-        );
-      },
-    );
-  }
-
-  test('follows app language when deciding whether to skip a work', () async {
-    for (final script in [null, 'Hant']) {
-      SharedPreferences.setMockInitialValues({
-        'locale_language': 'zh',
-        if (script != null) 'locale_script': script,
-      });
-      expect(
-        await TranslationService().shouldSkipAutomaticWorkDetailsTranslation(
-          ' chi_hans ',
-        ),
-        script != 'Hant',
-      );
+  test('detects modern kana and ignores Japanese punctuation alone', () {
+    for (final text in ['ひらがな', 'カタカナ', 'ｶﾀｶﾅ', '少女の耳語']) {
+      expect(containsKana(text), isTrue, reason: text);
+    }
+    for (final text in ['・', '。', '―', '日本語']) {
+      expect(containsKana(text), isFalse, reason: text);
     }
   });
+
+  test(
+    'resolves kana text per item and keeps same-target text before stale cache',
+    () async {
+      const text = '少女の耳語.wav';
+      SharedPreferences.setMockInitialValues({
+        TranslationLanguagePreferencesNotifier.keyTargetLanguage: 'ja',
+        'translation_cache_ja_ja_${text.hashCode}': jsonEncode({
+          'translation': 'stale translated result',
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        }),
+        'translation_cache_zh-cn_ja_${text.hashCode}': jsonEncode({
+          'translation': 'stale work-source result',
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        }),
+      });
+
+      final sourceLang = TranslationService.sourceLanguageForText(
+        text,
+        sourceLang: 'CHI_HANS',
+      );
+      expect(sourceLang, 'ja');
+      expect(
+        TranslationService.sourceLanguageForText(
+          '简体标题.txt',
+          sourceLang: 'CHI_HANS',
+        ),
+        'zh-cn',
+      );
+      expect(
+        await TranslationService().translate(text, sourceLang: sourceLang),
+        text,
+      );
+    },
+  );
 
   test(
     'preserves simplified text before reading an old translation cache',

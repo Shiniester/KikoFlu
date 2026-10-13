@@ -449,8 +449,7 @@ void main() {
                   : container.read(fileListControllerProvider).workId ==
                         work.id,
             );
-            final sameLanguage = chinese.source == chinese.expected;
-            if (!automatic || sameLanguage) {
+            if (!automatic) {
               expect(
                 tester
                     .widget<WorkTitleHeader>(find.byType(WorkTitleHeader))
@@ -483,6 +482,174 @@ void main() {
               () => find.text('${chinese.expected}.wav').evaluate().isNotEmpty,
             );
             expect(find.text('Unwanted cached filename.wav'), findsNothing);
+            expect(tester.takeException(), isNull);
+          },
+        );
+      }
+    }
+  }
+
+  for (final online in [false, true]) {
+    for (final automatic in [false, true]) {
+      for (final scenario in [
+        (
+          label: 'hiragana filename',
+          lang: 'CHI_HANS',
+          target: 'zh_hans',
+          title: '简体中文作品',
+          expectedTitle: '简体中文作品',
+          filename: 'こんにちは.wav',
+          expectedFilename: '日语文件.wav',
+        ),
+        (
+          label: 'katakana title',
+          lang: 'CHI_HANT',
+          target: 'zh_hans',
+          title: '作品タイトル',
+          expectedTitle: '作品标题',
+          filename: '環境音.wav',
+          expectedFilename: '环境音.wav',
+        ),
+        (
+          label: 'half-width title',
+          lang: 'CHI_HANS',
+          target: 'zh_hans',
+          title: '作品ﾀｲﾄﾙ',
+          expectedTitle: '作品标题',
+          filename: 'カタカナ.wav',
+          expectedFilename: '日语文件.wav',
+        ),
+        (
+          label: 'Japanese target',
+          lang: 'CHI_HANS',
+          target: 'ja',
+          title: '日本語の作品',
+          expectedTitle: '日本語の作品',
+          filename: 'ﾀｲﾄﾙ.wav',
+          expectedFilename: 'ﾀｲﾄﾙ.wav',
+        ),
+      ]) {
+        testWidgets(
+          'per-text Kana source online=$online auto=$automatic ${scenario.label}',
+          (tester) async {
+            final directory = Directory.systemTemp.createTempSync(
+              'kana-details-',
+            );
+            File('${directory.path}/${scenario.filename}').writeAsBytesSync([]);
+            final tracks = [
+              {'type': 'audio', 'title': scenario.filename, 'hash': 'track'},
+            ];
+            final sourceCode = scenario.lang == 'CHI_HANS' ? 'zh-cn' : 'zh-tw';
+            final targetCode = scenario.target == 'ja' ? 'ja' : 'zh_Hans';
+            SharedPreferences.setMockInitialValues({
+              'custom_download_path': directory.path,
+              'locale_language': 'en',
+              TranslationLanguagePreferencesNotifier.keyTargetLanguage:
+                  scenario.target,
+              AutoTranslateWorkDetailsNotifier.preferenceKey: automatic,
+              'translation_cache_${sourceCode}_${targetCode}_${scenario.title.hashCode}':
+                  _cache('Wrong work-language title'),
+              'translation_cache_${sourceCode}_${targetCode}_${scenario.filename.hashCode}':
+                  _cache('Wrong work-language filename'),
+              'translation_cache_ja_${targetCode}_${scenario.title.hashCode}':
+                  _cache(
+                    scenario.target == 'ja'
+                        ? 'Wrong Japanese title'
+                        : scenario.expectedTitle,
+                  ),
+              'translation_cache_ja_${targetCode}_${scenario.filename.hashCode}':
+                  _cache(
+                    scenario.target == 'ja'
+                        ? 'Wrong Japanese filename'
+                        : scenario.expectedFilename,
+                  ),
+            });
+            await StorageService.initCritical(
+              preferences: await SharedPreferences.getInstance(),
+            );
+            final api = _OnlineApi(
+              scenario.title,
+              lang: scenario.lang,
+              tracks: tracks,
+            );
+            final container = ProviderContainer(
+              overrides: [
+                authProvider.overrideWith((ref) => _Auth()),
+                kikoeruApiServiceProvider.overrideWithValue(api),
+                currentTrackProvider.overrideWith((ref) => Stream.value(null)),
+              ],
+            );
+            addTearDown(() async {
+              await tester.pumpWidget(const SizedBox.shrink());
+              container.dispose();
+              await tester.runAsync(() => directory.delete(recursive: true));
+            });
+            final work = Work(
+              id: 817,
+              title: scenario.title,
+              lang: scenario.lang,
+            );
+            await tester.pumpWidget(
+              UncontrolledProviderScope(
+                container: container,
+                child: MaterialApp(
+                  locale: const Locale('en'),
+                  theme: AppTheme.lightTheme(null),
+                  localizationsDelegates: S.localizationsDelegates,
+                  supportedLocales: S.supportedLocales,
+                  home: online
+                      ? WorkDetailScreen(work: work)
+                      : OfflineWorkDetailScreen(
+                          work: work,
+                          fileTree: tracks,
+                          localWorkDirPath: directory.path,
+                        ),
+                ),
+              ),
+            );
+            await _pumpUntil(
+              tester,
+              () => online
+                  ? api.workCompleted &&
+                        find.byType(FileExplorerWidget).evaluate().isNotEmpty
+                  : container.read(fileListControllerProvider).workId ==
+                        work.id,
+            );
+            if (!automatic) {
+              expect(
+                tester
+                    .widget<WorkTitleHeader>(find.byType(WorkTitleHeader))
+                    .showTranslation,
+                isFalse,
+              );
+              await tester.ensureVisible(find.byType(InlineTranslationButton));
+              await tester.tap(find.byType(InlineTranslationButton));
+            }
+            await _pumpUntil(tester, () {
+              final header = tester.widget<WorkTitleHeader>(
+                find.byType(WorkTitleHeader),
+              );
+              return header.showTranslation &&
+                  !header.isTranslating &&
+                  header.displayTitle == scenario.expectedTitle;
+            });
+            await _pumpUntil(
+              tester,
+              () => find
+                  .byKey(const ValueKey('work-resource-files-tab'))
+                  .evaluate()
+                  .isNotEmpty,
+            );
+            await tester.ensureVisible(
+              find.byKey(const ValueKey('work-resource-files-tab')),
+            );
+            await _pumpUntil(
+              tester,
+              () => find.text(scenario.expectedFilename).evaluate().isNotEmpty,
+            );
+            await tester.pump(const Duration(milliseconds: 16));
+            expect(find.text('Wrong work-language filename'), findsNothing);
+            expect(find.text('Wrong Japanese filename'), findsNothing);
             expect(tester.takeException(), isNull);
           },
         );
@@ -620,16 +787,16 @@ void main() {
   }
 
   testWidgets(
-    'online details skip automatic translation for simplified CHI_HANS',
+    'online automatic translation preserves simplified Chinese before cache',
     (tester) async {
-      const title = '作品タイトル';
+      const title = '简体中文作品';
       SharedPreferences.setMockInitialValues({
         'locale_language': 'en',
         TranslationLanguagePreferencesNotifier.keyTargetLanguage:
             TranslationTargetLanguage.zhHans.value,
         AutoTranslateWorkDetailsNotifier.preferenceKey: true,
-        'translation_cache_ja_zh_Hans_${title.hashCode}': _cache(
-          'Translated work',
+        'translation_cache_zh-cn_zh_Hans_${title.hashCode}': _cache(
+          'Unwanted cached work',
         ),
       });
       await StorageService.initCritical(
@@ -661,11 +828,17 @@ void main() {
         ),
       );
       await _pumpUntil(tester, () => api.workRequests == 1);
+      await _pumpUntil(tester, () {
+        final header = tester.widget<WorkTitleHeader>(
+          find.byType(WorkTitleHeader),
+        );
+        return header.showTranslation && !header.isTranslating;
+      });
       await tester.pumpAndSettle();
       final header = tester.widget<WorkTitleHeader>(
         find.byType(WorkTitleHeader),
       );
-      expect(header.showTranslation, isFalse);
+      expect(header.showTranslation, isTrue);
       expect(header.displayTitle, title);
       expect(tester.takeException(), isNull);
     },
@@ -737,23 +910,23 @@ void main() {
             tester
                 .widget<WorkTitleHeader>(find.byType(WorkTitleHeader))
                 .displayTitle ==
-            detailedTitle,
+            'Translated work',
       );
       await tester.pumpAndSettle();
       var header = tester.widget<WorkTitleHeader>(find.byType(WorkTitleHeader));
-      expect(header.showTranslation, isFalse);
-      expect(header.displayTitle, detailedTitle);
+      expect(header.showTranslation, isTrue);
+      expect(header.displayTitle, 'Translated work');
 
       await tester.ensureVisible(find.byType(InlineTranslationButton));
       await tester.tap(find.byType(InlineTranslationButton));
       await _pumpUntil(
         tester,
-        () => tester
+        () => !tester
             .widget<WorkTitleHeader>(find.byType(WorkTitleHeader))
             .showTranslation,
       );
       header = tester.widget<WorkTitleHeader>(find.byType(WorkTitleHeader));
-      expect(header.showTranslation, isTrue);
+      expect(header.showTranslation, isFalse);
       expect(header.displayTitle, detailedTitle);
       expect(tester.takeException(), isNull);
     },

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/services/file_name_translation_service.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
@@ -23,47 +25,57 @@ void main() {
           SharedPreferences.setMockInitialValues({
             TranslationLanguagePreferencesNotifier.keyTargetLanguage: target,
           });
-          final requests = <String>[];
+          final requests = <(String, String?)>[];
           final chinese = target == 'zh_hans' ? '輕聲耳語.wav' : '轻声耳语.wav';
           final expected = target == 'zh_hans' ? '轻声耳语.wav' : '輕聲耳語.wav';
+          final sourceLang = target == 'zh_hans' ? 'zh-tw' : 'zh-cn';
           final service = FileNameTranslationService(
             convertLocally: TranslationService().convertChineseLocally,
             translate: (text, {sourceLang}) async {
-              requests.add(text);
-              return 'translated:first\ntranslated:second';
+              requests.add((text, sourceLang));
+              return text
+                  .split('\n')
+                  .map((name) => 'translated:$name')
+                  .join('\n');
             },
             delay: (_) async {},
           );
           final result = await service.translateNames(
-            names: ['こんにちは.wav', chinese, '少女.wav'],
+            names: ['こんにちは.wav', chinese, '少女の耳語.wav'],
+            sourceLang: sourceLang,
           );
-          expect(requests, ['こんにちは.wav\n少女.wav']);
+          expect(requests, [('こんにちは.wav\n少女の耳語.wav', 'ja')]);
           expect(result.translations, {
-            'こんにちは.wav': 'translated:first',
+            'こんにちは.wav': 'translated:こんにちは.wav',
             chinese: expected,
-            '少女.wav': 'translated:second',
+            '少女の耳語.wav': 'translated:少女の耳語.wav',
           });
         },
       );
     }
 
     test('preserves Chinese names in a mixed translation batch', () async {
-      final requests = <String>[];
+      final requests = <(String, String?)>[];
+      final localSourceLanguages = <String?>[];
       final service = FileNameTranslationService(
         translate: (text, {sourceLang}) async {
-          requests.add(text);
+          requests.add((text, sourceLang));
           return text.split('\n').map((line) => 'translated:$line').join('\n');
         },
         delay: (_) async {},
-        convertLocally: (text, {sourceLang}) async => switch (text) {
-          '轻声耳语.wav' || '简体标题.txt' => text,
-          _ => null,
+        convertLocally: (text, {sourceLang}) async {
+          localSourceLanguages.add(sourceLang);
+          return switch (text) {
+            '轻声耳语.wav' || '简体标题.txt' => text,
+            _ => null,
+          };
         },
       );
       final result = await service.translateNames(
         names: ['轻声耳语.wav', 'こんにちは.wav', '简体标题.txt', '少女.wav'],
       );
-      expect(requests, ['こんにちは.wav\n少女.wav']);
+      expect(requests, [('こんにちは.wav', 'ja'), ('少女.wav', null)]);
+      expect(localSourceLanguages, [null, 'ja', null, null]);
       expect(result.names, ['轻声耳语.wav', 'こんにちは.wav', '简体标题.txt', '少女.wav']);
       expect(result.translations, {
         '轻声耳语.wav': '轻声耳语.wav',
@@ -72,6 +84,111 @@ void main() {
         '少女.wav': 'translated:少女.wav',
       });
     });
+
+    test('groups kana overrides apart from unknown source names', () async {
+      final requests = <(String, String?)>[];
+      final localSourceLanguages = <String?>[];
+      final service = FileNameTranslationService(
+        translate: (text, {sourceLang}) async {
+          requests.add((text, sourceLang));
+          return text
+              .split('\n')
+              .map((name) => '${sourceLang ?? 'auto'}:$name')
+              .join('\n');
+        },
+        convertLocally: (text, {sourceLang}) async {
+          localSourceLanguages.add(sourceLang);
+          return null;
+        },
+        delay: (_) async {},
+      );
+
+      final result = await service.translateNames(
+        names: ['firstかな.wav', 'plain.wav', 'secondカナ.wav'],
+        sourceLang: 'unknown',
+        maxChunkSize: 100,
+      );
+
+      expect(requests, [
+        ('firstかな.wav\nsecondカナ.wav', 'ja'),
+        ('plain.wav', null),
+      ]);
+      expect(localSourceLanguages, ['ja', null, 'ja']);
+      expect(result.names, ['firstかな.wav', 'plain.wav', 'secondカナ.wav']);
+      expect(result.translations, {
+        'firstかな.wav': 'ja:firstかな.wav',
+        'plain.wav': 'auto:plain.wav',
+        'secondカナ.wav': 'ja:secondカナ.wav',
+      });
+    });
+
+    test(
+      'keeps chunk errors and progress indices global across source groups',
+      () async {
+        final requests = <(String, String?)>[];
+        final progress = <String>[];
+        final errors = <String>[];
+        final delays = <Duration>[];
+        final localSourceLanguages = <String?>[];
+        final service = FileNameTranslationService(
+          translate: (text, {sourceLang}) async {
+            requests.add((text, sourceLang));
+            if (text == 'bかな') throw StateError('failed');
+            return '$sourceLang:$text';
+          },
+          convertLocally: (text, {sourceLang}) async {
+            localSourceLanguages.add(sourceLang);
+            return null;
+          },
+          delay: (duration) async => delays.add(duration),
+        );
+
+        final result = await service.translateNames(
+          names: ['aかな', 'bかな', 'c'],
+          sourceLang: 'CHI_HANS',
+          maxChunkSize: 3,
+          onProgress: (current, total) => progress.add('$current/$total'),
+          onChunkError: (index, error) =>
+              errors.add('$index:${error.runtimeType}'),
+        );
+
+        expect(requests, [('aかな', 'ja'), ('bかな', 'ja'), ('c', 'zh-cn')]);
+        expect(localSourceLanguages, ['ja', 'ja', 'zh-cn']);
+        expect(progress, ['1/3', '2/3', '3/3']);
+        expect(errors, ['1:StateError']);
+        expect(delays, [
+          const Duration(milliseconds: 300),
+          const Duration(milliseconds: 300),
+        ]);
+        expect(result.translations, {
+          'aかな': 'ja:aかな',
+          'bかな': 'bかな',
+          'c': 'zh-cn:c',
+        });
+      },
+    );
+
+    test(
+      'local filename conversion runs before a stale remote cache',
+      () async {
+        const text = '頭髮發展.wav';
+        SharedPreferences.setMockInitialValues({
+          TranslationLanguagePreferencesNotifier.keyTargetLanguage: 'zh_hans',
+          'translation_cache_zh-tw_zh_Hans_${text.hashCode}': jsonEncode({
+            'translation': 'stale remote translation',
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
+          }),
+        });
+        final translationService = TranslationService();
+        final result = await FileNameTranslationService(
+          translate: translationService.translate,
+          convertLocally: translationService.convertChineseLocally,
+          delay: (_) async {},
+        ).translateNames(names: [text], sourceLang: 'CHI_HANT');
+
+        expect(result.translations, {'頭髮發展.wav': '头发发展.wav'});
+      },
+    );
 
     test(
       'all simplified names require no request, progress or delay',

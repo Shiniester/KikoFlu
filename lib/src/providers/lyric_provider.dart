@@ -13,6 +13,7 @@ import '../services/local_work_metadata_service.dart';
 import '../services/offline_local_file_scanner.dart';
 import '../services/subtitle_library_service.dart';
 import '../services/subtitle_database.dart';
+import '../services/generated_subtitle_store.dart';
 import '../services/work_subtitle_candidate_selector.dart';
 import '../services/log_service.dart';
 import '../utils/encoding_utils.dart';
@@ -402,6 +403,9 @@ class LyricController extends StateNotifier<LyricState> {
           await SubtitleLibraryService.getSubtitleLibraryDirectory();
       final libraryRoot = libraryDir.path;
 
+      final generated = await const GeneratedSubtitleStore().find(track);
+      if (generated != null) return generated;
+
       // 优先级1: 通过 workId 查询数据库
       if (workId != null) {
         final records = await SubtitleDatabase.instance.getFilesByWorkId(
@@ -412,6 +416,11 @@ class LyricController extends StateNotifier<LyricState> {
           double bestScore = 0.0;
 
           for (final record in records) {
+            if (GeneratedSubtitleStore.isGeneratedRelativePath(
+              record.relativePath,
+            )) {
+              continue;
+            }
             final (isMatch, score) = SubtitleLibraryService.checkMatch(
               record.fileName,
               trackTitle,
@@ -449,6 +458,11 @@ class LyricController extends StateNotifier<LyricState> {
         double bestScore = 0.0;
 
         for (final record in savedRecords) {
+          if (GeneratedSubtitleStore.isGeneratedRelativePath(
+            record.relativePath,
+          )) {
+            continue;
+          }
           final (isMatch, score) = SubtitleLibraryService.checkMatch(
             record.fileName,
             trackTitle,

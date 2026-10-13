@@ -28,6 +28,61 @@ void main() {
     },
   );
 
+  test('resolves each text source from kana before the work source', () {
+    expect(
+      TranslationService.sourceLanguageForText(
+        '少女の耳語.wav',
+        sourceLang: 'CHI_HANS',
+      ),
+      'ja',
+    );
+    expect(
+      TranslationService.sourceLanguageForText('こんにちは.wav', sourceLang: 'ENG'),
+      'ja',
+    );
+    expect(
+      TranslationService.sourceLanguageForText(
+        'ｶﾀｶﾅ.wav',
+        sourceLang: 'unrecognized_marker',
+      ),
+      'ja',
+    );
+    expect(
+      TranslationService.sourceLanguageForText('ㇰ.wav', sourceLang: 'unknown'),
+      'ja',
+    );
+
+    expect(
+      TranslationService.sourceLanguageForText(
+        '简体标题.txt',
+        sourceLang: 'CHI_HANS',
+      ),
+      'zh-cn',
+    );
+    expect(
+      TranslationService.sourceLanguageForText(
+        'Hello there.wav',
+        sourceLang: 'ENG',
+      ),
+      'en',
+    );
+    expect(TranslationService.sourceLanguageForText('普通文件.wav'), isNull);
+    expect(
+      TranslationService.sourceLanguageForText(
+        '普通文件.wav',
+        sourceLang: 'unknown',
+      ),
+      isNull,
+    );
+    expect(
+      TranslationService.sourceLanguageForText(
+        '普通文件.wav',
+        sourceLang: 'zh-Hant',
+      ),
+      'zh-tw',
+    );
+  });
+
   test('maps Chinese source codes to translator-specific codes', () {
     expect(TranslationService.youdaoSourceLanguageCode('zh-cn'), 'zh-CHS');
     expect(TranslationService.youdaoSourceLanguageCode('zh-tw'), 'zh-CHT');
@@ -39,47 +94,34 @@ void main() {
     expect(TranslationService.microsoftSourceLanguageCode(null), isNull);
   });
 
-  test(
-    'skips automatic work translation when marker and target match',
-    () async {
-      final service = TranslationService();
-      for (final (marker, target) in <(String, String)>[
-        ('CHI_HANS', 'zh_hans'),
-        ('CHI_HANT', 'zh_hant'),
-        ('JPN', 'ja'),
-        ('ENG', 'en'),
-      ]) {
-        SharedPreferences.setMockInitialValues({
-          TranslationLanguagePreferencesNotifier.keyTargetLanguage: target,
-        });
-        expect(
-          await service.shouldSkipAutomaticWorkDetailsTranslation(marker),
-          isTrue,
-        );
-      }
+  test('Chinese target reads the kana text Japanese cache', () async {
+    const text = '少女の耳語.wav';
+    final localCacheDigest = sha256.convert(
+      utf8.encode('zh-cn\u0000zh-hans\u0000$text'),
+    );
+    SharedPreferences.setMockInitialValues({
+      TranslationLanguagePreferencesNotifier.keyTargetLanguage: 'zh_hans',
+      'translation_cache_ja_zh_Hans_${text.hashCode}': jsonEncode({
+        'translation': 'cached Japanese-source translation',
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      }),
+      'translation_cache_zh-cn_zh_Hans_${text.hashCode}': jsonEncode({
+        'translation': 'stale work-source translation',
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      }),
+      'translation_cache_opencc_$localCacheDigest': 'stale local conversion',
+    });
 
-      SharedPreferences.setMockInitialValues({
-        TranslationLanguagePreferencesNotifier.keyTargetLanguage: 'zh_hans',
-      });
-      expect(
-        await service.shouldSkipAutomaticWorkDetailsTranslation('CHI_HANT'),
-        isFalse,
-      );
-      expect(
-        await service.shouldSkipAutomaticWorkDetailsTranslation('unknown'),
-        isFalse,
-      );
-
-      SharedPreferences.setMockInitialValues({
-        'locale_language': 'zh',
-        'locale_script': 'Hant',
-      });
-      expect(
-        await service.shouldSkipAutomaticWorkDetailsTranslation('CHI_HANT'),
-        isTrue,
-      );
-    },
-  );
+    final sourceLang = TranslationService.sourceLanguageForText(
+      text,
+      sourceLang: 'CHI_HANS',
+    );
+    expect(sourceLang, 'ja');
+    expect(
+      await TranslationService().translate(text, sourceLang: sourceLang),
+      'cached Japanese-source translation',
+    );
+  });
 
   test(
     'manual translation returns text for a matching language and script',

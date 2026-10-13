@@ -46,12 +46,16 @@ final _simplifiedChineseCharacters = RegExp(
 final _distinctiveTraditionalChineseCharacters = RegExp(
   '[這們說聽覺輕夠經關錄檔讀專絲對從產傳淨辦賣變嗎啞囉譯體聲戀發髮灣]',
 );
-final _kanaCharacters = RegExp('[\\u3040-\\u30ff\\uff66-\\uff9f]');
+final _kanaCharacters = RegExp(
+  '[\\u3041-\\u3096\\u309d-\\u309f\\u30a1-\\u30fa\\u30fc-\\u30ff\\u31f0-\\u31ff\\uff66-\\uff9d]',
+);
 final _latinPhrase = RegExp(r'\b[a-zA-Z]+(?:\s+[a-zA-Z]+)+\b');
+
+bool containsKana(String text) => _kanaCharacters.hasMatch(text);
 
 bool isClearlyChinese(String text) {
   // shortcut: unknown Chinese/Japanese shared characters still need translation; use language detection if broader coverage is needed.
-  if (_kanaCharacters.hasMatch(text) || _latinPhrase.hasMatch(text)) return false;
+  if (containsKana(text) || _latinPhrase.hasMatch(text)) return false;
   return _simplifiedChineseCharacters.hasMatch(text) ||
       _distinctiveTraditionalChineseCharacters.hasMatch(text);
 }

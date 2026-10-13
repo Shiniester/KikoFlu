@@ -1,4 +1,5 @@
 import '../utils/file_tree_utils.dart';
+import 'translation_service.dart';
 
 typedef FileNameTranslator =
     Future<String> Function(String text, {String? sourceLang});
@@ -66,28 +67,38 @@ class FileNameTranslationService {
     }
 
     final translations = {for (final name in uniqueNames) name: name};
-    final namesToTranslate = <String>[];
+    final namesBySource = <String?, List<String>>{};
     for (final name in uniqueNames) {
-      final localConversion = await convertLocally?.call(
+      final nameSourceLang = TranslationService.sourceLanguageForText(
         name,
         sourceLang: sourceLang,
+      );
+      final localConversion = await convertLocally?.call(
+        name,
+        sourceLang: nameSourceLang,
       );
       if (localConversion != null) {
         translations[name] = localConversion;
       } else {
-        namesToTranslate.add(name);
+        namesBySource.putIfAbsent(nameSourceLang, () => []).add(name);
       }
     }
-    final chunks = splitNamesIntoChunks(
-      namesToTranslate,
-      maxChunkSize: maxChunkSize,
-    );
+    final chunks = <(String?, String)>[];
+    for (final entry in namesBySource.entries) {
+      chunks.addAll(
+        splitNamesIntoChunks(
+          entry.value,
+          maxChunkSize: maxChunkSize,
+        ).map((chunk) => (entry.key, chunk)),
+      );
+    }
     for (var i = 0; i < chunks.length; i++) {
       onProgress?.call(i + 1, chunks.length);
 
       try {
-        final chunkNames = chunks[i].split('\n');
-        final translated = await translate(chunks[i], sourceLang: sourceLang);
+        final (chunkSourceLang, chunk) = chunks[i];
+        final chunkNames = chunk.split('\n');
+        final translated = await translate(chunk, sourceLang: chunkSourceLang);
         final translatedNames = translated.trim().split(RegExp(r'\r?\n'));
         if (translatedNames.length != chunkNames.length ||
             translatedNames.any((name) => name.trim().isEmpty)) {

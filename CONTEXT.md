@@ -85,24 +85,30 @@ selection keep their own priority.
 **Work Details Translation (作品详情翻译)**:
 The translated view of a work's title and currently displayed resource names.
 It remains active within that details page until the user switches back to the original.
-Automatic and manual translation use the work's recognized language and the
-effective translation target. Matching languages keep the original text;
+Automatic and manual translation resolve the source language separately for the
+title and each resource name. Hiragana, Katakana, and half-width Katakana select
+Japanese; text without Kana uses the work's recognized language. Matching source
+and effective target languages keep the original text;
 Simplified and Traditional Chinese use local OpenCC conversion. Other recognized
-languages are sent to translation sources with the work's source language.
-When the work language is missing or unknown, clearly Chinese text targeting
-Chinese uses local conversion; other text uses automatic source detection.
+languages are sent to translation sources with each text's resolved source.
+When text has no Kana and the work language is missing or unknown, clearly
+Chinese text targeting Chinese uses local conversion; other text uses automatic
+source detection.
 Original text and local conversion take precedence over translation-source caches.
 Local conversions of titles, resource names, and full subtitle text are cached
 persistently by source and target language, separately from remote translations.
 Translation-source failures trigger fallback sources before returning the original;
-only successful responses enter the remote cache. Resource-name batches keep their
-original names when the response has missing, extra, or empty lines.
+only successful responses enter the remote cache. Resource names are grouped by
+their resolved source language before batching, and caches use that same source.
+Resource-name batches keep their original names when the response has missing,
+extra, or empty lines.
 
 **Automatic Work Details Translation (自动作品详情翻译)**:
 The preference that enables Work Details Translation when a details page opens,
 without requiring a manual translation action.
-Works whose recognized language matches the effective translation target keep
-their original view. Manual translation remains available under the same policy.
+Each text whose resolved source matches the effective translation target stays
+original while other texts in the same work can be translated. Manual translation
+uses the same policy.
 
 **Subtitle Preview Translation (字幕预览翻译)**:
 The translated text shown while inspecting a work subtitle when Work Details
@@ -161,6 +167,11 @@ separately from Sound Effects.
 The full-screen player page containing the current track's synchronized lyrics
 or subtitles.
 _Avoid_: Subtitle screen
+
+**Audio Subtitle Generation (音频字幕生成)**:
+Producing synchronized original-language subtitles from an audio file on the
+user's device. It is distinct from translating existing subtitle text.
+_Avoid_: Subtitle translation
 
 **Playback Line (播放行)**:
 The vertical anchor in the Player Lyrics Page where the current lyric or

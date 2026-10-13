@@ -92,14 +92,11 @@ class _OfflineWorkDetailScreenState
       if (!mounted || !idle) return;
     }
     if (autoTranslate && !_translationChoiceMade) {
-      final skipTranslation = await TranslationService()
-          .shouldSkipAutomaticWorkDetailsTranslation(widget.work.lang);
-      if (!mounted || _translationChoiceMade) return;
       if (!_routeReadiness.isIdle) {
         final idle = await _routeReadiness.waitForIdle();
         if (!mounted || !idle || _translationChoiceMade) return;
       }
-      if (!skipTranslation) _setTranslationEnabled(true);
+      _setTranslationEnabled(true);
     }
   }
 
@@ -137,7 +134,10 @@ class _OfflineWorkDetailScreenState
       final translationService = TranslationService();
       final translated = await translationService.translate(
         work.title,
-        sourceLang: TranslationService.sourceLanguageForWork(work.lang),
+        sourceLang: TranslationService.sourceLanguageForText(
+          work.title,
+          sourceLang: TranslationService.sourceLanguageForWork(work.lang),
+        ),
       );
 
       if (mounted) {

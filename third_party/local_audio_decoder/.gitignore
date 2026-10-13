@@ -1,0 +1,6 @@
+.dart_tool/
+/test/build-cmake/
+/test/build-smoke/
+*.obj
+*.exe
+*.pdb

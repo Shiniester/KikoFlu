@@ -45,6 +45,11 @@ class TranslationService {
     };
   }
 
+  static String? sourceLanguageForText(String text, {String? sourceLang}) {
+    if (containsKana(text)) return 'ja';
+    return _normalizeSourceLanguage(sourceLang);
+  }
+
   @visibleForTesting
   static String? youdaoSourceLanguageCode(String? sourceLang) {
     return switch (sourceLang) {
@@ -93,18 +98,6 @@ class TranslationService {
     return locale.scriptCode == 'Hant' ||
         locale.countryCode == 'TW' ||
         locale.countryCode == 'HK';
-  }
-
-  Future<bool> shouldSkipAutomaticWorkDetailsTranslation(
-    String? workLanguage,
-  ) async {
-    final sourceLang = sourceLanguageForWork(workLanguage);
-    if (sourceLang == null) return false;
-    final prefs = await SharedPreferences.getInstance();
-    return _isSameLanguageTarget(
-      sourceLang,
-      _getLanguageConfig(prefs).targetLocale,
-    );
   }
 
   Future<String?> convertChineseLocally(

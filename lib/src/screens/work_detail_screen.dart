@@ -199,14 +199,11 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         await _initialDetailLoad;
         if (!mounted || _translationChoiceMade) return;
       }
-      final skipTranslation = await TranslationService()
-          .shouldSkipAutomaticWorkDetailsTranslation(_currentWork.lang);
-      if (!mounted || _translationChoiceMade) return;
       if (!_routeReadiness.isIdle) {
         final idle = await _routeReadiness.waitForIdle();
         if (!mounted || !idle || _translationChoiceMade) return;
       }
-      if (!skipTranslation) _setTranslationEnabled(true);
+      _setTranslationEnabled(true);
     }
   }
 
@@ -414,7 +411,10 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       }
       final work = _currentWork;
       final title = work.title;
-      final sourceLang = TranslationService.sourceLanguageForWork(work.lang);
+      final sourceLang = TranslationService.sourceLanguageForText(
+        title,
+        sourceLang: TranslationService.sourceLanguageForWork(work.lang),
+      );
       final translationService = TranslationService();
       final translated = await translationService.translate(
         title,
@@ -427,8 +427,11 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
           return;
         }
         final currentWork = _currentWork;
-        final currentSourceLang = TranslationService.sourceLanguageForWork(
-          currentWork.lang,
+        final currentSourceLang = TranslationService.sourceLanguageForText(
+          currentWork.title,
+          sourceLang: TranslationService.sourceLanguageForWork(
+            currentWork.lang,
+          ),
         );
         if (sourceLang != currentSourceLang || title != currentWork.title) {
           setState(() {
@@ -469,15 +472,6 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
             TranslationService.sourceLanguageForWork(_currentWork.lang)) {
       return;
     }
-    final skipTranslation = await TranslationService()
-        .shouldSkipAutomaticWorkDetailsTranslation(work.lang);
-    if (!mounted ||
-        _translationChoiceMade ||
-        !autoTranslate ||
-        TranslationService.sourceLanguageForWork(work.lang) !=
-            TranslationService.sourceLanguageForWork(_currentWork.lang)) {
-      return;
-    }
     if (!_routeReadiness.isIdle) {
       final idle = await _routeReadiness.waitForIdle();
       if (!mounted ||
@@ -489,9 +483,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         return;
       }
     }
-    if (skipTranslation) {
-      if (_showTranslation) _setTranslationEnabled(false);
-    } else if (!_showTranslation) {
+    if (!_showTranslation) {
       _setTranslationEnabled(true);
     } else if (!_isTranslating) {
       setState(() => _isTranslating = true);

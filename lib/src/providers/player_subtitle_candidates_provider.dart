@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import '../models/audio_track.dart';
 import '../services/subtitle_database.dart';
+import '../services/generated_subtitle_store.dart';
 import '../services/subtitle_library_service.dart';
 import '../services/work_subtitle_candidate_selector.dart';
 import '../utils/file_tree_utils.dart';
@@ -62,6 +63,7 @@ class PlayerSubtitleCandidateRepository {
     required List<dynamic> fileTree,
     required SubtitleLibraryPriority libraryPriority,
     LyricSourceDescriptor? currentSource,
+    String? audioParentPath,
   }) async {
     final candidates = <PlayerSubtitleCandidate>[];
     final currentCandidate = _candidateFromCurrentSource(track, currentSource);
@@ -71,6 +73,7 @@ class PlayerSubtitleCandidateRepository {
         fileTree: fileTree,
         audioTitle: track.title,
         audioHash: track.hash,
+        audioParentPath: audioParentPath,
         workId: track.workId,
       ),
     );
@@ -212,7 +215,31 @@ class PlayerSubtitleCandidateRepository {
       }
 
       final result = <PlayerSubtitleCandidate>[];
+      final generated = await const GeneratedSubtitleStore().find(track);
+      if (generated != null) {
+        result.add(
+          PlayerSubtitleCandidate(
+            identity: _localIdentity(generated),
+            title: p.basename(generated),
+            pathLabel: p.relative(generated, from: root),
+            origin: PlayerSubtitleCandidateOrigin.library,
+            source: <String, dynamic>{
+              'title': p.basename(generated),
+              'localPath': generated,
+              'workId': track.workId,
+            },
+            matchesCurrentAudio: true,
+            matchScore: 1,
+            sameDirectory: false,
+          ),
+        );
+      }
       for (final record in records) {
+        if (GeneratedSubtitleStore.isGeneratedRelativePath(
+          record.relativePath,
+        )) {
+          continue;
+        }
         final absolutePath = record.absolutePath(root);
         if (!await File(absolutePath).exists()) continue;
         final match = SubtitleLibraryService.checkMatch(
