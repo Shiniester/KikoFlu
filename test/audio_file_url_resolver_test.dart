@@ -106,6 +106,60 @@ void main() {
     );
 
     test(
+      'Japanese ASMR keeps its absolute stream URL free of ASMR tokens',
+      () async {
+        final resolver = AudioFileUrlResolver(
+          pathContext: _posixPathContext,
+          resolveDownloadedPath: (_, __) async => null,
+          downloadRootPath: () async => '/downloads',
+          resolveCachedAudioPath: (_) async => null,
+        );
+
+        final url = await resolver.resolveOnline(
+          file: audioFile(
+            title: 'RJ01726738.m4a',
+            hash: 'jp-1726738-main',
+            mediaStreamUrl: 'https://media.example/RJ01726738.m3u8',
+          ),
+          workId: -1726738,
+          host: 'asmr.example',
+          token: 'private-token',
+          downloadedFiles: const {},
+          fileRelativePaths: const {},
+        );
+
+        expect(url, 'https://media.example/RJ01726738.m3u8');
+      },
+    );
+
+    test('Japanese ASMR playback prefers its downloaded local audio', () async {
+      final resolver = AudioFileUrlResolver(
+        pathContext: _posixPathContext,
+        resolveDownloadedPath: (workId, hash) async =>
+            workId == -1726738 && hash == 'jp-1726738-main'
+            ? '/downloads/-1726738/RJ01726738.m4a'
+            : null,
+        downloadRootPath: () async => '/downloads',
+        resolveCachedAudioPath: (_) async => null,
+      );
+
+      final url = await resolver.resolveOnline(
+        file: audioFile(
+          title: 'RJ01726738.m4a',
+          hash: 'jp-1726738-main',
+          mediaStreamUrl: 'https://media.example/RJ01726738.m3u8',
+        ),
+        workId: -1726738,
+        host: 'asmr.example',
+        token: 'private-token',
+        downloadedFiles: const {},
+        fileRelativePaths: const {},
+      );
+
+      expect(url, 'file:///downloads/-1726738/RJ01726738.m4a');
+    });
+
+    test(
       'online resolver falls back to media stream endpoint by hash',
       () async {
         final resolver = AudioFileUrlResolver(

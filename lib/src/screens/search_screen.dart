@@ -4,10 +4,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../models/audio_source.dart';
 import '../models/search_type.dart';
 import '../models/search_query.dart';
 import '../models/search_scope_session.dart';
 import '../providers/auth_provider.dart';
+import '../providers/audio_source_provider.dart';
 import '../providers/my_reviews_provider.dart';
 import '../providers/search_history_provider.dart';
 import '../utils/l10n_extensions.dart';
@@ -110,6 +112,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
 
   // 加载建议数据
   Future<void> _loadSuggestions() async {
+    if (_isJapaneseGlobalSearch) return;
     final searchType = _currentSearchType;
     if (searchType == SearchType.keyword || searchType == SearchType.rjNumber) {
       return; // 关键词和RJ号不需要建议列表
@@ -170,6 +173,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       if (mounted) setState(() => _isLoadingSuggestions = false);
     }
   }
+
+  bool get _isJapaneseGlobalSearch =>
+      (widget.scope == null || widget.scope == SearchScope.globalWorks) &&
+      ref.read(audioSourceProvider) == AudioSource.jpAsmr;
 
   void _addSearchCondition() {
     final value = _searchController.text.trim();
@@ -364,6 +371,29 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context); // 必须调用以保持状态
+    ref.listen<AudioSource>(audioSourceProvider, (previous, next) {
+      if (previous == next || next != AudioSource.jpAsmr) return;
+      if (widget.scope != null && widget.scope != SearchScope.globalWorks) {
+        return;
+      }
+      setState(() {
+        _currentSearchType = SearchType.keyword;
+        _searchConditions.removeWhere(
+          (condition) =>
+              condition.type != SearchType.keyword &&
+              condition.type != SearchType.rjNumber,
+        );
+        _minRate = 0;
+        _ageRating = AgeRating.all;
+        _salesRange = SalesRange.all;
+        _showAdvancedFilters = false;
+        _isExcludeMode = false;
+      });
+      _updateConditionsReveal();
+    });
+    final isJapaneseGlobalSearch =
+        (widget.scope == null || widget.scope == SearchScope.globalWorks) &&
+        ref.watch(audioSourceProvider) == AudioSource.jpAsmr;
     final theme = Theme.of(context);
     final isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
@@ -393,29 +423,30 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           clipBehavior: Clip.none,
           actions: [
             // 筛选按钮移到右上角
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: FloatingToolbarSurface(
-                child: FloatingToolbarIconButton(
-                  icon: _showAdvancedFilters
-                      ? Icons.filter_alt
-                      : Icons.filter_alt_outlined,
-                  tooltip: S.of(context).filter,
-                  isSelected: _showAdvancedFilters,
-                  onPressed: () {
-                    setState(() {
-                      _showAdvancedFilters = !_showAdvancedFilters;
-                      // 关闭高级筛选时重置参数为默认值
-                      if (!_showAdvancedFilters) {
-                        _minRate = 0;
-                        _ageRating = AgeRating.all;
-                        _salesRange = SalesRange.all;
-                      }
-                    });
-                  },
+            if (!isJapaneseGlobalSearch)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: FloatingToolbarSurface(
+                  child: FloatingToolbarIconButton(
+                    icon: _showAdvancedFilters
+                        ? Icons.filter_alt
+                        : Icons.filter_alt_outlined,
+                    tooltip: S.of(context).filter,
+                    isSelected: _showAdvancedFilters,
+                    onPressed: () {
+                      setState(() {
+                        _showAdvancedFilters = !_showAdvancedFilters;
+                        // 关闭高级筛选时重置参数为默认值
+                        if (!_showAdvancedFilters) {
+                          _minRate = 0;
+                          _ageRating = AgeRating.all;
+                          _salesRange = SalesRange.all;
+                        }
+                      });
+                    },
+                  ),
                 ),
               ),
-            ),
           ],
         ),
         resizeToAvoidBottomInset: true, // 自动调整以避免键盘遮挡
@@ -425,7 +456,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (_showAdvancedFilters)
+                    if (_showAdvancedFilters && !isJapaneseGlobalSearch)
                       _buildAdvancedFiltersSidebar(theme),
                     Expanded(
                       flex: 8,
@@ -440,7 +471,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                           color: theme.colorScheme.surface,
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            children: _buildMainContentChildren(true),
+                            children: _buildMainContentChildren(
+                              true,
+                              isJapaneseGlobalSearch: isJapaneseGlobalSearch,
+                            ),
                           ),
                         ),
                       ),
@@ -459,7 +493,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                   color: theme.colorScheme.surface,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: _buildMainContentChildren(false),
+                    children: _buildMainContentChildren(
+                      false,
+                      isJapaneseGlobalSearch: isJapaneseGlobalSearch,
+                    ),
                   ),
                 ),
               ),
@@ -514,7 +551,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     );
   }
 
-  List<Widget> _buildMainContentChildren(bool isLandscape) {
+  List<Widget> _buildMainContentChildren(
+    bool isLandscape, {
+    required bool isJapaneseGlobalSearch,
+  }) {
     final theme = Theme.of(context);
 
     return [
@@ -528,6 +568,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: SearchType.values
+                  .where(
+                    (type) =>
+                        !isJapaneseGlobalSearch ||
+                        type == SearchType.keyword ||
+                        type == SearchType.rjNumber,
+                  )
                   .map((type) => _buildSearchTypeButton(type, theme))
                   .toList(),
             ),

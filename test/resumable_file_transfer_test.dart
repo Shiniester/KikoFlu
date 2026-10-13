@@ -92,6 +92,113 @@ void main() {
 
     expect(await partial.readAsBytes(), const [1, 2]);
   });
+
+  test(
+    'an HTML redirect page is rejected without replacing the prefix',
+    () async {
+      final partial = File('${tempDirectory.path}/track.m4a.downloading');
+      await partial.writeAsBytes(const [1, 2]);
+      final transport = _TransferTransport(
+        const RemoteAssetResponse(
+          statusCode: HttpStatus.ok,
+          contentLength: 20,
+          headers: {'content-type': 'text/html; charset=utf-8'},
+          stream: Stream.empty(),
+        ),
+        body: const [60, 104, 116, 109, 108],
+      );
+
+      await expectLater(
+        ResumableFileTransfer(transport: transport).download(
+          uri: Uri.parse('https://example.com/track.m4a'),
+          partialFile: partial,
+          cancellation: RemoteAssetCancellation(),
+          expectedAudio: true,
+        ),
+        throwsA(isA<HttpException>()),
+      );
+
+      expect(await partial.readAsBytes(), const [1, 2]);
+    },
+  );
+
+  test(
+    'an HTML body with a misleading content type is rejected for audio',
+    () async {
+      final partial = File('${tempDirectory.path}/track.m4a.downloading');
+      await partial.writeAsBytes(const [1, 2]);
+      final body = '<!doctype html><html>error</html>'.codeUnits;
+      final transport = _TransferTransport(
+        RemoteAssetResponse(
+          statusCode: HttpStatus.ok,
+          contentLength: body.length,
+          headers: {'content-type': 'application/octet-stream'},
+          stream: const Stream.empty(),
+        ),
+        body: body,
+      );
+
+      await expectLater(
+        ResumableFileTransfer(transport: transport).download(
+          uri: Uri.parse('https://example.com/track.m4a'),
+          partialFile: partial,
+          cancellation: RemoteAssetCancellation(),
+          expectedAudio: true,
+        ),
+        throwsA(isA<HttpException>()),
+      );
+
+      expect(await partial.readAsBytes(), const [1, 2]);
+    },
+  );
+
+  test('HTML assets remain downloadable when audio is not expected', () async {
+    final partial = File('${tempDirectory.path}/lyrics.html.downloading');
+    final body = '<html>lyrics</html>'.codeUnits;
+    final transport = _TransferTransport(
+      RemoteAssetResponse(
+        statusCode: HttpStatus.ok,
+        contentLength: body.length,
+        headers: {'content-type': 'text/html'},
+        stream: const Stream.empty(),
+      ),
+      body: body,
+    );
+
+    final result = await ResumableFileTransfer(transport: transport).download(
+      uri: Uri.parse('https://example.com/lyrics.html'),
+      partialFile: partial,
+      cancellation: RemoteAssetCancellation(),
+    );
+
+    expect(result.totalBytes, body.length);
+    expect(await partial.readAsBytes(), body);
+  });
+
+  test('a complete prefix accepts the 416 HTML range response', () async {
+    final partial = File('${tempDirectory.path}/track.m4a.downloading');
+    await partial.writeAsBytes(const [1, 2]);
+    final body = '<html>range not satisfiable</html>'.codeUnits;
+    final transport = _TransferTransport(
+      RemoteAssetResponse(
+        statusCode: HttpStatus.requestedRangeNotSatisfiable,
+        contentLength: body.length,
+        headers: {'content-range': 'bytes */2', 'content-type': 'text/html'},
+        stream: const Stream.empty(),
+      ),
+      body: body,
+    );
+
+    final result = await ResumableFileTransfer(transport: transport).download(
+      uri: Uri.parse('https://example.com/track.m4a'),
+      partialFile: partial,
+      cancellation: RemoteAssetCancellation(),
+      expectedAudio: true,
+    );
+
+    expect(result.totalBytes, 2);
+    expect(await partial.readAsBytes(), const [1, 2]);
+  });
 }
 
 class _TransferTransport implements RemoteAssetTransport {

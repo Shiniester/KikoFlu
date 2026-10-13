@@ -18,6 +18,7 @@ import '../services/storage_service.dart';
 import '../services/cache_service.dart';
 import '../services/remote_asset_cache.dart';
 import '../utils/system_ui_style.dart';
+import '../utils/audio_source_headers.dart';
 import '../widgets/file_explorer_widget.dart';
 import '../widgets/file_selection_dialog.dart';
 import '../widgets/app_bottom_dock_transition.dart';
@@ -327,7 +328,10 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         .acquireFile(
           imageUrl,
           key: 'work_cover_${widget.work.id}',
-          headers: StorageService.serverCookieHeaders,
+          headers: sourceAwareMediaHeaders(
+            widget.work.id,
+            accountHeaders: StorageService.serverCookieHeaders,
+          ),
           speculative: speculative,
           forceRevalidate: forceRevalidate,
         );
@@ -737,6 +741,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
 
   // 显示收藏状态选择对话框
   Future<void> _showProgressDialog() async {
+    if (widget.work.isJapaneseAsmr) return;
     if (_isOpeningProgressDialog) return; // 防抖避免 iOS 双击导致立即关闭
     setState(() => _isOpeningProgressDialog = true);
 
@@ -816,14 +821,15 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
               onPressed: _showFileSelectionDialog,
               tooltip: S.of(context).download,
             ),
-            ListenableBuilder(
-              listenable: _metadataChanges,
-              builder: (context, _) => WorkProgressActionButton(
-                progress: _currentProgress,
-                isLoading: _isUpdatingProgress,
-                onPressed: _showProgressDialog,
+            if (!widget.work.isJapaneseAsmr)
+              ListenableBuilder(
+                listenable: _metadataChanges,
+                builder: (context, _) => WorkProgressActionButton(
+                  progress: _currentProgress,
+                  isLoading: _isUpdatingProgress,
+                  onPressed: _showProgressDialog,
+                ),
               ),
-            ),
           ],
         ),
         body: _buildBody(),
@@ -903,6 +909,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
                       },
                     ],
                     initialIndex: 0,
+                    workId: widget.work.id,
                   ),
                 ),
               );
@@ -986,13 +993,13 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
             final displaySettings = ref.watch(workDetailDisplayProvider);
             return WorkStatsSection(
               work: work,
-              currentRating: _currentRating,
-              showRating: displaySettings.showRating,
+              currentRating: work.isJapaneseAsmr ? null : _currentRating,
+              showRating: !work.isJapaneseAsmr && displaySettings.showRating,
               showPrice: displaySettings.showPrice,
               showDuration: displaySettings.showDuration,
               showSales: displaySettings.showSales,
               onShowRatingDetails: () => _showRatingDetailDialog(work),
-              onShowProgress: _showProgressDialog,
+              onShowProgress: work.isJapaneseAsmr ? null : _showProgressDialog,
             );
           },
         ),
@@ -1000,9 +1007,9 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         WorkCreatorChipsSection(work: work, onCopy: _copyToClipboard),
         WorkTagChipsSection(
           tags: work.tags,
-          onTagLongPress: _showTagInfo,
-          onTagSecondaryTap: _showTagInfo,
-          onAddTag: _showAddTagDialog,
+          onTagLongPress: work.isJapaneseAsmr ? null : _showTagInfo,
+          onTagSecondaryTap: work.isJapaneseAsmr ? null : _showTagInfo,
+          onAddTag: work.isJapaneseAsmr ? null : _showAddTagDialog,
         ),
         Consumer(
           builder: (context, ref, _) {

@@ -58,6 +58,28 @@ void main() {
     expect(descriptor?.source, track.artworkUrl);
   });
 
+  test(
+    'Japanese ASMR artwork bypasses the configured server cover endpoint',
+    () {
+      const track = AudioTrack(
+        id: 'jp-track',
+        title: 'Japanese track',
+        url: 'https://media.example/release.m3u8',
+        artworkUrl: 'https://japaneseasmr.com/covers/release.jpg',
+        workId: -123,
+      );
+
+      final descriptor = resolveArtworkDescriptor(
+        track: track,
+        host: 'asmr.example',
+        token: 'secret',
+      );
+
+      expect(descriptor?.source, track.artworkUrl);
+      expect(descriptor?.cacheKey, 'work_cover_-123');
+    },
+  );
+
   test('privacy mode removes artwork from the global theme', () async {
     const descriptor = ArtworkDescriptor(
       trackIdentity: 'private-track',

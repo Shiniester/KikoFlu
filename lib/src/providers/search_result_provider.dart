@@ -4,10 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:equatable/equatable.dart';
 
 import '../models/work.dart';
+import '../models/audio_source.dart';
 import '../services/kikoeru_api_service.dart' hide kikoeruApiServiceProvider;
 import '../providers/works_provider.dart';
 import '../models/sort_options.dart';
 import 'auth_provider.dart';
+import 'audio_source_provider.dart';
 import 'settings_provider.dart';
 import 'subtitle_library_provider.dart';
 import '../utils/subtitle_filter.dart';
@@ -211,8 +213,17 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
     try {
       Map<String, dynamic> result;
       const serverSubtitleParam = 0;
+      final source = _ref.read(audioSourceProvider);
 
-      if (state.searchParams?.containsKey('vaId') == true) {
+      if (source == AudioSource.jpAsmr) {
+        result = await _apiService.searchWorks(
+          keyword: state.keyword,
+          page: page,
+          pageSize: state.pageSize,
+          source: source,
+          cancelToken: requestToken.cancelToken,
+        );
+      } else if (state.searchParams?.containsKey('vaId') == true) {
         result = await _apiService.getWorksByVa(
           vaId: state.searchParams!['vaId'],
           page: page,
@@ -237,6 +248,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
           keyword: state.keyword,
           page: page,
           pageSize: state.pageSize,
+          source: source,
           order: state.sortOption.value,
           sort: state.sortDirection.value,
           subtitle: serverSubtitleParam,
@@ -296,10 +308,18 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
     state = state.copyWith(works: filteredWorks);
   }
 
+  void onSourceChanged() {
+    if (!hasActiveQuery) return;
+    state = state.copyWith(currentPage: 1, works: [], rawWorks: []);
+    loadResults(targetPage: 1, supersede: true);
+  }
+
   List<Work> _filterWorks(List<Work> works, BlockedItemsState blockedItems) {
     // 获取本地字幕库的作品ID
     final localSubtitleIds = _ref.read(subtitleLibraryProvider);
-    final subtitleFilter = state.subtitleFilter;
+    final subtitleFilter = _ref.read(audioSourceProvider) == AudioSource.jpAsmr
+        ? 0
+        : state.subtitleFilter;
 
     final subtitleFilteredWorks = filterWorksBySubtitleMode(
       works,
@@ -358,6 +378,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
       state.keyword.isNotEmpty || state.searchParams != null;
 
   void toggleSubtitleFilter() {
+    if (_ref.read(audioSourceProvider) == AudioSource.jpAsmr) return;
     final currentPage = state.currentPage;
     final oldFilterMode = SubtitleFilterMode.fromValue(state.subtitleFilter);
     final newFilterMode = oldFilterMode.next;
@@ -416,6 +437,10 @@ final searchResultProvider =
         if (previous != next) {
           notifier.updatePageSize(next);
         }
+      });
+
+      ref.listen(audioSourceProvider, (previous, next) {
+        if (previous != next) notifier.onSourceChanged();
       });
 
       ref.listen(currentUserProvider, (previous, next) {

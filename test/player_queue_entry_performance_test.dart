@@ -12,6 +12,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
+import 'package:kikoeru_flutter/src/providers/artwork_theme_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
@@ -25,8 +26,12 @@ Future<void> openQueue(
   bool settleEntry = true,
   AudioTrack? currentTrack,
   bool reduceMotion = false,
+  String? serverHost,
 }) async {
-  SharedPreferences.setMockInitialValues({'lyric_hint_has_shown': true});
+  SharedPreferences.setMockInitialValues({
+    'lyric_hint_has_shown': true,
+    if (serverHost != null) 'server_host': serverHost,
+  });
   await StorageService.initCritical(
     preferences: await SharedPreferences.getInstance(),
   );
@@ -94,6 +99,51 @@ void expectCoversOpaque(WidgetTester tester, String reason) {
 void main() {
   setUpAll(() {
     CachedNetworkImageProvider.defaultCacheManager = _CoverCache();
+  });
+  testWidgets('Japanese ASMR queue covers keep their original URL', (
+    tester,
+  ) async {
+    const artworkUrl = 'https://covers.invalid/jp.png';
+    const track = AudioTrack(
+      id: 'jp-queue',
+      title: 'Japanese ASMR',
+      url: 'https://media.invalid/jp.m3u8',
+      artworkUrl: artworkUrl,
+      workId: -123,
+    );
+    final previousCache = CachedNetworkImageProvider.defaultCacheManager;
+    CachedNetworkImageProvider.defaultCacheManager = _CoverCache()
+      ..files[artworkUrl] = 'assets/icons/app_icon_opaque.png';
+    addTearDown(() {
+      CachedNetworkImageProvider.defaultCacheManager = previousCache;
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+    });
+
+    await openQueue(tester, [track], serverHost: 'https://asmr.invalid');
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(MiniPlayer, skipOffstage: false)),
+      listen: false,
+    );
+    for (
+      var i = 0;
+      i < 100 && container.read(artworkThemeSeedProvider).isLoading;
+      i++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
+    expect(container.read(artworkThemeSeedProvider).isLoading, isFalse);
+    await tester.pumpAndSettle();
+
+    final covers = tester.widgetList<PlayerCompactArtwork>(
+      find.byType(PlayerCompactArtwork),
+    );
+    expect(covers, hasLength(2));
+    expect(covers.map((cover) => cover.url), everyElement(artworkUrl));
+    expect(tester.takeException(), isNull);
   });
   for (final reduceMotion in [false, true]) {
     testWidgets('direct queue uses internal motion (reduced: $reduceMotion)', (

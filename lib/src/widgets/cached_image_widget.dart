@@ -7,6 +7,7 @@ import '../../l10n/app_localizations.dart';
 import '../services/cache_service.dart';
 import '../services/storage_service.dart';
 import '../utils/local_file_url.dart';
+import '../utils/audio_source_headers.dart';
 
 /// Displays local and remote images through the shared original-byte cache.
 class CachedImageWidget extends StatelessWidget {
@@ -14,6 +15,7 @@ class CachedImageWidget extends StatelessWidget {
     super.key,
     required this.imageUrl,
     required this.hash,
+    this.workId,
     this.cacheKey,
     this.fit = BoxFit.contain,
     this.onRetry,
@@ -26,6 +28,7 @@ class CachedImageWidget extends StatelessWidget {
 
   final String imageUrl;
   final String hash;
+  final int? workId;
   final String? cacheKey;
   final BoxFit fit;
   final VoidCallback? onRetry;
@@ -38,6 +41,7 @@ class CachedImageWidget extends StatelessWidget {
   static ImageProvider<Object> imageProvider({
     required String imageUrl,
     required String hash,
+    int? workId,
     String? cacheKey,
     int? cacheWidth,
   }) {
@@ -49,7 +53,10 @@ class CachedImageWidget extends StatelessWidget {
                 cacheKey ??
                 CacheService.imageCacheKey(imageUrl: imageUrl, hash: hash),
             cacheManager: CacheService.imageCacheManager,
-            headers: StorageService.serverCookieHeaders,
+            headers: sourceAwareMediaHeaders(
+              workId,
+              accountHeaders: StorageService.serverCookieHeaders,
+            ),
           )
         : FileImage(File(localPath));
     return ResizeImage.resizeIfNeeded(cacheWidth, null, provider);
@@ -65,6 +72,7 @@ class CachedImageWidget extends StatelessWidget {
         final imageProvider = CachedImageWidget.imageProvider(
           imageUrl: imageUrl,
           hash: hash,
+          workId: workId,
           cacheKey: cacheKey,
           cacheWidth: cacheWidth,
         );
@@ -96,7 +104,10 @@ class CachedImageWidget extends StatelessWidget {
           cacheKey ??
           CacheService.imageCacheKey(imageUrl: imageUrl, hash: hash),
       cacheManager: CacheService.imageCacheManager,
-      httpHeaders: StorageService.serverCookieHeaders,
+      httpHeaders: sourceAwareMediaHeaders(
+        workId,
+        accountHeaders: StorageService.serverCookieHeaders,
+      ),
       fit: fit,
       useOldImageOnUrlChange: true,
       fadeInDuration: fadeInDuration ?? const Duration(milliseconds: 500),

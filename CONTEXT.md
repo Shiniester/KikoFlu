@@ -19,14 +19,19 @@ The app page that contains the Works Home Tab and the user's online marks,
 history, playlists, downloads, and subtitle library tabs.
 _Avoid_: Home page, My page
 
+**Audio Source (音声源)**:
+A provider of audio works for independent browsing, search and playback, such as
+ASMR.ONE or Japanese ASMR (jp-asmr, japaneseasmr.com).
+_Avoid_: Playback fallback, mirror server
+
 **Works Home Tab (主页标签)**:
 The fixed first tab in the Audio Screen that displays the online works feed.
 It is distinct from the Audio Screen, which also contains the user's library tabs.
 _Avoid_: Audio Screen, app home page
 
 **Global Works Search (全局作品搜索)**:
-The server-backed work search opened from the Works Home Tab. Its results are
-not restricted to another Audio Screen tab's collection.
+The online work search opened from the Works Home Tab for the selected Audio
+Source. Its results are not restricted to another Audio Screen tab's collection.
 _Avoid_: scoped search
 
 **Scoped Search (范围搜索)**:

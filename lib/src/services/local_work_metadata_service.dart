@@ -20,9 +20,7 @@ class LocalWorkFolder {
 }
 
 class LocalWorkMetadataService {
-  const LocalWorkMetadataService({
-    this.fileLength = _defaultFileLength,
-  });
+  const LocalWorkMetadataService({this.fileLength = _defaultFileLength});
 
   static const String metadataFileName = 'work_metadata.json';
   static const String localWorkDirNameKey = 'localWorkDirName';
@@ -44,9 +42,11 @@ class LocalWorkMetadataService {
   };
 
   static final RegExp _rjPattern = RegExp(r'RJ(\d{5,8})', caseSensitive: false);
-  static final RegExp _sourceJsonPattern =
-      RegExp(r'^(?:RJ|BJ|VJ)\d{5,8}\.json$', caseSensitive: false);
-  static final RegExp _numericFolderPattern = RegExp(r'^\d+$');
+  static final RegExp _sourceJsonPattern = RegExp(
+    r'^(?:RJ|BJ|VJ)\d{5,8}\.json$',
+    caseSensitive: false,
+  );
+  static final RegExp _numericFolderPattern = RegExp(r'^-?\d+$');
 
   static const List<String> _coverBaseNames = [
     'cover',
@@ -87,7 +87,7 @@ class LocalWorkMetadataService {
     final trimmed = name.trim();
     if (_numericFolderPattern.hasMatch(trimmed)) {
       final parsed = int.tryParse(trimmed);
-      return parsed != null && parsed > 0 ? parsed : null;
+      return parsed != null && parsed != 0 ? parsed : null;
     }
 
     return null;
@@ -106,10 +106,13 @@ class LocalWorkMetadataService {
     metadata['id'] = workId;
     metadata['title'] = _cleanString(metadata['title']) ??
         _titleFromDirectoryName(directoryName, workId);
-    metadata['source_id'] =
-        _cleanString(metadata['source_id']) ?? formatRJCode(workId);
-    metadata['source_url'] = _cleanString(metadata['source_url']) ??
-        'https://www.dlsite.com/maniax/work/=/product_id/${formatRJCode(workId)}.html';
+    if (workId > 0) {
+      metadata['source_id'] =
+          _cleanString(metadata['source_id']) ?? formatRJCode(workId);
+      metadata['source_url'] =
+          _cleanString(metadata['source_url']) ??
+          'https://www.dlsite.com/maniax/work/=/product_id/${formatRJCode(workId)}.html';
+    }
     metadata[localWorkDirNameKey] = directoryName;
 
     metadata['children'] = await buildFileTree(workDir);
@@ -148,10 +151,7 @@ class LocalWorkMetadataService {
   }
 
   Future<List<dynamic>> buildFileTree(Directory workDir) async {
-    return _buildDirectoryChildren(
-      directory: workDir,
-      parentRelativePath: '',
-    );
+    return _buildDirectoryChildren(directory: workDir, parentRelativePath: '');
   }
 
   Future<String?> detectCoverRelativePath(
@@ -159,8 +159,9 @@ class LocalWorkMetadataService {
     dynamic existingCoverPath,
   ]) async {
     if (existingCoverPath is String && existingCoverPath.trim().isNotEmpty) {
-      final normalized =
-          DownloadFilePathService.normalizeRelativePath(existingCoverPath);
+      final normalized = DownloadFilePathService.normalizeRelativePath(
+        existingCoverPath,
+      );
       if (normalized.isNotEmpty) {
         final coverPath = DownloadFilePathService.localPathForRelativePath(
           rootPath: workDir.path,
@@ -220,13 +221,15 @@ class LocalWorkMetadataService {
       final priority = _coverBaseNames.indexOf(baseName);
       if (priority == -1) continue;
 
-      candidates.add(_CoverCandidate(
-        relativePath: relativePath,
-        priority: priority,
-        depth: parentRelativePath.isEmpty
-            ? 0
-            : parentRelativePath.split('/').length,
-      ));
+      candidates.add(
+        _CoverCandidate(
+          relativePath: relativePath,
+          priority: priority,
+          depth: parentRelativePath.isEmpty
+              ? 0
+              : parentRelativePath.split('/').length,
+        ),
+      );
     }
   }
 
@@ -238,9 +241,7 @@ class LocalWorkMetadataService {
     await for (final entity in directory.list(followLinks: false)) {
       entities.add(entity);
     }
-    entities.sort(
-      (a, b) => p.basename(a.path).compareTo(p.basename(b.path)),
-    );
+    entities.sort((a, b) => p.basename(a.path).compareTo(p.basename(b.path)));
 
     final children = <dynamic>[];
     for (final entity in entities) {
@@ -295,10 +296,7 @@ class LocalWorkMetadataService {
   }
 
   bool _shouldSkipEntity(String title, String relativePath) {
-    return shouldSkipMetadataFile(
-      title,
-      isRoot: !relativePath.contains('/'),
-    );
+    return shouldSkipMetadataFile(title, isRoot: !relativePath.contains('/'));
   }
 
   static bool _isCoverFileName(String title) {
@@ -342,10 +340,7 @@ class LocalWorkMetadataService {
       'data',
       'metadata',
     ]);
-    final source = <String, dynamic>{
-      ...root,
-      if (nested != null) ...nested,
-    };
+    final source = <String, dynamic>{...root, if (nested != null) ...nested};
 
     final normalized = Map<String, dynamic>.from(source);
 
@@ -440,10 +435,10 @@ class LocalWorkMetadataService {
       final normalized = _cleanString(circle);
       if (normalized != null) return normalized;
     } else if (circle is Map) {
-      final name = _firstCleanString(
-        Map<String, dynamic>.from(circle),
-        const ['name', 'title'],
-      );
+      final name = _firstCleanString(Map<String, dynamic>.from(circle), const [
+        'name',
+        'title',
+      ]);
       if (name != null) return name;
     }
 
@@ -457,6 +452,9 @@ class LocalWorkMetadataService {
   }
 
   static String _titleFromDirectoryName(String directoryName, int workId) {
+    if (workId < 0 && directoryName == workId.toString()) {
+      return workId.abs().toString();
+    }
     final normalizedId = formatRJCode(workId);
     var title = directoryName.trim();
     if (title.isEmpty ||

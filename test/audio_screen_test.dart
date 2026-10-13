@@ -46,6 +46,8 @@ import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
+import 'package:kikoeru_flutter/src/models/audio_source.dart' as audio_source;
+import 'package:kikoeru_flutter/src/providers/audio_source_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:just_audio/just_audio.dart';
@@ -317,6 +319,78 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets(
+    'source switch hides JP-unsupported tabs and restores ASMR tabs',
+    (tester) async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        AudioSourceNotifier.preferenceKey,
+        audio_source.AudioSource.jpAsmr.name,
+      );
+      await prefs.setBool('my_tabs_show_online_marks', true);
+      await prefs.setBool('my_tabs_show_playlists', true);
+      await prefs.setBool('my_tabs_show_subtitle_library', false);
+      final reduced = ValueNotifier(true);
+      addTearDown(reduced.dispose);
+
+      await _pumpAudioScreen(tester, reduced);
+
+      TabBar tabBar() => tester.widget<TabBar>(find.byType(TabBar));
+
+      expect(tabBar().tabs, hasLength(3));
+      expect(
+        find.descendant(
+          of: find.byType(TabBar),
+          matching: find.byIcon(Icons.history),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(TabBar),
+          matching: find.byIcon(Icons.download_done),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(TabBar),
+          matching: find.byIcon(Icons.bookmark),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(TabBar),
+          matching: find.byIcon(Icons.playlist_play),
+        ),
+        findsNothing,
+      );
+
+      await tester.tap(find.byType(PopupMenuButton<audio_source.AudioSource>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(audio_source.AudioSource.asmrOne.label).last);
+      await tester.pumpAndSettle();
+
+      expect(tabBar().tabs, hasLength(5));
+      expect(
+        find.descendant(
+          of: find.byType(TabBar),
+          matching: find.byIcon(Icons.bookmark),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(TabBar),
+          matching: find.byIcon(Icons.playlist_play),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'Android system back restores the painted audio home after rotation',
@@ -734,7 +808,13 @@ void main() {
       Duration.zero,
     );
     for (final index in [1, 2, 0]) {
-      await tester.tap(find.byType(Tab).at(index));
+      if (index == 2) {
+        await tester.drag(find.byType(TabBar), const Offset(-100, 0));
+        await tester.pumpAndSettle();
+      }
+      final tab = find.byType(Tab).at(index);
+      await tester.ensureVisible(tab);
+      await tester.tap(tab);
       await tester.pump();
       expect(_pages(tester).page, index.toDouble());
     }

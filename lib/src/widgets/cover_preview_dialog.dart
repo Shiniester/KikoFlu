@@ -14,6 +14,7 @@ import 'package:path/path.dart' as p;
 import '../utils/snackbar_util.dart';
 import '../services/storage_service.dart';
 import '../services/cache_service.dart';
+import '../utils/audio_source_headers.dart';
 import 'privacy_blur_cover.dart';
 import 'player/player_visual_palette.dart';
 import 'player/player_cover_widget.dart';
@@ -77,6 +78,9 @@ class CoverPreviewDialog extends StatefulWidget {
   /// 与列表、详情和保存操作共享的稳定原图缓存键。
   final String? cacheKey;
 
+  /// Whether the public image URL belongs to Japanese ASMR.
+  final bool isJapaneseAsmr;
+
   /// 与当前播放器调色板一致的最深背景色。
   final Color backgroundColor;
 
@@ -96,6 +100,7 @@ class CoverPreviewDialog extends StatefulWidget {
     this.identifier,
     this.heroTag,
     this.cacheKey,
+    this.isJapaneseAsmr = false,
     this.backgroundColor = Colors.black,
     this.backgroundPalette,
     this.imageAspectRatio = fallbackAspectRatio,
@@ -113,6 +118,7 @@ class CoverPreviewDialog extends StatefulWidget {
     String? identifier,
     String? heroTag,
     String? cacheKey,
+    bool isJapaneseAsmr = false,
     Color backgroundColor = Colors.black,
     PlayerVisualPalette? backgroundPalette,
   }) async {
@@ -122,6 +128,7 @@ class CoverPreviewDialog extends StatefulWidget {
       imageUrl: imageUrl,
       localPath: localPath,
       cacheKey: cacheKey,
+      isJapaneseAsmr: isJapaneseAsmr,
     );
     if (!context.mounted) return;
     final route = PageRouteBuilder<void>(
@@ -141,6 +148,7 @@ class CoverPreviewDialog extends StatefulWidget {
           identifier: identifier,
           heroTag: heroTag,
           cacheKey: cacheKey,
+          isJapaneseAsmr: isJapaneseAsmr,
           backgroundColor: backgroundColor,
           backgroundPalette: backgroundPalette,
           imageAspectRatio: imageAspectRatio,
@@ -161,6 +169,7 @@ class CoverPreviewDialog extends StatefulWidget {
     String? imageUrl,
     String? localPath,
     String? cacheKey,
+    required bool isJapaneseAsmr,
   }) async {
     ImageProvider<Object>? provider;
     if (localPath != null && File(localPath).existsSync()) {
@@ -170,7 +179,10 @@ class CoverPreviewDialog extends StatefulWidget {
         imageUrl,
         cacheKey: cacheKey,
         cacheManager: CacheService.imageCacheManager,
-        headers: StorageService.serverCookieHeaders,
+        headers: sourceAwareMediaHeaders(
+          isJapaneseAsmr ? -1 : null,
+          accountHeaders: StorageService.serverCookieHeaders,
+        ),
       );
     }
     if (provider == null) return fallbackAspectRatio;
@@ -303,7 +315,10 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
         final lease = CacheService.imageCacheManager.acquireFile(
           widget.imageUrl!,
           key: _cacheKey,
-          headers: StorageService.serverCookieHeaders,
+          headers: sourceAwareMediaHeaders(
+            widget.isJapaneseAsmr ? -1 : null,
+            accountHeaders: StorageService.serverCookieHeaders,
+          ),
         );
         try {
           imageBytes = await (await lease.file).readAsBytes();
@@ -408,7 +423,10 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
               imageUrl: widget.imageUrl!,
               cacheKey: _cacheKey,
               cacheManager: CacheService.imageCacheManager,
-              httpHeaders: StorageService.serverCookieHeaders,
+              httpHeaders: sourceAwareMediaHeaders(
+                widget.isJapaneseAsmr ? -1 : null,
+                accountHeaders: StorageService.serverCookieHeaders,
+              ),
               fit: fit,
               placeholder: (context, url) =>
                   const Center(child: CircularProgressIndicator()),
@@ -424,7 +442,10 @@ class _CoverPreviewDialogState extends State<CoverPreviewDialog> {
         imageUrl: widget.imageUrl!,
         cacheKey: _cacheKey,
         cacheManager: CacheService.imageCacheManager,
-        httpHeaders: StorageService.serverCookieHeaders,
+        httpHeaders: sourceAwareMediaHeaders(
+          widget.isJapaneseAsmr ? -1 : null,
+          accountHeaders: StorageService.serverCookieHeaders,
+        ),
         fit: fit,
         placeholder: (context, url) =>
             const Center(child: CircularProgressIndicator()),

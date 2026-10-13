@@ -12,6 +12,7 @@ import '../utils/snackbar_util.dart';
 import '../utils/string_utils.dart';
 import '../utils/age_rating.dart';
 import '../utils/work_cover_prefetch.dart';
+import '../utils/audio_source_headers.dart';
 import '../utils/collection_grid_layout.dart';
 import '../../l10n/app_localizations.dart';
 import 'tag_chip.dart';
@@ -223,7 +224,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
       ),
       child: InkWell(
         onTap: cardOnTap,
-        onLongPress: _onLongPress,
+        onLongPress: widget.work.isJapaneseAsmr ? null : _onLongPress,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min, // 让 Column 高度自适应
@@ -326,7 +327,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
       ),
       child: InkWell(
         onTap: cardOnTap,
-        onLongPress: _onLongPress,
+        onLongPress: widget.work.isJapaneseAsmr ? null : _onLongPress,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -505,7 +506,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
       elevation: 4,
       child: InkWell(
         onTap: cardOnTap,
-        onLongPress: _onLongPress,
+        onLongPress: widget.work.isJapaneseAsmr ? null : _onLongPress,
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -740,7 +741,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     }
 
     // 使用缓存网络图片，减少滚动时的解码与网络开销，提升流畅度
-    if (host.isEmpty) {
+    if (host.isEmpty && !widget.work.isJapaneseAsmr) {
       return _buildPlaceholder(context);
     }
 
@@ -750,7 +751,10 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
       isListCard: _isListLayout,
     );
 
-    final httpHeaders = StorageService.serverCookieHeaders;
+    final httpHeaders = sourceAwareMediaHeaders(
+      widget.work.id,
+      accountHeaders: StorageService.serverCookieHeaders,
+    );
 
     return WorkCoverClip(
       cornerRadius: cornerRadius,

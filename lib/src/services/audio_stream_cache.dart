@@ -374,7 +374,7 @@ class AudioStreamCache {
       uri: request.uri,
       start: remoteStart,
       end: end,
-      headers: _headersProvider(),
+      headers: _headersFor(request),
       cancellation: cancellation,
     );
     late final _ResolvedAudioRange resolved;
@@ -499,7 +499,7 @@ class AudioStreamCache {
       final response = await _transport.open(
         uri: request.uri,
         start: prefixLength,
-        headers: _headersProvider(),
+        headers: _headersFor(request),
         cancellation: operation.cancellation,
       );
       late final _ResolvedAudioRange resolved;
@@ -582,6 +582,9 @@ class AudioStreamCache {
     if (external != null && await File(external).exists()) return external;
     return _files.completedPath(hash);
   }
+
+  Map<String, String> _headersFor(AudioTransferRequest request) =>
+      request.hash.startsWith('jp-') ? const {} : _headersProvider();
 
   _ResolvedAudioRange _resolveResponse(
     AudioRangeResponse response, {

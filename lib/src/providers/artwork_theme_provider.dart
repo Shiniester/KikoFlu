@@ -9,6 +9,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/audio_track.dart';
+import '../services/storage_service.dart';
+import '../utils/audio_source_headers.dart';
 import '../utils/local_file_url.dart';
 import 'audio_provider.dart';
 import 'auth_provider.dart';
@@ -16,10 +18,15 @@ import 'settings_provider.dart';
 
 @immutable
 class ArtworkSeedRequest {
-  const ArtworkSeedRequest({required this.source, required this.cacheKey});
+  const ArtworkSeedRequest({
+    required this.source,
+    required this.cacheKey,
+    this.workId,
+  });
 
   final String source;
   final String cacheKey;
+  final int? workId;
 
   String get cacheIdentity => '$cacheKey\u0000$source';
 
@@ -27,11 +34,12 @@ class ArtworkSeedRequest {
   bool operator ==(Object other) {
     return other is ArtworkSeedRequest &&
         other.source == source &&
-        other.cacheKey == cacheKey;
+        other.cacheKey == cacheKey &&
+        other.workId == workId;
   }
 
   @override
-  int get hashCode => Object.hash(source, cacheKey);
+  int get hashCode => Object.hash(source, cacheKey, workId);
 }
 
 @immutable
@@ -40,25 +48,28 @@ class ArtworkDescriptor {
     required this.trackIdentity,
     required this.source,
     required this.cacheKey,
+    this.workId,
   });
 
   final String trackIdentity;
   final String source;
   final String cacheKey;
+  final int? workId;
 
   ArtworkSeedRequest get seedRequest =>
-      ArtworkSeedRequest(source: source, cacheKey: cacheKey);
+      ArtworkSeedRequest(source: source, cacheKey: cacheKey, workId: workId);
 
   @override
   bool operator ==(Object other) {
     return other is ArtworkDescriptor &&
         other.trackIdentity == trackIdentity &&
         other.source == source &&
-        other.cacheKey == cacheKey;
+        other.cacheKey == cacheKey &&
+        other.workId == workId;
   }
 
   @override
-  int get hashCode => Object.hash(trackIdentity, source, cacheKey);
+  int get hashCode => Object.hash(trackIdentity, source, cacheKey, workId);
 }
 
 String? resolveArtworkSource({
@@ -69,7 +80,7 @@ String? resolveArtworkSource({
 }) {
   if (LocalFileUrl.isLocalFileUrl(artworkUrl)) return artworkUrl;
 
-  if (workId != null && host.isNotEmpty) {
+  if (workId != null && workId >= 0 && host.isNotEmpty) {
     final normalizedHost =
         host.startsWith('http://') || host.startsWith('https://')
         ? host
@@ -99,6 +110,7 @@ ArtworkDescriptor? resolveArtworkDescriptor({
 
   return ArtworkDescriptor(
     trackIdentity: track.id,
+    workId: track.workId,
     source: source,
     cacheKey: track.workId != null
         ? 'work_cover_${track.workId}'
@@ -285,7 +297,14 @@ Future<Color> _extractArtworkSeed(ArtworkSeedRequest request) async {
     );
   } else {
     imageProvider = ResizeImage(
-      CachedNetworkImageProvider(request.source, cacheKey: request.cacheKey),
+      CachedNetworkImageProvider(
+        request.source,
+        cacheKey: request.cacheKey,
+        headers: sourceAwareMediaHeaders(
+          request.workId,
+          accountHeaders: StorageService.serverCookieHeaders,
+        ),
+      ),
       width: 32,
       height: 32,
       allowUpscaling: false,

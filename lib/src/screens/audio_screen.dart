@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/audio_source.dart';
 import '../providers/my_reviews_provider.dart';
+import '../providers/audio_source_provider.dart';
 import '../providers/my_tabs_display_provider.dart';
 import '../providers/collection_layout_provider.dart';
 import '../providers/works_provider.dart' show LayoutType;
@@ -63,6 +67,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
 
   List<_TabInfo> _buildTabList(
     MyTabsDisplaySettings settings, {
+    required AudioSource source,
     required double contentTop,
     required double collapsedToolbarTop,
   }) {
@@ -87,7 +92,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     final activeDownloadCount =
         ref.watch(downloadSummaryProvider).valueOrNull?.active ?? 0;
 
-    if (settings.showOnlineMarks) {
+    if (source == AudioSource.asmrOne && settings.showOnlineMarks) {
       tabs.add(
         _TabInfo(
           id: 'onlineMarks',
@@ -118,7 +123,9 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       ),
     );
 
-    if (settings.showPlaylists && isOfficialServer) {
+    if (source == AudioSource.asmrOne &&
+        settings.showPlaylists &&
+        isOfficialServer) {
       tabs.add(
         _TabInfo(
           id: 'playlists',
@@ -189,14 +196,21 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     _pages.addListener(_handlePagePosition);
     // 只在首次加载时获取数据，如果已有数据则不重新加载
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final notifier = ref.read(myReviewsProvider.notifier);
-      await notifier.preferencesReady;
-      if (!mounted) return;
-      final myState = ref.read(myReviewsProvider);
-      if (myState.works.isEmpty) {
-        notifier.load(refresh: true);
-      }
+      await _loadMyReviewsIfNeeded();
     });
+  }
+
+  Future<void> _loadMyReviewsIfNeeded() async {
+    if (ref.read(audioSourceProvider) != AudioSource.asmrOne) return;
+    final notifier = ref.read(myReviewsProvider.notifier);
+    await notifier.preferencesReady;
+    if (!mounted || ref.read(audioSourceProvider) != AudioSource.asmrOne) {
+      return;
+    }
+    final myState = ref.read(myReviewsProvider);
+    if (myState.works.isEmpty && !myState.isLoading) {
+      await notifier.load(refresh: true);
+    }
   }
 
   @override
@@ -372,8 +386,14 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context); // 必须调用以保持状态
+    ref.listen<AudioSource>(audioSourceProvider, (previous, next) {
+      if (previous != next && next == AudioSource.asmrOne) {
+        unawaited(_loadMyReviewsIfNeeded());
+      }
+    });
 
     final tabsSettings = ref.watch(myTabsDisplayProvider);
+    final audioSource = ref.watch(audioSourceProvider);
     final topPadding = MediaQuery.paddingOf(context).top;
     final horizontalPadding = FloatingToolbarLayout.horizontalPadding(context);
     final tabSwitcherTop = topPadding + 8;
@@ -381,6 +401,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     final collapsedToolbarTop = tabSwitcherTop;
     final tabs = _buildTabList(
       tabsSettings,
+      source: audioSource,
       contentTop: contentTop,
       collapsedToolbarTop: collapsedToolbarTop,
     );
@@ -474,6 +495,42 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
                 onTap: _selectTab,
                 visible: _tabSwitcherVisible,
                 motionKey: const ValueKey('my-tab-switcher'),
+                leading: PopupMenuButton<AudioSource>(
+                  tooltip: audioSource.label,
+                  initialValue: audioSource,
+                  onSelected: (source) async {
+                    await ref.read(audioSourceProvider.notifier).select(source);
+                  },
+                  itemBuilder: (context) => AudioSource.values
+                      .map(
+                        (source) => PopupMenuItem<AudioSource>(
+                          value: source,
+                          child: Row(
+                            children: [
+                              Expanded(child: Text(source.label)),
+                              if (source == audioSource)
+                                const Icon(Icons.check, size: 18),
+                            ],
+                          ),
+                        ),
+                      )
+                      .toList(growable: false),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.library_music_outlined, size: 18),
+                        const SizedBox(width: 4),
+                        Text(
+                          audioSource.label,
+                          style: Theme.of(context).textTheme.labelMedium,
+                        ),
+                        const Icon(Icons.arrow_drop_down, size: 18),
+                      ],
+                    ),
+                  ),
+                ),
                 tabs: tabs
                     .map(
                       (tab) => Tab(

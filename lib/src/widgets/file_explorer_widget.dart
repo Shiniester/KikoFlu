@@ -522,14 +522,19 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     var downloadUrl =
         FileTreeUtils.property(file, 'mediaDownloadUrl')?.toString() ?? '';
     final normalizedHost = _normalizedHost(host);
-    if (downloadUrl.startsWith('/') && normalizedHost.isNotEmpty) {
+    if (downloadUrl.startsWith('/') &&
+        normalizedHost.isNotEmpty &&
+        !_work.isJapaneseAsmr) {
       downloadUrl = '$normalizedHost$downloadUrl';
     }
-    if (downloadUrl.isEmpty && normalizedHost.isNotEmpty) {
+    if (downloadUrl.isEmpty &&
+        normalizedHost.isNotEmpty &&
+        !_work.isJapaneseAsmr) {
       downloadUrl =
           '$normalizedHost/api/media/download/$hash/'
           '${Uri.encodeComponent(title)}?token=$token';
-    } else if (downloadUrl.isNotEmpty &&
+    } else if (!_work.isJapaneseAsmr &&
+        downloadUrl.isNotEmpty &&
         token.isNotEmpty &&
         !downloadUrl.contains('token=')) {
       downloadUrl += downloadUrl.contains('?')
@@ -722,6 +727,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
               title: _work.title,
               images: target.toGalleryMaps(),
               initialIndex: target.initialIndex,
+              workId: _work.id,
             ),
           ),
         );
@@ -1024,21 +1030,22 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     setState(() {});
 
     try {
-      final result = await FileNameTranslationService(
-        translate: TranslationService().translate,
-      ).translateNames(
-        names: names,
-        onProgress: (current, total) {
-          final updated = _translationController.updateBulkProgress(
-            generation,
-            l10n.translatingProgress(current, total),
+      final result =
+          await FileNameTranslationService(
+            translate: TranslationService().translate,
+          ).translateNames(
+            names: names,
+            onProgress: (current, total) {
+              final updated = _translationController.updateBulkProgress(
+                generation,
+                l10n.translatingProgress(current, total),
+              );
+              if (updated && mounted) setState(() {});
+            },
+            onChunkError: (index, error) {
+              _log.captureOutput('[FileExplorer] 翻译块 $index 失败: $error');
+            },
           );
-          if (updated && mounted) setState(() {});
-        },
-        onChunkError: (index, error) {
-          _log.captureOutput('[FileExplorer] 翻译块 $index 失败: $error');
-        },
-      );
 
       if (!mounted ||
           !_translationController.completeBulkTranslation(
@@ -1065,6 +1072,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       showTranslation: widget.translate,
     );
   }
+
   // 处理文件点击
   void _handleFileTap(dynamic file, String title, String parentPath) {
     switch (_tapResolver.resolve(file)) {

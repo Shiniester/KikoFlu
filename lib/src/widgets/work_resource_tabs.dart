@@ -846,6 +846,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       final provider = CachedImageWidget.imageProvider(
         imageUrl: target.url,
         hash: target.hash,
+        workId: widget.workId,
         cacheWidth: cacheWidth,
       );
       stream = provider.resolve(createLocalImageConfiguration(context));
@@ -1070,6 +1071,8 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                                                                             .url,
                                                                     hash: target
                                                                         .hash,
+                                                                    workId: widget
+                                                                        .workId,
                                                                     cacheWidth:
                                                                         _imageCacheWidth!,
                                                                     fadeInDuration:

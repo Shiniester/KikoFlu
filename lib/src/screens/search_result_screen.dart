@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../models/audio_source.dart';
 import '../models/sort_options.dart';
+import '../providers/audio_source_provider.dart';
 import '../providers/search_result_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
@@ -39,13 +41,20 @@ class SearchResultScreen extends StatelessWidget {
         searchResultProvider.overrideWith((ref) {
           final apiService = ref.watch(kikoeruApiServiceProvider);
           final pageSize = ref.read(pageSizeProvider);
-          final notifier =
-              SearchResultNotifier(apiService, ref, initialPageSize: pageSize);
+          final notifier = SearchResultNotifier(
+            apiService,
+            ref,
+            initialPageSize: pageSize,
+          );
 
           ref.listen(pageSizeProvider, (previous, next) {
             if (previous != next) {
               notifier.updatePageSize(next);
             }
+          });
+
+          ref.listen(audioSourceProvider, (previous, next) {
+            if (previous != next) notifier.onSourceChanged();
           });
 
           return notifier;
@@ -83,12 +92,16 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
   void initState() {
     super.initState();
     logOutput(
-        '[SearchResult] Screen initialized with keyword: ${widget.keyword}, type: ${widget.searchTypeLabel}');
+      '[SearchResult] Screen initialized with keyword: ${widget.keyword}, type: ${widget.searchTypeLabel}',
+    );
     // Load initial data
     WidgetsBinding.instance.addPostFrameCallback((_) {
       logOutput(
-          '[SearchResult] Starting search with params: ${widget.searchParams}');
-      ref.read(searchResultProvider.notifier).initializeSearch(
+        '[SearchResult] Starting search with params: ${widget.searchParams}',
+      );
+      ref
+          .read(searchResultProvider.notifier)
+          .initializeSearch(
             keyword: widget.keyword,
             searchParams: widget.searchParams,
           );
@@ -102,6 +115,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
   }
 
   void _showSortDialog(BuildContext context) {
+    if (ref.read(audioSourceProvider) == AudioSource.jpAsmr) return;
     final state = ref.read(searchResultProvider);
     showDialog(
       context: context,
@@ -109,8 +123,10 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
         currentOption: state.sortOption,
         currentDirection: state.sortDirection,
         availableOptions: SortOrder.values
-            .where((option) =>
-                option != SortOrder.nsfw && option != SortOrder.updatedAt)
+            .where(
+              (option) =>
+                  option != SortOrder.nsfw && option != SortOrder.updatedAt,
+            )
             .toList(),
         onSort: (option, direction) {
           ref.read(searchResultProvider.notifier).updateSort(option, direction);
@@ -152,12 +168,14 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
   @override
   Widget build(BuildContext context) {
     final searchState = ref.watch(searchResultProvider);
+    final isJapaneseAsmr = ref.watch(audioSourceProvider) == AudioSource.jpAsmr;
 
     final horizontalPadding = FloatingToolbarLayout.horizontalPadding(context);
 
     final topPadding = MediaQuery.paddingOf(context).top;
-    final systemOverlayStyle =
-        transparentSystemBarsForBrightness(Theme.of(context).brightness);
+    final systemOverlayStyle = transparentSystemBarsForBrightness(
+      Theme.of(context).brightness,
+    );
 
     return GlobalAudioPlayerWrapper(
       child: AnnotatedRegion(
@@ -197,24 +215,27 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
                                 .read(searchResultProvider.notifier)
                                 .toggleLayoutType(),
                           ),
-                          FloatingToolbarIconButton(
-                            icon: _getSubtitleFilterIcon(
-                                searchState.subtitleFilter),
-                            tooltip: SubtitleFilterMode.fromValue(
-                              searchState.subtitleFilter,
-                            ).localizedTooltip(context),
-                            isSelected: SubtitleFilterMode.fromValue(
-                              searchState.subtitleFilter,
-                            ).isActive,
-                            onPressed: () => ref
-                                .read(searchResultProvider.notifier)
-                                .toggleSubtitleFilter(),
-                          ),
-                          FloatingToolbarIconButton(
-                            icon: Icons.sort,
-                            tooltip: S.of(context).sort,
-                            onPressed: () => _showSortDialog(context),
-                          ),
+                          if (!isJapaneseAsmr)
+                            FloatingToolbarIconButton(
+                              icon: _getSubtitleFilterIcon(
+                                searchState.subtitleFilter,
+                              ),
+                              tooltip: SubtitleFilterMode.fromValue(
+                                searchState.subtitleFilter,
+                              ).localizedTooltip(context),
+                              isSelected: SubtitleFilterMode.fromValue(
+                                searchState.subtitleFilter,
+                              ).isActive,
+                              onPressed: () => ref
+                                  .read(searchResultProvider.notifier)
+                                  .toggleSubtitleFilter(),
+                            ),
+                          if (!isJapaneseAsmr)
+                            FloatingToolbarIconButton(
+                              icon: Icons.sort,
+                              tooltip: S.of(context).sort,
+                              onPressed: () => _showSortDialog(context),
+                            ),
                         ],
                       ),
                     ),

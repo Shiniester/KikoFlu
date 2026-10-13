@@ -8,6 +8,7 @@ import '../models/work.dart';
 import '../services/cache_service.dart';
 import '../services/storage_service.dart';
 import '../services/speculative_transfer_coordinator.dart';
+import 'audio_source_headers.dart';
 
 typedef WorkCoverPrecache =
     Future<void> Function(ImageProvider<Object> provider, BuildContext context);
@@ -74,9 +75,13 @@ ImageProvider<Object> createWorkCoverImageProvider({
   int? cacheWidth,
   Map<String, String>? headers,
 }) {
+  final requestHeaders = sourceAwareMediaHeaders(
+    work.id,
+    accountHeaders: headers ?? StorageService.serverCookieHeaders,
+  );
   final provider = CachedNetworkImageProvider(
     work.getCoverImageUrl(host, token: token),
-    headers: headers ?? StorageService.serverCookieHeaders,
+    headers: requestHeaders,
     cacheKey: 'work_cover_${work.id}',
   );
   return ResizeImage.resizeIfNeeded(cacheWidth, null, provider);
@@ -146,6 +151,10 @@ class WorkCoverPrefetchController {
         cacheWidth: targetWidth,
         headers: headers,
       );
+      final requestHeaders = sourceAwareMediaHeaders(
+        work.id,
+        accountHeaders: headers ?? StorageService.serverCookieHeaders,
+      );
       _scheduledKeys[key] = _generation;
       _queue.add(
         _CoverPrefetchTask(
@@ -155,7 +164,7 @@ class WorkCoverPrefetchController {
           generation: _generation,
           url: work.getCoverImageUrl(host, token: token),
           cacheKey: 'work_cover_${work.id}',
-          headers: headers ?? StorageService.serverCookieHeaders,
+          headers: requestHeaders,
         ),
       );
     }

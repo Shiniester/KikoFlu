@@ -302,7 +302,17 @@ class _FileSelectionDialogState extends ConsumerState<FileSelectionDialog> {
 
         // 处理下载 URL
         String downloadUrl = file.mediaDownloadUrl ?? '';
-        if (downloadUrl.isNotEmpty) {
+        if (widget.work.isJapaneseAsmr) {
+          final uri = Uri.tryParse(downloadUrl);
+          if (uri == null ||
+              !uri.hasScheme ||
+              (uri.scheme != 'http' && uri.scheme != 'https') ||
+              uri.host.isEmpty) {
+            throw const FormatException(
+              'Japanese ASMR download URL must be an absolute HTTP URL',
+            );
+          }
+        } else if (downloadUrl.isNotEmpty) {
           // 如果是相对路径，拼接 Host
           if (downloadUrl.startsWith('/') && host.isNotEmpty) {
             String normalizedHost = host;
@@ -361,6 +371,13 @@ class _FileSelectionDialogState extends ConsumerState<FileSelectionDialog> {
           S
               .of(context)
               .addedNFilesToDownloadQueue(selectedFilesWithPaths.length),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        SnackBarUtil.showError(
+          context,
+          '${S.of(context).downloadFailed}: $error',
         );
       }
     } finally {

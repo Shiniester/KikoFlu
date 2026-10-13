@@ -23,6 +23,7 @@ import 'playback_session_store.dart';
 import 'download_path_service.dart';
 import 'storage_service.dart';
 import 'speculative_transfer_coordinator.dart';
+import '../utils/audio_source_headers.dart';
 import '../utils/image_blur_util.dart';
 import '../utils/local_file_url.dart';
 import '../utils/reorder_utils.dart';
@@ -958,6 +959,8 @@ class AudioPlayerService {
     _performanceActivePlaybackRequestId = performanceRequestId;
     _performanceActivePlaybackTrackId = track.id;
     final sourceUri = Uri.tryParse(track.url);
+    final isHls = sourceUri?.path.toLowerCase().endsWith('.m3u8') ?? false;
+    final isJapaneseAsmr = track.workId != null && track.workId! < 0;
     final sourceKind = localPath != null
         ? 'local'
         : (sourceUri?.scheme.isNotEmpty ?? false)
@@ -1075,7 +1078,11 @@ class AudioPlayerService {
       }
 
       // 如果不是本地文件，且有 hash，尝试使用缓存
-      if (!loaded && track.hash != null && track.hash!.isNotEmpty) {
+      if (!loaded &&
+          !isHls &&
+          !isJapaneseAsmr &&
+          track.hash != null &&
+          track.hash!.isNotEmpty) {
         final streamUrl = fallbackStreamUrl ?? track.url;
         _prefetchedNextHash = null;
         final transfer = AudioTransferRequest(
@@ -1128,7 +1135,11 @@ class AudioPlayerService {
           performanceRequestId,
           'sourcePrepared',
         );
-        await _setUrlForTrackLoad(request, streamUrl);
+        await _setUrlForTrackLoad(
+          request,
+          streamUrl,
+          headers: isJapaneseAsmr ? japaneseAsmrRequestHeaders : null,
+        );
         _releaseCachedPlaybackLease();
         unawaited(_hapticsService.prepareForTrack(track));
         _log.captureOutput('[Audio] 流式播放: $streamUrl');
@@ -1202,13 +1213,14 @@ class AudioPlayerService {
 
   Future<void> _setUrlForTrackLoad(
     _TrackLoadRequest request,
-    String url,
-  ) async {
+    String url, {
+    Map<String, String>? headers,
+  }) async {
     _ensureCurrentTrackLoad(request);
     _sourceNeedsReload = true;
     _nativeLoadInFlight = true;
     try {
-      await _player.setUrl(url);
+      await _player.setUrl(url, headers: headers);
     } finally {
       _nativeLoadInFlight = false;
     }
@@ -1258,6 +1270,7 @@ class AudioPlayerService {
           // 生成模糊后的封面并保存到临时文件
           final blurredFilePath = await ImageBlurUtil.blurNetworkImageToFile(
             displayArtworkUrl,
+            workId: track.workId,
             cacheKey: track.workId == null
                 ? null
                 : 'work_cover_${track.workId}',
@@ -1383,6 +1396,10 @@ class AudioPlayerService {
     }
 
     final nextTrack = _queue[_currentIndex + 1];
+    if (nextTrack.workId != null && nextTrack.workId! < 0) {
+      unawaited(_cancelNextTrackPreload());
+      return;
+    }
 
     final hash = nextTrack.hash;
     final url = nextTrack.url;

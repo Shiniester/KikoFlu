@@ -472,6 +472,7 @@ class _OfflineFileExplorerWidgetState
               title: widget.work.title,
               images: target.toGalleryMaps(),
               initialIndex: target.initialIndex,
+              workId: widget.work.id,
             ),
           ),
         );
@@ -762,6 +763,7 @@ class _OfflineFileExplorerWidgetState
       showTranslation: widget.translate,
     );
   }
+
   // 处理文件点击
   void _handleFileTap(dynamic file, String title, String parentPath) {
     final action = _tapResolver.resolve(file);

@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/works_provider.dart';
+import '../models/audio_source.dart';
+import '../providers/audio_source_provider.dart';
 import '../utils/scroll_optimization.dart';
 import '../widgets/sort_dialog.dart';
 import '../widgets/works_grid_view.dart';
@@ -64,6 +66,7 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
   }
 
   void _showSortDialog(BuildContext context) {
+    if (ref.read(audioSourceProvider) == AudioSource.jpAsmr) return;
     final displayMode = ref.read(worksProvider).displayMode;
     final isRecommendMode =
         displayMode == DisplayMode.popular ||
@@ -114,6 +117,7 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
       setState(() => _displayGeneration++);
     });
     final worksState = ref.watch(worksProvider);
+    final audioSource = ref.watch(audioSourceProvider);
     final isRecommendMode =
         worksState.displayMode == DisplayMode.popular ||
         worksState.displayMode == DisplayMode.recommended;
@@ -124,10 +128,15 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
     final contentTopPadding = toolbarTop + 56;
     final displayGeneration = _displayGeneration;
     final toolbar = FloatingFeedToolbar(
-      modeActions: _buildModeActions(context, worksState),
+      modeActions: _buildModeActions(
+        context,
+        worksState,
+        isJapaneseAsmr: audioSource == AudioSource.jpAsmr,
+      ),
       toolActions: _buildToolActions(
         context,
         worksState,
+        isJapaneseAsmr: audioSource == AudioSource.jpAsmr,
         isRecommendMode: isRecommendMode,
       ),
     );
@@ -196,8 +205,9 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
 
   List<FloatingFeedModeAction> _buildModeActions(
     BuildContext context,
-    WorksState worksState,
-  ) {
+    WorksState worksState, {
+    required bool isJapaneseAsmr,
+  }) {
     return [
       FloatingFeedModeAction(
         icon: Icons.grid_view,
@@ -205,24 +215,27 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
         isSelected: worksState.displayMode == DisplayMode.all,
         onPressed: () => _changeDisplayMode(DisplayMode.all),
       ),
-      FloatingFeedModeAction(
-        icon: Icons.local_fire_department,
-        label: S.of(context).displayModePopular,
-        isSelected: worksState.displayMode == DisplayMode.popular,
-        onPressed: () => _changeDisplayMode(DisplayMode.popular),
-      ),
-      FloatingFeedModeAction(
-        icon: Icons.auto_awesome,
-        label: S.of(context).displayModeRecommended,
-        isSelected: worksState.displayMode == DisplayMode.recommended,
-        onPressed: () => _changeDisplayMode(DisplayMode.recommended),
-      ),
+      if (!isJapaneseAsmr)
+        FloatingFeedModeAction(
+          icon: Icons.local_fire_department,
+          label: S.of(context).displayModePopular,
+          isSelected: worksState.displayMode == DisplayMode.popular,
+          onPressed: () => _changeDisplayMode(DisplayMode.popular),
+        ),
+      if (!isJapaneseAsmr)
+        FloatingFeedModeAction(
+          icon: Icons.auto_awesome,
+          label: S.of(context).displayModeRecommended,
+          isSelected: worksState.displayMode == DisplayMode.recommended,
+          onPressed: () => _changeDisplayMode(DisplayMode.recommended),
+        ),
     ];
   }
 
   List<FloatingFeedToolAction> _buildToolActions(
     BuildContext context,
     WorksState worksState, {
+    required bool isJapaneseAsmr,
     required bool isRecommendMode,
   }) {
     return [
@@ -241,22 +254,24 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
         tooltip: S.of(context).layout,
         onPressed: () => ref.read(worksProvider.notifier).toggleLayoutType(),
       ),
-      FloatingFeedToolAction(
-        icon: SubtitleFilterMode.fromValue(worksState.subtitleFilter).isActive
-            ? Icons.closed_caption
-            : Icons.closed_caption_off,
-        tooltip: S.of(context).subtitleFilter,
-        isSelected: SubtitleFilterMode.fromValue(
-          worksState.subtitleFilter,
-        ).isActive,
-        onPressed: () =>
-            ref.read(worksProvider.notifier).toggleSubtitleFilter(),
-      ),
-      FloatingFeedToolAction(
-        icon: Icons.sort,
-        tooltip: S.of(context).sort,
-        onPressed: isRecommendMode ? null : () => _showSortDialog(context),
-      ),
+      if (!isJapaneseAsmr)
+        FloatingFeedToolAction(
+          icon: SubtitleFilterMode.fromValue(worksState.subtitleFilter).isActive
+              ? Icons.closed_caption
+              : Icons.closed_caption_off,
+          tooltip: S.of(context).subtitleFilter,
+          isSelected: SubtitleFilterMode.fromValue(
+            worksState.subtitleFilter,
+          ).isActive,
+          onPressed: () =>
+              ref.read(worksProvider.notifier).toggleSubtitleFilter(),
+        ),
+      if (!isJapaneseAsmr)
+        FloatingFeedToolAction(
+          icon: Icons.sort,
+          tooltip: S.of(context).sort,
+          onPressed: isRecommendMode ? null : () => _showSortDialog(context),
+        ),
     ];
   }
 

@@ -36,12 +36,14 @@ class LibraryTabStrip extends StatelessWidget {
     required this.tabs,
     this.onTap,
     this.motionKey,
+    this.leading,
   });
   final TabController controller;
   final ValueListenable<bool> visible;
   final List<Widget> tabs;
   final ValueChanged<int>? onTap;
   final Key? motionKey;
+  final Widget? leading;
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<bool>(
     valueListenable: visible,
@@ -71,21 +73,30 @@ class LibraryTabStrip extends StatelessWidget {
     child: FloatingToolbarSurface(
       child: SizedBox(
         height: 40,
-        child: TabBar(
-          controller: controller,
-          onTap: onTap,
-          isScrollable: true,
-          tabAlignment: TabAlignment.start,
-          dividerColor: Colors.transparent,
-          indicatorSize: TabBarIndicatorSize.tab,
-          indicator: BoxDecoration(
-            color: Theme.of(context).colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          labelColor: Theme.of(context).colorScheme.primary,
-          unselectedLabelColor: Theme.of(context).colorScheme.onSurfaceVariant,
-          splashBorderRadius: BorderRadius.circular(20),
-          tabs: tabs,
+        child: Row(
+          children: [
+            if (leading != null) ...[leading!, const SizedBox(width: 4)],
+            Expanded(
+              child: TabBar(
+                controller: controller,
+                onTap: onTap,
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                dividerColor: Colors.transparent,
+                indicatorSize: TabBarIndicatorSize.tab,
+                indicator: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                labelColor: Theme.of(context).colorScheme.primary,
+                unselectedLabelColor: Theme.of(
+                  context,
+                ).colorScheme.onSurfaceVariant,
+                splashBorderRadius: BorderRadius.circular(20),
+                tabs: tabs,
+              ),
+            ),
+          ],
         ),
       ),
     ),

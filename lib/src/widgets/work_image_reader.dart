@@ -7,6 +7,7 @@ import '../comics/ui/comic_reader_screen.dart';
 import '../services/cache_service.dart';
 import '../services/storage_service.dart';
 import '../utils/local_file_url.dart';
+import '../utils/audio_source_headers.dart';
 
 class WorkImageReader extends StatelessWidget {
   const WorkImageReader({
@@ -14,11 +15,13 @@ class WorkImageReader extends StatelessWidget {
     required this.title,
     required this.images,
     this.initialIndex = 0,
+    this.workId,
   });
 
   final String title;
   final List<Map<String, String>> images;
   final int initialIndex;
+  final int? workId;
 
   @override
   Widget build(BuildContext context) => ComicReaderScreen.images(
@@ -38,7 +41,10 @@ class WorkImageReader extends StatelessWidget {
       key:
           image['cacheKey'] ??
           CacheService.imageCacheKey(imageUrl: imageUrl, hash: image['hash']),
-      headers: StorageService.serverCookieHeaders,
+      headers: sourceAwareMediaHeaders(
+        workId,
+        accountHeaders: StorageService.serverCookieHeaders,
+      ),
     );
     try {
       return await (await lease.file).readAsBytes();

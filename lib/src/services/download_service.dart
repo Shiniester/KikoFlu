@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/download_task.dart';
@@ -9,10 +10,12 @@ import '../models/scan_models.dart';
 import '../performance/performance_build_guard.dart';
 import '../performance/performance_download_counters.dart';
 import '../utils/file_icon_utils.dart';
+import '../utils/audio_source_headers.dart';
 import 'cache_service.dart';
 import 'storage_service.dart';
 import 'speculative_transfer_coordinator.dart';
 import 'kikoeru_api_service.dart';
+import 'japanese_asmr_service.dart';
 import 'download_path_service.dart';
 import 'download_file_path_service.dart';
 import 'download_disk_inventory_scanner.dart';
@@ -362,7 +365,10 @@ class DownloadService implements DownloadTaskRepository {
       final coverLease = CacheService.imageCacheManager.acquireFile(
         coverUrl,
         key: 'work_cover_$workId',
-        headers: StorageService.serverCookieHeaders,
+        headers: sourceAwareMediaHeaders(
+          workId,
+          accountHeaders: StorageService.serverCookieHeaders,
+        ),
       );
       try {
         await (await coverLease.file).copy(coverFile.path);
@@ -879,11 +885,13 @@ class DownloadService implements DownloadTaskRepository {
     _cancelTokens[task.id] = cancelToken;
 
     try {
+      final isAudio = FileIconUtils.inferFileType(task.fileName) == 'audio';
       // 先检查缓存中是否已有此文件
       if (task.hash != null && task.hash!.isNotEmpty) {
         final fileType = task.fileName.split('.').last.toLowerCase();
-        final isAudio = FileIconUtils.inferFileType(task.fileName) == 'audio';
-        final cachedPath = isAudio
+        final cachedPath = task.workId < 0
+            ? null
+            : isAudio
             ? await CacheService.getCachedAudioFile(task.hash!)
             : await CacheService.getCachedFileResource(
                 workId: task.workId,
@@ -939,10 +947,11 @@ class DownloadService implements DownloadTaskRepository {
         tag: 'Download',
       );
 
-      if ((!await tempFile.exists() || await tempFile.length() == 0) &&
+      if (task.workId >= 0 &&
+          (!await tempFile.exists() || await tempFile.length() == 0) &&
           task.hash != null &&
           task.hash!.isNotEmpty &&
-          FileIconUtils.inferFileType(task.fileName) == 'audio') {
+          isAudio) {
         final audioPrefix = await CacheService.audioCacheFiles.partialFile(
           task.hash!,
         );
@@ -967,11 +976,32 @@ class DownloadService implements DownloadTaskRepository {
         }
       }
 
+      late final String downloadUrl;
+      if (task.workId < 0) {
+        final resolverToken = CancelToken();
+        if (cancelToken.isCancelled) resolverToken.cancel();
+        unawaited(
+          cancelToken.whenCancelled.then((_) {
+            if (!resolverToken.isCancelled) resolverToken.cancel();
+          }),
+        );
+        downloadUrl = await JapaneseAsmrService.instance.resolveDownloadUrl(
+          task.downloadUrl,
+          cancelToken: resolverToken,
+        );
+      } else {
+        downloadUrl = task.downloadUrl;
+      }
       final transferResult = await _resumableFileTransfer.download(
-        uri: Uri.parse(task.downloadUrl),
+        uri: Uri.parse(downloadUrl),
         partialFile: tempFile,
         cancellation: cancelToken,
-        headers: StorageService.serverCookieHeaders,
+        headers: task.workId < 0
+            ? isAudio
+                  ? const <String, String>{}
+                  : japaneseAsmrRequestHeaders
+            : StorageService.serverCookieHeaders,
+        expectedAudio: isAudio,
         onProgress: (received, total) {
           if (total != null) {
             // 诊断：检测服务器报告的总大小是否变化（可能导致进度条跳变）

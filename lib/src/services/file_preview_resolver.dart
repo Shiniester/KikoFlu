@@ -217,6 +217,7 @@ class FilePreviewResolver {
     required String token,
     required Map<String, bool> downloadedFiles,
     required Map<String, String> fileRelativePaths,
+    String? directMediaUrl,
     bool allowNetwork = true,
   }) async {
     final localUrl = await _resolveDownloadedLocalUrl(
@@ -228,7 +229,19 @@ class FilePreviewResolver {
     if (localUrl != null) return localUrl;
 
     if (!allowNetwork) return null;
+    if (workId < 0) return _absoluteExternalMediaUrl(directMediaUrl);
     return mediaStreamUrl(host: host, hash: hash, token: token);
+  }
+
+  String? _absoluteExternalMediaUrl(String? value) {
+    final uri = value == null ? null : Uri.tryParse(value);
+    if (uri == null ||
+        !uri.hasScheme ||
+        (uri.scheme != 'http' && uri.scheme != 'https') ||
+        uri.host.isEmpty) {
+      return null;
+    }
+    return uri.toString();
   }
 
   Future<PreviewDocumentTargetResult> resolveOnlineDocumentTarget({
@@ -244,7 +257,7 @@ class FilePreviewResolver {
     final title = FileTreeUtils.titleOf(file, defaultValue: unknownTitle);
     final hash = FileTreeUtils.property(file, 'hash')?.toString();
 
-    if (hash == null || hash.isEmpty || host.isEmpty) {
+    if (hash == null || hash.isEmpty || (workId >= 0 && host.isEmpty)) {
       return PreviewDocumentTargetResult.failure(
         PreviewDocumentTargetStatus.missingOnlineInfo,
         title: title,
@@ -258,6 +271,10 @@ class FilePreviewResolver {
       token: token,
       downloadedFiles: downloadedFiles,
       fileRelativePaths: fileRelativePaths,
+      directMediaUrl: FileTreeUtils.property(
+        file,
+        'mediaStreamUrl',
+      )?.toString(),
       allowNetwork: allowNetwork,
     );
     if (url == null) {
@@ -295,7 +312,11 @@ class FilePreviewResolver {
       token: token,
       downloadedFiles: downloadedFiles,
       fileRelativePaths: fileRelativePaths,
-      allowNetwork: host.isNotEmpty && token.isNotEmpty,
+      directMediaUrl: FileTreeUtils.property(
+        file,
+        'mediaStreamUrl',
+      )?.toString(),
+      allowNetwork: workId < 0 || (host.isNotEmpty && token.isNotEmpty),
     );
 
     if (source == null) {
@@ -333,6 +354,10 @@ class FilePreviewResolver {
         token: token,
         downloadedFiles: downloadedFiles,
         fileRelativePaths: fileRelativePaths,
+        directMediaUrl: FileTreeUtils.property(
+          file,
+          'mediaStreamUrl',
+        )?.toString(),
       );
 
       if (url == null) continue;
@@ -352,7 +377,7 @@ class FilePreviewResolver {
     required Map<String, String> fileRelativePaths,
     required String unknownTitle,
   }) async {
-    if (host.isEmpty) {
+    if (workId >= 0 && host.isEmpty) {
       return const PreviewImageGalleryResult.failure(
         PreviewImageGalleryStatus.missingOnlineInfo,
       );

@@ -87,6 +87,21 @@ void main() {
     },
   );
 
+  test('HLS playlist URLs bypass progressive byte-stream caching', () async {
+    const hlsTrack = AudioTrack(
+      id: 'jp-main',
+      title: 'RJ01726738.m4a',
+      url: 'https://v.weeab0o.xyz/RJ01726738.m3u8',
+      workId: -1726738,
+      hash: 'jp-1726738-main',
+    );
+
+    await service.updateQueue([hlsTrack], autoplay: true);
+
+    expect(player.loaded, [hlsTrack.url]);
+    expect(player.played, [hlsTrack.url]);
+  });
+
   test('next during A loading merges B and C and publishes only C', () async {
     final published = <String?>[];
     final loading = <bool>[];

@@ -16,6 +16,7 @@ import '../utils/string_utils.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/scroll_optimization.dart';
 import '../utils/collection_grid_layout.dart';
+import '../utils/audio_source_headers.dart';
 import '../utils/ui_tokens.dart';
 import '../providers/auth_provider.dart';
 import '../providers/collection_layout_provider.dart';
@@ -985,6 +986,8 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
         work = null;
       }
     }
+    final sourceLabel =
+        work?.sourceLabel ?? (workId < 0 ? 'JP-ASMR' : 'ASMR.ONE');
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1042,6 +1045,16 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
                   fontWeight: FontWeight.w600,
                   height: 1.3,
                   color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                sourceLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
               const SizedBox(height: 8),
@@ -1250,10 +1263,13 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
       }
     }
 
-    final httpHeaders = StorageService.serverCookieHeaders;
+    final httpHeaders = sourceAwareMediaHeaders(
+      work?.id,
+      accountHeaders: StorageService.serverCookieHeaders,
+    );
 
     // 降级使用网络封面
-    if (work != null && host.isNotEmpty) {
+    if (work != null && (host.isNotEmpty || work.isJapaneseAsmr)) {
       return WorkCoverClip(
         cornerRadius: cornerRadius,
         child: PrivacyBlurCover(
