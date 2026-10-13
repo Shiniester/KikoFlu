@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
@@ -9,6 +10,7 @@ import 'package:kikoeru_flutter/src/services/audio_cache_downloader.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/download_service.dart';
+import 'package:kikoeru_flutter/src/services/speculative_transfer_coordinator.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -24,6 +26,8 @@ void main() {
   String? downloadedTaskId;
 
   setUp(() async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.linux;
+    SpeculativeTransferCoordinator.instance.resetForTest();
     SharedPreferences.setMockInitialValues({
       'server_host': 'https://example.invalid',
       'current_user': '{"name":"tester"}',
@@ -54,6 +58,8 @@ void main() {
       invalidationGate.complete();
     }
     await service.dispose();
+    SpeculativeTransferCoordinator.instance.resetForTest();
+    debugDefaultTargetPlatformOverride = null;
     final taskId = downloadedTaskId;
     if (taskId != null) await DownloadService.instance.deleteTask(taskId);
     await root.delete(recursive: true);
@@ -134,6 +140,147 @@ void main() {
       await service.play();
       await service.stop();
       expect(downloader.targets.last, isNull);
+    },
+  );
+
+  test('Android remote cache waits for playback buffer headroom', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    const current = AudioTrack(
+      id: 'current-buffered',
+      title: 'current-buffered.flac',
+      url: 'https://example.invalid/current-buffered.flac',
+      hash: 'current-buffered-audio',
+    );
+    const next = AudioTrack(
+      id: 'next-buffered',
+      title: 'next-buffered.flac',
+      url: 'https://example.invalid/next-buffered.flac',
+      hash: 'current-buffered-audio',
+    );
+    service.updatePreloadThreshold(const Duration(seconds: 30));
+    player.bufferedPosition = const Duration(seconds: 1);
+
+    await service.updateQueue([current, next], autoplay: true);
+    expect(downloader.targets, isEmpty);
+
+    player.bufferedPosition = const Duration(seconds: 15);
+    player.positions.add(player.position);
+    expect(downloader.targets.last?.uri, Uri.parse(current.url));
+
+    player.position = const Duration(minutes: 4, seconds: 40);
+    player.bufferedPosition = const Duration(minutes: 4, seconds: 46);
+    player.positions.add(player.position);
+    // The hash matches the current target, but the URI changed, so starting
+    // the next target still needs the full 15 seconds.
+    expect(downloader.targets.last, isNull);
+
+    player.bufferedPosition = const Duration(minutes: 4, seconds: 55);
+    player.positions.add(player.position);
+    expect(downloader.targets.last?.uri, Uri.parse(next.url));
+
+    player.bufferedPosition = const Duration(minutes: 4, seconds: 46);
+    player.positions.add(player.position);
+    expect(downloader.targets.last?.uri, Uri.parse(next.url));
+
+    player.bufferedPosition = const Duration(minutes: 4, seconds: 44);
+    player.positions.add(player.position);
+    expect(downloader.targets.last, isNull);
+
+    player.bufferedPosition = const Duration(minutes: 4, seconds: 46);
+    player.positions.add(player.position);
+    expect(downloader.targets.last, isNull);
+
+    player.bufferedPosition = const Duration(minutes: 4, seconds: 55);
+    player.positions.add(player.position);
+    expect(downloader.targets.last?.uri, Uri.parse(next.url));
+
+    player.processingState = ProcessingState.buffering;
+    player.emitPlayerState();
+    await until(() => downloader.targets.last == null);
+    expect(downloader.targets.last, isNull);
+
+    player.processingState = ProcessingState.ready;
+    player.bufferedPosition = const Duration(minutes: 4, seconds: 55);
+    player.emitPlayerState();
+    await until(() => downloader.targets.last?.uri == Uri.parse(next.url));
+    expect(downloader.targets.last?.uri, Uri.parse(next.url));
+
+    SpeculativeTransferCoordinator.instance.updateUserDownloads(
+      active: 1,
+      capacity: 1,
+    );
+    expect(downloader.targets.last, isNull);
+    SpeculativeTransferCoordinator.instance.updateUserDownloads(
+      active: 0,
+      capacity: 1,
+    );
+    expect(downloader.targets.last?.uri, Uri.parse(next.url));
+
+    player.position = const Duration(minutes: 4, seconds: 59);
+    player.bufferedPosition = const Duration(minutes: 5);
+    player.positions.add(player.position);
+    expect(downloader.targets.last?.uri, Uri.parse(next.url));
+
+    service.updatePreloadThreshold(null);
+    expect(downloader.targets.last?.uri, Uri.parse(current.url));
+  });
+
+  test('Android service default preloads one minute ahead', () async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    final androidPlayer = ControlledPlayer()
+      ..bufferedPosition = const Duration(minutes: 5);
+    final androidDownloader = _PendingCacheDownloader();
+    final androidService = AudioPlayerService.forTesting(
+      androidPlayer,
+      sessionStore: MemorySessionStore(),
+      cacheDownloader: androidDownloader,
+    );
+    addTearDown(androidService.dispose);
+    const current = AudioTrack(
+      id: 'current-default',
+      title: 'current-default.flac',
+      url: 'https://example.invalid/current-default.flac',
+      hash: 'current-default-audio',
+    );
+    const next = AudioTrack(
+      id: 'next-default',
+      title: 'next-default.flac',
+      url: 'https://example.invalid/next-default.flac',
+      hash: 'next-default-audio',
+    );
+
+    await androidService.updateQueue([current, next], autoplay: true);
+    androidPlayer.position = const Duration(minutes: 4);
+    androidPlayer.positions.add(androidPlayer.position);
+
+    expect(androidDownloader.targets.last?.hash, next.hash);
+  });
+
+  test(
+    'Android local sources can preload without stream buffer headroom',
+    () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final localPath = '${root.path}/local.flac';
+      await File(localPath).writeAsBytes([1, 2, 3]);
+      final local = AudioTrack(
+        id: 'local-buffered',
+        title: 'local.flac',
+        url: Uri.file(localPath).toString(),
+      );
+      const next = AudioTrack(
+        id: 'next-local-buffered',
+        title: 'next-local-buffered.flac',
+        url: 'https://example.invalid/next-local-buffered.flac',
+        hash: 'next-local-buffered-audio',
+      );
+      service.updatePreloadThreshold(const Duration(seconds: 10));
+
+      await service.updateQueue([local, next], autoplay: true);
+      player.position = const Duration(minutes: 4, seconds: 55);
+      player.bufferedPosition = Duration.zero;
+      player.positions.add(player.position);
+
+      expect(downloader.targets.last?.hash, next.hash);
     },
   );
 

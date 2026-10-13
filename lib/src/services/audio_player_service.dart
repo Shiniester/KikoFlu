@@ -179,11 +179,24 @@ class AudioPlayerService {
   static AudioPlayerService get instance =>
       _instance ??= AudioPlayerService._();
 
+  static const Duration _androidBackBufferDuration = Duration(seconds: 30);
+  static const Duration _androidCacheStartBuffer = Duration(seconds: 15);
+  static const Duration _androidCacheContinueBuffer = Duration(seconds: 5);
+
   AudioPlayerService._() {
     if (Platform.isAndroid) {
       _androidLoudnessEnhancer = AndroidLoudnessEnhancer();
       _player = AudioPlayer(
         useProxyForRequestHeaders: false,
+        audioLoadConfiguration: const AudioLoadConfiguration(
+          androidLoadControl: AndroidLoadControl(
+            bufferForPlaybackDuration: Duration(milliseconds: 750),
+            bufferForPlaybackAfterRebufferDuration: Duration(seconds: 5),
+            // Keep the back buffer from crowding out forward buffering.
+            backBufferDuration: _androidBackBufferDuration,
+            prioritizeTimeOverSizeThresholds: true,
+          ),
+        ),
         audioPipeline: AudioPipeline(
           androidAudioEffects: [_androidLoudnessEnhancer!],
         ),
@@ -281,8 +294,10 @@ class AudioPlayerService {
   String? _sessionOwnerKey;
 
   // 下一首预加载：剩余时长低于此阈值时提前缓存下一首，避免切歌空档
-  // null 表示关闭预加载。默认 10 秒，可由设置更新。
-  Duration? _preloadThreshold = const Duration(seconds: 10);
+  // null 表示关闭预加载。Android 默认 60 秒，其他平台默认 10 秒。
+  Duration? _preloadThreshold = defaultTargetPlatform == TargetPlatform.android
+      ? const Duration(seconds: 60)
+      : const Duration(seconds: 10);
   StreamSubscription<bool>? _speculativePauseSubscription;
 
   static const List<String> _lyricExtensions = [
@@ -1277,18 +1292,43 @@ class AudioPlayerService {
         !SpeculativeTransferCoordinator
             .instance
             .shouldPauseSpeculativeTransfers) {
-      final threshold = _preloadThreshold;
+      final source = _player.audioSource;
+      final position = _player.position;
       final duration = _player.duration;
+      final threshold = _preloadThreshold;
       if (threshold != null &&
           threshold > Duration.zero &&
           _appLoopMode != LoopMode.one &&
           duration != null &&
           duration > Duration.zero &&
-          duration - _player.position <= threshold &&
+          duration - position <= threshold &&
           hasNext) {
         target = _audioCacheRequestForTrack(_queue[_currentIndex + 1]);
       }
       target ??= _audioCacheRequestForTrack(currentTrack);
+      if (target != null &&
+          defaultTargetPlatform == TargetPlatform.android &&
+          source is UriAudioSource &&
+          (source.uri.scheme == 'http' || source.uri.scheme == 'https')) {
+        final existing = _audioCacheTarget;
+        final isContinuingTarget =
+            existing?.hash == target.hash && existing?.uri == target.uri;
+        final requiredBuffer = isContinuingTarget
+            ? _androidCacheContinueBuffer
+            : _androidCacheStartBuffer;
+        final remaining = duration == null
+            ? requiredBuffer
+            : duration - position;
+        final minimumBuffer = remaining <= Duration.zero
+            ? Duration.zero
+            : remaining < requiredBuffer
+            ? remaining
+            : requiredBuffer;
+        if (remaining <= Duration.zero ||
+            _player.bufferedPosition - position < minimumBuffer) {
+          target = null;
+        }
+      }
     }
     _setAudioCacheTarget(target);
   }
@@ -1483,10 +1523,48 @@ class AudioPlayerService {
         !_disposed &&
         generation == _trackLoadGeneration &&
         revision == _seekRevision;
+    bool isCurrentSeekLoad(_TrackLoadRequest request) =>
+        !_disposed && revision == _seekRevision && _isLatestTrackLoad(request);
 
     final source = _androidSeekRecovery ? _player.audioSource : null;
     final track = currentTrack;
-    if (source != null && track != null) {
+    _TrackLoadRequest? cachedTrackLoad;
+    if (source is UriAudioSource &&
+        (source.uri.scheme == 'http' || source.uri.scheme == 'https') &&
+        track != null) {
+      final currentPosition = _player.position;
+      final outsideBuffer =
+          position > _player.bufferedPosition ||
+          position < currentPosition - _androidBackBufferDuration;
+      final hash = track.hash;
+      if (outsideBuffer && hash != null && hash.isNotEmpty) {
+        String? cachedPath;
+        try {
+          cachedPath = await CacheService.getCachedAudioFile(hash);
+        } catch (error) {
+          _log.captureOutput('[Audio] Cached seek lookup failed: $error');
+        }
+        if (!isCurrentSeek()) return;
+
+        final latestPosition = _player.position;
+        final stillOutsideBuffer =
+            position > _player.bufferedPosition ||
+            position < latestPosition - _androidBackBufferDuration;
+        if (cachedPath != null && stillOutsideBuffer) {
+          cachedTrackLoad = _enqueueTrackLoad(
+            track,
+            emitCurrentTrack: false,
+            autoplay: _desiredPlaying,
+            direction: PlayerTrackChangeDirection.none,
+            initialPosition: position,
+          );
+          await cachedTrackLoad.future;
+          if (!isCurrentSeekLoad(cachedTrackLoad)) return;
+        }
+      }
+    }
+
+    if (cachedTrackLoad == null && source != null && track != null) {
       _seekRecoveryGeneration = generation;
       final previousPosition = _player.position;
       final cancellation = Completer<void>();
@@ -1540,10 +1618,10 @@ class AudioPlayerService {
           _seekCancellation = null;
         }
       }
-    } else {
+    } else if (cachedTrackLoad == null) {
       await _player.seek(position);
     }
-    if (!isCurrentSeek()) return;
+    if (cachedTrackLoad == null && !isCurrentSeek()) return;
     if (!_handlingTrackCompletion &&
         _player.processingState != ProcessingState.completed) {
       _completionHandled = false;

@@ -801,6 +801,8 @@ class ControlledPlayer extends Fake implements AudioPlayer {
   @override
   Duration position = Duration.zero;
   @override
+  Duration bufferedPosition = const Duration(minutes: 5);
+  @override
   Duration? get duration => const Duration(minutes: 5);
   @override
   ProcessingState processingState = ProcessingState.idle;
