@@ -9,7 +9,6 @@ import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/services/subtitle_database.dart';
 import 'package:kikoeru_flutter/src/services/subtitle_library_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sqflite/sqflite.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -37,6 +36,7 @@ void main() {
         url: 'file:///disc1/voice.mp3',
         sourcePath: '/disc1/voice.mp3',
         workId: 123456,
+        hash: 'local:voice.mp3',
       );
       const b = AudioTrack(
         id: 'b',
@@ -44,6 +44,7 @@ void main() {
         url: 'file:///disc2/voice.mp3',
         sourcePath: '/disc2/voice.mp3',
         workId: 123456,
+        hash: 'local:voice.mp3',
       );
       final c = a.copyWith(workId: 654321);
       try {
@@ -88,6 +89,24 @@ void main() {
             .setMockMethodCallHandler(channel, null);
         await directory.delete(recursive: true);
       }
+    },
+  );
+
+  test(
+    'a real server hash keeps generated subtitles associated across downloads',
+    () {
+      const streamed = AudioTrack(
+        id: 'remote',
+        title: '音声.mp3',
+        url: 'https://example.test/voice.mp3',
+        workId: 123456,
+        hash: 'server-audio-hash',
+      );
+      final downloaded = streamed.copyWith(sourcePath: '/download/音声.mp3');
+      expect(
+        GeneratedSubtitleStore.audioIdentity(downloaded),
+        GeneratedSubtitleStore.audioIdentity(streamed),
+      );
     },
   );
 }

@@ -91,59 +91,85 @@ class _AudioSubtitleGenerationSheet extends ConsumerWidget {
                   ),
                 ],
               ),
-              Text(
-                l10n.subtitleGenerationDescription,
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                l10n.subtitleGenerationCloseHint,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 8),
               Flexible(
-                child: ListView.builder(
+                child: CustomScrollView(
                   key: const ValueKey('audio-subtitle-generation-jobs'),
-                  itemCount: jobIdentities.length,
-                  itemBuilder: (context, index) => _AudioSubtitleJobTile(
-                    key: ValueKey(jobIdentities[index]),
-                    identity: jobIdentities[index],
-                  ),
-                ),
-              ),
-              const Divider(height: 20),
-              Text(
-                l10n.subtitleGenerationSummary(
-                  summary.completed,
-                  summary.skipped,
-                  summary.unsupported,
-                  summary.failed,
-                  summary.cancelled,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextButton(
-                      onPressed: summary.hasActive
-                          ? () => ref
-                                .read(audioSubtitleGenerationProvider.notifier)
-                                .cancelAll()
-                          : null,
-                      child: Text(l10n.subtitleGenerationCancelAll),
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            l10n.subtitleGenerationDescription,
+                            style: TextStyle(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            l10n.subtitleGenerationCloseHint,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                                ),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                      ),
                     ),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: Text(l10n.close),
-                  ),
-                ],
+                    SliverList.builder(
+                      itemCount: jobIdentities.length,
+                      itemBuilder: (context, index) => _AudioSubtitleJobTile(
+                        key: ValueKey(jobIdentities[index]),
+                        identity: jobIdentities[index],
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Divider(height: 20),
+                          Text(
+                            l10n.subtitleGenerationSummary(
+                              summary.completed,
+                              summary.skipped,
+                              summary.unsupported,
+                              summary.failed,
+                              summary.cancelled,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextButton(
+                                  onPressed: summary.hasActive
+                                      ? () => ref
+                                            .read(
+                                              audioSubtitleGenerationProvider
+                                                  .notifier,
+                                            )
+                                            .cancelAll()
+                                      : null,
+                                  child: Text(l10n.subtitleGenerationCancelAll),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.of(context).pop(),
+                                child: Text(l10n.close),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),

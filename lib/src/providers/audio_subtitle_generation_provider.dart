@@ -204,6 +204,13 @@ class AudioSubtitleActions {
   Future<bool> startCurrentTrack() async {
     final track = ref.read(currentTrackProvider).valueOrNull;
     if (track == null) return false;
+    final details = ref.read(playerWorkDetailsProvider).valueOrNull;
+    final work =
+        details != null &&
+            GeneratedSubtitleStore.audioIdentity(details.track) ==
+                GeneratedSubtitleStore.audioIdentity(track)
+        ? details.work
+        : Work(id: track.workId ?? 0, title: track.album ?? track.title);
     final auth = ref.read(authProvider);
     final fileList = ref.read(fileListControllerProvider);
     final loader = ref.read(playbackLyricFileTreeLoaderProvider);
@@ -239,12 +246,22 @@ class AudioSubtitleActions {
         })
         .toList(growable: false);
     final variant = matches.length == 1 ? matches.single : null;
+    final metadata = Map<String, dynamic>.from(work.toJson());
+    metadata['children'] =
+        DownloadFilePathService.annotateFileTreeWithLocalPaths(
+          files.isNotEmpty
+              ? files
+              : [
+                  {'type': 'audio', 'title': track.title, 'hash': track.hash},
+                ],
+        );
     final request = _request(
       track: track,
       files: files,
       variant: variant,
       host: auth.host ?? '',
       token: auth.token ?? '',
+      metadata: metadata,
     );
     final active = ref
         .read(audioSubtitleGenerationProvider)

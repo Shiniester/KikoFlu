@@ -18,7 +18,7 @@ class GeneratedSubtitleStore {
 
   static String audioIdentity(AudioTrack track) {
     final hash = track.hash;
-    if (hash != null && hash.isNotEmpty) {
+    if (hash != null && hash.isNotEmpty && !hash.startsWith('local:')) {
       return '${track.workId ?? 0}:hash:$hash';
     }
     final localPath = track.sourcePath ?? LocalFileUrl.pathFromUrl(track.url);
