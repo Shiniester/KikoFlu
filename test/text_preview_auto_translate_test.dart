@@ -129,15 +129,20 @@ class _PendingAutoSaveNotifier extends AutoSaveTranslatedLyricsNotifier {
   }
 }
 
-Future<void> _pumpUntilFile(WidgetTester tester, File file) async {
-  for (
-    var attempt = 0;
-    attempt < 40 && await tester.runAsync(file.exists) != true;
-    attempt++
-  ) {
+Future<void> _pumpUntilFileContent(
+  WidgetTester tester,
+  File file,
+  String expected,
+) async {
+  for (var attempt = 0; attempt < 40; attempt++) {
+    final saved = await tester.runAsync(
+      () async => await file.exists() && await file.readAsString() == expected,
+    );
+    if (saved == true) return;
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     await tester.pump();
   }
+  fail('The saved subtitle did not contain the expected text.');
 }
 
 Future<void> _resolveAutoSavePreference(WidgetTester tester) async {
@@ -507,7 +512,7 @@ void main() {
 
       await tester.pumpWidget(_testApp(subtitle.path, title: 'track01.srt'));
       await _pumpUntilContent(tester, translated);
-      await _pumpUntilFile(tester, savedSubtitle);
+      await _pumpUntilFileContent(tester, savedSubtitle, translated);
 
       expect(
         await tester.runAsync(() => savedSubtitle.readAsString()),
