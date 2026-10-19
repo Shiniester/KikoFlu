@@ -14,22 +14,6 @@ void syncTabWithPagePosition(TabController tabs, double position) {
   tabs.offset = page - tabs.index;
 }
 
-Future<void> moveToTabPage(
-  PageController pages,
-  int index, {
-  required bool reduceMotion,
-}) {
-  if (reduceMotion) {
-    pages.jumpToPage(index);
-    return Future.value();
-  }
-  return pages.animateToPage(
-    index,
-    duration: tabPageDuration,
-    curve: Curves.ease,
-  );
-}
-
 /// Prepares the clicked page shell in the first frame, then restores lazy caching.
 class TabPageWarmup extends StatefulWidget {
   const TabPageWarmup({

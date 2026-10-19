@@ -17,7 +17,8 @@ _Avoid_: Player navigation, bottom menu
 **Audio Screen (音声页)**:
 The app page that contains the Works Home Page and the user's online marks,
 history, playlists, downloads, and subtitle library pages. A fixed header shows
-the menu button, current page name, and scoped search field. The drawer contains
+the menu button, current page name, and an entry to the scoped search screen.
+The drawer contains
 vertical source and page entries, followed by the current page's browse options.
 _Avoid_: Home page, My page
 
@@ -28,7 +29,7 @@ _Avoid_: Playback fallback, mirror server
 
 **Works Home Page (作品主页)**:
 The online works feed opened by selecting an Audio Source in the drawer,
-including the currently selected source. It has no separate drawer page entry.
+including the currently selected source. The drawer also has a fixed Home entry.
 The Audio Screen also contains the user's library pages.
 _Avoid_: Audio Screen, app home page
 

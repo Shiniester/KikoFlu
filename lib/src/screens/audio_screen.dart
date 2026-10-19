@@ -3,14 +3,11 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
-import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../models/audio_source.dart';
 import '../models/search_query.dart';
-import '../models/search_scope_session.dart';
-import '../models/search_type.dart';
 import '../models/sort_options.dart';
 import '../providers/audio_source_provider.dart';
 import '../providers/auth_provider.dart';
@@ -21,7 +18,6 @@ import '../providers/my_reviews_provider.dart';
 import '../providers/my_tabs_display_provider.dart';
 import '../providers/works_provider.dart'
     show DisplayMode, LayoutType, worksProvider;
-import '../providers/search_history_provider.dart';
 import '../utils/l10n_extensions.dart';
 import '../utils/scroll_optimization.dart';
 import '../utils/server_utils.dart';
@@ -40,9 +36,8 @@ import 'downloads_screen.dart';
 import 'history_screen.dart';
 import 'local_downloads_screen.dart';
 import 'playlists_screen.dart';
-import 'scoped_search_result_screen.dart';
-import 'search_result_screen.dart';
 import 'search_screen.dart';
+import 'settings_screen.dart';
 import 'subtitle_library_screen.dart';
 import 'works_screen.dart';
 export '../providers/my_reviews_provider.dart' show MyReviewLayoutType;
@@ -62,11 +57,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   final _downloadsKey = GlobalKey<LocalDownloadsScreenState>();
   final _subtitleKey = GlobalKey<SubtitleLibraryScreenState>();
   final _playlistsKey = GlobalKey<PlaylistsScreenState>();
-  int _pageRequest = 0;
-  bool _reduceMotion = false;
-  bool _pageSelectionSyncScheduled = false;
   String _selectedPageId = 'home';
-  String _subtitleSearchQuery = '';
   List<String> _tabIds = const ['works'];
 
   @override
@@ -148,8 +139,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
                 widget: SubtitleLibraryScreen(
                   key: _subtitleKey,
                   embedded: true,
-                  searchQuery: _subtitleSearchQuery,
-                  onSearchChanged: _setSubtitleSearchQuery,
                   onDrawerChanged: _refreshDrawer,
                 ),
               ),
@@ -165,7 +154,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   @override
   void initState() {
     super.initState();
-    _pages.addListener(_reconcileSelectedPage);
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _loadMyReviewsIfNeeded();
     });
@@ -186,9 +175,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
 
   @override
   void dispose() {
-    _pages
-      ..removeListener(_reconcileSelectedPage)
-      ..dispose();
+    _pages.dispose();
     _pageTarget.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -211,47 +198,12 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       ? 'works'
       : pageId;
 
-  void _reconcileSelectedPage() {
-    if (_pageTarget.value != null || !_pages.hasClients) return;
-    final pagePosition = _pages.page;
-    if (pagePosition == null) return;
-    final index = pagePosition.round().clamp(0, _tabIds.length - 1).toInt();
-    final physicalPage = _tabIds[index];
-    final page = physicalPage == 'works'
-        ? _pageForDisplayMode(ref.read(worksProvider).displayMode)
-        : physicalPage;
-    if (page == _selectedPageId) return;
-
-    if (SchedulerBinding.instance.schedulerPhase ==
-        SchedulerPhase.persistentCallbacks) {
-      if (_pageSelectionSyncScheduled) return;
-      _pageSelectionSyncScheduled = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _pageSelectionSyncScheduled = false;
-        if (mounted) _reconcileSelectedPage();
-      });
-      return;
-    }
-
-    setState(() {
-      _selectedPageId = page;
-      if (page != 'subtitleLibrary') _subtitleSearchQuery = '';
-    });
-  }
-
   void _selectPhysicalTab(int index, {required String selectedPageId}) {
     if (index < 0 || index >= _tabIds.length) return;
-    if (_selectedPageId != selectedPageId) {
-      setState(() => _selectedPageId = selectedPageId);
-    }
-    if (selectedPageId != 'subtitleLibrary') _setSubtitleSearchQuery('');
+    setState(() => _selectedPageId = selectedPageId);
     _pageTarget.value = index;
-    final request = ++_pageRequest;
-    moveToTabPage(_pages, index, reduceMotion: _reduceMotion).then((_) {
-      if (!mounted || request != _pageRequest) return;
-      _pageTarget.value = null;
-      _reconcileSelectedPage();
-    });
+    _pages.jumpToPage(index);
+    _pageTarget.value = null;
   }
 
   void _selectPage(String pageId) {
@@ -273,7 +225,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     await ref.read(audioSourceProvider.notifier).select(source);
     if (!mounted) return;
     ref.read(worksProvider.notifier).setDisplayMode(DisplayMode.all);
-    _setSubtitleSearchQuery('');
     _selectPhysicalTab(0, selectedPageId: 'home');
   }
 
@@ -281,27 +232,16 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     if (mounted) setState(() {});
   }
 
-  void _setSubtitleSearchQuery(String value) {
-    if (_subtitleSearchQuery == value) return;
-    setState(() => _subtitleSearchQuery = value);
-  }
-
-  void _clearSearch() => _setSubtitleSearchQuery('');
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    if (reduceMotion &&
-        !_reduceMotion &&
-        _pageTarget.value != null &&
-        _pages.hasClients) {
-      _pages.jumpToPage(_pageTarget.value!);
-    }
-    _reduceMotion = reduceMotion;
-  }
-
   void _openAdvancedSearch() {
+    if (_selectedPageId == 'subtitleLibrary') {
+      pushBottomDockRoute(
+        context,
+        builder: (_) => const GlobalAudioPlayerWrapper(
+          child: SubtitleLibraryScreen(searchPage: true),
+        ),
+      );
+      return;
+    }
     final scope = switch (_selectedPageId) {
       'onlineMarks' => SearchScope.onlineMarks,
       'history' => SearchScope.history,
@@ -319,53 +259,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
           showBackButton: true,
           scope: scope,
           progressFilter: progressFilter,
-        ),
-      ),
-    );
-  }
-
-  void _submitSearch(String query) {
-    if (_selectedPageId == 'subtitleLibrary') {
-      _setSubtitleSearchQuery(query);
-      return;
-    }
-    final scope = switch (_selectedPageId) {
-      'onlineMarks' => SearchScope.onlineMarks,
-      'history' => SearchScope.history,
-      'playlists' => SearchScope.playlists,
-      'downloads' => SearchScope.downloads,
-      _ => SearchScope.globalWorks,
-    };
-    final condition = SearchCondition(
-      id: 'library-keyword',
-      type: SearchType.keyword,
-      value: query,
-    );
-    if (scope == SearchScope.globalWorks) {
-      unawaited(
-        ref
-            .read(searchHistoryProvider.notifier)
-            .addHistory(keyword: query, displayText: query),
-      );
-      pushBottomDockRoute(
-        context,
-        builder: (_) => SearchResultScreen(keyword: query),
-      );
-      return;
-    }
-    final search = SearchQuery(
-      scope: scope,
-      conditions: [condition],
-      progressFilter: scope == SearchScope.onlineMarks
-          ? ref.read(myReviewsProvider).filter.value
-          : null,
-    );
-    pushBottomDockRoute(
-      context,
-      builder: (_) => GlobalAudioPlayerWrapper(
-        child: ScopedSearchResultScreen(
-          query: search,
-          session: SearchScopeSession(),
         ),
       ),
     );
@@ -464,6 +357,12 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       LibraryDrawerSection(
         title: s.libraryPages,
         children: [
+          LibraryDrawerTile(
+            icon: Icons.home_outlined,
+            title: s.navHome,
+            selected: _selectedPageId == 'home',
+            onTap: () => _selectPage('home'),
+          ),
           for (final page in pages)
             LibraryDrawerTile(
               icon: _pageIcon(page),
@@ -491,13 +390,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     required MyReviewsState marksState,
   }) {
     final s = S.of(context);
-    final options = <Widget>[
-      LibraryDrawerTile(
-        icon: Icons.search,
-        title: s.searchOnlineWorks,
-        onTap: _openAdvancedSearch,
-      ),
-    ];
+    final options = <Widget>[];
     switch (_selectedPageId) {
       case 'home':
       case 'popular':
@@ -837,21 +730,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     if (confirmed == true) await ref.read(historyProvider.notifier).clear();
   }
 
-  bool _handleScrollNotification(ScrollNotification notification) {
-    if (notification.depth == 0 &&
-        notification.metrics.axis == Axis.horizontal &&
-        ((notification is ScrollStartNotification &&
-                notification.dragDetails != null) ||
-            notification is ScrollEndNotification)) {
-      if (notification is ScrollStartNotification) {
-        _pageRequest++;
-        _pageTarget.value = null;
-      }
-      _reconcileSelectedPage();
-    }
-    return false;
-  }
-
   Widget _buildOnlineBookmarksPage() {
     if (ref.watch(authProvider).isAnonymous) return const AudioAccountPrompt();
     final state = ref.watch(myReviewsProvider);
@@ -971,11 +849,9 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     if (selectedIndex < 0) {
       selectedIndex = 0;
       _selectedPageId = _pageForDisplayMode(displayMode);
-      _subtitleSearchQuery = '';
     }
     final tabIds = tabs.map((tab) => tab.id).toList(growable: false);
     if (!listEquals(_tabIds, tabIds)) {
-      _pageRequest++;
       _pageTarget.value = null;
       _tabIds = tabIds;
       if (_pages.hasClients) _pages.jumpToPage(selectedIndex);
@@ -989,12 +865,16 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     return LibraryPageScaffold(
       title: title,
       searchHint: searchHint,
-      searchScopeKey: '${source.name}:$_selectedPageId',
-      searchQuery: _selectedPageId == 'subtitleLibrary'
-          ? _subtitleSearchQuery
-          : null,
-      onSearch: _submitSearch,
-      onSearchCleared: _clearSearch,
+      onSearch: _openAdvancedSearch,
+      drawerFooter: LibraryDrawerTile(
+        icon: Icons.settings_outlined,
+        title: S.of(context).audioSettings,
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => const SettingsScreen(audioOnly: true),
+          ),
+        ),
+      ),
       drawerChildren: _buildDrawerChildren(
         settings: settings,
         source: source,
@@ -1003,28 +883,26 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         marksState: marksState,
       ),
       floatingActionButton: _buildPageFab(activeDownloadCount, source: source),
-      body: NotificationListener<ScrollNotification>(
-        onNotification: _handleScrollNotification,
-        child: TabPageWarmup(
-          pages: _pages,
-          target: _pageTarget,
-          builder: (cacheExtent) => PageView.builder(
-            key: const ValueKey('audio-tab-pages'),
-            controller: _pages,
-            allowImplicitScrolling: cacheExtent > 0,
-            scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
-            itemCount: tabs.length,
-            findChildIndexCallback: (key) {
-              final index = tabs.indexWhere((tab) => ValueKey(tab.id) == key);
-              return index < 0 ? null : index;
-            },
-            itemBuilder: (context, index) => LazyTabPage(
-              key: ValueKey(tabs[index].id),
-              index: index,
-              target: _pageTarget,
-              pages: _pages,
-              child: tabs[index].widget,
-            ),
+      body: TabPageWarmup(
+        pages: _pages,
+        target: _pageTarget,
+        builder: (cacheExtent) => PageView.builder(
+          key: const ValueKey('audio-tab-pages'),
+          controller: _pages,
+          physics: const NeverScrollableScrollPhysics(),
+          allowImplicitScrolling: cacheExtent > 0,
+          scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
+          itemCount: tabs.length,
+          findChildIndexCallback: (key) {
+            final index = tabs.indexWhere((tab) => ValueKey(tab.id) == key);
+            return index < 0 ? null : index;
+          },
+          itemBuilder: (context, index) => LazyTabPage(
+            key: ValueKey(tabs[index].id),
+            index: index,
+            target: _pageTarget,
+            pages: _pages,
+            child: tabs[index].widget,
           ),
         ),
       ),

@@ -5,13 +5,8 @@ import 'package:kikoeru_flutter/src/widgets/library_page_scaffold.dart';
 
 void main() {
   Widget app({
-    String title = '热门',
-    String hint = '搜索热门',
-    ValueChanged<String>? onSearch,
+    VoidCallback? onSearch,
     VoidCallback? onSelect,
-    VoidCallback? onSearchCleared,
-    Object? searchScopeKey,
-    String? searchQuery,
     double textScale = 1,
   }) => MaterialApp(
     localizationsDelegates: S.localizationsDelegates,
@@ -24,24 +19,34 @@ void main() {
       child: child!,
     ),
     home: LibraryPageScaffold(
-      title: title,
-      searchHint: hint,
-      onSearch: onSearch ?? (_) {},
-      onSearchCleared: onSearchCleared,
-      searchScopeKey: searchScopeKey,
-      searchQuery: searchQuery,
+      title: '热门',
+      searchHint: '搜索热门',
+      onSearch: onSearch ?? () {},
       drawerChildren: [
         LibraryDrawerSection(
           title: '页面',
           children: [
             LibraryDrawerTile(
+              key: const ValueKey('history-row'),
               icon: Icons.history,
               title: '历史',
+              selected: true,
               onTap: onSelect ?? () {},
             ),
+            for (var i = 0; i < 20; i++)
+              LibraryDrawerTile(
+                icon: Icons.folder,
+                title: '页面 $i',
+                onTap: () {},
+              ),
           ],
         ),
       ],
+      drawerFooter: LibraryDrawerTile(
+        icon: Icons.settings_outlined,
+        title: '音声设置',
+        onTap: () {},
+      ),
       body: ListView.builder(
         itemCount: 80,
         itemBuilder: (_, index) => ListTile(title: Text('作品 $index')),
@@ -49,7 +54,7 @@ void main() {
     ),
   );
 
-  testWidgets('header stays fixed and title precedes scoped search', (
+  testWidgets('header stays fixed and title precedes search entry', (
     tester,
   ) async {
     await tester.pumpWidget(app());
@@ -68,24 +73,52 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('search submits trimmed text and clears when scope changes', (
+  testWidgets('search entry opens search without an editor or keyboard', (
     tester,
   ) async {
-    final submitted = <String>[];
-    await tester.pumpWidget(app(onSearch: submitted.add));
-    final search = find.byKey(const ValueKey('library-page-search'));
-    await tester.enterText(search, '  ');
-    await tester.testTextInput.receiveAction(TextInputAction.search);
-    expect(submitted, isEmpty);
-    await tester.enterText(search, '  耳语  ');
-    await tester.testTextInput.receiveAction(TextInputAction.search);
-    expect(submitted, ['耳语']);
-    await tester.pumpWidget(
-      app(title: '历史', hint: '搜索历史', onSearch: submitted.add),
+    var opened = 0;
+    await tester.pumpWidget(app(onSearch: () => opened++));
+    await tester.tap(find.byKey(const ValueKey('library-page-search')));
+    await tester.pump();
+    expect(opened, 1);
+    expect(find.byType(EditableText), findsNothing);
+    expect(tester.testTextInput.isVisible, isFalse);
+    final menu = tester.widget<IconButton>(
+      find.byKey(const ValueKey('library-menu-button')),
     );
-    expect(tester.widget<TextField>(search).controller!.text, isEmpty);
-    expect(find.text('搜索历史'), findsOneWidget);
+    expect(menu.isSelected, isNull);
+    expect(menu.style, isNull);
   });
+
+  testWidgets(
+    'compact drawer keeps settings at bottom without selected checks',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 640));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(app());
+      await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+      await tester.pumpAndSettle();
+      final drawer = find.byKey(const ValueKey('library-drawer'));
+      expect(tester.getSize(drawer).width, 256);
+      expect(
+        tester.getSize(find.byKey(const ValueKey('history-row'))).height,
+        48,
+      );
+      expect(
+        find.descendant(of: drawer, matching: find.byIcon(Icons.check)),
+        findsNothing,
+      );
+      final footer = find.text('音声设置');
+      final bottom = tester.getTopLeft(footer);
+      await tester.drag(
+        find.descendant(of: drawer, matching: find.byType(ListView)),
+        const Offset(0, -500),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.getTopLeft(footer), bottom);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('drawer navigation closes before selecting a page', (
     tester,
@@ -94,40 +127,10 @@ void main() {
     await tester.pumpWidget(app(onSelect: () => selected = true));
     await tester.tap(find.byKey(const ValueKey('library-menu-button')));
     await tester.pumpAndSettle();
-    expect(find.text('历史'), findsOneWidget);
     await tester.tap(find.text('历史'));
     await tester.pumpAndSettle();
     expect(selected, isTrue);
     expect(find.text('历史'), findsNothing);
-  });
-
-  testWidgets('clear resets local filters and source changes reset input', (
-    tester,
-  ) async {
-    var cleared = 0;
-    await tester.pumpWidget(
-      app(searchScopeKey: 'one', onSearchCleared: () => cleared++),
-    );
-    final search = find.byKey(const ValueKey('library-page-search'));
-    await tester.enterText(search, '耳语');
-    await tester.pump();
-    await tester.tap(find.byIcon(Icons.close));
-    await tester.pump();
-    expect(cleared, 1);
-    expect(tester.widget<TextField>(search).controller!.text, isEmpty);
-    await tester.enterText(search, '耳语');
-    await tester.pumpWidget(app(searchScopeKey: 'jp'));
-    expect(tester.widget<TextField>(search).controller!.text, isEmpty);
-  });
-
-  testWidgets('local page navigation can reset the visible search query', (
-    tester,
-  ) async {
-    await tester.pumpWidget(app(searchQuery: '字幕'));
-    final search = find.byKey(const ValueKey('library-page-search'));
-    expect(tester.widget<TextField>(search).controller!.text, '字幕');
-    await tester.pumpWidget(app(searchQuery: ''));
-    expect(tester.widget<TextField>(search).controller!.text, isEmpty);
   });
 
   testWidgets('narrow header supports large text without overflow', (
@@ -135,7 +138,7 @@ void main() {
   ) async {
     await tester.binding.setSurfaceSize(const Size(320, 640));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(app(title: '字幕', hint: '搜索字幕', textScale: 2));
+    await tester.pumpWidget(app(textScale: 2));
     expect(find.byKey(const ValueKey('library-page-search')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

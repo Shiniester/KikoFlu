@@ -27,8 +27,6 @@ class ComicScreen extends ConsumerStatefulWidget {
 class _ComicScreenState extends ConsumerState<ComicScreen> {
   final _pages = PageController();
   final _pageTarget = ValueNotifier<int?>(null);
-  int _pageRequest = 0;
-  bool _reduceMotion = false;
   int _currentTab = 0;
 
   @override
@@ -45,37 +43,17 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
 
   void _selectTab(int index) {
     _pageTarget.value = index;
-    _handlePagePosition();
-    final request = ++_pageRequest;
-    moveToTabPage(_pages, index, reduceMotion: _reduceMotion).then((_) {
-      if (!mounted || request != _pageRequest) return;
+    if (_pages.hasClients) {
+      _pages.jumpToPage(index);
+      _handlePagePosition();
+    } else if (_currentTab != index) {
+      setState(() => _currentTab = index);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _pageTarget.value != index) return;
       _pageTarget.value = null;
       _handlePagePosition();
     });
-  }
-
-  bool _handleScrollNotification(ScrollNotification notification) {
-    if (notification.depth == 0 &&
-        notification.metrics.axis == Axis.horizontal &&
-        notification is ScrollStartNotification &&
-        notification.dragDetails != null) {
-      _pageRequest++;
-      _pageTarget.value = null;
-    }
-    return false;
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    if (reduceMotion &&
-        !_reduceMotion &&
-        _pageTarget.value != null &&
-        _pages.hasClients) {
-      _pages.jumpToPage(_pageTarget.value!);
-    }
-    _reduceMotion = reduceMotion;
   }
 
   @override
@@ -85,12 +63,11 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
     super.dispose();
   }
 
-  void _search(String query, String? sourceKey) {
+  void _search(String? sourceKey) {
     pushWorkDetailRoute(
       context,
       builder: (_) => ComicSearchScreen(
         dockHandoff: true,
-        initialQuery: query,
         initialSource: sourceKey,
         libraryTab: _currentTab == 0 ? null : _currentTab,
         onlineFavorites:
@@ -158,8 +135,7 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
     return LibraryPageScaffold(
       title: pageTitle,
       searchHint: s.librarySearchHint(pageTitle),
-      searchScopeKey: (currentSource?.key, _currentTab),
-      onSearch: (query) => _search(query, currentSource?.key),
+      onSearch: () => _search(currentSource?.key),
       drawerChildren: [
         LibraryDrawerSection(
           title: s.librarySources,
@@ -176,6 +152,12 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
         LibraryDrawerSection(
           title: s.libraryPages,
           children: [
+            LibraryDrawerTile(
+              icon: Icons.home,
+              title: s.navHome,
+              selected: _currentTab == 0,
+              onTap: () => _selectTab(0),
+            ),
             for (final tab in pageOrder)
               LibraryDrawerTile(
                 icon: _collectionIcon(tab),
@@ -213,24 +195,22 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
             LibraryDrawerTile(
               icon: Icons.grid_view,
               title: s.layout,
-              trailing: Text(
-                switch (ref.watch(comicLayoutProvider)) {
-                  LayoutType.bigGrid => s.layoutBigGrid,
-                  LayoutType.smallGrid => s.layoutSmallGrid,
-                  LayoutType.list => s.layoutList,
-                },
-              ),
+              trailing: Text(switch (ref.watch(comicLayoutProvider)) {
+                LayoutType.bigGrid => s.layoutBigGrid,
+                LayoutType.smallGrid => s.layoutSmallGrid,
+                LayoutType.list => s.layoutList,
+              }),
               closeOnTap: false,
               onTap: () => ref.read(comicLayoutProvider.notifier).cycle(),
-            ),
-            LibraryDrawerTile(
-              icon: Icons.settings_outlined,
-              title: s.comicSettings,
-              onTap: _openSettings,
             ),
           ],
         ),
       ],
+      drawerFooter: LibraryDrawerTile(
+        icon: Icons.settings_outlined,
+        title: s.comicSettings,
+        onTap: _openSettings,
+      ),
       floatingActionButton: downloads.tasks.isEmpty
           ? null
           : FloatingActionButton(
@@ -242,31 +222,29 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
               ),
               child: const Icon(Icons.download_outlined),
             ),
-      body: NotificationListener<ScrollNotification>(
-        onNotification: _handleScrollNotification,
-        child: TabPageWarmup(
-          pages: _pages,
-          target: _pageTarget,
-          builder: (cacheExtent) => PageView(
-            key: const ValueKey('comic-tab-pages'),
-            controller: _pages,
-            allowImplicitScrolling: cacheExtent > 0,
-            scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
-            children: [
-              for (var i = 0; i < 4; i++)
-                LazyTabPage(
-                  key: ValueKey('comic-tab-$i'),
-                  index: i,
-                  target: _pageTarget,
-                  pages: _pages,
-                  child: _ComicCollection(
-                    active: widget.active && _currentTab == i,
-                    tab: i,
-                    onlineFavorites: onlineFavorites,
-                  ),
+      body: TabPageWarmup(
+        pages: _pages,
+        target: _pageTarget,
+        builder: (cacheExtent) => PageView(
+          key: const ValueKey('comic-tab-pages'),
+          controller: _pages,
+          physics: const NeverScrollableScrollPhysics(),
+          allowImplicitScrolling: cacheExtent > 0,
+          scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
+          children: [
+            for (var i = 0; i < 4; i++)
+              LazyTabPage(
+                key: ValueKey('comic-tab-$i'),
+                index: i,
+                target: _pageTarget,
+                pages: _pages,
+                child: _ComicCollection(
+                  active: widget.active && _currentTab == i,
+                  tab: i,
+                  onlineFavorites: onlineFavorites,
                 ),
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     );

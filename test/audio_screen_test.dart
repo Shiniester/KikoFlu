@@ -279,14 +279,9 @@ LibraryDrawerSection _section(WidgetTester tester, String title) =>
 
 void _requestAudioPage(WidgetTester tester, String page) {
   final s = S.of(tester.element(find.byType(AudioScreen)));
-  final section = _section(
-    tester,
-    page == 'home' ? s.librarySources : s.libraryPages,
-  );
+  final section = _section(tester, s.libraryPages);
   final tiles = section.children.whereType<LibraryDrawerTile>();
-  final tile = page == 'home'
-      ? tiles.firstWhere((tile) => tile.selected)
-      : tiles.firstWhere((tile) => tile.title == _pageLabel(s, page));
+  final tile = tiles.firstWhere((tile) => tile.title == _pageLabel(s, page));
   tile.onTap!();
 }
 
@@ -297,8 +292,7 @@ LibraryDrawerTile _browseTile(WidgetTester tester, String title) {
       .firstWhere((tile) => tile.title == title);
 }
 
-void _advancedSearch(WidgetTester tester) =>
-    _browseTile(tester, 'Search online works').onTap!();
+void _advancedSearch(WidgetTester tester) => _library(tester).onSearch();
 
 class _AuthenticatedAudio extends AuthNotifier {
   _AuthenticatedAudio({String host = 'https://api.asmr-200.com'})
@@ -387,7 +381,7 @@ void main() {
           .whereType<LibraryDrawerTile>()
           .map((tile) => tile.title)
           .toList();
-      expect(pageTitles(), [s.libraryHistory, s.libraryDownloads]);
+      expect(pageTitles(), [s.navHome, s.libraryHistory, s.libraryDownloads]);
       expect(find.byType(TabBar), findsNothing);
       await tester.tap(find.byKey(const ValueKey('library-menu-button')));
       await tester.pumpAndSettle();
@@ -397,6 +391,7 @@ void main() {
       await tester.tap(one);
       await tester.pumpAndSettle();
       expect(pageTitles(), [
+        s.navHome,
         s.displayModePopular,
         s.displayModeRecommended,
         s.libraryMarks,
@@ -680,21 +675,11 @@ void main() {
             510,
             reason: 'before leaving online marks',
           );
-          for (var i = 0; i < 2; i++) {
-            await tester.drag(
-              find.byKey(const ValueKey('audio-tab-pages')),
-              const Offset(-600, 0),
-            );
-            await tester.pumpAndSettle();
-          }
+          _requestAudioPage(tester, 'downloads');
+          await tester.pumpAndSettle();
           expect(_pages(tester).page, 3);
-          for (var i = 0; i < 2; i++) {
-            await tester.drag(
-              find.byKey(const ValueKey('audio-tab-pages')),
-              const Offset(600, 0),
-            );
-            await tester.pumpAndSettle();
-          }
+          _requestAudioPage(tester, 'onlineMarks');
+          await tester.pumpAndSettle();
           expect(_pages(tester).page, 1);
           expect(marksScroll().offset, 510);
           expect(tester.takeException(), isNull);
@@ -702,7 +687,7 @@ void main() {
       );
 
       testWidgets(
-        'history retains position after swiping back from home ($disableAnimations, $layout)',
+        'history retains position after returning from home ($disableAnimations, $layout)',
         (tester) async {
           final reduced = ValueNotifier(disableAnimations);
           addTearDown(reduced.dispose);
@@ -727,21 +712,11 @@ void main() {
           historyScroll().jumpTo(360);
           await tester.pumpAndSettle();
           expect(historyScroll().offset, 360);
-          for (var i = 0; i < 2; i++) {
-            await tester.drag(
-              find.byKey(const ValueKey('audio-tab-pages')),
-              const Offset(600, 0),
-            );
-            await tester.pumpAndSettle();
-          }
+          _requestAudioPage(tester, 'home');
+          await tester.pumpAndSettle();
           expect(_pages(tester).page, 0);
-          for (var i = 0; i < 2; i++) {
-            await tester.drag(
-              find.byKey(const ValueKey('audio-tab-pages')),
-              const Offset(-600, 0),
-            );
-            await tester.pumpAndSettle();
-          }
+          _requestAudioPage(tester, 'history');
+          await tester.pumpAndSettle();
           expect(_pages(tester).page, 2);
           expect(historyScroll().offset, 360);
           final historyElement = tester.element(find.byType(HistoryScreen));
@@ -826,7 +801,7 @@ void main() {
   });
 
   testWidgets(
-    'first library visits expose management and clear subtitle search',
+    'first library visits expose management and open subtitle search',
     (tester) async {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('my_tabs_show_subtitle_library', true);
@@ -845,24 +820,16 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pump();
       expect(_browseTile(tester, s.importSubtitle).onTap, isNotNull);
-      final search = find.byKey(const ValueKey('library-page-search'));
-      await tester.enterText(search, 'sample');
-      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.tap(find.byKey(const ValueKey('library-page-search')));
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
       expect(
-        tester
-            .widget<SubtitleLibraryScreen>(find.byType(SubtitleLibraryScreen))
-            .searchQuery,
-        'sample',
+        find.byWidgetPredicate(
+          (widget) => widget is SubtitleLibraryScreen && widget.searchPage,
+        ),
+        findsOneWidget,
       );
-      await tester.enterText(search, '');
-      await tester.pump();
-      expect(
-        tester
-            .widget<SubtitleLibraryScreen>(find.byType(SubtitleLibraryScreen))
-            .searchQuery,
-        isEmpty,
-      );
+      expect(tester.testTextInput.isVisible, isFalse);
       await tester.pumpWidget(const SizedBox());
       expect(tester.takeException(), isNull);
     },
@@ -877,8 +844,7 @@ void main() {
     _requestAudioPage(tester, 'history');
     await tester.pumpAndSettle();
     final history = tester.state(find.byType(HistoryScreen));
-    final search = find.byKey(const ValueKey('library-page-search'));
-    await tester.enterText(search, 'history query');
+
     final container = ProviderScope.containerOf(
       tester.element(find.byType(AudioScreen)),
     );
@@ -892,9 +858,10 @@ void main() {
     expect(_pages(tester).page, 1);
     expect(_library(tester).title, 'History');
     expect(tester.state(find.byType(HistoryScreen)), same(history));
-    expect(tester.widget<TextField>(search).controller!.text, 'history query');
-    _advancedSearch(tester);
+
+    await tester.tap(find.byKey(const ValueKey('library-page-search')));
     await tester.pumpAndSettle();
+    expect(tester.testTextInput.isVisible, isFalse);
     expect(
       tester.widget<SearchScreen>(find.byType(SearchScreen)).scope,
       SearchScope.history,
@@ -925,6 +892,34 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'home entry returns to the feed and footer opens audio settings',
+    (tester) async {
+      final reduced = ValueNotifier(false);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced);
+      _requestAudioPage(tester, 'history');
+      await tester.pump();
+      final s = S.of(tester.element(find.byType(AudioScreen)));
+      final home =
+          _section(tester, s.libraryPages).children.first as LibraryDrawerTile;
+      expect(home.title, s.navHome);
+      home.onTap!();
+      await tester.pump();
+      expect(_pages(tester).page, 0);
+      expect(_library(tester).title, s.navHome);
+      final settings = _library(tester).drawerFooter! as LibraryDrawerTile;
+      expect(settings.title, s.audioSettings);
+      settings.onTap!();
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<SettingsScreen>(find.byType(SettingsScreen)).audioOnly,
+        isTrue,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('online search returns to the selected Audio tab', (
     tester,
   ) async {
@@ -953,35 +948,29 @@ void main() {
     expect(tester.state(find.byType(HistoryScreen)), same(history));
   });
 
-  testWidgets('outer tab swipe moves between Works Home and online marks', (
-    tester,
-  ) async {
-    final reduced = ValueNotifier(true);
-    addTearDown(reduced.dispose);
-    await _pumpAudioScreen(tester, reduced);
-    final container = ProviderScope.containerOf(
-      tester.element(find.byType(AudioScreen)),
-    );
-    final initialMode = container.read(worksProvider).displayMode;
-
-    await tester.drag(
-      find.byKey(const ValueKey('audio-tab-pages')),
-      const Offset(-600, 0),
-    );
-    await tester.pumpAndSettle();
-    expect(_pages(tester).page!.round(), 1);
-    expect(container.read(worksProvider).displayMode, initialMode);
-
-    await tester.drag(
-      find.byKey(const ValueKey('audio-tab-pages')),
-      const Offset(600, 0),
-    );
-    await tester.pumpAndSettle();
-    expect(_pages(tester).page!.round(), 0);
-    expect(container.read(worksProvider).displayMode, initialMode);
-    expect(tester.takeException(), isNull);
-  });
-
+  testWidgets(
+    'sidebar pages switch immediately and ignore horizontal dragging',
+    (tester) async {
+      final reduced = ValueNotifier(false);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced);
+      _requestAudioPage(tester, 'onlineMarks');
+      await tester.pump();
+      expect(_pages(tester).page, 1);
+      expect(_library(tester).title, 'Marks');
+      await tester.drag(
+        find.byKey(const ValueKey('audio-tab-pages')),
+        const Offset(-600, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(_pages(tester).page, 1);
+      _requestAudioPage(tester, 'home');
+      await tester.pump();
+      expect(_pages(tester).page, 0);
+      expect(_library(tester).title, 'Home');
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets('online mark search captures the selected mark state', (
     tester,
   ) async {
@@ -1083,7 +1072,7 @@ void main() {
   for (final reducedMotion in [false, true]) {
     for (final size in [const Size(390, 844), const Size(1000, 600)]) {
       testWidgets(
-        'main navigation slides and retains state ($size, reduced=$reducedMotion)',
+        'main navigation switches immediately and retains state ($size, reduced=$reducedMotion)',
         (tester) async {
           tester.view.physicalSize = size;
           tester.view.devicePixelRatio = 1;
@@ -1109,18 +1098,12 @@ void main() {
             of: find.byType(SettingsScreen),
             matching: find.byType(SettingsSectionList),
           );
-          if (reducedMotion) {
-            expect(destination.left, closeTo(start.left, .1));
-            expect(settingsCards, findsWidgets);
-          } else {
-            expect(settingsCards, findsNothing);
-            expect(destination.left, greaterThan(start.left));
-            expect(destination.left, lessThan(start.right));
-            final pages = tester
-                .widget<PageView>(find.byKey(const ValueKey('main-tab-pages')))
-                .controller!;
-            expect(pages.page, closeTo(2 * Curves.ease.transform(1 / 3), .001));
-          }
+          expect(destination.left, closeTo(start.left, .1));
+          expect(settingsCards, findsWidgets);
+          final pages = tester
+              .widget<PageView>(find.byKey(const ValueKey('main-tab-pages')))
+              .controller!;
+          expect(pages.page, 2);
           await tester.pumpAndSettle();
           expect(settingsCards, findsWidgets);
           final settingsState = tester.state(find.byType(SettingsScreen));
@@ -1268,104 +1251,7 @@ void main() {
   }
 
   testWidgets(
-    'reduced motion finishes Audio tab travel without remounting pages',
-    (tester) async {
-      final reduced = ValueNotifier(false);
-      addTearDown(reduced.dispose);
-      await _pumpAudioScreen(tester, reduced);
-      final pageView = tester.element(
-        find.byKey(const ValueKey('audio-tab-pages')),
-      );
-      _requestAudioPage(tester, 'history');
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 40));
-      expect(_pages(tester).page, lessThan(2));
-      reduced.value = true;
-      await tester.pump();
-      expect(_pages(tester).page, 2);
-      await tester.pumpAndSettle();
-
-      reduced.value = false;
-      await tester.pump();
-      expect(
-        tester.element(find.byKey(const ValueKey('audio-tab-pages'))),
-        same(pageView),
-      );
-      expect(_pages(tester).page, 2);
-
-      _requestAudioPage(tester, 'onlineMarks');
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 40));
-      expect(_pages(tester).page, greaterThan(1));
-      expect(_pages(tester).page, lessThan(2));
-      reduced.value = true;
-      await tester.pump();
-      expect(_pages(tester).page, 1);
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-    },
-  );
-
-  testWidgets(
-    'Audio click follows ease motion and retargets from its position',
-    (tester) async {
-      final reduced = ValueNotifier(false);
-      addTearDown(reduced.dispose);
-      await _pumpAudioScreen(tester, reduced);
-      final pages = _pages(tester);
-      _requestAudioPage(tester, 'history');
-      await tester.pump();
-      expect(pages.page, 0);
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(pages.page, closeTo(2 * Curves.ease.transform(1 / 3), .001));
-      final from = pages.page!;
-      _requestAudioPage(tester, 'home');
-      await tester.pump();
-      expect(pages.page, closeTo(from, .001));
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(
-        pages.page,
-        closeTo(from * (1 - Curves.ease.transform(1 / 3)), .001),
-      );
-      await tester.pump(const Duration(milliseconds: 199));
-      expect(pages.page, greaterThan(0));
-      await tester.pump(const Duration(milliseconds: 1));
-      expect(pages.page, 0);
-      expect(_library(tester).title, 'Home');
-      expect(tester.takeException(), isNull);
-    },
-  );
-
-  testWidgets(
-    'Audio drag interrupts click and reselecting the current tab settles',
-    (tester) async {
-      final reduced = ValueNotifier(false);
-      addTearDown(reduced.dispose);
-      await _pumpAudioScreen(tester, reduced);
-      _requestAudioPage(tester, 'history');
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 40));
-      final gesture = await tester.startGesture(
-        tester.getCenter(find.byKey(const ValueKey('audio-tab-pages'))),
-      );
-      await gesture.moveBy(const Offset(220, 0));
-      await tester.pump();
-      final current = _pages(tester).page!.round();
-      final page = ['home', 'onlineMarks', 'history', 'downloads'][current];
-      final s = S.of(tester.element(find.byType(AudioScreen)));
-      expect(_library(tester).title, _pageLabel(s, page));
-      await gesture.up();
-      expect(_pages(tester).page, isNot(closeTo(current.toDouble(), .001)));
-      _requestAudioPage(tester, page);
-      await tester.pumpAndSettle();
-      expect(_pages(tester).page, current);
-      expect(_library(tester).title, _pageLabel(s, page));
-      expect(tester.takeException(), isNull);
-    },
-  );
-
-  testWidgets(
-    'changing Audio tabs during travel keeps the destination identity',
+    'audio destinations appear immediately and retain visited content',
     (tester) async {
       final reduced = ValueNotifier(false);
       addTearDown(reduced.dispose);
@@ -1373,27 +1259,29 @@ void main() {
       final container = ProviderScope.containerOf(
         tester.element(find.byType(AudioScreen)),
       );
+      (container.read(historyProvider.notifier) as _History).populate();
+      (container.read(myReviewsProvider.notifier) as _Reviews).populate();
       _requestAudioPage(tester, 'history');
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 40));
-      await container
-          .read(myTabsDisplayProvider.notifier)
-          .setShowOnlineMarks(false);
-      await tester.pumpAndSettle();
-      expect(_pages(tester).page!.round(), 1);
-      expect(_pages(tester).page, 1);
-      final history = tester.state(find.byType(HistoryScreen));
-      await container
-          .read(myTabsDisplayProvider.notifier)
-          .setShowOnlineMarks(true);
-      await tester.pumpAndSettle();
       expect(_pages(tester).page, 2);
+      expect(_library(tester).title, 'History');
+      expect(find.text('History 0'), findsOneWidget);
+      expect(find.text('Marked 0', skipOffstage: false), findsNothing);
+      final history = tester.state(find.byType(HistoryScreen));
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(_pages(tester).page, 2);
+      _requestAudioPage(tester, 'onlineMarks');
+      await tester.pump();
+      expect(_pages(tester).page, 1);
+      expect(find.text('Marked 0'), findsOneWidget);
+      _requestAudioPage(tester, 'history');
+      await tester.pump();
       expect(tester.state(find.byType(HistoryScreen)), same(history));
       expect(tester.takeException(), isNull);
     },
   );
 
-  testWidgets('first online marks content waits until tab travel finishes', (
+  testWidgets('rapid sidebar selections only build the final new page', (
     tester,
   ) async {
     final reduced = ValueNotifier(false);
@@ -1402,86 +1290,18 @@ void main() {
     final container = ProviderScope.containerOf(
       tester.element(find.byType(AudioScreen)),
     );
-    (container.read(myReviewsProvider.notifier) as _Reviews).populate();
-    await tester.pumpAndSettle();
-    _requestAudioPage(tester, 'onlineMarks');
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(_pages(tester).page, inExclusiveRange(0, 1));
-    expect(find.text('Marked 0', skipOffstage: false), findsNothing);
-    await tester.pumpAndSettle();
-    expect(find.text('Marked 0'), findsOneWidget);
-    final card = tester.element(find.text('Marked 0'));
-    _requestAudioPage(tester, 'home');
-    await tester.pumpAndSettle();
-    _requestAudioPage(tester, 'onlineMarks');
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('Marked 0', skipOffstage: false), findsOneWidget);
-    await tester.pumpAndSettle();
-    expect(tester.element(find.text('Marked 0')), same(card));
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('retargeting leaves abandoned cold content unbuilt', (
-    tester,
-  ) async {
-    final reduced = ValueNotifier(false);
-    addTearDown(reduced.dispose);
-    await _pumpAudioScreen(tester, reduced);
-    final container = ProviderScope.containerOf(
-      tester.element(find.byType(AudioScreen)),
-    );
-    (container.read(myReviewsProvider.notifier) as _Reviews).populate();
     (container.read(historyProvider.notifier) as _History).populate();
-    await tester.pumpAndSettle();
+    (container.read(myReviewsProvider.notifier) as _Reviews).populate();
     _requestAudioPage(tester, 'onlineMarks');
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 40));
     _requestAudioPage(tester, 'history');
-    await tester.pumpAndSettle();
+    await tester.pump();
     expect(_pages(tester).page, 2);
     expect(find.text('History 0'), findsOneWidget);
     expect(find.text('Marked 0', skipOffstage: false), findsNothing);
-    reduced.value = true;
-    await tester.pump();
-    _requestAudioPage(tester, 'onlineMarks');
-    await tester.pumpAndSettle();
-    expect(find.text('Marked 0'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('first History click initializes before page movement', (
-    tester,
-  ) async {
-    final reduced = ValueNotifier(false);
-    addTearDown(reduced.dispose);
-    double? createdAtPage;
-    await _pumpAudioScreen(
-      tester,
-      reduced,
-      onHistoryCreated: () => createdAtPage = _pages(tester).page,
-    );
-    expect(createdAtPage, isNull);
-    _requestAudioPage(tester, 'history');
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(
-      createdAtPage,
-      0,
-      reason: 'First-entry initialization must precede the sliding frames.',
-    );
-    final pageView = tester.widget<PageView>(
-      find.byKey(const ValueKey('audio-tab-pages')),
-    );
-    expect(pageView.scrollCacheExtent.value, 0);
-    expect(pageView.allowImplicitScrolling, isFalse);
-    await tester.pumpAndSettle();
-    expect(_pages(tester).page, 2);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('distant Audio clicks only initialize the chosen library', (
+  testWidgets('distant Audio selections only initialize the chosen library', (
     tester,
   ) async {
     final prefs = await SharedPreferences.getInstance();
@@ -1492,31 +1312,25 @@ void main() {
     await _pumpAudioScreen(tester, reduced);
     _requestAudioPage(tester, 'subtitleLibrary');
     await tester.pump();
-    for (var frame = 0; frame < 20; frame++) {
-      await tester.pump(const Duration(milliseconds: 16));
-      expect(find.byType(HistoryScreen, skipOffstage: false), findsNothing);
-      expect(find.byType(PlaylistsScreen, skipOffstage: false), findsNothing);
-      expect(
-        find.byType(LocalDownloadsScreen, skipOffstage: false),
-        findsNothing,
-      );
-    }
     expect(find.byType(SubtitleLibraryScreen), findsOneWidget);
+    expect(find.byType(HistoryScreen, skipOffstage: false), findsNothing);
+    expect(find.byType(PlaylistsScreen, skipOffstage: false), findsNothing);
+    expect(
+      find.byType(LocalDownloadsScreen, skipOffstage: false),
+      findsNothing,
+    );
     final library = tester.state(find.byType(SubtitleLibraryScreen));
     _requestAudioPage(tester, 'home');
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
     _requestAudioPage(tester, 'subtitleLibrary');
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
     expect(tester.state(find.byType(SubtitleLibraryScreen)), same(library));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
-
   for (final size in [const Size(390, 844), const Size(1000, 600)]) {
     testWidgets(
-      'main paging stays lazy, ignores dragging and retargets ($size)',
+      'main destinations switch immediately and keep lazy state ($size)',
       (tester) async {
         tester.view.physicalSize = size;
         tester.view.devicePixelRatio = 1;
@@ -1544,31 +1358,16 @@ void main() {
         final audioState = tester.state(find.byType(AudioScreen));
         select(2);
         await tester.pump();
-        await tester.pump(const Duration(milliseconds: 100));
-        expect(pages.page, closeTo(2 * Curves.ease.transform(1 / 3), .001));
-        expect(find.byType(ComicScreen, skipOffstage: false), findsNothing);
-        select(0);
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 300));
-        expect(pages.page, 0);
-        expect(tester.state(find.byType(AudioScreen)), same(audioState));
-        expect(
-          find.descendant(
-            of: find.byType(SettingsScreen, skipOffstage: false),
-            matching: find.byType(SettingsSectionList, skipOffstage: false),
-          ),
-          findsNothing,
-        );
-        select(2);
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 40));
-        reduced.value = true;
-        await tester.pump();
         expect(pages.page, 2);
+        expect(find.byType(SettingsSectionList), findsWidgets);
+        expect(find.byType(ComicScreen, skipOffstage: false), findsNothing);
         await tester.drag(pagesFinder, const Offset(600, 0));
         await tester.pumpAndSettle();
         expect(pages.page, 2);
-        expect(find.byType(ComicScreen, skipOffstage: false), findsNothing);
+        select(0);
+        await tester.pump();
+        expect(pages.page, 0);
+        expect(tester.state(find.byType(AudioScreen)), same(audioState));
         expect(tester.takeException(), isNull);
       },
     );

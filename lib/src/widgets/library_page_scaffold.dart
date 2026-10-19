@@ -2,10 +2,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../l10n/app_localizations.dart';
 import '../utils/system_ui_style.dart';
 
-class LibraryPageScaffold extends StatefulWidget {
+class LibraryPageScaffold extends StatelessWidget {
   const LibraryPageScaffold({
     super.key,
     required this.title,
@@ -13,62 +12,17 @@ class LibraryPageScaffold extends StatefulWidget {
     required this.onSearch,
     required this.body,
     required this.drawerChildren,
-    this.searchScopeKey,
-    this.searchQuery,
-    this.onSearchCleared,
+    this.drawerFooter,
     this.floatingActionButton,
   });
 
   final String title;
   final String searchHint;
-  final ValueChanged<String> onSearch;
+  final VoidCallback onSearch;
   final Widget body;
   final List<Widget> drawerChildren;
-  final Object? searchScopeKey;
-  final String? searchQuery;
-  final VoidCallback? onSearchCleared;
+  final Widget? drawerFooter;
   final Widget? floatingActionButton;
-
-  @override
-  State<LibraryPageScaffold> createState() => _LibraryPageScaffoldState();
-}
-
-class _LibraryPageScaffoldState extends State<LibraryPageScaffold> {
-  final _search = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _search.text = widget.searchQuery ?? '';
-  }
-
-  @override
-  void didUpdateWidget(covariant LibraryPageScaffold oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.searchHint != widget.searchHint ||
-        oldWidget.searchScopeKey != widget.searchScopeKey) {
-      _search.clear();
-    } else if (oldWidget.searchQuery != widget.searchQuery &&
-        widget.searchQuery != null) {
-      _search.value = TextEditingValue(
-        text: widget.searchQuery!,
-        selection: TextSelection.collapsed(offset: widget.searchQuery!.length),
-      );
-    }
-  }
-
-  @override
-  void dispose() {
-    _search.dispose();
-    super.dispose();
-  }
-
-  void _submit(String value) {
-    final query = value.trim();
-    if (query.isEmpty) return;
-    FocusScope.of(context).unfocus();
-    widget.onSearch(query);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -79,15 +33,29 @@ class _LibraryPageScaffoldState extends State<LibraryPageScaffold> {
       child: Scaffold(
         drawer: Drawer(
           key: const ValueKey('library-drawer'),
-          width: math.min(320, width - 24),
+          width: math.min(256, width - 48),
           child: SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-              children: widget.drawerChildren,
+            child: Column(
+              children: [
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 8,
+                    ),
+                    children: drawerChildren,
+                  ),
+                ),
+                if (drawerFooter != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                    child: drawerFooter!,
+                  ),
+              ],
             ),
           ),
         ),
-        floatingActionButton: widget.floatingActionButton,
+        floatingActionButton: floatingActionButton,
         body: Column(
           children: [
             SafeArea(
@@ -98,7 +66,7 @@ class _LibraryPageScaffoldState extends State<LibraryPageScaffold> {
                 child: Row(
                   children: [
                     Builder(
-                      builder: (context) => IconButton.filledTonal(
+                      builder: (context) => IconButton(
                         key: const ValueKey('library-menu-button'),
                         tooltip: MaterialLocalizations.of(
                           context,
@@ -113,9 +81,9 @@ class _LibraryPageScaffoldState extends State<LibraryPageScaffold> {
                         maxWidth: math.min(110, width * .25),
                       ),
                       child: Tooltip(
-                        message: widget.title,
+                        message: title,
                         child: Text(
-                          widget.title,
+                          title,
                           key: const ValueKey('library-page-title'),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -125,43 +93,41 @@ class _LibraryPageScaffoldState extends State<LibraryPageScaffold> {
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: TextField(
-                        key: const ValueKey('library-page-search'),
-                        controller: _search,
-                        textInputAction: TextInputAction.search,
-                        onSubmitted: _submit,
-                        onChanged: (value) {
-                          setState(() {});
-                          if (value.isEmpty) widget.onSearchCleared?.call();
-                        },
-                        decoration: InputDecoration(
-                          hintText: widget.searchHint,
-                          isDense: true,
-                          filled: true,
-                          fillColor: theme.colorScheme.surfaceContainerHighest,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 12,
-                          ),
-                          border: OutlineInputBorder(
+                      child: Semantics(
+                        button: true,
+                        child: Material(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(28),
+                          child: InkWell(
+                            key: const ValueKey('library-page-search'),
+                            onTap: onSearch,
                             borderRadius: BorderRadius.circular(28),
-                            borderSide: BorderSide.none,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 14,
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.search, size: 20),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      searchHint,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            color: theme
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
-                          prefixIcon: IconButton(
-                            tooltip: S.of(context).search,
-                            onPressed: () => _submit(_search.text),
-                            icon: const Icon(Icons.search, size: 20),
-                          ),
-                          suffixIcon: _search.text.isEmpty
-                              ? null
-                              : IconButton(
-                                  tooltip: S.of(context).clear,
-                                  onPressed: () {
-                                    setState(_search.clear);
-                                    widget.onSearchCleared?.call();
-                                  },
-                                  icon: const Icon(Icons.close, size: 20),
-                                ),
                         ),
                       ),
                     ),
@@ -173,7 +139,7 @@ class _LibraryPageScaffoldState extends State<LibraryPageScaffold> {
               child: MediaQuery.removePadding(
                 context: context,
                 removeTop: true,
-                child: widget.body,
+                child: body,
               ),
             ),
           ],
@@ -195,12 +161,12 @@ class LibraryDrawerSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 16),
+    padding: const EdgeInsets.only(bottom: 8),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
           child: Text(title, style: Theme.of(context).textTheme.labelMedium),
         ),
         ...children,
@@ -229,13 +195,19 @@ class LibraryDrawerTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListTile(
+    dense: true,
+    minTileHeight: 48,
+    minLeadingWidth: 20,
+    horizontalTitleGap: 12,
+    minVerticalPadding: 4,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 12),
     leading: Icon(icon, size: 20),
     title: Text(title),
     selected: selected,
     selectedColor: Theme.of(context).colorScheme.primary,
     selectedTileColor: Theme.of(context).colorScheme.primaryContainer,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-    trailing: trailing ?? (selected ? const Icon(Icons.check, size: 18) : null),
+    trailing: trailing,
     onTap: onTap == null
         ? null
         : () {

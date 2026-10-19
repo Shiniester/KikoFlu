@@ -32,18 +32,16 @@ class SubtitleLibraryScreen extends ConsumerStatefulWidget {
     this.collapsedToolbarTop,
     this.primaryToolbarVisible,
     this.embedded = false,
-    this.searchQuery = '',
+    this.searchPage = false,
     this.onDrawerChanged,
-    this.onSearchChanged,
   });
 
   final double toolbarTop;
   final double? collapsedToolbarTop;
   final ValueListenable<bool>? primaryToolbarVisible;
   final bool embedded;
-  final String searchQuery;
+  final bool searchPage;
   final VoidCallback? onDrawerChanged;
-  final ValueChanged<String>? onSearchChanged;
 
   @override
   SubtitleLibraryScreenState createState() => SubtitleLibraryScreenState();
@@ -95,24 +93,9 @@ class SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
   void _notifyDrawerChanged() => widget.onDrawerChanged?.call();
 
   @override
-  void didUpdateWidget(covariant SubtitleLibraryScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.searchQuery != widget.searchQuery) {
-      _searchQuery = widget.searchQuery;
-      _isSearching = widget.searchQuery.isNotEmpty;
-      _searchController.value = TextEditingValue(
-        text: widget.searchQuery,
-        selection: TextSelection.collapsed(offset: widget.searchQuery.length),
-      );
-    }
-  }
-
-  @override
   void initState() {
     super.initState();
-    _searchQuery = widget.searchQuery;
-    _isSearching = widget.searchQuery.isNotEmpty;
-    _searchController.text = widget.searchQuery;
+    _isSearching = widget.searchPage;
     _cacheUpdateSubscription = SubtitleLibraryService.onCacheUpdated.listen((
       _,
     ) {
@@ -807,6 +790,15 @@ class SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
         _navigateUp();
       },
       child: Scaffold(
+        appBar: widget.searchPage
+            ? AppBar(
+                title: Text(
+                  S
+                      .of(context)
+                      .librarySearchHint(S.of(context).librarySubtitles),
+                ),
+              )
+            : null,
         floatingActionButton: widget.embedded
             ? null
             : FloatingActionButton(
@@ -945,7 +937,6 @@ class SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       _isSelectionMode = false;
     });
     _notifyDrawerChanged();
-    widget.onSearchChanged?.call('');
   }
 
   void _navigateUp() {
@@ -1086,7 +1077,7 @@ class SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
               width: 160,
               child: TextField(
                 controller: _searchController,
-                autofocus: true,
+                autofocus: false,
                 onChanged: (value) => setState(() => _searchQuery = value),
                 decoration: InputDecoration(
                   hintText: S.of(context).searchSubtitles,

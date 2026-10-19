@@ -26,7 +26,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   final _pages = PageController();
   // Preserve the pager while portrait and landscape layouts reparent it.
   final _pagesKey = GlobalKey();
-  bool _reduceMotion = false;
+
   int _currentIndex = 0;
   final _selection = ValueNotifier<int?>(0);
   static const int _settingsTabIndex = 2;
@@ -127,21 +127,11 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     });
 
     _selection.value = index;
-    moveToTabPage(_pages, index, reduceMotion: _reduceMotion);
+    _pages.jumpToPage(index);
 
     if (index == _settingsTabIndex) {
       ref.read(settingsCacheRefreshTriggerProvider.notifier).state++;
     }
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    if (reduceMotion && !_reduceMotion && _pages.hasClients) {
-      _pages.jumpToPage(_currentIndex);
-    }
-    _reduceMotion = reduceMotion;
   }
 
   @override
