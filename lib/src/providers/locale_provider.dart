@@ -9,11 +9,19 @@ class LocaleNotifier extends StateNotifier<Locale?> {
 
   /// null means follow system
   LocaleNotifier() : super(null) {
-    _loadLocale();
+    _localeLoad = _loadLocale();
+  }
+
+  late final Future<void> _localeLoad;
+
+  Future<Locale?> resolvedLocale() async {
+    await _localeLoad;
+    return state;
   }
 
   Future<void> _loadLocale() async {
     final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
     final language = prefs.getString(_localeLanguageKey);
     if (language == null) {
       state = null; // follow system

@@ -63,7 +63,8 @@ _Avoid_: Random recommendation, refresh result
 The Resources, Audio, Images and Related Recommendations views within a Work
 Details Screen. Related Recommendations is the rightmost tab of online details
 when enabled; Images is present only when the work has resource images. Audio
-contains preferred audio files and their best matching work subtitles; Images
+contains preferred audio files and their best matching work subtitles, with
+locally generated subtitles available through the same per-audio preview action; Images
 contains the work's resource images, separate from its cover.
 Each tab retains its resource-section scroll position during the current detail
 visit; an unvisited tab starts at the resource section's top.
@@ -77,10 +78,12 @@ It is separate from comic Reading Progress and does not add a comic history entr
 _Avoid_: Comic chapter, Reading Progress
 
 **Best Work Subtitle (最佳匹配作品字幕)**:
-The highest-scoring matching subtitle among a work's available resource files.
-Equal scores prefer the audio's directory, then path order. The resource audio
-view and player use this same selection; the player's subtitle library and manual
-selection keep their own priority.
+The matching subtitle that first prefers the effective global translation target
+language, identified by explicit file or directory language labels, then match
+score, the audio's directory, and path order. Without a target-language match,
+the existing score and path ordering applies. The resource audio view and player
+use this same selection; the player's subtitle library and manual selection keep
+their own priority.
 
 **Work Details Translation (作品详情翻译)**:
 The translated view of a work's title and currently displayed resource names.
@@ -112,7 +115,10 @@ uses the same policy.
 
 **Subtitle Preview Translation (字幕预览翻译)**:
 The translated text shown while inspecting a work subtitle when Work Details
-Translation is active. Otherwise, subtitle previews show the original text.
+Translation is active. Otherwise, work subtitle previews show the original text.
+Generated subtitle previews start with an available generated translation and
+allow switching back to the original. Without a completed translation, the
+preview shows the generated original.
 Translation uses the current original text, including edits. Editing the original
 invalidates its previous translation.
 

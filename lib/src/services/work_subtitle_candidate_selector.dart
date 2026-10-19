@@ -1,6 +1,9 @@
+import 'dart:ui';
+
 import 'package:path/path.dart' as p;
 
 import 'subtitle_matching.dart';
+import 'subtitle_language.dart';
 import '../utils/file_tree_utils.dart';
 
 class WorkSubtitleCandidate {
@@ -32,6 +35,7 @@ class WorkSubtitleCandidateSelector {
     String? audioHash,
     String? audioParentPath,
     int? workId,
+    Locale? targetLocale,
   }) {
     final resolvedAudioParent =
         audioParentPath ?? _findAudioParent(fileTree, audioTitle, audioHash);
@@ -49,10 +53,7 @@ class WorkSubtitleCandidateSelector {
 
         if (!_extensions.contains(p.extension(title).toLowerCase())) continue;
 
-        final match = SubtitleMatcher.checkPrepared(
-          SubtitleMatcher.prepareSubtitle(title),
-          preparedAudio,
-        ).toRecord();
+        final match = SubtitleLanguage.match(title, preparedAudio).toRecord();
         final relativePath = FileTreeUtils.itemPath(parentPath, item);
         result.add(
           WorkSubtitleCandidate(
@@ -75,6 +76,15 @@ class WorkSubtitleCandidateSelector {
         b.matchesCurrentAudio,
       ).compareTo(_boolRank(a.matchesCurrentAudio));
       if (matchCompare != 0) return matchCompare;
+      final languageCompare =
+          _boolRank(
+            SubtitleLanguage.matchesTarget(b.pathLabel, targetLocale),
+          ).compareTo(
+            _boolRank(
+              SubtitleLanguage.matchesTarget(a.pathLabel, targetLocale),
+            ),
+          );
+      if (languageCompare != 0) return languageCompare;
       final scoreCompare = b.matchScore.compareTo(a.matchScore);
       if (scoreCompare != 0) return scoreCompare;
       final sameDirectoryCompare = _boolRank(

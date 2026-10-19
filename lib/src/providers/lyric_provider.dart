@@ -12,7 +12,6 @@ import '../services/download_service.dart';
 import '../services/local_work_metadata_service.dart';
 import '../services/offline_local_file_scanner.dart';
 import '../services/subtitle_library_service.dart';
-import '../services/subtitle_database.dart';
 import '../services/generated_subtitle_store.dart';
 import '../services/generated_subtitle_translation_service.dart';
 import '../services/work_subtitle_candidate_selector.dart';
@@ -25,6 +24,7 @@ import '../services/remote_text_loader.dart';
 import 'auth_provider.dart';
 import 'audio_provider.dart';
 import 'settings_provider.dart';
+import 'player_subtitle_candidates_provider.dart';
 
 final _log = LogService.instance;
 
@@ -288,9 +288,8 @@ class LyricController extends StateNotifier<LyricState> {
     AudioTrack track,
     List<dynamic> allFiles,
   ) async {
-    final lyricFile = _findLyricFile(track, allFiles);
     final requestId = _beginLoadRequest(
-      remoteHandoffKey: _remoteTextKeyFor(lyricFile),
+      remoteHandoffKey: _remoteTextLease?.key,
     );
     _log.captureOutput(
       '[Lyric] 尝试加载: track="${track.title}", workId=${track.workId}, 文件数=${allFiles.length}',
@@ -298,6 +297,11 @@ class LyricController extends StateNotifier<LyricState> {
     _setStateForLoadRequest(requestId, _loadingStatePreservingCurrentLyrics());
 
     try {
+      final targetLocale = await ref.read(
+        effectiveTranslationTargetLocaleProvider.future,
+      );
+      if (!_isCurrentLoadRequest(requestId)) return;
+      final lyricFile = _findLyricFile(track, allFiles, targetLocale);
       // 获取字幕库优先级设置
       final libraryPriority = ref.read(subtitleLibraryPriorityProvider);
       final isLibraryFirst = libraryPriority == SubtitleLibraryPriority.highest;
@@ -307,7 +311,7 @@ class LyricController extends StateNotifier<LyricState> {
       // 根据设置决定查找顺序
       if (isLibraryFirst) {
         // 优先级1：从字幕库查找匹配的字幕文件
-        final libraryLyricPath = await _findLyricInLibrary(track);
+        final libraryLyricPath = await _findLyricInLibrary(track, targetLocale);
         if (!_isCurrentLoadRequest(requestId)) return;
         if (libraryLyricPath != null) {
           _log.captureOutput('[Lyric] 从字幕库加载: $libraryLyricPath');
@@ -330,7 +334,10 @@ class LyricController extends StateNotifier<LyricState> {
         // 如果文件树未找到且优先级为最后，尝试字幕库
         if (!isLibraryFirst) {
           _log.captureOutput('[Lyric] 文件树未找到，尝试字幕库');
-          final libraryLyricPath = await _findLyricInLibrary(track);
+          final libraryLyricPath = await _findLyricInLibrary(
+            track,
+            targetLocale,
+          );
           if (!_isCurrentLoadRequest(requestId)) return;
           if (libraryLyricPath != null) {
             _log.captureOutput('[Lyric] 从字幕库加载: $libraryLyricPath');
@@ -388,107 +395,22 @@ class LyricController extends StateNotifier<LyricState> {
   }
 
   // 从字幕库查找匹配的字幕文件（使用数据库查询）
-  Future<String?> _findLyricInLibrary(AudioTrack track) async {
+  Future<String?> _findLyricInLibrary(
+    AudioTrack track,
+    Locale targetLocale,
+  ) async {
     try {
-      final trackTitle = track.title;
-      final workId = track.workId;
-
-      _log.captureOutput(
-        '[Lyric] 在字幕库中查找: track="$trackTitle", workId=$workId',
+      final candidates = await const PlayerSubtitleCandidateRepository().load(
+        track: track,
+        fileTree: const [],
+        libraryPriority: SubtitleLibraryPriority.highest,
+        targetLocale: targetLocale,
       );
-
-      // 确保数据库已初始化
-      await SubtitleLibraryService.ensureInitialized();
-
-      // 获取字幕库根目录，用于将相对路径拼接为绝对路径
-      final libraryDir =
-          await SubtitleLibraryService.getSubtitleLibraryDirectory();
-      final libraryRoot = libraryDir.path;
-
-      final generated = await const GeneratedSubtitleStore().find(track);
-      if (generated != null) return generated;
-
-      // 优先级1: 通过 workId 查询数据库
-      if (workId != null) {
-        final records = await SubtitleDatabase.instance.getFilesByWorkId(
-          workId,
-        );
-        if (records.isNotEmpty) {
-          String? bestMatchPath;
-          double bestScore = 0.0;
-
-          for (final record in records) {
-            if (GeneratedSubtitleStore.isGeneratedRelativePath(
-              record.relativePath,
-            )) {
-              continue;
-            }
-            final (isMatch, score) = SubtitleLibraryService.checkMatch(
-              record.fileName,
-              trackTitle,
-            );
-            if (isMatch && score > bestScore) {
-              final absolutePath = record.absolutePath(libraryRoot);
-              // 验证文件是否仍存在（DB 可能过期）
-              if (!await File(absolutePath).exists()) continue;
-              bestScore = score;
-              bestMatchPath = absolutePath;
-              if (score == 1.0) {
-                _log.captureOutput(
-                  '[Lyric] 在数据库中找到完美匹配 (workId=$workId): ${record.fileName}',
-                );
-                return absolutePath;
-              }
-            }
-          }
-
-          if (bestMatchPath != null) {
-            _log.captureOutput(
-              '[Lyric] 在数据库中找到最佳匹配 (workId=$workId, score=$bestScore)',
-            );
-            return bestMatchPath;
-          }
-        }
-      }
-
-      // 优先级2: 在"已保存"分类中查找
-      final savedRecords = await SubtitleDatabase.instance.getFilesByCategory(
-        SubtitleLibraryService.savedFolderName,
-      );
-      if (savedRecords.isNotEmpty) {
-        String? bestMatchPath;
-        double bestScore = 0.0;
-
-        for (final record in savedRecords) {
-          if (GeneratedSubtitleStore.isGeneratedRelativePath(
-            record.relativePath,
-          )) {
-            continue;
-          }
-          final (isMatch, score) = SubtitleLibraryService.checkMatch(
-            record.fileName,
-            trackTitle,
-          );
-          if (isMatch && score > bestScore) {
-            final absolutePath = record.absolutePath(libraryRoot);
-            if (!await File(absolutePath).exists()) continue;
-            bestScore = score;
-            bestMatchPath = absolutePath;
-            if (score == 1.0) {
-              _log.captureOutput('[Lyric] 在"已保存"中找到完美匹配: ${record.fileName}');
-              return absolutePath;
-            }
-          }
-        }
-
-        if (bestMatchPath != null) {
-          _log.captureOutput('[Lyric] 在"已保存"中找到最佳匹配 (score=$bestScore)');
-          return bestMatchPath;
-        }
-      }
-
-      _log.captureOutput('[Lyric] 字幕库中未找到匹配的字幕');
-      return null;
+      return candidates
+          .where((candidate) => candidate.matchesCurrentAudio)
+          .firstOrNull
+          ?.source['localPath']
+          ?.toString();
     } catch (e) {
       _log.captureOutput('[Lyric] 字幕库查找出错: $e');
       return null;
@@ -496,13 +418,18 @@ class LyricController extends StateNotifier<LyricState> {
   }
 
   // 查找字幕文件
-  dynamic _findLyricFile(AudioTrack track, List<dynamic> allFiles) {
+  dynamic _findLyricFile(
+    AudioTrack track,
+    List<dynamic> allFiles,
+    Locale targetLocale,
+  ) {
     final candidates = const WorkSubtitleCandidateSelector()
         .collectWorkCandidates(
           fileTree: allFiles,
           audioTitle: track.title,
           audioHash: track.hash,
           workId: track.workId,
+          targetLocale: targetLocale,
         );
     for (final candidate in candidates) {
       if (candidate.matchesCurrentAudio) return candidate.source;
@@ -514,6 +441,13 @@ class LyricController extends StateNotifier<LyricState> {
   void clearLyrics() {
     _beginLoadRequest();
     state = LyricState();
+  }
+
+  String? generatedTranslationContent(String originalPath) {
+    final translation = _generatedTranslations[originalPath];
+    return translation == null
+        ? null
+        : GeneratedSubtitleTranslationService.toSrt(translation.translated);
   }
 
   void showGeneratedTranslation(

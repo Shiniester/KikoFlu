@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
@@ -7,6 +8,8 @@ import '../models/audio_track.dart';
 import '../services/subtitle_database.dart';
 import '../services/generated_subtitle_store.dart';
 import '../services/subtitle_library_service.dart';
+import '../services/subtitle_language.dart';
+import '../services/subtitle_matching.dart';
 import '../services/work_subtitle_candidate_selector.dart';
 import '../utils/file_tree_utils.dart';
 import 'audio_provider.dart';
@@ -64,6 +67,7 @@ class PlayerSubtitleCandidateRepository {
     required SubtitleLibraryPriority libraryPriority,
     LyricSourceDescriptor? currentSource,
     String? audioParentPath,
+    Locale? targetLocale,
   }) async {
     final candidates = <PlayerSubtitleCandidate>[];
     final currentCandidate = _candidateFromCurrentSource(track, currentSource);
@@ -75,6 +79,7 @@ class PlayerSubtitleCandidateRepository {
         audioHash: track.hash,
         audioParentPath: audioParentPath,
         workId: track.workId,
+        targetLocale: targetLocale,
       ),
     );
     candidates.addAll(await (libraryLoader ?? _loadLibraryCandidates)(track));
@@ -83,13 +88,23 @@ class PlayerSubtitleCandidateRepository {
     for (final candidate in candidates) {
       final previous = deduplicated[candidate.identity];
       if (previous == null ||
-          _compareCandidates(candidate, previous, libraryPriority) < 0) {
+          _compareCandidates(
+                candidate,
+                previous,
+                libraryPriority,
+                track.workId,
+                targetLocale,
+              ) <
+              0) {
         deduplicated[candidate.identity] = candidate;
       }
     }
 
     final result = deduplicated.values.toList(growable: false);
-    result.sort((a, b) => _compareCandidates(a, b, libraryPriority));
+    result.sort(
+      (a, b) =>
+          _compareCandidates(a, b, libraryPriority, track.workId, targetLocale),
+    );
     return result;
   }
 
@@ -100,6 +115,7 @@ class PlayerSubtitleCandidateRepository {
     String? audioHash,
     String? audioParentPath,
     int? workId,
+    Locale? targetLocale,
   }) {
     return const WorkSubtitleCandidateSelector()
         .collectWorkCandidates(
@@ -108,6 +124,7 @@ class PlayerSubtitleCandidateRepository {
           audioHash: audioHash,
           audioParentPath: audioParentPath,
           workId: workId,
+          targetLocale: targetLocale,
         )
         .map((candidate) {
           final localPath = candidate.source['localPath']?.toString();
@@ -170,14 +187,14 @@ class PlayerSubtitleCandidateRepository {
     PlayerSubtitleCandidate candidate,
     PlayerSubtitleCandidate previous,
     SubtitleLibraryPriority libraryPriority,
+    int? workId,
+    Locale? targetLocale,
   ) {
     if (candidate.matchesCurrentAudio != previous.matchesCurrentAudio) {
       return candidate.matchesCurrentAudio ? -1 : 1;
     }
-    final scoreCompare = previous.matchScore.compareTo(candidate.matchScore);
-    if (scoreCompare != 0) return scoreCompare;
-    if (candidate.sameDirectory != previous.sameDirectory) {
-      return candidate.sameDirectory ? -1 : 1;
+    if (candidate.matchScore.isInfinite != previous.matchScore.isInfinite) {
+      return candidate.matchScore.isInfinite ? -1 : 1;
     }
     final preferredOrigin = libraryPriority == SubtitleLibraryPriority.highest
         ? PlayerSubtitleCandidateOrigin.library
@@ -186,6 +203,39 @@ class PlayerSubtitleCandidateRepository {
     final previousOriginRank = previous.origin == preferredOrigin ? 0 : 1;
     final originCompare = candidateOriginRank.compareTo(previousOriginRank);
     if (originCompare != 0) return originCompare;
+    if (candidate.origin == PlayerSubtitleCandidateOrigin.library &&
+        workId != null) {
+      final candidateWork = candidate.source['workId'] == workId;
+      final previousWork = previous.source['workId'] == workId;
+      if (candidateWork != previousWork) return candidateWork ? -1 : 1;
+    }
+    final candidateLanguage = SubtitleLanguage.matchesTarget(
+      candidate.pathLabel,
+      targetLocale,
+    );
+    final previousLanguage = SubtitleLanguage.matchesTarget(
+      previous.pathLabel,
+      targetLocale,
+    );
+    if (candidateLanguage != previousLanguage) {
+      return candidateLanguage ? -1 : 1;
+    }
+    if (candidate.origin == PlayerSubtitleCandidateOrigin.library) {
+      final candidateGenerated = GeneratedSubtitleStore.isGeneratedOriginalPath(
+        candidate.source['localPath']?.toString() ?? '',
+      );
+      final previousGenerated = GeneratedSubtitleStore.isGeneratedOriginalPath(
+        previous.source['localPath']?.toString() ?? '',
+      );
+      if (candidateGenerated != previousGenerated) {
+        return candidateGenerated ? -1 : 1;
+      }
+    }
+    final scoreCompare = previous.matchScore.compareTo(candidate.matchScore);
+    if (scoreCompare != 0) return scoreCompare;
+    if (candidate.sameDirectory != previous.sameDirectory) {
+      return candidate.sameDirectory ? -1 : 1;
+    }
     return FileTreeUtils.compareTitles(candidate.pathLabel, previous.pathLabel);
   }
 
@@ -207,10 +257,10 @@ class PlayerSubtitleCandidateRepository {
         SubtitleLibraryService.savedFolderName,
       );
       for (final record in saved) {
-        final match = SubtitleLibraryService.checkMatch(
+        final match = SubtitleLanguage.match(
           record.fileName,
-          track.title,
-        );
+          SubtitleMatcher.prepareAudio(track.title),
+        ).toRecord();
         if (match.$1) records.add(record);
       }
 
@@ -242,10 +292,10 @@ class PlayerSubtitleCandidateRepository {
         }
         final absolutePath = record.absolutePath(root);
         if (!await File(absolutePath).exists()) continue;
-        final match = SubtitleLibraryService.checkMatch(
+        final match = SubtitleLanguage.match(
           record.fileName,
-          track.title,
-        );
+          SubtitleMatcher.prepareAudio(track.title),
+        ).toRecord();
         result.add(
           PlayerSubtitleCandidate(
             identity: _localIdentity(absolutePath),
@@ -255,7 +305,7 @@ class PlayerSubtitleCandidateRepository {
             source: <String, dynamic>{
               'title': record.fileName,
               'localPath': absolutePath,
-              'workId': record.workId ?? track.workId,
+              'workId': record.workId,
             },
             matchesCurrentAudio: match.$1,
             matchScore: match.$2,
@@ -283,10 +333,14 @@ final playerSubtitleCandidatesProvider =
         lyricControllerProvider.select((state) => state.source),
       );
       final details = await ref.watch(playerWorkDetailsProvider.future);
+      final targetLocale = await ref.watch(
+        effectiveTranslationTargetLocaleProvider.future,
+      );
       return const PlayerSubtitleCandidateRepository().load(
         track: track,
         fileTree: details?.fileTree ?? const <dynamic>[],
         libraryPriority: priority,
         currentSource: currentSource,
+        targetLocale: targetLocale,
       );
     });

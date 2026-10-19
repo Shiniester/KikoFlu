@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../services/cache_service.dart';
+import '../services/generated_subtitle_store.dart';
 import '../services/log_service.dart';
 import '../services/translation_service.dart';
 import '../services/subtitle_library_service.dart';
@@ -15,6 +16,7 @@ import '../services/storage_service.dart';
 import '../services/remote_asset_cache.dart';
 import '../services/remote_text_loader.dart';
 import '../providers/settings_provider.dart';
+import '../providers/lyric_provider.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/encoding_utils.dart';
 import '../utils/file_icon_utils.dart';
@@ -575,9 +577,30 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
           // 使用智能编码检测读取文件
           final content = await _readFileWithEncoding(localFile);
           if (!mounted) return;
+          String? translated;
+          if (GeneratedSubtitleStore.isGeneratedOriginalPath(localPath)) {
+            translated = ref
+                .read(lyricControllerProvider.notifier)
+                .generatedTranslationContent(localPath);
+            if (translated == null) {
+              try {
+                final translatedPath = await const GeneratedSubtitleStore()
+                    .findTranslation(localPath);
+                if (translatedPath != null) {
+                  translated = await File(translatedPath).readAsString();
+                }
+              } on FileSystemException {
+                // The original remains readable if the optional translation is removed.
+              }
+            }
+          }
+          if (!mounted) return;
           setState(() {
             _content = content;
             _textController.text = content;
+            _translatedContent = translated;
+            _translatedTextController.text = translated ?? '';
+            _showTranslation = translated != null;
             _isLoading = false;
           });
           _showInitialSaveOptionsIfNeeded();
@@ -745,7 +768,10 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   }
 
   void _maybeAutoTranslateContent() {
+    final localPath = LocalFileUrl.pathFromUrl(widget.textUrl);
     if (!widget.autoTranslate ||
+        (localPath != null &&
+            GeneratedSubtitleStore.isGeneratedOriginalPath(localPath)) ||
         _autoTranslationStarted ||
         !FileIconUtils.isLyricFile(widget.title) ||
         _content == null ||

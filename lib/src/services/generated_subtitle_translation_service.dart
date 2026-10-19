@@ -90,7 +90,7 @@ class GeneratedSubtitleTranslationService {
     final savedPath = saveTranslation
         ? await _store.saveTranslation(
             originalPath,
-            _toSrt(translated),
+            toSrt(translated),
             cancelToken: cancelToken,
           )
         : null;
@@ -102,7 +102,7 @@ class GeneratedSubtitleTranslationService {
     );
   }
 
-  String _toSrt(List<LyricLine> lyrics) {
+  static String toSrt(List<LyricLine> lyrics) {
     String time(Duration value) {
       final hours = value.inHours.toString().padLeft(2, '0');
       final minutes = (value.inMinutes % 60).toString().padLeft(2, '0');

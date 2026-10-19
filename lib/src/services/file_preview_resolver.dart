@@ -244,6 +244,9 @@ class FilePreviewResolver {
     final title = FileTreeUtils.titleOf(file, defaultValue: unknownTitle);
     final hash = FileTreeUtils.property(file, 'hash')?.toString();
 
+    final localTarget = await _resolveLocalDocumentTarget(file, title);
+    if (localTarget != null) return localTarget;
+
     if (hash == null || hash.isEmpty || host.isEmpty) {
       return PreviewDocumentTargetResult.failure(
         PreviewDocumentTargetStatus.missingOnlineInfo,
@@ -420,6 +423,9 @@ class FilePreviewResolver {
     final title = FileTreeUtils.titleOf(file, defaultValue: unknownTitle);
     final hashValue = FileTreeUtils.property(file, 'hash');
 
+    final localTarget = await _resolveLocalDocumentTarget(file, title);
+    if (localTarget != null) return localTarget;
+
     if (hashValue == null) {
       return PreviewDocumentTargetResult.failure(
         PreviewDocumentTargetStatus.missingId,
@@ -450,6 +456,27 @@ class FilePreviewResolver {
 
     return PreviewDocumentTargetResult.ready(
       PreviewDocumentTarget(url: localFile.url, title: title, hash: hash),
+    );
+  }
+
+  Future<PreviewDocumentTargetResult?> _resolveLocalDocumentTarget(
+    dynamic file,
+    String title,
+  ) async {
+    final localPath = FileTreeUtils.property(file, 'localPath')?.toString();
+    if (localPath == null || localPath.isEmpty) return null;
+    if (!await fileExists(localPath)) {
+      return PreviewDocumentTargetResult.failure(
+        PreviewDocumentTargetStatus.missingFile,
+        title: title,
+      );
+    }
+    return PreviewDocumentTargetResult.ready(
+      PreviewDocumentTarget(
+        url: LocalFileUrl.fromPath(localPath),
+        title: title,
+        hash: FileTreeUtils.property(file, 'hash')?.toString() ?? '',
+      ),
     );
   }
 
