@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../utils/system_ui_style.dart';
+import 'settings_section.dart';
 
 class LibraryPageScaffold extends StatelessWidget {
   const LibraryPageScaffold({
@@ -70,17 +71,17 @@ class LibraryPageScaffold extends StatelessWidget {
                         message: MaterialLocalizations.of(
                           context,
                         ).openAppDrawerTooltip,
-                        child: OutlinedButton.icon(
+                        child: FilledButton.icon(
                           key: const ValueKey('library-menu-button'),
-                          style: OutlinedButton.styleFrom(
+                          style: FilledButton.styleFrom(
                             minimumSize: const Size(0, 48),
                             padding: const EdgeInsets.all(12),
                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             textStyle: theme.textTheme.titleSmall,
                             foregroundColor: theme.colorScheme.onSurface,
-                            side: BorderSide(
-                              color: theme.colorScheme.outlineVariant,
-                            ),
+                            backgroundColor:
+                                theme.colorScheme.surfaceContainerHighest,
+                            side: BorderSide.none,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(28),
                             ),
@@ -172,20 +173,24 @@ class LibraryDrawerSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 8),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-          child: Text(
-            title,
-            style: Theme.of(
-              context,
-            ).textTheme.labelMedium?.copyWith(fontSize: 14, height: 16 / 14),
+    child: SettingsSectionCard(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+            child: Text(
+              title,
+              style: Theme.of(
+                context,
+              ).textTheme.labelMedium?.copyWith(fontSize: 14, height: 16 / 14),
+            ),
           ),
-        ),
-        ...children,
-      ],
+          ...children,
+        ],
+      ),
     ),
   );
 }

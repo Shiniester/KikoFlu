@@ -2,13 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/widgets/library_page_scaffold.dart';
+import 'package:kikoeru_flutter/src/widgets/settings_section.dart';
 
 void main() {
   Widget app({
     VoidCallback? onSearch,
     VoidCallback? onSelect,
     double textScale = 1,
+    Brightness brightness = Brightness.light,
+    bool longDrawer = true,
   }) => MaterialApp(
+    theme: ThemeData(brightness: brightness),
     localizationsDelegates: S.localizationsDelegates,
     supportedLocales: S.supportedLocales,
     locale: const Locale('zh'),
@@ -24,6 +28,16 @@ void main() {
       onSearch: onSearch ?? () {},
       drawerChildren: [
         LibraryDrawerSection(
+          title: '来源',
+          children: [
+            LibraryDrawerTile(
+              icon: Icons.public,
+              title: 'ASMR.ONE',
+              onTap: () {},
+            ),
+          ],
+        ),
+        LibraryDrawerSection(
           title: '页面',
           children: [
             LibraryDrawerTile(
@@ -33,12 +47,18 @@ void main() {
               selected: true,
               onTap: onSelect ?? () {},
             ),
-            for (var i = 0; i < 20; i++)
+            for (var i = 0; i < (longDrawer ? 20 : 0); i++)
               LibraryDrawerTile(
                 icon: Icons.folder,
                 title: '页面 $i',
                 onTap: () {},
               ),
+          ],
+        ),
+        LibraryDrawerSection(
+          title: '浏览选项',
+          children: [
+            LibraryDrawerTile(icon: Icons.grid_view, title: '布局', onTap: () {}),
           ],
         ),
       ],
@@ -86,34 +106,81 @@ void main() {
   });
 
   for (final width in [320.0, 1000.0]) {
-    testWidgets(
-      'bordered menu includes title and matches search margin ($width)',
-      (tester) async {
-        await tester.binding.setSurfaceSize(Size(width, 640));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
-        await tester.pumpWidget(app());
-        final menu = find.byKey(const ValueKey('library-menu-button'));
-        final title = find.byKey(const ValueKey('library-page-title'));
-        final search = find.byKey(const ValueKey('library-page-search'));
-        final button = tester.widget<OutlinedButton>(menu);
-        expect(button.style!.side!.resolve({})!.width, 1);
-        expect(find.descendant(of: menu, matching: title), findsOneWidget);
-        expect(
-          find.descendant(of: menu, matching: find.byIcon(Icons.menu)),
-          findsOneWidget,
-        );
-        expect(tester.getTopLeft(menu).dx, 12);
-        expect(
-          tester.getTopLeft(menu).dx,
-          width - tester.getTopRight(search).dx,
-        );
-        await tester.tap(title);
-        await tester.pumpAndSettle();
-        expect(find.byKey(const ValueKey('library-drawer')), findsOneWidget);
-        expect(tester.takeException(), isNull);
-      },
-    );
+    for (final brightness in Brightness.values) {
+      testWidgets(
+        'filled menu matches search color and margin ($width, $brightness)',
+        (tester) async {
+          await tester.binding.setSurfaceSize(Size(width, 640));
+          addTearDown(() => tester.binding.setSurfaceSize(null));
+          await tester.pumpWidget(app(brightness: brightness));
+          final menu = find.byKey(const ValueKey('library-menu-button'));
+          final title = find.byKey(const ValueKey('library-page-title'));
+          final search = find.byKey(const ValueKey('library-page-search'));
+          final button = tester.widget<FilledButton>(menu);
+          final searchMaterial = tester.widget<Material>(
+            find.ancestor(of: search, matching: find.byType(Material)).first,
+          );
+          expect(button.style!.side!.resolve({}), BorderSide.none);
+          expect(
+            button.style!.backgroundColor!.resolve({}),
+            searchMaterial.color,
+          );
+          expect(
+            (button.style!.shape!.resolve({})! as RoundedRectangleBorder)
+                .borderRadius,
+            searchMaterial.borderRadius,
+          );
+          expect(find.descendant(of: menu, matching: title), findsOneWidget);
+          expect(
+            find.descendant(of: menu, matching: find.byIcon(Icons.menu)),
+            findsOneWidget,
+          );
+          expect(tester.getTopLeft(menu).dx, 12);
+          expect(
+            tester.getTopLeft(menu).dx,
+            width - tester.getTopRight(search).dx,
+          );
+          await tester.tap(title);
+          await tester.pumpAndSettle();
+          expect(find.byKey(const ValueKey('library-drawer')), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
   }
+
+  testWidgets('drawer groups share settings cards with their headings inside', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app(longDrawer: false));
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+    final drawer = find.byKey(const ValueKey('library-drawer'));
+    expect(
+      find.descendant(of: drawer, matching: find.byType(SettingsSectionCard)),
+      findsNWidgets(3),
+    );
+    for (final title in ['来源', '页面', '浏览选项']) {
+      final section = find.ancestor(
+        of: find.text(title),
+        matching: find.byType(LibraryDrawerSection),
+      );
+      final card = find.descendant(of: section, matching: find.byType(Card));
+      expect(
+        find.descendant(of: card, matching: find.text(title)),
+        findsOneWidget,
+      );
+      final widget = tester.widget<Card>(card);
+      expect(widget.margin, EdgeInsets.zero);
+      expect(widget.clipBehavior, Clip.antiAlias);
+      expect(widget.shape, isA<RoundedRectangleBorder>());
+    }
+    expect(
+      tester.getSize(find.byKey(const ValueKey('history-row'))).height,
+      48,
+    );
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'compact drawer keeps settings at bottom without selected checks',
