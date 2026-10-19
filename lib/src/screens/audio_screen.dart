@@ -27,6 +27,7 @@ import '../widgets/app_bottom_dock_transition.dart';
 import '../widgets/audio_account_prompt.dart';
 import '../widgets/download_fab.dart';
 import '../widgets/global_audio_player_wrapper.dart';
+import '../widgets/library_content_transition.dart';
 import '../widgets/library_page_scaffold.dart';
 import '../widgets/sort_dialog.dart';
 import '../widgets/tab_page_motion.dart';
@@ -54,11 +55,15 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   final ScrollController _scrollController = ScrollController();
   final _pages = PageController();
   final _pageTarget = ValueNotifier<int?>(null);
+  final _contentTransition = GlobalKey<LibraryContentTransitionState>();
   final _downloadsKey = GlobalKey<LocalDownloadsScreenState>();
   final _subtitleKey = GlobalKey<SubtitleLibraryScreenState>();
   final _playlistsKey = GlobalKey<PlaylistsScreenState>();
   String _selectedPageId = 'home';
   List<String> _tabIds = const ['works'];
+  int _pageRequest = 0;
+  bool _changingDisplayMode = false;
+  bool _reduceMotion = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -181,6 +186,21 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     super.dispose();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (reduceMotion && !_reduceMotion) {
+      final target = _pageTarget.value;
+      if (target != null && _pages.hasClients) {
+        _pages.jumpToPage(target);
+        _pageRequest++;
+        _pageTarget.value = null;
+      }
+    }
+    _reduceMotion = reduceMotion;
+  }
+
   void _navigateToDownloads() {
     Navigator.of(
       context,
@@ -198,12 +218,55 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       ? 'works'
       : pageId;
 
-  void _selectPhysicalTab(int index, {required String selectedPageId}) {
+  Future<void> _selectPhysicalTab(
+    int index, {
+    required String selectedPageId,
+    bool animate = true,
+  }) async {
     if (index < 0 || index >= _tabIds.length) return;
+    final request = ++_pageRequest;
     setState(() => _selectedPageId = selectedPageId);
     _pageTarget.value = index;
-    _pages.jumpToPage(index);
+    await moveToTabPage(_pages, index, reduceMotion: !animate || _reduceMotion);
+    if (!mounted || request != _pageRequest) return;
     _pageTarget.value = null;
+  }
+
+  bool get _worksPageAtRest =>
+      _selectedPhysicalPage(_selectedPageId) == 'works' &&
+      _pages.hasClients &&
+      _pages.position.hasContentDimensions &&
+      !_pages.position.isScrollingNotifier.value &&
+      _pages.page == 0;
+
+  void _selectWorksMode(DisplayMode mode, String pageId) {
+    final previous = ref.read(worksProvider).displayMode;
+    final samePhysicalPage = _worksPageAtRest;
+
+    void change() {
+      _changingDisplayMode = true;
+      try {
+        ref.read(worksProvider.notifier).setDisplayMode(mode);
+        if (samePhysicalPage) {
+          setState(() => _selectedPageId = pageId);
+        } else {
+          unawaited(_selectPhysicalTab(0, selectedPageId: pageId));
+        }
+      } finally {
+        _changingDisplayMode = false;
+      }
+    }
+
+    if (samePhysicalPage && previous != mode) {
+      final transition = _contentTransition.currentState;
+      if (transition == null) {
+        change();
+      } else {
+        transition.animate(change, reverse: mode.index < previous.index);
+      }
+    } else {
+      change();
+    }
   }
 
   void _selectPage(String pageId) {
@@ -213,19 +276,41 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         'recommended' => DisplayMode.recommended,
         _ => DisplayMode.all,
       };
-      ref.read(worksProvider.notifier).setDisplayMode(mode);
-      _selectPhysicalTab(0, selectedPageId: pageId);
+      _selectWorksMode(mode, pageId);
       return;
     }
     final index = _tabIds.indexOf(pageId);
-    _selectPhysicalTab(index, selectedPageId: pageId);
+    unawaited(_selectPhysicalTab(index, selectedPageId: pageId));
   }
 
   Future<void> _selectSource(AudioSource source) async {
-    await ref.read(audioSourceProvider.notifier).select(source);
-    if (!mounted) return;
-    ref.read(worksProvider.notifier).setDisplayMode(DisplayMode.all);
-    _selectPhysicalTab(0, selectedPageId: 'home');
+    final previous = ref.read(audioSourceProvider);
+    if (previous == source) {
+      _selectWorksMode(DisplayMode.all, 'home');
+      return;
+    }
+
+    late Future<void> selection;
+    void change() {
+      _changingDisplayMode = true;
+      try {
+        selection = ref.read(audioSourceProvider.notifier).select(source);
+        ref.read(worksProvider.notifier).setDisplayMode(DisplayMode.all);
+        unawaited(
+          _selectPhysicalTab(0, selectedPageId: 'home', animate: false),
+        );
+      } finally {
+        _changingDisplayMode = false;
+      }
+    }
+
+    final transition = _contentTransition.currentState;
+    if (transition == null) {
+      change();
+    } else {
+      transition.animate(change, reverse: source.index < previous.index);
+    }
+    await selection;
   }
 
   void _refreshDrawer() {
@@ -822,6 +907,27 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    ref.listen<DisplayMode>(
+      worksProvider.select((state) => state.displayMode),
+      (previous, next) {
+        if (previous == null ||
+            previous == next ||
+            _changingDisplayMode ||
+            !_worksPageAtRest) {
+          return;
+        }
+        final pageId = _pageForDisplayMode(next);
+        final transition = _contentTransition.currentState;
+        if (transition == null) {
+          setState(() => _selectedPageId = pageId);
+        } else {
+          transition.animate(
+            () => setState(() => _selectedPageId = pageId),
+            reverse: next.index < previous.index,
+          );
+        }
+      },
+    );
     ref.listen<AudioSource>(audioSourceProvider, (previous, next) {
       if (previous != next && next == AudioSource.asmrOne) {
         unawaited(_loadMyReviewsIfNeeded());
@@ -883,26 +989,29 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         marksState: marksState,
       ),
       floatingActionButton: _buildPageFab(activeDownloadCount, source: source),
-      body: TabPageWarmup(
-        pages: _pages,
-        target: _pageTarget,
-        builder: (cacheExtent) => PageView.builder(
-          key: const ValueKey('audio-tab-pages'),
-          controller: _pages,
-          physics: const NeverScrollableScrollPhysics(),
-          allowImplicitScrolling: cacheExtent > 0,
-          scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
-          itemCount: tabs.length,
-          findChildIndexCallback: (key) {
-            final index = tabs.indexWhere((tab) => ValueKey(tab.id) == key);
-            return index < 0 ? null : index;
-          },
-          itemBuilder: (context, index) => LazyTabPage(
-            key: ValueKey(tabs[index].id),
-            index: index,
-            target: _pageTarget,
-            pages: _pages,
-            child: tabs[index].widget,
+      body: LibraryContentTransition(
+        key: _contentTransition,
+        child: TabPageWarmup(
+          pages: _pages,
+          target: _pageTarget,
+          builder: (cacheExtent) => PageView.builder(
+            key: const ValueKey('audio-tab-pages'),
+            controller: _pages,
+            physics: const NeverScrollableScrollPhysics(),
+            allowImplicitScrolling: cacheExtent > 0,
+            scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
+            itemCount: tabs.length,
+            findChildIndexCallback: (key) {
+              final index = tabs.indexWhere((tab) => ValueKey(tab.id) == key);
+              return index < 0 ? null : index;
+            },
+            itemBuilder: (context, index) => LazyTabPage(
+              key: ValueKey(tabs[index].id),
+              index: index,
+              target: _pageTarget,
+              pages: _pages,
+              child: tabs[index].widget,
+            ),
           ),
         ),
       ),

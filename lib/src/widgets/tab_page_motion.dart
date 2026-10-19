@@ -2,6 +2,22 @@ import 'package:flutter/material.dart';
 
 const tabPageDuration = Duration(milliseconds: 300);
 
+Future<void> moveToTabPage(
+  PageController pages,
+  int index, {
+  required bool reduceMotion,
+}) {
+  if (reduceMotion) {
+    pages.jumpToPage(index);
+    return Future.value();
+  }
+  return pages.animateToPage(
+    index,
+    duration: tabPageDuration,
+    curve: Curves.ease,
+  );
+}
+
 /// Drives the official tab indicator from the page's actual scroll position.
 void syncTabWithPage(TabController tabs, PageController pages) {
   if (!pages.hasClients || !pages.position.hasContentDimensions) return;

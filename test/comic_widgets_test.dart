@@ -3,6 +3,8 @@ import 'package:kikoeru_flutter/src/utils/theme.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_widgets.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
+import 'package:kikoeru_flutter/src/widgets/library_content_transition.dart';
+import 'package:kikoeru_flutter/src/widgets/library_page_scaffold.dart';
 import 'package:kikoeru_flutter/src/widgets/metadata_search_chip.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_cover_frame.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_title_header.dart';
@@ -580,6 +582,7 @@ void main() {
     Future<Uint8List> Function(ComicPage)? loadImage,
     bool settle = true,
     bool reduceMotion = false,
+    ValueNotifier<bool>? reduceMotionNotifier,
     double textScale = 1,
     Locale locale = const Locale('en'),
     ThemeData? theme,
@@ -623,16 +626,27 @@ void main() {
         container: container,
         child: MaterialApp(
           theme: theme,
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context).copyWith(
-              disableAnimations: reduceMotion,
-              textScaler: TextScaler.linear(textScale),
-            ),
-            child: RepaintBoundary(
-              key: const ValueKey('app-paint'),
-              child: child!,
-            ),
-          ),
+          builder: (context, child) {
+            Widget mediaContent(bool disableAnimations) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                disableAnimations: disableAnimations,
+                textScaler: TextScaler.linear(textScale),
+              ),
+              child: RepaintBoundary(
+                key: const ValueKey('app-paint'),
+                child: child!,
+              ),
+            );
+
+            final notifier = reduceMotionNotifier;
+            return notifier == null
+                ? mediaContent(reduceMotion)
+                : ValueListenableBuilder<bool>(
+                    valueListenable: notifier,
+                    builder: (context, disableAnimations, _) =>
+                        mediaContent(disableAnimations),
+                  );
+          },
           locale: locale,
           localizationsDelegates: S.localizationsDelegates,
           supportedLocales: S.supportedLocales,
@@ -697,6 +711,45 @@ void main() {
   Future<void> selectComicSource(WidgetTester tester, String source) async {
     await openComicDrawer(tester);
     await tapComicDrawerItem(tester, source);
+  }
+
+  Future<VoidCallback> comicDrawerAction(
+    WidgetTester tester,
+    String title,
+  ) async {
+    await openComicDrawer(tester);
+    final drawer = find.byKey(const ValueKey('library-drawer'));
+    final item = find.descendant(of: drawer, matching: find.text(title));
+    await tester.scrollUntilVisible(
+      item,
+      250,
+      scrollable: find
+          .descendant(of: drawer, matching: find.byType(Scrollable))
+          .first,
+    );
+    final tile = find.ancestor(
+      of: item,
+      matching: find.byType(LibraryDrawerTile),
+    );
+    final action = tester.widget<LibraryDrawerTile>(tile).onTap!;
+    Navigator.of(tester.element(drawer)).pop();
+    await tester.pumpAndSettle();
+    return action;
+  }
+
+  ScrollableState comicPageScrollable(WidgetTester tester) =>
+      tester.state<ScrollableState>(
+        find
+            .descendant(
+              of: find.byKey(const ValueKey('comic-tab-pages')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+
+  double comicPageValue(WidgetTester tester) {
+    final position = comicPageScrollable(tester).position;
+    return position.pixels / position.viewportDimension;
   }
 
   Future<void> doubleTapAt(WidgetTester tester, Offset position) async {
@@ -4768,6 +4821,7 @@ void main() {
     }
 
     await select('Comics');
+    await pumpFrames(tester, frames: 20);
     await waitForComicCardImage(tester, 'Main first 0');
     final grid = find
         .descendant(
@@ -4832,6 +4886,144 @@ void main() {
     await tester.pump();
 
     expect(tester.widget<Text>(pageTitle).data, s.navHome);
+  });
+
+  testWidgets(
+    'comic source changes slide the captured content in both directions',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final source = _Source();
+      final other = _Source('other');
+      final container = await pump(
+        tester,
+        const ComicScreen(),
+        _Library(),
+        source,
+        other: other,
+      );
+      final pages = tester
+          .widget<PageView>(find.byKey(const ValueKey('comic-tab-pages')))
+          .controller!;
+
+      Future<void> expectTransitionDirection({required bool reverse}) async {
+        final transition = find.byType(LibraryContentTransition);
+        final bounds = tester.getRect(transition);
+        final outgoing = find.descendant(
+          of: transition,
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is RawImage &&
+                widget.image?.width == bounds.width.round() &&
+                widget.image?.height == bounds.height.round(),
+          ),
+        );
+        expect(outgoing, findsOneWidget);
+        final outgoingRect = tester.getRect(outgoing);
+        final incomingRect = tester.getRect(
+          find.byKey(const ValueKey('comic-tab-pages')),
+        );
+        if (reverse) {
+          expect(outgoingRect.left, greaterThan(bounds.left));
+          expect(incomingRect.left, lessThan(bounds.left));
+        } else {
+          expect(outgoingRect.left, lessThan(bounds.left));
+          expect(incomingRect.left, greaterThan(bounds.left));
+        }
+        expect(pages.page, 0);
+      }
+
+      final toOther = await comicDrawerAction(tester, 'Other');
+      toOther();
+      expect(container.read(comicSelectedSourceProvider), 'other');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      await expectTransitionDirection(reverse: false);
+      await tester.pumpAndSettle();
+      expect(find.text('Other book'), findsOneWidget);
+
+      final toFixture = await comicDrawerAction(tester, 'Fixture');
+      toFixture();
+      expect(container.read(comicSelectedSourceProvider), 'fixture');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      await expectTransitionDirection(reverse: true);
+      await tester.pumpAndSettle();
+      expect(find.text('Fixture book'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('rapid comic page requests honor a new reduced-motion setting', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final reduceMotion = ValueNotifier(false);
+    addTearDown(reduceMotion.dispose);
+    final library = _Library();
+    await pump(
+      tester,
+      const ComicScreen(),
+      library,
+      _Source(),
+      reduceMotionNotifier: reduceMotion,
+    );
+    final pages = tester
+        .widget<PageView>(find.byKey(const ValueKey('comic-tab-pages')))
+        .controller!;
+    final pageTitle = find.byKey(const ValueKey('library-page-title'));
+    final s = S.of(tester.element(pageTitle));
+
+    await openComicDrawer(tester);
+    final drawer = find.byKey(const ValueKey('library-drawer'));
+    Future<VoidCallback> actionFor(String title) async {
+      final item = find.descendant(of: drawer, matching: find.text(title));
+      await tester.scrollUntilVisible(
+        item,
+        250,
+        scrollable: find
+            .descendant(of: drawer, matching: find.byType(Scrollable))
+            .first,
+      );
+      final tile = find.ancestor(
+        of: item,
+        matching: find.byType(LibraryDrawerTile),
+      );
+      return tester.widget<LibraryDrawerTile>(tile).onTap!;
+    }
+
+    final selectFavorites = await actionFor(s.libraryFavorites);
+    final selectDownloads = await actionFor(s.libraryDownloads);
+    Navigator.of(tester.element(drawer)).pop();
+    await tester.pumpAndSettle();
+
+    selectFavorites();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    final firstPosition = comicPageValue(tester);
+    expect(firstPosition, greaterThan(0));
+    expect(firstPosition, lessThan(1));
+
+    selectDownloads();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(comicPageValue(tester), greaterThan(firstPosition));
+    expect(comicPageValue(tester), lessThan(3));
+    expect(library.favoriteReads, 1);
+    expect(library.historyReads, 0);
+
+    reduceMotion.value = true;
+    await tester.pump();
+    await tester.pump();
+    expect(pages.page, 3);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(pageTitle).data, s.libraryDownloads);
+    expect(library.favoriteReads, 1);
+    expect(library.historyReads, 0);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('comic favorites search keeps its semantic scope after reorder', (
@@ -4955,7 +5147,7 @@ void main() {
   });
 
   testWidgets(
-    'comic pages jump directly, keep state, and cancel pending page turns',
+    'comic pages animate, keep state, and cancel pending page turns',
     (tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
@@ -5020,6 +5212,9 @@ void main() {
       await selectComicPage(tester, 1);
       await tester.pump();
       expect(tester.widget<Text>(pageTitle).data, s.libraryFavorites);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(comicPageValue(tester), greaterThan(0));
+      expect(comicPageValue(tester), lessThan(1));
       await pumpFrames(tester, frames: 2);
       expect(library.favoriteReads, 1);
       expect(library.historyReads, 0);
@@ -5037,7 +5232,7 @@ void main() {
       expect(library.favoriteReads, 1);
       expect(library.historyReads, 0);
       await selectComicPage(tester, 0);
-      await tester.pump();
+      await tester.pumpAndSettle();
       position.jumpTo(position.maxScrollExtent);
       await pumpFrames(tester, frames: 3);
       expect(
@@ -8317,9 +8512,11 @@ void main() {
 
     await selectComicPage(tester, 2);
     await tester.pump();
-    expect(pages.page, 2);
+    expect(pages.page, lessThan(2));
     expect(tester.widget<Text>(pageTitle).data, s.libraryHistory);
     await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(pages.position.isScrollingNotifier.value, isFalse);
     expect(historyLoads, 1);
     expect(homeCover, findsOneWidget);
     expect(tester.state(homeCover), same(homeState));
@@ -8342,7 +8539,7 @@ void main() {
 
     await selectComicSource(tester, 'Fixture');
     await tester.pump();
-    expect(pages.page, 0);
+    expect(pages.page, greaterThan(0));
     await tester.pump(const Duration(milliseconds: 100));
     expect(
       find.byType(CircularProgressIndicator).hitTestable(),
@@ -8371,81 +8568,91 @@ void main() {
     expect(homeLoads, 1);
     expect(tester.takeException(), isNull);
   });
-  testWidgets(
-    'main comic navigation switches directly and retains comic state',
-    (tester) async {
-      tester.view.physicalSize = const Size(390, 844);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      final source = _Source();
-      var coverRequests = 0;
-      await pump(
-        tester,
-        ProviderScope(
-          overrides: [
-            worksProvider.overrideWith((ref) => _IdleWorks(ref)),
-            downloadSummaryProvider.overrideWith(
-              (ref) => Stream.value(const DownloadTaskSummary.empty()),
-            ),
-            downloadTaskIdsProvider.overrideWith(
-              (ref) => Stream.value(<String>[]),
-            ),
-          ],
-          child: const MainScreen(),
-        ),
-        _Library(),
-        source,
-        loadImage: (_) {
-          coverRequests++;
-          return Future.value(_png);
-        },
-      );
-      final pagesFinder = find.byKey(const ValueKey('main-tab-pages'));
-      final pages = tester.widget<PageView>(pagesFinder).controller!;
-      final navigation = find.byType(NavigationBar);
-      void select(int index) => tester
-          .widget<NavigationBar>(navigation)
-          .onDestinationSelected!(index);
+  testWidgets('main comic navigation animates and retains comic state', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final source = _Source();
+    var coverRequests = 0;
+    await pump(
+      tester,
+      ProviderScope(
+        overrides: [
+          worksProvider.overrideWith((ref) => _IdleWorks(ref)),
+          downloadSummaryProvider.overrideWith(
+            (ref) => Stream.value(const DownloadTaskSummary.empty()),
+          ),
+          downloadTaskIdsProvider.overrideWith(
+            (ref) => Stream.value(<String>[]),
+          ),
+        ],
+        child: const MainScreen(),
+      ),
+      _Library(),
+      source,
+      loadImage: (_) {
+        coverRequests++;
+        return Future.value(_png);
+      },
+    );
+    final pagesFinder = find.byKey(const ValueKey('main-tab-pages'));
+    final pages = tester.widget<PageView>(pagesFinder).controller!;
+    final navigation = find.byType(NavigationBar);
+    void select(int index) =>
+        tester.widget<NavigationBar>(navigation).onDestinationSelected!(index);
 
-      select(1);
-      await tester.pump();
-      expect(pages.page, 1);
-      expect(source.searches, 1);
-      await pumpFrames(tester, frames: 2);
-      final comicState = tester.state(
-        find.byType(ComicScreen, skipOffstage: false),
-      );
-      expect(find.byType(ComicCover, skipOffstage: false), findsOneWidget);
-      expect(coverRequests, greaterThan(0));
-      final preparedRequests = coverRequests;
-      final pageView = tester.widget<PageView>(pagesFinder);
-      expect(pageView.scrollCacheExtent.value, 0);
-      expect(pageView.allowImplicitScrolling, isFalse);
+    select(1);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(pages.page, greaterThan(0));
+    expect(pages.page, lessThan(1));
+    expect(source.searches, 1);
+    await tester.pumpAndSettle();
+    expect(pages.page, 1);
+    await pumpFrames(tester, frames: 2);
+    final comicState = tester.state(
+      find.byType(ComicScreen, skipOffstage: false),
+    );
+    expect(find.byType(ComicCover, skipOffstage: false), findsOneWidget);
+    expect(coverRequests, greaterThan(0));
+    final preparedRequests = coverRequests;
+    final pageView = tester.widget<PageView>(pagesFinder);
+    expect(pageView.scrollCacheExtent.value, 0);
+    expect(pageView.allowImplicitScrolling, isFalse);
 
-      select(0);
-      await tester.pump();
-      expect(pages.page, 0);
-      expect(coverRequests, preparedRequests);
-      select(1);
-      await tester.pump();
-      expect(pages.page, 1);
-      expect(find.byType(ComicCover), findsWidgets);
-      expect(coverRequests, preparedRequests);
-      expect(tester.state(find.byType(ComicScreen)), same(comicState));
-      select(0);
-      await tester.pump();
-      expect(pages.page, 0);
-      select(1);
-      await tester.pump();
-      expect(pages.page, 1);
-      expect(find.byType(ComicCover), findsWidgets);
-      expect(coverRequests, preparedRequests);
-      expect(source.searches, 1);
-      expect(tester.state(find.byType(ComicScreen)), same(comicState));
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    },
-  );
+    select(0);
+    await tester.pump();
+    expect(pages.page, greaterThan(0));
+    await tester.pumpAndSettle();
+    expect(pages.page, 0);
+    expect(coverRequests, preparedRequests);
+    select(1);
+    await tester.pump();
+    expect(pages.page, lessThan(1));
+    await tester.pumpAndSettle();
+    expect(pages.page, 1);
+    expect(find.byType(ComicCover), findsWidgets);
+    expect(coverRequests, preparedRequests);
+    expect(tester.state(find.byType(ComicScreen)), same(comicState));
+    select(0);
+    await tester.pump();
+    expect(pages.page, greaterThan(0));
+    await tester.pumpAndSettle();
+    expect(pages.page, 0);
+    select(1);
+    await tester.pump();
+    expect(pages.page, lessThan(1));
+    await tester.pumpAndSettle();
+    expect(pages.page, 1);
+    expect(find.byType(ComicCover), findsWidgets);
+    expect(coverRequests, preparedRequests);
+    expect(source.searches, 1);
+    expect(tester.state(find.byType(ComicScreen)), same(comicState));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets(
     'comic grid warms the current slice and reuses display-size decoded covers',
@@ -9774,9 +9981,10 @@ void main() {
     expect(library.historyReads, 0);
     await selectComicPage(tester, 2);
     await tester.pump();
-    expect(pages.page, 2);
+    expect(pages.page, lessThan(2));
     await tester.pump(const Duration(milliseconds: 100));
-    expect(readAtPage, 2);
+    expect(readAtPage, isNotNull);
+    expect(readAtPage, lessThan(2));
     final historyCovers = find.descendant(
       of: find.byKey(const ValueKey('comic-tab-2'), skipOffstage: false),
       matching: find.byType(ComicCover, skipOffstage: false),
@@ -9800,7 +10008,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('comic page selection jumps directly and retains home state', (
+  testWidgets('comic page selection animates and retains home state', (
     tester,
   ) async {
     await pump(tester, const ComicScreen(), _Library(), _Source());
@@ -9811,8 +10019,10 @@ void main() {
     final s = S.of(tester.element(pageTitle));
     await selectComicPage(tester, 2);
     await tester.pump();
-    expect(pages.page, 2);
+    expect(pages.page, lessThan(2));
     expect(tester.widget<Text>(pageTitle).data, s.libraryHistory);
+    await tester.pumpAndSettle();
+    expect(pages.page, 2);
     expect(
       tester.state(
         find.byKey(const ValueKey('comic-tab-0'), skipOffstage: false),
@@ -9821,16 +10031,22 @@ void main() {
     );
     await selectComicSource(tester, 'Fixture');
     await tester.pump();
+    expect(pages.page, greaterThan(0));
+    await tester.pumpAndSettle();
     expect(pages.page, 0);
     expect(tester.widget<Text>(pageTitle).data, s.navHome);
     await selectComicPage(tester, 1);
     await tester.pump();
-    expect(pages.page, 1);
+    expect(pages.page, lessThan(1));
     expect(tester.widget<Text>(pageTitle).data, s.libraryFavorites);
+    await tester.pumpAndSettle();
+    expect(pages.page, 1);
     await selectComicPage(tester, 0);
     await tester.pump();
-    expect(pages.page, 0);
+    expect(pages.page, greaterThan(0));
     expect(tester.widget<Text>(pageTitle).data, s.navHome);
+    await tester.pumpAndSettle();
+    expect(pages.page, 0);
     expect(tester.state(find.byKey(const ValueKey('comic-tab-0'))), same(home));
     expect(find.text('Fixture book'), findsOneWidget);
     expect(tester.takeException(), isNull);

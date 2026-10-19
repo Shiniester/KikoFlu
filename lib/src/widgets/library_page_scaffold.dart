@@ -66,28 +66,38 @@ class LibraryPageScaffold extends StatelessWidget {
                 child: Row(
                   children: [
                     Builder(
-                      builder: (context) => IconButton(
-                        key: const ValueKey('library-menu-button'),
-                        tooltip: MaterialLocalizations.of(
+                      builder: (context) => Tooltip(
+                        message: MaterialLocalizations.of(
                           context,
                         ).openAppDrawerTooltip,
-                        icon: const Icon(Icons.menu),
-                        onPressed: () => Scaffold.of(context).openDrawer(),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: math.min(110, width * .25),
-                      ),
-                      child: Tooltip(
-                        message: title,
-                        child: Text(
-                          title,
-                          key: const ValueKey('library-page-title'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleSmall,
+                        child: OutlinedButton.icon(
+                          key: const ValueKey('library-menu-button'),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size(0, 48),
+                            padding: const EdgeInsets.all(12),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            textStyle: theme.textTheme.titleSmall,
+                            foregroundColor: theme.colorScheme.onSurface,
+                            side: BorderSide(
+                              color: theme.colorScheme.outlineVariant,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(28),
+                            ),
+                          ),
+                          icon: const Icon(Icons.menu, size: 20),
+                          label: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: math.min(110, width * .25),
+                            ),
+                            child: Text(
+                              title,
+                              key: const ValueKey('library-page-title'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          onPressed: () => Scaffold.of(context).openDrawer(),
                         ),
                       ),
                     ),
@@ -167,7 +177,12 @@ class LibraryDrawerSection extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-          child: Text(title, style: Theme.of(context).textTheme.labelMedium),
+          child: Text(
+            title,
+            style: Theme.of(
+              context,
+            ).textTheme.labelMedium?.copyWith(fontSize: 14, height: 16 / 14),
+          ),
         ),
         ...children,
       ],
@@ -202,7 +217,8 @@ class LibraryDrawerTile extends StatelessWidget {
     minVerticalPadding: 4,
     contentPadding: const EdgeInsets.symmetric(horizontal: 12),
     leading: Icon(icon, size: 20),
-    title: Text(title),
+    title: Text(title, style: const TextStyle(fontSize: 16)),
+    leadingAndTrailingTextStyle: Theme.of(context).textTheme.bodyMedium,
     selected: selected,
     selectedColor: Theme.of(context).colorScheme.primary,
     selectedTileColor: Theme.of(context).colorScheme.primaryContainer,

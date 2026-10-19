@@ -24,8 +24,9 @@ and Comic settings. Audio and comic details share ADR 0001's route
 and Dock handoff, responsive detail conventions, metadata chips and toolbar actions.
 The fullscreen reader uses an independent route with a stable immersive canvas.
 Its control layer owns the Mini Player and preserves the reader route while the
-full player is open. Main navigation and drawer page selections switch directly
-and retain each visited page's state.
+full player is open. Main navigation, drawer page selections, audio feed modes,
+and source changes share a horizontal transition and retain visited page state.
+Reduced motion switches directly.
 
 Keep comic models, source adapters, credentials, SQLite tables, image cache and
 chapter download service separate. A source-qualified comic ID prevents collisions;

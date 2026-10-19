@@ -83,12 +83,37 @@ void main() {
     expect(opened, 1);
     expect(find.byType(EditableText), findsNothing);
     expect(tester.testTextInput.isVisible, isFalse);
-    final menu = tester.widget<IconButton>(
-      find.byKey(const ValueKey('library-menu-button')),
-    );
-    expect(menu.isSelected, isNull);
-    expect(menu.style, isNull);
   });
+
+  for (final width in [320.0, 1000.0]) {
+    testWidgets(
+      'bordered menu includes title and matches search margin ($width)',
+      (tester) async {
+        await tester.binding.setSurfaceSize(Size(width, 640));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await tester.pumpWidget(app());
+        final menu = find.byKey(const ValueKey('library-menu-button'));
+        final title = find.byKey(const ValueKey('library-page-title'));
+        final search = find.byKey(const ValueKey('library-page-search'));
+        final button = tester.widget<OutlinedButton>(menu);
+        expect(button.style!.side!.resolve({})!.width, 1);
+        expect(find.descendant(of: menu, matching: title), findsOneWidget);
+        expect(
+          find.descendant(of: menu, matching: find.byIcon(Icons.menu)),
+          findsOneWidget,
+        );
+        expect(tester.getTopLeft(menu).dx, 12);
+        expect(
+          tester.getTopLeft(menu).dx,
+          width - tester.getTopRight(search).dx,
+        );
+        await tester.tap(title);
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('library-drawer')), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets(
     'compact drawer keeps settings at bottom without selected checks',
@@ -103,6 +128,14 @@ void main() {
       expect(
         tester.getSize(find.byKey(const ValueKey('history-row'))).height,
         48,
+      );
+      final history = find.text('历史');
+      expect(tester.widget<Text>(history).style!.fontSize, 16);
+      expect(tester.widget<Text>(find.text('页面')).style!.fontSize, 14);
+      expect(tester.getSize(find.text('页面')).height, 16);
+      expect(
+        DefaultTextStyle.of(tester.element(history)).style.color,
+        Theme.of(tester.element(history)).colorScheme.primary,
       );
       expect(
         find.descendant(of: drawer, matching: find.byIcon(Icons.check)),

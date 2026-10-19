@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +10,7 @@ import '../../utils/snackbar_util.dart';
 import '../../widgets/tab_page_motion.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/library_page_scaffold.dart';
+import '../../widgets/library_content_transition.dart';
 import '../../widgets/pagination_bar.dart';
 import '../comic_models.dart';
 import '../comic_pagination.dart';
@@ -27,7 +30,10 @@ class ComicScreen extends ConsumerStatefulWidget {
 class _ComicScreenState extends ConsumerState<ComicScreen> {
   final _pages = PageController();
   final _pageTarget = ValueNotifier<int?>(null);
+  final _contentTransition = GlobalKey<LibraryContentTransitionState>();
   int _currentTab = 0;
+  int _pageRequest = 0;
+  bool _reduceMotion = false;
 
   @override
   void initState() {
@@ -37,23 +43,69 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
 
   void _handlePagePosition() {
     if (!_pages.hasClients || !_pages.position.hasContentDimensions) return;
-    final page = _pages.page!.round().clamp(0, 3).toInt();
+    if (_pageTarget.value != null) return;
+    final position = _pages.page!;
+    final page = position.round().clamp(0, 3).toInt();
+    if ((position - page).abs() > 0.001) return;
     if (page != _currentTab) setState(() => _currentTab = page);
   }
 
-  void _selectTab(int index) {
-    _pageTarget.value = index;
-    if (_pages.hasClients) {
-      _pages.jumpToPage(index);
-      _handlePagePosition();
-    } else if (_currentTab != index) {
-      setState(() => _currentTab = index);
+  void _selectTab(int index, {bool animate = true}) {
+    if (index < 0 || index >= 4) return;
+    final movingToTarget = _pageTarget.value == index;
+    final page = _pages.hasClients ? _pages.page : null;
+    if (movingToTarget &&
+        (animate || page == null || (page - index).abs() < 0.001)) {
+      return;
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _pageTarget.value != index) return;
+    if (_currentTab == index && _pageTarget.value == null) return;
+
+    final request = ++_pageRequest;
+    _pageTarget.value = index;
+    if (_currentTab != index) setState(() => _currentTab = index);
+    if (!_pages.hasClients) {
       _pageTarget.value = null;
-      _handlePagePosition();
-    });
+      return;
+    }
+    unawaited(
+      _completeTabSelection(
+        moveToTabPage(_pages, index, reduceMotion: !animate || _reduceMotion),
+        index,
+        request,
+      ),
+    );
+  }
+
+  Future<void> _completeTabSelection(
+    Future<void> movement,
+    int index,
+    int request,
+  ) async {
+    await movement;
+    if (!mounted || request != _pageRequest || _pageTarget.value != index) {
+      return;
+    }
+    _pageTarget.value = null;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final target = _pageTarget.value;
+    if (reduceMotion && !_reduceMotion && target != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted ||
+            !MediaQuery.disableAnimationsOf(context) ||
+            _pageTarget.value != target) {
+          return;
+        }
+        ++_pageRequest;
+        if (_pages.hasClients) _pages.jumpToPage(target);
+        _pageTarget.value = null;
+      });
+    }
+    _reduceMotion = reduceMotion;
   }
 
   @override
@@ -78,8 +130,34 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
   }
 
   Future<void> _selectSource(String key) async {
-    ref.read(comicSelectedSourceProvider.notifier).state = key;
-    _selectTab(0);
+    final sources = ref.read(enabledComicSourcesProvider);
+    final selectedKey = ref.read(comicSelectedSourceProvider);
+    final currentSource =
+        sources.where((source) => source.key == selectedKey).firstOrNull ??
+        sources.firstOrNull;
+    final sourceChanged = currentSource?.key != key;
+    final currentIndex = sources.indexWhere(
+      (source) => source.key == currentSource?.key,
+    );
+    final targetIndex = sources.indexWhere((source) => source.key == key);
+
+    void selectSource() {
+      if (selectedKey != key) {
+        ref.read(comicSelectedSourceProvider.notifier).state = key;
+      }
+      _selectTab(0, animate: !sourceChanged);
+    }
+
+    final contentTransition = _contentTransition.currentState;
+    if (sourceChanged && contentTransition != null) {
+      contentTransition.animate(
+        selectSource,
+        reverse:
+            currentIndex >= 0 && targetIndex >= 0 && targetIndex < currentIndex,
+      );
+    } else {
+      selectSource();
+    }
     await StorageService.setString('comic_selected_source', key);
   }
 
@@ -222,29 +300,32 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
               ),
               child: const Icon(Icons.download_outlined),
             ),
-      body: TabPageWarmup(
-        pages: _pages,
-        target: _pageTarget,
-        builder: (cacheExtent) => PageView(
-          key: const ValueKey('comic-tab-pages'),
-          controller: _pages,
-          physics: const NeverScrollableScrollPhysics(),
-          allowImplicitScrolling: cacheExtent > 0,
-          scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
-          children: [
-            for (var i = 0; i < 4; i++)
-              LazyTabPage(
-                key: ValueKey('comic-tab-$i'),
-                index: i,
-                target: _pageTarget,
-                pages: _pages,
-                child: _ComicCollection(
-                  active: widget.active && _currentTab == i,
-                  tab: i,
-                  onlineFavorites: onlineFavorites,
+      body: LibraryContentTransition(
+        key: _contentTransition,
+        child: TabPageWarmup(
+          pages: _pages,
+          target: _pageTarget,
+          builder: (cacheExtent) => PageView(
+            key: const ValueKey('comic-tab-pages'),
+            controller: _pages,
+            physics: const NeverScrollableScrollPhysics(),
+            allowImplicitScrolling: cacheExtent > 0,
+            scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
+            children: [
+              for (var i = 0; i < 4; i++)
+                LazyTabPage(
+                  key: ValueKey('comic-tab-$i'),
+                  index: i,
+                  target: _pageTarget,
+                  pages: _pages,
+                  child: _ComicCollection(
+                    active: widget.active && _currentTab == i,
+                    tab: i,
+                    onlineFavorites: onlineFavorites,
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
