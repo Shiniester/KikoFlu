@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show listEquals, mapEquals;
 import 'package:flutter/rendering.dart';
@@ -10,11 +11,13 @@ import 'package:path/path.dart' as p;
 
 import '../../l10n/app_localizations.dart';
 import '../models/audio_track.dart';
+import '../providers/auth_provider.dart';
 import '../providers/player_subtitle_candidates_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/work_card_display_provider.dart';
 import '../providers/work_detail_display_provider.dart';
 import '../providers/works_provider.dart' show LayoutType;
+import '../services/audio_subtitle_generation_service.dart';
 import '../services/file_preview_resolver.dart';
 import '../services/generated_subtitle_store.dart';
 import '../services/player_audio_variant_classifier.dart';
@@ -112,6 +115,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   List<PlayerSubtitleCandidate?> _subtitles = const [];
   Map<String, String> _generatedSubtitles = const {};
   StreamSubscription<void>? _subtitleUpdates;
+  CancelToken? _generatedSubtitleCancelToken;
   int _generatedSubtitleLoad = 0;
   int? _workId;
   final _imageTargets = <dynamic, Future<PreviewFileItem?>>{};
@@ -203,6 +207,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   @override
   void dispose() {
     unawaited(_subtitleUpdates?.cancel());
+    _generatedSubtitleCancelToken?.cancel();
     _verticalPosition?.removeListener(_scheduleImageInspection);
     _imagePrefetchQueue.dispose();
     for (final signal in _imageTargetSignals.values) {
@@ -293,17 +298,42 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
 
   void _loadGeneratedSubtitles() {
     final request = ++_generatedSubtitleLoad;
+    _generatedSubtitleCancelToken?.cancel();
+    final cancelToken = _generatedSubtitleCancelToken = CancelToken();
     final audio = List<PlayerAudioVariant>.of(_audio);
     final subtitles = List<PlayerSubtitleCandidate?>.of(_subtitles);
     unawaited(
       Future<void>.microtask(() async {
         final generated = <String, String>{};
         for (var index = 0; index < audio.length; index++) {
-          if (index < subtitles.length && subtitles[index] != null) continue;
+          if (!mounted ||
+              request != _generatedSubtitleLoad ||
+              cancelToken.isCancelled) {
+            return;
+          }
           final track = _trackForVariant(audio[index]);
           try {
             final path = await const GeneratedSubtitleStore().find(track);
+            if (!mounted || request != _generatedSubtitleLoad) return;
             if (path != null) {
+              final subtitle = index < subtitles.length
+                  ? subtitles[index]
+                  : null;
+              if (subtitle != null) {
+                final auth = ref.read(authProvider);
+                if (await AudioSubtitleGenerationService.isUsableSubtitleCandidate(
+                  subtitle,
+                  AudioSubtitleRequest(
+                    track: track,
+                    fileTree: widget.fileTree,
+                    host: auth.host ?? '',
+                    token: auth.token ?? '',
+                  ),
+                  cancelToken,
+                )) {
+                  continue;
+                }
+              }
               generated[GeneratedSubtitleStore.audioIdentity(track)] = path;
             }
           } catch (_) {
@@ -801,7 +831,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                       color: Colors.blue,
                       iconSize: 20,
                       onPressed: () {
-                        if (subtitle != null) {
+                        if (subtitle != null && generatedPath == null) {
                           widget.onFileTap(
                             subtitle.source,
                             _displayName(subtitle.title),

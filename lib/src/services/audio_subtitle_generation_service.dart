@@ -125,60 +125,72 @@ class AudioSubtitleGenerationService {
       libraryPriority: SubtitleLibraryPriority.lowest,
     );
     for (final candidate in candidates.where((c) => c.matchesCurrentAudio)) {
-      if (cancelToken.isCancelled) throw cancelToken.cancelError!;
-      try {
-        final localPath = candidate.source['localPath']?.toString();
-        String? text;
-        if (localPath != null && localPath.isNotEmpty) {
-          text = (await EncodingUtils.readFileWithEncoding(File(localPath))).$1;
-        } else {
-          final hash = candidate.source['hash']?.toString();
-          if (hash == null || hash.isEmpty) continue;
-          final workId = request.track.workId;
-          if (workId != null) {
-            text = await CacheService.getCachedTextContent(
-              workId: workId,
-              hash: hash,
-              fileName: candidate.title,
-            );
+      if (await isUsableSubtitleCandidate(candidate, request, cancelToken)) {
+        return true;
+      }
+    }
+    if (cancelToken.isCancelled) throw cancelToken.cancelError!;
+    return false;
+  }
+
+  static Future<bool> isUsableSubtitleCandidate(
+    PlayerSubtitleCandidate candidate,
+    AudioSubtitleRequest request,
+    CancelToken cancelToken,
+  ) async {
+    if (cancelToken.isCancelled) throw cancelToken.cancelError!;
+    try {
+      final localPath = candidate.source['localPath']?.toString();
+      String? text;
+      if (localPath != null && localPath.isNotEmpty) {
+        text = (await EncodingUtils.readFileWithEncoding(File(localPath))).$1;
+      } else {
+        final hash = candidate.source['hash']?.toString();
+        if (hash == null || hash.isEmpty) return false;
+        final workId = request.track.workId;
+        if (workId != null) {
+          text = await CacheService.getCachedTextContent(
+            workId: workId,
+            hash: hash,
+            fileName: candidate.title,
+          );
+        }
+        if (text == null) {
+          var url = candidate.source['mediaDownloadUrl']?.toString() ?? '';
+          final host = request.host.isEmpty
+              ? ''
+              : AudioFileUrlResolver.normalizeMediaHost(request.host);
+          if (url.startsWith('/')) url = '$host$url';
+          if (url.isEmpty && host.isNotEmpty) {
+            url = '$host/api/media/stream/$hash';
           }
-          if (text == null) {
-            var url = candidate.source['mediaDownloadUrl']?.toString() ?? '';
-            final host = request.host.isEmpty
-                ? ''
-                : AudioFileUrlResolver.normalizeMediaHost(request.host);
-            if (url.startsWith('/')) url = '$host$url';
-            if (url.isEmpty && host.isNotEmpty) {
-              url = '$host/api/media/stream/$hash';
-            }
-            if (url.isEmpty) continue;
-            if (request.token.isNotEmpty && !url.contains('token=')) {
-              url += '${url.contains('?') ? '&' : '?'}token=${request.token}';
-            }
-            final lease = CacheService.remoteTextLoader.acquire(
-              uri: Uri.parse(url),
-              key: CacheService.remoteAssetKey(
-                kind: RemoteAssetKind.subtitle,
-                identity: hash,
-              ),
-              headers: StorageService.serverCookieHeaders,
-            );
-            try {
-              text = (await Future.any([
-                lease.content,
-                cancelToken.whenCancel.then((error) => throw error),
-              ])).text;
-            } finally {
-              await lease.release();
-            }
+          if (url.isEmpty) return false;
+          if (request.token.isNotEmpty && !url.contains('token=')) {
+            url += '${url.contains('?') ? '&' : '?'}token=${request.token}';
+          }
+          final lease = CacheService.remoteTextLoader.acquire(
+            uri: Uri.parse(url),
+            key: CacheService.remoteAssetKey(
+              kind: RemoteAssetKind.subtitle,
+              identity: hash,
+            ),
+            headers: StorageService.serverCookieHeaders,
+          );
+          try {
+            text = (await Future.any([
+              lease.content,
+              cancelToken.whenCancel.then((error) => throw error),
+            ])).text;
+          } finally {
+            await lease.release();
           }
         }
-        if (cancelToken.isCancelled) throw cancelToken.cancelError!;
-        LyricParser.parse(text);
-        return true;
-      } catch (_) {
-        if (cancelToken.isCancelled) throw cancelToken.cancelError!;
       }
+      if (cancelToken.isCancelled) throw cancelToken.cancelError!;
+      LyricParser.parse(text);
+      return true;
+    } catch (_) {
+      if (cancelToken.isCancelled) throw cancelToken.cancelError!;
     }
     if (cancelToken.isCancelled) throw cancelToken.cancelError!;
     return false;

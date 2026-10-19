@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'dart:async';
 
 import 'package:dio/dio.dart';
@@ -17,6 +18,8 @@ import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   for (final hasSubtitle in [true, false]) {
     test(
       'checks existing subtitles before generation confirmation: $hasSubtitle',
@@ -78,6 +81,7 @@ void main() {
           translated++;
           if (translated == 1) throw StateError('offline');
           return const GeneratedSubtitleTranslation(
+            targetLocale: Locale('en'),
             original: [],
             translated: [],
           );
@@ -124,7 +128,9 @@ void main() {
           started.complete();
           return result.future;
         },
-        onTranslated: (_, __, ___) => published = true,
+        onTranslated: (_, __, ___) {
+          published = true;
+        },
       );
       addTearDown(controller.dispose);
       controller.enqueue([request]);
@@ -137,7 +143,11 @@ void main() {
       );
       expect(job.path, '/original.srt');
       result.complete(
-        const GeneratedSubtitleTranslation(original: [], translated: []),
+        const GeneratedSubtitleTranslation(
+          targetLocale: Locale('en'),
+          original: [],
+          translated: [],
+        ),
       );
       await Future<void>.delayed(Duration.zero);
       expect(published, isFalse);
@@ -153,7 +163,11 @@ void main() {
       ),
       translationRunner: (_, __, ___) async {
         translated = true;
-        return const GeneratedSubtitleTranslation(original: [], translated: []);
+        return const GeneratedSubtitleTranslation(
+          targetLocale: Locale('en'),
+          original: [],
+          translated: [],
+        );
       },
     );
     addTearDown(controller.dispose);
@@ -618,11 +632,12 @@ class _RecordingLyricController extends LyricController {
   }
 
   @override
-  void showGeneratedTranslation(
+  Future<void> showGeneratedTranslation(
     AudioTrack track,
     String originalPath,
-    GeneratedSubtitleTranslation translation,
-  ) {
+    GeneratedSubtitleTranslation translation, {
+    int? expectedLoadRequestId,
+  }) async {
     translatedTracks.add(track);
   }
 }
@@ -637,11 +652,16 @@ class _RecordingTranslationService extends GeneratedSubtitleTranslationService {
   Future<GeneratedSubtitleTranslation> translate(
     String originalPath, {
     required bool saveTranslation,
+    required Locale targetLocale,
     required CancelToken cancelToken,
     required void Function(double) onProgress,
   }) async {
     paths.add(originalPath);
     saves.add(saveTranslation);
-    return const GeneratedSubtitleTranslation(original: [], translated: []);
+    return const GeneratedSubtitleTranslation(
+      targetLocale: Locale('en'),
+      original: [],
+      translated: [],
+    );
   }
 }

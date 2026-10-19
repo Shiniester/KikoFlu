@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -56,27 +57,75 @@ void main() {
         final aTranslation = await store.saveTranslation(
           aPath,
           other,
+          targetLocale: const Locale('en'),
           cancelToken: CancelToken(),
         );
         final bTranslation = await store.saveTranslation(
           bPath,
           original,
+          targetLocale: const Locale('en'),
           cancelToken: CancelToken(),
         );
         expect(aTranslation, isNot(bTranslation));
         expect(await File(aPath).readAsString(), original);
         expect(await File(aTranslation).readAsString(), other);
-        expect(await store.findTranslation(aPath), aTranslation);
+        final hans = await store.saveTranslation(
+          aPath,
+          original,
+          targetLocale: const Locale('zh'),
+          cancelToken: CancelToken(),
+        );
+        final hant = await store.saveTranslation(
+          aPath,
+          other,
+          targetLocale: const Locale.fromSubtags(
+            languageCode: 'zh',
+            scriptCode: 'Hant',
+          ),
+          cancelToken: CancelToken(),
+        );
+        expect({aTranslation, hans, hant}, hasLength(3));
+        expect(
+          await store.findTranslation(
+            aPath,
+            targetLocale: const Locale.fromSubtags(
+              languageCode: 'zh',
+              scriptCode: 'Hans',
+            ),
+          ),
+          hans,
+        );
+        expect(
+          await store.findTranslation(aPath, targetLocale: const Locale('ja')),
+          isNull,
+        );
+        expect(await File(hant).readAsString(), other);
+        final legacy = await File(
+          cPath.replaceFirst(RegExp(r'\.srt$'), '.translated.srt'),
+        ).writeAsString(original);
+        expect(
+          await store.findTranslation(cPath, targetLocale: const Locale('en')),
+          isNull,
+        );
+        expect(await legacy.exists(), isTrue);
+        expect(
+          await store.findTranslation(aPath, targetLocale: const Locale('en')),
+          aTranslation,
+        );
         final cancelledTranslation = CancelToken()..cancel();
         await expectLater(
           store.saveTranslation(
             cPath,
             original,
+            targetLocale: const Locale('en'),
             cancelToken: cancelledTranslation,
           ),
           throwsA(isA<DioException>()),
         );
-        expect(await store.findTranslation(cPath), isNull);
+        expect(
+          await store.findTranslation(cPath, targetLocale: const Locale('en')),
+          isNull,
+        );
         expect(await store.save(a, other, cancelToken: CancelToken()), aPath);
         expect(await File(aPath).readAsString(), original);
 
@@ -84,7 +133,10 @@ void main() {
         expect(await const GeneratedSubtitleStore().find(a), aPath);
         expect(await store.find(b), bPath);
         expect(await store.find(c), cPath);
-        expect(await store.findTranslation(aPath), aTranslation);
+        expect(
+          await store.findTranslation(aPath, targetLocale: const Locale('en')),
+          aTranslation,
+        );
         final association = await SubtitleDatabase.instance.getMeta(
           'generated_audio:${GeneratedSubtitleStore.audioIdentity(a)}',
         );

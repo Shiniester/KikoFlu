@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'dart:async';
 import 'dart:io';
 
@@ -28,10 +29,17 @@ void main() {
         final service = GeneratedSubtitleTranslationService(
           store: store,
           translate:
-              (text, {sourceLang, required throwOnFailure, onProgress}) async {
+              (
+                text, {
+                sourceLang,
+                required throwOnFailure,
+                onProgress,
+                targetLocale,
+              }) async {
                 expect(text, 'こんにちは\n物語');
                 expect(sourceLang, 'ja');
                 expect(throwOnFailure, isTrue);
+                expect(targetLocale, const Locale('en'));
                 onProgress?.call(1, 1);
                 return 'Hello\nStory';
               },
@@ -40,11 +48,14 @@ void main() {
         final result = await service.translate(
           original.path,
           saveTranslation: save,
+          targetLocale: const Locale('en'),
           cancelToken: CancelToken(),
           onProgress: progress.add,
         );
         expect(result.translated.map((line) => line.text), ['Hello', 'Story']);
         expect(result.original.map((line) => line.text), ['こんにちは', '物語']);
+        expect(result.targetLocale, const Locale('en'));
+        expect(store.savedTarget, save ? const Locale('en') : isNull);
         final originalTimes = LyricParser.parse(
           srt,
         ).map((line) => (line.startTime, line.endTime)).toList();
@@ -75,13 +86,19 @@ void main() {
       final service = GeneratedSubtitleTranslationService(
         store: store,
         translate:
-            (_, {sourceLang, required throwOnFailure, onProgress}) async =>
-                'Hello',
+            (
+              _, {
+              sourceLang,
+              required throwOnFailure,
+              onProgress,
+              targetLocale,
+            }) async => 'Hello',
       );
       await expectLater(
         service.translate(
           original.path,
           saveTranslation: true,
+          targetLocale: const Locale('en'),
           cancelToken: CancelToken(),
           onProgress: (_) {},
         ),
@@ -101,14 +118,22 @@ void main() {
       final token = CancelToken();
       final service = GeneratedSubtitleTranslationService(
         store: store,
-        translate: (_, {sourceLang, required throwOnFailure, onProgress}) {
-          started.complete();
-          return response.future;
-        },
+        translate:
+            (
+              _, {
+              sourceLang,
+              required throwOnFailure,
+              onProgress,
+              targetLocale,
+            }) {
+              started.complete();
+              return response.future;
+            },
       );
       final result = service.translate(
         original.path,
         saveTranslation: true,
+        targetLocale: const Locale('en'),
         cancelToken: token,
         onProgress: (_) {},
       );
@@ -124,14 +149,17 @@ void main() {
 
 class _RecordingStore extends GeneratedSubtitleStore {
   String? saved;
+  Locale? savedTarget;
 
   @override
   Future<String> saveTranslation(
     String originalPath,
     String srt, {
     required CancelToken cancelToken,
+    required Locale targetLocale,
   }) async {
     saved = srt;
+    savedTarget = targetLocale;
     return '$originalPath.translated';
   }
 }

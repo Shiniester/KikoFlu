@@ -54,9 +54,10 @@ class AudioSubtitleGenerationController
   }) : super(const []);
 
   final AudioSubtitleRunner _runner;
-  final void Function(AudioSubtitleRequest request, String path)? onCompleted;
+  final FutureOr<void> Function(AudioSubtitleRequest request, String path)?
+  onCompleted;
   final GeneratedSubtitleTranslationRunner? translationRunner;
-  final void Function(
+  final FutureOr<void> Function(
     AudioSubtitleRequest request,
     String originalPath,
     GeneratedSubtitleTranslation translation,
@@ -170,7 +171,7 @@ class AudioSubtitleGenerationController
             });
             originalPath = result.path;
             if (mounted && originalPath != null) {
-              onCompleted?.call(job.request, originalPath);
+              await onCompleted?.call(job.request, originalPath);
             }
             if (result.status != AudioSubtitleGenerationStatus.completed ||
                 originalPath == null ||
@@ -194,7 +195,7 @@ class AudioSubtitleGenerationController
           ]);
           if (token.isCancelled) throw token.cancelError!;
           if (mounted) {
-            onTranslated?.call(job.request, originalPath, translation);
+            await onTranslated?.call(job.request, originalPath, translation);
           }
           _update(
             job,
@@ -245,9 +246,13 @@ final audioSubtitleGenerationProvider =
       AudioSubtitleGenerationController,
       List<AudioSubtitleJob>
     >((ref) {
+      final displayRequests = <String, int>{};
       return AudioSubtitleGenerationController(
         ref.read(audioSubtitleGenerationServiceProvider).generate,
         translationRunner: (path, token, progress) async {
+          final targetLocale = await ref.read(
+            effectiveTranslationTargetLocaleProvider.future,
+          );
           final save = await ref
               .read(autoSaveTranslatedLyricsProvider.notifier)
               .resolvedEnabled();
@@ -256,25 +261,30 @@ final audioSubtitleGenerationProvider =
               .translate(
                 path,
                 saveTranslation: save,
+                targetLocale: targetLocale,
                 cancelToken: token,
                 onProgress: progress,
               );
         },
         onTranslated: (request, path, translation) {
-          ref
+          return ref
               .read(lyricControllerProvider.notifier)
-              .showGeneratedTranslation(request.track, path, translation);
+              .showGeneratedTranslation(
+                request.track,
+                path,
+                translation,
+                expectedLoadRequestId: displayRequests[path],
+              );
         },
-        onCompleted: (request, path) {
+        onCompleted: (request, path) async {
           final current = ref.read(currentTrackProvider).valueOrNull;
           if (current != null &&
               GeneratedSubtitleStore.audioIdentity(current) ==
                   request.identity) {
-            unawaited(
-              ref
-                  .read(lyricControllerProvider.notifier)
-                  .loadLyricFromLocalFile(path),
-            );
+            final controller = ref.read(lyricControllerProvider.notifier);
+            final load = controller.loadLyricFromLocalFile(path);
+            displayRequests[path] = controller.loadRequestId;
+            await load;
           }
         },
       );

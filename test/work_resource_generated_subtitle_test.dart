@@ -7,6 +7,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
+import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
+import 'package:kikoeru_flutter/src/services/account_database.dart';
+import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/generated_subtitle_store.dart';
 import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
 import 'package:kikoeru_flutter/src/services/subtitle_database.dart';
@@ -125,6 +128,13 @@ void main() {
       }
 
       try {
+        await tester.runAsync(
+          () => CacheService.cacheTextContent(
+            workId: 42,
+            hash: 'caption-b',
+            content: '1\n00:00:01,000 --> 00:00:02,000\nWork B\n',
+          ),
+        );
         final existingGeneratedPath = await tester.runAsync(
           () => store.save(
             existingTrack,
@@ -205,14 +215,109 @@ void main() {
           findsNothing,
         );
 
+        final corruptFile = File('${directory.path}/corrupt.srt');
+        final missingFile = File('${directory.path}/missing.srt');
+        await tester.runAsync(() async {
+          await corruptFile.writeAsString('not a subtitle');
+          await CacheService.cacheTextContent(
+            workId: 42,
+            hash: 'corrupt-caption',
+            content: 'not a subtitle',
+          );
+        });
+        final invalidCandidates = [
+          {'localPath': corruptFile.path},
+          {'localPath': missingFile.path},
+          {
+            'hash': 'corrupt-caption',
+            'mediaDownloadUrl': 'https://example.invalid/subtitle.srt',
+          },
+        ];
+        for (var index = 0; index < invalidCandidates.length; index++) {
+          final hash = 'replacement-$index';
+          tree.value = [
+            {'type': 'audio', 'title': 'replacement.wav', 'hash': hash},
+            {
+              'type': 'text',
+              'title': 'replacement.srt',
+              ...invalidCandidates[index],
+            },
+          ];
+          await tester.pump();
+          final replacementPath = await tester.runAsync(
+            () => store.save(
+              AudioTrack(
+                id: hash,
+                title: 'replacement.wav',
+                url: '',
+                workId: 42,
+                hash: hash,
+              ),
+              '1\n00:00:01,000 --> 00:00:02,000\nReplacement\n',
+              cancelToken: CancelToken(),
+            ),
+          );
+          final preview = find.byKey(
+            const ValueKey('work-audio-subtitle-replacement.wav'),
+          );
+          for (var frame = 0; frame < 40; frame++) {
+            await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 10)),
+            );
+            await tester.pump();
+            await tester.tap(preview);
+            if (previewCalls.last.file['localPath'] == replacementPath) break;
+          }
+          expect(
+            previewCalls.last.file['localPath'],
+            replacementPath,
+            reason: 'Invalid work subtitle $index must use its replacement',
+          );
+
+          await tester.runAsync(
+            () => corruptFile.writeAsString(
+              '1\n00:00:01,000 --> 00:00:02,000\nRepaired work subtitle\n',
+            ),
+          );
+          tree.value = [
+            {'type': 'audio', 'title': 'replacement.wav', 'hash': hash},
+            {
+              'type': 'text',
+              'title': 'replacement.srt',
+              'localPath': corruptFile.path,
+            },
+          ];
+          for (var frame = 0; frame < 40; frame++) {
+            await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 10)),
+            );
+            await tester.pump();
+            await tester.tap(preview);
+            if (previewCalls.last.file['localPath'] == corruptFile.path) break;
+          }
+          expect(previewCalls.last.file['localPath'], corruptFile.path);
+          await tester.runAsync(
+            () => corruptFile.writeAsString('not a subtitle'),
+          );
+        }
+        expect(playCalls, 0);
+
         tree.value = [];
         await tester.pump();
         expect(tester.takeException(), isNull);
       } finally {
+        final resources = find.byType(WorkResourceTabs);
+        if (resources.evaluate().isNotEmpty) {
+          final auth = ProviderScope.containerOf(
+            tester.element(resources),
+          ).read(authProvider.notifier);
+          await tester.runAsync(() => auth.ready);
+        }
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump();
         await tester.runAsync(() async {
           await (await SubtitleDatabase.instance.database).close();
+          await AccountDatabase.instance.close();
           await directory.delete(recursive: true);
         });
         messenger.setMockMethodCallHandler(channel, null);

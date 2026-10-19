@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:dio/dio.dart';
 
@@ -10,12 +11,14 @@ class GeneratedSubtitleTranslation {
   const GeneratedSubtitleTranslation({
     required this.original,
     required this.translated,
+    required this.targetLocale,
     this.savedPath,
   });
 
   final List<LyricLine> original;
   final List<LyricLine> translated;
   final String? savedPath;
+  final Locale targetLocale;
 }
 
 typedef GeneratedSubtitleTranslator =
@@ -23,6 +26,7 @@ typedef GeneratedSubtitleTranslator =
       String text, {
       String? sourceLang,
       required bool throwOnFailure,
+      Locale? targetLocale,
       Function(int current, int total)? onProgress,
     });
 
@@ -46,6 +50,7 @@ class GeneratedSubtitleTranslationService {
   Future<GeneratedSubtitleTranslation> translate(
     String originalPath, {
     required bool saveTranslation,
+    required Locale targetLocale,
     required CancelToken cancelToken,
     required void Function(double) onProgress,
   }) async {
@@ -71,6 +76,7 @@ class GeneratedSubtitleTranslationService {
       // The generation model is Japanese, including cues containing only Kanji.
       sourceLang: 'ja',
       throwOnFailure: true,
+      targetLocale: targetLocale,
       onProgress: (current, total) {
         if (!cancelToken.isCancelled) onProgress(current / total);
       },
@@ -92,6 +98,7 @@ class GeneratedSubtitleTranslationService {
             originalPath,
             toSrt(translated),
             cancelToken: cancelToken,
+            targetLocale: targetLocale,
           )
         : null;
     checkCancelled();
@@ -99,6 +106,7 @@ class GeneratedSubtitleTranslationService {
       original: original,
       translated: translated,
       savedPath: savedPath,
+      targetLocale: targetLocale,
     );
   }
 

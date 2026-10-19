@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
@@ -64,6 +65,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   bool _isLoading = true;
   String? _content;
   String? _translatedContent;
+  String? _translationTargetKey;
   String? _errorMessage;
   final ScrollController _scrollController = ScrollController();
   final ScrollThrottler _scrollThrottler = ScrollThrottler();
@@ -578,14 +580,25 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
           final content = await _readFileWithEncoding(localFile);
           if (!mounted) return;
           String? translated;
+          String? translationTargetKey;
           if (GeneratedSubtitleStore.isGeneratedOriginalPath(localPath)) {
+            final targetLocale = await ref.read(
+              effectiveTranslationTargetLocaleProvider.future,
+            );
+            if (!mounted) return;
+            translationTargetKey = GeneratedSubtitleStore.targetLanguageKey(
+              targetLocale,
+            );
             translated = ref
                 .read(lyricControllerProvider.notifier)
-                .generatedTranslationContent(localPath);
+                .generatedTranslationContent(
+                  localPath,
+                  targetLocale: targetLocale,
+                );
             if (translated == null) {
               try {
                 final translatedPath = await const GeneratedSubtitleStore()
-                    .findTranslation(localPath);
+                    .findTranslation(localPath, targetLocale: targetLocale);
                 if (translatedPath != null) {
                   translated = await File(translatedPath).readAsString();
                 }
@@ -593,12 +606,23 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
                 // The original remains readable if the optional translation is removed.
               }
             }
+            if (!mounted) return;
+            final latestTarget = await ref.read(
+              effectiveTranslationTargetLocaleProvider.future,
+            );
+            if (translationTargetKey !=
+                GeneratedSubtitleStore.targetLanguageKey(latestTarget)) {
+              translated = null;
+            }
           }
           if (!mounted) return;
           setState(() {
             _content = content;
             _textController.text = content;
             _translatedContent = translated;
+            _translationTargetKey = translated == null
+                ? null
+                : translationTargetKey;
             _translatedTextController.text = translated ?? '';
             _showTranslation = translated != null;
             _isLoading = false;
@@ -690,10 +714,17 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
     });
 
     try {
+      final targetLocale = await ref.read(
+        effectiveTranslationTargetLocaleProvider.future,
+      );
+      if (!mounted || generation != _translationGeneration) return;
+      final targetKey = GeneratedSubtitleStore.targetLanguageKey(targetLocale);
+      _translationTargetKey = targetKey;
       final translateContent = widget.translateContentForTesting;
       final translated = translateContent == null
           ? await TranslationService().translateLongText(
               sourceContent,
+              targetLocale: targetLocale,
               onProgress: (current, total) {
                 if (!mounted || generation != _translationGeneration) return;
                 setState(() {
@@ -707,6 +738,14 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
           : await translateContent(sourceContent);
 
       if (!mounted || generation != _translationGeneration) return;
+      final latestTarget = await ref.read(
+        effectiveTranslationTargetLocaleProvider.future,
+      );
+      if (!mounted || generation != _translationGeneration) return;
+      if (targetKey != GeneratedSubtitleStore.targetLanguageKey(latestTarget)) {
+        setState(() => _isTranslating = false);
+        return;
+      }
       if (_textController.text != sourceContent) {
         setState(() {
           _isTranslating = false;
@@ -726,6 +765,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
         sourceContent,
         translated,
         generation,
+        targetLocale,
       );
     } catch (e) {
       if (!mounted || generation != _translationGeneration) return;
@@ -741,6 +781,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
     String sourceContent,
     String translatedContent,
     int generation,
+    Locale targetLocale,
   ) async {
     if (translatedContent.isEmpty ||
         translatedContent == sourceContent ||
@@ -757,7 +798,21 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
           _textController.text == sourceContent;
       if (!enabled || !isCurrent()) return;
 
-      await _writeSubtitleToLibrary(translatedContent, shouldWrite: isCurrent);
+      final originalPath = LocalFileUrl.pathFromUrl(widget.textUrl);
+      if (originalPath != null &&
+          GeneratedSubtitleStore.isGeneratedOriginalPath(originalPath)) {
+        await const GeneratedSubtitleStore().saveTranslation(
+          originalPath,
+          translatedContent,
+          targetLocale: targetLocale,
+          cancelToken: CancelToken(),
+        );
+      } else {
+        await _writeSubtitleToLibrary(
+          translatedContent,
+          shouldWrite: isCurrent,
+        );
+      }
       if (mounted && isCurrent()) widget.onSavedToLibrary?.call();
     } catch (e) {
       LogService.instance.error(
@@ -785,6 +840,25 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(effectiveTranslationTargetLocaleProvider, (_, next) {
+      final target = next.valueOrNull;
+      if (target == null ||
+          _translationTargetKey == null ||
+          _translationTargetKey ==
+              GeneratedSubtitleStore.targetLanguageKey(target)) {
+        return;
+      }
+      setState(() {
+        _translationGeneration++;
+        _translatedContent = null;
+        _translatedTextController.clear();
+        _translationTargetKey = null;
+        _showTranslation = false;
+        _isTranslating = false;
+        _translationProgress = '';
+      });
+      _refreshSearchResults();
+    });
     return Scaffold(
       appBar: ScrollableAppBar(
         title: Text(widget.title),

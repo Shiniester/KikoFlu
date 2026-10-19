@@ -297,22 +297,25 @@ class TranslationService {
     String text, {
     String? sourceLang,
     bool throwOnFailure = false,
+    Locale? targetLocale,
   }) async {
     if (text.isEmpty) return text;
 
     final prefs = await SharedPreferences.getInstance();
     final selectedSource = prefs.getString('translation_source') ?? 'google';
-    final languageConfig = _getLanguageConfig(prefs);
+    final languageConfig = targetLocale == null
+        ? _getLanguageConfig(prefs)
+        : _TranslationLanguageConfig(targetLocale: targetLocale);
     final normalizedSourceLang = _normalizeSourceLanguage(sourceLang);
     final cacheSourceLang = languageConfig.cacheSourceLang(
       normalizedSourceLang,
     );
     final cacheTargetLang = languageConfig.cacheTargetLang();
-    final targetLocale = languageConfig.targetLocale;
+    final effectiveTargetLocale = languageConfig.targetLocale;
 
     final localConversion = await _convertChineseLocally(
       text,
-      targetLocale,
+      effectiveTargetLocale,
       sourceLang: normalizedSourceLang,
       prefs: prefs,
     );
@@ -356,7 +359,7 @@ class TranslationService {
           result = await _youdaoTranslator.translate(
             text,
             sourceLang: languageConfig.youdaoSourceLang(normalizedSourceLang),
-            targetLang: _youdaoTargetLang(targetLocale),
+            targetLang: _youdaoTargetLang(effectiveTargetLocale),
           );
         } else if (source == 'microsoft') {
           result = await _microsoftTranslator.translate(
@@ -364,7 +367,7 @@ class TranslationService {
             sourceLang: languageConfig.microsoftSourceLang(
               normalizedSourceLang,
             ),
-            targetLang: _microsoftTargetLang(targetLocale),
+            targetLang: _microsoftTargetLang(effectiveTargetLocale),
           );
         } else if (source == 'llm') {
           result = await _llmTranslator.translate(
@@ -372,7 +375,7 @@ class TranslationService {
             sourceLang: languageConfig.llmSourceLanguageName(
               normalizedSourceLang,
             ),
-            locale: targetLocale,
+            locale: effectiveTargetLocale,
             sourceLanguageName: languageConfig.llmSourceLanguageName(
               normalizedSourceLang,
             ),
@@ -382,7 +385,7 @@ class TranslationService {
           final translation = await _googleTranslator.translate(
             text,
             from: languageConfig.googleSourceLang(normalizedSourceLang),
-            to: _googleTargetLang(targetLocale),
+            to: _googleTargetLang(effectiveTargetLocale),
           );
           result = translation.text;
         }
@@ -451,12 +454,18 @@ class TranslationService {
     String? sourceLang,
     Function(int current, int total)? onProgress,
     bool throwOnFailure = false,
+    Locale? targetLocale,
   }) async {
     if (text.isEmpty) return text;
 
-    final localConversion = await convertChineseLocally(
+    final prefs = await SharedPreferences.getInstance();
+    final resolvedTarget =
+        targetLocale ?? _getLanguageConfig(prefs).targetLocale;
+    final localConversion = await _convertChineseLocally(
       text,
+      resolvedTarget,
       sourceLang: sourceLang,
+      prefs: prefs,
     );
     if (localConversion != null) {
       onProgress?.call(1, 1);
@@ -506,7 +515,6 @@ class TranslationService {
     }
 
     // 获取并发设置
-    final prefs = await SharedPreferences.getInstance();
     final source = prefs.getString('translation_source') ?? 'google';
     int concurrency = 1;
     if (source == 'llm') {
@@ -531,6 +539,7 @@ class TranslationService {
             chunks[index],
             sourceLang: sourceLang,
             throwOnFailure: throwOnFailure,
+            targetLocale: resolvedTarget,
           );
           results[index] = translated;
         } catch (e) {

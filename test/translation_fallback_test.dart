@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -29,6 +30,56 @@ void main() {
   tearDown(() {
     HttpOverrides.global = previousHttpOverrides;
   });
+
+  test(
+    'generated translation freezes its target across chunks when preferences change',
+    () async {
+      final prefs = await SharedPreferences.getInstance();
+      network.responseFor = (uri) => uri.host == 'dict.youdao.com'
+          ? _FakeReply.json(200, {
+              'translateResult': [
+                [
+                  {'tgt': 'Hello'},
+                ],
+              ],
+            })
+          : null;
+      final directory = await Directory.systemTemp.createTemp(
+        'generated-frozen-target-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final original = await File('${directory.path}/voice.srt').writeAsString(
+        '1\n00:00:01,000 --> 00:00:02,000\n${'あ' * 1000}\n\n'
+        '2\n00:00:02,000 --> 00:00:03,000\n${'い' * 1000}\n\n',
+      );
+      final result = await GeneratedSubtitleTranslationService().translate(
+        original.path,
+        saveTranslation: false,
+        targetLocale: const Locale('en'),
+        cancelToken: CancelToken(),
+        onProgress: (progress) {
+          if (progress < 1) {
+            prefs.setString(
+              TranslationLanguagePreferencesNotifier.keyTargetLanguage,
+              'ja',
+            );
+          }
+        },
+      );
+      expect(network.requests, hasLength(2));
+      expect(network.requests.map((uri) => uri.queryParameters['to']), [
+        'en',
+        'en',
+      ]);
+      expect(result.targetLocale, const Locale('en'));
+      expect(
+        prefs.getString(
+          TranslationLanguagePreferencesNotifier.keyTargetLanguage,
+        ),
+        'ja',
+      );
+    },
+  );
 
   for (final invalid in ['Hello', 'Hello\n\nStory']) {
     test(
@@ -69,6 +120,7 @@ void main() {
         Future<GeneratedSubtitleTranslation> translate() => service.translate(
           original.path,
           saveTranslation: false,
+          targetLocale: const Locale('en'),
           cancelToken: CancelToken(),
           onProgress: (_) {},
         );
@@ -117,6 +169,7 @@ void main() {
       Future<GeneratedSubtitleTranslation> translate() => service.translate(
         original.path,
         saveTranslation: false,
+        targetLocale: const Locale('en'),
         cancelToken: CancelToken(),
         onProgress: (_) {},
       );
@@ -190,6 +243,10 @@ void main() {
       final translated = await GeneratedSubtitleTranslationService().translate(
         original.path,
         saveTranslation: false,
+        targetLocale: const Locale.fromSubtags(
+          languageCode: 'zh',
+          scriptCode: 'Hant',
+        ),
         cancelToken: CancelToken(),
         onProgress: (_) {},
       );

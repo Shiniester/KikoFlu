@@ -281,6 +281,7 @@ void main() {
         translationRunner: (path, token, progress) async {
           if (++translated == 1) throw StateError('translation unavailable');
           return const GeneratedSubtitleTranslation(
+            targetLocale: Locale('en'),
             original: [],
             translated: [],
           );

@@ -154,6 +154,123 @@ Future<void> _resolveAutoSavePreference(WidgetTester tester) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  testWidgets(
+    'generated preview ignores saved translations after changing the target and reopening',
+    (tester) async {
+      const originalText = '1\n00:00:01,000 --> 00:00:02,000\nこんにちは\n';
+      final root = await _createPreviewRoot(autoSaveTranslated: false);
+      final folder = Directory(
+        path.join(root.path, GeneratedSubtitleStore.relativeDirectory, '1'),
+      )..createSync(recursive: true);
+      final original = File(path.join(folder.path, 'audio.srt'))
+        ..writeAsStringSync(originalText);
+      final translatedText = originalText.replaceFirst('こんにちは', 'Hello');
+      final english = File(
+        GeneratedSubtitleStore.translatedPath(
+          original.path,
+          targetLocale: const Locale('en'),
+        ),
+      )..writeAsStringSync(translatedText);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(() => root.delete(recursive: true));
+      });
+      await tester.pumpWidget(
+        _testPreviewApp(original.path, title: 'audio.srt', autoTranslate: true),
+      );
+      await _pumpUntilContent(tester, translatedText);
+      expect(
+        tester
+            .widget<SelectableText>(
+              find.byKey(const ValueKey('text-preview-content')),
+            )
+            .data,
+        translatedText,
+      );
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(TextPreviewScreen)),
+        listen: false,
+      );
+      await container
+          .read(translationLanguagePreferencesProvider.notifier)
+          .updateTargetLanguage(TranslationTargetLanguage.japanese);
+      await _pumpUntilContent(tester, originalText);
+      expect(
+        tester
+            .widget<SelectableText>(
+              find.byKey(const ValueKey('text-preview-content')),
+            )
+            .data,
+        originalText,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(
+        _testPreviewApp(original.path, title: 'audio.srt', autoTranslate: true),
+      );
+      await _pumpUntilContent(tester, originalText);
+      expect(
+        tester
+            .widget<SelectableText>(
+              find.byKey(const ValueKey('text-preview-content')),
+            )
+            .data,
+        originalText,
+      );
+      expect(english.existsSync(), isTrue);
+    },
+  );
+
+  testWidgets(
+    'preview never publishes a translation completed for an old target',
+    (tester) async {
+      const originalText = '1\n00:00:01,000 --> 00:00:02,000\nこんにちは\n';
+      final root = await _createPreviewRoot(autoSaveTranslated: false);
+      final folder = Directory(
+        path.join(root.path, GeneratedSubtitleStore.relativeDirectory, '1'),
+      )..createSync(recursive: true);
+      final original = File(path.join(folder.path, 'audio.srt'))
+        ..writeAsStringSync(originalText);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(() => root.delete(recursive: true));
+      });
+      final result = Completer<String>();
+      var started = false;
+      await tester.pumpWidget(
+        _testPreviewApp(
+          original.path,
+          title: 'audio.srt',
+          autoTranslate: false,
+          translateContentForTesting: (_) {
+            started = true;
+            return result.future;
+          },
+        ),
+      );
+      await _pumpUntilContent(tester, originalText);
+      await tester.tap(find.byType(TranslationToolbarButton));
+      await _pumpUntil(tester, () => started);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(TextPreviewScreen)),
+        listen: false,
+      );
+      await container
+          .read(translationLanguagePreferencesProvider.notifier)
+          .updateTargetLanguage(TranslationTargetLanguage.japanese);
+      await tester.pump();
+      result.complete(originalText.replaceFirst('こんにちは', 'Hello'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<SelectableText>(
+              find.byKey(const ValueKey('text-preview-content')),
+            )
+            .data,
+        originalText,
+      );
+    },
+  );
+
   for (final hasTranslation in [true, false]) {
     testWidgets('generated preview reuses saved translation: $hasTranslation', (
       tester,
@@ -173,7 +290,10 @@ void main() {
         ..writeAsStringSync(originalText);
       if (hasTranslation) {
         File(
-          GeneratedSubtitleStore.translatedPath(original.path),
+          GeneratedSubtitleStore.translatedPath(
+            original.path,
+            targetLocale: const Locale('en'),
+          ),
         ).writeAsStringSync(translatedText);
       }
       addTearDown(() async {
@@ -243,6 +363,7 @@ void main() {
           currentTrackProvider.overrideWith((ref) => Stream.value(current)),
         ],
       );
+      await tester.runAsync(() => container.read(currentTrackProvider.future));
       final controller = container.read(lyricControllerProvider.notifier);
       final lines = LyricParser.parse(originalText);
       controller.showGeneratedTranslation(
@@ -253,6 +374,7 @@ void main() {
         ),
         original.path,
         GeneratedSubtitleTranslation(
+          targetLocale: const Locale('en'),
           original: lines,
           translated: [lines.single.copyWith(text: 'Hello')],
         ),
@@ -289,6 +411,42 @@ void main() {
       );
       expect(container.read(lyricControllerProvider), same(playbackLyrics));
       expect(container.read(currentTrackProvider).valueOrNull, same(current));
+      await container
+          .read(translationLanguagePreferencesProvider.notifier)
+          .updateTargetLanguage(TranslationTargetLanguage.japanese);
+      await _pumpUntilContent(tester, originalText);
+      expect(
+        tester
+            .widget<SelectableText>(
+              find.byKey(const ValueKey('text-preview-content')),
+            )
+            .data,
+        originalText,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            locale: const Locale('en'),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: TextPreviewScreen(
+              textUrl: LocalFileUrl.fromPath(original.path),
+              title: 'audio.srt',
+            ),
+          ),
+        ),
+      );
+      await _pumpUntilContent(tester, originalText);
+      expect(
+        tester
+            .widget<SelectableText>(
+              find.byKey(const ValueKey('text-preview-content')),
+            )
+            .data,
+        originalText,
+      );
     },
   );
 

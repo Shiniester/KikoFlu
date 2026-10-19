@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:dio/dio.dart';
 import 'package:path/path.dart' as p;
@@ -35,12 +36,30 @@ class GeneratedSubtitleStore {
       path.replaceAll('\\', '/').contains('/$relativeDirectory/') &&
       !path.endsWith('.translated.srt');
 
-  static String translatedPath(String originalPath) =>
-      p.setExtension(originalPath, '.translated.srt');
+  static String targetLanguageKey(Locale locale) {
+    if (locale.languageCode == 'zh') {
+      return locale.scriptCode == 'Hant' ||
+              const ['TW', 'HK', 'MO'].contains(locale.countryCode)
+          ? 'zh-Hant'
+          : 'zh-Hans';
+    }
+    return locale.languageCode.toLowerCase();
+  }
 
-  Future<String?> findTranslation(String originalPath) async {
+  static String translatedPath(
+    String originalPath, {
+    required Locale targetLocale,
+  }) => p.setExtension(
+    originalPath,
+    '.${targetLanguageKey(targetLocale)}.translated.srt',
+  );
+
+  Future<String?> findTranslation(
+    String originalPath, {
+    required Locale targetLocale,
+  }) async {
     if (!isGeneratedOriginalPath(originalPath)) return null;
-    final file = File(translatedPath(originalPath));
+    final file = File(translatedPath(originalPath, targetLocale: targetLocale));
     if (!await file.exists()) return null;
     try {
       LyricParser.parse(await file.readAsString());
@@ -54,10 +73,13 @@ class GeneratedSubtitleStore {
     String originalPath,
     String srt, {
     required CancelToken cancelToken,
+    required Locale targetLocale,
   }) async {
     if (cancelToken.isCancelled) throw cancelToken.cancelError!;
     LyricParser.parse(srt);
-    final destination = File(translatedPath(originalPath));
+    final destination = File(
+      translatedPath(originalPath, targetLocale: targetLocale),
+    );
     final temporary = File('${destination.path}.tmp');
     try {
       await temporary.writeAsString(srt, flush: true);
