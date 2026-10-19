@@ -1099,7 +1099,9 @@ class AudioPlayerService {
             track,
             request: request,
           );
-          if (!loaded) fallbackStreamUrl = _remoteAudioUrlForHash(hash);
+          if (!loaded && localPath != null) {
+            fallbackStreamUrl = _remoteAudioUrlForHash(hash);
+          }
         }
       }
 
@@ -1817,10 +1819,17 @@ class AudioPlayerService {
     }
     _audioCacheTarget = target;
     unawaited(
-      _audioCacheDownloader.setTarget(target).catchError((Object error) {
-        _log.captureOutput('[Audio] 后台缓存失败: $error');
-        return false;
-      }),
+      _audioCacheDownloader
+          .setTarget(target)
+          .catchError((Object error) {
+            _log.captureOutput('[Audio] 后台缓存失败: $error');
+            return false;
+          })
+          .then((completed) {
+            if (!completed && identical(_audioCacheTarget, target)) {
+              _audioCacheTarget = null;
+            }
+          }),
     );
   }
 

@@ -143,6 +143,71 @@ void main() {
     },
   );
 
+  for (final throwsError in [false, true]) {
+    test(
+      'failed cache work retries on the next update (error: $throwsError)',
+      () async {
+        const track = AudioTrack(
+          id: 'retry-cache',
+          title: 'retry-cache.flac',
+          url: 'https://example.invalid/retry-cache.flac',
+          hash: 'retry-cache-audio',
+        );
+        await service.updateQueue([track], autoplay: true);
+        expect(downloader.targets, hasLength(1));
+
+        final completion = downloader.completions.single;
+        if (throwsError) {
+          completion.completeError(StateError('Transient cache failure'));
+        } else {
+          completion.complete(false);
+        }
+        await Future<void>.delayed(Duration.zero);
+        expect(downloader.targets, hasLength(1));
+
+        if (throwsError) {
+          player.emitPlayerState();
+        } else {
+          player.positions.add(player.position);
+        }
+        await until(() => downloader.targets.length == 2);
+        expect(downloader.targets.last?.hash, track.hash);
+        expect(downloader.targets.last?.uri, Uri.parse(track.url));
+
+        downloader.completions.last.complete(true);
+        await Future<void>.delayed(Duration.zero);
+        player.positions.add(player.position);
+        player.emitPlayerState();
+        await Future<void>.delayed(Duration.zero);
+        expect(downloader.targets, hasLength(2));
+      },
+    );
+  }
+
+  test('an obsolete failure preserves a restarted cache target', () async {
+    const track = AudioTrack(
+      id: 'restarted-cache',
+      title: 'restarted-cache.flac',
+      url: 'https://example.invalid/restarted-cache.flac',
+      hash: 'restarted-cache-audio',
+    );
+    await service.updateQueue([track], autoplay: true);
+    final obsoleteCompletion = downloader.completions.single;
+
+    await service.pause();
+    expect(downloader.targets.last, isNull);
+    await service.play();
+    expect(downloader.targets, hasLength(3));
+    expect(downloader.targets.last?.hash, track.hash);
+
+    obsoleteCompletion.complete(false);
+    await Future<void>.delayed(Duration.zero);
+    player.positions.add(player.position);
+    player.emitPlayerState();
+    await Future<void>.delayed(Duration.zero);
+    expect(downloader.targets, hasLength(3));
+  });
+
   test('Android remote cache waits for playback buffer headroom', () async {
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     const current = AudioTrack(
@@ -320,7 +385,7 @@ void main() {
     },
   );
 
-  test('remote fallback does not wait for failed-cache invalidation', () async {
+  test('cache fallback preserves its remote URL without waiting', () async {
     const hash = 'failed-cache-fallback';
     final partial = await CacheService.prepareAudioCacheTempFile(hash);
     await partial.writeAsBytes([1, 2, 3, 4]);
@@ -333,7 +398,7 @@ void main() {
     const track = AudioTrack(
       id: 'failed-cache',
       title: 'failed-cache.flac',
-      url: 'https://example.invalid/failed-cache.flac',
+      url: 'https://example.invalid/media/failed-cache.flac?token=required&x=1',
       hash: hash,
     );
 
@@ -344,9 +409,36 @@ void main() {
     expect(downloader.invalidationStarted, isTrue);
     expect(player.loaded, hasLength(1));
     expect(player.audioSource, isA<UriAudioSource>());
-    expect((player.audioSource as UriAudioSource).uri.scheme, 'https');
+    expect((player.audioSource as UriAudioSource).uri, Uri.parse(track.url));
     expect(player.playing, isTrue);
     downloader.invalidateGate!.complete();
+  });
+
+  test('cache-file tracks fall back to the remote hash endpoint', () async {
+    const hash = 'failed-cache-file';
+    final partial = await CacheService.prepareAudioCacheTempFile(hash);
+    await partial.writeAsBytes([1, 2, 3, 4]);
+    expect(
+      await CacheService.finalizeAudioCacheFile(hash, expectedSize: 4),
+      isTrue,
+    );
+    final cachedPath = await CacheService.audioCacheFinalPath(hash);
+    player.failFileAudioSource = true;
+    final track = AudioTrack(
+      id: 'failed-cache-file',
+      title: 'failed-cache-file.flac',
+      url: Uri.file(cachedPath).toString(),
+      hash: hash,
+    );
+
+    await service.updateQueue([track], autoplay: true);
+
+    expect(player.audioSource, isA<UriAudioSource>());
+    expect(
+      (player.audioSource as UriAudioSource).uri,
+      Uri.parse('https://example.invalid/api/media/stream/$hash'),
+    );
+    expect(player.playing, isTrue);
   });
 
   test('a downloaded cache hit keeps local filename safety handling', () async {
@@ -398,7 +490,7 @@ class _PendingCacheDownloader extends AudioCacheDownloader {
   _PendingCacheDownloader() : super(files: CacheService.audioCacheFiles);
 
   final targets = <AudioCacheRequest?>[];
-  final _completions = <Completer<bool>>[];
+  final completions = <Completer<bool>>[];
   Completer<void>? invalidateGate;
   bool invalidationStarted = false;
 
@@ -406,7 +498,7 @@ class _PendingCacheDownloader extends AudioCacheDownloader {
   Future<bool> setTarget(AudioCacheRequest? request) {
     targets.add(request);
     final completion = Completer<bool>();
-    _completions.add(completion);
+    completions.add(completion);
     return completion.future;
   }
 
@@ -420,7 +512,7 @@ class _PendingCacheDownloader extends AudioCacheDownloader {
   void complete(String hash, {bool result = true}) {
     final index = targets.indexWhere((target) => target?.hash == hash);
     if (index < 0) throw StateError('No pending cache request for $hash');
-    final completion = _completions[index];
+    final completion = completions[index];
     if (!completion.isCompleted) completion.complete(result);
   }
 }
