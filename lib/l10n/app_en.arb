@@ -1708,7 +1708,15 @@
   "comicPopularMonth": "Popular this month",
   "subtitleGenerationTitle": "Generate audio subtitles",
   "subtitleGenerateAll": "Generate all subtitles",
-  "subtitleGenerationDescription": "Recognize Japanese on this device. Audio stays on your device. The first use downloads about 160 MB of models. Supports MP3, WAV and FLAC. Translate manually after generation.",
+  "subtitleGenerate": "Generate subtitles",
+  "@subtitleGenerate": { "description": "Long-press action to generate subtitles for the selected audio." },
+  "subtitleGenerationTranslationFailed": "Original subtitles saved. Translation failed; retry translation.",
+  "@subtitleGenerationTranslationFailed": { "description": "Generation succeeded but automatic translation failed. The original remains available." },
+  "subtitleGenerationRetryTranslation": "Retry translation",
+  "@subtitleGenerationRetryTranslation": { "description": "Retry translating generated subtitles without downloading or recognizing audio again." },
+  "subtitleGenerationTranslationConfirm": "Generated subtitle text will be sent to the translation source selected in Settings. The target follows the global translation target. Original subtitles are kept; translated subtitles follow the automatic saving setting.",
+  "@subtitleGenerationTranslationConfirm": { "description": "First-use confirmation before generating and automatically translating audio subtitles." },
+  "subtitleGenerationDescription": "Recognize Japanese on this device. The first use downloads about 160 MB of models. Supports MP3, WAV and FLAC. Generated subtitle text is automatically translated using the source and target selected in Settings.",
   "subtitleGenerationQueued": "Queued",
   "subtitleGenerationChecking": "Checking existing subtitles",
   "subtitleGenerationDownloadingAudio": "Downloading complete audio",
@@ -1731,7 +1739,7 @@
     "description": "Audio tab action applying to all audio in the current filtered list."
   },
   "@subtitleGenerationDescription": {
-    "description": "Explains local Japanese recognition, first-use model download, supported formats and separate manual translation."
+    "description": "Explains local Japanese recognition, first-use model download, supported formats and automatic translation."
   },
   "@subtitleGenerationFailed": {
     "description": "Failed task with the processing stage where it stopped.",

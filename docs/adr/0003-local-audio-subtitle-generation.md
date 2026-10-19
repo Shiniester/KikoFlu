@@ -7,9 +7,11 @@ Accepted
 ## Decision
 
 Audio Subtitle Generation runs on the user's device. Audio is never uploaded to
-a transcription service; subtitle text may use the existing online translation
-services through a separate manual action. Recognition models are downloaded on
-demand and reused locally.
+a transcription service. Generated subtitle text is automatically translated by
+the existing translation sources, using the selected source, fallback order and
+global translation target. The existing first-use translation confirmation and
+translation-saving preference apply. Original subtitles remain available when
+translation fails. Recognition models are downloaded on demand and reused locally.
 
 The first version uses the official sherpa_onnx Flutter binding with the Japanese
 ReazonSpeech model and a shared miniaudio decoder bridge for MP3, WAV and FLAC.

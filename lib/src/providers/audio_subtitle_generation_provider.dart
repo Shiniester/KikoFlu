@@ -13,6 +13,7 @@ import '../services/download_file_path_service.dart';
 import '../services/download_path_service.dart';
 import '../services/download_service.dart';
 import '../services/generated_subtitle_store.dart';
+import '../services/generated_subtitle_translation_service.dart';
 import '../services/player_audio_variant_classifier.dart';
 import '../utils/file_tree_utils.dart';
 import '../utils/local_file_url.dart';
@@ -20,6 +21,7 @@ import 'audio_provider.dart';
 import 'auth_provider.dart';
 import 'lyric_provider.dart';
 import 'player_work_details_provider.dart';
+import 'settings_provider.dart';
 
 export '../services/audio_subtitle_generation_service.dart'
     show AudioSubtitleRequest, AudioSubtitleGenerationStatus;
@@ -44,14 +46,35 @@ class AudioSubtitleJob {
 
 class AudioSubtitleGenerationController
     extends StateNotifier<List<AudioSubtitleJob>> {
-  AudioSubtitleGenerationController(this._runner, {this.onCompleted})
-    : super(const []);
+  AudioSubtitleGenerationController(
+    this._runner, {
+    this.onCompleted,
+    this.translationRunner,
+    this.onTranslated,
+  }) : super(const []);
 
   final AudioSubtitleRunner _runner;
   final void Function(AudioSubtitleRequest request, String path)? onCompleted;
+  final GeneratedSubtitleTranslationRunner? translationRunner;
+  final void Function(
+    AudioSubtitleRequest request,
+    String originalPath,
+    GeneratedSubtitleTranslation translation,
+  )?
+  onTranslated;
   bool _draining = false;
   CancelToken? _activeToken;
   String? _activeIdentity;
+
+  void retryTranslation(String identity) {
+    final job = state.where((job) => job.identity == identity).firstOrNull;
+    if (job?.status != AudioSubtitleGenerationStatus.translationFailed ||
+        job?.path == null) {
+      return;
+    }
+    _update(job!, AudioSubtitleGenerationStatus.queued, path: job.path);
+    if (!_draining) unawaited(_drain());
+  }
 
   void enqueue(Iterable<AudioSubtitleRequest> requests) {
     final incoming = requests.toList(growable: false);
@@ -80,7 +103,7 @@ class AudioSubtitleGenerationController
     }
     final job = state.where((job) => job.identity == identity).firstOrNull;
     if (job?.status == AudioSubtitleGenerationStatus.queued) {
-      _update(job!, AudioSubtitleGenerationStatus.cancelled);
+      _update(job!, AudioSubtitleGenerationStatus.cancelled, path: job.path);
     }
   }
 
@@ -92,6 +115,7 @@ class AudioSubtitleGenerationController
           AudioSubtitleJob(
             request: job.request,
             status: AudioSubtitleGenerationStatus.cancelled,
+            path: job.path,
           )
         else
           job,
@@ -133,22 +157,60 @@ class AudioSubtitleGenerationController
         _activeToken = token;
         _activeIdentity = job.identity;
         var stage = AudioSubtitleGenerationStatus.checking;
-        _update(job, stage);
+        String? originalPath = job.path;
+        _update(job, stage, path: originalPath);
         try {
-          final result = await _runner(job.request, token, (status, progress) {
-            stage = status;
-            _update(job, status, progress: progress);
-          });
-          _update(job, result.status, progress: 1, path: result.path);
-          if (mounted && result.path != null) {
-            onCompleted?.call(job.request, result.path!);
+          if (originalPath == null) {
+            final result = await _runner(job.request, token, (
+              status,
+              progress,
+            ) {
+              stage = status;
+              _update(job, status, progress: progress);
+            });
+            originalPath = result.path;
+            if (mounted && originalPath != null) {
+              onCompleted?.call(job.request, originalPath);
+            }
+            if (result.status != AudioSubtitleGenerationStatus.completed ||
+                originalPath == null ||
+                translationRunner == null) {
+              _update(job, result.status, progress: 1, path: originalPath);
+              continue;
+            }
           }
+          if (token.isCancelled) throw token.cancelError!;
+          stage = AudioSubtitleGenerationStatus.translating;
+          _update(job, stage, path: originalPath);
+          final translation = await Future.any([
+            translationRunner!(originalPath, token, (progress) {
+              if (!token.isCancelled) {
+                _update(job, stage, progress: progress, path: originalPath);
+              }
+            }),
+            token.whenCancel.then<GeneratedSubtitleTranslation>(
+              (error) => throw error,
+            ),
+          ]);
+          if (token.isCancelled) throw token.cancelError!;
+          if (mounted) {
+            onTranslated?.call(job.request, originalPath, translation);
+          }
+          _update(
+            job,
+            AudioSubtitleGenerationStatus.completed,
+            progress: 1,
+            path: originalPath,
+          );
         } catch (_) {
           _update(
             job,
             token.isCancelled
                 ? AudioSubtitleGenerationStatus.cancelled
+                : stage == AudioSubtitleGenerationStatus.translating
+                ? AudioSubtitleGenerationStatus.translationFailed
                 : AudioSubtitleGenerationStatus.failed,
+            path: originalPath,
             failureStage: stage,
           );
         } finally {
@@ -173,6 +235,11 @@ final audioSubtitleGenerationServiceProvider =
       return AudioSubtitleGenerationService();
     });
 
+final generatedSubtitleTranslationServiceProvider =
+    Provider<GeneratedSubtitleTranslationService>((ref) {
+      return GeneratedSubtitleTranslationService();
+    });
+
 final audioSubtitleGenerationProvider =
     StateNotifierProvider<
       AudioSubtitleGenerationController,
@@ -180,6 +247,24 @@ final audioSubtitleGenerationProvider =
     >((ref) {
       return AudioSubtitleGenerationController(
         ref.read(audioSubtitleGenerationServiceProvider).generate,
+        translationRunner: (path, token, progress) async {
+          final save = await ref
+              .read(autoSaveTranslatedLyricsProvider.notifier)
+              .resolvedEnabled();
+          return ref
+              .read(generatedSubtitleTranslationServiceProvider)
+              .translate(
+                path,
+                saveTranslation: save,
+                cancelToken: token,
+                onProgress: progress,
+              );
+        },
+        onTranslated: (request, path, translation) {
+          ref
+              .read(lyricControllerProvider.notifier)
+              .showGeneratedTranslation(request.track, path, translation);
+        },
         onCompleted: (request, path) {
           final current = ref.read(currentTrackProvider).valueOrNull;
           if (current != null &&
@@ -200,8 +285,10 @@ class AudioSubtitleActions {
 
   final Ref ref;
 
-  /// Returns false when the existing subtitle picker should be opened.
-  Future<bool> startCurrentTrack() async {
+  /// Returns false for the subtitle picker and null when generation is declined.
+  Future<bool?> startCurrentTrack({
+    Future<bool> Function()? beforeGenerate,
+  }) async {
     final track = ref.read(currentTrackProvider).valueOrNull;
     if (track == null) return false;
     final details = ref.read(playerWorkDetailsProvider).valueOrNull;
@@ -274,6 +361,7 @@ class AudioSubtitleActions {
             .hasUsableSubtitle(request, CancelToken())) {
       return false;
     }
+    if (beforeGenerate != null && !await beforeGenerate()) return null;
     ref.read(audioSubtitleGenerationProvider.notifier).enqueue([request]);
     return true;
   }

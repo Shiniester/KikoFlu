@@ -173,6 +173,15 @@ Producing synchronized original-language subtitles from an audio file on the
 user's device. It is distinct from translating existing subtitle text.
 _Avoid_: Subtitle translation
 
+**Generated Subtitle Translation (生成字幕翻译)**:
+Automatic translation of newly generated original-language subtitles using the
+selected Translation Source and global translation target. The original subtitles
+remain available independently of the translation.
+
+**Translation Source (翻译源)**:
+The translation provider selected in Settings, with the app's existing fallback
+providers used when the selected provider fails.
+
 **Playback Line (播放行)**:
 The vertical anchor in the Player Lyrics Page where the current lyric or
 selected search result is positioned while the player follows it.

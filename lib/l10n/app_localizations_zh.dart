@@ -4050,8 +4050,21 @@ class SZh extends S {
   String get subtitleGenerateAll => '生成全部字幕';
 
   @override
+  String get subtitleGenerate => '生成字幕';
+
+  @override
+  String get subtitleGenerationTranslationFailed => '原文字幕已保存。翻译失败，可重试翻译。';
+
+  @override
+  String get subtitleGenerationRetryTranslation => '重试翻译';
+
+  @override
+  String get subtitleGenerationTranslationConfirm =>
+      '生成的字幕文字将发送给设置中选中的翻译源。目标语言跟随全局翻译目标。原文字幕会保留，译文沿用自动保存设置。';
+
+  @override
   String get subtitleGenerationDescription =>
-      '在本设备识别日语，音频不会上传。首次使用需下载约 160 MB 模型，支持 MP3、WAV、FLAC。生成后可手动翻译。';
+      '在本设备识别日语。首次使用需下载约 160 MB 模型，支持 MP3、WAV、FLAC。生成的字幕文字会自动翻译，翻译源和目标语言沿用设置。';
 
   @override
   String get subtitleGenerationQueued => '等待生成';
@@ -8161,8 +8174,21 @@ class SZhHant extends SZh {
   String get subtitleGenerateAll => '產生全部字幕';
 
   @override
+  String get subtitleGenerate => '產生字幕';
+
+  @override
+  String get subtitleGenerationTranslationFailed => '原文字幕已儲存。翻譯失敗，可重試翻譯。';
+
+  @override
+  String get subtitleGenerationRetryTranslation => '重試翻譯';
+
+  @override
+  String get subtitleGenerationTranslationConfirm =>
+      '產生的字幕文字將傳送給設定中選取的翻譯來源。目標語言跟隨全域翻譯目標。原文字幕會保留，譯文沿用自動儲存設定。';
+
+  @override
   String get subtitleGenerationDescription =>
-      '在本裝置辨識日語，音訊不會上傳。首次使用需下載約 160 MB 模型，支援 MP3、WAV、FLAC。產生後可手動翻譯。';
+      '在本裝置辨識日語。首次使用需下載約 160 MB 模型，支援 MP3、WAV、FLAC。產生的字幕文字會自動翻譯，翻譯來源和目標語言沿用設定。';
 
   @override
   String get subtitleGenerationQueued => '等待產生';

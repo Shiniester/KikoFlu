@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
@@ -31,6 +32,7 @@ import 'file_tree_actions.dart';
 import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
 import 'audio_subtitle_generation_sheet.dart';
+import 'lyric_translation_confirmation.dart';
 import 'file_delete_confirmation_dialog.dart';
 import 'work_image_reader.dart';
 import 'work_resource_tabs.dart';
@@ -438,6 +440,13 @@ class _OfflineFileExplorerWidgetState
 
   Future<void> _generateSubtitles(List<PlayerAudioVariant> variants) async {
     try {
+      if (!await confirmLyricTranslationIfNeeded(
+        context,
+        forGeneration: true,
+      )) {
+        return;
+      }
+      if (!mounted) return;
       await ref
           .read(audioSubtitleActionsProvider)
           .startWork(
@@ -452,6 +461,62 @@ class _OfflineFileExplorerWidgetState
       if (!mounted) return;
       SnackBarUtil.showError(context, error.toString());
     }
+  }
+
+  Future<void> _showAudioActionMenu(
+    dynamic file,
+    String title,
+    String parentPath,
+    List<dynamic> audioFiles,
+    List<PlayerAudioVariant> variants,
+  ) async {
+    final selected = variants.firstWhere(
+      (variant) =>
+          identical(variant.source, file) && variant.parentPath == parentPath,
+    );
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                key: const ValueKey('file-action-generate-subtitles'),
+                leading: const Icon(Icons.subtitles_outlined),
+                title: Text(S.of(context).subtitleGenerate),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _generateSubtitles([selected]);
+                },
+              ),
+              ListTile(
+                key: const ValueKey('file-action-generate-all-subtitles'),
+                leading: const Icon(Icons.playlist_add_check),
+                title: Text(S.of(context).subtitleGenerateAll),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _generateSubtitles(variants);
+                },
+              ),
+              ListTile(
+                key: const ValueKey('file-action-copy-name'),
+                leading: const Icon(Icons.copy_outlined),
+                title: Text(S.of(context).copyName),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  Clipboard.setData(ClipboardData(text: title));
+                  SnackBarUtil.showSuccess(
+                    context,
+                    S.of(context).copiedName(title),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   // 辅助方法：判断文件名是否为音频格式
@@ -691,7 +756,7 @@ class _OfflineFileExplorerWidgetState
       displayNameFor: _getDisplayName,
       metadataBuilder: _buildFileMetadata,
       audioTrailingBuilder: _buildFileActions,
-      onGenerateSubtitles: _generateSubtitles,
+      onAudioLongPress: _showAudioActionMenu,
       expandedFolders: _expandedFolders,
       onVisibleNamesChanged: _onVisibleNamesChanged,
       onImageTap: _previewImageFile,

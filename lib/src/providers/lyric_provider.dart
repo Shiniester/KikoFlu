@@ -14,6 +14,7 @@ import '../services/offline_local_file_scanner.dart';
 import '../services/subtitle_library_service.dart';
 import '../services/subtitle_database.dart';
 import '../services/generated_subtitle_store.dart';
+import '../services/generated_subtitle_translation_service.dart';
 import '../services/work_subtitle_candidate_selector.dart';
 import '../services/log_service.dart';
 import '../utils/encoding_utils.dart';
@@ -201,6 +202,7 @@ class LyricController extends StateNotifier<LyricState> {
   int _loadRequestId = 0;
   int _translationRequestId = 0;
   RemoteTextLease? _remoteTextLease;
+  final _generatedTranslations = <String, GeneratedSubtitleTranslation>{};
 
   LyricController(this.ref, {LyricState? initialState})
     : super(initialState ?? LyricState());
@@ -512,6 +514,34 @@ class LyricController extends StateNotifier<LyricState> {
   void clearLyrics() {
     _beginLoadRequest();
     state = LyricState();
+  }
+
+  void showGeneratedTranslation(
+    AudioTrack track,
+    String originalPath,
+    GeneratedSubtitleTranslation translation,
+  ) {
+    _generatedTranslations[originalPath] = translation;
+    final current = ref.read(currentTrackProvider).valueOrNull;
+    if (current == null ||
+        GeneratedSubtitleStore.audioIdentity(current) !=
+            GeneratedSubtitleStore.audioIdentity(track)) {
+      return;
+    }
+    _beginLoadRequest();
+    state = LyricState(
+      lyrics: translation.original,
+      translatedLyrics: translation.translated,
+      translatedSubtitlePath: translation.savedPath,
+      showTranslated: true,
+      lyricUrl: 'file://$originalPath',
+      source: LyricSourceDescriptor(
+        title: path.basename(originalPath),
+        type: LyricSourceType.localFile,
+        localPath: originalPath,
+        workId: track.workId,
+      ),
+    );
   }
 
   /// 调整字幕轴偏移
@@ -989,12 +1019,27 @@ class LyricController extends StateNotifier<LyricState> {
       }
     }
     final lyrics = LyricParser.parse(content);
+    final remembered = _generatedTranslations[localPath];
+    final translatedPath =
+        remembered?.savedPath ??
+        (localPath == null
+            ? null
+            : await const GeneratedSubtitleStore().findTranslation(localPath));
+    if (!_isCurrentLoadRequest(requestId)) return null;
+    List<LyricLine>? translated = remembered?.translated;
+    if (translated == null && translatedPath != null) {
+      translated = LyricParser.parse(await File(translatedPath).readAsString());
+      if (!_isCurrentLoadRequest(requestId)) return null;
+    }
     _log.captureOutput('[Lyric] 解析完成: ${lyrics.length} 行字幕');
     return LyricState(
       lyrics: lyrics,
       isLoading: false,
       lyricUrl: lyricUrl,
       source: source,
+      translatedLyrics: translated,
+      translatedSubtitlePath: translatedPath,
+      showTranslated: translated != null,
     );
   }
 

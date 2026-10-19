@@ -12,6 +12,7 @@ import 'package:kikoeru_flutter/src/providers/audio_subtitle_generation_provider
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/providers/player_subtitle_candidates_provider.dart';
 import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
+import 'package:kikoeru_flutter/src/services/generated_subtitle_translation_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/audio_subtitle_generation_sheet.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
@@ -25,7 +26,9 @@ const _request = AudioSubtitleRequest(
 
 void main() {
   setUp(() async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'lyric_translation_confirmed_once': true,
+    });
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
     );
@@ -124,7 +127,7 @@ void main() {
   }
 
   testWidgets(
-    'batch action receives every filtered audio beyond the viewport with its directory',
+    'long press receives every filtered audio beyond the viewport with its directory',
     (tester) async {
       final files = <dynamic>[
         for (var index = 0; index < 40; index++)
@@ -165,7 +168,8 @@ void main() {
                   onFileTap: (_, _, _) {},
                   resolveImage: (_) async => null,
                   onImageTap: (_) {},
-                  onGenerateSubtitles: (variants) => received = variants,
+                  onAudioLongPress: (_, _, _, _, variants) =>
+                      received = variants,
                 ),
               ],
             ),
@@ -174,9 +178,11 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('track39.wav'), findsNothing);
-      await tester.tap(
+      expect(
         find.byKey(const ValueKey('work-resource-generate-all-subtitles')),
+        findsNothing,
       );
+      await tester.longPress(find.text('track0.wav'));
       expect(received, hasLength(40));
       expect(
         received!.every((variant) => variant.format == AudioFormat.wav),
@@ -185,6 +191,138 @@ void main() {
       expect(
         received!.map((variant) => variant.parentPath).toSet(),
         hasLength(40),
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'generation asks for translation confirmation once and cancel does not start',
+    (tester) async {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setBool('lyric_translation_confirmed_once', false);
+      final controller = AudioSubtitleGenerationController((
+        request,
+        token,
+        progress,
+      ) async {
+        await token.whenCancel;
+        return (status: AudioSubtitleGenerationStatus.cancelled, path: null);
+      });
+      late _Actions actions;
+      final container = ProviderContainer(
+        overrides: [
+          audioSubtitleGenerationProvider.overrideWith((ref) => controller),
+          audioSubtitleActionsProvider.overrideWith(
+            (ref) => actions = _Actions(ref, controller),
+          ),
+          positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
+          lyricControllerProvider.overrideWith(
+            (ref) => LyricController(ref, initialState: LyricState()),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(audioSubtitleActionsProvider);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _app(
+            const PlayerLyricsSurface(
+              isWide: false,
+              onFullscreen: _noop,
+              translateButton: Icon(Icons.translate),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('lyric-subtitle-picker-button')),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(
+        find.textContaining('Generated subtitle text will be sent'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(actions.calls, 0);
+      await tester.tap(
+        find.byKey(const ValueKey('lyric-subtitle-picker-button')),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('Confirm'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(actions.calls, 1);
+      expect(preferences.getBool('lyric_translation_confirmed_once'), isTrue);
+      controller.cancelAll();
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'translation failure can retry without generating the audio again',
+    (tester) async {
+      var generated = 0;
+      var translated = 0;
+      final controller = AudioSubtitleGenerationController(
+        (request, token, progress) async {
+          generated++;
+          return (
+            status: AudioSubtitleGenerationStatus.completed,
+            path: '/generated.srt',
+          );
+        },
+        translationRunner: (path, token, progress) async {
+          if (++translated == 1) throw StateError('translation unavailable');
+          return const GeneratedSubtitleTranslation(
+            original: [],
+            translated: [],
+          );
+        },
+      );
+      final container = ProviderContainer(
+        overrides: [
+          audioSubtitleGenerationProvider.overrideWith((ref) => controller),
+        ],
+      );
+      addTearDown(container.dispose);
+      controller.enqueue([_request]);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _app(
+            Builder(
+              builder: (context) => TextButton(
+                onPressed: () => showAudioSubtitleGenerationSheet(context),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'Original subtitles saved. Translation failed; retry translation.',
+        ),
+        findsOneWidget,
+      );
+      expect(controller.state.single.path, '/generated.srt');
+      await tester.tap(find.byTooltip('Retry translation'));
+      await tester.pumpAndSettle();
+      expect(generated, 1);
+      expect(translated, 2);
+      expect(
+        controller.state.single.status,
+        AudioSubtitleGenerationStatus.completed,
       );
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
@@ -275,7 +413,10 @@ class _Actions extends AudioSubtitleActions {
   int calls = 0;
 
   @override
-  Future<bool> startCurrentTrack() async {
+  Future<bool?> startCurrentTrack({
+    Future<bool> Function()? beforeGenerate,
+  }) async {
+    if (beforeGenerate != null && !await beforeGenerate()) return null;
     calls++;
     controller.enqueue([_request]);
     return true;

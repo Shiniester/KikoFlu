@@ -293,7 +293,11 @@ class TranslationService {
   }
 
   /// 翻译文本到应用当前语言
-  Future<String> translate(String text, {String? sourceLang}) async {
+  Future<String> translate(
+    String text, {
+    String? sourceLang,
+    bool throwOnFailure = false,
+  }) async {
     if (text.isEmpty) return text;
 
     final prefs = await SharedPreferences.getInstance();
@@ -321,7 +325,10 @@ class TranslationService {
       cacheTargetLang,
     );
     if (cachedTranslation != null) {
-      return cachedTranslation;
+      if (!throwOnFailure || _hasMatchingLines(text, cachedTranslation)) {
+        return cachedTranslation;
+      }
+      await prefs.remove(_getCacheKey(text, cacheSourceLang, cacheTargetLang));
     }
 
     // 构建尝试列表
@@ -383,6 +390,11 @@ class TranslationService {
         if (result.trim().isEmpty) {
           throw const FormatException('Translation source returned no text.');
         }
+        if (throwOnFailure && !_hasMatchingLines(text, result)) {
+          throw const FormatException(
+            'Translation changed the subtitle lines.',
+          );
+        }
 
         // 如果成功且不是首选源，提示用户
         if (source != selectedSource) {
@@ -399,7 +411,15 @@ class TranslationService {
       }
     }
 
+    if (throwOnFailure) throw StateError('All translation sources failed.');
     return text; // 所有尝试都失败，返回原文
+  }
+
+  // Strict subtitle requests require one nonempty result per input line.
+  bool _hasMatchingLines(String original, String translated) {
+    final lines = translated.trim().split(RegExp(r'\r?\n'));
+    return lines.length == original.trim().split(RegExp(r'\r?\n')).length &&
+        lines.every((line) => line.trim().isNotEmpty);
   }
 
   void _showFallbackNotification(String sourceName) {
@@ -430,6 +450,7 @@ class TranslationService {
     String text, {
     String? sourceLang,
     Function(int current, int total)? onProgress,
+    bool throwOnFailure = false,
   }) async {
     if (text.isEmpty) return text;
 
@@ -509,10 +530,12 @@ class TranslationService {
           final translated = await translate(
             chunks[index],
             sourceLang: sourceLang,
+            throwOnFailure: throwOnFailure,
           );
           results[index] = translated;
         } catch (e) {
           _log.captureOutput('Translation chunk $index failed: $e');
+          if (throwOnFailure) rethrow;
           results[index] = chunks[index];
         } finally {
           completedCount++;

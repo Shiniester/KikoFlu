@@ -10,6 +10,7 @@ import '../../providers/lyric_provider.dart';
 import '../../providers/player_lyric_style_provider.dart';
 import '../../utils/snackbar_util.dart';
 import '../audio_subtitle_generation_sheet.dart';
+import '../lyric_translation_confirmation.dart';
 import '../responsive_dialog.dart';
 import 'lyric_display_widget.dart';
 import 'player_glass_surface.dart';
@@ -84,18 +85,25 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
     try {
       final started = await ref
           .read(audioSubtitleActionsProvider)
-          .startCurrentTrack();
+          .startCurrentTrack(
+            beforeGenerate: () =>
+                confirmLyricTranslationIfNeeded(context, forGeneration: true),
+          );
       if (!mounted) return;
       setState(() => _startingSubtitleGeneration = false);
-      if (started) {
+      if (started == true) {
         await showAudioSubtitleGenerationSheet(context);
-      } else {
+      } else if (started == false) {
         await showPlayerSubtitlePickerSheet(context);
       }
     } catch (error) {
       if (!mounted) return;
       setState(() => _startingSubtitleGeneration = false);
       SnackBarUtil.showError(context, error.toString());
+    } finally {
+      if (mounted && _startingSubtitleGeneration) {
+        setState(() => _startingSubtitleGeneration = false);
+      }
     }
   }
 

@@ -1362,7 +1362,11 @@
   "comicPopularMonth": "本月熱門",
   "subtitleGenerationTitle": "產生音訊字幕",
   "subtitleGenerateAll": "產生全部字幕",
-  "subtitleGenerationDescription": "在本裝置辨識日語，音訊不會上傳。首次使用需下載約 160 MB 模型，支援 MP3、WAV、FLAC。產生後可手動翻譯。",
+  "subtitleGenerate": "產生字幕",
+  "subtitleGenerationTranslationFailed": "原文字幕已儲存。翻譯失敗，可重試翻譯。",
+  "subtitleGenerationRetryTranslation": "重試翻譯",
+  "subtitleGenerationTranslationConfirm": "產生的字幕文字將傳送給設定中選取的翻譯來源。目標語言跟隨全域翻譯目標。原文字幕會保留，譯文沿用自動儲存設定。",
+  "subtitleGenerationDescription": "在本裝置辨識日語。首次使用需下載約 160 MB 模型，支援 MP3、WAV、FLAC。產生的字幕文字會自動翻譯，翻譯來源和目標語言沿用設定。",
   "subtitleGenerationQueued": "等待產生",
   "subtitleGenerationChecking": "檢查現有字幕",
   "subtitleGenerationDownloadingAudio": "下載完整音訊",
@@ -1385,7 +1389,7 @@
     "description": "Audio tab action applying to all audio in the current filtered list."
   },
   "@subtitleGenerationDescription": {
-    "description": "Explains local Japanese recognition, first-use model download, supported formats and separate manual translation."
+    "description": "Explains local Japanese recognition, first-use model download, supported formats and automatic translation."
   },
   "@subtitleGenerationFailed": {
     "description": "Failed task with the processing stage where it stopped.",

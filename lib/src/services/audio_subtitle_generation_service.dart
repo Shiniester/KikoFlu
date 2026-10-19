@@ -7,10 +7,12 @@ import 'package:path/path.dart' as p;
 import '../models/audio_track.dart';
 import '../models/download_task.dart';
 import '../models/download_task_change.dart';
+import '../models/work.dart';
 import '../models/lyric/lyric_parser.dart';
 import '../providers/player_subtitle_candidates_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/encoding_utils.dart';
+import '../utils/file_tree_utils.dart';
 import '../utils/local_file_url.dart';
 import 'audio_file_url_resolver.dart';
 import 'cache_service.dart';
@@ -20,6 +22,7 @@ import 'download_service.dart';
 import 'generated_subtitle_store.dart';
 import 'local_audio_transcriber.dart';
 import 'local_subtitle_model_store.dart';
+import 'player_audio_variant_classifier.dart';
 import 'remote_asset_cache.dart';
 import 'storage_service.dart';
 
@@ -30,10 +33,12 @@ enum AudioSubtitleGenerationStatus {
   downloadingModel,
   transcribing,
   saving,
+  translating,
   completed,
   skipped,
   unsupported,
   failed,
+  translationFailed,
   cancelled;
 
   bool get isFinished => index >= completed.index;
@@ -71,6 +76,18 @@ typedef AudioSubtitleGenerationResult = ({
 typedef AudioSubtitleProgress =
     void Function(AudioSubtitleGenerationStatus status, double progress);
 
+typedef AudioSubtitleAudioDownloader =
+    Future<String> Function({
+      required AudioSubtitleRequest request,
+      required String fileName,
+      required String relativePath,
+      required String downloadUrl,
+      required String? hash,
+      required int? totalBytes,
+      required CancelToken cancelToken,
+      required void Function(double) onProgress,
+    });
+
 typedef AudioSubtitleRunner =
     Future<AudioSubtitleGenerationResult> Function(
       AudioSubtitleRequest request,
@@ -84,6 +101,7 @@ class AudioSubtitleGenerationService {
     LocalAudioTranscriber? transcriber,
     GeneratedSubtitleStore? subtitleStore,
     PlayerSubtitleCandidateRepository? candidateRepository,
+    this.audioDownloader,
   }) : _modelStore = modelStore ?? LocalSubtitleModelStore(),
        _transcriber = transcriber ?? LocalAudioTranscriber(),
        _subtitleStore = subtitleStore ?? const GeneratedSubtitleStore(),
@@ -94,6 +112,7 @@ class AudioSubtitleGenerationService {
   final LocalAudioTranscriber _transcriber;
   final GeneratedSubtitleStore _subtitleStore;
   final PlayerSubtitleCandidateRepository _candidateRepository;
+  final AudioSubtitleAudioDownloader? audioDownloader;
 
   Future<bool> hasUsableSubtitle(
     AudioSubtitleRequest request,
@@ -212,25 +231,238 @@ class AudioSubtitleGenerationService {
     final track = request.track;
     final localPath = track.sourcePath ?? LocalFileUrl.pathFromUrl(track.url);
     if (localPath != null && await File(localPath).exists()) return localPath;
-    final hash = track.hash;
+
+    final variants = request.fileTree.isEmpty
+        ? const <PlayerAudioVariant>[]
+        : const PlayerAudioVariantClassifier().scan(request.fileTree);
+    final original = _findOriginalVariant(request, variants);
+    if (original != null) {
+      final localOriginal = await _existingLocalPath(request, original);
+      if (localOriginal != null) return localOriginal;
+    }
+
+    final hash = track.hash?.isNotEmpty == true
+        ? track.hash
+        : _fileString(original?.source, 'hash');
     if (hash != null && hash.isNotEmpty) {
-      final cached = await CacheService.getCachedAudioFile(hash);
+      final cached = await _cachedAudioPath(request, hash);
       if (cached != null) return cached;
     }
     if (cancelToken.isCancelled) throw cancelToken.cancelError!;
-    final downloadUrl = request.downloadUrl;
+
+    final alternative = _findMp3Alternative(original, variants);
+    if (alternative != null) {
+      final localAlternative = await _existingAlternativePath(
+        request,
+        alternative,
+      );
+      if (localAlternative != null) return localAlternative;
+      if (cancelToken.isCancelled) throw cancelToken.cancelError!;
+
+      final alternativeHash = _fileString(alternative.source, 'hash');
+      final alternativeUrl = _audioDownloadUrl(request, alternative);
+      if (alternativeUrl != null) {
+        return _downloadAudio(
+          request: request,
+          fileName: alternative.title,
+          relativePath: alternative.parentPath,
+          downloadUrl: alternativeUrl,
+          hash: alternativeHash,
+          totalBytes: _fileSize(alternative.source),
+          cancelToken: cancelToken,
+          onProgress: (value) =>
+              onProgress(AudioSubtitleGenerationStatus.downloadingAudio, value),
+        );
+      }
+    }
+
+    if (cancelToken.isCancelled) throw cancelToken.cancelError!;
+    final downloadUrl = request.downloadUrl?.isNotEmpty == true
+        ? request.downloadUrl
+        : original == null
+        ? null
+        : _audioDownloadUrl(request, original);
     if (track.workId == null || downloadUrl == null || downloadUrl.isEmpty) {
+      throw StateError('A complete local audio file is unavailable.');
+    }
+    return _downloadAudio(
+      request: request,
+      fileName: original?.title ?? track.title,
+      relativePath: request.parentPath ?? original?.parentPath ?? '',
+      downloadUrl: downloadUrl,
+      hash: hash,
+      totalBytes: request.totalBytes ?? _fileSize(original?.source),
+      cancelToken: cancelToken,
+      onProgress: (value) =>
+          onProgress(AudioSubtitleGenerationStatus.downloadingAudio, value),
+    );
+  }
+
+  PlayerAudioVariant? _findOriginalVariant(
+    AudioSubtitleRequest request,
+    List<PlayerAudioVariant> variants,
+  ) {
+    final track = request.track;
+    final requestedPath = _trackPath(track.title, request.parentPath);
+    final trackHash = track.hash?.isNotEmpty == true ? track.hash : null;
+    final originalMatches = variants
+        .where((variant) {
+          final variantHash = _fileString(variant.source, 'hash');
+          if (trackHash != null && variantHash != trackHash) return false;
+          return request.parentPath == null
+              ? variant.title == track.title
+              : variant.fullPath == requestedPath;
+        })
+        .toList(growable: false);
+    return originalMatches.length == 1 ? originalMatches.single : null;
+  }
+
+  PlayerAudioVariant? _findMp3Alternative(
+    PlayerAudioVariant? original,
+    List<PlayerAudioVariant> variants,
+  ) {
+    if (original == null || original.format == PlayerAudioFormat.mp3) {
+      return null;
+    }
+    final originalHash = _fileString(original.source, 'hash');
+    final identity = _normalizedTrackPath(original.fullPath);
+    final alternatives = variants
+        .where((variant) {
+          if (identical(variant.source, original.source) ||
+              variant.fullPath == original.fullPath ||
+              variant.format != PlayerAudioFormat.mp3 ||
+              _normalizedTrackPath(variant.fullPath) != identity ||
+              variant.se != original.se ||
+              variant.ejaculation != original.ejaculation) {
+            return false;
+          }
+          final variantHash = _fileString(variant.source, 'hash');
+          return originalHash == null || variantHash != originalHash;
+        })
+        .toList(growable: false);
+    return alternatives.length == 1 ? alternatives.single : null;
+  }
+
+  Future<String?> _existingAlternativePath(
+    AudioSubtitleRequest request,
+    PlayerAudioVariant alternative,
+  ) async {
+    final localPath = await _existingLocalPath(request, alternative);
+    if (localPath != null) return localPath;
+
+    final hash = _fileString(alternative.source, 'hash');
+    if (hash == null) return null;
+    return _cachedAudioPath(request, hash);
+  }
+
+  Future<String?> _existingLocalPath(
+    AudioSubtitleRequest request,
+    PlayerAudioVariant variant,
+  ) async {
+    final sourcePath = _fileString(variant.source, 'localPath');
+    if (sourcePath != null && await File(sourcePath).exists()) {
+      return sourcePath;
+    }
+
+    final workDirectory = request.track.subtitleWorkDirPath;
+    if (workDirectory != null) {
+      final relativePath = DownloadFilePathService.localRelativePathForItem(
+        variant.source,
+        variant.parentPath,
+      );
+      final localPath = DownloadFilePathService.localPathForRelativePath(
+        rootPath: workDirectory,
+        relativePath: relativePath,
+      );
+      if (await File(localPath).exists()) return localPath;
+    }
+    return null;
+  }
+
+  Future<String?> _cachedAudioPath(
+    AudioSubtitleRequest request,
+    String hash,
+  ) async {
+    final workId = request.track.workId;
+    if (workId != null) {
+      final downloaded = await DownloadService.instance.getDownloadedFilePath(
+        workId,
+        hash,
+      );
+      if (downloaded != null) return downloaded;
+    }
+    return CacheService.getCachedAudioFile(hash);
+  }
+
+  String? _audioDownloadUrl(
+    AudioSubtitleRequest request,
+    PlayerAudioVariant variant,
+  ) {
+    var url = _fileString(variant.source, 'mediaDownloadUrl') ?? '';
+    final host = request.host.isEmpty
+        ? ''
+        : AudioFileUrlResolver.normalizeMediaHost(request.host);
+    if (url.startsWith('/')) {
+      if (host.isEmpty) return null;
+      url = '$host$url';
+    }
+    final hash = _fileString(variant.source, 'hash');
+    if (url.isEmpty && host.isNotEmpty && hash != null) {
+      url =
+          '$host/api/media/download/$hash/${Uri.encodeComponent(variant.title)}';
+    }
+    if (url.isEmpty) return null;
+    if (request.token.isNotEmpty && !url.contains('token=')) {
+      url += '${url.contains('?') ? '&' : '?'}token=${request.token}';
+    }
+    return url;
+  }
+
+  Future<String> _downloadAudio({
+    required AudioSubtitleRequest request,
+    required String fileName,
+    required String relativePath,
+    required String downloadUrl,
+    required String? hash,
+    required int? totalBytes,
+    required CancelToken cancelToken,
+    required void Function(double) onProgress,
+  }) {
+    return (audioDownloader ?? _downloadAudioWithService)(
+      request: request,
+      fileName: fileName,
+      relativePath: relativePath,
+      downloadUrl: downloadUrl,
+      hash: hash,
+      totalBytes: totalBytes,
+      cancelToken: cancelToken,
+      onProgress: onProgress,
+    );
+  }
+
+  Future<String> _downloadAudioWithService({
+    required AudioSubtitleRequest request,
+    required String fileName,
+    required String relativePath,
+    required String downloadUrl,
+    required String? hash,
+    required int? totalBytes,
+    required CancelToken cancelToken,
+    required void Function(double) onProgress,
+  }) async {
+    final track = request.track;
+    if (track.workId == null) {
       throw StateError('A complete local audio file is unavailable.');
     }
     final downloads = DownloadService.instance;
     final task = await downloads.addTask(
       workId: track.workId!,
       workTitle: track.album ?? track.title,
-      fileName: track.title,
-      relativePath: request.parentPath,
+      fileName: fileName,
+      relativePath: relativePath.isEmpty ? null : relativePath,
       downloadUrl: downloadUrl,
       hash: hash,
-      totalBytes: request.totalBytes,
+      totalBytes: totalBytes,
       workMetadata: request.workMetadata,
       coverUrl: track.artworkUrl,
     );
@@ -243,8 +475,7 @@ class AudioSubtitleGenerationService {
       repository: downloads,
       taskId: task.id,
       cancelToken: cancelToken,
-      onProgress: (value) =>
-          onProgress(AudioSubtitleGenerationStatus.downloadingAudio, value),
+      onProgress: onProgress,
     );
     final root = await DownloadPathService.getDownloadDirectory();
     final path = DownloadFilePathService.localPathForWorkRelativePath(
@@ -256,6 +487,57 @@ class AudioSubtitleGenerationService {
       throw FileSystemException('Downloaded audio file is missing', path);
     }
     return path;
+  }
+
+  String? _fileString(dynamic source, String key) {
+    final value =
+        (source is AudioFile
+                ? source.toJson()[key]
+                : FileTreeUtils.property(source, key))
+            ?.toString();
+    return value == null || value.isEmpty ? null : value;
+  }
+
+  int? _fileSize(dynamic source) {
+    final value = FileTreeUtils.property(source, 'size');
+    return value is num ? value.toInt() : null;
+  }
+
+  String _trackPath(String title, String? parentPath) {
+    final parentSegments =
+        parentPath
+            ?.replaceAll('\\', '/')
+            .split('/')
+            .where((segment) => segment.isNotEmpty)
+            .toList() ??
+        const <String>[];
+    return [...parentSegments, title].join('/');
+  }
+
+  String _normalizedTrackPath(String fullPath) {
+    final segments = fullPath.replaceAll('\\', '/').split('/');
+    final fileName = segments.removeLast();
+    final extension = p.extension(fileName);
+    final stem = extension.isEmpty
+        ? fileName
+        : fileName.substring(0, fileName.length - extension.length);
+    final directories = segments
+        .map(
+          (segment) => segment
+              .replaceAll(
+                RegExp(
+                  r'(?<![A-Za-z0-9])(?:wav|flac|mp3|opus|m4a|aac)(?![A-Za-z0-9])',
+                  caseSensitive: false,
+                ),
+                '',
+              )
+              .replaceAll(
+                RegExp(r'^[\s._\-()（）\[\]【】]+|[\s._\-()（）\[\]【】]+$'),
+                '',
+              ),
+        )
+        .where((segment) => segment.isNotEmpty);
+    return [...directories, stem].join('/');
   }
 
   static Future<DownloadTask> waitForDownload({

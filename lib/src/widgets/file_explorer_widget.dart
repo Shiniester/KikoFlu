@@ -38,6 +38,7 @@ import 'file_tree_actions.dart';
 import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
 import 'audio_subtitle_generation_sheet.dart';
+import 'lyric_translation_confirmation.dart';
 import 'work_image_reader.dart';
 import 'work_resource_tabs.dart';
 import 'work_detail/recommendation_section.dart';
@@ -518,6 +519,13 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
 
   Future<void> _generateSubtitles(List<PlayerAudioVariant> variants) async {
     try {
+      if (!await confirmLyricTranslationIfNeeded(
+        context,
+        forGeneration: true,
+      )) {
+        return;
+      }
+      if (!mounted) return;
       await ref
           .read(audioSubtitleActionsProvider)
           .startWork(
@@ -622,84 +630,120 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     String displayTitle,
     String parentPath, {
     List<dynamic>? audioFiles,
+    List<PlayerAudioVariant>? subtitleVariants,
   }) async {
     final isAudio = FileIconUtils.isAudioFile(file);
+    final generationVariants =
+        subtitleVariants ??
+        const PlayerAudioVariantClassifier().selectBest(
+          _audioVariants,
+          preference: ref.read(audioFormatPreferenceProvider),
+        );
+    final selectedVariant = _audioVariants
+        .where(
+          (variant) =>
+              identical(variant.source, file) &&
+              variant.parentPath == parentPath,
+        )
+        .firstOrNull;
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: false,
       builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isAudio) ...[
-              ListTile(
-                key: const ValueKey('file-action-add-to-queue'),
-                leading: const Icon(Icons.playlist_add),
-                title: Text(
-                  AudioTapPlaylistMode.addToQueue.localizedName(context),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isAudio) ...[
+                if (selectedVariant != null)
+                  ListTile(
+                    key: const ValueKey('file-action-generate-subtitles'),
+                    leading: const Icon(Icons.subtitles_outlined),
+                    title: Text(S.of(context).subtitleGenerate),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _generateSubtitles([selectedVariant]);
+                    },
+                  ),
+                if (generationVariants.isNotEmpty)
+                  ListTile(
+                    key: const ValueKey('file-action-generate-all-subtitles'),
+                    leading: const Icon(Icons.playlist_add_check),
+                    title: Text(S.of(context).subtitleGenerateAll),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _generateSubtitles(generationVariants);
+                    },
+                  ),
+                ListTile(
+                  key: const ValueKey('file-action-add-to-queue'),
+                  leading: const Icon(Icons.playlist_add),
+                  title: Text(
+                    AudioTapPlaylistMode.addToQueue.localizedName(context),
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _playAudioFile(
+                      file,
+                      parentPath,
+                      modeOverride: AudioTapPlaylistMode.addToQueue,
+                      audioFiles: audioFiles,
+                    );
+                  },
                 ),
+                ListTile(
+                  key: const ValueKey('file-action-play-next'),
+                  leading: const Icon(Icons.queue_play_next),
+                  title: Text(
+                    AudioTapPlaylistMode.playNext.localizedName(context),
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _playAudioFile(
+                      file,
+                      parentPath,
+                      modeOverride: AudioTapPlaylistMode.playNext,
+                      audioFiles: audioFiles,
+                    );
+                  },
+                ),
+                ListTile(
+                  key: const ValueKey('file-action-replace-queue'),
+                  leading: const Icon(Icons.playlist_play),
+                  title: Text(
+                    AudioTapPlaylistMode.replaceQueue.localizedName(context),
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _playAudioFile(
+                      file,
+                      parentPath,
+                      modeOverride: AudioTapPlaylistMode.replaceQueue,
+                      audioFiles: audioFiles,
+                    );
+                  },
+                ),
+              ],
+              ListTile(
+                key: const ValueKey('file-action-download'),
+                leading: const Icon(Icons.download_outlined),
+                title: Text(S.of(context).download),
                 onTap: () {
                   Navigator.of(sheetContext).pop();
-                  _playAudioFile(
-                    file,
-                    parentPath,
-                    modeOverride: AudioTapPlaylistMode.addToQueue,
-                    audioFiles: audioFiles,
-                  );
+                  _downloadSingleFile(file, parentPath);
                 },
               ),
               ListTile(
-                key: const ValueKey('file-action-play-next'),
-                leading: const Icon(Icons.queue_play_next),
-                title: Text(
-                  AudioTapPlaylistMode.playNext.localizedName(context),
-                ),
+                key: const ValueKey('file-action-copy-name'),
+                leading: const Icon(Icons.copy_outlined),
+                title: Text(S.of(context).copyName),
                 onTap: () {
                   Navigator.of(sheetContext).pop();
-                  _playAudioFile(
-                    file,
-                    parentPath,
-                    modeOverride: AudioTapPlaylistMode.playNext,
-                    audioFiles: audioFiles,
-                  );
-                },
-              ),
-              ListTile(
-                key: const ValueKey('file-action-replace-queue'),
-                leading: const Icon(Icons.playlist_play),
-                title: Text(
-                  AudioTapPlaylistMode.replaceQueue.localizedName(context),
-                ),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _playAudioFile(
-                    file,
-                    parentPath,
-                    modeOverride: AudioTapPlaylistMode.replaceQueue,
-                    audioFiles: audioFiles,
-                  );
+                  _copyFileName(displayTitle);
                 },
               ),
             ],
-            ListTile(
-              key: const ValueKey('file-action-download'),
-              leading: const Icon(Icons.download_outlined),
-              title: Text(S.of(context).download),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _downloadSingleFile(file, parentPath);
-              },
-            ),
-            ListTile(
-              key: const ValueKey('file-action-copy-name'),
-              leading: const Icon(Icons.copy_outlined),
-              title: Text(S.of(context).copyName),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _copyFileName(displayTitle);
-              },
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -979,9 +1023,14 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
           : null,
       onPlayAudio: (file, path, files) =>
           _playAudioFile(file, path, audioFiles: files),
-      onAudioLongPress: (file, title, path, files) =>
-          _showFileActionMenu(file, title, path, audioFiles: files),
-      onGenerateSubtitles: _generateSubtitles,
+      onAudioLongPress: (file, title, path, files, variants) =>
+          _showFileActionMenu(
+            file,
+            title,
+            path,
+            audioFiles: files,
+            subtitleVariants: variants,
+          ),
       onFileTap: _handleFileTap,
       displayNameFor: _getDisplayName,
       metadataBuilder: _buildFileMetadata,

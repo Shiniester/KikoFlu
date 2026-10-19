@@ -53,6 +53,30 @@ void main() {
         final cPath = await store.save(c, other, cancelToken: CancelToken());
         expect({aPath, bPath, cPath}, hasLength(3));
         expect(await File(aPath).readAsString(), original);
+        final aTranslation = await store.saveTranslation(
+          aPath,
+          other,
+          cancelToken: CancelToken(),
+        );
+        final bTranslation = await store.saveTranslation(
+          bPath,
+          original,
+          cancelToken: CancelToken(),
+        );
+        expect(aTranslation, isNot(bTranslation));
+        expect(await File(aPath).readAsString(), original);
+        expect(await File(aTranslation).readAsString(), other);
+        expect(await store.findTranslation(aPath), aTranslation);
+        final cancelledTranslation = CancelToken()..cancel();
+        await expectLater(
+          store.saveTranslation(
+            cPath,
+            original,
+            cancelToken: cancelledTranslation,
+          ),
+          throwsA(isA<DioException>()),
+        );
+        expect(await store.findTranslation(cPath), isNull);
         expect(await store.save(a, other, cancelToken: CancelToken()), aPath);
         expect(await File(aPath).readAsString(), original);
 
@@ -60,6 +84,7 @@ void main() {
         expect(await const GeneratedSubtitleStore().find(a), aPath);
         expect(await store.find(b), bPath);
         expect(await store.find(c), cPath);
+        expect(await store.findTranslation(aPath), aTranslation);
         final association = await SubtitleDatabase.instance.getMeta(
           'generated_audio:${GeneratedSubtitleStore.audioIdentity(a)}',
         );

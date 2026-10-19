@@ -11,10 +11,162 @@ import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/providers/player_work_details_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_subtitle_generation_service.dart';
 import 'package:kikoeru_flutter/src/services/download_file_path_service.dart';
+import 'package:kikoeru_flutter/src/services/generated_subtitle_translation_service.dart';
+import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  for (final hasSubtitle in [true, false]) {
+    test(
+      'checks existing subtitles before generation confirmation: $hasSubtitle',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        await StorageService.initCritical();
+        final track = _track('track-a', 'server-audio');
+        var generated = false;
+        var confirmationCalled = false;
+        final service = _DelayedGenerationService((_, __, ___) async {
+          generated = true;
+          return (status: AudioSubtitleGenerationStatus.completed, path: null);
+        }, hasSubtitle: hasSubtitle);
+        final container = ProviderContainer(
+          overrides: [
+            currentTrackProvider.overrideWith((ref) => Stream.value(track)),
+            audioSubtitleGenerationServiceProvider.overrideWithValue(service),
+            playerWorkDetailsProvider.overrideWith((ref) async => null),
+            playbackLyricFileTreeLoaderProvider.overrideWithValue(
+              (_) async => [],
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        await container.read(currentTrackProvider.future);
+        final result = await container
+            .read(audioSubtitleActionsProvider)
+            .startCurrentTrack(
+              beforeGenerate: () async {
+                confirmationCalled = true;
+                return false;
+              },
+            );
+        expect(result, hasSubtitle ? isFalse : isNull);
+        expect(confirmationCalled, !hasSubtitle);
+        expect(generated, isFalse);
+        expect(container.read(audioSubtitleGenerationProvider), isEmpty);
+      },
+    );
+  }
+
+  test(
+    'translation failure keeps the original and retry does not transcribe',
+    () async {
+      final request = _request('first', 'audio');
+      final second = _request('second', 'second');
+      var generated = 0;
+      var translated = 0;
+      final originals = <String>[];
+      final controller = AudioSubtitleGenerationController(
+        (request, _, __) async {
+          generated++;
+          return (
+            status: AudioSubtitleGenerationStatus.completed,
+            path: '/${request.track.id}.srt',
+          );
+        },
+        translationRunner: (path, _, __) async {
+          translated++;
+          if (translated == 1) throw StateError('offline');
+          return const GeneratedSubtitleTranslation(
+            original: [],
+            translated: [],
+          );
+        },
+        onCompleted: (_, path) => originals.add(path),
+      );
+      addTearDown(controller.dispose);
+      controller.enqueue([request, second]);
+      await _waitForJob(
+        controller,
+        second.identity,
+        AudioSubtitleGenerationStatus.completed,
+      );
+      final failed = controller.state.first;
+      expect(failed.status, AudioSubtitleGenerationStatus.translationFailed);
+      expect(failed.failureStage, AudioSubtitleGenerationStatus.translating);
+      expect(failed.path, '/first.srt');
+      expect(originals, ['/first.srt', '/second.srt']);
+      controller.retryTranslation(request.identity);
+      await _waitForJob(
+        controller,
+        request.identity,
+        AudioSubtitleGenerationStatus.completed,
+      );
+      expect(generated, 2);
+      expect(translated, 3);
+      expect(originals, hasLength(2));
+    },
+  );
+
+  test(
+    'cancelling translation retains original and ignores late results',
+    () async {
+      final request = _request('first', 'audio');
+      final started = Completer<void>();
+      final result = Completer<GeneratedSubtitleTranslation>();
+      var published = false;
+      final controller = AudioSubtitleGenerationController(
+        (_, __, ___) async => (
+          status: AudioSubtitleGenerationStatus.completed,
+          path: '/original.srt',
+        ),
+        translationRunner: (_, __, ___) {
+          started.complete();
+          return result.future;
+        },
+        onTranslated: (_, __, ___) => published = true,
+      );
+      addTearDown(controller.dispose);
+      controller.enqueue([request]);
+      await started.future;
+      controller.cancelAll();
+      final job = await _waitForJob(
+        controller,
+        request.identity,
+        AudioSubtitleGenerationStatus.cancelled,
+      );
+      expect(job.path, '/original.srt');
+      result.complete(
+        const GeneratedSubtitleTranslation(original: [], translated: []),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(published, isFalse);
+    },
+  );
+
+  test('skipped subtitles are never translated', () async {
+    var translated = false;
+    final controller = AudioSubtitleGenerationController(
+      (_, __, ___) async => (
+        status: AudioSubtitleGenerationStatus.skipped,
+        path: '/existing.srt',
+      ),
+      translationRunner: (_, __, ___) async {
+        translated = true;
+        return const GeneratedSubtitleTranslation(original: [], translated: []);
+      },
+    );
+    addTearDown(controller.dispose);
+    final request = _request('existing', 'audio');
+    controller.enqueue([request]);
+    await _waitForJob(
+      controller,
+      request.identity,
+      AudioSubtitleGenerationStatus.skipped,
+    );
+    expect(translated, isFalse);
+  });
+
   for (final withFileTree in [true, false]) {
     test(
       'single generation preserves offline audio identity with file tree: $withFileTree',
@@ -42,7 +194,7 @@ void main() {
             audioSubtitleGenerationServiceProvider.overrideWithValue(service),
             playerWorkDetailsProvider.overrideWith(
               (ref) async => PlayerWorkDetailsData(
-              track: _track('track-b', 'other-audio').copyWith(workId: 2),
+                track: _track('track-b', 'other-audio').copyWith(workId: 2),
                 work: const Work(id: 2, title: '其他作品'),
                 fileTree: const [],
                 variants: const [],
@@ -295,6 +447,9 @@ void main() {
           : 'loads generated subtitles while the original track is still playing',
       () async {
         final trackA = _track('track-a', 'audio-a');
+        SharedPreferences.setMockInitialValues({
+          AutoSaveTranslatedLyricsNotifier.preferenceKey: !switchTracks,
+        });
         final trackB = _track('track-b', 'audio-b');
         final requestA = AudioSubtitleRequest(
           track: trackA,
@@ -307,6 +462,8 @@ void main() {
         final trackBReady = Completer<void>();
         final runnerStarted = Completer<void>();
         final generationResult = Completer<AudioSubtitleGenerationResult>();
+        final translationPaths = <String>[];
+        final translationSaves = <bool>[];
         late _RecordingLyricController lyricController;
         final service = _DelayedGenerationService((request, cancelToken, _) {
           expect(identical(request, requestA), isTrue);
@@ -322,6 +479,9 @@ void main() {
           overrides: [
             currentTrackProvider.overrideWith((ref) => trackChanges.stream),
             audioSubtitleGenerationServiceProvider.overrideWithValue(service),
+            generatedSubtitleTranslationServiceProvider.overrideWithValue(
+              _RecordingTranslationService(translationPaths, translationSaves),
+            ),
             lyricControllerProvider.overrideWith((ref) {
               lyricController = _RecordingLyricController(ref);
               return lyricController;
@@ -369,6 +529,9 @@ void main() {
         );
 
         expect(completedJob.request, requestA);
+        expect(translationPaths, ['/generated/track-a.srt']);
+        expect(translationSaves, [!switchTracks]);
+        expect(lyricController.translatedTracks, [trackA]);
         expect(
           lyricController.loadedPaths,
           switchTracks ? isEmpty : ['/generated/track-a.srt'],
@@ -424,15 +587,16 @@ Future<AudioSubtitleJob> _waitForJob(
 }
 
 class _DelayedGenerationService extends AudioSubtitleGenerationService {
-  _DelayedGenerationService(this.runner);
+  _DelayedGenerationService(this.runner, {this.hasSubtitle = false});
 
   final AudioSubtitleRunner runner;
+  final bool hasSubtitle;
 
   @override
   Future<bool> hasUsableSubtitle(
     AudioSubtitleRequest request,
     CancelToken cancelToken,
-  ) async => false;
+  ) async => hasSubtitle;
 
   @override
   Future<AudioSubtitleGenerationResult> generate(
@@ -446,9 +610,38 @@ class _RecordingLyricController extends LyricController {
   _RecordingLyricController(super.ref);
 
   final loadedPaths = <String>[];
+  final translatedTracks = <AudioTrack>[];
 
   @override
   Future<void> loadLyricFromLocalFile(String filePath) async {
     loadedPaths.add(filePath);
+  }
+
+  @override
+  void showGeneratedTranslation(
+    AudioTrack track,
+    String originalPath,
+    GeneratedSubtitleTranslation translation,
+  ) {
+    translatedTracks.add(track);
+  }
+}
+
+class _RecordingTranslationService extends GeneratedSubtitleTranslationService {
+  _RecordingTranslationService(this.paths, this.saves);
+
+  final List<String> paths;
+  final List<bool> saves;
+
+  @override
+  Future<GeneratedSubtitleTranslation> translate(
+    String originalPath, {
+    required bool saveTranslation,
+    required CancelToken cancelToken,
+    required void Function(double) onProgress,
+  }) async {
+    paths.add(originalPath);
+    saves.add(saveTranslation);
+    return const GeneratedSubtitleTranslation(original: [], translated: []);
   }
 }

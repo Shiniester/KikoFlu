@@ -4068,8 +4068,22 @@ class SJa extends S {
   String get subtitleGenerateAll => 'すべての字幕を生成';
 
   @override
+  String get subtitleGenerate => '字幕を生成';
+
+  @override
+  String get subtitleGenerationTranslationFailed =>
+      '原文の字幕は保存されました。翻訳に失敗しました。翻訳を再試行できます。';
+
+  @override
+  String get subtitleGenerationRetryTranslation => '翻訳を再試行';
+
+  @override
+  String get subtitleGenerationTranslationConfirm =>
+      '生成された字幕のテキストは、設定で選択した翻訳元に送信されます。翻訳先の言語は全体の翻訳設定に従います。原文の字幕は保持され、翻訳文は自動保存の設定に従います。';
+
+  @override
   String get subtitleGenerationDescription =>
-      'この端末で日本語を認識します。音声はアップロードされません。初回は約 160 MB のモデルをダウンロードします。MP3、WAV、FLAC に対応しています。生成後に手動で翻訳できます。';
+      'この端末で日本語を認識します。初回は約 160 MB のモデルをダウンロードします。MP3、WAV、FLAC に対応しています。生成された字幕のテキストは、設定した翻訳元と翻訳先の言語で自動翻訳されます。';
 
   @override
   String get subtitleGenerationQueued => '待機中';

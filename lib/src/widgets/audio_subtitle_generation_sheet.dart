@@ -49,7 +49,10 @@ class _AudioSubtitleGenerationSheet extends ConsumerWidget {
               .length,
           failed: jobs
               .where(
-                (job) => job.status == AudioSubtitleGenerationStatus.failed,
+                (job) =>
+                    job.status == AudioSubtitleGenerationStatus.failed ||
+                    job.status ==
+                        AudioSubtitleGenerationStatus.translationFailed,
               )
               .length,
           cancelled: jobs
@@ -196,7 +199,9 @@ class _AudioSubtitleJobTile extends ConsumerWidget {
     final l10n = S.of(context);
     final status = job.status;
     final active = !status.isFinished;
-    final statusText = status == AudioSubtitleGenerationStatus.failed
+    final statusText = status == AudioSubtitleGenerationStatus.translationFailed
+        ? l10n.subtitleGenerationTranslationFailed
+        : status == AudioSubtitleGenerationStatus.failed
         ? l10n.subtitleGenerationFailed(
             _statusLabel(
               l10n,
@@ -207,6 +212,7 @@ class _AudioSubtitleJobTile extends ConsumerWidget {
             AudioSubtitleGenerationStatus.downloadingAudio ||
             AudioSubtitleGenerationStatus.downloadingModel ||
             AudioSubtitleGenerationStatus.transcribing ||
+            AudioSubtitleGenerationStatus.translating ||
             AudioSubtitleGenerationStatus.saving =>
               l10n.subtitleGenerationProgress(
                 _statusLabel(l10n, status),
@@ -251,6 +257,14 @@ class _AudioSubtitleJobTile extends ConsumerWidget {
                   .cancel(identity),
               icon: const Icon(Icons.cancel_outlined),
             )
+          : status == AudioSubtitleGenerationStatus.translationFailed
+          ? IconButton(
+              tooltip: l10n.subtitleGenerationRetryTranslation,
+              onPressed: () => ref
+                  .read(audioSubtitleGenerationProvider.notifier)
+                  .retryTranslation(identity),
+              icon: const Icon(Icons.refresh),
+            )
           : null,
     );
   }
@@ -267,10 +281,13 @@ String _statusLabel(S s, AudioSubtitleGenerationStatus status) =>
       AudioSubtitleGenerationStatus.transcribing =>
         s.subtitleGenerationTranscribing,
       AudioSubtitleGenerationStatus.saving => s.subtitleGenerationSaving,
+      AudioSubtitleGenerationStatus.translating => s.translating,
       AudioSubtitleGenerationStatus.completed => s.subtitleGenerationCompleted,
       AudioSubtitleGenerationStatus.skipped => s.subtitleGenerationSkipped,
       AudioSubtitleGenerationStatus.unsupported =>
         s.subtitleGenerationUnsupported,
       AudioSubtitleGenerationStatus.failed => s.subtitleGenerationChecking,
+      AudioSubtitleGenerationStatus.translationFailed =>
+        s.subtitleGenerationTranslationFailed,
       AudioSubtitleGenerationStatus.cancelled => s.subtitleGenerationCancelled,
     };

@@ -31,6 +31,45 @@ class GeneratedSubtitleStore {
   static bool isGeneratedRelativePath(String relativePath) =>
       relativePath.replaceAll('\\', '/').startsWith('$relativeDirectory/');
 
+  static bool isGeneratedOriginalPath(String path) =>
+      path.replaceAll('\\', '/').contains('/$relativeDirectory/') &&
+      !path.endsWith('.translated.srt');
+
+  static String translatedPath(String originalPath) =>
+      p.setExtension(originalPath, '.translated.srt');
+
+  Future<String?> findTranslation(String originalPath) async {
+    if (!isGeneratedOriginalPath(originalPath)) return null;
+    final file = File(translatedPath(originalPath));
+    if (!await file.exists()) return null;
+    try {
+      LyricParser.parse(await file.readAsString());
+      return file.path;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  Future<String> saveTranslation(
+    String originalPath,
+    String srt, {
+    required CancelToken cancelToken,
+  }) async {
+    if (cancelToken.isCancelled) throw cancelToken.cancelError!;
+    LyricParser.parse(srt);
+    final destination = File(translatedPath(originalPath));
+    final temporary = File('${destination.path}.tmp');
+    try {
+      await temporary.writeAsString(srt, flush: true);
+      if (cancelToken.isCancelled) throw cancelToken.cancelError!;
+      temporary.renameSync(destination.path);
+    } finally {
+      if (await temporary.exists()) await temporary.delete();
+    }
+    await SubtitleLibraryService.refreshDirectoryCache(destination.parent.path);
+    return destination.path;
+  }
+
   Future<String?> find(AudioTrack track) async {
     await SubtitleLibraryService.ensureInitialized();
     final relativePath = await SubtitleDatabase.instance.getMeta(

@@ -81,23 +81,48 @@ void main() {
   );
 
   test(
-    'generates and saves subtitles for an existing local audio file',
+    'reuses the complete original file before considering an MP3 alternative',
     () async {
       final audioPath = p.join(temporaryDirectory.path, 'voice.mp3');
       await File(audioPath).writeAsBytes([1, 2, 3]);
       final modelStore = _FakeModelStore();
       final transcriber = _FakeTranscriber();
       final subtitleStore = _FakeGeneratedSubtitleStore();
+      var downloadCalls = 0;
       final service = AudioSubtitleGenerationService(
         modelStore: modelStore,
         transcriber: transcriber,
         subtitleStore: subtitleStore,
         candidateRepository: _candidateRepository(const []),
+        audioDownloader:
+            ({
+              required request,
+              required fileName,
+              required relativePath,
+              required downloadUrl,
+              required hash,
+              required totalBytes,
+              required cancelToken,
+              required onProgress,
+            }) async {
+              downloadCalls++;
+              return '/unexpected/$fileName';
+            },
       );
       final progress = <AudioSubtitleGenerationStatus>[];
+      final request = _request(
+        audioPath: audioPath,
+        parentPath: 'WAV',
+        fileTree: [
+          _folder('WAV', [
+            _audioFile('voice.mp3', hash: 'voice-hash', size: 100),
+          ]),
+          _folder('MP3', [_audioFile('voice.mp3', hash: 'mp3-hash', size: 20)]),
+        ],
+      );
 
       final result = await service.generate(
-        _request(audioPath: audioPath),
+        request,
         CancelToken(),
         (status, _) => progress.add(status),
       );
@@ -108,6 +133,8 @@ void main() {
       expect(transcriber.audioPaths, [audioPath]);
       expect(transcriber.modelDirectories, ['/models']);
       expect(subtitleStore.saved, [_validSrt]);
+      expect(subtitleStore.savedTracks, [same(request.track)]);
+      expect(downloadCalls, 0);
       expect(progress, [
         AudioSubtitleGenerationStatus.checking,
         AudioSubtitleGenerationStatus.downloadingAudio,
@@ -115,6 +142,214 @@ void main() {
         AudioSubtitleGenerationStatus.transcribing,
         AudioSubtitleGenerationStatus.saving,
       ]);
+    },
+  );
+
+  test(
+    'downloads a strict MP3 alternative using its own file identity',
+    () async {
+      final request = _request(
+        title: '01.wav',
+        hash: null,
+        parentPath: 'CD1/WAV',
+        fileTree: [
+          _folder('CD1', [
+            _folder('WAV', [_audioFile('01.wav', hash: 'wav-hash', size: 800)]),
+            _folder('MP3', [
+              _audioFile(
+                '01.mp3',
+                hash: 'mp3-hash',
+                size: 80,
+                mediaDownloadUrl: 'https://cdn.example/01.mp3',
+              ),
+            ]),
+          ]),
+        ],
+        downloadUrl: 'https://cdn.example/01.wav',
+        token: 'test-token',
+      );
+      final transcriber = _FakeTranscriber();
+      final subtitleStore = _FakeGeneratedSubtitleStore();
+      final downloads =
+          <
+            ({
+              String fileName,
+              String relativePath,
+              String downloadUrl,
+              String? hash,
+              int? totalBytes,
+            })
+          >[];
+      final service = AudioSubtitleGenerationService(
+        modelStore: _FakeModelStore(),
+        transcriber: transcriber,
+        subtitleStore: subtitleStore,
+        candidateRepository: _candidateRepository(const []),
+        audioDownloader:
+            ({
+              required request,
+              required fileName,
+              required relativePath,
+              required downloadUrl,
+              required hash,
+              required totalBytes,
+              required cancelToken,
+              required onProgress,
+            }) async {
+              downloads.add((
+                fileName: fileName,
+                relativePath: relativePath,
+                downloadUrl: downloadUrl,
+                hash: hash,
+                totalBytes: totalBytes,
+              ));
+              return '/input/01.mp3';
+            },
+      );
+
+      final result = await service.generate(request, CancelToken(), (_, _) {});
+
+      expect(result.status, AudioSubtitleGenerationStatus.completed);
+      expect(downloads, [
+        (
+          fileName: '01.mp3',
+          relativePath: 'CD1/MP3',
+          downloadUrl: 'https://cdn.example/01.mp3?token=test-token',
+          hash: 'mp3-hash',
+          totalBytes: 80,
+        ),
+      ]);
+      expect(transcriber.audioPaths, ['/input/01.mp3']);
+      expect(subtitleStore.savedTracks, [same(request.track)]);
+    },
+  );
+
+  test(
+    'keeps disc and SE or ejaculation variants out of MP3 matching',
+    () async {
+      final request = _request(
+        title: '01.wav',
+        hash: null,
+        parentPath: 'CD1/WAV',
+        fileTree: [
+          _folder('CD1', [
+            _folder('WAV', [_audioFile('01.wav', hash: 'wav-hash', size: 800)]),
+            _folder('MP3', [
+              _folder('無SE', [
+                _audioFile('01.mp3', hash: 'se-cut-hash', size: 60),
+              ]),
+              _audioFile('01_無射精.mp3', hash: 'no-climax-hash', size: 55),
+            ]),
+          ]),
+          _folder('CD2', [
+            _folder('MP3', [_audioFile('01.mp3', hash: 'cd2-hash', size: 70)]),
+          ]),
+        ],
+        downloadUrl: 'https://cdn.example/original.wav',
+        totalBytes: 800,
+      );
+      final downloads =
+          <
+            ({
+              String fileName,
+              String relativePath,
+              String downloadUrl,
+              String? hash,
+              int? totalBytes,
+            })
+          >[];
+      final service = AudioSubtitleGenerationService(
+        modelStore: _FakeModelStore(),
+        transcriber: _FakeTranscriber(),
+        subtitleStore: _FakeGeneratedSubtitleStore(),
+        candidateRepository: _candidateRepository(const []),
+        audioDownloader:
+            ({
+              required request,
+              required fileName,
+              required relativePath,
+              required downloadUrl,
+              required hash,
+              required totalBytes,
+              required cancelToken,
+              required onProgress,
+            }) async {
+              downloads.add((
+                fileName: fileName,
+                relativePath: relativePath,
+                downloadUrl: downloadUrl,
+                hash: hash,
+                totalBytes: totalBytes,
+              ));
+              return '/input/original.wav';
+            },
+      );
+
+      final result = await service.generate(request, CancelToken(), (_, _) {});
+
+      expect(result.status, AudioSubtitleGenerationStatus.completed);
+      expect(downloads, [
+        (
+          fileName: '01.wav',
+          relativePath: 'CD1/WAV',
+          downloadUrl: 'https://cdn.example/original.wav',
+          hash: 'wav-hash',
+          totalBytes: 800,
+        ),
+      ]);
+    },
+  );
+
+  test(
+    'uses an existing local MP3 alternative without downloading it',
+    () async {
+      final alternativePath = p.join(temporaryDirectory.path, '01.mp3');
+      await File(alternativePath).writeAsBytes([1, 2, 3]);
+      final request = _request(
+        title: '01.wav',
+        hash: null,
+        parentPath: 'WAV',
+        fileTree: [
+          _folder('WAV', [_audioFile('01.wav', hash: 'wav-hash', size: 800)]),
+          _folder('MP3', [
+            _audioFile(
+              '01.mp3',
+              hash: 'mp3-hash',
+              size: 80,
+              localPath: alternativePath,
+            ),
+          ]),
+        ],
+        downloadUrl: 'https://cdn.example/original.wav',
+      );
+      final transcriber = _FakeTranscriber();
+      var downloadCalls = 0;
+      final service = AudioSubtitleGenerationService(
+        modelStore: _FakeModelStore(),
+        transcriber: transcriber,
+        subtitleStore: _FakeGeneratedSubtitleStore(),
+        candidateRepository: _candidateRepository(const []),
+        audioDownloader:
+            ({
+              required request,
+              required fileName,
+              required relativePath,
+              required downloadUrl,
+              required hash,
+              required totalBytes,
+              required cancelToken,
+              required onProgress,
+            }) async {
+              downloadCalls++;
+              return '/unexpected/$fileName';
+            },
+      );
+
+      final result = await service.generate(request, CancelToken(), (_, _) {});
+
+      expect(result.status, AudioSubtitleGenerationStatus.completed);
+      expect(transcriber.audioPaths, [alternativePath]);
+      expect(downloadCalls, 0);
     },
   );
 
@@ -258,17 +493,50 @@ const _validSrt = '1\n00:00:01,000 --> 00:00:02,000\nHello\n';
 AudioSubtitleRequest _request({
   String? audioPath,
   String title = 'voice.mp3',
+  String? hash = 'voice-hash',
+  List<dynamic> fileTree = const [],
+  String? parentPath,
+  String? downloadUrl,
+  int? totalBytes,
+  String host = '',
+  String token = '',
 }) => AudioSubtitleRequest(
   track: AudioTrack(
     id: 'voice',
     title: title,
     url: 'file:///voice.mp3',
     workId: 123,
-    hash: 'voice-hash',
+    hash: hash,
     sourcePath: audioPath,
   ),
-  fileTree: const [],
+  fileTree: fileTree,
+  parentPath: parentPath,
+  downloadUrl: downloadUrl,
+  totalBytes: totalBytes,
+  host: host,
+  token: token,
 );
+
+Map<String, dynamic> _folder(String title, List<dynamic> children) => {
+  'type': 'folder',
+  'title': title,
+  'children': children,
+};
+
+Map<String, dynamic> _audioFile(
+  String title, {
+  required String hash,
+  required int size,
+  String? mediaDownloadUrl,
+  String? localPath,
+}) => {
+  'type': 'audio',
+  'title': title,
+  'hash': hash,
+  'size': size,
+  if (mediaDownloadUrl != null) 'mediaDownloadUrl': mediaDownloadUrl,
+  if (localPath != null) 'localPath': localPath,
+};
 
 PlayerSubtitleCandidateRepository _candidateRepository(
   List<PlayerSubtitleCandidate> candidates,
@@ -337,6 +605,7 @@ class _FakeTranscriber extends LocalAudioTranscriber {
 
 class _FakeGeneratedSubtitleStore extends GeneratedSubtitleStore {
   final saved = <String>[];
+  final savedTracks = <AudioTrack>[];
 
   @override
   Future<String> save(
@@ -346,6 +615,7 @@ class _FakeGeneratedSubtitleStore extends GeneratedSubtitleStore {
   }) async {
     if (cancelToken.isCancelled) throw cancelToken.cancelError!;
     saved.add(srt);
+    savedTracks.add(track);
     return '/generated/${track.title.replaceAll('.mp3', '.srt')}';
   }
 }

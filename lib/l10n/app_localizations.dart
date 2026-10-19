@@ -7462,10 +7462,34 @@ abstract class S {
   /// **'Generate all subtitles'**
   String get subtitleGenerateAll;
 
-  /// Explains local Japanese recognition, first-use model download, supported formats and separate manual translation.
+  /// Long-press action to generate subtitles for the selected audio.
   ///
   /// In en, this message translates to:
-  /// **'Recognize Japanese on this device. Audio stays on your device. The first use downloads about 160 MB of models. Supports MP3, WAV and FLAC. Translate manually after generation.'**
+  /// **'Generate subtitles'**
+  String get subtitleGenerate;
+
+  /// Generation succeeded but automatic translation failed. The original remains available.
+  ///
+  /// In en, this message translates to:
+  /// **'Original subtitles saved. Translation failed; retry translation.'**
+  String get subtitleGenerationTranslationFailed;
+
+  /// Retry translating generated subtitles without downloading or recognizing audio again.
+  ///
+  /// In en, this message translates to:
+  /// **'Retry translation'**
+  String get subtitleGenerationRetryTranslation;
+
+  /// First-use confirmation before generating and automatically translating audio subtitles.
+  ///
+  /// In en, this message translates to:
+  /// **'Generated subtitle text will be sent to the translation source selected in Settings. The target follows the global translation target. Original subtitles are kept; translated subtitles follow the automatic saving setting.'**
+  String get subtitleGenerationTranslationConfirm;
+
+  /// Explains local Japanese recognition, first-use model download, supported formats and automatic translation.
+  ///
+  /// In en, this message translates to:
+  /// **'Recognize Japanese on this device. The first use downloads about 160 MB of models. Supports MP3, WAV and FLAC. Generated subtitle text is automatically translated using the source and target selected in Settings.'**
   String get subtitleGenerationDescription;
 
   /// No description provided for @subtitleGenerationQueued.

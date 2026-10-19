@@ -38,6 +38,7 @@ typedef ResourceAudioLongPress =
       String title,
       String parentPath,
       List<dynamic> audioFiles,
+      List<PlayerAudioVariant> variants,
     );
 
 const _resourcePagePadding = EdgeInsets.symmetric(horizontal: 16);
@@ -63,7 +64,6 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
     this.metadataBuilder,
     this.audioTrailingBuilder,
     this.onAudioLongPress,
-    this.onGenerateSubtitles,
     this.expandedFolders = const {},
     this.onVisibleNamesChanged,
     this.downloadedFiles = const {},
@@ -85,7 +85,6 @@ class WorkResourceTabs extends ConsumerStatefulWidget {
   final FileTreeMetadataBuilder? metadataBuilder;
   final FileTreeTrailingBuilder? audioTrailingBuilder;
   final ResourceAudioLongPress? onAudioLongPress;
-  final ValueChanged<List<PlayerAudioVariant>>? onGenerateSubtitles;
   final Set<String> expandedFolders;
   final ValueChanged<List<String>>? onVisibleNamesChanged;
   final Map<String, bool> downloadedFiles;
@@ -653,18 +652,6 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     }
     return SliverMainAxisGroup(
       slivers: [
-        if (widget.onGenerateSubtitles case final onGenerateSubtitles?)
-          SliverToBoxAdapter(
-            child: Align(
-              alignment: AlignmentDirectional.centerEnd,
-              child: TextButton.icon(
-                key: const ValueKey('work-resource-generate-all-subtitles'),
-                onPressed: () => onGenerateSubtitles(_audio),
-                icon: const Icon(Icons.subtitles_outlined),
-                label: Text(S.of(context).subtitleGenerateAll),
-              ),
-            ),
-          ),
         SliverList.builder(
           itemCount: _audio.length,
           itemBuilder: (context, index) {
@@ -715,6 +702,7 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                       entry.displayTitle,
                       variant.parentPath,
                       _queue,
+                      _audio,
                     ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,

@@ -4184,8 +4184,22 @@ class SEn extends S {
   String get subtitleGenerateAll => 'Generate all subtitles';
 
   @override
+  String get subtitleGenerate => 'Generate subtitles';
+
+  @override
+  String get subtitleGenerationTranslationFailed =>
+      'Original subtitles saved. Translation failed; retry translation.';
+
+  @override
+  String get subtitleGenerationRetryTranslation => 'Retry translation';
+
+  @override
+  String get subtitleGenerationTranslationConfirm =>
+      'Generated subtitle text will be sent to the translation source selected in Settings. The target follows the global translation target. Original subtitles are kept; translated subtitles follow the automatic saving setting.';
+
+  @override
   String get subtitleGenerationDescription =>
-      'Recognize Japanese on this device. Audio stays on your device. The first use downloads about 160 MB of models. Supports MP3, WAV and FLAC. Translate manually after generation.';
+      'Recognize Japanese on this device. The first use downloads about 160 MB of models. Supports MP3, WAV and FLAC. Generated subtitle text is automatically translated using the source and target selected in Settings.';
 
   @override
   String get subtitleGenerationQueued => 'Queued';

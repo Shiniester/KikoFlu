@@ -6,6 +6,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/services/translation_service.dart';
+import 'package:kikoeru_flutter/src/services/generated_subtitle_translation_service.dart';
+import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -27,6 +29,181 @@ void main() {
   tearDown(() {
     HttpOverrides.global = previousHttpOverrides;
   });
+
+  for (final invalid in ['Hello', 'Hello\n\nStory']) {
+    test(
+      'generated translation falls back before caching invalid cues: $invalid',
+      () async {
+        network.responseFor = (uri) {
+          if (uri.host == 'dict.youdao.com') {
+            return _FakeReply.json(200, {
+              'translateResult': [
+                [
+                  {'tgt': invalid},
+                ],
+              ],
+            });
+          }
+          if (uri.host == 'api.cognitive.microsofttranslator.com') {
+            return _FakeReply.json(200, [
+              {
+                'translations': [
+                  {'text': 'Hello\nListen\nStory'},
+                ],
+              },
+            ]);
+          }
+          return null;
+        };
+        final directory = await Directory.systemTemp.createTemp(
+          'translation-line-fallback-',
+        );
+        addTearDown(() => directory.delete(recursive: true));
+        final original = await File('${directory.path}/voice.srt')
+            .writeAsString(
+              '1\n00:00:01,000 --> 00:00:02,000\nこんにちは\n\n'
+              '2\n00:00:02,000 --> 00:00:03,000\n聴いて\n\n'
+              '3\n00:00:03,000 --> 00:00:04,000\n物語\n\n',
+            );
+        final service = GeneratedSubtitleTranslationService();
+        Future<GeneratedSubtitleTranslation> translate() => service.translate(
+          original.path,
+          saveTranslation: false,
+          cancelToken: CancelToken(),
+          onProgress: (_) {},
+        );
+        expect((await translate()).translated.map((line) => line.text), [
+          'Hello',
+          'Listen',
+          'Story',
+        ]);
+        expect(network.requests.map((uri) => uri.host), [
+          'dict.youdao.com',
+          'api.cognitive.microsofttranslator.com',
+        ]);
+        final requestCount = network.requests.length;
+        expect((await translate()).translated.map((line) => line.text), [
+          'Hello',
+          'Listen',
+          'Story',
+        ]);
+        expect(network.requests, hasLength(requestCount));
+      },
+    );
+  }
+
+  test(
+    'generated translation retry recovers and evicts an invalid old cache',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'translation-line-retry-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final original = await File('${directory.path}/voice.srt').writeAsString(
+        '1\n00:00:01,000 --> 00:00:02,000\nこんにちは\n\n'
+        '2\n00:00:02,000 --> 00:00:03,000\n物語\n\n',
+      );
+      var recovered = false;
+      network.responseFor = (uri) => uri.host == 'dict.youdao.com'
+          ? _FakeReply.json(200, {
+              'translateResult': [
+                [
+                  {'tgt': recovered ? 'Hello\nStory' : 'Hello'},
+                ],
+              ],
+            })
+          : null;
+      final service = GeneratedSubtitleTranslationService();
+      Future<GeneratedSubtitleTranslation> translate() => service.translate(
+        original.path,
+        saveTranslation: false,
+        cancelToken: CancelToken(),
+        onProgress: (_) {},
+      );
+      await expectLater(translate(), throwsStateError);
+      const source = 'こんにちは\n物語';
+      final key = 'translation_cache_ja_en_${source.hashCode}';
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(key), isNull);
+      await prefs.setString(
+        key,
+        jsonEncode({
+          'translation': 'Hello',
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        }),
+      );
+      recovered = true;
+      final requestsBeforeRetry = network.requests.length;
+      expect((await translate()).translated.map((line) => line.text), [
+        'Hello',
+        'Story',
+      ]);
+      expect(network.requests.length, requestsBeforeRetry + 1);
+      expect(jsonDecode(prefs.getString(key)!)['translation'], 'Hello\nStory');
+    },
+  );
+
+  test(
+    'strict translation reports an offline failure for whole text and chunks',
+    () async {
+      final service = TranslationService();
+      await expectLater(
+        service.translate('こんにちは', sourceLang: 'ja', throwOnFailure: true),
+        throwsStateError,
+      );
+      await expectLater(
+        service.translateLongText(
+          'こんにちは',
+          sourceLang: 'ja',
+          throwOnFailure: true,
+        ),
+        throwsStateError,
+      );
+    },
+  );
+
+  test(
+    'generated subtitles reuse the selected source, fallback, and global target',
+    () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        TranslationLanguagePreferencesNotifier.keyTargetLanguage,
+        'zh_hant',
+      );
+      network.responseFor = (uri) =>
+          uri.host == 'api.cognitive.microsofttranslator.com'
+          ? _FakeReply.json(200, [
+              {
+                'translations': [
+                  {'text': '聽聽聲音'},
+                ],
+              },
+            ])
+          : null;
+      final directory = await Directory.systemTemp.createTemp(
+        'generated-translation-settings-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final original = await File(
+        '${directory.path}/voice.srt',
+      ).writeAsString('1\n00:00:01,000 --> 00:00:02,000\n声を聴いて\n\n');
+      final translated = await GeneratedSubtitleTranslationService().translate(
+        original.path,
+        saveTranslation: false,
+        cancelToken: CancelToken(),
+        onProgress: (_) {},
+      );
+      expect(translated.translated.single.text, '聽聽聲音');
+      expect(network.requests.map((uri) => uri.host), [
+        'dict.youdao.com',
+        'api.cognitive.microsofttranslator.com',
+      ]);
+      final microsoft = network.requests.last;
+      expect(microsoft.queryParameters['to'], 'zh-Hant');
+      expect(microsoft.queryParameters['from'], 'ja');
+      expect(translated.savedPath, isNull);
+    },
+  );
 
   test(
     'falls back after Youdao network failure and reuses the success cache',
