@@ -4042,6 +4042,41 @@ class SZh extends S {
 
   @override
   String get comicPopularMonth => '本月热门';
+
+  @override
+  String get librarySources => '来源';
+
+  @override
+  String get libraryPages => '页面';
+
+  @override
+  String get libraryBrowseOptions => '浏览选项';
+
+  @override
+  String get libraryMarks => '标记';
+
+  @override
+  String get libraryHistory => '历史';
+
+  @override
+  String get libraryFavorites => '收藏';
+
+  @override
+  String get libraryDownloads => '下载';
+
+  @override
+  String get librarySubtitles => '字幕';
+
+  @override
+  String get libraryPageOrder => '页面顺序';
+
+  @override
+  String librarySearchHint(String page) {
+    return '搜索$page';
+  }
+
+  @override
+  String get libraryPageOrderDescription => '拖动调整侧栏中的页面顺序。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -8082,4 +8117,39 @@ class SZhHant extends SZh {
 
   @override
   String get comicPopularMonth => '本月熱門';
+
+  @override
+  String get librarySources => '來源';
+
+  @override
+  String get libraryPages => '頁面';
+
+  @override
+  String get libraryBrowseOptions => '瀏覽選項';
+
+  @override
+  String get libraryMarks => '標記';
+
+  @override
+  String get libraryHistory => '歷史';
+
+  @override
+  String get libraryFavorites => '收藏';
+
+  @override
+  String get libraryDownloads => '下載';
+
+  @override
+  String get librarySubtitles => '字幕';
+
+  @override
+  String get libraryPageOrder => '頁面順序';
+
+  @override
+  String librarySearchHint(String page) {
+    return '搜尋$page';
+  }
+
+  @override
+  String get libraryPageOrderDescription => '拖動調整側欄中的頁面順序。';
 }

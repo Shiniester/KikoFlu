@@ -4060,4 +4060,39 @@ class SJa extends S {
 
   @override
   String get comicPopularMonth => '今月の人気';
+
+  @override
+  String get librarySources => 'ソース';
+
+  @override
+  String get libraryPages => 'ページ';
+
+  @override
+  String get libraryBrowseOptions => '表示設定';
+
+  @override
+  String get libraryMarks => 'マーク';
+
+  @override
+  String get libraryHistory => '履歴';
+
+  @override
+  String get libraryFavorites => 'お気に入り';
+
+  @override
+  String get libraryDownloads => 'ダウンロード';
+
+  @override
+  String get librarySubtitles => '字幕';
+
+  @override
+  String get libraryPageOrder => 'ページ順';
+
+  @override
+  String librarySearchHint(String page) {
+    return '$pageを検索';
+  }
+
+  @override
+  String get libraryPageOrderDescription => 'ドラッグしてサイドバーのページ順を変更します。';
 }

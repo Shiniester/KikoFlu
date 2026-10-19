@@ -1359,5 +1359,16 @@
   "comicMostPages": "ページ数順",
   "comicPopularToday": "今日の人気",
   "comicPopularWeek": "今週の人気",
-  "comicPopularMonth": "今月の人気"
+  "comicPopularMonth": "今月の人気",
+  "librarySources": "ソース",
+  "libraryPages": "ページ",
+  "libraryBrowseOptions": "表示設定",
+  "libraryMarks": "マーク",
+  "libraryHistory": "履歴",
+  "libraryFavorites": "お気に入り",
+  "libraryDownloads": "ダウンロード",
+  "librarySubtitles": "字幕",
+  "libraryPageOrder": "ページ順",
+  "librarySearchHint": "{page}を検索",
+  "libraryPageOrderDescription": "ドラッグしてサイドバーのページ順を変更します。"
 }

@@ -22,12 +22,14 @@ class PlaylistsScreen extends ConsumerStatefulWidget {
   final double topInset;
 
   @override
-  ConsumerState<PlaylistsScreen> createState() => _PlaylistsScreenState();
+  PlaylistsScreenState createState() => PlaylistsScreenState();
 }
 
-class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
+class PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
     with AutomaticKeepAliveClientMixin {
   final ScrollController _scrollController = ScrollController();
+
+  Future<void> showCreatePlaylistDialog() => _showCreatePlaylistDialog();
 
   @override
   bool get wantKeepAlive => true; // 保持状态不被销毁
@@ -525,11 +527,6 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
 
     if (state.playlists.isEmpty) {
       return Scaffold(
-        floatingActionButton: FloatingActionButton(
-          onPressed: _showCreatePlaylistDialog,
-          tooltip: S.of(context).createPlaylist,
-          child: const Icon(Icons.add),
-        ),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -559,11 +556,6 @@ class _PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
     }
 
     return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showCreatePlaylistDialog,
-        tooltip: S.of(context).createPlaylist,
-        child: const Icon(Icons.add),
-      ),
       body: RefreshIndicator(
         onRefresh: ref.read(playlistsProvider.notifier).refresh,
         child: _buildListView(state),

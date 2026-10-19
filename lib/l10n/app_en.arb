@@ -1705,5 +1705,17 @@
   "comicMostPages": "Most pages",
   "comicPopularToday": "Popular today",
   "comicPopularWeek": "Popular this week",
-  "comicPopularMonth": "Popular this month"
+  "comicPopularMonth": "Popular this month",
+  "librarySources": "Sources",
+  "libraryPages": "Pages",
+  "libraryBrowseOptions": "Browse options",
+  "libraryMarks": "Marks",
+  "libraryHistory": "History",
+  "libraryFavorites": "Favorites",
+  "libraryDownloads": "Downloads",
+  "librarySubtitles": "Subtitles",
+  "libraryPageOrder": "Page order",
+  "librarySearchHint": "Search {page}",
+  "@librarySearchHint": { "placeholders": { "page": { "type": "String" } } },
+  "libraryPageOrderDescription": "Drag to change the page order in the sidebar."
 }

@@ -1359,5 +1359,16 @@
   "comicMostPages": "最多圖片",
   "comicPopularToday": "今日熱門",
   "comicPopularWeek": "本週熱門",
-  "comicPopularMonth": "本月熱門"
+  "comicPopularMonth": "本月熱門",
+  "librarySources": "來源",
+  "libraryPages": "頁面",
+  "libraryBrowseOptions": "瀏覽選項",
+  "libraryMarks": "標記",
+  "libraryHistory": "歷史",
+  "libraryFavorites": "收藏",
+  "libraryDownloads": "下載",
+  "librarySubtitles": "字幕",
+  "libraryPageOrder": "頁面順序",
+  "librarySearchHint": "搜尋{page}",
+  "libraryPageOrderDescription": "拖動調整側欄中的頁面順序。"
 }

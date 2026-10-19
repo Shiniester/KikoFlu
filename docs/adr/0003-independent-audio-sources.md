@@ -15,7 +15,7 @@ between unrelated works with the same ID.
 ## Decision
 
 The Audio Screen offers source selection, with ASMR.ONE as the default. The
-Works Home Tab and Global Works Search use the selected source. Japanese ASMR's
+Works Home Page and Global Works Search use the selected source. Japanese ASMR's
 initial scope includes browsing, search, work details, in-app playback and
 downloads.
 

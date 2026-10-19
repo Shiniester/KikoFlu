@@ -124,40 +124,6 @@ class HistoryScreen extends ConsumerWidget {
           );
         },
       ),
-      floatingActionButton: history.isNotEmpty
-          ? FloatingActionButton(
-              onPressed: () => _showClearConfirmation(context, ref),
-              tooltip: S.of(context).clearHistory,
-              child: const Icon(Icons.delete_outline),
-            )
-          : null,
     );
-  }
-
-  Future<void> _showClearConfirmation(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(S.of(context).clearHistoryTitle),
-        content: Text(S.of(context).clearHistoryConfirm),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(S.of(context).cancel),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(S.of(context).clear),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      await ref.read(historyProvider.notifier).clear();
-    }
   }
 }

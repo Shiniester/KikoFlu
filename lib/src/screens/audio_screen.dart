@@ -1,46 +1,51 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
-
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../models/audio_source.dart';
-import '../providers/my_reviews_provider.dart';
-import '../providers/audio_source_provider.dart';
-import '../providers/my_tabs_display_provider.dart';
-import '../providers/collection_layout_provider.dart';
-import '../providers/works_provider.dart' show LayoutType;
-import '../utils/scroll_optimization.dart';
-import '../utils/ui_tokens.dart';
-import '../providers/auth_provider.dart';
-import '../utils/server_utils.dart';
-import '../utils/l10n_extensions.dart';
-import '../widgets/works_grid_view.dart';
-import '../widgets/virtualized_sliver_collection.dart';
-import '../widgets/floating_feed_toolbar.dart';
-import '../widgets/library_tab_strip.dart';
-import '../widgets/tab_page_motion.dart';
-import '../widgets/audio_account_prompt.dart';
-import '../widgets/download_fab.dart';
-import '../providers/download_provider.dart';
-import '../models/search_query.dart';
-import 'downloads_screen.dart';
-import 'local_downloads_screen.dart';
-import 'subtitle_library_screen.dart';
-import 'playlists_screen.dart';
-import 'history_screen.dart';
-import '../widgets/sort_dialog.dart';
-import '../widgets/global_audio_player_wrapper.dart';
-import '../widgets/app_bottom_dock_transition.dart';
-import '../models/sort_options.dart';
-import '../utils/subtitle_filter.dart';
-import '../utils/system_ui_style.dart';
-import 'works_screen.dart';
-import 'search_screen.dart';
-export '../providers/my_reviews_provider.dart' show MyReviewLayoutType;
 
 import '../../l10n/app_localizations.dart';
+import '../models/audio_source.dart';
+import '../models/search_query.dart';
+import '../models/search_scope_session.dart';
+import '../models/search_type.dart';
+import '../models/sort_options.dart';
+import '../providers/audio_source_provider.dart';
+import '../providers/auth_provider.dart';
+import '../providers/collection_layout_provider.dart';
+import '../providers/download_provider.dart';
+import '../providers/history_provider.dart';
+import '../providers/my_reviews_provider.dart';
+import '../providers/my_tabs_display_provider.dart';
+import '../providers/works_provider.dart'
+    show DisplayMode, LayoutType, worksProvider;
+import '../providers/search_history_provider.dart';
+import '../utils/l10n_extensions.dart';
+import '../utils/scroll_optimization.dart';
+import '../utils/server_utils.dart';
+import '../utils/subtitle_filter.dart';
+import '../utils/ui_tokens.dart';
+import '../widgets/app_bottom_dock_transition.dart';
+import '../widgets/audio_account_prompt.dart';
+import '../widgets/download_fab.dart';
+import '../widgets/global_audio_player_wrapper.dart';
+import '../widgets/library_page_scaffold.dart';
+import '../widgets/sort_dialog.dart';
+import '../widgets/tab_page_motion.dart';
+import '../widgets/virtualized_sliver_collection.dart';
+import '../widgets/works_grid_view.dart';
+import 'downloads_screen.dart';
+import 'history_screen.dart';
+import 'local_downloads_screen.dart';
+import 'playlists_screen.dart';
+import 'scoped_search_result_screen.dart';
+import 'search_result_screen.dart';
+import 'search_screen.dart';
+import 'subtitle_library_screen.dart';
+import 'works_screen.dart';
+export '../providers/my_reviews_provider.dart' show MyReviewLayoutType;
 
 class AudioScreen extends ConsumerStatefulWidget {
   const AudioScreen({super.key});
@@ -50,135 +55,108 @@ class AudioScreen extends ConsumerStatefulWidget {
 }
 
 class _AudioScreenState extends ConsumerState<AudioScreen>
-    with AutomaticKeepAliveClientMixin, TickerProviderStateMixin {
+    with AutomaticKeepAliveClientMixin {
   final ScrollController _scrollController = ScrollController();
-  late TabController _tabController;
   final _pages = PageController();
   final _pageTarget = ValueNotifier<int?>(null);
+  final _downloadsKey = GlobalKey<LocalDownloadsScreenState>();
+  final _subtitleKey = GlobalKey<SubtitleLibraryScreenState>();
+  final _playlistsKey = GlobalKey<PlaylistsScreenState>();
   int _pageRequest = 0;
   bool _reduceMotion = false;
-  final ValueNotifier<bool> _tabSwitcherVisible = ValueNotifier(true);
-  int _lastTabIndex = 0;
-  String _selectedTabId = 'home';
-  List<String> _tabIds = const ['home'];
+  bool _pageSelectionSyncScheduled = false;
+  String _selectedPageId = 'home';
+  String _subtitleSearchQuery = '';
+  List<String> _tabIds = const ['works'];
 
   @override
-  bool get wantKeepAlive => true; // 保持状态不被销毁
+  bool get wantKeepAlive => true;
 
   List<_TabInfo> _buildTabList(
     MyTabsDisplaySettings settings, {
     required AudioSource source,
-    required double contentTop,
-    required double collapsedToolbarTop,
+    required bool isOfficialServer,
   }) {
     final tabs = <_TabInfo>[
       _TabInfo(
-        id: 'home',
+        id: 'works',
         title: S.of(context).navHome,
         icon: Icons.home_outlined,
-        widget: WorksScreen(
-          toolbarTop: contentTop,
-          collapsedToolbarTop: collapsedToolbarTop,
-          primaryToolbarVisible: _tabSwitcherVisible,
-          embedded: true,
-          onSearchOnline: () => _openSearch(scope: SearchScope.globalWorks),
-        ),
-        showFab: true,
-        fabWidget: const DownloadFab(),
+        widget: const WorksScreen(embedded: true),
       ),
     ];
-    final authState = ref.watch(authProvider);
-    final isOfficialServer = ServerUtils.isOfficialServer(authState.host);
-    final activeDownloadCount =
-        ref.watch(downloadSummaryProvider).valueOrNull?.active ?? 0;
 
-    if (source == AudioSource.asmrOne && settings.showOnlineMarks) {
-      tabs.add(
-        _TabInfo(
-          id: 'onlineMarks',
-          title: S.of(context).onlineMarks,
-          icon: Icons.bookmark,
-          widget: _buildOnlineBookmarksTab(
-            toolbarTop: contentTop,
-            collapsedToolbarTop: collapsedToolbarTop,
-          ),
-          showFab: true,
-          fabWidget: const DownloadFab(),
-        ),
-      );
-    }
-
-    // 历史记录
-    tabs.add(
-      _TabInfo(
-        id: 'history',
-        title: S.of(context).historyRecord,
-        icon: Icons.history,
-        widget: _buildSearchableCollectionTab(
-          toolbarTop: contentTop,
-          collapsedToolbarTop: collapsedToolbarTop,
-          layoutKey: CollectionLayoutKey.history,
-          child: HistoryScreen(topInset: contentTop + 56),
-        ),
-      ),
-    );
-
-    if (source == AudioSource.asmrOne &&
-        settings.showPlaylists &&
-        isOfficialServer) {
-      tabs.add(
-        _TabInfo(
-          id: 'playlists',
-          title: S.of(context).playlists,
-          icon: Icons.playlist_play,
-          widget: _buildSearchableCollectionTab(
-            toolbarTop: contentTop,
-            collapsedToolbarTop: collapsedToolbarTop,
-            layoutKey: CollectionLayoutKey.playlists,
-            child: PlaylistsScreen(topInset: contentTop + 56),
-          ),
-        ),
-      );
-    }
-
-    // 已下载始终显示
-    tabs.add(
-      _TabInfo(
-        id: 'downloads',
-        title: S.of(context).downloaded,
-        icon: Icons.download_done,
-        widget: LocalDownloadsScreen(
-          toolbarTop: contentTop,
-          collapsedToolbarTop: collapsedToolbarTop,
-          primaryToolbarVisible: _tabSwitcherVisible,
-          onSearchOnline: () => _openSearch(scope: SearchScope.downloads),
-        ),
-        showFab: true,
-        fabWidget: Badge(
-          isLabelVisible: activeDownloadCount > 0,
-          label: Text('$activeDownloadCount'),
-          child: FloatingActionButton(
-            onPressed: _navigateToDownloads,
-            tooltip: S.of(context).downloadTasks,
-            child: const Icon(Icons.download),
-          ),
-        ),
-      ),
-    );
-
-    if (settings.showSubtitleLibrary) {
-      tabs.add(
-        _TabInfo(
-          id: 'subtitleLibrary',
-          title: S.of(context).subtitleLibrary,
-          icon: Icons.subtitles,
-          widget: SubtitleLibraryScreen(
-            toolbarTop: contentTop,
-            collapsedToolbarTop: collapsedToolbarTop,
-            primaryToolbarVisible: _tabSwitcherVisible,
-          ),
-        ),
-      );
+    for (final page in settings.pageOrder) {
+      switch (page) {
+        case 'onlineMarks':
+          if (source == AudioSource.asmrOne && settings.showOnlineMarks) {
+            tabs.add(
+              _TabInfo(
+                id: page,
+                title: S.of(context).libraryMarks,
+                icon: Icons.bookmark,
+                widget: _buildOnlineBookmarksPage(),
+              ),
+            );
+          }
+          break;
+        case 'history':
+          tabs.add(
+            _TabInfo(
+              id: page,
+              title: S.of(context).libraryHistory,
+              icon: Icons.history,
+              widget: const HistoryScreen(),
+            ),
+          );
+          break;
+        case 'playlists':
+          if (source == AudioSource.asmrOne &&
+              settings.showPlaylists &&
+              isOfficialServer) {
+            tabs.add(
+              _TabInfo(
+                id: page,
+                title: S.of(context).libraryFavorites,
+                icon: Icons.favorite_border,
+                widget: PlaylistsScreen(key: _playlistsKey),
+              ),
+            );
+          }
+          break;
+        case 'downloads':
+          tabs.add(
+            _TabInfo(
+              id: page,
+              title: S.of(context).libraryDownloads,
+              icon: Icons.download_done,
+              widget: LocalDownloadsScreen(
+                key: _downloadsKey,
+                embedded: true,
+                onDrawerChanged: _refreshDrawer,
+              ),
+            ),
+          );
+          break;
+        case 'subtitleLibrary':
+          if (settings.showSubtitleLibrary) {
+            tabs.add(
+              _TabInfo(
+                id: page,
+                title: S.of(context).librarySubtitles,
+                icon: Icons.subtitles,
+                widget: SubtitleLibraryScreen(
+                  key: _subtitleKey,
+                  embedded: true,
+                  searchQuery: _subtitleSearchQuery,
+                  onSearchChanged: _setSubtitleSearchQuery,
+                  onDrawerChanged: _refreshDrawer,
+                ),
+              ),
+            );
+          }
+          break;
+      }
     }
 
     return tabs;
@@ -187,14 +165,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(
-      length: 1,
-      vsync: this,
-      animationDuration: Duration.zero,
-    );
-    _tabController.addListener(_handleTabChanged);
-    _pages.addListener(_handlePagePosition);
-    // 只在首次加载时获取数据，如果已有数据则不重新加载
+    _pages.addListener(_reconcileSelectedPage);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _loadMyReviewsIfNeeded();
     });
@@ -215,11 +186,10 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
 
   @override
   void dispose() {
-    _tabController.removeListener(_handleTabChanged);
-    _tabController.dispose();
-    _pages.dispose();
+    _pages
+      ..removeListener(_reconcileSelectedPage)
+      ..dispose();
     _pageTarget.dispose();
-    _tabSwitcherVisible.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -230,29 +200,93 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     ).push(MaterialPageRoute(builder: (context) => const DownloadsScreen()));
   }
 
-  void _handleTabChanged() {
-    if (_tabController.index == _lastTabIndex) return;
-    _lastTabIndex = _tabController.index;
-    if (_pageTarget.value == null && _tabController.index < _tabIds.length) {
-      _selectedTabId = _tabIds[_tabController.index];
+  String _pageForDisplayMode(DisplayMode mode) => switch (mode) {
+    DisplayMode.all => 'home',
+    DisplayMode.popular => 'popular',
+    DisplayMode.recommended => 'recommended',
+  };
+
+  String _selectedPhysicalPage(String pageId) =>
+      pageId == 'home' || pageId == 'popular' || pageId == 'recommended'
+      ? 'works'
+      : pageId;
+
+  void _reconcileSelectedPage() {
+    if (_pageTarget.value != null || !_pages.hasClients) return;
+    final pagePosition = _pages.page;
+    if (pagePosition == null) return;
+    final index = pagePosition.round().clamp(0, _tabIds.length - 1).toInt();
+    final physicalPage = _tabIds[index];
+    final page = physicalPage == 'works'
+        ? _pageForDisplayMode(ref.read(worksProvider).displayMode)
+        : physicalPage;
+    if (page == _selectedPageId) return;
+
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      if (_pageSelectionSyncScheduled) return;
+      _pageSelectionSyncScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _pageSelectionSyncScheduled = false;
+        if (mounted) _reconcileSelectedPage();
+      });
+      return;
     }
-    _tabSwitcherVisible.value = true;
+
+    setState(() {
+      _selectedPageId = page;
+      if (page != 'subtitleLibrary') _subtitleSearchQuery = '';
+    });
   }
 
-  void _handlePagePosition() => syncTabWithPage(_tabController, _pages);
-
-  void _selectTab(int index) {
+  void _selectPhysicalTab(int index, {required String selectedPageId}) {
+    if (index < 0 || index >= _tabIds.length) return;
+    if (_selectedPageId != selectedPageId) {
+      setState(() => _selectedPageId = selectedPageId);
+    }
+    if (selectedPageId != 'subtitleLibrary') _setSubtitleSearchQuery('');
     _pageTarget.value = index;
-    _selectedTabId = _tabIds[index];
-    _tabSwitcherVisible.value = true;
-    _handlePagePosition();
     final request = ++_pageRequest;
     moveToTabPage(_pages, index, reduceMotion: _reduceMotion).then((_) {
       if (!mounted || request != _pageRequest) return;
       _pageTarget.value = null;
-      _handlePagePosition();
+      _reconcileSelectedPage();
     });
   }
+
+  void _selectPage(String pageId) {
+    if (pageId == 'popular' || pageId == 'recommended' || pageId == 'home') {
+      final mode = switch (pageId) {
+        'popular' => DisplayMode.popular,
+        'recommended' => DisplayMode.recommended,
+        _ => DisplayMode.all,
+      };
+      ref.read(worksProvider.notifier).setDisplayMode(mode);
+      _selectPhysicalTab(0, selectedPageId: pageId);
+      return;
+    }
+    final index = _tabIds.indexOf(pageId);
+    _selectPhysicalTab(index, selectedPageId: pageId);
+  }
+
+  Future<void> _selectSource(AudioSource source) async {
+    await ref.read(audioSourceProvider.notifier).select(source);
+    if (!mounted) return;
+    ref.read(worksProvider.notifier).setDisplayMode(DisplayMode.all);
+    _setSubtitleSearchQuery('');
+    _selectPhysicalTab(0, selectedPageId: 'home');
+  }
+
+  void _refreshDrawer() {
+    if (mounted) setState(() {});
+  }
+
+  void _setSubtitleSearchQuery(String value) {
+    if (_subtitleSearchQuery == value) return;
+    setState(() => _subtitleSearchQuery = value);
+  }
+
+  void _clearSearch() => _setSubtitleSearchQuery('');
 
   @override
   void didChangeDependencies() {
@@ -267,7 +301,17 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     _reduceMotion = reduceMotion;
   }
 
-  void _openSearch({required SearchScope scope, String? progressFilter}) {
+  void _openAdvancedSearch() {
+    final scope = switch (_selectedPageId) {
+      'onlineMarks' => SearchScope.onlineMarks,
+      'history' => SearchScope.history,
+      'playlists' => SearchScope.playlists,
+      'downloads' => SearchScope.downloads,
+      _ => SearchScope.globalWorks,
+    };
+    final progressFilter = scope == SearchScope.onlineMarks
+        ? ref.read(myReviewsProvider).filter.value
+        : null;
     pushWorkDetailRoute(
       context,
       builder: (_) => GlobalAudioPlayerWrapper.workDetails(
@@ -280,69 +324,439 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     );
   }
 
-  Widget _buildSearchableCollectionTab({
-    required double toolbarTop,
-    required double collapsedToolbarTop,
-    required CollectionLayoutKey layoutKey,
-    required Widget child,
-  }) {
-    final horizontalPadding = FloatingToolbarLayout.horizontalPadding(context);
-    return Stack(
-      children: [
-        Positioned.fill(child: child),
-        FloatingToolbarPositionFollower(
-          primaryToolbarVisible: _tabSwitcherVisible,
-          visibleTop: toolbarTop,
-          hiddenTop: collapsedToolbarTop,
-          left: horizontalPadding,
-          right: horizontalPadding,
-          child: Align(
-            alignment: AlignmentDirectional.centerEnd,
-            child: FloatingToolbarSurface(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FloatingToolbarIconButton(
-                    icon: Icons.search,
-                    tooltip: S.of(context).searchOnlineWorks,
-                    onPressed: () => _openSearch(
-                      scope: layoutKey == CollectionLayoutKey.history
-                          ? SearchScope.history
-                          : SearchScope.playlists,
-                    ),
-                  ),
-                  FloatingToolbarIconButton(
-                    icon: switch (ref.watch(
-                      collectionLayoutProvider(layoutKey),
-                    )) {
-                      LayoutType.bigGrid => Icons.grid_view,
-                      LayoutType.smallGrid => Icons.grid_on,
-                      LayoutType.list => Icons.view_list,
-                    },
-                    tooltip: S.of(context).layout,
-                    onPressed: () => ref
-                        .read(collectionLayoutProvider(layoutKey).notifier)
-                        .cycle(),
-                  ),
-                ],
-              ),
-            ),
-          ),
+  void _submitSearch(String query) {
+    if (_selectedPageId == 'subtitleLibrary') {
+      _setSubtitleSearchQuery(query);
+      return;
+    }
+    final scope = switch (_selectedPageId) {
+      'onlineMarks' => SearchScope.onlineMarks,
+      'history' => SearchScope.history,
+      'playlists' => SearchScope.playlists,
+      'downloads' => SearchScope.downloads,
+      _ => SearchScope.globalWorks,
+    };
+    final condition = SearchCondition(
+      id: 'library-keyword',
+      type: SearchType.keyword,
+      value: query,
+    );
+    if (scope == SearchScope.globalWorks) {
+      unawaited(
+        ref
+            .read(searchHistoryProvider.notifier)
+            .addHistory(keyword: query, displayText: query),
+      );
+      pushBottomDockRoute(
+        context,
+        builder: (_) => SearchResultScreen(keyword: query),
+      );
+      return;
+    }
+    final search = SearchQuery(
+      scope: scope,
+      conditions: [condition],
+      progressFilter: scope == SearchScope.onlineMarks
+          ? ref.read(myReviewsProvider).filter.value
+          : null,
+    );
+    pushBottomDockRoute(
+      context,
+      builder: (_) => GlobalAudioPlayerWrapper(
+        child: ScopedSearchResultScreen(
+          query: search,
+          session: SearchScopeSession(),
         ),
-      ],
+      ),
     );
   }
 
-  bool _handleScrollNotification(ScrollNotification notification) {
-    if (notification.depth == 0 &&
-        notification.metrics.axis == Axis.horizontal &&
-        notification is ScrollStartNotification &&
-        notification.dragDetails != null) {
-      _pageRequest++;
-      _pageTarget.value = null;
-      _selectedTabId = _tabIds[_tabController.index];
+  bool _isPageAvailable(
+    String page,
+    MyTabsDisplaySettings settings, {
+    required AudioSource source,
+    required bool isOfficialServer,
+  }) => switch (page) {
+    'popular' || 'recommended' => source == AudioSource.asmrOne,
+    'onlineMarks' => source == AudioSource.asmrOne && settings.showOnlineMarks,
+    'history' || 'downloads' => true,
+    'playlists' =>
+      source == AudioSource.asmrOne &&
+          settings.showPlaylists &&
+          isOfficialServer,
+    'subtitleLibrary' => settings.showSubtitleLibrary,
+    _ => false,
+  };
+
+  String _pageTitle(String page) {
+    final s = S.of(context);
+    return switch (page) {
+      'popular' => s.displayModePopular,
+      'recommended' => s.displayModeRecommended,
+      'onlineMarks' => s.libraryMarks,
+      'history' => s.libraryHistory,
+      'playlists' => s.libraryFavorites,
+      'downloads' => s.libraryDownloads,
+      'subtitleLibrary' => s.librarySubtitles,
+      _ => s.navHome,
+    };
+  }
+
+  IconData _pageIcon(String page) => switch (page) {
+    'popular' => Icons.local_fire_department,
+    'recommended' => Icons.auto_awesome,
+    'onlineMarks' => Icons.bookmark,
+    'history' => Icons.history,
+    'playlists' => Icons.favorite_border,
+    'downloads' => Icons.download_done,
+    'subtitleLibrary' => Icons.subtitles,
+    _ => Icons.home_outlined,
+  };
+
+  IconData _layoutIcon(LayoutType layout) => switch (layout) {
+    LayoutType.bigGrid => Icons.grid_view,
+    LayoutType.smallGrid => Icons.grid_on,
+    LayoutType.list => Icons.view_list,
+  };
+
+  Widget _layoutTile({
+    required String title,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) => LibraryDrawerTile(
+    icon: icon,
+    title: title,
+    closeOnTap: false,
+    onTap: onTap,
+  );
+
+  List<Widget> _buildDrawerChildren({
+    required MyTabsDisplaySettings settings,
+    required AudioSource source,
+    required bool isOfficialServer,
+    required DisplayMode displayMode,
+    required MyReviewsState marksState,
+  }) {
+    final s = S.of(context);
+    final pages = settings.pageOrder
+        .where(
+          (page) => _isPageAvailable(
+            page,
+            settings,
+            source: source,
+            isOfficialServer: isOfficialServer,
+          ),
+        )
+        .toList(growable: false);
+    final children = <Widget>[
+      LibraryDrawerSection(
+        title: s.librarySources,
+        children: [
+          for (final audioSource in AudioSource.values)
+            LibraryDrawerTile(
+              icon: Icons.library_music_outlined,
+              title: audioSource.label,
+              selected: audioSource == source,
+              onTap: () => _selectSource(audioSource),
+            ),
+        ],
+      ),
+      LibraryDrawerSection(
+        title: s.libraryPages,
+        children: [
+          for (final page in pages)
+            LibraryDrawerTile(
+              icon: _pageIcon(page),
+              title: _pageTitle(page),
+              selected: _selectedPageId == page,
+              onTap: () => _selectPage(page),
+            ),
+        ],
+      ),
+      LibraryDrawerSection(
+        title: s.libraryBrowseOptions,
+        children: _buildBrowseOptions(
+          source: source,
+          displayMode: displayMode,
+          marksState: marksState,
+        ),
+      ),
+    ];
+    return children;
+  }
+
+  List<Widget> _buildBrowseOptions({
+    required AudioSource source,
+    required DisplayMode displayMode,
+    required MyReviewsState marksState,
+  }) {
+    final s = S.of(context);
+    final options = <Widget>[
+      LibraryDrawerTile(
+        icon: Icons.search,
+        title: s.searchOnlineWorks,
+        onTap: _openAdvancedSearch,
+      ),
+    ];
+    switch (_selectedPageId) {
+      case 'home':
+      case 'popular':
+      case 'recommended':
+        final worksState = ref.watch(worksProvider);
+        options.addAll([
+          _layoutTile(
+            title: s.layout,
+            icon: _layoutIcon(worksState.layoutType),
+            onTap: () => ref.read(worksProvider.notifier).toggleLayoutType(),
+          ),
+          if (source != AudioSource.jpAsmr)
+            LibraryDrawerTile(
+              icon:
+                  SubtitleFilterMode.fromValue(
+                    worksState.subtitleFilter,
+                  ).isActive
+                  ? Icons.closed_caption
+                  : Icons.closed_caption_off,
+              title: s.subtitleFilter,
+              closeOnTap: false,
+              selected: SubtitleFilterMode.fromValue(
+                worksState.subtitleFilter,
+              ).isActive,
+              onTap: () =>
+                  ref.read(worksProvider.notifier).toggleSubtitleFilter(),
+            ),
+          if (source != AudioSource.jpAsmr)
+            LibraryDrawerTile(
+              icon: Icons.sort,
+              title: s.sort,
+              onTap: displayMode == DisplayMode.all
+                  ? _showWorksSortDialog
+                  : null,
+            ),
+        ]);
+        break;
+      case 'onlineMarks':
+        options.addAll([
+          for (final filter in MyReviewFilter.values)
+            LibraryDrawerTile(
+              icon: _getFilterIcon(filter),
+              title: filter.localizedLabel(context),
+              selected: marksState.filter == filter,
+              closeOnTap: false,
+              onTap: () =>
+                  ref.read(myReviewsProvider.notifier).changeFilter(filter),
+            ),
+          _layoutTile(
+            title: s.layout,
+            icon: switch (marksState.layoutType) {
+              MyReviewLayoutType.bigGrid => Icons.grid_view,
+              MyReviewLayoutType.smallGrid => Icons.grid_on,
+              MyReviewLayoutType.list => Icons.view_list,
+            },
+            onTap: () =>
+                ref.read(myReviewsProvider.notifier).toggleLayoutType(),
+          ),
+          LibraryDrawerTile(
+            icon:
+                SubtitleFilterMode.fromValue(marksState.subtitleFilter).isActive
+                ? Icons.closed_caption
+                : Icons.closed_caption_off,
+            title: s.subtitleFilter,
+            selected: SubtitleFilterMode.fromValue(
+              marksState.subtitleFilter,
+            ).isActive,
+            closeOnTap: false,
+            onTap: () =>
+                ref.read(myReviewsProvider.notifier).toggleSubtitleFilter(),
+          ),
+          LibraryDrawerTile(
+            icon: Icons.sort,
+            title: s.sort,
+            onTap: _showSortDialog,
+          ),
+        ]);
+        break;
+      case 'history':
+        options.add(
+          _layoutTile(
+            title: s.layout,
+            icon: _layoutIcon(
+              ref.watch(collectionLayoutProvider(CollectionLayoutKey.history)),
+            ),
+            onTap: () => ref
+                .read(
+                  collectionLayoutProvider(
+                    CollectionLayoutKey.history,
+                  ).notifier,
+                )
+                .cycle(),
+          ),
+        );
+        if (ref.watch(historyProvider).records.isNotEmpty) {
+          options.add(
+            LibraryDrawerTile(
+              icon: Icons.delete_outline,
+              title: s.clearHistory,
+              onTap: _showClearHistoryConfirmation,
+            ),
+          );
+        }
+        break;
+      case 'playlists':
+        options.addAll([
+          _layoutTile(
+            title: s.layout,
+            icon: _layoutIcon(
+              ref.watch(
+                collectionLayoutProvider(CollectionLayoutKey.playlists),
+              ),
+            ),
+            onTap: () => ref
+                .read(
+                  collectionLayoutProvider(
+                    CollectionLayoutKey.playlists,
+                  ).notifier,
+                )
+                .cycle(),
+          ),
+          LibraryDrawerTile(
+            icon: Icons.add,
+            title: s.createPlaylist,
+            onTap: () => _playlistsKey.currentState?.showCreatePlaylistDialog(),
+          ),
+        ]);
+        break;
+      case 'downloads':
+        options.addAll(_downloadBrowseOptions(s));
+        break;
+      case 'subtitleLibrary':
+        options.addAll(_subtitleBrowseOptions(s));
+        break;
     }
-    return updateLibraryToolbarVisibility(notification, _tabSwitcherVisible);
+    return options;
+  }
+
+  List<Widget> _downloadBrowseOptions(S s) {
+    final options = <Widget>[];
+    final downloads = _downloadsKey.currentState;
+    if (downloads != null) {
+      final allSelected = downloads.allSelected;
+      options.addAll([
+        LibraryDrawerTile(
+          icon: downloads.isSelectionMode ? Icons.close : Icons.checklist,
+          title: downloads.isSelectionMode ? s.exitSelection : s.select,
+          trailing: downloads.isSelectionMode
+              ? Text(s.selectedCount(downloads.selectedCount))
+              : null,
+          onTap: downloads.toggleSelectionModeFromDrawer,
+        ),
+        if (downloads.isSelectionMode)
+          LibraryDrawerTile(
+            icon: Icons.select_all,
+            title: allSelected ? s.deselectAll : s.selectAll,
+            onTap: allSelected
+                ? downloads.deselectAllFromDrawer
+                : downloads.selectAllFromDrawer,
+          ),
+        if (downloads.isSelectionMode && downloads.selectedCount > 0)
+          LibraryDrawerTile(
+            icon: Icons.delete_outline,
+            title: s.delete,
+            onTap: downloads.deleteSelectedFromDrawer,
+          ),
+      ]);
+    }
+    options.addAll([
+      _layoutTile(
+        title: S.of(context).layout,
+        icon: _layoutIcon(
+          ref.watch(collectionLayoutProvider(CollectionLayoutKey.downloads)),
+        ),
+        onTap: () => ref
+            .read(
+              collectionLayoutProvider(CollectionLayoutKey.downloads).notifier,
+            )
+            .cycle(),
+      ),
+      LibraryDrawerTile(
+        icon: Icons.sort,
+        title: S.of(context).sortOptions,
+        onTap: downloads?.showSortDialogFromDrawer,
+      ),
+      LibraryDrawerTile(
+        icon: Icons.refresh,
+        title: S.of(context).reload,
+        onTap: downloads?.refreshMetadataFromDrawer,
+      ),
+      if (Theme.of(context).platform == TargetPlatform.windows ||
+          Theme.of(context).platform == TargetPlatform.macOS ||
+          Theme.of(context).platform == TargetPlatform.linux)
+        LibraryDrawerTile(
+          icon: Icons.folder_open,
+          title: S.of(context).openFolder,
+          onTap: downloads?.openDownloadFolderFromDrawer,
+        ),
+    ]);
+    return options;
+  }
+
+  List<Widget> _subtitleBrowseOptions(S s) {
+    final subtitles = _subtitleKey.currentState;
+    if (subtitles == null) return const [];
+    final allSelected = subtitles.allSelected;
+    return [
+      LibraryDrawerTile(
+        icon: Icons.add,
+        title: s.importSubtitle,
+        onTap: subtitles.importFromDrawer,
+      ),
+      if (subtitles.canNavigateUp)
+        LibraryDrawerTile(
+          icon: Icons.arrow_upward,
+          title: s.back,
+          onTap: subtitles.navigateUpFromDrawer,
+        ),
+      LibraryDrawerTile(
+        icon: subtitles.isSelectionMode ? Icons.close : Icons.checklist,
+        title: subtitles.isSelectionMode ? s.exitSelection : s.select,
+        trailing: subtitles.isSelectionMode
+            ? Text(s.selectedCount(subtitles.selectedCount))
+            : null,
+        onTap: subtitles.toggleSelectionFromDrawer,
+      ),
+      if (subtitles.isSelectionMode)
+        LibraryDrawerTile(
+          icon: Icons.select_all,
+          title: allSelected ? s.deselectAll : s.selectAll,
+          onTap: allSelected
+              ? subtitles.deselectAllFromDrawer
+              : subtitles.selectAllFromDrawer,
+        ),
+      if (subtitles.isSelectionMode && subtitles.selectedCount > 0)
+        LibraryDrawerTile(
+          icon: Icons.delete_outline,
+          title: s.delete,
+          onTap: subtitles.deleteSelectedFromDrawer,
+        ),
+      LibraryDrawerTile(
+        icon: Icons.refresh,
+        title: s.reload,
+        onTap: subtitles.refreshFromDrawer,
+      ),
+      LibraryDrawerTile(
+        icon: Icons.info_outline,
+        title: s.subtitleLibraryGuide,
+        onTap: subtitles.showGuideFromDrawer,
+      ),
+      if (Theme.of(context).platform == TargetPlatform.windows ||
+          Theme.of(context).platform == TargetPlatform.macOS ||
+          Theme.of(context).platform == TargetPlatform.linux)
+        LibraryDrawerTile(
+          icon: Icons.folder_open,
+          title: s.openFolder,
+          onTap: subtitles.openFolderFromDrawer,
+        ),
+    ];
   }
 
   IconData _getFilterIcon(MyReviewFilter filter) {
@@ -383,248 +797,68 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    super.build(context); // 必须调用以保持状态
-    ref.listen<AudioSource>(audioSourceProvider, (previous, next) {
-      if (previous != next && next == AudioSource.asmrOne) {
-        unawaited(_loadMyReviewsIfNeeded());
-      }
-    });
-
-    final tabsSettings = ref.watch(myTabsDisplayProvider);
-    final audioSource = ref.watch(audioSourceProvider);
-    final topPadding = MediaQuery.paddingOf(context).top;
-    final horizontalPadding = FloatingToolbarLayout.horizontalPadding(context);
-    final tabSwitcherTop = topPadding + 8;
-    final contentTop = tabSwitcherTop + kTextTabBarHeight + 8;
-    final collapsedToolbarTop = tabSwitcherTop;
-    final tabs = _buildTabList(
-      tabsSettings,
-      source: audioSource,
-      contentTop: contentTop,
-      collapsedToolbarTop: collapsedToolbarTop,
-    );
-
-    var selectedIndex = tabs.indexWhere((tab) => tab.id == _selectedTabId);
-    if (selectedIndex < 0) {
-      selectedIndex = 0;
-      _selectedTabId = tabs.first.id;
-    }
-    final tabIds = tabs.map((tab) => tab.id).toList(growable: false);
-    if (!listEquals(_tabIds, tabIds)) {
-      _pageRequest++;
-      _pageTarget.value = null;
-      _tabController.removeListener(_handleTabChanged);
-      _tabController.dispose();
-      _tabController = TabController(
-        length: tabs.length,
-        vsync: this,
-        initialIndex: selectedIndex,
-        animationDuration: Duration.zero,
-      );
-      _tabIds = tabIds;
-      if (_pages.hasClients) _pages.jumpToPage(selectedIndex);
-      _tabController.addListener(_handleTabChanged);
-      _lastTabIndex = _tabController.index;
-    }
-
-    final systemOverlayStyle = transparentSystemBarsForBrightness(
-      Theme.of(context).brightness,
-    );
-
-    return AnnotatedRegion(
-      value: systemOverlayStyle,
-      child: Scaffold(
-        floatingActionButton: AnimatedBuilder(
-          animation: _tabController,
-          builder: (context, child) {
-            final currentIndex = _tabController.index;
-            if (currentIndex >= 0 && currentIndex < tabs.length) {
-              final currentTab = tabs[currentIndex];
-              if (currentTab.showFab && currentTab.fabWidget != null) {
-                return currentTab.fabWidget!;
-              }
-            }
-            return const SizedBox.shrink();
-          },
-        ),
-        body: Stack(
-          children: [
-            Positioned.fill(
-              child: NotificationListener<ScrollNotification>(
-                onNotification: _handleScrollNotification,
-                child: TabPageWarmup(
-                  pages: _pages,
-                  target: _pageTarget,
-                  builder: (cacheExtent) => PageView.builder(
-                    key: const ValueKey('audio-tab-pages'),
-                    controller: _pages,
-                    allowImplicitScrolling: cacheExtent > 0,
-                    scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
-                    itemCount: tabs.length,
-                    findChildIndexCallback: (key) {
-                      final index = tabs.indexWhere(
-                        (tab) => ValueKey(tab.id) == key,
-                      );
-                      return index < 0 ? null : index;
-                    },
-                    itemBuilder: (context, index) => LazyTabPage(
-                      key: ValueKey(tabs[index].id),
-                      index: index,
-                      target: _pageTarget,
-                      pages: _pages,
-                      child: tabs[index].widget,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: ProgressiveTopScrim(height: topPadding + 12),
-            ),
-            Positioned(
-              top: tabSwitcherTop,
-              left: horizontalPadding,
-              right: horizontalPadding,
-              child: LibraryTabStrip(
-                controller: _tabController,
-                onTap: _selectTab,
-                visible: _tabSwitcherVisible,
-                motionKey: const ValueKey('my-tab-switcher'),
-                leading: PopupMenuButton<AudioSource>(
-                  tooltip: audioSource.label,
-                  initialValue: audioSource,
-                  onSelected: (source) async {
-                    await ref.read(audioSourceProvider.notifier).select(source);
-                  },
-                  itemBuilder: (context) => AudioSource.values
-                      .map(
-                        (source) => PopupMenuItem<AudioSource>(
-                          value: source,
-                          child: Row(
-                            children: [
-                              Expanded(child: Text(source.label)),
-                              if (source == audioSource)
-                                const Icon(Icons.check, size: 18),
-                            ],
-                          ),
-                        ),
-                      )
-                      .toList(growable: false),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.library_music_outlined, size: 18),
-                        const SizedBox(width: 4),
-                        Text(
-                          audioSource.label,
-                          style: Theme.of(context).textTheme.labelMedium,
-                        ),
-                        const Icon(Icons.arrow_drop_down, size: 18),
-                      ],
-                    ),
-                  ),
-                ),
-                tabs: tabs
-                    .map(
-                      (tab) => Tab(
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(tab.icon, size: 18),
-                            const SizedBox(width: 6),
-                            Text(tab.title),
-                          ],
-                        ),
-                      ),
-                    )
-                    .toList(),
-              ),
-            ),
-          ],
-        ),
+  void _showWorksSortDialog() {
+    final state = ref.read(worksProvider);
+    showDialog(
+      context: context,
+      builder: (context) => CommonSortDialog(
+        currentOption: state.sortOption,
+        currentDirection: state.sortDirection,
+        availableOptions: SortOrder.values
+            .where((option) => option != SortOrder.updatedAt)
+            .toList(),
+        onSort: (option, direction) {
+          ref.read(worksProvider.notifier).setSortOption(option);
+          ref.read(worksProvider.notifier).setSortDirection(direction);
+        },
+        autoClose: true,
       ),
     );
   }
 
-  Widget _buildOnlineBookmarksTab({
-    required double toolbarTop,
-    required double collapsedToolbarTop,
-  }) {
-    if (ref.watch(authProvider).isAnonymous) return const AudioAccountPrompt();
-    final state = ref.watch(myReviewsProvider);
-    final horizontalPadding = FloatingToolbarLayout.horizontalPadding(context);
-
-    return Stack(
-      children: [
-        Positioned.fill(child: _buildBody(state, topPadding: toolbarTop + 56)),
-        FloatingToolbarPositionFollower(
-          primaryToolbarVisible: _tabSwitcherVisible,
-          visibleTop: toolbarTop,
-          hiddenTop: collapsedToolbarTop,
-          left: horizontalPadding,
-          right: horizontalPadding,
-          child: FloatingFeedToolbar(
-            modeActions: [
-              for (final filter in MyReviewFilter.values)
-                FloatingFeedModeAction(
-                  icon: _getFilterIcon(filter),
-                  label: filter.localizedLabel(context),
-                  isSelected: state.filter == filter,
-                  onPressed: () =>
-                      ref.read(myReviewsProvider.notifier).changeFilter(filter),
-                ),
-            ],
-            toolActions: [
-              FloatingFeedToolAction(
-                icon: Icons.search,
-                tooltip: S.of(context).searchOnlineWorks,
-                onPressed: () => _openSearch(
-                  scope: SearchScope.onlineMarks,
-                  progressFilter: state.filter.value,
-                ),
-              ),
-              FloatingFeedToolAction(
-                icon: switch (state.layoutType) {
-                  MyReviewLayoutType.bigGrid => Icons.grid_view,
-                  MyReviewLayoutType.smallGrid => Icons.grid_on,
-                  MyReviewLayoutType.list => Icons.view_list,
-                },
-                tooltip: S.of(context).layout,
-                onPressed: () =>
-                    ref.read(myReviewsProvider.notifier).toggleLayoutType(),
-              ),
-              FloatingFeedToolAction(
-                icon:
-                    SubtitleFilterMode.fromValue(state.subtitleFilter).isActive
-                    ? Icons.closed_caption
-                    : Icons.closed_caption_off,
-                tooltip: S.of(context).subtitleFilter,
-                isSelected: SubtitleFilterMode.fromValue(
-                  state.subtitleFilter,
-                ).isActive,
-                onPressed: () =>
-                    ref.read(myReviewsProvider.notifier).toggleSubtitleFilter(),
-              ),
-              FloatingFeedToolAction(
-                icon: Icons.sort,
-                tooltip: S.of(context).sort,
-                onPressed: _showSortDialog,
-              ),
-            ],
+  Future<void> _showClearHistoryConfirmation() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(S.of(context).clearHistoryTitle),
+        content: Text(S.of(context).clearHistoryConfirm),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(S.of(context).cancel),
           ),
-        ),
-      ],
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(S.of(context).clear),
+          ),
+        ],
+      ),
     );
+    if (confirmed == true) await ref.read(historyProvider.notifier).clear();
   }
 
-  Widget _buildBody(MyReviewsState state, {double topPadding = 0}) {
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (notification.depth == 0 &&
+        notification.metrics.axis == Axis.horizontal &&
+        ((notification is ScrollStartNotification &&
+                notification.dragDetails != null) ||
+            notification is ScrollEndNotification)) {
+      if (notification is ScrollStartNotification) {
+        _pageRequest++;
+        _pageTarget.value = null;
+      }
+      _reconcileSelectedPage();
+    }
+    return false;
+  }
+
+  Widget _buildOnlineBookmarksPage() {
+    if (ref.watch(authProvider).isAnonymous) return const AudioAccountPrompt();
+    final state = ref.watch(myReviewsProvider);
+    return _buildBody(state);
+  }
+
+  Widget _buildBody(MyReviewsState state) {
     if (state.error != null) {
       return Center(
         child: Column(
@@ -699,30 +933,139 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         showWhenEmpty: true,
       ),
       fillEmptyViewport: false,
-      padding: state.layoutType == MyReviewLayoutType.list
-          ? EdgeInsets.fromLTRB(8, topPadding + 8, 8, 8)
+      padding: layoutType == LayoutType.list
+          ? const EdgeInsets.fromLTRB(8, 8, 8, 8)
           : MediaQuery.orientationOf(context) == Orientation.landscape
-          ? EdgeInsets.fromLTRB(24, topPadding + 8, 24, 24)
-          : EdgeInsets.fromLTRB(8, topPadding + 8, 8, 8),
+          ? const EdgeInsets.fromLTRB(24, 8, 24, 24)
+          : const EdgeInsets.fromLTRB(8, 8, 8, 8),
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    ref.listen<AudioSource>(audioSourceProvider, (previous, next) {
+      if (previous != next && next == AudioSource.asmrOne) {
+        unawaited(_loadMyReviewsIfNeeded());
+      }
+    });
+
+    final settings = ref.watch(myTabsDisplayProvider);
+    final source = ref.watch(audioSourceProvider);
+    final authState = ref.watch(authProvider);
+    final isOfficialServer = ServerUtils.isOfficialServer(authState.host);
+    final displayMode = ref.watch(
+      worksProvider.select((state) => state.displayMode),
+    );
+    final marksState = ref.watch(myReviewsProvider);
+    final activeDownloadCount =
+        ref.watch(downloadSummaryProvider).valueOrNull?.active ?? 0;
+    final tabs = _buildTabList(
+      settings,
+      source: source,
+      isOfficialServer: isOfficialServer,
+    );
+
+    final selectedPhysical = _selectedPhysicalPage(_selectedPageId);
+    var selectedIndex = tabs.indexWhere((tab) => tab.id == selectedPhysical);
+    if (selectedIndex < 0) {
+      selectedIndex = 0;
+      _selectedPageId = _pageForDisplayMode(displayMode);
+      _subtitleSearchQuery = '';
+    }
+    final tabIds = tabs.map((tab) => tab.id).toList(growable: false);
+    if (!listEquals(_tabIds, tabIds)) {
+      _pageRequest++;
+      _pageTarget.value = null;
+      _tabIds = tabIds;
+      if (_pages.hasClients) _pages.jumpToPage(selectedIndex);
+    }
+
+    final title = _pageTitle(_selectedPageId);
+    final searchHint = switch (_selectedPageId) {
+      'home' || 'popular' || 'recommended' => S.of(context).searchOnlineWorks,
+      _ => S.of(context).librarySearchHint(title),
+    };
+    return LibraryPageScaffold(
+      title: title,
+      searchHint: searchHint,
+      searchScopeKey: '${source.name}:$_selectedPageId',
+      searchQuery: _selectedPageId == 'subtitleLibrary'
+          ? _subtitleSearchQuery
+          : null,
+      onSearch: _submitSearch,
+      onSearchCleared: _clearSearch,
+      drawerChildren: _buildDrawerChildren(
+        settings: settings,
+        source: source,
+        isOfficialServer: isOfficialServer,
+        displayMode: displayMode,
+        marksState: marksState,
+      ),
+      floatingActionButton: _buildPageFab(activeDownloadCount, source: source),
+      body: NotificationListener<ScrollNotification>(
+        onNotification: _handleScrollNotification,
+        child: TabPageWarmup(
+          pages: _pages,
+          target: _pageTarget,
+          builder: (cacheExtent) => PageView.builder(
+            key: const ValueKey('audio-tab-pages'),
+            controller: _pages,
+            allowImplicitScrolling: cacheExtent > 0,
+            scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
+            itemCount: tabs.length,
+            findChildIndexCallback: (key) {
+              final index = tabs.indexWhere((tab) => ValueKey(tab.id) == key);
+              return index < 0 ? null : index;
+            },
+            itemBuilder: (context, index) => LazyTabPage(
+              key: ValueKey(tabs[index].id),
+              index: index,
+              target: _pageTarget,
+              pages: _pages,
+              child: tabs[index].widget,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget? _buildPageFab(
+    int activeDownloadCount, {
+    required AudioSource source,
+  }) {
+    if (_selectedPageId == 'home' ||
+        _selectedPageId == 'popular' ||
+        _selectedPageId == 'recommended' ||
+        (_selectedPageId == 'onlineMarks' && source == AudioSource.asmrOne)) {
+      return const DownloadFab();
+    }
+    if (_selectedPageId == 'downloads') {
+      return Badge(
+        isLabelVisible: activeDownloadCount > 0,
+        label: Text('$activeDownloadCount'),
+        child: FloatingActionButton(
+          onPressed: _navigateToDownloads,
+          tooltip: S.of(context).downloadTasks,
+          child: const Icon(Icons.download),
+        ),
+      );
+    }
+    return null;
   }
 }
 
-// Helper class to organize tab information
 class _TabInfo {
-  final String id;
-  final String title;
-  final IconData icon;
-  final Widget widget;
-  final bool showFab;
-  final Widget? fabWidget;
-
   const _TabInfo({
     required this.id,
     required this.title,
     required this.icon,
     required this.widget,
-    this.showFab = false,
-    this.fabWidget,
   });
+
+  final String id;
+  final String title;
+  final IconData icon;
+  final Widget widget;
 }

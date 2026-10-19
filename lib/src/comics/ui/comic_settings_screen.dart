@@ -165,6 +165,16 @@ class ComicSettingsScreen extends ConsumerWidget {
                   }
                 },
               ),
+                SettingsNavigationTile(
+                  icon: Icons.reorder,
+                  title: s.libraryPageOrder,
+                  trailingIconSize: 16,
+                  onTap: () => Navigator.of(context).push<void>(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const _ComicCollectionPageOrderScreen(),
+                    ),
+                  ),
+                ),
               SettingsNavigationTile(
                 icon: Icons.folder_outlined,
                 title: s.downloadPath,
@@ -194,6 +204,45 @@ class ComicSettingsScreen extends ConsumerWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ComicCollectionPageOrderScreen extends ConsumerWidget {
+  const _ComicCollectionPageOrderScreen();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = S.of(context);
+    final notifier = ref.read(comicCollectionPageOrderProvider.notifier);
+    return SettingsReorderablePage<int>(
+      title: s.libraryPageOrder,
+      infoTitle: s.libraryPages,
+      infoDescription: s.libraryPageOrderDescription,
+      items: ref.watch(comicCollectionPageOrderProvider),
+      itemKey: (page) => page,
+      onOrderChanged: notifier.updateOrder,
+      onRestoreDefaults: notifier.restoreDefaults,
+      itemBuilder: (context, page, index) => ListTile(
+        leading: Icon(
+          switch (page) {
+            1 => Icons.bookmark_outline,
+            2 => Icons.history,
+            _ => Icons.download_done,
+          },
+        ),
+        title: Text(
+          switch (page) {
+            1 => s.libraryFavorites,
+            2 => s.libraryHistory,
+            _ => s.libraryDownloads,
+          },
+        ),
+        trailing: ReorderableDragStartListener(
+          index: index,
+          child: const Icon(Icons.drag_handle),
+        ),
       ),
     );
   }

@@ -31,18 +31,25 @@ class SubtitleLibraryScreen extends ConsumerStatefulWidget {
     this.toolbarTop = 8,
     this.collapsedToolbarTop,
     this.primaryToolbarVisible,
+    this.embedded = false,
+    this.searchQuery = '',
+    this.onDrawerChanged,
+    this.onSearchChanged,
   });
 
   final double toolbarTop;
   final double? collapsedToolbarTop;
   final ValueListenable<bool>? primaryToolbarVisible;
+  final bool embedded;
+  final String searchQuery;
+  final VoidCallback? onDrawerChanged;
+  final ValueChanged<String>? onSearchChanged;
 
   @override
-  ConsumerState<SubtitleLibraryScreen> createState() =>
-      _SubtitleLibraryScreenState();
+  SubtitleLibraryScreenState createState() => SubtitleLibraryScreenState();
 }
 
-class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
+class SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
   List<Map<String, dynamic>> _files = [];
   bool _isLoading = true;
   String? _errorMessage;
@@ -59,15 +66,62 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
   String _currentPath = '';
   String? _rootPath;
 
+  bool get isSelectionMode => _isSelectionMode;
+  int get selectedCount => _selectedPaths.length;
+  bool get canNavigateUp => _rootPath != null && _currentPath != _rootPath;
+  bool get allSelected {
+    final paths = SubtitleLibraryTree.collectPaths(_files);
+    return paths.isNotEmpty && _selectedPaths.containsAll(paths);
+  }
+
+  void toggleSelectionFromDrawer() => _toggleSelectionMode();
+
+  void selectAllFromDrawer() => _selectAll();
+
+  void deselectAllFromDrawer() => _deselectAll();
+
+  Future<void> deleteSelectedFromDrawer() => _deleteSelectedItems();
+
+  void navigateUpFromDrawer() => _navigateUp();
+
+  void importFromDrawer() => _showImportOptions();
+
+  Future<void> refreshFromDrawer() => _loadFiles(forceRefresh: true);
+
+  void showGuideFromDrawer() => _showLibraryInfoDialog();
+
+  Future<void> openFolderFromDrawer() => _openSubtitleLibraryFolder();
+
+  void _notifyDrawerChanged() => widget.onDrawerChanged?.call();
+
+  @override
+  void didUpdateWidget(covariant SubtitleLibraryScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.searchQuery != widget.searchQuery) {
+      _searchQuery = widget.searchQuery;
+      _isSearching = widget.searchQuery.isNotEmpty;
+      _searchController.value = TextEditingValue(
+        text: widget.searchQuery,
+        selection: TextSelection.collapsed(offset: widget.searchQuery.length),
+      );
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _searchQuery = widget.searchQuery;
+    _isSearching = widget.searchQuery.isNotEmpty;
+    _searchController.text = widget.searchQuery;
     _cacheUpdateSubscription = SubtitleLibraryService.onCacheUpdated.listen((
       _,
     ) {
       if (mounted) {
         _loadFiles();
       }
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _notifyDrawerChanged();
     });
     _initRootPath();
   }
@@ -79,6 +133,7 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       _rootPath = dir.path;
       _currentPath = dir.path;
     });
+    _notifyDrawerChanged();
     _loadFiles();
   }
 
@@ -96,6 +151,7 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
         _selectedPaths.clear();
       }
     });
+    _notifyDrawerChanged();
   }
 
   void _selectAll() {
@@ -103,12 +159,14 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       _selectedPaths.clear();
       _selectedPaths.addAll(SubtitleLibraryTree.collectPaths(_files));
     });
+    _notifyDrawerChanged();
   }
 
   void _deselectAll() {
     setState(() {
       _selectedPaths.clear();
     });
+    _notifyDrawerChanged();
   }
 
   Future<void> _openSubtitleLibraryFolder() async {
@@ -172,6 +230,7 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       _isSelectionMode = false;
       _selectedPaths.clear();
     });
+    _notifyDrawerChanged();
 
     SnackBarUtil.showFromSnackBar(
       context,
@@ -209,6 +268,7 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
         _stats = stats;
         _isLoading = false;
       });
+      _notifyDrawerChanged();
     } catch (e) {
       if (!mounted) return;
 
@@ -216,6 +276,7 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
         _errorMessage = S.of(context).loadFailed;
         _isLoading = false;
       });
+      _notifyDrawerChanged();
     }
   }
 
@@ -746,11 +807,13 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
         _navigateUp();
       },
       child: Scaffold(
-        floatingActionButton: FloatingActionButton(
-          onPressed: _showImportOptions,
-          tooltip: S.of(context).importSubtitle,
-          child: const Icon(Icons.add),
-        ),
+        floatingActionButton: widget.embedded
+            ? null
+            : FloatingActionButton(
+                onPressed: _showImportOptions,
+                tooltip: S.of(context).importSubtitle,
+                child: const Icon(Icons.add),
+              ),
         body: Stack(
           children: [
             Positioned.fill(
@@ -767,7 +830,9 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
                   selectionMode: _isSelectionMode,
                   recursive: _isSearching,
                   header: Padding(
-                    padding: EdgeInsets.only(top: widget.toolbarTop + 60),
+                    padding: EdgeInsets.only(
+                      top: widget.embedded ? 0 : widget.toolbarTop + 60,
+                    ),
                     child: _buildBreadcrumbs(),
                   ),
                   onRefresh: () => _loadFiles(forceRefresh: true),
@@ -779,7 +844,7 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
                 ),
               ),
             ),
-            if (widget.primaryToolbarVisible == null)
+            if (!widget.embedded && widget.primaryToolbarVisible == null)
               Positioned(
                 top: widget.toolbarTop,
                 left: FloatingToolbarLayout.horizontalPadding(context),
@@ -795,7 +860,7 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
                   ],
                 ),
               )
-            else
+            else if (!widget.embedded)
               FloatingToolbarPositionFollower(
                 primaryToolbarVisible: widget.primaryToolbarVisible!,
                 visibleTop: widget.toolbarTop,
@@ -859,6 +924,7 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
         }
       }
     });
+    _notifyDrawerChanged();
   }
 
   void _addChildrenToSelection(Map<String, dynamic> folder) {
@@ -878,6 +944,8 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       _selectedPaths.clear();
       _isSelectionMode = false;
     });
+    _notifyDrawerChanged();
+    widget.onSearchChanged?.call('');
   }
 
   void _navigateUp() {
@@ -891,6 +959,7 @@ class _SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
       _selectedPaths.clear();
       _isSelectionMode = false;
     });
+    _notifyDrawerChanged();
   }
 
   List<Map<String, dynamic>> _getCurrentFiles() {

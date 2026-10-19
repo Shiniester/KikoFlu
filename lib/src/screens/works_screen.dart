@@ -125,7 +125,7 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
     final horizontalPadding = FloatingToolbarLayout.horizontalPadding(context);
     final topPadding = MediaQuery.paddingOf(context).top;
     final toolbarTop = widget.toolbarTop ?? topPadding + 8;
-    final contentTopPadding = toolbarTop + 56;
+    final contentTopPadding = widget.embedded ? 0.0 : toolbarTop + 56;
     final displayGeneration = _displayGeneration;
     final toolbar = FloatingFeedToolbar(
       modeActions: _buildModeActions(
@@ -175,22 +175,23 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
                 ),
               ),
             ),
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: ProgressiveTopScrim(height: topPadding + 72),
-            ),
-            if (widget.primaryToolbarVisible case final visibility?)
+            if (!widget.embedded)
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: ProgressiveTopScrim(height: topPadding + 72),
+              ),
+            if (!widget.embedded && widget.primaryToolbarVisible != null)
               FloatingToolbarPositionFollower(
-                primaryToolbarVisible: visibility,
+                primaryToolbarVisible: widget.primaryToolbarVisible!,
                 visibleTop: toolbarTop,
                 hiddenTop: widget.collapsedToolbarTop ?? toolbarTop,
                 left: horizontalPadding,
                 right: horizontalPadding,
                 child: toolbar,
               )
-            else
+            else if (!widget.embedded)
               Positioned(
                 top: toolbarTop,
                 left: horizontalPadding,
@@ -350,29 +351,32 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
         message: Text(S.of(context).loading),
         iconToTitleSpacing: UiSpacing.large,
       ),
-      errorBuilder: (context, error, retry) => error.toString().contains('[audio-login-required]') ? const AudioAccountPrompt() : AsyncStateView(
-        icon: Icon(
-          Icons.error_outline,
-          size: 64,
-          color: Theme.of(context).colorScheme.error,
-        ),
-        title: Text(
-          S.of(context).loadFailed,
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        message: Text(
-          error.toString(),
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-          textAlign: TextAlign.center,
-        ),
-        action: ElevatedButton.icon(
-          onPressed: retry,
-          icon: const Icon(Icons.refresh),
-          label: Text(S.of(context).retry),
-        ),
-      ),
+      errorBuilder: (context, error, retry) =>
+          error.toString().contains('[audio-login-required]')
+          ? const AudioAccountPrompt()
+          : AsyncStateView(
+              icon: Icon(
+                Icons.error_outline,
+                size: 64,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              title: Text(
+                S.of(context).loadFailed,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              message: Text(
+                error.toString(),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              action: ElevatedButton.icon(
+                onPressed: retry,
+                icon: const Icon(Icons.refresh),
+                label: Text(S.of(context).retry),
+              ),
+            ),
       emptyBuilder: (context) => AsyncStateView(
         icon: Icon(
           Icons.audiotrack,

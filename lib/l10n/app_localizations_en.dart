@@ -4176,4 +4176,40 @@ class SEn extends S {
 
   @override
   String get comicPopularMonth => 'Popular this month';
+
+  @override
+  String get librarySources => 'Sources';
+
+  @override
+  String get libraryPages => 'Pages';
+
+  @override
+  String get libraryBrowseOptions => 'Browse options';
+
+  @override
+  String get libraryMarks => 'Marks';
+
+  @override
+  String get libraryHistory => 'History';
+
+  @override
+  String get libraryFavorites => 'Favorites';
+
+  @override
+  String get libraryDownloads => 'Downloads';
+
+  @override
+  String get librarySubtitles => 'Subtitles';
+
+  @override
+  String get libraryPageOrder => 'Page order';
+
+  @override
+  String librarySearchHint(String page) {
+    return 'Search $page';
+  }
+
+  @override
+  String get libraryPageOrderDescription =>
+      'Drag to change the page order in the sidebar.';
 }

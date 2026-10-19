@@ -1402,5 +1402,16 @@
   "comicMostPages": "最多图片",
   "comicPopularToday": "今日热门",
   "comicPopularWeek": "本周热门",
-  "comicPopularMonth": "本月热门"
+  "comicPopularMonth": "本月热门",
+  "librarySources": "来源",
+  "libraryPages": "页面",
+  "libraryBrowseOptions": "浏览选项",
+  "libraryMarks": "标记",
+  "libraryHistory": "历史",
+  "libraryFavorites": "收藏",
+  "libraryDownloads": "下载",
+  "librarySubtitles": "字幕",
+  "libraryPageOrder": "页面顺序",
+  "librarySearchHint": "搜索{page}",
+  "libraryPageOrderDescription": "拖动调整侧栏中的页面顺序。"
 }

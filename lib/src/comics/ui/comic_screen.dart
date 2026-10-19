@@ -5,10 +5,9 @@ import '../../../l10n/app_localizations.dart';
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../services/storage_service.dart';
 import '../../utils/snackbar_util.dart';
-import '../../widgets/floating_feed_toolbar.dart';
-import '../../widgets/library_tab_strip.dart';
 import '../../widgets/tab_page_motion.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
+import '../../widgets/library_page_scaffold.dart';
 import '../../widgets/pagination_bar.dart';
 import '../comic_models.dart';
 import '../comic_pagination.dart';
@@ -25,18 +24,12 @@ class ComicScreen extends ConsumerStatefulWidget {
   ConsumerState<ComicScreen> createState() => _ComicScreenState();
 }
 
-class _ComicScreenState extends ConsumerState<ComicScreen>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabs = TabController(
-    length: 4,
-    vsync: this,
-    animationDuration: Duration.zero,
-  );
+class _ComicScreenState extends ConsumerState<ComicScreen> {
   final _pages = PageController();
   final _pageTarget = ValueNotifier<int?>(null);
   int _pageRequest = 0;
   bool _reduceMotion = false;
-  final _visible = ValueNotifier(true);
+  int _currentTab = 0;
 
   @override
   void initState() {
@@ -44,7 +37,11 @@ class _ComicScreenState extends ConsumerState<ComicScreen>
     _pages.addListener(_handlePagePosition);
   }
 
-  void _handlePagePosition() => syncTabWithPage(_tabs, _pages);
+  void _handlePagePosition() {
+    if (!_pages.hasClients || !_pages.position.hasContentDimensions) return;
+    final page = _pages.page!.round().clamp(0, 3).toInt();
+    if (page != _currentTab) setState(() => _currentTab = page);
+  }
 
   void _selectTab(int index) {
     _pageTarget.value = index;
@@ -65,7 +62,7 @@ class _ComicScreenState extends ConsumerState<ComicScreen>
       _pageRequest++;
       _pageTarget.value = null;
     }
-    return updateLibraryToolbarVisibility(notification, _visible);
+    return false;
   }
 
   @override
@@ -83,27 +80,158 @@ class _ComicScreenState extends ConsumerState<ComicScreen>
 
   @override
   void dispose() {
-    _tabs.dispose();
     _pages.dispose();
     _pageTarget.dispose();
-    _visible.dispose();
     super.dispose();
   }
 
+  void _search(String query, String? sourceKey) {
+    pushWorkDetailRoute(
+      context,
+      builder: (_) => ComicSearchScreen(
+        dockHandoff: true,
+        initialQuery: query,
+        initialSource: sourceKey,
+        libraryTab: _currentTab == 0 ? null : _currentTab,
+        onlineFavorites:
+            _currentTab == 1 &&
+            (StorageService.getBool('comic_online_favorites') ?? false),
+      ),
+    );
+  }
+
+  Future<void> _selectSource(String key) async {
+    ref.read(comicSelectedSourceProvider.notifier).state = key;
+    _selectTab(0);
+    await StorageService.setString('comic_selected_source', key);
+  }
+
+  Future<void> _setOnlineFavorites(bool value) async {
+    await StorageService.setBool('comic_online_favorites', value);
+    if (mounted) {
+      ref.read(comicSettingsRevisionProvider.notifier).state++;
+    }
+  }
+
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(builder: (_) => const ComicSettingsScreen()),
+    );
+  }
+
+  Future<void> _categories(String sourceKey) async {
+    await pushBottomDockRoute(
+      context,
+      builder: (_) => ComicCategoryScreen(sourceKey: sourceKey),
+    );
+  }
+
+  String _collectionTitle(S s, int tab) => switch (tab) {
+    1 => s.libraryFavorites,
+    2 => s.libraryHistory,
+    _ => s.libraryDownloads,
+  };
+
+  IconData _collectionIcon(int tab) => switch (tab) {
+    1 => Icons.bookmark_outline,
+    2 => Icons.history,
+    _ => Icons.download_done,
+  };
+
   @override
   Widget build(BuildContext context) {
+    ref.watch(comicSettingsRevisionProvider);
     final s = S.of(context);
-    final top = MediaQuery.paddingOf(context).top + 8;
-    final horizontal = FloatingToolbarLayout.horizontalPadding(context);
-    final labels = [s.navHome, s.comicFavorites, s.historyRecord, s.downloaded];
-    final icons = [
-      Icons.home_outlined,
-      Icons.bookmark_outline,
-      Icons.history,
-      Icons.download_done,
-    ];
-    return Scaffold(
-      floatingActionButton: ref.watch(comicDownloadsProvider).tasks.isEmpty
+    final pageOrder = ref.watch(comicCollectionPageOrderProvider);
+    final sources = ref.watch(enabledComicSourcesProvider);
+    final selectedSource = ref.watch(comicSelectedSourceProvider);
+    final currentSource =
+        sources.where((source) => source.key == selectedSource).firstOrNull ??
+        sources.firstOrNull;
+    final pageTitle = _currentTab == 0
+        ? s.navHome
+        : _collectionTitle(s, _currentTab);
+    final onlineFavorites =
+        StorageService.getBool('comic_online_favorites') ?? false;
+    final downloads = ref.watch(comicDownloadsProvider);
+
+    return LibraryPageScaffold(
+      title: pageTitle,
+      searchHint: s.librarySearchHint(pageTitle),
+      searchScopeKey: (currentSource?.key, _currentTab),
+      onSearch: (query) => _search(query, currentSource?.key),
+      drawerChildren: [
+        LibraryDrawerSection(
+          title: s.librarySources,
+          children: [
+            for (final source in sources)
+              LibraryDrawerTile(
+                icon: Icons.public,
+                title: source.name,
+                selected: source.key == currentSource?.key,
+                onTap: () => _selectSource(source.key),
+              ),
+          ],
+        ),
+        LibraryDrawerSection(
+          title: s.libraryPages,
+          children: [
+            for (final tab in pageOrder)
+              LibraryDrawerTile(
+                icon: _collectionIcon(tab),
+                title: _collectionTitle(s, tab),
+                selected: _currentTab == tab,
+                onTap: () => _selectTab(tab),
+              ),
+          ],
+        ),
+        LibraryDrawerSection(
+          title: s.libraryBrowseOptions,
+          children: [
+            if (_currentTab == 0 && currentSource != null)
+              LibraryDrawerTile(
+                icon: Icons.category_outlined,
+                title: s.comicCategories,
+                onTap: () => _categories(currentSource.key),
+              ),
+            if (_currentTab == 1) ...[
+              LibraryDrawerTile(
+                icon: Icons.bookmark,
+                title: s.comicLocalFavorites,
+                selected: !onlineFavorites,
+                closeOnTap: false,
+                onTap: () => _setOnlineFavorites(false),
+              ),
+              LibraryDrawerTile(
+                icon: Icons.cloud_outlined,
+                title: s.comicOnlineFavorites,
+                selected: onlineFavorites,
+                closeOnTap: false,
+                onTap: () => _setOnlineFavorites(true),
+              ),
+            ],
+            LibraryDrawerTile(
+              icon: Icons.grid_view,
+              title: s.layout,
+              trailing: Text(
+                switch (ref.watch(comicLayoutProvider)) {
+                  LayoutType.bigGrid => s.layoutBigGrid,
+                  LayoutType.smallGrid => s.layoutSmallGrid,
+                  LayoutType.list => s.layoutList,
+                },
+              ),
+              closeOnTap: false,
+              onTap: () => ref.read(comicLayoutProvider.notifier).cycle(),
+            ),
+            LibraryDrawerTile(
+              icon: Icons.settings_outlined,
+              title: s.comicSettings,
+              onTap: _openSettings,
+            ),
+          ],
+        ),
+      ],
+      floatingActionButton: downloads.tasks.isEmpty
           ? null
           : FloatingActionButton(
               heroTag: 'comic-downloads',
@@ -114,72 +242,32 @@ class _ComicScreenState extends ConsumerState<ComicScreen>
               ),
               child: const Icon(Icons.download_outlined),
             ),
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: NotificationListener<ScrollNotification>(
-              onNotification: _handleScrollNotification,
-              child: TabPageWarmup(
-                pages: _pages,
-                target: _pageTarget,
-                builder: (cacheExtent) => PageView(
-                  key: const ValueKey('comic-tab-pages'),
-                  controller: _pages,
-                  allowImplicitScrolling: cacheExtent > 0,
-                  scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
-                  children: [
-                    for (var i = 0; i < 4; i++)
-                      LazyTabPage(
-                        key: ValueKey('comic-tab-$i'),
-                        index: i,
-                        target: _pageTarget,
-                        pages: _pages,
-                        child: AnimatedBuilder(
-                          animation: _tabs,
-                          builder: (context, child) => _ComicCollection(
-                            active: widget.active && _tabs.index == i,
-                            tab: i,
-                            toolbarTop: top + kTextTabBarHeight + 8,
-                            collapsedTop: top,
-                            visible: _visible,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: ProgressiveTopScrim(height: top + 12),
-          ),
-          Positioned(
-            top: top,
-            left: horizontal,
-            right: horizontal,
-            child: LibraryTabStrip(
-              controller: _tabs,
-              onTap: _selectTab,
-              visible: _visible,
-              tabs: [
-                for (var i = 0; i < 4; i++)
-                  Tab(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(icons[i], size: 18),
-                        const SizedBox(width: 6),
-                        Text(labels[i]),
-                      ],
-                    ),
+      body: NotificationListener<ScrollNotification>(
+        onNotification: _handleScrollNotification,
+        child: TabPageWarmup(
+          pages: _pages,
+          target: _pageTarget,
+          builder: (cacheExtent) => PageView(
+            key: const ValueKey('comic-tab-pages'),
+            controller: _pages,
+            allowImplicitScrolling: cacheExtent > 0,
+            scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
+            children: [
+              for (var i = 0; i < 4; i++)
+                LazyTabPage(
+                  key: ValueKey('comic-tab-$i'),
+                  index: i,
+                  target: _pageTarget,
+                  pages: _pages,
+                  child: _ComicCollection(
+                    active: widget.active && _currentTab == i,
+                    tab: i,
+                    onlineFavorites: onlineFavorites,
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -189,14 +277,11 @@ class _ComicCollection extends ConsumerStatefulWidget {
   const _ComicCollection({
     required this.active,
     required this.tab,
-    required this.toolbarTop,
-    required this.collapsedTop,
-    required this.visible,
+    required this.onlineFavorites,
   });
   final bool active;
   final int tab;
-  final double toolbarTop, collapsedTop;
-  final ValueNotifier<bool> visible;
+  final bool onlineFavorites;
   @override
   ConsumerState<_ComicCollection> createState() => _ComicCollectionState();
 }
@@ -256,6 +341,12 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
     if (oldWidget.active && !widget.active && _pageTurnRequest != null) {
       _cancelledPageTurnRequest = _pageTurnRequest;
       _interruptedScrollRequest = _scrollingRequest;
+    }
+    if (widget.tab == 1 &&
+        oldWidget.onlineFavorites != widget.onlineFavorites &&
+        _onlineFavorites != widget.onlineFavorites) {
+      _onlineFavorites = widget.onlineFavorites;
+      Future.microtask(() => _loadPage(1, reset: true, clearItems: true));
     }
   }
 
@@ -498,34 +589,6 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
     }
   }
 
-  Future<void> _select(String key) async {
-    ref.read(comicSelectedSourceProvider.notifier).state = key;
-    await StorageService.setString('comic_selected_source', key);
-  }
-
-  void _search() {
-    pushWorkDetailRoute(
-      context,
-      builder: (_) => ComicSearchScreen(
-        dockHandoff: true,
-        initialSource: _source,
-        libraryTab: widget.tab == 0 ? null : widget.tab,
-        onlineFavorites: _online,
-      ),
-    );
-  }
-
-  Future<void> _categories() async {
-    if (_source == null) return;
-    final source = ref
-        .read(comicSourcesProvider)
-        .firstWhere((s) => s.key == _source);
-    await pushBottomDockRoute(
-      context,
-      builder: (_) => ComicCategoryScreen(sourceKey: source.key),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     ref.listen(
@@ -552,60 +615,7 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
       _loadPage(1, reset: true, clearItems: true);
     });
     final pageSize = ref.watch(comicPageSizeProvider);
-    final sources = ref.watch(enabledComicSourcesProvider);
     final s = S.of(context);
-    final modes = <FloatingFeedModeAction>[];
-    if (widget.tab == 0 || (widget.tab == 1 && _online)) {
-      for (final source in sources) {
-        modes.add(
-          FloatingFeedModeAction(
-            icon: Icons.public,
-            iconAsset: const {
-              'picacg': 'assets/icons/comic_source_picacg.png',
-              'ehentai': 'assets/icons/comic_source_ehentai.png',
-              'jmcomic': 'assets/icons/comic_source_jmcomic.png',
-              'hitomi': 'assets/icons/comic_source_hitomi.png',
-              'htmanga': 'assets/icons/comic_source_htmanga.png',
-              'nhentai': 'assets/icons/comic_source_nhentai.png',
-            }[source.key],
-            label: source.name,
-            isSelected: source.key == _source,
-            onPressed: () => _select(source.key),
-          ),
-        );
-      }
-    } else if (widget.tab == 1) {
-      modes.add(
-        FloatingFeedModeAction(
-          icon: Icons.bookmark,
-          label: s.comicLocalFavorites,
-          isSelected: true,
-          onPressed: () {},
-        ),
-      );
-    } else {
-      modes.add(
-        FloatingFeedModeAction(
-          icon: widget.tab == 2 ? Icons.history : Icons.download_done,
-          label: widget.tab == 2 ? s.historyRecord : s.downloaded,
-          isSelected: true,
-          onPressed: () {},
-        ),
-      );
-    }
-    if (modes.isEmpty) {
-      modes.add(
-        FloatingFeedModeAction(
-          icon: Icons.settings,
-          label: s.comicSources,
-          isSelected: true,
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const ComicSettingsScreen()),
-          ),
-        ),
-      );
-    }
-    final top = widget.toolbarTop + 56;
     final footer = Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 24),
       child: Column(
@@ -667,12 +677,7 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
               child: ComicGrid(
                 comics: _items,
                 controller: _scroll,
-                padding: EdgeInsets.fromLTRB(
-                  FloatingToolbarLayout.horizontalPadding(context),
-                  top,
-                  FloatingToolbarLayout.horizontalPadding(context),
-                  16,
-                ),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
                 onLongPress: widget.tab == 1 || widget.tab == 2
                     ? _removeFromLibrary
                     : null,
@@ -685,57 +690,12 @@ class _ComicCollectionState extends ConsumerState<_ComicCollection> {
           const Center(child: CircularProgressIndicator()),
         if (_errors.isNotEmpty && _items.isEmpty)
           Positioned.fill(
-            top: top,
             child: ComicErrorView(
               error: _errors.values.first,
               retry: () =>
                   _loadPage(_pendingPage, retryFailures: _buffer != null),
             ),
           ),
-        FloatingToolbarPositionFollower(
-          primaryToolbarVisible: widget.visible,
-          visibleTop: widget.toolbarTop,
-          hiddenTop: widget.collapsedTop,
-          left: FloatingToolbarLayout.horizontalPadding(context),
-          right: FloatingToolbarLayout.horizontalPadding(context),
-          child: FloatingFeedToolbar(
-            modeActions: modes,
-            toolActions: [
-              if (widget.tab == 1)
-                FloatingFeedToolAction(
-                  icon: _online ? Icons.cloud : Icons.bookmark,
-                  tooltip: _online
-                      ? s.comicOnlineFavorites
-                      : s.comicLocalFavorites,
-                  onPressed: () {
-                    setState(() => _onlineFavorites = !_onlineFavorites);
-                    StorageService.setBool('comic_online_favorites', _online);
-                    _loadPage(1, reset: true, clearItems: true);
-                  },
-                ),
-              if (widget.tab == 0)
-                FloatingFeedToolAction(
-                  icon: Icons.category_outlined,
-                  tooltip: s.comicCategories,
-                  onPressed: _categories,
-                ),
-              FloatingFeedToolAction(
-                icon: Icons.search,
-                tooltip: s.search,
-                onPressed: _search,
-              ),
-              FloatingFeedToolAction(
-                icon: switch (ref.watch(comicLayoutProvider)) {
-                  LayoutType.bigGrid => Icons.grid_view,
-                  LayoutType.smallGrid => Icons.grid_on,
-                  LayoutType.list => Icons.view_list,
-                },
-                tooltip: s.layout,
-                onPressed: () => ref.read(comicLayoutProvider.notifier).cycle(),
-              ),
-            ],
-          ),
-        ),
       ],
     );
   }

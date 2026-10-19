@@ -15,8 +15,10 @@ The primary app navigation containing Audio, Comics, and Settings.
 _Avoid_: Player navigation, bottom menu
 
 **Audio Screen (音声页)**:
-The app page that contains the Works Home Tab and the user's online marks,
-history, playlists, downloads, and subtitle library tabs.
+The app page that contains the Works Home Page and the user's online marks,
+history, playlists, downloads, and subtitle library pages. A fixed header shows
+the menu button, current page name, and scoped search field. The drawer contains
+vertical source and page entries, followed by the current page's browse options.
 _Avoid_: Home page, My page
 
 **Audio Source (音声源)**:
@@ -24,19 +26,21 @@ A provider of audio works for independent browsing, search and playback, such as
 ASMR.ONE or Japanese ASMR (jp-asmr, japaneseasmr.com).
 _Avoid_: Playback fallback, mirror server
 
-**Works Home Tab (主页标签)**:
-The fixed first tab in the Audio Screen that displays the online works feed.
-It is distinct from the Audio Screen, which also contains the user's library tabs.
+**Works Home Page (作品主页)**:
+The online works feed opened by selecting an Audio Source in the drawer,
+including the currently selected source. It has no separate drawer page entry.
+The Audio Screen also contains the user's library pages.
 _Avoid_: Audio Screen, app home page
 
 **Global Works Search (全局作品搜索)**:
-The online work search opened from the Works Home Tab for the selected Audio
-Source. Its results are not restricted to another Audio Screen tab's collection.
+The online work search opened from the home, popular, or recommended feed for the
+selected Audio Source. These feeds search that source's full catalog. Library
+pages search their own complete collections.
 _Avoid_: scoped search
 
 **Scoped Search (范围搜索)**:
-The shared search interface opened from a library tab. Its results are limited
-to that tab's complete collection, such as one online-mark state, history,
+The shared search interface opened from a library page. Its results are limited
+to that page's complete collection, such as one online-mark state, history,
 playlists, or completed downloads.
 _Avoid_: global works search
 
@@ -252,15 +256,15 @@ the entire continuous strip. Images within that view share the same transform.
 It is independent of the Reader Controls and the Cover Preview.
 _Avoid_: Cover Preview, image gallery
 
-**Comic Home Tab (漫画主页)**:
-The first Comic Screen tab, showing recommendations and categories for the
-selected enabled Comic Source, independent of the favorite collection. Its
+**Comic Home Page (漫画主页)**:
+The Comic Screen page opened by selecting a source, showing recommendations and
+categories for the selected enabled Comic Source, independent of the favorite collection. Its
 anonymous access follows the Comic Source's browsing requirements.
 _Avoid_: Comic Screen, source library
 
 **Comic Collection Layout (漫画集合布局)**:
   The card presentation shared by the Home, Favorites, History, and Downloaded
-  tabs: big grid, small grid with proportion-preserving covers in a denser
+  pages: big grid, small grid with proportion-preserving covers in a denser
   masonry layout, or list. The small grid is the compact-cover view.
 _Avoid_: Comic Reading Mode
 
