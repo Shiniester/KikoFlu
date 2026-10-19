@@ -126,6 +126,109 @@ void main() {
   });
 
   test(
+    'completed bursts advance once and later completions advance again',
+    () async {
+      await service.updateQueue(tracks, autoplay: true);
+
+      void emitCompleted() {
+        player.playing = false;
+        player.processingState = ProcessingState.completed;
+        player.emitPlayerState();
+      }
+
+      emitCompleted();
+      emitCompleted();
+      await until(
+        () => service.currentTrack?.id == 'b' && !service.isTrackLoading,
+      );
+      expect(player.loaded, [tracks[0].url, tracks[1].url]);
+
+      emitCompleted();
+      emitCompleted();
+      await until(
+        () => service.currentTrack?.id == 'c' && !service.isTrackLoading,
+      );
+      expect(player.loaded, [tracks[0].url, tracks[1].url, tracks[2].url]);
+    },
+  );
+
+  test('single-track loop accepts each later natural completion', () async {
+    await service.updateQueue([tracks.first], autoplay: true);
+    await service.setRepeatMode(LoopMode.one);
+
+    void emitCompleted() {
+      player.playing = false;
+      player.processingState = ProcessingState.completed;
+      player.emitPlayerState();
+    }
+
+    emitCompleted();
+    emitCompleted();
+    await until(() => player.seeks.length == 1 && player.played.length == 2);
+    expect(player.seeks, [Duration.zero]);
+
+    emitCompleted();
+    emitCompleted();
+    await until(() => player.seeks.length == 2 && player.played.length == 3);
+    expect(player.seeks, [Duration.zero, Duration.zero]);
+  });
+
+  for (final intent in ['pause', 'stop', 'new track']) {
+    test(
+      'single-track completion does not override pending-seek $intent',
+      () async {
+        await service.updateQueue([tracks.first], autoplay: true);
+        await service.setRepeatMode(LoopMode.one);
+        player.holdNextSeek = true;
+        player.playing = false;
+        player.processingState = ProcessingState.completed;
+        player.emitPlayerState();
+        player.emitPlayerState();
+        await until(() => player.pendingSeek != null);
+
+        if (intent == 'pause') {
+          await service.pause();
+        } else if (intent == 'stop') {
+          await service.stop();
+        } else {
+          await service.updateQueue([tracks[1]], autoplay: true);
+        }
+        player.finishSeek();
+        await until(() => player.pendingSeek == null);
+
+        if (intent == 'new track') {
+          expect(service.currentTrack?.id, 'b');
+          expect(player.played, [tracks[0].url, tracks[1].url]);
+          expect(player.playing, isTrue);
+        } else {
+          expect(service.currentTrack?.id, 'a');
+          expect(player.played, [tracks[0].url]);
+          expect(player.playing, isFalse);
+        }
+      },
+    );
+  }
+
+  test('final completion cannot clear a newer queue session', () async {
+    await service.updateQueue([tracks.first], autoplay: true);
+    player.pauseGate = Completer<void>();
+    player.playing = false;
+    player.processingState = ProcessingState.completed;
+    player.emitPlayerState();
+    await until(() => player.pauseStarted);
+
+    await service.updateQueue([tracks[1]], autoplay: true);
+    await until(() => !service.isTrackLoading);
+    await service.persistPlaybackSession();
+    player.pauseGate!.complete();
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    expect(service.currentTrack?.id, 'b');
+    expect(sessions.snapshot?.queue.map((track) => track.id), ['b']);
+    expect(sessions.clearCount, 0);
+  });
+
+  test(
     'manual skip providers follow service replacement without stale events',
     () async {
       await service.updateQueue(tracks);
@@ -596,6 +699,107 @@ void main() {
       expect(player.seeks, isEmpty);
       expect(player.played, [tracks[2].url]);
       expect(service.currentTrack?.id, 'c');
+      expect(player.initialPositions, [const Duration(seconds: 24), null]);
+    },
+  );
+
+  test('session restoration loads its initial position natively', () async {
+    sessions.snapshot = PlaybackSessionSnapshot(
+      queue: [tracks[0]],
+      currentIndex: 0,
+      position: const Duration(seconds: 24),
+      ownerKey: 'https://example.invalid\ntester',
+    );
+
+    await service.restorePlaybackSession();
+
+    expect(player.initialPositions, [const Duration(seconds: 24)]);
+    expect(player.seeks, isEmpty);
+    expect(player.position, const Duration(seconds: 24));
+  });
+
+  test('a newer track cancels a hanging restore position correction', () async {
+    sessions.snapshot = PlaybackSessionSnapshot(
+      queue: [tracks[0]],
+      currentIndex: 0,
+      position: const Duration(minutes: 6),
+      ownerKey: 'https://example.invalid\ntester',
+    );
+    player.holdNextSeek = true;
+
+    final restoring = service.restorePlaybackSession();
+    await until(() => player.pendingSeek != null);
+    final replacing = service.updateQueue([tracks[1]], autoplay: true);
+
+    try {
+      await replacing.timeout(const Duration(milliseconds: 100));
+    } finally {
+      player.finishSeek();
+      await Future.wait([restoring, replacing]);
+    }
+
+    expect(service.currentTrack?.id, tracks[1].id);
+    expect(player.source, tracks[1].url);
+  });
+
+  test('stop cancels a hanging restore position correction', () async {
+    sessions.snapshot = PlaybackSessionSnapshot(
+      queue: [tracks[0]],
+      currentIndex: 0,
+      position: const Duration(minutes: 6),
+      ownerKey: 'https://example.invalid\ntester',
+    );
+    player.holdNextSeek = true;
+
+    final restoring = service.restorePlaybackSession();
+    await until(() => player.pendingSeek != null);
+    final stopping = service.stop();
+
+    try {
+      await Future.wait([
+        restoring,
+        stopping,
+      ]).timeout(const Duration(milliseconds: 100));
+    } finally {
+      player.finishSeek();
+      await Future.wait([restoring, stopping]);
+    }
+
+    expect(player.playing, isFalse);
+    expect(service.isTrackLoading, isFalse);
+  });
+
+  test(
+    'session restoration bounds a hanging position correction seek',
+    () async {
+      final timeoutPlayer = _RestoreTimeoutPlayer()..holdNextSeek = true;
+      final timeoutSessions = MemorySessionStore()
+        ..snapshot = PlaybackSessionSnapshot(
+          queue: [tracks[0]],
+          currentIndex: 0,
+          position: const Duration(minutes: 6),
+          ownerKey: 'https://example.invalid\ntester',
+        );
+      final timeoutService = AudioPlayerService.forTesting(
+        timeoutPlayer,
+        sessionStore: timeoutSessions,
+        androidSeekRecovery: true,
+        seekRecoveryTimeout: const Duration(milliseconds: 30),
+      );
+      timeoutService.updatePreloadThreshold(null);
+      addTearDown(timeoutService.dispose);
+
+      final restoring = timeoutService.restorePlaybackSession();
+      await until(() => timeoutPlayer.pendingSeek != null);
+
+      try {
+        await restoring.timeout(const Duration(milliseconds: 100));
+      } finally {
+        timeoutPlayer.finishSeek();
+        await restoring;
+      }
+
+      expect(timeoutService.isTrackLoading, isFalse);
     },
   );
 
@@ -660,19 +864,29 @@ Future<void> until(bool Function() ready) async {
 }
 
 class ControlledPlayer extends Fake implements AudioPlayer {
-  final positions = StreamController<Duration>.broadcast();
+  final positions = StreamController<Duration>.broadcast(sync: true);
+  final states = StreamController<PlayerState>.broadcast();
   final loaded = <String>[];
   final played = <String?>[];
   final seeks = <Duration>[];
+  final initialPositions = <Duration?>[];
   String? source;
+  AudioSource? loadedAudioSource;
   bool holdNextLoad = false;
+  bool holdNextSeek = false;
+  bool failFileAudioSource = false;
+  bool pauseStarted = false;
   Completer<Duration?>? pendingLoad;
+  Completer<void>? pendingSeek;
   Completer<void>? stopGate;
+  Completer<void>? pauseGate;
   int stopCount = 0;
   @override
   bool playing = false;
   @override
   Duration position = Duration.zero;
+  @override
+  Duration bufferedPosition = const Duration(minutes: 5);
   @override
   Duration? get duration => const Duration(minutes: 5);
   @override
@@ -680,7 +894,9 @@ class ControlledPlayer extends Fake implements AudioPlayer {
   @override
   PlayerState get playerState => PlayerState(playing, processingState);
   @override
-  Stream<PlayerState> get playerStateStream => Stream.value(playerState);
+  Stream<PlayerState> get playerStateStream => states.stream;
+  @override
+  AudioSource? get audioSource => loadedAudioSource;
   @override
   Stream<Duration> get positionStream => positions.stream;
   @override
@@ -692,18 +908,26 @@ class ControlledPlayer extends Fake implements AudioPlayer {
   @override
   Future<void> setLoopMode(LoopMode mode) async {}
 
+  void emitPlayerState() => states.add(playerState);
+
   @override
-  Future<Duration?> setUrl(
-    String url, {
-    Map<String, String>? headers,
-    Duration? initialPosition,
+  Future<Duration?> setAudioSource(
+    AudioSource audioSource, {
     bool preload = true,
-    dynamic tag,
+    int? initialIndex,
+    Duration? initialPosition,
   }) async {
-    source = url;
-    loaded.add(url);
-    position = Duration.zero;
+    final uri = (audioSource as UriAudioSource).uri;
+    if (failFileAudioSource && uri.scheme == 'file') {
+      throw PlayerException(1, 'Local file source failed');
+    }
+    loadedAudioSource = audioSource;
+    source = uri.scheme == 'file' ? uri.toFilePath() : uri.toString();
+    loaded.add(source!);
+    initialPositions.add(initialPosition);
+    position = initialPosition ?? Duration.zero;
     processingState = ProcessingState.loading;
+    emitPlayerState();
     if (holdNextLoad) {
       holdNextLoad = false;
       final pending = Completer<Duration?>();
@@ -712,21 +936,9 @@ class ControlledPlayer extends Fake implements AudioPlayer {
       if (identical(pendingLoad, pending)) pendingLoad = null;
     }
     processingState = ProcessingState.ready;
+    emitPlayerState();
     return duration;
   }
-
-  @override
-  Future<Duration?> setFilePath(
-    String path, {
-    Duration? initialPosition,
-    bool preload = true,
-    dynamic tag,
-  }) => setUrl(
-    path,
-    initialPosition: initialPosition,
-    preload: preload,
-    tag: tag,
-  );
 
   void finishLoad() {
     pendingLoad!.complete(duration);
@@ -736,10 +948,16 @@ class ControlledPlayer extends Fake implements AudioPlayer {
   Future<void> play() async {
     playing = true;
     played.add(source);
+    emitPlayerState();
   }
 
   @override
-  Future<void> pause() async => playing = false;
+  Future<void> pause() async {
+    playing = false;
+    emitPlayerState();
+    pauseStarted = true;
+    await pauseGate?.future;
+  }
 
   @override
   Future<void> stop() async {
@@ -752,21 +970,47 @@ class ControlledPlayer extends Fake implements AudioPlayer {
     }
     await stopGate?.future;
     processingState = ProcessingState.idle;
+    emitPlayerState();
   }
 
   @override
   Future<void> seek(Duration? position, {int? index}) async {
     this.position = position ?? Duration.zero;
     seeks.add(this.position);
+    processingState = ProcessingState.buffering;
+    emitPlayerState();
+    if (holdNextSeek) {
+      holdNextSeek = false;
+      final pending = Completer<void>();
+      pendingSeek = pending;
+      await pending.future;
+      if (identical(pendingSeek, pending)) pendingSeek = null;
+    }
+    processingState = ProcessingState.ready;
+    emitPlayerState();
+  }
+
+  void finishSeek() {
+    final pending = pendingSeek;
+    if (pending != null && !pending.isCompleted) pending.complete();
   }
 
   @override
-  Future<void> dispose() => positions.close();
+  Future<void> dispose() async {
+    await states.close();
+    await positions.close();
+  }
+}
+
+class _RestoreTimeoutPlayer extends ControlledPlayer {
+  @override
+  Stream<PlaybackEvent> get playbackEventStream => const Stream.empty();
 }
 
 class MemorySessionStore implements PlaybackSessionStore {
   PlaybackSessionSnapshot? snapshot;
   Completer<PlaybackSessionSnapshot?>? loadGate;
+  int clearCount = 0;
   @override
   Future<PlaybackSessionSnapshot?> load() async => loadGate?.future ?? snapshot;
   @override
@@ -775,5 +1019,8 @@ class MemorySessionStore implements PlaybackSessionStore {
   @override
   Future<void> savePosition(Duration position) async {}
   @override
-  Future<void> clear() async => snapshot = null;
+  Future<void> clear() async {
+    clearCount++;
+    snapshot = null;
+  }
 }

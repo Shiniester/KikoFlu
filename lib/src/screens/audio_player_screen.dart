@@ -93,6 +93,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   int? _currentWorkId;
   final ValueNotifier<PlayerSeekPreview?> _seekPreview =
       ValueNotifier<PlayerSeekPreview?>(null);
+  Timer? _seekPreviewClearTimer;
   bool get _isSeekingManually => _seekPreview.value?.isSeekingManually ?? false;
   double get _seekValue => _seekPreview.value?.seekValue ?? 0;
   Duration? get _seekingPosition => _seekPreview.value?.position;
@@ -295,6 +296,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     _semanticPageRevision.dispose();
     _coverPreviewHeroTrackId.dispose();
     _progressGestureActive.dispose();
+    _seekPreviewClearTimer?.cancel();
     _seekPreview.dispose();
     _workProgress.dispose();
     _semanticTransitionGeneration++;
@@ -347,6 +349,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
   void _handleSeekChanged(double value) {
     if (ref.read(isTrackLoadingProvider).valueOrNull ?? false) return;
+    _seekPreviewClearTimer?.cancel();
     final dur = ref.read(durationProvider).value ?? Duration.zero;
     _seekPreview.value = (
       isSeekingManually: true,
@@ -357,6 +360,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
   void _handleSeekEnd(double value) {
     if (ref.read(isTrackLoadingProvider).valueOrNull ?? false) return;
+    _seekPreviewClearTimer?.cancel();
     final dur = ref.read(durationProvider).value ?? Duration.zero;
     final newPosition = Duration(
       milliseconds: (value * dur.inMilliseconds).round(),
@@ -372,7 +376,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         .read(audioPlayerControllerProvider.notifier)
         .seekAndPersist(newPosition);
 
-    Future.delayed(const Duration(milliseconds: 100), () {
+    _seekPreviewClearTimer = Timer(const Duration(milliseconds: 100), () {
+      _seekPreviewClearTimer = null;
       if (mounted) {
         _seekPreview.value = null;
       }

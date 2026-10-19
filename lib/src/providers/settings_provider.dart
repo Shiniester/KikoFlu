@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/widgets.dart'
@@ -676,12 +677,20 @@ class PreloadNextSettings {
   }
 }
 
+PreloadNextSettings get _defaultPreloadNextSettings =>
+    defaultTargetPlatform == TargetPlatform.android
+    ? const PreloadNextSettings(
+        mode: PreloadThresholdMode.custom,
+        customSeconds: 60,
+      )
+    : const PreloadNextSettings();
+
 /// 下一首预加载设置控制器
 class PreloadNextSettingsNotifier extends StateNotifier<PreloadNextSettings> {
   static const String _modeKey = 'preload_next_mode';
   static const String _customKey = 'preload_next_custom_seconds';
 
-  PreloadNextSettingsNotifier() : super(const PreloadNextSettings()) {
+  PreloadNextSettingsNotifier() : super(_defaultPreloadNextSettings) {
     _load();
   }
 
@@ -689,20 +698,25 @@ class PreloadNextSettingsNotifier extends StateNotifier<PreloadNextSettings> {
     try {
       final prefs = await SharedPreferences.getInstance();
       if (!mounted) return;
-      final customRaw = prefs.getInt(_customKey);
-      const custom = PreloadNextSettings.defaultCustomSeconds;
-      final stored = customRaw ?? custom;
-      final normalized = stored.clamp(
-        PreloadNextSettings.minSeconds,
-        PreloadNextSettings.maxSeconds,
-      );
+      final modeValue = prefs.getString(_modeKey);
+      final defaultSettings = _defaultPreloadNextSettings;
+      final normalized = modeValue == null
+          ? defaultSettings.customSeconds
+          : (prefs.getInt(_customKey) ??
+                    PreloadNextSettings.defaultCustomSeconds)
+                .clamp(
+                  PreloadNextSettings.minSeconds,
+                  PreloadNextSettings.maxSeconds,
+                );
       state = PreloadNextSettings(
-        mode: PreloadThresholdMode.fromValue(prefs.getString(_modeKey)),
+        mode: modeValue == null
+            ? defaultSettings.mode
+            : PreloadThresholdMode.fromValue(modeValue),
         customSeconds: normalized,
       );
     } catch (_) {
       if (!mounted) return;
-      state = const PreloadNextSettings();
+      state = _defaultPreloadNextSettings;
     }
   }
 

@@ -14,30 +14,43 @@ void applyMediaRequestHeaders(
   Map<String, String> supplied, {
   bool forceIdentityEncoding = false,
 }) {
-  for (final header in supplied.entries) {
+  for (final header in mediaRequestHeaders(
+    uri,
+    supplied,
+    forceIdentityEncoding: forceIdentityEncoding,
+  ).entries) {
     request.headers.set(header.key, header.value);
   }
+}
+
+Map<String, String> mediaRequestHeaders(
+  Uri uri,
+  Map<String, String> supplied, {
+  bool forceIdentityEncoding = false,
+}) {
+  final headers = <String, String>{...supplied};
   final normalizedNames = supplied.keys
       .map((name) => name.toLowerCase())
       .toSet();
   final official = ServerUtils.isOfficialServer(uri.host);
   if (!normalizedNames.contains(HttpHeaders.userAgentHeader)) {
-    request.headers.set(
-      HttpHeaders.userAgentHeader,
-      official
-          ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                'AppleWebKit/537.36 (KHTML, like Gecko) '
-                'Chrome/142.0.0.0 Safari/537.36'
-          : 'KikoFlu',
-    );
+    headers[HttpHeaders.userAgentHeader] = official
+        ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+              'AppleWebKit/537.36 (KHTML, like Gecko) '
+              'Chrome/142.0.0.0 Safari/537.36'
+        : 'KikoFlu';
   }
   if (official && !normalizedNames.contains(HttpHeaders.refererHeader)) {
-    request.headers.set(HttpHeaders.refererHeader, 'https://www.asmr.one/');
+    headers[HttpHeaders.refererHeader] = 'https://www.asmr.one/';
   }
   if (official && !normalizedNames.contains('origin')) {
-    request.headers.set('origin', 'https://www.asmr.one');
+    headers['origin'] = 'https://www.asmr.one';
   }
   if (forceIdentityEncoding) {
-    request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
+    headers.removeWhere(
+      (name, _) => name.toLowerCase() == HttpHeaders.acceptEncodingHeader,
+    );
+    headers[HttpHeaders.acceptEncodingHeader] = 'identity';
   }
+  return headers;
 }

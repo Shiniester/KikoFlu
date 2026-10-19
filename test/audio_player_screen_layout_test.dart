@@ -2909,6 +2909,42 @@ void main() {
     (name: 'compact', size: const Size(390, 844)),
     (name: 'wide', size: const Size(1280, 720)),
   ]) {
+    testWidgets(
+      'new drag keeps the ${layout.name} seek preview past old cleanup',
+      (tester) async {
+        final seekPositions = <Duration>[];
+        await _pumpPlayer(tester, layout.size, onSeek: seekPositions.add);
+        final slider = find.byKey(const ValueKey('player-progress-slider'));
+        final target = tester.getRect(
+          find.byKey(const ValueKey('player-progress-gesture-target')),
+        );
+        Offset point(double fraction) =>
+            Offset(target.left + target.width * fraction, target.top + 2);
+
+        final first = await tester.startGesture(point(0.2));
+        await first.moveTo(point(0.4));
+        await first.up();
+        await tester.pump(const Duration(milliseconds: 40));
+        expect(seekPositions, hasLength(1));
+
+        final second = await tester.startGesture(point(0.5));
+        await second.moveTo(point(0.8));
+        await tester.pump();
+        final preview = tester.widget<Slider>(slider).value;
+        expect(preview, greaterThan(0.6));
+        await tester.pump(const Duration(milliseconds: 80));
+        expect(tester.widget<Slider>(slider).value, closeTo(preview, 0.001));
+
+        await second.up();
+        await tester.pump(const Duration(milliseconds: 60));
+        expect(seekPositions, hasLength(2));
+        expect(tester.widget<Slider>(slider).value, closeTo(preview, 0.001));
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(tester.widget<Slider>(slider).value, 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
     testWidgets('progress drag keeps the ${layout.name} shell stable', (
       tester,
     ) async {
