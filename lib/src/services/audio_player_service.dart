@@ -728,7 +728,7 @@ class AudioPlayerService {
     _failedSeekPosition = initialPosition;
     final pending = _latestTrackLoad;
     if (pending != null) {
-      pending.superseded = true;
+      pending.supersede();
       _completePlaybackMeasurement(pending, incomplete: true);
       pending.complete();
     }
@@ -787,13 +787,13 @@ class AudioPlayerService {
         _commitTrackLoad(request);
         request.complete();
       } on _TrackLoadSuperseded {
-        request.superseded = true;
+        request.supersede();
         _completePlaybackMeasurement(request, incomplete: true);
         request.complete();
       } catch (error, stackTrace) {
         _completePlaybackMeasurement(request, incomplete: true);
         if (!_isCurrentTrackLoad(request)) {
-          request.superseded = true;
+          request.supersede();
           request.complete();
         } else if (!request.completer.isCompleted) {
           request.completer.completeError(error, stackTrace);
@@ -823,7 +823,7 @@ class AudioPlayerService {
   }
 
   void _cancelActiveTrackLoad(_TrackLoadRequest request) {
-    request.superseded = true;
+    request.supersede();
     _cancelNativeLoad();
   }
 
@@ -848,7 +848,7 @@ class AudioPlayerService {
     _seekRecoveryGeneration = null;
     final pending = _latestTrackLoad;
     if (pending != null) {
-      pending.superseded = true;
+      pending.supersede();
       _completePlaybackMeasurement(pending, incomplete: true);
       pending.complete();
       _latestTrackLoad = null;
@@ -2026,12 +2026,22 @@ class AudioPlayerService {
     );
   }
 
-  Future<void> seek(Duration position) async {
-    if (_sourceNeedsReload ||
-        _isSwitchingTrack ||
-        _activeTrackLoad != null ||
-        _latestTrackLoad != null) {
-      return;
+  Future<bool> seek(Duration position) async {
+    var targetPosition = position;
+    final trackAtStart = currentTrack;
+    final pendingTrackLoad = _latestTrackLoad ?? _activeTrackLoad;
+    _TrackLoadRequest? sameTrackReloadRequest;
+    if (pendingTrackLoad != null &&
+        !pendingTrackLoad.emitCurrentTrack &&
+        pendingTrackLoad.track.id == trackAtStart?.id) {
+      sameTrackReloadRequest = pendingTrackLoad;
+    }
+    if ((_sourceNeedsReload ||
+            _isSwitchingTrack ||
+            _activeTrackLoad != null ||
+            _latestTrackLoad != null) &&
+        sameTrackReloadRequest == null) {
+      return false;
     }
     final generation = _trackLoadGeneration;
     final revision = ++_seekRevision;
@@ -2043,16 +2053,35 @@ class AudioPlayerService {
     bool isCurrentSeekLoad(_TrackLoadRequest request) =>
         !_disposed && revision == _seekRevision && _isLatestTrackLoad(request);
 
+    if (sameTrackReloadRequest != null) {
+      sameTrackReloadRequest.latestSeekPosition = targetPosition;
+      await sameTrackReloadRequest.future;
+      if (!isCurrentSeek() ||
+          !_isLatestTrackLoad(sameTrackReloadRequest) ||
+          currentTrack?.id != trackAtStart?.id) {
+        return false;
+      }
+      final duration = _player.duration;
+      if (duration != null && targetPosition > duration) {
+        targetPosition = duration;
+        sameTrackReloadRequest.latestSeekPosition = targetPosition;
+      }
+    }
+
     final source = _androidSeekRecovery ? _currentNativeSource() : null;
     final track = currentTrack;
     _TrackLoadRequest? cachedTrackLoad;
+    bool isCurrentSeekResult([_TrackLoadRequest? cacheReload]) =>
+        cacheReload == null ? isCurrentSeek() : isCurrentSeekLoad(cacheReload);
+
     if (source is UriAudioSource &&
         (source.uri.scheme == 'http' || source.uri.scheme == 'https') &&
-        track != null) {
+        track != null &&
+        sameTrackReloadRequest == null) {
       final currentPosition = _player.position;
       final outsideBuffer =
-          position > _player.bufferedPosition ||
-          position < currentPosition - _androidBackBufferDuration;
+          targetPosition > _player.bufferedPosition ||
+          targetPosition < currentPosition - _androidBackBufferDuration;
       final hash = track.hash;
       if (outsideBuffer && hash != null && hash.isNotEmpty) {
         String? cachedPath;
@@ -2061,22 +2090,22 @@ class AudioPlayerService {
         } catch (error) {
           _log.captureOutput('[Audio] Cached seek lookup failed: $error');
         }
-        if (!isCurrentSeek()) return;
+        if (!isCurrentSeek()) return false;
 
         final latestPosition = _player.position;
         final stillOutsideBuffer =
-            position > _player.bufferedPosition ||
-            position < latestPosition - _androidBackBufferDuration;
+            targetPosition > _player.bufferedPosition ||
+            targetPosition < latestPosition - _androidBackBufferDuration;
         if (cachedPath != null && stillOutsideBuffer) {
           cachedTrackLoad = _enqueueTrackLoad(
             track,
             emitCurrentTrack: false,
             autoplay: _desiredPlaying,
             direction: PlayerTrackChangeDirection.none,
-            initialPosition: position,
+            initialPosition: targetPosition,
           );
           await cachedTrackLoad.future;
-          if (!isCurrentSeekLoad(cachedTrackLoad)) return;
+          if (!isCurrentSeekLoad(cachedTrackLoad)) return false;
         }
       }
     }
@@ -2092,23 +2121,23 @@ class AudioPlayerService {
       // completing seek(). Its derived playerStateStream discards the errors.
       try {
         await Future.any<void>([
-          _player.seek(position),
+          _player.seek(targetPosition),
           nativeError.future,
           cancellation.future,
         ]).timeout(_seekRecoveryTimeout);
         if (isCurrentSeek() && _sourceNeedsReload) await nativeError.future;
       } catch (error) {
-        if (!isCurrentSeek()) return;
+        if (!isCurrentSeek()) return false;
         // No-op and end-of-track seeks may have no READY transition to finish
         // the native callback. A distant seek with stale READY is not success.
         final readyWithoutCallback =
             error is TimeoutException &&
             ((_player.processingState == ProcessingState.ready &&
-                    position.inMilliseconds ==
+                    targetPosition.inMilliseconds ==
                         previousPosition.inMilliseconds) ||
                 (_player.processingState == ProcessingState.completed &&
                     _player.duration != null &&
-                    position >= _player.duration!));
+                    targetPosition >= _player.duration!));
         if (!readyWithoutCallback) {
           _emitPlaybackDiagnostic(
             PlaybackDiagnosticEventType.playbackError,
@@ -2124,10 +2153,10 @@ class AudioPlayerService {
             autoplay: _desiredPlaying && _player.playing,
             direction: PlayerTrackChangeDirection.none,
             sourceToReload: source,
-            initialPosition: position,
+            initialPosition: targetPosition,
           );
           await recovery.future;
-          return;
+          return isCurrentSeekLoad(recovery);
         }
       } finally {
         if (identical(_seekError, nativeError)) _seekError = null;
@@ -2136,17 +2165,18 @@ class AudioPlayerService {
         }
       }
     } else if (cachedTrackLoad == null) {
-      await _player.seek(position);
+      await _player.seek(targetPosition);
     }
-    if (cachedTrackLoad == null && !isCurrentSeek()) return;
+    if (!isCurrentSeekResult(cachedTrackLoad)) return false;
     if (!_handlingTrackCompletion &&
         _player.processingState != ProcessingState.completed) {
       _completionHandled = false;
     }
-    _hapticsService.seek(position);
+    _hapticsService.seek(targetPosition);
     _updateAudioCacheTarget();
     _updatePlaybackState();
     await persistPlaybackPosition();
+    return isCurrentSeekResult(cachedTrackLoad);
   }
 
   void _cancelPendingSeek() {
@@ -2157,27 +2187,31 @@ class AudioPlayerService {
     }
   }
 
+  Duration _relativeSeekBasePosition() {
+    final track = currentTrack;
+    final pendingTrackLoad = _latestTrackLoad ?? _activeTrackLoad;
+    if (track != null &&
+        pendingTrackLoad != null &&
+        !pendingTrackLoad.emitCurrentTrack &&
+        pendingTrackLoad.track.id == track.id) {
+      return pendingTrackLoad.latestSeekPosition ?? _player.position;
+    }
+    return _player.position;
+  }
+
   Future<void> seekForward(Duration duration) async {
-    if (_isSwitchingTrack ||
-        _activeTrackLoad != null ||
-        _latestTrackLoad != null) {
-      return;
-    }
-    final currentPosition = _player.position;
+    final currentPosition = _relativeSeekBasePosition();
     final totalDuration = _player.duration;
-    if (totalDuration != null) {
-      final newPosition = currentPosition + duration;
-      await seek(newPosition > totalDuration ? totalDuration : newPosition);
-    }
+    final newPosition = currentPosition + duration;
+    await seek(
+      totalDuration != null && newPosition > totalDuration
+          ? totalDuration
+          : newPosition,
+    );
   }
 
   Future<void> seekBackward(Duration duration) async {
-    if (_isSwitchingTrack ||
-        _activeTrackLoad != null ||
-        _latestTrackLoad != null) {
-      return;
-    }
-    final currentPosition = _player.position;
+    final currentPosition = _relativeSeekBasePosition();
     final newPosition = currentPosition - duration;
     await seek(newPosition < Duration.zero ? Duration.zero : newPosition);
   }
@@ -2519,7 +2553,10 @@ class AudioPlayerService {
               trackDuration > Duration.zero &&
               restoredPosition >= trackDuration) {
             restoredPosition = trackDuration - const Duration(milliseconds: 1);
-            await _player.seek(restoredPosition);
+            await Future.any<void>([
+              _player.seek(restoredPosition),
+              request.supersedeSignal.future,
+            ]).timeout(_seekRecoveryTimeout);
             _ensureCurrentTrackLoad(request);
           }
           _lastSessionPositionMs = restoredPosition.inMilliseconds;
@@ -3101,7 +3138,7 @@ class _TrackLoadRequest {
     this.nativeWindowIndex,
     this.nativeWindowAlreadyCurrent = false,
     this.nativeWindowTrackId,
-  });
+  }) : latestSeekPosition = initialPosition;
 
   final int generation;
   final AudioTrack track;
@@ -3110,14 +3147,22 @@ class _TrackLoadRequest {
   final Future<void> Function(_TrackLoadRequest request)? beforeCommit;
   final AudioSource? sourceToReload;
   final Duration? initialPosition;
+  Duration? latestSeekPosition;
   final int? nativeWindowIndex;
   final bool nativeWindowAlreadyCurrent;
   String? nativeWindowTrackId;
   final Completer<void> completer = Completer<void>();
+  final Completer<void> supersedeSignal = Completer<void>();
   bool superseded = false;
   final int? performanceRequestId;
 
   Future<void> get future => completer.future;
+
+  void supersede() {
+    if (superseded) return;
+    superseded = true;
+    if (!supersedeSignal.isCompleted) supersedeSignal.complete();
+  }
 
   void complete() {
     if (!completer.isCompleted) completer.complete();
@@ -3158,14 +3203,13 @@ class _AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> seek(Duration position) async {
-    if (_service.isTrackLoading) return;
     final track = _service.currentTrack;
-    await _service.seek(position);
+    if (!await _service.seek(position)) return;
     if (_service.isTrackLoading || !identical(track, _service.currentTrack)) {
       return;
     }
     // 系统通知栏/锁屏 seek 时立即落盘历史
-    PlaybackHistoryService.instance.onSeekCommitted(position);
+    PlaybackHistoryService.instance.onSeekCommitted(_service.position);
   }
 
   @override

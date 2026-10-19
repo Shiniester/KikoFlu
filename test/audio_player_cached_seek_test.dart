@@ -2,13 +2,16 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
+import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_cache_downloader.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/cache_service.dart';
+import 'package:kikoeru_flutter/src/services/playback_history_service.dart';
 import 'package:kikoeru_flutter/src/services/speculative_transfer_coordinator.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -95,7 +98,7 @@ void main() {
       expect(player.audioSource, isA<UriAudioSource>());
       expect((player.audioSource as UriAudioSource).uri.scheme, 'https');
 
-      await service.seek(target);
+      expect(await service.seek(target), isTrue);
 
       expect(player.loaded, [track.url, cachePath]);
       expect(player.initialPositions, [null, target]);
@@ -178,6 +181,143 @@ void main() {
     expect(player.position, const Duration(seconds: 40));
   });
 
+  test('the newest seek is applied after a cached source reload', () async {
+    final player = _CachedSeekPlayer()
+      ..bufferedPosition = const Duration(seconds: 5);
+    final service = createService(player);
+    const track = AudioTrack(
+      id: 'latest-reloaded-seek',
+      title: 'latest-reloaded-seek.flac',
+      url: 'https://example.invalid/latest-reloaded-seek.flac',
+      hash: 'latest-reloaded-seek-audio',
+    );
+    await service.updateQueue([track], autoplay: true);
+    final cachePath = await createCompleteCache(track.hash!);
+    player.holdNextLoad = true;
+
+    final earlier = service.seek(const Duration(seconds: 30));
+    await until(() => player.pendingLoad != null);
+    final latest = service.seek(const Duration(seconds: 60));
+    player.finishLoad();
+    await Future.wait([earlier, latest]);
+
+    expect(player.loaded, [track.url, cachePath]);
+    expect(player.position, const Duration(seconds: 60));
+    expect(player.seeks, [const Duration(seconds: 60)]);
+    expect(service.currentTrack, track);
+  });
+
+  test('relative seeks accumulate during a cached source reload', () async {
+    final player = _CachedSeekPlayer()
+      ..bufferedPosition = const Duration(seconds: 5);
+    final service = createService(player);
+    const track = AudioTrack(
+      id: 'relative-reloaded-seek',
+      title: 'relative-reloaded-seek.flac',
+      url: 'https://example.invalid/relative-reloaded-seek.flac',
+      hash: 'relative-reloaded-seek-audio',
+    );
+    await service.updateQueue([track], autoplay: true);
+    await createCompleteCache(track.hash!);
+    player.holdNextLoad = true;
+
+    final initialSeek = service.seek(const Duration(seconds: 295));
+    await until(() => player.pendingLoad != null);
+    expect(player.duration, isNull);
+    final forwardOnce = service.seekForward(const Duration(seconds: 10));
+    final forwardTwice = service.seekForward(const Duration(seconds: 10));
+    final backwardOnce = service.seekBackward(const Duration(seconds: 10));
+    player.finishLoad();
+    await Future.wait<void>([
+      initialSeek.then<void>((_) {}),
+      forwardOnce,
+      forwardTwice,
+      backwardOnce,
+    ]);
+
+    expect(player.position, const Duration(minutes: 5));
+    expect(player.seeks, [const Duration(minutes: 5)]);
+  });
+
+  test(
+    'the controller persists the clamped latest seek during a cached reload',
+    () async {
+      final player = _CachedSeekPlayer()
+        ..bufferedPosition = const Duration(seconds: 5);
+      final service = createService(player);
+      const track = AudioTrack(
+        id: 'controller-reloaded-seek',
+        title: 'controller-reloaded-seek.flac',
+        url: 'https://example.invalid/controller-reloaded-seek.flac',
+        hash: 'controller-reloaded-seek-audio',
+      );
+      await service.updateQueue([track], autoplay: true);
+      await createCompleteCache(track.hash!);
+      player.holdNextLoad = true;
+      PlaybackHistoryService.resetForTest();
+      addTearDown(() => PlaybackHistoryService.instance.dispose());
+      final container = ProviderContainer(
+        overrides: [audioPlayerServiceProvider.overrideWithValue(service)],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(audioPlayerControllerProvider.notifier);
+
+      final earlier = service.seek(const Duration(seconds: 30));
+      await until(() => player.pendingLoad != null);
+      final latest = controller.seekAndPersist(const Duration(minutes: 10));
+      player.finishLoad();
+      await Future.wait([earlier, latest]);
+
+      expect(player.position, const Duration(minutes: 5));
+      expect(
+        PlaybackHistoryService.instance.lastKnownPositionMs,
+        const Duration(minutes: 5).inMilliseconds,
+      );
+    },
+  );
+
+  test(
+    'replacing the track drops a seek queued during cached reload',
+    () async {
+      final player = _CachedSeekPlayer()
+        ..bufferedPosition = const Duration(seconds: 5);
+      final service = createService(player);
+      const current = AudioTrack(
+        id: 'replaced-reloaded-seek',
+        title: 'replaced-reloaded-seek.flac',
+        url: 'https://example.invalid/replaced-reloaded-seek.flac',
+        hash: 'replaced-reloaded-seek-audio',
+      );
+      const next = AudioTrack(
+        id: 'replacement-after-reload',
+        title: 'replacement-after-reload.flac',
+        url: 'https://example.invalid/replacement-after-reload.flac',
+      );
+      await service.updateQueue([current], autoplay: true);
+      final cachePath = await createCompleteCache(current.hash!);
+      player.holdNextLoad = true;
+      PlaybackHistoryService.resetForTest();
+      addTearDown(() => PlaybackHistoryService.instance.dispose());
+      final container = ProviderContainer(
+        overrides: [audioPlayerServiceProvider.overrideWithValue(service)],
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(audioPlayerControllerProvider.notifier);
+
+      final earlier = service.seek(const Duration(seconds: 30));
+      await until(() => player.pendingLoad != null);
+      final latest = controller.seekAndPersist(const Duration(seconds: 60));
+      final replacing = service.updateQueue([next], autoplay: true);
+      await Future.wait([earlier, latest, replacing]);
+
+      expect(player.loaded, [current.url, cachePath, next.url]);
+      expect(player.seeks, isEmpty);
+      expect(player.position, Duration.zero);
+      expect(service.currentTrack, next);
+      expect(PlaybackHistoryService.instance.lastKnownPositionMs, 0);
+    },
+  );
+
   test('stop during cache lookup prevents a stale cached reload', () async {
     final player = _CachedSeekPlayer()
       ..bufferedPosition = const Duration(seconds: 5);
@@ -259,6 +399,9 @@ void main() {
 }
 
 class _CachedSeekPlayer extends ControlledPlayer {
+  @override
+  Duration? get duration => pendingLoad == null ? super.duration : null;
+
   @override
   Stream<PlaybackEvent> get playbackEventStream => const Stream.empty();
 }

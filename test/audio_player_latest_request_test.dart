@@ -718,6 +718,91 @@ void main() {
     expect(player.position, const Duration(seconds: 24));
   });
 
+  test('a newer track cancels a hanging restore position correction', () async {
+    sessions.snapshot = PlaybackSessionSnapshot(
+      queue: [tracks[0]],
+      currentIndex: 0,
+      position: const Duration(minutes: 6),
+      ownerKey: 'https://example.invalid\ntester',
+    );
+    player.holdNextSeek = true;
+
+    final restoring = service.restorePlaybackSession();
+    await until(() => player.pendingSeek != null);
+    final replacing = service.updateQueue([tracks[1]], autoplay: true);
+
+    try {
+      await replacing.timeout(const Duration(milliseconds: 100));
+    } finally {
+      player.finishSeek();
+      await Future.wait([restoring, replacing]);
+    }
+
+    expect(service.currentTrack?.id, tracks[1].id);
+    expect(player.source, tracks[1].url);
+  });
+
+  test('stop cancels a hanging restore position correction', () async {
+    sessions.snapshot = PlaybackSessionSnapshot(
+      queue: [tracks[0]],
+      currentIndex: 0,
+      position: const Duration(minutes: 6),
+      ownerKey: 'https://example.invalid\ntester',
+    );
+    player.holdNextSeek = true;
+
+    final restoring = service.restorePlaybackSession();
+    await until(() => player.pendingSeek != null);
+    final stopping = service.stop();
+
+    try {
+      await Future.wait([
+        restoring,
+        stopping,
+      ]).timeout(const Duration(milliseconds: 100));
+    } finally {
+      player.finishSeek();
+      await Future.wait([restoring, stopping]);
+    }
+
+    expect(player.playing, isFalse);
+    expect(service.isTrackLoading, isFalse);
+  });
+
+  test(
+    'session restoration bounds a hanging position correction seek',
+    () async {
+      final timeoutPlayer = _RestoreTimeoutPlayer()..holdNextSeek = true;
+      final timeoutSessions = MemorySessionStore()
+        ..snapshot = PlaybackSessionSnapshot(
+          queue: [tracks[0]],
+          currentIndex: 0,
+          position: const Duration(minutes: 6),
+          ownerKey: 'https://example.invalid\ntester',
+        );
+      final timeoutService = AudioPlayerService.forTesting(
+        timeoutPlayer,
+        sessionStore: timeoutSessions,
+        androidSeekRecovery: true,
+        seekRecoveryTimeout: const Duration(milliseconds: 30),
+      );
+      timeoutService.updatePreloadThreshold(null);
+      addTearDown(timeoutService.dispose);
+
+      final restoring = timeoutService.restorePlaybackSession();
+      await until(() => timeoutPlayer.pendingSeek != null);
+
+      try {
+        await restoring.timeout(const Duration(milliseconds: 100));
+      } finally {
+        timeoutPlayer.finishSeek();
+        await restoring;
+      }
+
+      expect(timeoutService.isTrackLoading, isFalse);
+    },
+  );
+
   test(
     'clear during loading leaves no published track or saved session',
     () async {
@@ -915,6 +1000,11 @@ class ControlledPlayer extends Fake implements AudioPlayer {
     await states.close();
     await positions.close();
   }
+}
+
+class _RestoreTimeoutPlayer extends ControlledPlayer {
+  @override
+  Stream<PlaybackEvent> get playbackEventStream => const Stream.empty();
 }
 
 class MemorySessionStore implements PlaybackSessionStore {

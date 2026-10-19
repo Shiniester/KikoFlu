@@ -422,13 +422,12 @@ class AudioPlayerController extends StateNotifier<AudioPlayerState> {
 
   /// seek 并立即持久化历史（用于用户显式拖动进度条）
   Future<void> seekAndPersist(Duration position) async {
-    if (_service.isTrackLoading) return;
     final track = _service.currentTrack;
-    await _service.seek(position);
+    if (!await _service.seek(position)) return;
     if (_service.isTrackLoading || !identical(track, _service.currentTrack)) {
       return;
     }
-    await PlaybackHistoryService.instance.onSeekCommitted(position);
+    await PlaybackHistoryService.instance.onSeekCommitted(_service.position);
   }
 
   Future<void> seekForward(Duration duration) async {

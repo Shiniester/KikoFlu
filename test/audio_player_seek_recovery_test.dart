@@ -507,6 +507,28 @@ void main() {
   });
 
   test(
+    'the latest seek is applied after a failed seek recovery reload',
+    () async {
+      const earlierTarget = Duration(minutes: 1);
+      const latestTarget = Duration(minutes: 3);
+      player.holdNextLoad = true;
+
+      final earlier = service.seek(earlierTarget);
+      player.failSeek();
+      await until(() => player.pendingLoad != null);
+      player.completeSeekImmediately = true;
+      final latest = service.seek(latestTarget);
+      player.finishLoad();
+      await Future.wait([earlier, latest]);
+
+      expect(player.reloadPositions, [earlierTarget]);
+      expect(player.seeks, [earlierTarget, latestTarget]);
+      expect(player.position, latestTarget);
+      expect(service.currentTrack, track);
+    },
+  );
+
+  test(
     'play while recovery is loading resumes at the requested position',
     () async {
       await service.pause();
