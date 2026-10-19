@@ -11,6 +11,7 @@ import '../models/download_task_change.dart';
 import '../providers/auth_provider.dart';
 import '../providers/download_provider.dart';
 import '../providers/audio_provider.dart';
+import '../providers/audio_subtitle_generation_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/download_service.dart';
@@ -36,6 +37,8 @@ import '../utils/string_utils.dart';
 import 'file_tree_actions.dart';
 import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
+import 'audio_subtitle_generation_sheet.dart';
+import 'lyric_translation_confirmation.dart';
 import 'work_image_reader.dart';
 import 'work_resource_tabs.dart';
 import 'work_detail/recommendation_section.dart';
@@ -80,6 +83,8 @@ class FileExplorerController {
 class FileExplorerWidget extends ConsumerStatefulWidget {
   final Work work;
   final Work Function()? currentWork;
+  final String? translationSourceLang;
+  final Future<bool> Function()? translationReady;
   final VoidCallback? onLoadCompleted;
   final WidgetBuilder? recommendationBuilder;
   final FileExplorerController? controller;
@@ -90,6 +95,8 @@ class FileExplorerWidget extends ConsumerStatefulWidget {
     super.key,
     required this.work,
     this.currentWork,
+    this.translationSourceLang,
+    this.translationReady,
     this.onLoadCompleted,
     this.recommendationBuilder,
     this.controller,
@@ -115,6 +122,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   String? _errorMessage;
   bool _audioVariantsReady = false;
   int _preferenceUpdateGeneration = 0;
+  int _translationSourceGeneration = 0;
   StreamSubscription<DownloadTaskChange>? _downloadTasksSubscription;
   int _loadGeneration = 0;
   bool _downloadScanRunning = false;
@@ -168,7 +176,15 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   @override
   void didUpdateWidget(covariant FileExplorerWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!oldWidget.translate && widget.translate) {
+    final sourceChanged =
+        oldWidget.translationSourceLang != widget.translationSourceLang;
+    if (sourceChanged) {
+      _translationSourceGeneration++;
+      _translationController.translations.clear();
+      final generation = _translationController.beginBulkTranslation('');
+      _translationController.failBulkTranslation(generation);
+    }
+    if (widget.translate && (sourceChanged || !oldWidget.translate)) {
       unawaited(_translateVisibleNames());
     }
     if (!identical(oldWidget.controller, widget.controller)) {
@@ -501,6 +517,32 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     // 不需要手动调用 loadLyricForTrack
   }
 
+  Future<void> _generateSubtitles(List<PlayerAudioVariant> variants) async {
+    try {
+      if (!await confirmLyricTranslationIfNeeded(
+        context,
+        forGeneration: true,
+      )) {
+        return;
+      }
+      if (!mounted) return;
+      await ref
+          .read(audioSubtitleActionsProvider)
+          .startWork(
+            work: _work,
+            fileTree: _rootFiles,
+            variants: variants,
+            downloadedFiles: _downloadedFiles,
+            fileRelativePaths: _fileRelativePaths,
+          );
+      if (!mounted) return;
+      await showAudioSubtitleGenerationSheet(context);
+    } catch (error) {
+      if (!mounted) return;
+      SnackBarUtil.showError(context, error.toString());
+    }
+  }
+
   Future<void> _copyFileName(String title) async {
     await Clipboard.setData(ClipboardData(text: title));
     if (!mounted) return;
@@ -588,84 +630,120 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     String displayTitle,
     String parentPath, {
     List<dynamic>? audioFiles,
+    List<PlayerAudioVariant>? subtitleVariants,
   }) async {
     final isAudio = FileIconUtils.isAudioFile(file);
+    final generationVariants =
+        subtitleVariants ??
+        const PlayerAudioVariantClassifier().selectBest(
+          _audioVariants,
+          preference: ref.read(audioFormatPreferenceProvider),
+        );
+    final selectedVariant = _audioVariants
+        .where(
+          (variant) =>
+              identical(variant.source, file) &&
+              variant.parentPath == parentPath,
+        )
+        .firstOrNull;
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: false,
       builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isAudio) ...[
-              ListTile(
-                key: const ValueKey('file-action-add-to-queue'),
-                leading: const Icon(Icons.playlist_add),
-                title: Text(
-                  AudioTapPlaylistMode.addToQueue.localizedName(context),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isAudio) ...[
+                if (selectedVariant != null)
+                  ListTile(
+                    key: const ValueKey('file-action-generate-subtitles'),
+                    leading: const Icon(Icons.subtitles_outlined),
+                    title: Text(S.of(context).subtitleGenerate),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _generateSubtitles([selectedVariant]);
+                    },
+                  ),
+                if (generationVariants.isNotEmpty)
+                  ListTile(
+                    key: const ValueKey('file-action-generate-all-subtitles'),
+                    leading: const Icon(Icons.playlist_add_check),
+                    title: Text(S.of(context).subtitleGenerateAll),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      _generateSubtitles(generationVariants);
+                    },
+                  ),
+                ListTile(
+                  key: const ValueKey('file-action-add-to-queue'),
+                  leading: const Icon(Icons.playlist_add),
+                  title: Text(
+                    AudioTapPlaylistMode.addToQueue.localizedName(context),
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _playAudioFile(
+                      file,
+                      parentPath,
+                      modeOverride: AudioTapPlaylistMode.addToQueue,
+                      audioFiles: audioFiles,
+                    );
+                  },
                 ),
+                ListTile(
+                  key: const ValueKey('file-action-play-next'),
+                  leading: const Icon(Icons.queue_play_next),
+                  title: Text(
+                    AudioTapPlaylistMode.playNext.localizedName(context),
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _playAudioFile(
+                      file,
+                      parentPath,
+                      modeOverride: AudioTapPlaylistMode.playNext,
+                      audioFiles: audioFiles,
+                    );
+                  },
+                ),
+                ListTile(
+                  key: const ValueKey('file-action-replace-queue'),
+                  leading: const Icon(Icons.playlist_play),
+                  title: Text(
+                    AudioTapPlaylistMode.replaceQueue.localizedName(context),
+                  ),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _playAudioFile(
+                      file,
+                      parentPath,
+                      modeOverride: AudioTapPlaylistMode.replaceQueue,
+                      audioFiles: audioFiles,
+                    );
+                  },
+                ),
+              ],
+              ListTile(
+                key: const ValueKey('file-action-download'),
+                leading: const Icon(Icons.download_outlined),
+                title: Text(S.of(context).download),
                 onTap: () {
                   Navigator.of(sheetContext).pop();
-                  _playAudioFile(
-                    file,
-                    parentPath,
-                    modeOverride: AudioTapPlaylistMode.addToQueue,
-                    audioFiles: audioFiles,
-                  );
+                  _downloadSingleFile(file, parentPath);
                 },
               ),
               ListTile(
-                key: const ValueKey('file-action-play-next'),
-                leading: const Icon(Icons.queue_play_next),
-                title: Text(
-                  AudioTapPlaylistMode.playNext.localizedName(context),
-                ),
+                key: const ValueKey('file-action-copy-name'),
+                leading: const Icon(Icons.copy_outlined),
+                title: Text(S.of(context).copyName),
                 onTap: () {
                   Navigator.of(sheetContext).pop();
-                  _playAudioFile(
-                    file,
-                    parentPath,
-                    modeOverride: AudioTapPlaylistMode.playNext,
-                    audioFiles: audioFiles,
-                  );
-                },
-              ),
-              ListTile(
-                key: const ValueKey('file-action-replace-queue'),
-                leading: const Icon(Icons.playlist_play),
-                title: Text(
-                  AudioTapPlaylistMode.replaceQueue.localizedName(context),
-                ),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  _playAudioFile(
-                    file,
-                    parentPath,
-                    modeOverride: AudioTapPlaylistMode.replaceQueue,
-                    audioFiles: audioFiles,
-                  );
+                  _copyFileName(displayTitle);
                 },
               ),
             ],
-            ListTile(
-              key: const ValueKey('file-action-download'),
-              leading: const Icon(Icons.download_outlined),
-              title: Text(S.of(context).download),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _downloadSingleFile(file, parentPath);
-              },
-            ),
-            ListTile(
-              key: const ValueKey('file-action-copy-name'),
-              leading: const Icon(Icons.copy_outlined),
-              title: Text(S.of(context).copyName),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                _copyFileName(displayTitle);
-              },
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -945,8 +1023,14 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
           : null,
       onPlayAudio: (file, path, files) =>
           _playAudioFile(file, path, audioFiles: files),
-      onAudioLongPress: (file, title, path, files) =>
-          _showFileActionMenu(file, title, path, audioFiles: files),
+      onAudioLongPress: (file, title, path, files, variants) =>
+          _showFileActionMenu(
+            file,
+            title,
+            path,
+            audioFiles: files,
+            subtitleVariants: variants,
+          ),
       onFileTap: _handleFileTap,
       displayNameFor: _getDisplayName,
       metadataBuilder: _buildFileMetadata,
@@ -1017,6 +1101,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
         .toList(growable: false);
     if (names.isEmpty) return;
 
+    final sourceGeneration = _translationSourceGeneration;
     final l10n = S.of(context);
     final generation = _translationController.beginBulkTranslation(
       l10n.preparingTranslation,
@@ -1024,34 +1109,51 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     setState(() {});
 
     try {
-      final result = await FileNameTranslationService(
-        translate: TranslationService().translate,
-      ).translateNames(
-        names: names,
-        onProgress: (current, total) {
-          final updated = _translationController.updateBulkProgress(
-            generation,
-            l10n.translatingProgress(current, total),
+      final ready = await widget.translationReady?.call() ?? true;
+      if (!mounted ||
+          !ready ||
+          !widget.translate ||
+          sourceGeneration != _translationSourceGeneration) {
+        _translationController.failBulkTranslation(generation);
+        if (mounted) setState(() {});
+        return;
+      }
+      final sourceLang = TranslationService.sourceLanguageForWork(_work.lang);
+      final result =
+          await FileNameTranslationService(
+            translate: TranslationService().translate,
+            convertLocally: TranslationService().convertChineseLocally,
+          ).translateNames(
+            names: names,
+            sourceLang: sourceLang,
+            onProgress: (current, total) {
+              final updated = _translationController.updateBulkProgress(
+                generation,
+                l10n.translatingProgress(current, total),
+              );
+              if (updated && mounted) setState(() {});
+            },
+            onChunkError: (index, error) {
+              _log.captureOutput('[FileExplorer] 翻译块 $index 失败: $error');
+            },
           );
-          if (updated && mounted) setState(() {});
-        },
-        onChunkError: (index, error) {
-          _log.captureOutput('[FileExplorer] 翻译块 $index 失败: $error');
-        },
-      );
 
       if (!mounted ||
+          !widget.translate ||
+          sourceGeneration != _translationSourceGeneration ||
+          sourceLang != TranslationService.sourceLanguageForWork(_work.lang) ||
           !_translationController.completeBulkTranslation(
             generation,
             result.translations,
           )) {
+        final failed = _translationController.failBulkTranslation(generation);
+        if (mounted && failed) setState(() {});
         return;
       }
       setState(() {});
       if (widget.translate) unawaited(_translateVisibleNames());
     } catch (e) {
-      if (!mounted ||
-          !_translationController.failBulkTranslation(generation)) {
+      if (!mounted || !_translationController.failBulkTranslation(generation)) {
         return;
       }
       _log.captureOutput('[FileExplorer] 名称翻译失败: $e');
@@ -1065,6 +1167,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
       showTranslation: widget.translate,
     );
   }
+
   // 处理文件点击
   void _handleFileTap(dynamic file, String title, String parentPath) {
     switch (_tapResolver.resolve(file)) {

@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/utils/local_file_url.dart';
 import 'package:kikoeru_flutter/src/widgets/text_preview_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 Widget _testApp(String filePath) {
   return ProviderScope(
@@ -25,6 +26,7 @@ void main() {
   testWidgets(
     'search action precedes edit and navigates case-insensitive matches',
     (tester) async {
+      SharedPreferences.setMockInitialValues({'locale_language': 'en'});
       final tempDir = Directory.systemTemp.createTempSync(
         'text_preview_search_',
       );

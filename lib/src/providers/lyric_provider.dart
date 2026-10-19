@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show Locale;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import 'package:path/path.dart' as path;
 
 import '../models/lyric.dart';
@@ -12,7 +13,8 @@ import '../services/download_service.dart';
 import '../services/local_work_metadata_service.dart';
 import '../services/offline_local_file_scanner.dart';
 import '../services/subtitle_library_service.dart';
-import '../services/subtitle_database.dart';
+import '../services/generated_subtitle_store.dart';
+import '../services/generated_subtitle_translation_service.dart';
 import '../services/work_subtitle_candidate_selector.dart';
 import '../services/log_service.dart';
 import '../utils/encoding_utils.dart';
@@ -23,6 +25,7 @@ import '../services/remote_text_loader.dart';
 import 'auth_provider.dart';
 import 'audio_provider.dart';
 import 'settings_provider.dart';
+import 'player_subtitle_candidates_provider.dart';
 
 final _log = LogService.instance;
 
@@ -64,6 +67,7 @@ class LyricState {
   final int translatedCount;
   final int translationTotal;
   final String? translatedSubtitlePath;
+  final String? translatedTargetLanguage;
   final LyricSourceDescriptor? source;
 
   LyricState({
@@ -78,6 +82,7 @@ class LyricState {
     this.translatedCount = 0,
     this.translationTotal = 0,
     this.translatedSubtitlePath,
+    this.translatedTargetLanguage,
     this.source,
   });
 
@@ -93,6 +98,7 @@ class LyricState {
     int? translatedCount,
     int? translationTotal,
     String? translatedSubtitlePath,
+    String? translatedTargetLanguage,
     LyricSourceDescriptor? source,
   }) {
     final nextState = LyricState(
@@ -108,6 +114,8 @@ class LyricState {
       translationTotal: translationTotal ?? this.translationTotal,
       translatedSubtitlePath:
           translatedSubtitlePath ?? this.translatedSubtitlePath,
+      translatedTargetLanguage:
+          translatedTargetLanguage ?? this.translatedTargetLanguage,
       source: source ?? this.source,
     );
 
@@ -200,6 +208,10 @@ class LyricController extends StateNotifier<LyricState> {
   int _loadRequestId = 0;
   int _translationRequestId = 0;
   RemoteTextLease? _remoteTextLease;
+  final _generatedTranslations =
+      <(String, String), GeneratedSubtitleTranslation>{};
+
+  int get loadRequestId => _loadRequestId;
 
   LyricController(this.ref, {LyricState? initialState})
     : super(initialState ?? LyricState());
@@ -285,9 +297,8 @@ class LyricController extends StateNotifier<LyricState> {
     AudioTrack track,
     List<dynamic> allFiles,
   ) async {
-    final lyricFile = _findLyricFile(track, allFiles);
     final requestId = _beginLoadRequest(
-      remoteHandoffKey: _remoteTextKeyFor(lyricFile),
+      remoteHandoffKey: _remoteTextLease?.key,
     );
     _log.captureOutput(
       '[Lyric] 尝试加载: track="${track.title}", workId=${track.workId}, 文件数=${allFiles.length}',
@@ -295,6 +306,11 @@ class LyricController extends StateNotifier<LyricState> {
     _setStateForLoadRequest(requestId, _loadingStatePreservingCurrentLyrics());
 
     try {
+      final targetLocale = await ref.read(
+        effectiveTranslationTargetLocaleProvider.future,
+      );
+      if (!_isCurrentLoadRequest(requestId)) return;
+      final lyricFile = _findLyricFile(track, allFiles, targetLocale);
       // 获取字幕库优先级设置
       final libraryPriority = ref.read(subtitleLibraryPriorityProvider);
       final isLibraryFirst = libraryPriority == SubtitleLibraryPriority.highest;
@@ -304,7 +320,7 @@ class LyricController extends StateNotifier<LyricState> {
       // 根据设置决定查找顺序
       if (isLibraryFirst) {
         // 优先级1：从字幕库查找匹配的字幕文件
-        final libraryLyricPath = await _findLyricInLibrary(track);
+        final libraryLyricPath = await _findLyricInLibrary(track, targetLocale);
         if (!_isCurrentLoadRequest(requestId)) return;
         if (libraryLyricPath != null) {
           _log.captureOutput('[Lyric] 从字幕库加载: $libraryLyricPath');
@@ -327,7 +343,10 @@ class LyricController extends StateNotifier<LyricState> {
         // 如果文件树未找到且优先级为最后，尝试字幕库
         if (!isLibraryFirst) {
           _log.captureOutput('[Lyric] 文件树未找到，尝试字幕库');
-          final libraryLyricPath = await _findLyricInLibrary(track);
+          final libraryLyricPath = await _findLyricInLibrary(
+            track,
+            targetLocale,
+          );
           if (!_isCurrentLoadRequest(requestId)) return;
           if (libraryLyricPath != null) {
             _log.captureOutput('[Lyric] 从字幕库加载: $libraryLyricPath');
@@ -385,94 +404,22 @@ class LyricController extends StateNotifier<LyricState> {
   }
 
   // 从字幕库查找匹配的字幕文件（使用数据库查询）
-  Future<String?> _findLyricInLibrary(AudioTrack track) async {
+  Future<String?> _findLyricInLibrary(
+    AudioTrack track,
+    Locale targetLocale,
+  ) async {
     try {
-      final trackTitle = track.title;
-      final workId = track.workId;
-
-      _log.captureOutput(
-        '[Lyric] 在字幕库中查找: track="$trackTitle", workId=$workId',
+      final candidates = await const PlayerSubtitleCandidateRepository().load(
+        track: track,
+        fileTree: const [],
+        libraryPriority: SubtitleLibraryPriority.highest,
+        targetLocale: targetLocale,
       );
-
-      // 确保数据库已初始化
-      await SubtitleLibraryService.ensureInitialized();
-
-      // 获取字幕库根目录，用于将相对路径拼接为绝对路径
-      final libraryDir =
-          await SubtitleLibraryService.getSubtitleLibraryDirectory();
-      final libraryRoot = libraryDir.path;
-
-      // 优先级1: 通过 workId 查询数据库
-      if (workId != null) {
-        final records = await SubtitleDatabase.instance.getFilesByWorkId(
-          workId,
-        );
-        if (records.isNotEmpty) {
-          String? bestMatchPath;
-          double bestScore = 0.0;
-
-          for (final record in records) {
-            final (isMatch, score) = SubtitleLibraryService.checkMatch(
-              record.fileName,
-              trackTitle,
-            );
-            if (isMatch && score > bestScore) {
-              final absolutePath = record.absolutePath(libraryRoot);
-              // 验证文件是否仍存在（DB 可能过期）
-              if (!await File(absolutePath).exists()) continue;
-              bestScore = score;
-              bestMatchPath = absolutePath;
-              if (score == 1.0) {
-                _log.captureOutput(
-                  '[Lyric] 在数据库中找到完美匹配 (workId=$workId): ${record.fileName}',
-                );
-                return absolutePath;
-              }
-            }
-          }
-
-          if (bestMatchPath != null) {
-            _log.captureOutput(
-              '[Lyric] 在数据库中找到最佳匹配 (workId=$workId, score=$bestScore)',
-            );
-            return bestMatchPath;
-          }
-        }
-      }
-
-      // 优先级2: 在"已保存"分类中查找
-      final savedRecords = await SubtitleDatabase.instance.getFilesByCategory(
-        SubtitleLibraryService.savedFolderName,
-      );
-      if (savedRecords.isNotEmpty) {
-        String? bestMatchPath;
-        double bestScore = 0.0;
-
-        for (final record in savedRecords) {
-          final (isMatch, score) = SubtitleLibraryService.checkMatch(
-            record.fileName,
-            trackTitle,
-          );
-          if (isMatch && score > bestScore) {
-            final absolutePath = record.absolutePath(libraryRoot);
-            if (!await File(absolutePath).exists()) continue;
-            bestScore = score;
-            bestMatchPath = absolutePath;
-            if (score == 1.0) {
-              _log.captureOutput('[Lyric] 在"已保存"中找到完美匹配: ${record.fileName}');
-              return absolutePath;
-            }
-          }
-        }
-
-        if (bestMatchPath != null) {
-          _log.captureOutput('[Lyric] 在"已保存"中找到最佳匹配 (score=$bestScore)');
-          return bestMatchPath;
-        }
-      }
-
-      _log.captureOutput('[Lyric] 字幕库中未找到匹配的字幕');
-      return null;
+      return candidates
+          .where((candidate) => candidate.matchesCurrentAudio)
+          .firstOrNull
+          ?.source['localPath']
+          ?.toString();
     } catch (e) {
       _log.captureOutput('[Lyric] 字幕库查找出错: $e');
       return null;
@@ -480,13 +427,18 @@ class LyricController extends StateNotifier<LyricState> {
   }
 
   // 查找字幕文件
-  dynamic _findLyricFile(AudioTrack track, List<dynamic> allFiles) {
+  dynamic _findLyricFile(
+    AudioTrack track,
+    List<dynamic> allFiles,
+    Locale targetLocale,
+  ) {
     final candidates = const WorkSubtitleCandidateSelector()
         .collectWorkCandidates(
           fileTree: allFiles,
           audioTitle: track.title,
           audioHash: track.hash,
           workId: track.workId,
+          targetLocale: targetLocale,
         );
     for (final candidate in candidates) {
       if (candidate.matchesCurrentAudio) return candidate.source;
@@ -498,6 +450,66 @@ class LyricController extends StateNotifier<LyricState> {
   void clearLyrics() {
     _beginLoadRequest();
     state = LyricState();
+  }
+
+  String? generatedTranslationContent(
+    String originalPath, {
+    required Locale targetLocale,
+  }) {
+    final translation =
+        _generatedTranslations[(
+          originalPath,
+          GeneratedSubtitleStore.targetLanguageKey(targetLocale),
+        )];
+    return translation == null
+        ? null
+        : GeneratedSubtitleTranslationService.toSrt(translation.translated);
+  }
+
+  Future<void> showGeneratedTranslation(
+    AudioTrack track,
+    String originalPath,
+    GeneratedSubtitleTranslation translation, {
+    int? expectedLoadRequestId,
+  }) async {
+    final targetKey = GeneratedSubtitleStore.targetLanguageKey(
+      translation.targetLocale,
+    );
+    _generatedTranslations[(originalPath, targetKey)] = translation;
+    if (expectedLoadRequestId == null) return;
+    bool canShow() {
+      if (!mounted) return false;
+      final current = ref.read(currentTrackProvider).valueOrNull;
+      return current != null &&
+          GeneratedSubtitleStore.audioIdentity(current) ==
+              GeneratedSubtitleStore.audioIdentity(track) &&
+          state.source?.localPath == originalPath &&
+          expectedLoadRequestId == _loadRequestId;
+    }
+
+    if (!canShow()) return;
+    final target = await ref.read(
+      effectiveTranslationTargetLocaleProvider.future,
+    );
+    if (!canShow() ||
+        targetKey != GeneratedSubtitleStore.targetLanguageKey(target)) {
+      return;
+    }
+    _beginLoadRequest();
+    state = LyricState(
+      lyrics: translation.original,
+      translatedLyrics: translation.translated,
+      translatedSubtitlePath: translation.savedPath,
+      translatedTargetLanguage: targetKey,
+      showTranslated: true,
+      lyricUrl: 'file://$originalPath',
+      source: LyricSourceDescriptor(
+        title: path.basename(originalPath),
+        type: LyricSourceType.localFile,
+        localPath: originalPath,
+        workId: track.workId,
+      ),
+    );
   }
 
   /// 调整字幕轴偏移
@@ -513,8 +525,14 @@ class LyricController extends StateNotifier<LyricState> {
   /// 切换歌词翻译（已有翻译时在原文/翻译间切换）。
   Future<void> toggleTranslation() async {
     if (state.lyrics.isEmpty || state.isTranslating) return;
-
-    if (state.isTranslated) {
+    final loadRequest = _loadRequestId;
+    final target = await ref.read(
+      effectiveTranslationTargetLocaleProvider.future,
+    );
+    if (!_isCurrentLoadRequest(loadRequest)) return;
+    if (state.isTranslated &&
+        state.translatedTargetLanguage ==
+            GeneratedSubtitleStore.targetLanguageKey(target)) {
       state = state.copyWith(showTranslated: !state.showTranslated);
       return;
     }
@@ -525,11 +543,17 @@ class LyricController extends StateNotifier<LyricState> {
   /// 翻译当前播放字幕，完成后立即显示翻译，并按偏好设置保存到字幕库。
   Future<String?> translateAndSaveCurrentLyrics() async {
     if (state.lyrics.isEmpty || state.isTranslating) return null;
-
-    if (state.isTranslated) {
+    final loadRequest = _loadRequestId;
+    final target = await ref.read(
+      effectiveTranslationTargetLocaleProvider.future,
+    );
+    if (!_isCurrentLoadRequest(loadRequest)) return null;
+    final targetKey = GeneratedSubtitleStore.targetLanguageKey(target);
+    if (state.isTranslated && state.translatedTargetLanguage == targetKey) {
       state = state.copyWith(showTranslated: true);
       return state.translatedSubtitlePath;
     }
+    if (state.isTranslated) clearTranslation();
 
     final requestId = _beginTranslationRequest();
     final sourceLyrics = List<LyricLine>.from(state.lyrics);
@@ -540,9 +564,53 @@ class LyricController extends StateNotifier<LyricState> {
       isTranslating: true,
       translatedCount: 0,
       translationTotal: 0,
+      translatedTargetLanguage: targetKey,
     );
 
     try {
+      final originalPath = state.source?.localPath;
+      if (originalPath != null &&
+          GeneratedSubtitleStore.isGeneratedOriginalPath(originalPath)) {
+        final save = await ref
+            .read(autoSaveTranslatedLyricsProvider.notifier)
+            .resolvedEnabled();
+        final result = await GeneratedSubtitleTranslationService().translate(
+          originalPath,
+          targetLocale: target,
+          saveTranslation: save,
+          cancelToken: CancelToken(),
+          onProgress: (_) {},
+        );
+        _generatedTranslations[(originalPath, targetKey)] = result;
+        if (!_isCurrentTranslationRequest(requestId) ||
+            !_isCurrentLoadRequest(loadRequest) ||
+            !_isSameTrack(
+              currentTrack,
+              ref.read(currentTrackProvider).valueOrNull,
+            )) {
+          return null;
+        }
+        final currentTarget = await ref.read(
+          effectiveTranslationTargetLocaleProvider.future,
+        );
+        if (!_isCurrentTranslationRequest(requestId) ||
+            !_isCurrentLoadRequest(loadRequest)) {
+          return null;
+        }
+        if (targetKey !=
+            GeneratedSubtitleStore.targetLanguageKey(currentTarget)) {
+          clearTranslation();
+          return null;
+        }
+        state = state.copyWith(
+          translatedLyrics: result.translated,
+          translatedSubtitlePath: result.savedPath,
+          translatedTargetLanguage: targetKey,
+          showTranslated: true,
+          isTranslating: false,
+        );
+        return result.savedPath;
+      }
       final translationService = TranslationService();
 
       // 收集需要翻译的文本（跳过空行和音符占位）
@@ -569,6 +637,7 @@ class LyricController extends StateNotifier<LyricState> {
       final joinedText = textsToTranslate.join(separator);
       final translatedText = await translationService.translateLongText(
         joinedText,
+        targetLocale: target,
         onProgress: (current, total) {
           if (_isCurrentTranslationRequest(requestId)) {
             state = state.copyWith(
@@ -579,6 +648,15 @@ class LyricController extends StateNotifier<LyricState> {
         },
       );
       if (!_isCurrentTranslationRequest(requestId)) return null;
+      final currentTarget = await ref.read(
+        effectiveTranslationTargetLocaleProvider.future,
+      );
+      if (!_isCurrentTranslationRequest(requestId)) return null;
+      if (targetKey !=
+          GeneratedSubtitleStore.targetLanguageKey(currentTarget)) {
+        clearTranslation();
+        return null;
+      }
 
       final latestTrack = ref.read(currentTrackProvider).value;
       if (!_isSameTrack(currentTrack, latestTrack)) {
@@ -703,6 +781,7 @@ class LyricController extends StateNotifier<LyricState> {
 
   /// 清除翻译结果
   void clearTranslation() {
+    _beginTranslationRequest();
     state = LyricState(
       lyrics: state.lyrics,
       isLoading: state.isLoading,
@@ -711,6 +790,14 @@ class LyricController extends StateNotifier<LyricState> {
       timelineOffset: state.timelineOffset,
       source: state.source,
     );
+  }
+
+  void clearTranslationForOtherTarget(Locale target) {
+    if (state.translatedTargetLanguage != null &&
+        state.translatedTargetLanguage !=
+            GeneratedSubtitleStore.targetLanguageKey(target)) {
+      clearTranslation();
+    }
   }
 
   /// 获取导出格式的字幕内容（应用了时间轴偏移）
@@ -975,12 +1062,53 @@ class LyricController extends StateNotifier<LyricState> {
       }
     }
     final lyrics = LyricParser.parse(content);
+    final canHaveTranslation =
+        localPath != null &&
+        (GeneratedSubtitleStore.isGeneratedOriginalPath(localPath) ||
+            _generatedTranslations.keys.any((key) => key.$1 == localPath));
+    final targetLocale = canHaveTranslation
+        ? await ref.read(effectiveTranslationTargetLocaleProvider.future)
+        : null;
+    if (!_isCurrentLoadRequest(requestId)) return null;
+    final targetKey = targetLocale == null
+        ? null
+        : GeneratedSubtitleStore.targetLanguageKey(targetLocale);
+    final remembered = _generatedTranslations[(localPath, targetKey)];
+    var translatedPath =
+        remembered?.savedPath ??
+        (localPath == null || targetLocale == null
+            ? null
+            : await const GeneratedSubtitleStore().findTranslation(
+                localPath,
+                targetLocale: targetLocale,
+              ));
+    if (!_isCurrentLoadRequest(requestId)) return null;
+    List<LyricLine>? translated = remembered?.translated;
+    if (translated == null && translatedPath != null) {
+      translated = LyricParser.parse(await File(translatedPath).readAsString());
+      if (!_isCurrentLoadRequest(requestId)) return null;
+    }
+    if (translated != null) {
+      final currentTarget = await ref.read(
+        effectiveTranslationTargetLocaleProvider.future,
+      );
+      if (!_isCurrentLoadRequest(requestId)) return null;
+      if (targetKey !=
+          GeneratedSubtitleStore.targetLanguageKey(currentTarget)) {
+        translated = null;
+        translatedPath = null;
+      }
+    }
     _log.captureOutput('[Lyric] 解析完成: ${lyrics.length} 行字幕');
     return LyricState(
       lyrics: lyrics,
       isLoading: false,
       lyricUrl: lyricUrl,
       source: source,
+      translatedLyrics: translated,
+      translatedSubtitlePath: translatedPath,
+      translatedTargetLanguage: translated == null ? null : targetKey,
+      showTranslated: translated != null,
     );
   }
 
@@ -1186,7 +1314,12 @@ final fileListControllerProvider =
 // Provider
 final lyricControllerProvider =
     StateNotifierProvider<LyricController, LyricState>((ref) {
-      return LyricController(ref);
+      final controller = LyricController(ref);
+      ref.listen(effectiveTranslationTargetLocaleProvider, (_, next) {
+        final target = next.valueOrNull;
+        if (target != null) controller.clearTranslationForOtherTarget(target);
+      });
+      return controller;
     });
 
 // 监听曲目变化，自动重新加载字幕

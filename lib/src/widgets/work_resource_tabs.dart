@@ -1,20 +1,27 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/foundation.dart' show listEquals, mapEquals;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
+import 'package:path/path.dart' as p;
 
 import '../../l10n/app_localizations.dart';
+import '../models/audio_track.dart';
+import '../providers/auth_provider.dart';
 import '../providers/player_subtitle_candidates_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/work_card_display_provider.dart';
 import '../providers/work_detail_display_provider.dart';
 import '../providers/works_provider.dart' show LayoutType;
+import '../services/audio_subtitle_generation_service.dart';
 import '../services/file_preview_resolver.dart';
+import '../services/generated_subtitle_store.dart';
 import '../services/player_audio_variant_classifier.dart';
+import '../services/subtitle_library_service.dart';
 import '../utils/collection_grid_layout.dart';
 import '../utils/file_tree_utils.dart';
 import '../utils/file_icon_utils.dart';
@@ -38,6 +45,7 @@ typedef ResourceAudioLongPress =
       String title,
       String parentPath,
       List<dynamic> audioFiles,
+      List<PlayerAudioVariant> variants,
     );
 
 const _resourcePagePadding = EdgeInsets.symmetric(horizontal: 16);
@@ -100,10 +108,16 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   List<dynamic>? _tree;
   List<PlayerAudioVariant>? _variants;
   AudioFormatPreference? _preference;
+  Locale? _subtitleTargetLocale;
   List<dynamic> _images = const [];
   List<PlayerAudioVariant> _audio = const [];
   List<dynamic> _queue = const [];
   List<PlayerSubtitleCandidate?> _subtitles = const [];
+  Map<String, String> _generatedSubtitles = const {};
+  StreamSubscription<void>? _subtitleUpdates;
+  CancelToken? _generatedSubtitleCancelToken;
+  int _generatedSubtitleLoad = 0;
+  int? _workId;
   final _imageTargets = <dynamic, Future<PreviewFileItem?>>{};
   final _resolvedImageTargets = <dynamic, PreviewFileItem>{};
   final _imageTargetSignals =
@@ -142,6 +156,9 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
   @override
   void initState() {
     super.initState();
+    _subtitleUpdates = SubtitleLibraryService.onCacheUpdated.listen((_) {
+      _loadGeneratedSubtitles();
+    });
     _images = FileTreeUtils.imageFilesRecursive(widget.fileTree);
     _pageKinds = _buildPageKinds();
     _tabKinds = _visibleTabKinds(
@@ -189,6 +206,8 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
 
   @override
   void dispose() {
+    unawaited(_subtitleUpdates?.cancel());
+    _generatedSubtitleCancelToken?.cancel();
     _verticalPosition?.removeListener(_scheduleImageInspection);
     _imagePrefetchQueue.dispose();
     for (final signal in _imageTargetSignals.values) {
@@ -202,7 +221,10 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     super.dispose();
   }
 
-  void _updateResources(AudioFormatPreference preference) {
+  void _updateResources(
+    AudioFormatPreference preference,
+    Locale? targetLocale,
+  ) {
     for (final image in _images) {
       final hash = FileTreeUtils.property(image, 'hash')?.toString();
       if (_downloadedFiles[hash] != widget.downloadedFiles[hash]) {
@@ -214,9 +236,12 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
     }
     _downloadedFiles = Map.of(widget.downloadedFiles);
     final treeChanged = !identical(_tree, widget.fileTree);
+    final workChanged = _workId != widget.workId;
     if (!treeChanged &&
+        !workChanged &&
         identical(_variants, widget.audioVariants) &&
-        identical(_preference, preference)) {
+        identical(_preference, preference) &&
+        _subtitleTargetLocale == targetLocale) {
       return;
     }
     if (treeChanged) {
@@ -240,8 +265,10 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       _imagePageGatePassed.value = false;
     }
     _tree = widget.fileTree;
+    _workId = widget.workId;
     _variants = widget.audioVariants;
     _preference = preference;
+    _subtitleTargetLocale = targetLocale;
     _audio = const PlayerAudioVariantClassifier().selectBest(
       widget.audioVariants,
       preference: preference,
@@ -261,15 +288,90 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
               )?.toString(),
               audioParentPath: variant.parentPath,
               workId: widget.workId,
+              targetLocale: targetLocale,
             )
             .where((candidate) => candidate.matchesCurrentAudio)
             .firstOrNull,
     ];
+    _loadGeneratedSubtitles();
+  }
+
+  void _loadGeneratedSubtitles() {
+    final request = ++_generatedSubtitleLoad;
+    _generatedSubtitleCancelToken?.cancel();
+    final cancelToken = _generatedSubtitleCancelToken = CancelToken();
+    final audio = List<PlayerAudioVariant>.of(_audio);
+    final subtitles = List<PlayerSubtitleCandidate?>.of(_subtitles);
+    unawaited(
+      Future<void>.microtask(() async {
+        final generated = <String, String>{};
+        for (var index = 0; index < audio.length; index++) {
+          if (!mounted ||
+              request != _generatedSubtitleLoad ||
+              cancelToken.isCancelled) {
+            return;
+          }
+          final track = _trackForVariant(audio[index]);
+          try {
+            final path = await const GeneratedSubtitleStore().find(track);
+            if (!mounted || request != _generatedSubtitleLoad) return;
+            if (path != null) {
+              final subtitle = index < subtitles.length
+                  ? subtitles[index]
+                  : null;
+              if (subtitle != null) {
+                final auth = ref.read(authProvider);
+                if (await AudioSubtitleGenerationService.isUsableSubtitleCandidate(
+                  subtitle,
+                  AudioSubtitleRequest(
+                    track: track,
+                    fileTree: widget.fileTree,
+                    host: auth.host ?? '',
+                    token: auth.token ?? '',
+                  ),
+                  cancelToken,
+                )) {
+                  continue;
+                }
+              }
+              generated[GeneratedSubtitleStore.audioIdentity(track)] = path;
+            }
+          } catch (_) {
+            // Subtitle library storage may not be ready while details are loading.
+          }
+        }
+        if (!mounted || request != _generatedSubtitleLoad) return;
+        if (mapEquals(_generatedSubtitles, generated)) return;
+        setState(() => _generatedSubtitles = generated);
+      }),
+    );
+  }
+
+  AudioTrack _trackForVariant(PlayerAudioVariant variant) {
+    final hash = FileTreeUtils.property(variant.source, 'hash')?.toString();
+    final localPath = FileTreeUtils.property(
+      variant.source,
+      'localPath',
+    )?.toString();
+    final url = FileTreeUtils.property(variant.source, 'url')?.toString() ?? '';
+    return AudioTrack(
+      id:
+          hash ??
+          (localPath == null && url.isEmpty ? variant.fullPath : variant.title),
+      title: variant.title,
+      url: url,
+      workId: widget.workId,
+      hash: hash,
+      sourcePath: localPath,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    _updateResources(ref.watch(audioFormatPreferenceProvider));
+    _updateResources(
+      ref.watch(audioFormatPreferenceProvider),
+      ref.watch(effectiveTranslationTargetLocaleProvider).valueOrNull,
+    );
     final showRecommendations =
         widget.recommendationBuilder != null &&
         ref.watch(
@@ -649,71 +751,115 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
         ),
       );
     }
-    return SliverList.builder(
-      itemCount: _audio.length,
-      itemBuilder: (context, index) {
-        final variant = _audio[index];
-        final entry = _entry(variant.source, variant.parentPath, variant.title);
-        final subtitle = _subtitles[index];
-        final hash = FileTreeUtils.property(variant.source, 'hash')?.toString();
-        final metadata = widget.metadataBuilder?.call(context, entry);
-        final actions = widget.audioTrailingBuilder?.call(context, entry);
-        final audioColor = FileIconUtils.getFileIconColorByName(variant.title);
-        return ListTile(
-          key: ValueKey('work-audio-${variant.fullPath}'),
-          contentPadding: EdgeInsets.zero,
-          leading: Icon(
-            widget.downloadedFiles[hash] == true
-                ? Icons.download_done
-                : Icons.audiotrack,
-            color: audioColor,
-          ),
-          title: Text(entry.displayTitle, style: const TextStyle(fontSize: 14)),
-          subtitle: variant.parentPath.isEmpty
-              ? null
-              : Text(variant.parentPath, style: const TextStyle(fontSize: 12)),
-          onTap: () =>
-              widget.onPlayAudio(variant.source, variant.parentPath, _queue),
-          onLongPress: widget.onAudioLongPress == null
-              ? () => _copyName(entry.displayTitle)
-              : () => widget.onAudioLongPress!(
-                  variant.source,
-                  entry.displayTitle,
-                  variant.parentPath,
-                  _queue,
-                ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (metadata != null) metadata,
-              IconButton(
-                tooltip: entry.displayTitle,
-                icon: Icon(Icons.play_arrow, color: audioColor),
-                iconSize: 20,
-                onPressed: () => widget.onPlayAudio(
-                  variant.source,
-                  variant.parentPath,
-                  _queue,
-                ),
+    return SliverMainAxisGroup(
+      slivers: [
+        SliverList.builder(
+          itemCount: _audio.length,
+          itemBuilder: (context, index) {
+            final variant = _audio[index];
+            final entry = _entry(
+              variant.source,
+              variant.parentPath,
+              variant.title,
+            );
+            final subtitle = _subtitles[index];
+            final generatedPath =
+                _generatedSubtitles[GeneratedSubtitleStore.audioIdentity(
+                  _trackForVariant(variant),
+                )];
+            final hash = FileTreeUtils.property(
+              variant.source,
+              'hash',
+            )?.toString();
+            final metadata = widget.metadataBuilder?.call(context, entry);
+            final actions = widget.audioTrailingBuilder?.call(context, entry);
+            final audioColor = FileIconUtils.getFileIconColorByName(
+              variant.title,
+            );
+            return ListTile(
+              key: ValueKey('work-audio-${variant.fullPath}'),
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                widget.downloadedFiles[hash] == true
+                    ? Icons.download_done
+                    : Icons.audiotrack,
+                color: audioColor,
               ),
-              if (subtitle != null)
-                IconButton(
-                  key: ValueKey('work-audio-subtitle-${variant.fullPath}'),
-                  tooltip: S.of(context).preview,
-                  icon: const Icon(Icons.visibility),
-                  color: Colors.blue,
-                  iconSize: 20,
-                  onPressed: () => widget.onFileTap(
-                    subtitle.source,
-                    _displayName(subtitle.title),
-                    _subtitleParent(subtitle),
+              title: Text(
+                entry.displayTitle,
+                style: const TextStyle(fontSize: 14),
+              ),
+              subtitle: variant.parentPath.isEmpty
+                  ? null
+                  : Text(
+                      variant.parentPath,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+              onTap: () => widget.onPlayAudio(
+                variant.source,
+                variant.parentPath,
+                _queue,
+              ),
+              onLongPress: widget.onAudioLongPress == null
+                  ? () => _copyName(entry.displayTitle)
+                  : () => widget.onAudioLongPress!(
+                      variant.source,
+                      entry.displayTitle,
+                      variant.parentPath,
+                      _queue,
+                      _audio,
+                    ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (metadata != null) metadata,
+                  IconButton(
+                    tooltip: entry.displayTitle,
+                    icon: Icon(Icons.play_arrow, color: audioColor),
+                    iconSize: 20,
+                    onPressed: () => widget.onPlayAudio(
+                      variant.source,
+                      variant.parentPath,
+                      _queue,
+                    ),
                   ),
-                ),
-              if (actions != null) actions,
-            ],
-          ),
-        );
-      },
+                  if (subtitle != null || generatedPath != null)
+                    IconButton(
+                      key: ValueKey('work-audio-subtitle-${variant.fullPath}'),
+                      tooltip: S.of(context).preview,
+                      icon: const Icon(Icons.visibility),
+                      color: Colors.blue,
+                      iconSize: 20,
+                      onPressed: () {
+                        if (subtitle != null && generatedPath == null) {
+                          widget.onFileTap(
+                            subtitle.source,
+                            _displayName(subtitle.title),
+                            _subtitleParent(subtitle),
+                          );
+                          return;
+                        }
+                        final path = generatedPath!;
+                        final title = p.basename(path);
+                        widget.onFileTap(
+                          {
+                            'type': 'text',
+                            'title': title,
+                            'localPath': path,
+                            'workId': widget.workId,
+                          },
+                          _displayName(title),
+                          '',
+                        );
+                      },
+                    ),
+                  if (actions != null) actions,
+                ],
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 

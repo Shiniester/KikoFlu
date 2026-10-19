@@ -2,6 +2,10 @@ import 'dart:ui';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/widgets.dart'
+    show WidgetsBinding, WidgetsBindingObserver, basicLocaleListResolution;
+import '../../l10n/app_localizations.dart';
+import 'locale_provider.dart';
 import '../models/audio_gain_settings.dart';
 import '../models/audio_preference.dart';
 import '../models/audio_tap_playlist_mode.dart';
@@ -423,7 +427,14 @@ class TranslationLanguagePreferencesNotifier
 
   TranslationLanguagePreferencesNotifier()
     : super(const TranslationLanguagePreferences()) {
-    _loadPreferences();
+    _preferencesLoad = _loadPreferences();
+  }
+
+  late final Future<void> _preferencesLoad;
+
+  Future<TranslationTargetLanguage> resolvedTargetLanguage() async {
+    await _preferencesLoad;
+    return state.targetLanguage;
   }
 
   Future<void> _loadPreferences() async {
@@ -466,6 +477,41 @@ final translationLanguagePreferencesProvider =
     >((ref) {
       return TranslationLanguagePreferencesNotifier();
     });
+
+final effectiveTranslationTargetLocaleProvider = FutureProvider<Locale>((
+  ref,
+) async {
+  final preferences = ref.read(translationLanguagePreferencesProvider.notifier);
+  final locales = ref.read(localeProvider.notifier);
+  // Initial preference writes must finish before they become dependencies.
+  await preferences.resolvedTargetLanguage();
+  await locales.resolvedLocale();
+  final target = ref
+      .watch(translationLanguagePreferencesProvider)
+      .targetLanguage;
+  final locale = ref.watch(localeProvider);
+  if (locale == null && target == TranslationTargetLanguage.followApp) {
+    final observer = _TranslationSystemLocaleObserver(ref.invalidateSelf);
+    WidgetsBinding.instance.addObserver(observer);
+    ref.onDispose(() => WidgetsBinding.instance.removeObserver(observer));
+  }
+  final appLocale =
+      locale ??
+      basicLocaleListResolution(
+        WidgetsBinding.instance.platformDispatcher.locales,
+        S.supportedLocales,
+      );
+  return target.resolveLocale(appLocale);
+});
+
+class _TranslationSystemLocaleObserver extends WidgetsBindingObserver {
+  _TranslationSystemLocaleObserver(this.onChanged);
+
+  final void Function() onChanged;
+
+  @override
+  void didChangeLocales(List<Locale>? locales) => onChanged();
+}
 
 /// 音频偏好控制器
 class AudioFormatPreferenceNotifier

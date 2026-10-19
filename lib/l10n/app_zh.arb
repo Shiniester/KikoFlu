@@ -1402,5 +1402,76 @@
   "comicMostPages": "最多图片",
   "comicPopularToday": "今日热门",
   "comicPopularWeek": "本周热门",
-  "comicPopularMonth": "本月热门"
+  "comicPopularMonth": "本月热门",
+  "subtitleGenerationTitle": "生成音频字幕",
+  "subtitleGenerateAll": "生成全部字幕",
+  "subtitleGenerate": "生成字幕",
+  "subtitleGenerationTranslationFailed": "原文字幕已保存。翻译失败，可重试翻译。",
+  "subtitleGenerationRetryTranslation": "重试翻译",
+  "subtitleGenerationTranslationConfirm": "生成的字幕文字将发送给设置中选中的翻译源。目标语言跟随全局翻译目标。原文字幕会保留，译文沿用自动保存设置。",
+  "subtitleGenerationDescription": "在本设备识别日语。首次使用需下载约 160 MB 模型，支持 MP3、WAV、FLAC。生成的字幕文字会自动翻译，翻译源和目标语言沿用设置。",
+  "subtitleGenerationQueued": "等待生成",
+  "subtitleGenerationChecking": "检查已有字幕",
+  "subtitleGenerationDownloadingAudio": "下载完整音频",
+  "subtitleGenerationDownloadingModel": "下载识别模型",
+  "subtitleGenerationTranscribing": "识别日语",
+  "subtitleGenerationSaving": "保存字幕",
+  "subtitleGenerationCompleted": "已生成",
+  "subtitleGenerationSkipped": "已有字幕",
+  "subtitleGenerationUnsupported": "暂不支持此格式（仅支持 MP3、WAV、FLAC）",
+  "subtitleGenerationCancelled": "已取消",
+  "subtitleGenerationCancelAll": "取消全部",
+  "subtitleGenerationCloseHint": "关闭此面板后任务继续。",
+  "subtitleGenerationFailed": "失败：{stage}",
+  "subtitleGenerationProgress": "{stage} · {progress}",
+  "subtitleGenerationSummary": "已生成 {completed} · 已有字幕 {skipped} · 不支持 {unsupported} · 失败 {failed} · 取消 {cancelled}",
+  "@subtitleGenerationTitle": {
+    "description": "Title of local audio subtitle generation progress panel."
+  },
+  "@subtitleGenerateAll": {
+    "description": "Audio tab action applying to all audio in the current filtered list."
+  },
+  "@subtitleGenerationDescription": {
+    "description": "Explains local Japanese recognition, first-use model download, supported formats and automatic translation."
+  },
+  "@subtitleGenerationFailed": {
+    "description": "Failed task with the processing stage where it stopped.",
+    "placeholders": {
+      "stage": {
+        "type": "String"
+      }
+    }
+  },
+  "@subtitleGenerationProgress": {
+    "description": "Current processing stage and localized percentage.",
+    "placeholders": {
+      "stage": {
+        "type": "String"
+      },
+      "progress": {
+        "type": "double",
+        "format": "percentPattern"
+      }
+    }
+  },
+  "@subtitleGenerationSummary": {
+    "description": "Counts of completed audio subtitle generation tasks by outcome.",
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "skipped": {
+        "type": "int"
+      },
+      "unsupported": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      },
+      "cancelled": {
+        "type": "int"
+      }
+    }
+  }
 }

@@ -4060,4 +4060,89 @@ class SJa extends S {
 
   @override
   String get comicPopularMonth => '今月の人気';
+
+  @override
+  String get subtitleGenerationTitle => '音声の字幕を生成';
+
+  @override
+  String get subtitleGenerateAll => 'すべての字幕を生成';
+
+  @override
+  String get subtitleGenerate => '字幕を生成';
+
+  @override
+  String get subtitleGenerationTranslationFailed =>
+      '原文の字幕は保存されました。翻訳に失敗しました。翻訳を再試行できます。';
+
+  @override
+  String get subtitleGenerationRetryTranslation => '翻訳を再試行';
+
+  @override
+  String get subtitleGenerationTranslationConfirm =>
+      '生成された字幕のテキストは、設定で選択した翻訳元に送信されます。翻訳先の言語は全体の翻訳設定に従います。原文の字幕は保持され、翻訳文は自動保存の設定に従います。';
+
+  @override
+  String get subtitleGenerationDescription =>
+      'この端末で日本語を認識します。初回は約 160 MB のモデルをダウンロードします。MP3、WAV、FLAC に対応しています。生成された字幕のテキストは、設定した翻訳元と翻訳先の言語で自動翻訳されます。';
+
+  @override
+  String get subtitleGenerationQueued => '待機中';
+
+  @override
+  String get subtitleGenerationChecking => '既存の字幕を確認中';
+
+  @override
+  String get subtitleGenerationDownloadingAudio => '音声全体をダウンロード中';
+
+  @override
+  String get subtitleGenerationDownloadingModel => '認識モデルをダウンロード中';
+
+  @override
+  String get subtitleGenerationTranscribing => '日本語を認識中';
+
+  @override
+  String get subtitleGenerationSaving => '字幕を保存中';
+
+  @override
+  String get subtitleGenerationCompleted => '生成済み';
+
+  @override
+  String get subtitleGenerationSkipped => '字幕あり';
+
+  @override
+  String get subtitleGenerationUnsupported => '未対応の形式（MP3、WAV、FLAC のみ対応）';
+
+  @override
+  String get subtitleGenerationCancelled => 'キャンセル済み';
+
+  @override
+  String get subtitleGenerationCancelAll => 'すべてキャンセル';
+
+  @override
+  String get subtitleGenerationCloseHint => 'このパネルを閉じても処理は続きます。';
+
+  @override
+  String subtitleGenerationFailed(String stage) {
+    return '失敗：$stage';
+  }
+
+  @override
+  String subtitleGenerationProgress(String stage, double progress) {
+    final intl.NumberFormat progressNumberFormat =
+        intl.NumberFormat.percentPattern(localeName);
+    final String progressString = progressNumberFormat.format(progress);
+
+    return '$stage · $progressString';
+  }
+
+  @override
+  String subtitleGenerationSummary(
+    int completed,
+    int skipped,
+    int unsupported,
+    int failed,
+    int cancelled,
+  ) {
+    return '生成 $completed · 字幕あり $skipped · 未対応 $unsupported · 失敗 $failed · キャンセル $cancelled';
+  }
 }

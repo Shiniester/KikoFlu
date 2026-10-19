@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:file_picker/file_picker.dart';
@@ -8,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../services/cache_service.dart';
+import '../services/generated_subtitle_store.dart';
 import '../services/log_service.dart';
 import '../services/translation_service.dart';
 import '../services/subtitle_library_service.dart';
@@ -15,6 +17,7 @@ import '../services/storage_service.dart';
 import '../services/remote_asset_cache.dart';
 import '../services/remote_text_loader.dart';
 import '../providers/settings_provider.dart';
+import '../providers/lyric_provider.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/encoding_utils.dart';
 import '../utils/file_icon_utils.dart';
@@ -34,6 +37,8 @@ class TextPreviewScreen extends ConsumerStatefulWidget {
   final VoidCallback? onSavedToLibrary;
   final bool showSaveOptionsOnLoad;
   final bool autoTranslate;
+  @visibleForTesting
+  final Future<String> Function(String source)? translateContentForTesting;
 
   const TextPreviewScreen({
     super.key,
@@ -44,6 +49,7 @@ class TextPreviewScreen extends ConsumerStatefulWidget {
     this.onSavedToLibrary,
     this.showSaveOptionsOnLoad = false,
     this.autoTranslate = false,
+    this.translateContentForTesting,
   });
 
   @override
@@ -59,6 +65,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   bool _isLoading = true;
   String? _content;
   String? _translatedContent;
+  String? _translationTargetKey;
   String? _errorMessage;
   final ScrollController _scrollController = ScrollController();
   final ScrollThrottler _scrollThrottler = ScrollThrottler();
@@ -75,6 +82,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   bool _hasLoadedContent = false;
   bool _initialSaveOptionsShown = false;
   bool _autoTranslationStarted = false;
+  int _translationGeneration = 0;
   late TextEditingController _textController;
   late TextEditingController _translatedTextController;
   String _detectedEncoding = 'UTF-8'; // 记录检测到的原始编码
@@ -283,9 +291,14 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
     }
   }
 
-  Future<void> _writeSubtitleToLibrary(String contentToSave) async {
+  Future<void> _writeSubtitleToLibrary(
+    String contentToSave, {
+    bool Function()? shouldWrite,
+  }) async {
+    if (shouldWrite != null && !shouldWrite()) return;
     final libraryDir =
         await SubtitleLibraryService.getSubtitleLibraryDirectory();
+    if (shouldWrite != null && !shouldWrite()) return;
     final savedDir = Directory(
       path.join(libraryDir.path, SubtitleLibraryService.savedFolderName),
     );
@@ -307,16 +320,22 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
       counter++;
     }
 
+    if (shouldWrite != null && !shouldWrite()) return;
     final bytes = _encodeString(contentToSave);
-    await File(finalPath).writeAsBytes(bytes);
+    final file = File(finalPath);
+    await file.writeAsBytes(bytes);
+    if (shouldWrite != null && !shouldWrite()) {
+      await file.delete();
+      return;
+    }
     await SubtitleLibraryService.refreshDirectoryCache(savedDir.path);
   }
 
   String? _getCurrentContent() {
     if (_showTranslation && _translatedContent != null) {
-      return _isEditMode ? _translatedTextController.text : _translatedContent;
+      return _translatedTextController.text;
     } else {
-      return _isEditMode ? _textController.text : _content;
+      return _textController.text;
     }
   }
 
@@ -560,9 +579,52 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
           // 使用智能编码检测读取文件
           final content = await _readFileWithEncoding(localFile);
           if (!mounted) return;
+          String? translated;
+          String? translationTargetKey;
+          if (GeneratedSubtitleStore.isGeneratedOriginalPath(localPath)) {
+            final targetLocale = await ref.read(
+              effectiveTranslationTargetLocaleProvider.future,
+            );
+            if (!mounted) return;
+            translationTargetKey = GeneratedSubtitleStore.targetLanguageKey(
+              targetLocale,
+            );
+            translated = ref
+                .read(lyricControllerProvider.notifier)
+                .generatedTranslationContent(
+                  localPath,
+                  targetLocale: targetLocale,
+                );
+            if (translated == null) {
+              try {
+                final translatedPath = await const GeneratedSubtitleStore()
+                    .findTranslation(localPath, targetLocale: targetLocale);
+                if (translatedPath != null) {
+                  translated = await File(translatedPath).readAsString();
+                }
+              } on FileSystemException {
+                // The original remains readable if the optional translation is removed.
+              }
+            }
+            if (!mounted) return;
+            final latestTarget = await ref.read(
+              effectiveTranslationTargetLocaleProvider.future,
+            );
+            if (translationTargetKey !=
+                GeneratedSubtitleStore.targetLanguageKey(latestTarget)) {
+              translated = null;
+            }
+          }
+          if (!mounted) return;
           setState(() {
             _content = content;
             _textController.text = content;
+            _translatedContent = translated;
+            _translationTargetKey = translated == null
+                ? null
+                : translationTargetKey;
+            _translatedTextController.text = translated ?? '';
+            _showTranslation = translated != null;
             _isLoading = false;
           });
           _showInitialSaveOptionsIfNeeded();
@@ -641,8 +703,9 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   }
 
   Future<void> _translateContent() async {
-    final sourceContent = _content;
-    if (sourceContent == null || sourceContent.isEmpty) return;
+    final sourceContent = _textController.text;
+    if (sourceContent.isEmpty) return;
+    final generation = ++_translationGeneration;
 
     final l10n = S.of(context);
     setState(() {
@@ -651,18 +714,45 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
     });
 
     try {
-      final translationService = TranslationService();
-      final translated = await translationService.translateLongText(
-        sourceContent,
-        onProgress: (current, total) {
-          if (!mounted) return;
-          setState(() {
-            _translationProgress = l10n.translatingProgress(current, total);
-          });
-        },
+      final targetLocale = await ref.read(
+        effectiveTranslationTargetLocaleProvider.future,
       );
+      if (!mounted || generation != _translationGeneration) return;
+      final targetKey = GeneratedSubtitleStore.targetLanguageKey(targetLocale);
+      _translationTargetKey = targetKey;
+      final translateContent = widget.translateContentForTesting;
+      final translated = translateContent == null
+          ? await TranslationService().translateLongText(
+              sourceContent,
+              targetLocale: targetLocale,
+              onProgress: (current, total) {
+                if (!mounted || generation != _translationGeneration) return;
+                setState(() {
+                  _translationProgress = l10n.translatingProgress(
+                    current,
+                    total,
+                  );
+                });
+              },
+            )
+          : await translateContent(sourceContent);
 
-      if (!mounted) return;
+      if (!mounted || generation != _translationGeneration) return;
+      final latestTarget = await ref.read(
+        effectiveTranslationTargetLocaleProvider.future,
+      );
+      if (!mounted || generation != _translationGeneration) return;
+      if (targetKey != GeneratedSubtitleStore.targetLanguageKey(latestTarget)) {
+        setState(() => _isTranslating = false);
+        return;
+      }
+      if (_textController.text != sourceContent) {
+        setState(() {
+          _isTranslating = false;
+          _translationProgress = '';
+        });
+        return;
+      }
       setState(() {
         _translatedContent = translated;
         _translatedTextController.text = translated;
@@ -671,9 +761,14 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
         _translationProgress = '';
       });
       _refreshSearchResults();
-      await _autoSaveTranslatedContentIfEnabled(sourceContent, translated);
+      await _autoSaveTranslatedContentIfEnabled(
+        sourceContent,
+        translated,
+        generation,
+        targetLocale,
+      );
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || generation != _translationGeneration) return;
       setState(() {
         _isTranslating = false;
         _translationProgress = '';
@@ -685,6 +780,8 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   Future<void> _autoSaveTranslatedContentIfEnabled(
     String sourceContent,
     String translatedContent,
+    int generation,
+    Locale targetLocale,
   ) async {
     if (translatedContent.isEmpty ||
         translatedContent == sourceContent ||
@@ -696,10 +793,27 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
       final enabled = await ref
           .read(autoSaveTranslatedLyricsProvider.notifier)
           .resolvedEnabled();
-      if (!enabled) return;
+      bool isCurrent() =>
+          generation == _translationGeneration &&
+          _textController.text == sourceContent;
+      if (!enabled || !isCurrent()) return;
 
-      await _writeSubtitleToLibrary(translatedContent);
-      if (mounted) widget.onSavedToLibrary?.call();
+      final originalPath = LocalFileUrl.pathFromUrl(widget.textUrl);
+      if (originalPath != null &&
+          GeneratedSubtitleStore.isGeneratedOriginalPath(originalPath)) {
+        await const GeneratedSubtitleStore().saveTranslation(
+          originalPath,
+          translatedContent,
+          targetLocale: targetLocale,
+          cancelToken: CancelToken(),
+        );
+      } else {
+        await _writeSubtitleToLibrary(
+          translatedContent,
+          shouldWrite: isCurrent,
+        );
+      }
+      if (mounted && isCurrent()) widget.onSavedToLibrary?.call();
     } catch (e) {
       LogService.instance.error(
         'Failed to save translated subtitle: $e',
@@ -709,7 +823,10 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   }
 
   void _maybeAutoTranslateContent() {
+    final localPath = LocalFileUrl.pathFromUrl(widget.textUrl);
     if (!widget.autoTranslate ||
+        (localPath != null &&
+            GeneratedSubtitleStore.isGeneratedOriginalPath(localPath)) ||
         _autoTranslationStarted ||
         !FileIconUtils.isLyricFile(widget.title) ||
         _content == null ||
@@ -723,6 +840,25 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(effectiveTranslationTargetLocaleProvider, (_, next) {
+      final target = next.valueOrNull;
+      if (target == null ||
+          _translationTargetKey == null ||
+          _translationTargetKey ==
+              GeneratedSubtitleStore.targetLanguageKey(target)) {
+        return;
+      }
+      setState(() {
+        _translationGeneration++;
+        _translatedContent = null;
+        _translatedTextController.clear();
+        _translationTargetKey = null;
+        _showTranslation = false;
+        _isTranslating = false;
+        _translationProgress = '';
+      });
+      _refreshSearchResults();
+    });
     return Scaffold(
       appBar: ScrollableAppBar(
         title: Text(widget.title),
@@ -866,13 +1002,32 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
                         border: const OutlineInputBorder(),
                         hintText: S.of(context).editTextContentHint,
                       ),
-                      onChanged: (_) => _refreshSearchResults(),
+                      onChanged: (value) {
+                        if (!(_showTranslation && _translatedContent != null)) {
+                          _translationGeneration++;
+                          final updateScreen =
+                              _translatedContent != null ||
+                              _showTranslation ||
+                              _isTranslating ||
+                              _translationProgress.isNotEmpty ||
+                              (_content?.isEmpty ?? true) != value.isEmpty;
+                          if (updateScreen) {
+                            setState(() {
+                              _content = value;
+                              _translatedContent = null;
+                              _translatedTextController.clear();
+                              _showTranslation = false;
+                              _isTranslating = false;
+                              _translationProgress = '';
+                            });
+                          } else {
+                            _content = value;
+                          }
+                        }
+                        _refreshSearchResults();
+                      },
                     )
-                  : _buildPreviewContent(
-                      _showTranslation && _translatedContent != null
-                          ? _translatedContent!
-                          : _content ?? '',
-                    ),
+                  : _buildPreviewContent(_getCurrentContent() ?? ''),
             ),
           ),
         ),

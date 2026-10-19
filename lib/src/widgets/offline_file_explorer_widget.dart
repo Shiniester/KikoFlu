@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
@@ -22,6 +23,7 @@ import '../services/file_name_translation_controller.dart';
 import '../services/file_delete_request_builder.dart';
 import '../services/player_audio_variant_classifier.dart';
 import '../providers/audio_provider.dart';
+import '../providers/audio_subtitle_generation_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/file_tree_utils.dart';
@@ -29,6 +31,8 @@ import '../utils/snackbar_util.dart';
 import 'file_tree_actions.dart';
 import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
+import 'audio_subtitle_generation_sheet.dart';
+import 'lyric_translation_confirmation.dart';
 import 'file_delete_confirmation_dialog.dart';
 import 'work_image_reader.dart';
 import 'work_resource_tabs.dart';
@@ -130,7 +134,15 @@ class _OfflineFileExplorerWidgetState
   @override
   void didUpdateWidget(covariant OfflineFileExplorerWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!oldWidget.translate && widget.translate) {
+    final sourceChanged =
+        TranslationService.sourceLanguageForWork(oldWidget.work.lang) !=
+        TranslationService.sourceLanguageForWork(widget.work.lang);
+    if (sourceChanged) {
+      _translationController.translations.clear();
+      final generation = _translationController.beginBulkTranslation('');
+      _translationController.failBulkTranslation(generation);
+    }
+    if (widget.translate && (sourceChanged || !oldWidget.translate)) {
       unawaited(_translateVisibleNames());
     }
   }
@@ -426,6 +438,87 @@ class _OfflineFileExplorerWidgetState
     }
   }
 
+  Future<void> _generateSubtitles(List<PlayerAudioVariant> variants) async {
+    try {
+      if (!await confirmLyricTranslationIfNeeded(
+        context,
+        forGeneration: true,
+      )) {
+        return;
+      }
+      if (!mounted) return;
+      await ref
+          .read(audioSubtitleActionsProvider)
+          .startWork(
+            work: widget.work,
+            fileTree: _localFiles,
+            variants: variants,
+            workDirPath: _workDirPath,
+          );
+      if (!mounted) return;
+      await showAudioSubtitleGenerationSheet(context);
+    } catch (error) {
+      if (!mounted) return;
+      SnackBarUtil.showError(context, error.toString());
+    }
+  }
+
+  Future<void> _showAudioActionMenu(
+    dynamic file,
+    String title,
+    String parentPath,
+    List<dynamic> audioFiles,
+    List<PlayerAudioVariant> variants,
+  ) async {
+    final selected = variants.firstWhere(
+      (variant) =>
+          identical(variant.source, file) && variant.parentPath == parentPath,
+    );
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                key: const ValueKey('file-action-generate-subtitles'),
+                leading: const Icon(Icons.subtitles_outlined),
+                title: Text(S.of(context).subtitleGenerate),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _generateSubtitles([selected]);
+                },
+              ),
+              ListTile(
+                key: const ValueKey('file-action-generate-all-subtitles'),
+                leading: const Icon(Icons.playlist_add_check),
+                title: Text(S.of(context).subtitleGenerateAll),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _generateSubtitles(variants);
+                },
+              ),
+              ListTile(
+                key: const ValueKey('file-action-copy-name'),
+                leading: const Icon(Icons.copy_outlined),
+                title: Text(S.of(context).copyName),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  Clipboard.setData(ClipboardData(text: title));
+                  SnackBarUtil.showSuccess(
+                    context,
+                    S.of(context).copiedName(title),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // 辅助方法：判断文件名是否为音频格式
   // 手动加载字幕
   Future<void> _loadLyricManually(dynamic file) async {
@@ -663,6 +756,7 @@ class _OfflineFileExplorerWidgetState
       displayNameFor: _getDisplayName,
       metadataBuilder: _buildFileMetadata,
       audioTrailingBuilder: _buildFileActions,
+      onAudioLongPress: _showAudioActionMenu,
       expandedFolders: _expandedFolders,
       onVisibleNamesChanged: _onVisibleNamesChanged,
       onImageTap: _previewImageFile,
@@ -735,9 +829,16 @@ class _OfflineFileExplorerWidgetState
 
     final generation = _translationController.beginBulkTranslation('');
     try {
-      final result = await FileNameTranslationService(
-        translate: TranslationService().translate,
-      ).translateNames(names: names);
+      final result =
+          await FileNameTranslationService(
+            translate: TranslationService().translate,
+            convertLocally: TranslationService().convertChineseLocally,
+          ).translateNames(
+            names: names,
+            sourceLang: TranslationService.sourceLanguageForWork(
+              widget.work.lang,
+            ),
+          );
       if (!mounted ||
           !_translationController.completeBulkTranslation(
             generation,
@@ -748,8 +849,7 @@ class _OfflineFileExplorerWidgetState
       setState(() {});
       if (widget.translate) unawaited(_translateVisibleNames());
     } catch (e) {
-      if (!mounted ||
-          !_translationController.failBulkTranslation(generation)) {
+      if (!mounted || !_translationController.failBulkTranslation(generation)) {
         return;
       }
       _log.captureOutput('[OfflineFileExplorer] 名称翻译失败: $e');
@@ -762,6 +862,7 @@ class _OfflineFileExplorerWidgetState
       showTranslation: widget.translate,
     );
   }
+
   // 处理文件点击
   void _handleFileTap(dynamic file, String title, String parentPath) {
     final action = _tapResolver.resolve(file);

@@ -1,0 +1,7 @@
+.dart_tool/
+/android/.cxx/
+/test/build-cmake/
+/test/build-smoke/
+*.obj
+*.exe
+*.pdb

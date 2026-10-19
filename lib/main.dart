@@ -384,6 +384,9 @@ void main(List<String> args) async {
     yield LicenseEntryWithLineBreaks([
       'PicaComic',
     ], await rootBundle.loadString('third_party/picacomic/LICENSE'));
+    yield LicenseEntryWithLineBreaks([
+      'OpenCC dictionaries',
+    ], await rootBundle.loadString('third_party/opencc/LICENSE'));
   });
   PerformanceRecorder.instance.start();
 

@@ -1,0 +1,27 @@
+name: local_audio_decoder
+description: Local MP3, WAV and FLAC decoding for subtitle generation.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: '>=3.12.1 <4.0.0'
+  flutter: '>=3.44.1'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  ffi: ^2.1.4
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        ffiPlugin: true
+      ios:
+        ffiPlugin: true
+      macos:
+        ffiPlugin: true
+      windows:
+        ffiPlugin: true
+      linux:
+        ffiPlugin: true
