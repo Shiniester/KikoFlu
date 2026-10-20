@@ -3607,11 +3607,13 @@ void main() {
     expect(settingsTile, findsOneWidget);
     expect(
       find.descendant(of: drawerList, matching: find.text(s.comicSettings)),
-      findsNothing,
+      findsOneWidget,
     );
     expect(
       tester.getTopLeft(settingsTile).dy,
-      greaterThanOrEqualTo(tester.getBottomLeft(drawerList).dy),
+      greaterThan(
+        tester.getBottomLeft(find.widgetWithText(ListTile, s.layout)).dy,
+      ),
     );
     await tapComicDrawerItem(tester, s.layout);
     await tester.pumpAndSettle();

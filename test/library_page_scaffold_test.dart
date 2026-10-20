@@ -8,6 +8,7 @@ void main() {
   Widget app({
     VoidCallback? onSearch,
     VoidCallback? onSelect,
+    VoidCallback? onSettings,
     double textScale = 1,
     Brightness brightness = Brightness.light,
     bool longDrawer = true,
@@ -33,6 +34,7 @@ void main() {
             LibraryDrawerTile(
               icon: Icons.public,
               title: 'ASMR.ONE',
+              selected: true,
               onTap: () {},
             ),
           ],
@@ -59,13 +61,19 @@ void main() {
           title: '浏览选项',
           children: [
             LibraryDrawerTile(icon: Icons.grid_view, title: '布局', onTap: () {}),
+            LibraryDrawerTile(
+              icon: Icons.closed_caption,
+              title: '字幕筛选',
+              selected: true,
+              onTap: () {},
+            ),
           ],
         ),
       ],
       drawerFooter: LibraryDrawerTile(
         icon: Icons.settings_outlined,
         title: '音声设置',
-        onTap: () {},
+        onTap: onSettings ?? () {},
       ),
       body: ListView.builder(
         itemCount: 80,
@@ -200,6 +208,49 @@ void main() {
           expect(widget.margin, EdgeInsets.zero);
           expect(widget.clipBehavior, Clip.antiAlias);
           expect(widget.shape, isA<RoundedRectangleBorder>());
+          final heading = find.text(title);
+          final headingStyle = tester.widget<Text>(heading).style!;
+          expect(headingStyle.fontSize, 12);
+          expect(
+            headingStyle.color,
+            Theme.of(tester.element(heading)).colorScheme.onSurfaceVariant,
+          );
+          final divider = find.descendant(
+            of: section,
+            matching: find.byType(Divider),
+          );
+          final line = tester.widget<Divider>(divider);
+          expect(line.thickness, 0.6);
+          expect(line.indent, 12);
+          expect(line.endIndent, 12);
+          final cardRect = tester.getRect(card);
+          final dividerRect = tester.getRect(divider);
+          final headingRect = tester.getRect(heading);
+          expect(headingRect.top - cardRect.top, 12);
+          expect(
+            headingRect.center.dy,
+            closeTo((cardRect.top + dividerRect.center.dy) / 2, 0.5),
+          );
+          expect(dividerRect.left + line.indent!, greaterThan(cardRect.left));
+          expect(dividerRect.right - line.endIndent!, lessThan(cardRect.right));
+        }
+        for (final title in ['ASMR.ONE', '历史', '字幕筛选']) {
+          final text = find.text(title);
+          final tile = tester.widget<ListTile>(
+            find.widgetWithText(ListTile, title),
+          );
+          final primary = Theme.of(tester.element(text)).colorScheme.primary;
+          expect(tile.selectedTileColor, Colors.transparent);
+          expect(
+            DefaultTextStyle.of(tester.element(text)).style.color,
+            primary,
+          );
+          expect(tester.widget<Text>(text).style!.fontWeight, FontWeight.bold);
+          final icon = find.descendant(
+            of: find.widgetWithText(ListTile, title),
+            matching: find.byType(Icon),
+          );
+          expect(IconTheme.of(tester.element(icon)).color, primary);
         }
         expect(
           tester.getSize(find.byKey(const ValueKey('history-row'))).height,
@@ -210,43 +261,56 @@ void main() {
     );
   }
 
-  testWidgets(
-    'compact drawer keeps settings at bottom without selected checks',
-    (tester) async {
-      await tester.binding.setSurfaceSize(const Size(320, 640));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      await tester.pumpWidget(app());
-      await tester.tap(find.byKey(const ValueKey('library-menu-button')));
-      await tester.pumpAndSettle();
-      final drawer = find.byKey(const ValueKey('library-drawer'));
-      expect(tester.getSize(drawer).width, 256);
-      expect(
-        tester.getSize(find.byKey(const ValueKey('history-row'))).height,
-        48,
-      );
-      final history = find.text('历史');
-      expect(tester.widget<Text>(history).style!.fontSize, 16);
-      expect(tester.widget<Text>(find.text('页面')).style!.fontSize, 14);
-      expect(tester.getSize(find.text('页面')).height, 16);
-      expect(
-        DefaultTextStyle.of(tester.element(history)).style.color,
-        Theme.of(tester.element(history)).colorScheme.primary,
-      );
-      expect(
-        find.descendant(of: drawer, matching: find.byIcon(Icons.check)),
-        findsNothing,
-      );
-      final footer = find.text('音声设置');
-      final bottom = tester.getTopLeft(footer);
-      await tester.drag(
-        find.descendant(of: drawer, matching: find.byType(ListView)),
-        const Offset(0, -500),
-      );
-      await tester.pumpAndSettle();
-      expect(tester.getTopLeft(footer), bottom);
-      expect(tester.takeException(), isNull);
-    },
-  );
+  testWidgets('compact drawer scrolls to settings without selected checks', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    var opened = false;
+    await tester.pumpWidget(app(onSettings: () => opened = true));
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+    final drawer = find.byKey(const ValueKey('library-drawer'));
+    expect(tester.getSize(drawer).width, 224);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('history-row'))).height,
+      48,
+    );
+    final history = find.text('历史');
+    expect(tester.widget<Text>(history).style!.fontSize, 16);
+    expect(tester.widget<Text>(find.text('页面')).style!.fontSize, 12);
+    expect(tester.getSize(find.text('页面')).height, 16);
+    expect(
+      DefaultTextStyle.of(tester.element(history)).style.color,
+      Theme.of(tester.element(history)).colorScheme.primary,
+    );
+    expect(
+      find.descendant(of: drawer, matching: find.byIcon(Icons.check)),
+      findsNothing,
+    );
+    final footer = find.text('音声设置');
+    final drawerList = find.descendant(
+      of: drawer,
+      matching: find.byType(ListView),
+    );
+    expect(footer.hitTestable(), findsNothing);
+    await tester.scrollUntilVisible(
+      footer,
+      300,
+      scrollable: find.descendant(
+        of: drawerList,
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: drawerList, matching: footer), findsOneWidget);
+    expect(footer.hitTestable(), findsOneWidget);
+    await tester.tap(footer);
+    await tester.pumpAndSettle();
+    expect(opened, isTrue);
+    expect(footer, findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('drawer navigation closes before selecting a page', (
     tester,

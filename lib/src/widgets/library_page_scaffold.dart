@@ -35,22 +35,15 @@ class LibraryPageScaffold extends StatelessWidget {
         drawer: Drawer(
           key: const ValueKey('library-drawer'),
           backgroundColor: theme.scaffoldBackgroundColor,
-          width: math.min(256, width - 48),
+          width: math.min(224, width - 48),
           child: SafeArea(
-            child: Column(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
               children: [
-                Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 8,
-                    ),
-                    children: drawerChildren,
-                  ),
-                ),
+                ...drawerChildren,
                 if (drawerFooter != null)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                    padding: const EdgeInsets.only(top: 4),
                     child: drawerFooter!,
                   ),
               ],
@@ -181,14 +174,18 @@ class LibraryDrawerSection extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+            padding: const EdgeInsets.all(12),
             child: Text(
               title,
-              style: Theme.of(
-                context,
-              ).textTheme.labelMedium?.copyWith(fontSize: 14, height: 16 / 14),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                fontSize: 12,
+                height: 16 / 12,
+                fontWeight: FontWeight.normal,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
+          const SettingsDivider(indent: 12, endIndent: 12),
           ...children,
         ],
       ),
@@ -223,11 +220,17 @@ class LibraryDrawerTile extends StatelessWidget {
     minVerticalPadding: 4,
     contentPadding: const EdgeInsets.symmetric(horizontal: 12),
     leading: Icon(icon, size: 20),
-    title: Text(title, style: const TextStyle(fontSize: 16)),
+    title: Text(
+      title,
+      style: TextStyle(
+        fontSize: 16,
+        fontWeight: selected ? FontWeight.bold : null,
+      ),
+    ),
     leadingAndTrailingTextStyle: Theme.of(context).textTheme.bodyMedium,
     selected: selected,
     selectedColor: Theme.of(context).colorScheme.primary,
-    selectedTileColor: Theme.of(context).colorScheme.primaryContainer,
+    selectedTileColor: Colors.transparent,
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     trailing: trailing,
     onTap: onTap == null
