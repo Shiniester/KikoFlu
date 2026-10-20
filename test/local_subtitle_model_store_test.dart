@@ -21,6 +21,71 @@ void main() {
     }
   });
 
+  test('downloads mixed precision models separately and reuses them', () async {
+    const expectedFiles = [
+      'encoder-epoch-99-avg-1.int8.onnx',
+      'decoder-epoch-99-avg-1.onnx',
+      'joiner-epoch-99-avg-1.int8.onnx',
+      'tokens.txt',
+      'silero_vad.onnx',
+    ];
+    final oldDirectory = Directory(
+      p.join(
+        temporaryDirectory.path,
+        'local_audio_subtitles',
+        'ja_reazonspeech',
+      ),
+    );
+    await oldDirectory.create(recursive: true);
+    for (final file in expectedFiles) {
+      final oldName = file == 'decoder-epoch-99-avg-1.onnx'
+          ? 'decoder-epoch-99-avg-1.int8.onnx'
+          : file;
+      await File(p.join(oldDirectory.path, oldName)).writeAsString('old model');
+    }
+    final adapter = _DownloadAdapter();
+    final store = LocalSubtitleModelStore(
+      dio: Dio()..httpClientAdapter = adapter,
+      rootDirectory: temporaryDirectory,
+    );
+
+    final readyPath = await store.ensureReady(
+      cancelToken: CancelToken(),
+      onProgress: (_) {},
+    );
+
+    expect(
+      readyPath,
+      p.join(
+        temporaryDirectory.path,
+        'local_audio_subtitles',
+        'ja_reazonspeech_int8_fp32',
+      ),
+    );
+    expect(
+      adapter.requests.map((request) => request.uri.pathSegments.last),
+      unorderedEquals(expectedFiles),
+    );
+    expect(
+      adapter.requests.map((request) => request.uri.toString()),
+      contains(
+        'https://huggingface.co/csukuangfj/reazonspeech-k2-v2/resolve/main/decoder-epoch-99-avg-1.onnx',
+      ),
+    );
+    final downloadedFiles = await Directory(readyPath).list().toList();
+    expect(
+      downloadedFiles.map((file) => p.basename(file.path)),
+      unorderedEquals(expectedFiles),
+    );
+
+    expect(
+      await store.ensureReady(cancelToken: CancelToken(), onProgress: (_) {}),
+      readyPath,
+    );
+    expect(adapter.requests, hasLength(expectedFiles.length));
+    expect(await oldDirectory.list().length, expectedFiles.length);
+  });
+
   test('a failed model download is not ready and can be retried', () async {
     final failingAdapter = _DownloadAdapter(failOnRequest: 2);
     final dio = Dio()..httpClientAdapter = failingAdapter;
@@ -38,7 +103,7 @@ void main() {
       p.join(
         temporaryDirectory.path,
         'local_audio_subtitles',
-        'ja_reazonspeech',
+        'ja_reazonspeech_int8_fp32',
       ),
     );
     final filesAfterFailure = await modelDirectory
@@ -91,7 +156,7 @@ void main() {
       p.join(
         temporaryDirectory.path,
         'local_audio_subtitles',
-        'ja_reazonspeech',
+        'ja_reazonspeech_int8_fp32',
       ),
     );
     final files = await modelDirectory.list().toList();

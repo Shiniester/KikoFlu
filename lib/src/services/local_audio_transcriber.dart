@@ -257,7 +257,7 @@ Future<void> _transcribeInWorker(
         model: sherpa.OfflineModelConfig(
           transducer: sherpa.OfflineTransducerModelConfig(
             encoder: modelPath('encoder-epoch-99-avg-1.int8.onnx'),
-            decoder: modelPath('decoder-epoch-99-avg-1.int8.onnx'),
+            decoder: modelPath('decoder-epoch-99-avg-1.onnx'),
             joiner: modelPath('joiner-epoch-99-avg-1.int8.onnx'),
           ),
           tokens: modelPath('tokens.txt'),
