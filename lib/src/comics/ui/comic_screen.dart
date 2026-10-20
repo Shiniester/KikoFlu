@@ -236,6 +236,12 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
               selected: _currentTab == 0,
               onTap: () => _selectTab(0),
             ),
+            if (currentSource != null)
+              LibraryDrawerTile(
+                icon: Icons.category_outlined,
+                title: s.comicCategories,
+                onTap: () => _categories(currentSource.key),
+              ),
             for (final tab in pageOrder)
               LibraryDrawerTile(
                 icon: _collectionIcon(tab),
@@ -248,12 +254,6 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
         LibraryDrawerSection(
           title: s.libraryBrowseOptions,
           children: [
-            if (_currentTab == 0 && currentSource != null)
-              LibraryDrawerTile(
-                icon: Icons.category_outlined,
-                title: s.comicCategories,
-                onTap: () => _categories(currentSource.key),
-              ),
             if (_currentTab == 1) ...[
               LibraryDrawerTile(
                 icon: Icons.bookmark,
@@ -271,13 +271,12 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
               ),
             ],
             LibraryDrawerTile(
-              icon: Icons.grid_view,
+              icon: switch (ref.watch(comicLayoutProvider)) {
+                LayoutType.bigGrid => Icons.grid_view,
+                LayoutType.smallGrid => Icons.grid_on,
+                LayoutType.list => Icons.view_list,
+              },
               title: s.layout,
-              trailing: Text(switch (ref.watch(comicLayoutProvider)) {
-                LayoutType.bigGrid => s.layoutBigGrid,
-                LayoutType.smallGrid => s.layoutSmallGrid,
-                LayoutType.list => s.layoutList,
-              }),
               closeOnTap: false,
               onTap: () => ref.read(comicLayoutProvider.notifier).cycle(),
             ),

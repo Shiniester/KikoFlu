@@ -16,6 +16,8 @@ import '../providers/download_provider.dart';
 import '../providers/history_provider.dart';
 import '../providers/my_reviews_provider.dart';
 import '../providers/my_tabs_display_provider.dart';
+import '../providers/settings_provider.dart'
+    show autoTranslateWorkDetailsProvider;
 import '../providers/works_provider.dart'
     show DisplayMode, LayoutType, worksProvider;
 import '../utils/l10n_extensions.dart';
@@ -476,6 +478,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
   }) {
     final s = S.of(context);
     final options = <Widget>[];
+    final autoTranslate = ref.watch(autoTranslateWorkDetailsProvider);
     switch (_selectedPageId) {
       case 'home':
       case 'popular':
@@ -611,6 +614,22 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         options.addAll(_subtitleBrowseOptions(s));
         break;
     }
+    options.add(
+      LibraryDrawerTile(
+        icon: Icons.translate,
+        title: s.autoTranslateWorkDetails,
+        trailing: Switch(
+          value: autoTranslate,
+          onChanged: (enabled) => ref
+              .read(autoTranslateWorkDetailsProvider.notifier)
+              .setEnabled(enabled),
+        ),
+        closeOnTap: false,
+        onTap: () => ref
+            .read(autoTranslateWorkDetailsProvider.notifier)
+            .setEnabled(!ref.read(autoTranslateWorkDetailsProvider)),
+      ),
+    );
     return options;
   }
 

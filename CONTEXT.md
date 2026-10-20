@@ -33,6 +33,11 @@ including the currently selected source. The drawer also has a fixed Home entry.
 The Audio Screen also contains the user's library pages.
 _Avoid_: Audio Screen, app home page
 
+**Automatic Work Translation (自动翻译)**:
+Automatic translation of an audio work's detail title, visible resource names,
+and subtitle previews into the selected target language.
+_Avoid_: Lyric translation, comic translation
+
 **Global Works Search (全局作品搜索)**:
 The online work search opened from the home, popular, or recommended feed for the
 selected Audio Source. These feeds search that source's full catalog. Library

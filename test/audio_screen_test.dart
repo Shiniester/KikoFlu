@@ -1283,6 +1283,77 @@ void main() {
     },
   );
 
+  testWidgets('sidebar automatic translation shares the saved preference', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(AutoTranslateWorkDetailsNotifier.preferenceKey, true);
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AudioScreen)),
+    );
+    final s = S.of(tester.element(find.byType(AudioScreen)));
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+    final drawer = find.byKey(const ValueKey('library-drawer'));
+    final translation = find.descendant(
+      of: drawer,
+      matching: find.text(s.autoTranslateWorkDetails),
+    );
+    await tester.scrollUntilVisible(
+      translation,
+      200,
+      scrollable: find
+          .descendant(of: drawer, matching: find.byType(Scrollable))
+          .first,
+    );
+    final toggle = find.descendant(of: drawer, matching: find.byType(Switch));
+    expect(tester.widget<Switch>(toggle).value, isTrue);
+
+    await tester.tap(translation);
+    await tester.pumpAndSettle();
+    expect(container.read(autoTranslateWorkDetailsProvider), isFalse);
+    expect(
+      prefs.getBool(AutoTranslateWorkDetailsNotifier.preferenceKey),
+      isFalse,
+    );
+    expect(Scaffold.of(tester.element(translation)).isDrawerOpen, isTrue);
+
+    await container
+        .read(autoTranslateWorkDetailsProvider.notifier)
+        .setEnabled(true);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Switch>(toggle).value, isTrue);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(container.read(autoTranslateWorkDetailsProvider), isFalse);
+    expect(
+      prefs.getBool(AutoTranslateWorkDetailsNotifier.preferenceKey),
+      isFalse,
+    );
+
+    _requestAudioPage(tester, 'history');
+    await tester.pumpAndSettle();
+    expect(
+      (_browseTile(tester, s.autoTranslateWorkDetails).trailing as Switch)
+          .value,
+      isFalse,
+    );
+    _requestAudioSource(tester, audio_source.AudioSource.jpAsmr);
+    await tester.pumpAndSettle();
+    expect(
+      (_browseTile(tester, s.autoTranslateWorkDetails).trailing as Switch)
+          .value,
+      isFalse,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('inline home and marks controls keep preferences independent', (
     tester,
   ) async {

@@ -3581,6 +3581,24 @@ void main() {
     expect(container.read(comicLayoutProvider), LayoutType.bigGrid);
 
     await openComicDrawer(tester);
+    void expectLayoutIcon(IconData icon) {
+      final tile = tester.widget<ListTile>(
+        find.widgetWithText(ListTile, s.layout),
+      );
+      expect((tile.leading as Icon).icon, icon);
+      expect(tile.trailing, isNull);
+      expect(
+        Scaffold.of(
+          tester.element(find.widgetWithText(ListTile, s.layout)),
+        ).isDrawerOpen,
+        isTrue,
+      );
+      for (final label in [s.layoutBigGrid, s.layoutSmallGrid, s.layoutList]) {
+        expect(find.text(label), findsNothing);
+      }
+    }
+
+    expectLayoutIcon(Icons.grid_view);
     final drawer = find.byKey(const ValueKey('library-drawer'));
     final drawerList = find
         .descendant(of: drawer, matching: find.byType(ListView))
@@ -3598,37 +3616,75 @@ void main() {
     await tapComicDrawerItem(tester, s.layout);
     await tester.pumpAndSettle();
     expect(container.read(comicLayoutProvider), LayoutType.smallGrid);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('library-drawer')),
-        matching: find.text(s.layoutSmallGrid),
-      ),
-      findsOneWidget,
-    );
+    expectLayoutIcon(Icons.grid_on);
 
     await tapComicDrawerItem(tester, s.layout);
     await tester.pumpAndSettle();
     expect(container.read(comicLayoutProvider), LayoutType.list);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('library-drawer')),
-        matching: find.text(s.layoutList),
-      ),
-      findsOneWidget,
-    );
+    expectLayoutIcon(Icons.view_list);
 
     await tapComicDrawerItem(tester, s.layout);
     await tester.pumpAndSettle();
     expect(container.read(comicLayoutProvider), LayoutType.bigGrid);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('library-drawer')),
-        matching: find.text(s.layoutBigGrid),
-      ),
-      findsOneWidget,
-    );
+    expectLayoutIcon(Icons.grid_view);
     await tester.pump();
     expect(StorageService.getString('comic_layout_type'), 'bigGrid');
+  });
+
+  testWidgets('comic categories follow Home and open from every library page', (
+    tester,
+  ) async {
+    await pump(tester, const ComicScreen(), _Library(), _Source());
+    final pageTitle = find.byKey(const ValueKey('library-page-title'));
+    final s = S.of(tester.element(pageTitle));
+    for (final page in [0, 1, 2, 3]) {
+      if (page != 0) {
+        await selectComicPage(tester, page);
+        await tester.pumpAndSettle();
+      }
+      final scaffold = tester.widget<LibraryPageScaffold>(
+        find.descendant(
+          of: find.byType(ComicScreen),
+          matching: find.byType(LibraryPageScaffold),
+        ),
+      );
+      final sections = scaffold.drawerChildren
+          .whereType<LibraryDrawerSection>();
+      final pages = sections.firstWhere(
+        (section) => section.title == s.libraryPages,
+      );
+      expect(
+        pages.children
+            .whereType<LibraryDrawerTile>()
+            .map((tile) => tile.title)
+            .take(2),
+        [s.navHome, s.comicCategories],
+      );
+      final options = sections.firstWhere(
+        (section) => section.title == s.libraryBrowseOptions,
+      );
+      expect(
+        options.children.whereType<LibraryDrawerTile>().any(
+          (tile) => tile.title == s.comicCategories,
+        ),
+        isFalse,
+      );
+      await openComicDrawer(tester);
+      await tapComicDrawerItem(tester, s.comicCategories);
+      await tester.pumpAndSettle();
+      expect(find.byType(ComicCategoryScreen), findsOneWidget);
+      expect(find.text('Fixture category'), findsOneWidget);
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<PageView>(find.byKey(const ValueKey('comic-tab-pages')))
+            .controller!
+            .page,
+        page,
+      );
+      expect(tester.takeException(), isNull);
+    }
   });
 
   testWidgets('comic settings opens and persists reader settings', (
