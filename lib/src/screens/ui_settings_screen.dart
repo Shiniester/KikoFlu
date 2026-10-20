@@ -5,7 +5,6 @@ import 'player_buttons_settings_screen.dart';
 import 'player_lyric_style_screen.dart';
 import 'work_detail_display_settings_screen.dart';
 import 'work_card_display_settings_screen.dart';
-import 'my_tabs_display_settings_screen.dart';
 import '../widgets/radio_option_group.dart';
 import '../widgets/settings_section.dart';
 import '../widgets/settings_option_dialog.dart';
@@ -23,10 +22,7 @@ class UiSettingsScreen extends ConsumerWidget {
         value: pageSize,
         options: [
           for (final value in [20, 40, 60, 100])
-            RadioOption(
-              value: value,
-              title: Text(value.toString()),
-            ),
+            RadioOption(value: value, title: Text(value.toString())),
         ],
         onChanged: (value) {
           ref.read(pageSizeProvider.notifier).updatePageSize(value);
@@ -98,18 +94,6 @@ class UiSettingsScreen extends ConsumerWidget {
                     MaterialPageRoute(
                       builder: (context) =>
                           const WorkCardDisplaySettingsScreen(),
-                    ),
-                  );
-                },
-              ),
-              SettingsNavigationTile(
-                icon: Icons.tab,
-                title: S.of(context).myTabsDisplaySettings,
-                subtitle: S.of(context).myTabsDisplaySubtitle,
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => const MyTabsDisplaySettingsScreen(),
                     ),
                   );
                 },

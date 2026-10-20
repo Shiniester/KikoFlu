@@ -4,12 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:equatable/equatable.dart';
 
 import '../models/work.dart';
+import '../models/audio_source.dart';
 import '../services/kikoeru_api_service.dart' hide kikoeruApiServiceProvider;
 import '../services/log_service.dart';
 import 'auth_provider.dart';
 import 'settings_provider.dart';
 import '../models/sort_options.dart';
 import 'subtitle_library_provider.dart';
+import 'audio_source_provider.dart';
 import '../utils/subtitle_filter.dart';
 import '../utils/paged_collection.dart';
 import '../utils/persistent_enum_preference.dart';
@@ -294,6 +296,7 @@ class WorksNotifier extends StateNotifier<WorksState> {
 
     try {
       Map<String, dynamic> response;
+      final source = _ref.read(audioSourceProvider);
 
       final pageSize = state.pageSize;
       final sortOption = state.sortOption;
@@ -303,7 +306,14 @@ class WorksNotifier extends StateNotifier<WorksState> {
       // 这样可以同时显示服务器有字幕 和 本地字幕库有字幕的作品
       const serverSubtitleParam = 0; // 始终请求所有作品，前端过滤
 
-      if (mode == DisplayMode.popular) {
+      if (source == AudioSource.jpAsmr) {
+        response = await _apiService.getWorks(
+          page: page,
+          pageSize: pageSize,
+          source: source,
+          cancelToken: requestToken.cancelToken,
+        );
+      } else if (mode == DisplayMode.popular) {
         response = await _apiService.getPopularWorks(
           page: page,
           pageSize: pageSize,
@@ -326,6 +336,7 @@ class WorksNotifier extends StateNotifier<WorksState> {
       } else {
         response = await _apiService.getWorks(
           page: page,
+          source: source,
           order: sortOption.value,
           sort: sortOption == SortOrder.nsfw ? 'asc' : sortDirection.value,
           subtitle: serverSubtitleParam,
@@ -423,6 +434,19 @@ class WorksNotifier extends StateNotifier<WorksState> {
     );
   }
 
+  void onSourceChanged() {
+    for (final gate in _requestGates.values) {
+      gate.invalidate();
+    }
+    state = state.copyWith(
+      displayMode: DisplayMode.all,
+      modeStates: {
+        for (final mode in DisplayMode.values) mode: const WorksModeSnapshot(),
+      },
+    );
+    loadWorks(targetPage: 1, supersede: true);
+  }
+
   Future<void> loadMore() async {
     final modeState = _getModeState(state.displayMode);
     if (modeState.isLoading || !modeState.hasMore) return;
@@ -504,6 +528,9 @@ class WorksNotifier extends StateNotifier<WorksState> {
 
   // Switch between all works and popular works
   void setDisplayMode(DisplayMode mode) {
+    if (_ref.read(audioSourceProvider) == AudioSource.jpAsmr) {
+      mode = DisplayMode.all;
+    }
     if (state.displayMode == mode) return;
 
     state = state.copyWith(displayMode: mode);
@@ -527,6 +554,7 @@ class WorksNotifier extends StateNotifier<WorksState> {
   }
 
   void setSubtitleFilter(SubtitleFilterMode newFilterMode) {
+    if (_ref.read(audioSourceProvider) == AudioSource.jpAsmr) return;
     final currentPage = state.currentPage;
     final oldFilterMode = SubtitleFilterMode.fromValue(state.subtitleFilter);
     if (oldFilterMode == newFilterMode) return;
@@ -559,7 +587,9 @@ class WorksNotifier extends StateNotifier<WorksState> {
   List<Work> _filterWorks(List<Work> works, BlockedItemsState blockedItems) {
     // 获取本地字幕库的作品ID
     final localSubtitleIds = _ref.read(subtitleLibraryProvider);
-    final subtitleFilter = state.subtitleFilter;
+    final subtitleFilter = _ref.read(audioSourceProvider) == AudioSource.jpAsmr
+        ? 0
+        : state.subtitleFilter;
 
     final subtitleFilteredWorks = filterWorksBySubtitleMode(
       works,
@@ -615,6 +645,10 @@ final worksProvider = StateNotifierProvider<WorksNotifier, WorksState>((ref) {
     if (previous != next) {
       notifier.updatePageSize(next);
     }
+  });
+
+  ref.listen(audioSourceProvider, (previous, next) {
+    if (previous != next) notifier.onSourceChanged();
   });
 
   ref.listen(defaultSortProvider, (previous, next) {

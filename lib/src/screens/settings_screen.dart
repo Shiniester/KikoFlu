@@ -8,6 +8,7 @@ import '../comics/ui/comic_settings_screen.dart';
 import 'download_path_settings_screen.dart';
 import 'theme_settings_screen.dart';
 import 'ui_settings_screen.dart';
+import 'my_tabs_display_settings_screen.dart';
 import 'preferences_screen.dart';
 import 'about_screen.dart';
 import 'permissions_screen.dart';
@@ -545,6 +546,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (context) => const UiSettingsScreen(),
+                ),
+              );
+            },
+          ),
+        if (widget.audioOnly)
+          SettingsNavigationTile(
+            icon: Icons.reorder,
+            title: S.of(context).libraryPageOrder,
+            subtitle: S.of(context).libraryPageOrderDescription,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const MyTabsDisplaySettingsScreen(),
                 ),
               );
             },

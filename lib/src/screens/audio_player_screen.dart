@@ -2071,6 +2071,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         cacheKey: track.workId != null
             ? 'work_cover_${track.workId}'
             : track.hash ?? coverUrl,
+        isJapaneseAsmr: track.workId != null && track.workId! < 0,
         backgroundPalette: palette,
       );
     } finally {

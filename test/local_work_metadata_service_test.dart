@@ -8,11 +8,10 @@ void main() {
     test('parses numeric and RJ style work folders', () {
       expect(LocalWorkMetadataService.parseWorkIdFromName('1234'), 1234);
       expect(LocalWorkMetadataService.parseWorkIdFromName('123456'), 123456);
+      expect(LocalWorkMetadataService.parseWorkIdFromName('-123456'), -123456);
       expect(LocalWorkMetadataService.parseWorkIdFromName('RJ395908'), 395908);
       expect(
-        LocalWorkMetadataService.parseWorkIdFromName(
-          '[みやぢ屋][RJ334212]ガチ恋不可避',
-        ),
+        LocalWorkMetadataService.parseWorkIdFromName('[みやぢ屋][RJ334212]ガチ恋不可避'),
         334212,
       );
       expect(LocalWorkMetadataService.parseWorkIdFromName('notes'), isNull);
@@ -22,9 +21,7 @@ void main() {
       final tempDir = await Directory.systemTemp.createTemp('kikoflu_local_');
       addTearDown(() => tempDir.delete(recursive: true));
 
-      final workDir = Directory(
-        '${tempDir.path}/[みやぢ屋][RJ334212]ガチ恋不可避',
-      );
+      final workDir = Directory('${tempDir.path}/[みやぢ屋][RJ334212]ガチ恋不可避');
       await Directory('${workDir.path}/Disc 1').create(recursive: true);
       await File('${workDir.path}/cover.png').writeAsBytes([1, 2, 3]);
       await File('${workDir.path}/Disc 1/track01.mp3').writeAsBytes([1, 2]);
@@ -79,6 +76,34 @@ void main() {
         ],
       });
     });
+
+    test(
+      'negative work folders keep JP identity without fake RJ metadata',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'kikoflu_local_jp_',
+        );
+        addTearDown(() => tempDir.delete(recursive: true));
+
+        final workDir = Directory('${tempDir.path}/-1726738');
+        await workDir.create(recursive: true);
+        await File('${workDir.path}/RJ01726738.m4a').writeAsBytes([1, 2]);
+
+        const service = LocalWorkMetadataService();
+        final folder = service.parseWorkFolder(workDir);
+        final metadata = await service.buildFallbackMetadata(
+          workId: folder!.id,
+          workDir: workDir,
+          directoryName: folder.directoryName,
+        );
+
+        expect(folder.id, -1726738);
+        expect(metadata['id'], -1726738);
+        expect(metadata['title'], '1726738');
+        expect(metadata.containsKey('source_id'), isFalse);
+        expect(metadata.containsKey('source_url'), isFalse);
+      },
+    );
 
     test('preserves existing metadata while filling local fields', () async {
       final tempDir = await Directory.systemTemp.createTemp('kikoflu_local_');
@@ -146,8 +171,9 @@ void main() {
           .cast<Map<String, dynamic>>()
           .map((item) => item['title']);
 
-      expect(scanTitles, ['cover.webp', 'folder.png']);
-    });
+        expect(scanTitles, ['cover.webp', 'folder.png']);
+      },
+    );
 
     test('uses imported metadata aliases before directory fallback', () async {
       final tempDir = await Directory.systemTemp.createTemp('kikoflu_local_');
@@ -227,8 +253,9 @@ void main() {
 
       final workDir = Directory('${tempDir.path}/RJ111111');
       await workDir.create(recursive: true);
-      await File('${workDir.path}/metadata.json')
-          .writeAsString('{"title":"Root metadata"}');
+      await File(
+        '${workDir.path}/metadata.json',
+      ).writeAsString('{"title":"Root metadata"}');
       await File('${workDir.path}/Docs/info.json').create(recursive: true);
 
       final metadata =

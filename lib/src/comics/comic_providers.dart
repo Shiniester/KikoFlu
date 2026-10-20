@@ -74,6 +74,11 @@ final comicPageSizeProvider = StateNotifierProvider<ComicPageSizeNotifier, int>(
   (ref) => ComicPageSizeNotifier(),
 );
 
+final comicCollectionPageOrderProvider =
+    StateNotifierProvider<ComicCollectionPageOrderNotifier, List<int>>(
+      (ref) => ComicCollectionPageOrderNotifier(),
+    );
+
 class ComicPageSizeNotifier extends StateNotifier<int> {
   ComicPageSizeNotifier() : super(_initialPageSize());
 
@@ -121,6 +126,40 @@ class ComicLayoutNotifier extends StateNotifier<LayoutType> {
       LayoutType.list => LayoutType.bigGrid,
     });
   }
+}
+
+class ComicCollectionPageOrderNotifier extends StateNotifier<List<int>> {
+  ComicCollectionPageOrderNotifier() : super(_load());
+
+  static const preferenceKey = 'comic_collection_page_order';
+  static const defaultOrder = [1, 2, 3];
+
+  static List<int> _load() {
+    final saved = StorageService.getString(preferenceKey)?.split(',');
+    if (saved == null) return List.unmodifiable(defaultOrder);
+    final order = saved.map((value) => int.tryParse(value)).toList();
+    if (order.any((page) => page == null)) {
+      return List.unmodifiable(defaultOrder);
+    }
+    final pages = order.cast<int>();
+    return _isValid(pages) ? List.unmodifiable(pages) : List.unmodifiable(defaultOrder);
+  }
+
+  static bool _isValid(List<int> order) =>
+      order.length == defaultOrder.length &&
+      order.toSet().length == defaultOrder.length &&
+      order.every(defaultOrder.contains);
+
+  void updateOrder(List<int> order) {
+    if (!_isValid(order) ||
+        order.asMap().entries.every((entry) => state[entry.key] == entry.value)) {
+      return;
+    }
+    state = List.unmodifiable(order);
+    unawaited(StorageService.setString(preferenceKey, order.join(',')));
+  }
+
+  void restoreDefaults() => updateOrder(defaultOrder);
 }
 
 final enabledComicSourcesProvider = Provider<List<ComicSource>>((ref) {

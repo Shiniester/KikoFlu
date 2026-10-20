@@ -7450,6 +7450,102 @@ abstract class S {
   /// **'Popular this month'**
   String get comicPopularMonth;
 
+  /// No description provided for @librarySources.
+  ///
+  /// In en, this message translates to:
+  /// **'Sources'**
+  String get librarySources;
+
+  /// No description provided for @libraryPages.
+  ///
+  /// In en, this message translates to:
+  /// **'Pages'**
+  String get libraryPages;
+
+  /// No description provided for @libraryBrowseOptions.
+  ///
+  /// In en, this message translates to:
+  /// **'Browse options'**
+  String get libraryBrowseOptions;
+
+  /// No description provided for @libraryMarks.
+  ///
+  /// In en, this message translates to:
+  /// **'Marks'**
+  String get libraryMarks;
+
+  /// No description provided for @libraryHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'History'**
+  String get libraryHistory;
+
+  /// No description provided for @libraryFavorites.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorites'**
+  String get libraryFavorites;
+
+  /// No description provided for @libraryDownloads.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloads'**
+  String get libraryDownloads;
+
+  /// No description provided for @librarySubtitles.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitles'**
+  String get librarySubtitles;
+
+  /// No description provided for @libraryPageOrder.
+  ///
+  /// In en, this message translates to:
+  /// **'Page order'**
+  String get libraryPageOrder;
+
+  /// No description provided for @librarySearchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search {page}'**
+  String librarySearchHint(String page);
+
+  /// No description provided for @libraryPageOrderDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Drag to change the page order in the sidebar.'**
+  String get libraryPageOrderDescription;
+
+  /// No description provided for @jpAsmrVerificationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify JP-ASMR access'**
+  String get jpAsmrVerificationTitle;
+
+  /// No description provided for @jpAsmrVerificationMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'JP-ASMR requires browser verification. Works will reload after verification.'**
+  String get jpAsmrVerificationMessage;
+
+  /// No description provided for @jpAsmrVerify.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify website access'**
+  String get jpAsmrVerify;
+
+  /// No description provided for @jpAsmrVerificationFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Verification did not complete. Retry using the same network and proxy.'**
+  String get jpAsmrVerificationFailed;
+
+  /// No description provided for @jpAsmrVerificationUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'In-app verification is unavailable on this platform. Change your network or proxy, then retry.'**
+  String get jpAsmrVerificationUnsupported;
+
   /// Title of local audio subtitle generation progress panel.
   ///
   /// In en, this message translates to:

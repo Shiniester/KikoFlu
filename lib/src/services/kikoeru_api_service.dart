@@ -1,11 +1,13 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:convert';
+import '../models/audio_source.dart';
 import '../models/work.dart';
 import '../utils/server_utils.dart';
 import '../services/storage_service.dart';
 import 'cache_service.dart';
 import 'conditional_get_cache.dart';
+import 'japanese_asmr_service.dart';
 import 'log_service.dart';
 
 final _log = LogService.instance;
@@ -18,6 +20,7 @@ class KikoeruApiService {
 
   late Dio _dio;
   late final ConditionalGetCache _conditionalGetCache;
+  late final JapaneseAsmrService _japaneseAsmrService;
   String? _token;
   String? _host;
   String? _accountScope;
@@ -27,7 +30,8 @@ class KikoeruApiService {
   final String _order = 'create_date';
   final String _sort = 'desc'; // 默认降序排列
 
-  KikoeruApiService() {
+  KikoeruApiService({JapaneseAsmrService? japaneseAsmrService}) {
+    _japaneseAsmrService = japaneseAsmrService ?? JapaneseAsmrService.instance;
     _dio = Dio();
     _conditionalGetCache = ConditionalGetCache(
       directoryProvider: CacheService.getApiResponseCacheDirectory,
@@ -616,12 +620,21 @@ class KikoeruApiService {
   Future<Map<String, dynamic>> getWorks({
     int page = 1,
     int pageSize = 40,
+    AudioSource source = AudioSource.asmrOne,
     String? order,
     String? sort,
     int? subtitle,
     int? seed,
     CancelToken? cancelToken,
   }) async {
+    if (source == AudioSource.jpAsmr) {
+      return _japaneseAsmrService.getWorks(
+        page: page,
+        pageSize: pageSize,
+        cancelToken: cancelToken,
+      );
+    }
+
     if (_isOfficialServer) {
       return _getWorksOfficial(
         page: page,
@@ -923,6 +936,14 @@ class KikoeruApiService {
     bool forceRefresh = false,
     CancelToken? cancelToken,
   }) async {
+    if (workId < 0) {
+      return _japaneseAsmrService.getWork(
+        workId.abs(),
+        forceRefresh: forceRefresh,
+        cancelToken: cancelToken,
+      );
+    }
+
     if (_isOfficialServer) {
       return _getWorkOfficial(
         workId,
@@ -1146,6 +1167,7 @@ class KikoeruApiService {
     required String keyword, // 搜索关键词（可以是组合的搜索条件）
     int page = 1,
     int pageSize = 40,
+    AudioSource source = AudioSource.asmrOne,
     String? order,
     String? sort,
     int? subtitle,
@@ -1153,6 +1175,15 @@ class KikoeruApiService {
     bool includeTranslationWorks = true,
     CancelToken? cancelToken,
   }) async {
+    if (source == AudioSource.jpAsmr) {
+      return _japaneseAsmrService.searchWorks(
+        keyword: keyword,
+        page: page,
+        pageSize: pageSize,
+        cancelToken: cancelToken,
+      );
+    }
+
     if (_isOfficialServer) {
       return _searchWorksOfficial(
         keyword: keyword,
@@ -1457,6 +1488,13 @@ class KikoeruApiService {
     int workId, {
     bool forceRefresh = false,
   }) async {
+    if (workId < 0) {
+      return _japaneseAsmrService.getWorkTracks(
+        workId.abs(),
+        forceRefresh: forceRefresh,
+      );
+    }
+
     try {
       // 1. 尝试从缓存获取
       if (!forceRefresh) {

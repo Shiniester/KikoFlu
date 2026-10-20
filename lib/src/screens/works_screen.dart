@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/works_provider.dart';
+import '../models/audio_source.dart';
+import '../providers/audio_source_provider.dart';
 import '../utils/scroll_optimization.dart';
 import '../widgets/sort_dialog.dart';
 import '../widgets/works_grid_view.dart';
@@ -19,6 +21,7 @@ import '../utils/system_ui_style.dart';
 import '../utils/ui_tokens.dart';
 import '../widgets/async_state_view.dart';
 import '../widgets/audio_account_prompt.dart';
+import '../widgets/japanese_asmr_access_prompt.dart';
 
 class WorksScreen extends ConsumerStatefulWidget {
   const WorksScreen({
@@ -64,6 +67,7 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
   }
 
   void _showSortDialog(BuildContext context) {
+    if (ref.read(audioSourceProvider) == AudioSource.jpAsmr) return;
     final displayMode = ref.read(worksProvider).displayMode;
     final isRecommendMode =
         displayMode == DisplayMode.popular ||
@@ -114,6 +118,7 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
       setState(() => _displayGeneration++);
     });
     final worksState = ref.watch(worksProvider);
+    final audioSource = ref.watch(audioSourceProvider);
     final isRecommendMode =
         worksState.displayMode == DisplayMode.popular ||
         worksState.displayMode == DisplayMode.recommended;
@@ -121,13 +126,18 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
     final horizontalPadding = FloatingToolbarLayout.horizontalPadding(context);
     final topPadding = MediaQuery.paddingOf(context).top;
     final toolbarTop = widget.toolbarTop ?? topPadding + 8;
-    final contentTopPadding = toolbarTop + 56;
+    final contentTopPadding = widget.embedded ? 0.0 : toolbarTop + 56;
     final displayGeneration = _displayGeneration;
     final toolbar = FloatingFeedToolbar(
-      modeActions: _buildModeActions(context, worksState),
+      modeActions: _buildModeActions(
+        context,
+        worksState,
+        isJapaneseAsmr: audioSource == AudioSource.jpAsmr,
+      ),
       toolActions: _buildToolActions(
         context,
         worksState,
+        isJapaneseAsmr: audioSource == AudioSource.jpAsmr,
         isRecommendMode: isRecommendMode,
       ),
     );
@@ -166,22 +176,23 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
                 ),
               ),
             ),
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: ProgressiveTopScrim(height: topPadding + 72),
-            ),
-            if (widget.primaryToolbarVisible case final visibility?)
+            if (!widget.embedded)
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: ProgressiveTopScrim(height: topPadding + 72),
+              ),
+            if (!widget.embedded && widget.primaryToolbarVisible != null)
               FloatingToolbarPositionFollower(
-                primaryToolbarVisible: visibility,
+                primaryToolbarVisible: widget.primaryToolbarVisible!,
                 visibleTop: toolbarTop,
                 hiddenTop: widget.collapsedToolbarTop ?? toolbarTop,
                 left: horizontalPadding,
                 right: horizontalPadding,
                 child: toolbar,
               )
-            else
+            else if (!widget.embedded)
               Positioned(
                 top: toolbarTop,
                 left: horizontalPadding,
@@ -196,8 +207,9 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
 
   List<FloatingFeedModeAction> _buildModeActions(
     BuildContext context,
-    WorksState worksState,
-  ) {
+    WorksState worksState, {
+    required bool isJapaneseAsmr,
+  }) {
     return [
       FloatingFeedModeAction(
         icon: Icons.grid_view,
@@ -205,24 +217,27 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
         isSelected: worksState.displayMode == DisplayMode.all,
         onPressed: () => _changeDisplayMode(DisplayMode.all),
       ),
-      FloatingFeedModeAction(
-        icon: Icons.local_fire_department,
-        label: S.of(context).displayModePopular,
-        isSelected: worksState.displayMode == DisplayMode.popular,
-        onPressed: () => _changeDisplayMode(DisplayMode.popular),
-      ),
-      FloatingFeedModeAction(
-        icon: Icons.auto_awesome,
-        label: S.of(context).displayModeRecommended,
-        isSelected: worksState.displayMode == DisplayMode.recommended,
-        onPressed: () => _changeDisplayMode(DisplayMode.recommended),
-      ),
+      if (!isJapaneseAsmr)
+        FloatingFeedModeAction(
+          icon: Icons.local_fire_department,
+          label: S.of(context).displayModePopular,
+          isSelected: worksState.displayMode == DisplayMode.popular,
+          onPressed: () => _changeDisplayMode(DisplayMode.popular),
+        ),
+      if (!isJapaneseAsmr)
+        FloatingFeedModeAction(
+          icon: Icons.auto_awesome,
+          label: S.of(context).displayModeRecommended,
+          isSelected: worksState.displayMode == DisplayMode.recommended,
+          onPressed: () => _changeDisplayMode(DisplayMode.recommended),
+        ),
     ];
   }
 
   List<FloatingFeedToolAction> _buildToolActions(
     BuildContext context,
     WorksState worksState, {
+    required bool isJapaneseAsmr,
     required bool isRecommendMode,
   }) {
     return [
@@ -241,22 +256,24 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
         tooltip: S.of(context).layout,
         onPressed: () => ref.read(worksProvider.notifier).toggleLayoutType(),
       ),
-      FloatingFeedToolAction(
-        icon: SubtitleFilterMode.fromValue(worksState.subtitleFilter).isActive
-            ? Icons.closed_caption
-            : Icons.closed_caption_off,
-        tooltip: S.of(context).subtitleFilter,
-        isSelected: SubtitleFilterMode.fromValue(
-          worksState.subtitleFilter,
-        ).isActive,
-        onPressed: () =>
-            ref.read(worksProvider.notifier).toggleSubtitleFilter(),
-      ),
-      FloatingFeedToolAction(
-        icon: Icons.sort,
-        tooltip: S.of(context).sort,
-        onPressed: isRecommendMode ? null : () => _showSortDialog(context),
-      ),
+      if (!isJapaneseAsmr)
+        FloatingFeedToolAction(
+          icon: SubtitleFilterMode.fromValue(worksState.subtitleFilter).isActive
+              ? Icons.closed_caption
+              : Icons.closed_caption_off,
+          tooltip: S.of(context).subtitleFilter,
+          isSelected: SubtitleFilterMode.fromValue(
+            worksState.subtitleFilter,
+          ).isActive,
+          onPressed: () =>
+              ref.read(worksProvider.notifier).toggleSubtitleFilter(),
+        ),
+      if (!isJapaneseAsmr)
+        FloatingFeedToolAction(
+          icon: Icons.sort,
+          tooltip: S.of(context).sort,
+          onPressed: isRecommendMode ? null : () => _showSortDialog(context),
+        ),
     ];
   }
 
@@ -278,6 +295,20 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
 
     void guardedRefresh() {
       if (isActive()) unawaited(notifier.refresh());
+    }
+
+    if (worksState.error?.contains('[jp-asmr-verification-required]') == true &&
+        ref.read(audioSourceProvider) == AudioSource.jpAsmr) {
+      void refreshJapaneseAsmr() {
+        if (mounted && ref.read(audioSourceProvider) == AudioSource.jpAsmr) {
+          guardedRefresh();
+        }
+      }
+
+      return JapaneseAsmrAccessPrompt(
+        onRetry: refreshJapaneseAsmr,
+        onVerified: refreshJapaneseAsmr,
+      );
     }
 
     return WorksGridView(
@@ -335,29 +366,35 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
         message: Text(S.of(context).loading),
         iconToTitleSpacing: UiSpacing.large,
       ),
-      errorBuilder: (context, error, retry) => error.toString().contains('[audio-login-required]') ? const AudioAccountPrompt() : AsyncStateView(
-        icon: Icon(
-          Icons.error_outline,
-          size: 64,
-          color: Theme.of(context).colorScheme.error,
-        ),
-        title: Text(
-          S.of(context).loadFailed,
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        message: Text(
-          error.toString(),
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+      errorBuilder: (context, error, retry) {
+        final errorText = error.toString();
+        if (errorText.contains('[audio-login-required]')) {
+          return const AudioAccountPrompt();
+        }
+        return AsyncStateView(
+          icon: Icon(
+            Icons.error_outline,
+            size: 64,
+            color: Theme.of(context).colorScheme.error,
           ),
-          textAlign: TextAlign.center,
-        ),
-        action: ElevatedButton.icon(
-          onPressed: retry,
-          icon: const Icon(Icons.refresh),
-          label: Text(S.of(context).retry),
-        ),
-      ),
+          title: Text(
+            S.of(context).loadFailed,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          message: Text(
+            error.toString(),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          action: ElevatedButton.icon(
+            onPressed: retry,
+            icon: const Icon(Icons.refresh),
+            label: Text(S.of(context).retry),
+          ),
+        );
+      },
       emptyBuilder: (context) => AsyncStateView(
         icon: Icon(
           Icons.audiotrack,

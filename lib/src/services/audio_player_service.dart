@@ -24,6 +24,7 @@ import 'download_path_service.dart';
 import 'storage_service.dart';
 import 'shared_http_client.dart';
 import 'speculative_transfer_coordinator.dart';
+import '../utils/audio_source_headers.dart';
 import '../utils/image_blur_util.dart';
 import '../utils/local_file_url.dart';
 import '../utils/reorder_utils.dart';
@@ -1152,7 +1153,10 @@ class AudioPlayerService {
                 headers: uri.scheme == 'http' || uri.scheme == 'https'
                     ? mediaRequestHeaders(
                         uri,
-                        StorageService.serverCookieHeaders,
+                        sourceAwareMediaHeaders(
+                          track.workId,
+                          accountHeaders: StorageService.serverCookieHeaders,
+                        ),
                         forceIdentityEncoding: true,
                       )
                     : null,
@@ -1323,6 +1327,7 @@ class AudioPlayerService {
           // 生成模糊后的封面并保存到临时文件
           final blurredFilePath = await ImageBlurUtil.blurNetworkImageToFile(
             displayArtworkUrl,
+            workId: track.workId,
             cacheKey: track.workId == null
                 ? null
                 : 'work_cover_${track.workId}',
@@ -1571,6 +1576,7 @@ class AudioPlayerService {
         !_shuffleEnabled &&
         current != null &&
         next != null &&
+        (next.workId == null || next.workId! >= 0) &&
         duration != null &&
         duration - _player.position <= threshold &&
         remaining > Duration.zero &&
@@ -1623,7 +1629,10 @@ class AudioPlayerService {
       uri,
       headers: mediaRequestHeaders(
         uri,
-        StorageService.serverCookieHeaders,
+        sourceAwareMediaHeaders(
+          next.workId,
+          accountHeaders: StorageService.serverCookieHeaders,
+        ),
         forceIdentityEncoding: true,
       ),
     );
@@ -1803,9 +1812,12 @@ class AudioPlayerService {
   AudioCacheRequest? _audioCacheRequestForTrack(AudioTrack? track) {
     final hash = track?.hash;
     final uri = track == null ? null : Uri.tryParse(track.url);
-    if (hash == null ||
+    if (track == null ||
+        hash == null ||
         hash.isEmpty ||
         uri == null ||
+        (track.workId != null && track.workId! < 0) ||
+        uri.path.toLowerCase().endsWith('.m3u8') ||
         (uri.scheme != 'http' && uri.scheme != 'https')) {
       return null;
     }

@@ -55,6 +55,9 @@ class Work extends Equatable {
   @JsonKey(name: 'source_url')
   final String? sourceUrl; // 作品原始链接
 
+  @JsonKey(name: 'cover_url')
+  final String? coverUrl;
+
   @JsonKey(name: 'source_id')
   final String? sourceId; // 作品真实编号，如 RJ/BJ/VJ
 
@@ -85,6 +88,7 @@ class Work extends Equatable {
     this.description,
     this.children,
     this.sourceUrl,
+    this.coverUrl,
     this.sourceId,
     this.otherLanguageEditions,
   });
@@ -147,6 +151,12 @@ class Work extends Equatable {
   Map<String, dynamic> toJson() => _$WorkToJson(this);
 
   String getCoverImageUrl(String baseUrl, {String? token}) {
+    final externalCoverUrl = coverUrl?.trim();
+    if (externalCoverUrl != null && externalCoverUrl.isNotEmpty) {
+      return externalCoverUrl;
+    }
+    if (isJapaneseAsmr) return '';
+
     String normalizedUrl = baseUrl;
     if (baseUrl.isNotEmpty &&
         !baseUrl.startsWith('http://') &&
@@ -162,11 +172,16 @@ class Work extends Equatable {
 
   String get circleTitle => name ?? '';
 
+  bool get isJapaneseAsmr => id < 0;
+
+  String get sourceLabel => isJapaneseAsmr ? 'JP-ASMR' : 'ASMR.ONE';
+
   String get displayId {
     final normalizedSourceId = sourceId?.trim();
     if (normalizedSourceId != null && normalizedSourceId.isNotEmpty) {
       return normalizedSourceId;
     }
+    if (isJapaneseAsmr) return id.abs().toString();
     return formatRJCode(id);
   }
 
@@ -195,6 +210,7 @@ class Work extends Equatable {
     String? description,
     List<AudioFile>? children,
     String? sourceUrl,
+    String? coverUrl,
     String? sourceId,
     List<OtherLanguageEdition>? otherLanguageEditions,
   }) {
@@ -222,6 +238,7 @@ class Work extends Equatable {
       description: description ?? this.description,
       children: children ?? this.children,
       sourceUrl: sourceUrl ?? this.sourceUrl,
+      coverUrl: coverUrl ?? this.coverUrl,
       sourceId: sourceId ?? this.sourceId,
       otherLanguageEditions:
           otherLanguageEditions ?? this.otherLanguageEditions,
@@ -230,32 +247,33 @@ class Work extends Equatable {
 
   @override
   List<Object?> get props => [
-        id,
-        title,
-        circleId,
-        name,
-        vas,
-        tags,
-        lang,
-        age,
-        release,
-        dlCount,
-        price,
-        reviewCount,
-        rateCount,
-        rateAverage,
-        hasSubtitle,
-        duration,
-        progress,
-        userRating,
-        rateCountDetail,
-        images,
-        description,
-        children,
-        sourceUrl,
-        sourceId,
-        otherLanguageEditions,
-      ];
+    id,
+    title,
+    circleId,
+    name,
+    vas,
+    tags,
+    lang,
+    age,
+    release,
+    dlCount,
+    price,
+    reviewCount,
+    rateCount,
+    rateAverage,
+    hasSubtitle,
+    duration,
+    progress,
+    userRating,
+    rateCountDetail,
+    images,
+    description,
+    children,
+    sourceUrl,
+    coverUrl,
+    sourceId,
+    otherLanguageEditions,
+  ];
 }
 
 String? _resolveLanguage(Map<String, dynamic> json) {
@@ -343,8 +361,14 @@ class OtherLanguageEdition extends Equatable {
   Map<String, dynamic> toJson() => _$OtherLanguageEditionToJson(this);
 
   @override
-  List<Object?> get props =>
-      [id, lang, title, sourceId, isOriginal, sourceType];
+  List<Object?> get props => [
+    id,
+    lang,
+    title,
+    sourceId,
+    isOriginal,
+    sourceType,
+  ];
 }
 
 @JsonSerializable()
@@ -504,6 +528,13 @@ class AudioFile extends Equatable {
   }
 
   @override
-  List<Object?> get props =>
-      [title, type, hash, children, mediaDownloadUrl, size, duration];
+  List<Object?> get props => [
+    title,
+    type,
+    hash,
+    children,
+    mediaDownloadUrl,
+    size,
+    duration,
+  ];
 }

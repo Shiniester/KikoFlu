@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'dart:convert';
 
 import 'local_file_url.dart';
+import 'audio_source_headers.dart';
 import '../services/cache_service.dart';
 import '../services/remote_asset_cache.dart';
 import '../services/storage_service.dart';
@@ -18,6 +19,7 @@ class ImageBlurUtil {
   static Future<String?> blurNetworkImageToFile(
     String imageUrl, {
     String? cacheKey,
+    int? workId,
   }) async {
     try {
       final localPath = LocalFileUrl.pathFromUrl(imageUrl);
@@ -59,7 +61,10 @@ class ImageBlurUtil {
         final lease = CacheService.imageCacheManager.acquireFile(
           imageUrl,
           key: cacheKey,
-          headers: StorageService.serverCookieHeaders,
+          headers: sourceAwareMediaHeaders(
+            workId,
+            accountHeaders: StorageService.serverCookieHeaders,
+          ),
         );
         try {
           final cachedFile = await lease.file.timeout(

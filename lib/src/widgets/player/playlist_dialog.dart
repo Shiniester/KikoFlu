@@ -6,10 +6,10 @@ import '../../../l10n/app_localizations.dart';
 import '../../models/audio_tap_playlist_mode.dart';
 import '../../models/audio_track.dart';
 import '../../providers/audio_provider.dart';
+import '../../providers/artwork_theme_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../utils/l10n_extensions.dart';
-import '../../utils/local_file_url.dart';
 import '../responsive_dialog.dart';
 import '../animated_menu_anchor.dart';
 import 'player_glass_surface.dart';
@@ -606,20 +606,12 @@ String? _resolveCoverUrl(
   AudioTrack track, {
   required String? host,
   required String? token,
-}) {
-  if (LocalFileUrl.isLocalFileUrl(track.artworkUrl)) return track.artworkUrl;
-  if (track.workId == null || host == null || host.isEmpty) {
-    return track.artworkUrl;
-  }
-  var normalizedHost = host;
-  if (!normalizedHost.startsWith('http://') &&
-      !normalizedHost.startsWith('https://')) {
-    normalizedHost = 'https://$normalizedHost';
-  }
-  return token != null && token.isNotEmpty
-      ? '$normalizedHost/api/cover/${track.workId}?token=$token'
-      : '$normalizedHost/api/cover/${track.workId}';
-}
+}) => resolveArtworkSource(
+  workId: track.workId,
+  artworkUrl: track.artworkUrl,
+  host: host ?? '',
+  token: token ?? '',
+);
 
 /// Legacy dialog wrapper kept for non-player entry points.
 class PlaylistDialog extends ConsumerWidget {

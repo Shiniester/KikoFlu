@@ -295,6 +295,39 @@ void main() {
     );
 
     test(
+      'Japanese ASMR image galleries use direct URLs without an ASMR host',
+      () async {
+        final resolver = FilePreviewResolver(
+          pathContext: _posixPathContext,
+          downloadRootPath: () async => '/downloads',
+          fileExists: (_) async => false,
+        );
+        final image = fileItem(
+          'cover.jpg',
+          type: 'image',
+          hash: 'jp-1726738-image-0',
+        )..['mediaStreamUrl'] = 'https://japaneseasmr.com/cover.jpg';
+
+        final result = await resolver.buildOnlineImageGalleryTarget(
+          selectedFile: image,
+          imageFiles: [image],
+          workId: -1726738,
+          host: '',
+          token: 'private-token',
+          downloadedFiles: const {},
+          fileRelativePaths: const {},
+          unknownTitle: 'unknown',
+        );
+
+        expect(result.status, PreviewImageGalleryStatus.ready);
+        expect(
+          result.requireTarget.toGalleryMaps().single['url'],
+          'https://japaneseasmr.com/cover.jpg',
+        );
+      },
+    );
+
+    test(
       'online video target falls back to remote source when possible',
       () async {
         final resolver = FilePreviewResolver(

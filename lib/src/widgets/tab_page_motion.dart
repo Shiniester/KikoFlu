@@ -2,18 +2,6 @@ import 'package:flutter/material.dart';
 
 const tabPageDuration = Duration(milliseconds: 300);
 
-/// Drives the official tab indicator from the page's actual scroll position.
-void syncTabWithPage(TabController tabs, PageController pages) {
-  if (!pages.hasClients || !pages.position.hasContentDimensions) return;
-  syncTabWithPagePosition(tabs, pages.page!);
-}
-
-void syncTabWithPagePosition(TabController tabs, double position) {
-  final page = position.clamp(0.0, (tabs.length - 1).toDouble());
-  tabs.index = page.round();
-  tabs.offset = page - tabs.index;
-}
-
 Future<void> moveToTabPage(
   PageController pages,
   int index, {
@@ -28,6 +16,18 @@ Future<void> moveToTabPage(
     duration: tabPageDuration,
     curve: Curves.ease,
   );
+}
+
+/// Drives the official tab indicator from the page's actual scroll position.
+void syncTabWithPage(TabController tabs, PageController pages) {
+  if (!pages.hasClients || !pages.position.hasContentDimensions) return;
+  syncTabWithPagePosition(tabs, pages.page!);
+}
+
+void syncTabWithPagePosition(TabController tabs, double position) {
+  final page = position.clamp(0.0, (tabs.length - 1).toDouble());
+  tabs.index = page.round();
+  tabs.offset = page - tabs.index;
 }
 
 /// Prepares the clicked page shell in the first frame, then restores lazy caching.

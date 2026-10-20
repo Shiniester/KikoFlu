@@ -564,14 +564,19 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     var downloadUrl =
         FileTreeUtils.property(file, 'mediaDownloadUrl')?.toString() ?? '';
     final normalizedHost = _normalizedHost(host);
-    if (downloadUrl.startsWith('/') && normalizedHost.isNotEmpty) {
+    if (downloadUrl.startsWith('/') &&
+        normalizedHost.isNotEmpty &&
+        !_work.isJapaneseAsmr) {
       downloadUrl = '$normalizedHost$downloadUrl';
     }
-    if (downloadUrl.isEmpty && normalizedHost.isNotEmpty) {
+    if (downloadUrl.isEmpty &&
+        normalizedHost.isNotEmpty &&
+        !_work.isJapaneseAsmr) {
       downloadUrl =
           '$normalizedHost/api/media/download/$hash/'
           '${Uri.encodeComponent(title)}?token=$token';
-    } else if (downloadUrl.isNotEmpty &&
+    } else if (!_work.isJapaneseAsmr &&
+        downloadUrl.isNotEmpty &&
         token.isNotEmpty &&
         !downloadUrl.contains('token=')) {
       downloadUrl += downloadUrl.contains('?')
@@ -800,6 +805,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
               title: _work.title,
               images: target.toGalleryMaps(),
               initialIndex: target.initialIndex,
+              workId: _work.id,
             ),
           ),
         );

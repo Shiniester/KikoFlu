@@ -160,6 +160,16 @@ class HistoryWorkCard extends ConsumerWidget {
                   color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
+              const SizedBox(height: 2),
+              Text(
+                work.sourceLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
               const SizedBox(height: 4),
               if (record.lastTrack != null)
                 Builder(
@@ -457,16 +467,8 @@ class HistoryWorkCard extends ConsumerWidget {
     final downloadService = DownloadService.instance;
 
     // Current work cover URL
-    String? coverUrl;
-    if (host.isNotEmpty) {
-      String normalizedUrl = host;
-      if (!host.startsWith('http://') && !host.startsWith('https://')) {
-        normalizedUrl = 'https://$host';
-      }
-      coverUrl = token.isNotEmpty
-          ? '$normalizedUrl/api/cover/${work.id}?token=$token'
-          : '$normalizedUrl/api/cover/${work.id}';
-    }
+    final resolvedCoverUrl = work.getCoverImageUrl(host, token: token);
+    final coverUrl = resolvedCoverUrl.isEmpty ? null : resolvedCoverUrl;
 
     final audioUrlResolver = AudioFileUrlResolver(
       resolveDownloadedPath: downloadService.getDownloadedFilePath,

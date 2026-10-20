@@ -74,6 +74,7 @@ flutter {
 // artifacts aligned on 1.8.0, which ignores empty FLAC seek tables and uses
 // binary search seeking (androidx/media#2327). Retain native AudioTrack playback.
 dependencies {
+    implementation("androidx.webkit:webkit:1.14.0")
     val media3Version = "1.8.0"
     implementation("androidx.media3:media3-exoplayer:$media3Version")
     implementation("androidx.media3:media3-exoplayer-dash:$media3Version")

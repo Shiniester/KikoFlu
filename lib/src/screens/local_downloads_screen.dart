@@ -16,6 +16,7 @@ import '../utils/string_utils.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/scroll_optimization.dart';
 import '../utils/collection_grid_layout.dart';
+import '../utils/audio_source_headers.dart';
 import '../utils/ui_tokens.dart';
 import '../providers/auth_provider.dart';
 import '../providers/collection_layout_provider.dart';
@@ -40,19 +41,22 @@ class LocalDownloadsScreen extends ConsumerStatefulWidget {
     this.collapsedToolbarTop,
     this.primaryToolbarVisible,
     this.onSearchOnline,
+    this.embedded = false,
+    this.onDrawerChanged,
   });
 
   final double toolbarTop;
   final double? collapsedToolbarTop;
   final ValueListenable<bool>? primaryToolbarVisible;
   final VoidCallback? onSearchOnline;
+  final bool embedded;
+  final VoidCallback? onDrawerChanged;
 
   @override
-  ConsumerState<LocalDownloadsScreen> createState() =>
-      _LocalDownloadsScreenState();
+  LocalDownloadsScreenState createState() => LocalDownloadsScreenState();
 }
 
-class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
+class LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
     with AutomaticKeepAliveClientMixin, SingleTickerProviderStateMixin {
   bool _isSelectionMode = false;
   final Set<int> _selectedWorkIds = {}; // 选中的作品ID
@@ -60,6 +64,46 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
       VirtualizedCollectionController();
   int _currentPage = 1;
   static const int _pageSize = 30;
+
+  bool get isSelectionMode => _isSelectionMode;
+  int get selectedCount => _selectedWorkIds.length;
+  bool get allSelected {
+    final workIds = _readCompletedTasks().keys;
+    return workIds.isNotEmpty && _selectedWorkIds.containsAll(workIds);
+  }
+
+  void toggleSelectionModeFromDrawer() => _toggleSelectionMode();
+
+  void selectAllFromDrawer() => _selectAll(_readCompletedTasks());
+
+  void deselectAllFromDrawer() => _deselectAll();
+
+  Future<void> deleteSelectedFromDrawer() =>
+      _deleteSelectedWorks(_readCompletedTasks());
+
+  void showSortDialogFromDrawer() => _showSortDialog();
+
+  Future<void> refreshMetadataFromDrawer() => _refreshMetadata();
+
+  Future<void> openDownloadFolderFromDrawer() => _openDownloadFolder();
+
+  void _notifyDrawerChanged() => widget.onDrawerChanged?.call();
+
+  Map<int, List<DownloadTask>> _readCompletedTasks() {
+    final downloadService = ref.read(downloadServiceProvider);
+    final taskIds =
+        ref.read(downloadTaskIdsProvider).valueOrNull ??
+        downloadService.taskIds;
+    final tasks = taskIds
+        .map(downloadService.taskById)
+        .whereType<DownloadTask>()
+        .where((task) => task.status == DownloadStatus.completed);
+    final grouped = <int, List<DownloadTask>>{};
+    for (final task in tasks) {
+      grouped.putIfAbsent(task.workId, () => []).add(task);
+    }
+    return grouped;
+  }
 
   // 搜索相关
   final TextEditingController _searchController = TextEditingController();
@@ -100,6 +144,9 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
     );
     _toolbarOpacity = _toolbarEntrance.drive(CurveTween(curve: UiMotion.curve));
     _toolbarScale = _toolbarOpacity.drive(Tween(begin: 0.97, end: 1.0));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _notifyDrawerChanged();
+    });
   }
 
   @override
@@ -145,6 +192,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
         _selectedWorkIds.clear();
       }
     });
+    _notifyDrawerChanged();
     _toolbarModeChanged();
   }
 
@@ -171,6 +219,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
         _selectedWorkIds.add(workId);
       }
     });
+    _notifyDrawerChanged();
   }
 
   void _selectAll(Map<int, List<DownloadTask>> groupedTasks) {
@@ -178,12 +227,14 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
       _selectedWorkIds.clear();
       _selectedWorkIds.addAll(groupedTasks.keys);
     });
+    _notifyDrawerChanged();
   }
 
   void _deselectAll() {
     setState(() {
       _selectedWorkIds.clear();
     });
+    _notifyDrawerChanged();
   }
 
   // 打开本地下载目录
@@ -364,6 +415,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
         _isSelectionMode = false;
         _selectedWorkIds.clear();
       });
+      _notifyDrawerChanged();
       _toolbarModeChanged();
 
       // 使用 Future.microtask 延迟到下一帧显示 SnackBar
@@ -675,7 +727,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
                 masonryMainAxisSpacing: metrics.spacing,
                 padding: EdgeInsets.fromLTRB(
                   metrics.padding.left,
-                  toolbarTop + 60,
+                  widget.embedded ? 0 : toolbarTop + 60,
                   metrics.padding.right,
                   metrics.padding.bottom,
                 ),
@@ -734,7 +786,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
             },
           ),
         ),
-        if (widget.primaryToolbarVisible == null)
+        if (!widget.embedded && widget.primaryToolbarVisible == null)
           Positioned(
             top: toolbarTop,
             left: FloatingToolbarLayout.horizontalPadding(context),
@@ -750,7 +802,7 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
               ],
             ),
           )
-        else
+        else if (!widget.embedded)
           FloatingToolbarPositionFollower(
             primaryToolbarVisible: widget.primaryToolbarVisible!,
             visibleTop: toolbarTop,
@@ -985,6 +1037,8 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
         work = null;
       }
     }
+    final sourceLabel =
+        work?.sourceLabel ?? (workId < 0 ? 'JP-ASMR' : 'ASMR.ONE');
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1042,6 +1096,16 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
                   fontWeight: FontWeight.w600,
                   height: 1.3,
                   color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                sourceLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
               const SizedBox(height: 8),
@@ -1250,10 +1314,13 @@ class _LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
       }
     }
 
-    final httpHeaders = StorageService.serverCookieHeaders;
+    final httpHeaders = sourceAwareMediaHeaders(
+      work?.id,
+      accountHeaders: StorageService.serverCookieHeaders,
+    );
 
     // 降级使用网络封面
-    if (work != null && host.isNotEmpty) {
+    if (work != null && (host.isNotEmpty || work.isJapaneseAsmr)) {
       return WorkCoverClip(
         cornerRadius: cornerRadius,
         child: PrivacyBlurCover(

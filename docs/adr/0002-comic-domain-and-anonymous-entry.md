@@ -17,13 +17,16 @@ The Main Screen is available anonymously and presents Audio, Comics, and Setting
 Audio server configuration survives logout, while active credentials and cache
 scope switch to the anonymous identity. Existing audio preference keys remain.
 
-Share the floating LibraryTabStrip, toolbar components, global proxy, logging,
-theme, language, and Mini Player. Audio and comic details share ADR 0001's route
+Share the fixed LibraryPageScaffold header and drawer, toolbar components,
+global proxy, logging, theme, language, and Mini Player. Source selection opens
+the source home page. Drawer page order is stored separately in Audio settings
+and Comic settings. Audio and comic details share ADR 0001's route
 and Dock handoff, responsive detail conventions, metadata chips and toolbar actions.
 The fullscreen reader uses an independent route with a stable immersive canvas.
 Its control layer owns the Mini Player and preserves the reader route while the
-full player is open. Main navigation uses the same horizontal tab transition as
-the library tabs and retains each visited page's state.
+full player is open. Main navigation, drawer page selections, audio feed modes,
+and source changes share a horizontal transition and retain visited page state.
+Reduced motion switches directly.
 
 Keep comic models, source adapters, credentials, SQLite tables, image cache and
 chapter download service separate. A source-qualified comic ID prevents collisions;

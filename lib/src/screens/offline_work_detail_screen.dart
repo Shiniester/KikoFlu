@@ -24,6 +24,7 @@ import '../widgets/offline_file_explorer_widget.dart';
 import '../widgets/global_audio_player_wrapper.dart';
 import '../widgets/download_fab.dart';
 import '../utils/string_utils.dart';
+import '../utils/audio_source_headers.dart';
 import '../widgets/work_image_reader.dart';
 import '../widgets/work_detail/work_title_header.dart';
 import '../widgets/work_detail/work_metadata_sections.dart';
@@ -322,9 +323,19 @@ class _OfflineWorkDetailScreenState
 
   // 构建网络封面图片（使用缓存）
   Widget _buildNetworkCover(Work work, String host, String token) {
+    final imageUrl = work.getCoverImageUrl(host, token: token);
+    if (imageUrl.isEmpty) {
+      return Container(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: const Icon(Icons.broken_image, size: 64),
+      );
+    }
     return CachedNetworkImage(
-      imageUrl: '$host/api/cover/${work.id}',
-      httpHeaders: {'Authorization': 'Bearer $token'},
+      imageUrl: imageUrl,
+      httpHeaders: sourceAwareMediaHeaders(
+        work.id,
+        accountHeaders: {'Authorization': 'Bearer $token'},
+      ),
       cacheKey: 'work_cover_${work.id}',
       useOldImageOnUrlChange: true,
       fit: BoxFit.contain,
@@ -428,7 +439,7 @@ class _OfflineWorkDetailScreenState
     // 封面图片组件
     final coverUrl = widget.localCoverPath != null
         ? 'file://${widget.localCoverPath}'
-        : '$host/api/cover/${work.id}';
+        : work.getCoverImageUrl(host, token: token);
     final hasLocalCover =
         widget.localCoverPath != null &&
         File(widget.localCoverPath!).existsSync();
@@ -513,6 +524,7 @@ class _OfflineWorkDetailScreenState
                     },
                   ],
                   initialIndex: 0,
+                  workId: widget.work.id,
                 ),
               ),
             );

@@ -4178,6 +4178,60 @@ class SEn extends S {
   String get comicPopularMonth => 'Popular this month';
 
   @override
+  String get librarySources => 'Sources';
+
+  @override
+  String get libraryPages => 'Pages';
+
+  @override
+  String get libraryBrowseOptions => 'Browse options';
+
+  @override
+  String get libraryMarks => 'Marks';
+
+  @override
+  String get libraryHistory => 'History';
+
+  @override
+  String get libraryFavorites => 'Favorites';
+
+  @override
+  String get libraryDownloads => 'Downloads';
+
+  @override
+  String get librarySubtitles => 'Subtitles';
+
+  @override
+  String get libraryPageOrder => 'Page order';
+
+  @override
+  String librarySearchHint(String page) {
+    return 'Search $page';
+  }
+
+  @override
+  String get libraryPageOrderDescription =>
+      'Drag to change the page order in the sidebar.';
+
+  @override
+  String get jpAsmrVerificationTitle => 'Verify JP-ASMR access';
+
+  @override
+  String get jpAsmrVerificationMessage =>
+      'JP-ASMR requires browser verification. Works will reload after verification.';
+
+  @override
+  String get jpAsmrVerify => 'Verify website access';
+
+  @override
+  String get jpAsmrVerificationFailed =>
+      'Verification did not complete. Retry using the same network and proxy.';
+
+  @override
+  String get jpAsmrVerificationUnsupported =>
+      'In-app verification is unavailable on this platform. Change your network or proxy, then retry.';
+
+  @override
   String get subtitleGenerationTitle => 'Generate audio subtitles';
 
   @override

@@ -8,6 +8,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:octo_image/octo_image.dart';
 
 import '../../models/audio_track.dart';
+import '../../services/storage_service.dart';
+import '../../utils/audio_source_headers.dart';
 import '../../utils/local_file_url.dart';
 import '../privacy_blur_cover.dart';
 
@@ -260,6 +262,10 @@ class PlayerCompactArtwork extends StatelessWidget {
           ? FileImage(File(LocalFileUrl.pathFromUrl(url!)!))
           : CachedNetworkImageProvider(
               url!,
+              headers: sourceAwareMediaHeaders(
+                track.workId,
+                accountHeaders: StorageService.serverCookieHeaders,
+              ),
               cacheKey: track.workId == null
                   ? null
                   : 'work_cover_${track.workId}',
@@ -532,6 +538,10 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
     }
     return CachedNetworkImageProvider(
       url,
+      headers: sourceAwareMediaHeaders(
+        snapshot.track.workId,
+        accountHeaders: StorageService.serverCookieHeaders,
+      ),
       cacheKey: snapshot.track.workId != null
           ? 'work_cover_${snapshot.track.workId}'
           : null,
@@ -626,6 +636,10 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
               )
             : CachedNetworkImage(
                 imageUrl: url,
+                httpHeaders: sourceAwareMediaHeaders(
+                  snapshot.track.workId,
+                  accountHeaders: StorageService.serverCookieHeaders,
+                ),
                 cacheKey: snapshot.track.workId != null
                     ? 'work_cover_${snapshot.track.workId}'
                     : null,

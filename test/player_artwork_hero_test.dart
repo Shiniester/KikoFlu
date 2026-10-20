@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/privacy_blur_cover.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:octo_image/octo_image.dart';
@@ -18,6 +19,13 @@ const _track = AudioTrack(
 );
 
 void main() {
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
+  });
+
   testWidgets(
     'compact artwork target for Player Cover Page uses route progress',
     (tester) async {

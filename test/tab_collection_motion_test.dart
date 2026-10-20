@@ -62,7 +62,11 @@ void main() {
       );
       Future<void> select(int index) async {
         target.value = index;
-        await moveToTabPage(pages, index, reduceMotion: false);
+        await pages.animateToPage(
+          index,
+          duration: tabPageDuration,
+          curve: Curves.ease,
+        );
         target.value = null;
       }
 

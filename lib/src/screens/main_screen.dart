@@ -27,6 +27,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   // Preserve the pager while portrait and landscape layouts reparent it.
   final _pagesKey = GlobalKey();
   bool _reduceMotion = false;
+
   int _currentIndex = 0;
   final _selection = ValueNotifier<int?>(0);
   static const int _settingsTabIndex = 2;

@@ -4044,6 +4044,56 @@ class SZh extends S {
   String get comicPopularMonth => '本月热门';
 
   @override
+  String get librarySources => '来源';
+
+  @override
+  String get libraryPages => '页面';
+
+  @override
+  String get libraryBrowseOptions => '浏览选项';
+
+  @override
+  String get libraryMarks => '标记';
+
+  @override
+  String get libraryHistory => '历史';
+
+  @override
+  String get libraryFavorites => '收藏';
+
+  @override
+  String get libraryDownloads => '下载';
+
+  @override
+  String get librarySubtitles => '字幕';
+
+  @override
+  String get libraryPageOrder => '页面顺序';
+
+  @override
+  String librarySearchHint(String page) {
+    return '搜索$page';
+  }
+
+  @override
+  String get libraryPageOrderDescription => '拖动调整侧栏中的页面顺序。';
+
+  @override
+  String get jpAsmrVerificationTitle => '验证 JP-ASMR 访问';
+
+  @override
+  String get jpAsmrVerificationMessage => 'JP-ASMR 需要浏览器验证。完成验证后会重新加载作品。';
+
+  @override
+  String get jpAsmrVerify => '完成网站验证';
+
+  @override
+  String get jpAsmrVerificationFailed => '验证未完成。请重试，并保持相同的网络和代理。';
+
+  @override
+  String get jpAsmrVerificationUnsupported => '当前平台不支持应用内验证。请更换网络或代理后重试。';
+
+  @override
   String get subtitleGenerationTitle => '生成音频字幕';
 
   @override
@@ -8166,6 +8216,56 @@ class SZhHant extends SZh {
 
   @override
   String get comicPopularMonth => '本月熱門';
+
+  @override
+  String get librarySources => '來源';
+
+  @override
+  String get libraryPages => '頁面';
+
+  @override
+  String get libraryBrowseOptions => '瀏覽選項';
+
+  @override
+  String get libraryMarks => '標記';
+
+  @override
+  String get libraryHistory => '歷史';
+
+  @override
+  String get libraryFavorites => '收藏';
+
+  @override
+  String get libraryDownloads => '下載';
+
+  @override
+  String get librarySubtitles => '字幕';
+
+  @override
+  String get libraryPageOrder => '頁面順序';
+
+  @override
+  String librarySearchHint(String page) {
+    return '搜尋$page';
+  }
+
+  @override
+  String get libraryPageOrderDescription => '拖動調整側欄中的頁面順序。';
+
+  @override
+  String get jpAsmrVerificationTitle => '驗證 JP-ASMR 存取';
+
+  @override
+  String get jpAsmrVerificationMessage => 'JP-ASMR 需要瀏覽器驗證。完成驗證後會重新載入作品。';
+
+  @override
+  String get jpAsmrVerify => '完成網站驗證';
+
+  @override
+  String get jpAsmrVerificationFailed => '驗證未完成。請重試，並保持相同的網路和代理。';
+
+  @override
+  String get jpAsmrVerificationUnsupported => '目前平台不支援應用程式內驗證。請更換網路或代理後重試。';
 
   @override
   String get subtitleGenerationTitle => '產生音訊字幕';

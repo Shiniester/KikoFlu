@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'http_byte_range.dart';
@@ -23,6 +25,7 @@ class ResumableFileTransfer {
     required File partialFile,
     required RemoteAssetCancellation cancellation,
     Map<String, String> headers = const {},
+    bool expectedAudio = false,
     ResumableDownloadProgress? onProgress,
   }) async {
     final prefixLength = await partialFile.exists()
@@ -58,36 +61,83 @@ class ResumableFileTransfer {
       await response.stream.drain<void>();
       rethrow;
     }
+    final contentType = response
+        .header(HttpHeaders.contentTypeHeader)
+        ?.split(';')
+        .first
+        .trim()
+        .toLowerCase();
     if (plan.kind == ByteRangeResponseKind.alreadyComplete) {
       await response.stream.drain<void>();
       return ResumableFileTransferResult(totalBytes: prefixLength);
     }
+    if (expectedAudio && contentType == 'text/html') {
+      await response.stream.drain<void>();
+      throw const HttpException('Unexpected HTML download response');
+    }
+
+    final iterator = StreamIterator<List<int>>(response.stream);
+    final initialChunks = <List<int>>[];
+    var initialByteCount = 0;
+    if (expectedAudio) {
+      try {
+        while (initialByteCount < 64 && await iterator.moveNext()) {
+          if (cancellation.isCancelled) {
+            throw const HttpException('File transfer cancelled');
+          }
+          final chunk = iterator.current;
+          initialChunks.add(chunk);
+          initialByteCount += chunk.length;
+        }
+      } catch (_) {
+        await iterator.cancel();
+        rethrow;
+      }
+      if (_looksLikeHtml(initialChunks)) {
+        await iterator.cancel();
+        throw const HttpException('Unexpected HTML download response');
+      }
+    }
 
     final append = plan.kind == ByteRangeResponseKind.partial;
     final retainedPrefix = append ? prefixLength : 0;
-    await partialFile.parent.create(recursive: true);
-    final output = await partialFile.open(
-      mode: append ? FileMode.writeOnlyAppend : FileMode.write,
-    );
+    late final RandomAccessFile output;
+    try {
+      await partialFile.parent.create(recursive: true);
+      output = await partialFile.open(
+        mode: append ? FileMode.writeOnlyAppend : FileMode.write,
+      );
+    } catch (_) {
+      await iterator.cancel();
+      rethrow;
+    }
     var received = 0;
     var structurallyInvalid = false;
+
+    Future<void> writeChunk(List<int> chunk) async {
+      if (cancellation.isCancelled) {
+        throw const HttpException('File transfer cancelled');
+      }
+      final nextReceived = received + chunk.length;
+      if (plan.responseLength != null && nextReceived > plan.responseLength!) {
+        structurallyInvalid = true;
+        throw const FormatException('Byte range exceeded its declared length');
+      }
+      await output.writeFrom(chunk);
+      received = nextReceived;
+      onProgress?.call(retainedPrefix + received, plan.sourceLength);
+    }
+
     try {
-      await for (final chunk in response.stream) {
-        if (cancellation.isCancelled) {
-          throw const HttpException('File transfer cancelled');
-        }
-        received += chunk.length;
-        if (plan.responseLength != null && received > plan.responseLength!) {
-          structurallyInvalid = true;
-          throw const FormatException(
-            'Byte range exceeded its declared length',
-          );
-        }
-        await output.writeFrom(chunk);
-        onProgress?.call(retainedPrefix + received, plan.sourceLength);
+      for (final chunk in initialChunks) {
+        await writeChunk(chunk);
+      }
+      while (await iterator.moveNext()) {
+        await writeChunk(iterator.current);
       }
       await output.flush();
     } finally {
+      await iterator.cancel();
       await output.close();
       if (structurallyInvalid && await partialFile.exists()) {
         await partialFile.delete();
@@ -102,5 +152,21 @@ class ResumableFileTransfer {
       throw const HttpException('File transfer is incomplete');
     }
     return ResumableFileTransferResult(totalBytes: totalLength);
+  }
+
+  bool _looksLikeHtml(List<List<int>> chunks) {
+    final prefix = <int>[];
+    for (final chunk in chunks) {
+      prefix.addAll(chunk);
+      if (prefix.length >= 128) break;
+    }
+    final text = ascii
+        .decode(prefix, allowInvalid: true)
+        .trimLeft()
+        .toLowerCase();
+    return text.startsWith('<!doctype html') ||
+        text.startsWith('<html') ||
+        text.startsWith('<head') ||
+        text.startsWith('<body');
   }
 }

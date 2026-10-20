@@ -17,6 +17,57 @@ class MyTabsDisplaySettingsScreen extends ConsumerWidget {
     );
   }
 
+  String _title(BuildContext context, String page) {
+    final s = S.of(context);
+    return switch (page) {
+      'popular' => s.displayModePopular,
+      'recommended' => s.displayModeRecommended,
+      'onlineMarks' => s.libraryMarks,
+      'history' => s.libraryHistory,
+      'playlists' => s.libraryFavorites,
+      'downloads' => s.libraryDownloads,
+      'subtitleLibrary' => s.librarySubtitles,
+      _ => page,
+    };
+  }
+
+  IconData _icon(String page) => switch (page) {
+    'popular' => Icons.local_fire_department,
+    'recommended' => Icons.auto_awesome,
+    'onlineMarks' => Icons.bookmark,
+    'history' => Icons.history,
+    'playlists' => Icons.favorite,
+    'downloads' => Icons.download_done,
+    'subtitleLibrary' => Icons.subtitles,
+    _ => Icons.library_music_outlined,
+  };
+
+  bool? _visibility(MyTabsDisplaySettings settings, String page) =>
+      switch (page) {
+        'onlineMarks' => settings.showOnlineMarks,
+        'playlists' => settings.showPlaylists,
+        'subtitleLibrary' => settings.showSubtitleLibrary,
+        _ => null,
+      };
+
+  void _setVisibility(
+    MyTabsDisplaySettingsNotifier notifier,
+    String page,
+    bool value,
+  ) {
+    switch (page) {
+      case 'onlineMarks':
+        notifier.setShowOnlineMarks(value);
+        break;
+      case 'playlists':
+        notifier.setShowPlaylists(value);
+        break;
+      case 'subtitleLibrary':
+        notifier.setShowSubtitleLibrary(value);
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(myTabsDisplayProvider);
@@ -24,55 +75,40 @@ class MyTabsDisplaySettingsScreen extends ConsumerWidget {
     final authState = ref.watch(authProvider);
     final isOfficialServer = ServerUtils.isOfficialServer(authState.host);
 
-    return SettingsSubpageScaffold(
-      title: S.of(context).myTabsDisplaySettings,
+    return SettingsReorderablePage<String>(
+      title: S.of(context).libraryPageOrder,
+      infoTitle: S.of(context).libraryPageOrder,
+      infoDescription: S.of(context).libraryPageOrderDescription,
+      items: settings.pageOrder,
+      itemKey: (page) => page,
+      onOrderChanged: notifier.setPageOrder,
       onRestoreDefaults: () => _resetToDefault(context, ref),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // 显示选项卡片
-          SettingsSectionList(
+      itemBuilder: (context, page, index) {
+        final visibility = _visibility(settings, page);
+        final canToggle =
+            visibility != null && (page != 'playlists' || isOfficialServer);
+        return ListTile(
+          leading: Icon(_icon(page)),
+          title: Text(_title(context, page)),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              SettingsSwitchTile(
-                icon: Icons.favorite,
-                title: S.of(context).onlineMarks,
-                subtitle: S.of(context).showOnlineMarks,
-                value: settings.showOnlineMarks,
-                onChanged: (value) => notifier.setShowOnlineMarks(value),
-              ),
-              SettingsListTile(
-                enabled: false,
-                icon: Icons.download,
-                title: S.of(context).historyRecord,
-                subtitle: S.of(context).cannotBeDisabled,
-                trailing: const Switch(value: true, onChanged: null),
-              ),
-              if (isOfficialServer)
-                SettingsSwitchTile(
-                  icon: Icons.playlist_play,
-                  title: S.of(context).playlists,
-                  subtitle: S.of(context).showPlaylists,
-                  value: settings.showPlaylists,
-                  onChanged: (value) => notifier.setShowPlaylists(value),
+              if (canToggle)
+                Switch(
+                  value: visibility,
+                  onChanged: (value) => _setVisibility(notifier, page, value),
                 ),
-              SettingsSwitchTile(
-                icon: Icons.subtitles,
-                title: S.of(context).subtitleLibrary,
-                subtitle: S.of(context).showSubtitleLibrary,
-                value: settings.showSubtitleLibrary,
-                onChanged: (value) => notifier.setShowSubtitleLibrary(value),
-              ),
-              SettingsListTile(
-                enabled: false,
-                icon: Icons.download,
-                title: S.of(context).downloaded,
-                subtitle: S.of(context).cannotBeDisabled,
-                trailing: const Switch(value: true, onChanged: null),
+              ReorderableDragStartListener(
+                index: index,
+                child: const Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Icon(Icons.drag_handle),
+                ),
               ),
             ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

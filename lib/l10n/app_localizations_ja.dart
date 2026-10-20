@@ -4062,6 +4062,59 @@ class SJa extends S {
   String get comicPopularMonth => '今月の人気';
 
   @override
+  String get librarySources => 'ソース';
+
+  @override
+  String get libraryPages => 'ページ';
+
+  @override
+  String get libraryBrowseOptions => '表示設定';
+
+  @override
+  String get libraryMarks => 'マーク';
+
+  @override
+  String get libraryHistory => '履歴';
+
+  @override
+  String get libraryFavorites => 'お気に入り';
+
+  @override
+  String get libraryDownloads => 'ダウンロード';
+
+  @override
+  String get librarySubtitles => '字幕';
+
+  @override
+  String get libraryPageOrder => 'ページ順';
+
+  @override
+  String librarySearchHint(String page) {
+    return '$pageを検索';
+  }
+
+  @override
+  String get libraryPageOrderDescription => 'ドラッグしてサイドバーのページ順を変更します。';
+
+  @override
+  String get jpAsmrVerificationTitle => 'JP-ASMR へのアクセスを確認';
+
+  @override
+  String get jpAsmrVerificationMessage =>
+      'JP-ASMR はブラウザーでの認証が必要です。認証後に作品を再読み込みします。';
+
+  @override
+  String get jpAsmrVerify => 'サイトの認証を完了';
+
+  @override
+  String get jpAsmrVerificationFailed =>
+      '認証が完了しませんでした。同じネットワークとプロキシで再試行してください。';
+
+  @override
+  String get jpAsmrVerificationUnsupported =>
+      'このプラットフォームではアプリ内認証を利用できません。ネットワークまたはプロキシを変更して再試行してください。';
+
+  @override
   String get subtitleGenerationTitle => '音声の字幕を生成';
 
   @override

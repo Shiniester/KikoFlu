@@ -565,6 +565,7 @@ class _OfflineFileExplorerWidgetState
               title: widget.work.title,
               images: target.toGalleryMaps(),
               initialIndex: target.initialIndex,
+              workId: widget.work.id,
             ),
           ),
         );

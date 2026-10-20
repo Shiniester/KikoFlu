@@ -118,10 +118,8 @@ class AudioFileUrlResolver {
 
     final mediaStreamUrl = FileTreeUtils.property(file, 'mediaStreamUrl');
     if (mediaStreamUrl != null && mediaStreamUrl.toString().isNotEmpty) {
-      return _withToken(
-        _absoluteMediaUrl(mediaStreamUrl.toString(), host),
-        token,
-      );
+      final url = _absoluteMediaUrl(mediaStreamUrl.toString(), host);
+      return workId < 0 ? url : _withToken(url, token);
     }
 
     if (host.isEmpty || fileHash == null) return null;

@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
+import 'package:kikoeru_flutter/src/services/audio_cache_downloader.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/playback_session_store.dart';
@@ -28,6 +29,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late ControlledPlayer player;
   late AudioPlayerService service;
+  late _RecordingCacheDownloader cacheDownloader;
   late MemorySessionStore sessions;
   late Directory cacheRoot;
 
@@ -47,7 +49,12 @@ void main() {
         );
     player = ControlledPlayer();
     sessions = MemorySessionStore();
-    service = AudioPlayerService.forTesting(player, sessionStore: sessions);
+    cacheDownloader = _RecordingCacheDownloader();
+    service = AudioPlayerService.forTesting(
+      player,
+      sessionStore: sessions,
+      cacheDownloader: cacheDownloader,
+    );
     service.updatePreloadThreshold(null);
   });
 
@@ -86,6 +93,49 @@ void main() {
       expect(service.currentTrack?.id, 'c');
     },
   );
+
+  test('HLS playlist URLs bypass progressive byte-stream caching', () async {
+    const hlsTrack = AudioTrack(
+      id: 'jp-main',
+      title: 'RJ01726738.m4a',
+      url: 'https://v.weeab0o.xyz/RJ01726738.m3u8',
+      workId: -1726738,
+      hash: 'jp-1726738-main',
+    );
+
+    await service.updateQueue([hlsTrack], autoplay: true);
+
+    expect(player.loaded, [hlsTrack.url]);
+    expect(player.played, [hlsTrack.url]);
+    expect(
+      player.requestHeaders?[HttpHeaders.acceptEncodingHeader],
+      'identity',
+    );
+    expect(
+      player.requestHeaders,
+      containsPair('Referer', 'https://japaneseasmr.com/'),
+    );
+    expect(
+      player.requestHeaders,
+      containsPair('Origin', 'https://japaneseasmr.com'),
+    );
+    expect(player.requestHeaders, isNot(contains('Cookie')));
+    expect(cacheDownloader.targets.whereType<AudioCacheRequest>(), isEmpty);
+  });
+
+  test('HLS playlist URLs bypass automatic caching without a work ID', () async {
+    const hlsTrack = AudioTrack(
+      id: 'hls',
+      title: 'playlist.m3u8',
+      url: 'https://media.example.invalid/playlist.m3u8',
+      hash: 'hls-playlist',
+    );
+
+    await service.updateQueue([hlsTrack], autoplay: true);
+
+    expect(player.loaded, [hlsTrack.url]);
+    expect(cacheDownloader.targets.whereType<AudioCacheRequest>(), isEmpty);
+  });
 
   test('next during A loading merges B and C and publishes only C', () async {
     final published = <String?>[];
@@ -871,6 +921,7 @@ class ControlledPlayer extends Fake implements AudioPlayer {
   final seeks = <Duration>[];
   final initialPositions = <Duration?>[];
   String? source;
+  Map<String, String>? requestHeaders;
   AudioSource? loadedAudioSource;
   bool holdNextLoad = false;
   bool holdNextSeek = false;
@@ -917,7 +968,9 @@ class ControlledPlayer extends Fake implements AudioPlayer {
     int? initialIndex,
     Duration? initialPosition,
   }) async {
-    final uri = (audioSource as UriAudioSource).uri;
+    final uriAudioSource = audioSource as UriAudioSource;
+    final uri = uriAudioSource.uri;
+    requestHeaders = uriAudioSource.headers;
     if (failFileAudioSource && uri.scheme == 'file') {
       throw PlayerException(1, 'Local file source failed');
     }
@@ -1005,6 +1058,18 @@ class ControlledPlayer extends Fake implements AudioPlayer {
 class _RestoreTimeoutPlayer extends ControlledPlayer {
   @override
   Stream<PlaybackEvent> get playbackEventStream => const Stream.empty();
+}
+
+class _RecordingCacheDownloader extends AudioCacheDownloader {
+  _RecordingCacheDownloader() : super(files: CacheService.audioCacheFiles);
+
+  final targets = <AudioCacheRequest?>[];
+
+  @override
+  Future<bool> setTarget(AudioCacheRequest? request) async {
+    targets.add(request);
+    return false;
+  }
 }
 
 class MemorySessionStore implements PlaybackSessionStore {

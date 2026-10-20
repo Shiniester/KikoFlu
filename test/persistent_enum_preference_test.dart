@@ -8,6 +8,7 @@ import 'package:kikoeru_flutter/src/providers/subtitle_library_provider.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/utils/persistent_enum_preference.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -110,6 +111,9 @@ void main() {
             MyReviewLayoutType.smallGrid.name,
         MyReviewsNotifier.filterPreferenceKey: MyReviewFilter.listening.name,
       });
+      await StorageService.initCritical(
+        preferences: await SharedPreferences.getInstance(),
+      );
       final apiService = _TestApiService();
       final container = ProviderContainer(
         overrides: [
