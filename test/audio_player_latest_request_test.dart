@@ -100,6 +100,15 @@ void main() {
 
     expect(player.loaded, [hlsTrack.url]);
     expect(player.played, [hlsTrack.url]);
+    expect(player.requestHeaders, containsPair('Accept-Encoding', 'identity'));
+    expect(
+      player.requestHeaders,
+      containsPair('Referer', 'https://japaneseasmr.com/'),
+    );
+    expect(
+      player.requestHeaders,
+      containsPair('Origin', 'https://japaneseasmr.com'),
+    );
   });
 
   test('next during A loading merges B and C and publishes only C', () async {
@@ -680,6 +689,7 @@ class ControlledPlayer extends Fake implements AudioPlayer {
   final played = <String?>[];
   final seeks = <Duration>[];
   String? source;
+  Map<String, String>? requestHeaders;
   bool holdNextLoad = false;
   Completer<Duration?>? pendingLoad;
   Completer<void>? stopGate;
@@ -715,6 +725,7 @@ class ControlledPlayer extends Fake implements AudioPlayer {
     bool preload = true,
     dynamic tag,
   }) async {
+    requestHeaders = headers;
     source = url;
     loaded.add(url);
     position = Duration.zero;
