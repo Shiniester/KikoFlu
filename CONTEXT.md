@@ -27,6 +27,11 @@ A provider of audio works for independent browsing, search and playback, such as
 ASMR.ONE or Japanese ASMR (jp-asmr, japaneseasmr.com).
 _Avoid_: Playback fallback, mirror server
 
+**Audio Source Verification (音声源验证)**:
+The website check required before an Audio Source permits access from the current
+network. It is separate from signing in to an audio account.
+_Avoid_: Audio account login, source account
+
 **Works Home Page (作品主页)**:
 The online works feed opened by selecting an Audio Source in the drawer,
 including the currently selected source. The drawer also has a fixed Home entry.

@@ -14,6 +14,7 @@ class MainActivity : AudioServiceActivity() {
     private var floatingLyricPlugin: FloatingLyricPlugin? = null
     private var audioHapticsBridge: AudioHapticsBridge? = null
     private var subtitleDirectoryPicker: SubtitleDirectoryPicker? = null
+    private var japaneseAsmrVerification: JapaneseAsmrVerification? = null
     private val screenAwakeChannelName = "com.meteor.kikoeruflutter/screen_awake"
     private val systemProxyChannelName = "com.meteor.kikoeruflutter/system_proxy"
 
@@ -33,6 +34,10 @@ class MainActivity : AudioServiceActivity() {
             messenger = flutterEngine.dartExecutor.binaryMessenger
         )
         subtitleDirectoryPicker = SubtitleDirectoryPicker(
+            activity = this,
+            messenger = flutterEngine.dartExecutor.binaryMessenger
+        )
+        japaneseAsmrVerification = JapaneseAsmrVerification(
             activity = this,
             messenger = flutterEngine.dartExecutor.binaryMessenger
         )
@@ -123,6 +128,8 @@ class MainActivity : AudioServiceActivity() {
         audioHapticsBridge = null
         subtitleDirectoryPicker?.dispose()
         subtitleDirectoryPicker = null
+        japaneseAsmrVerification?.dispose()
+        japaneseAsmrVerification = null
         super.onDestroy()
     }
 }

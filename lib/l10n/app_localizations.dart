@@ -7515,6 +7515,36 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Drag to change the page order in the sidebar.'**
   String get libraryPageOrderDescription;
+
+  /// No description provided for @jpAsmrVerificationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify JP-ASMR access'**
+  String get jpAsmrVerificationTitle;
+
+  /// No description provided for @jpAsmrVerificationMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'JP-ASMR requires browser verification. Works will reload after verification.'**
+  String get jpAsmrVerificationMessage;
+
+  /// No description provided for @jpAsmrVerify.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify website access'**
+  String get jpAsmrVerify;
+
+  /// No description provided for @jpAsmrVerificationFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Verification did not complete. Retry using the same network and proxy.'**
+  String get jpAsmrVerificationFailed;
+
+  /// No description provided for @jpAsmrVerificationUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'In-app verification is unavailable on this platform. Change your network or proxy, then retry.'**
+  String get jpAsmrVerificationUnsupported;
 }
 
 class _SDelegate extends LocalizationsDelegate<S> {

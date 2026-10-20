@@ -1,15 +1,32 @@
 import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
+import 'package:flutter/services.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
+
+import 'proxy_config.dart';
+
+class JapaneseAsmrVerificationRequiredException implements Exception {
+  const JapaneseAsmrVerificationRequiredException();
+
+  static const marker = '[jp-asmr-verification-required]';
+
+  @override
+  String toString() => marker;
+}
 
 /// The public Japanese ASMR catalog is HTML, independent of Kikoeru accounts.
 class JapaneseAsmrService {
   static final instance = JapaneseAsmrService();
   static final website = Uri.parse('https://japaneseasmr.com/');
+  static const _verificationChannel = MethodChannel(
+    'com.meteor.kikoeruflutter/japanese_asmr',
+  );
   static const _sitePageSize = 14;
   final Dio _dio;
+  String? _verificationCookie;
+  String? _verificationUserAgent;
   int? _lastPostId;
   Document? _lastDetail;
   DateTime? _lastRead;
@@ -24,6 +41,15 @@ class JapaneseAsmrService {
             (key, _) =>
                 const ['authorization', 'cookie'].contains(key.toLowerCase()),
           );
+          if (request.uri.scheme == 'https' &&
+              request.uri.host == website.host) {
+            if (_verificationCookie case final cookie?) {
+              request.headers['Cookie'] = cookie;
+            }
+            if (_verificationUserAgent case final userAgent?) {
+              request.headers['User-Agent'] = userAgent;
+            }
+          }
           handler.next(request);
         },
       ),
@@ -34,11 +60,59 @@ class JapaneseAsmrService {
     Uri uri, {
     Map<String, dynamic>? headers,
     CancelToken? cancelToken,
-  }) => _dio.get<String>(
-    uri.toString(),
-    options: Options(responseType: ResponseType.plain, headers: headers),
-    cancelToken: cancelToken,
-  );
+  }) async {
+    try {
+      final response = await _dio.get<String>(
+        uri.toString(),
+        options: Options(responseType: ResponseType.plain, headers: headers),
+        cancelToken: cancelToken,
+      );
+      if (_isCloudflareChallenge(response.headers, response.data)) {
+        throw const JapaneseAsmrVerificationRequiredException();
+      }
+      return response;
+    } on DioException catch (error) {
+      final response = error.response;
+      if (response != null &&
+          _isCloudflareChallenge(response.headers, response.data)) {
+        throw const JapaneseAsmrVerificationRequiredException();
+      }
+      rethrow;
+    }
+  }
+
+  bool _isCloudflareChallenge(Headers headers, Object? data) =>
+      headers.value('cf-mitigated')?.trim().toLowerCase() == 'challenge' ||
+      (data is String &&
+          (data.contains('window._cf_chl_opt') ||
+              data.contains('/orchestrate/chl_page/')));
+
+  Future<bool> verifyAccess({
+    required String title,
+    required String closeLabel,
+  }) async {
+    final result = await _verificationChannel
+        .invokeMapMethod<String, String>('verify', {
+          'url': website.toString(),
+          'proxyMode': ProxyConfig.mode.name,
+          'proxyAddress': ProxyConfig.httpsProxyUrl,
+          'title': title,
+          'closeLabel': closeLabel,
+        });
+    if (result == null) return false;
+    final cookie = result['cookie'];
+    final userAgent = result['userAgent'];
+    if (cookie == null ||
+        userAgent == null ||
+        userAgent.trim().isEmpty ||
+        (cookie.isNotEmpty &&
+            !RegExp(r'^cf_clearance=[^;\r\n]+$').hasMatch(cookie))) {
+      return false;
+    }
+    _verificationCookie = cookie.isEmpty ? null : cookie;
+    _verificationUserAgent = userAgent;
+    return true;
+  }
 
   Future<Map<String, dynamic>> getWorks({
     required int page,
@@ -72,9 +146,16 @@ class JapaneseAsmrService {
     var total = 0;
     var sitePage = first;
     while (true) {
-      final uri = website
-          .resolve(sitePage == 1 ? '/' : '/page/$sitePage/')
-          .replace(queryParameters: keyword == null ? null : {'s': keyword});
+      final uri = keyword == null || keyword.isEmpty
+          ? website.resolve(sitePage == 1 ? '/' : '/page/$sitePage/')
+          : website.replace(
+              pathSegments: [
+                'search',
+                keyword,
+                if (sitePage > 1) ...['page', '$sitePage'],
+                '',
+              ],
+            );
       final document = html.parse(
         (await _get(uri, cancelToken: cancelToken)).data,
       );

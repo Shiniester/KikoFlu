@@ -21,6 +21,7 @@ import '../widgets/floating_feed_toolbar.dart';
 import '../utils/system_ui_style.dart';
 import '../widgets/search_condition_chip.dart';
 import '../widgets/async_state_view.dart';
+import '../widgets/japanese_asmr_access_prompt.dart';
 
 class SearchResultScreen extends StatelessWidget {
   final String keyword;
@@ -393,6 +394,20 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
 
   Widget _buildBody(SearchResultState searchState) {
     if (searchState.error != null) {
+      final error = searchState.error!;
+      if (error.contains('[jp-asmr-verification-required]') &&
+          ref.read(audioSourceProvider) == AudioSource.jpAsmr) {
+        void refreshForJapaneseAsmr() {
+          if (mounted && ref.read(audioSourceProvider) == AudioSource.jpAsmr) {
+            ref.read(searchResultProvider.notifier).refresh();
+          }
+        }
+
+        return JapaneseAsmrAccessPrompt(
+          onRetry: refreshForJapaneseAsmr,
+          onVerified: refreshForJapaneseAsmr,
+        );
+      }
       return AsyncStateView(
         icon: Icon(
           Icons.error_outline,

@@ -1370,5 +1370,10 @@
   "librarySubtitles": "字幕",
   "libraryPageOrder": "頁面順序",
   "librarySearchHint": "搜尋{page}",
-  "libraryPageOrderDescription": "拖動調整側欄中的頁面順序。"
+  "libraryPageOrderDescription": "拖動調整側欄中的頁面順序。",
+  "jpAsmrVerificationTitle": "驗證 JP-ASMR 存取",
+  "jpAsmrVerificationMessage": "JP-ASMR 需要瀏覽器驗證。完成驗證後會重新載入作品。",
+  "jpAsmrVerify": "完成網站驗證",
+  "jpAsmrVerificationFailed": "驗證未完成。請重試，並保持相同的網路和代理。",
+  "jpAsmrVerificationUnsupported": "目前平台不支援應用程式內驗證。請更換網路或代理後重試。"
 }

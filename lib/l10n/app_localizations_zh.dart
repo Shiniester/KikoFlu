@@ -4077,6 +4077,21 @@ class SZh extends S {
 
   @override
   String get libraryPageOrderDescription => '拖动调整侧栏中的页面顺序。';
+
+  @override
+  String get jpAsmrVerificationTitle => '验证 JP-ASMR 访问';
+
+  @override
+  String get jpAsmrVerificationMessage => 'JP-ASMR 需要浏览器验证。完成验证后会重新加载作品。';
+
+  @override
+  String get jpAsmrVerify => '完成网站验证';
+
+  @override
+  String get jpAsmrVerificationFailed => '验证未完成。请重试，并保持相同的网络和代理。';
+
+  @override
+  String get jpAsmrVerificationUnsupported => '当前平台不支持应用内验证。请更换网络或代理后重试。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -8152,4 +8167,19 @@ class SZhHant extends SZh {
 
   @override
   String get libraryPageOrderDescription => '拖動調整側欄中的頁面順序。';
+
+  @override
+  String get jpAsmrVerificationTitle => '驗證 JP-ASMR 存取';
+
+  @override
+  String get jpAsmrVerificationMessage => 'JP-ASMR 需要瀏覽器驗證。完成驗證後會重新載入作品。';
+
+  @override
+  String get jpAsmrVerify => '完成網站驗證';
+
+  @override
+  String get jpAsmrVerificationFailed => '驗證未完成。請重試，並保持相同的網路和代理。';
+
+  @override
+  String get jpAsmrVerificationUnsupported => '目前平台不支援應用程式內驗證。請更換網路或代理後重試。';
 }

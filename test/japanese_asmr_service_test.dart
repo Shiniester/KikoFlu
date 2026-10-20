@@ -1,12 +1,17 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/services/japanese_asmr_service.dart';
+import 'package:kikoeru_flutter/src/services/proxy_config.dart';
 import 'package:kikoeru_flutter/src/utils/tag_localizer.dart';
+
+const _verificationChannel = MethodChannel(
+  'com.meteor.kikoeruflutter/japanese_asmr',
+);
 
 class _Adapter implements HttpClientAdapter {
   final FutureOr<ResponseBody> Function(RequestOptions) respond;
@@ -27,15 +32,18 @@ class _Adapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
-ResponseBody _page(String body, {Map<String, List<String>>? headers}) =>
-    ResponseBody.fromString(
-      body,
-      200,
-      headers: {
-        'content-type': ['text/html; charset=utf-8'],
-        ...?headers,
-      },
-    );
+ResponseBody _page(
+  String body, {
+  int statusCode = 200,
+  Map<String, List<String>>? headers,
+}) => ResponseBody.fromString(
+  body,
+  statusCode,
+  headers: {
+    'content-type': ['text/html; charset=utf-8'],
+    ...?headers,
+  },
+);
 
 String _card(int id) =>
     '''
@@ -61,6 +69,13 @@ const _detail = '''
 </main>''';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  tearDown(
+    () => messenger.setMockMethodCallHandler(_verificationChannel, null),
+  );
+
   test(
     'repaginates native catalog pages without missing or repeating works',
     () async {
@@ -97,9 +112,13 @@ void main() {
       'counts the partial final native page for ${keyword == null ? 'browse' : 'search'}',
       () async {
         final adapter = _Adapter((request) {
-          final page = request.uri.path == '/'
+          if (request.uri.queryParameters.containsKey('s')) {
+            return ResponseBody.fromString('Just a moment', 403);
+          }
+          final pageMarker = request.uri.pathSegments.indexOf('page');
+          final page = pageMarker == -1
               ? 1
-              : int.parse(request.uri.pathSegments[1]);
+              : int.parse(request.uri.pathSegments[pageMarker + 1]);
           final start = (page - 1) * 14 + 1;
           final end = page == 3 ? 29 : page * 14;
           return _page(
@@ -121,11 +140,23 @@ void main() {
         expect((first['works'] as List).map((w) => w['id']), [
           for (var i = 1; i <= 20; i++) -i,
         ]);
-        expect(adapter.requests.map((r) => r.uri.path), [
-          '/',
-          '/page/2/',
-          '/page/3/',
-        ]);
+        final expectedPaths = keyword == null
+            ? [
+                [],
+                ['page', '2'],
+                ['page', '3'],
+              ]
+            : [
+                ['search', keyword],
+                ['search', keyword, 'page', '2'],
+                ['search', keyword, 'page', '3'],
+              ];
+        expect(
+          adapter.requests.map(
+            (r) => r.uri.pathSegments.where((s) => s.isNotEmpty).toList(),
+          ),
+          expectedPaths,
+        );
         final second = await load(2);
         expect(second['pagination']['totalCount'], 29);
         expect((second['works'] as List).map((w) => w['id']), [
@@ -133,8 +164,8 @@ void main() {
         ]);
         expect(adapter.requests, hasLength(5));
         expect(
-          adapter.requests.map((r) => r.uri.queryParameters['s']),
-          everyElement(keyword),
+          adapter.requests.every((r) => r.uri.queryParameters.isEmpty),
+          isTrue,
         );
       },
     );
@@ -157,6 +188,238 @@ void main() {
       service.getWorks(page: 1, pageSize: 20),
       throwsFormatException,
     );
+  });
+
+  test('identifies a Cloudflare challenge returned with HTTP 403', () async {
+    final adapter = _Adapter(
+      (_) => _page(
+        '<html><title>Just a moment</title></html>',
+        statusCode: 403,
+        headers: {
+          'cf-mitigated': ['challenge'],
+        },
+      ),
+    );
+    final service = JapaneseAsmrService(
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+    await expectLater(
+      service.getWorks(page: 1, pageSize: 20),
+      throwsA(
+        isA<Object>().having(
+          (error) => error.toString(),
+          'error string',
+          contains('[jp-asmr-verification-required]'),
+        ),
+      ),
+    );
+  });
+
+  test(
+    'does not treat the normal Cloudflare telemetry script as a challenge',
+    () async {
+      final adapter = _Adapter(
+        (_) => _page(
+          '<script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script>'
+          '<main class="site-main"></main>',
+        ),
+      );
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+      await expectLater(service.getWorks(page: 1, pageSize: 20), completes);
+    },
+  );
+
+  test('identifies an HTTP 200 Cloudflare interstitial body', () async {
+    final adapter = _Adapter(
+      (_) => _page(
+        '<script>window._cf_chl_opt = {}</script>'
+        '<main class="site-main"></main>',
+      ),
+    );
+    final service = JapaneseAsmrService(
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+    await expectLater(
+      service.getWorks(page: 1, pageSize: 20),
+      throwsA(
+        isA<Object>().having(
+          (error) => error.toString(),
+          'error string',
+          contains('[jp-asmr-verification-required]'),
+        ),
+      ),
+    );
+  });
+
+  test('preserves an unrelated HTTP 403 as a DioException', () async {
+    final adapter = _Adapter(
+      (_) => _page('<h1>Forbidden</h1>', statusCode: 403),
+    );
+    final service = JapaneseAsmrService(
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+    await expectLater(
+      service.getWorks(page: 1, pageSize: 20),
+      throwsA(
+        isA<DioException>().having(
+          (error) => error.response?.statusCode,
+          'statusCode',
+          403,
+        ),
+      ),
+    );
+  });
+
+  test(
+    'uses the verified cookie and user agent only for Japanese ASMR',
+    () async {
+      final previousMode = ProxyConfig.mode;
+      final previousAddress = ProxyConfig.address;
+      addTearDown(() {
+        ProxyConfig.mode = previousMode;
+        ProxyConfig.address = previousAddress;
+      });
+      ProxyConfig.mode = ProxyMode.manual;
+      ProxyConfig.address = '127.0.0.1:7890';
+      final verificationCalls = <MethodCall>[];
+      messenger.setMockMethodCallHandler(_verificationChannel, (call) async {
+        verificationCalls.add(call);
+        return {'cookie': 'cf_clearance=verified', 'userAgent': 'Browser UA'};
+      });
+      final adapter = _Adapter((request) {
+        if (request.uri.host == 'japaneseasmr.com') {
+          return _page('<main class="site-main"></main>');
+        }
+        if (request.uri.path == '/full') {
+          return _page(
+            '<a class="download-btn" hx-get="/full/download">Download</a>',
+          );
+        }
+        return _page(
+          '',
+          headers: {
+            'hx-redirect': ['https://media.example/full.m4a'],
+          },
+        );
+      });
+      final service = JapaneseAsmrService(
+        dio: Dio(
+          BaseOptions(
+            headers: {
+              'Authorization': 'Bearer private',
+              'Cookie': 'session=private',
+            },
+          ),
+        )..httpClientAdapter = adapter,
+      );
+
+      expect(
+        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
+        isTrue,
+      );
+      expect(verificationCalls.single.method, 'verify');
+      expect(verificationCalls.single.arguments, {
+        'url': 'https://japaneseasmr.com/',
+        'proxyMode': 'manual',
+        'proxyAddress': ProxyConfig.httpsProxyUrl,
+        'title': 'Verify',
+        'closeLabel': 'Close',
+      });
+
+      await service.getWorks(page: 1, pageSize: 20);
+      await expectLater(
+        service.resolveDownloadUrl(
+          'http://japaneseasmr.com/dlc.php?f=RJ00000001',
+        ),
+        throwsFormatException,
+      );
+      await service.resolveDownloadUrl('https://buzzheavier.com/full');
+
+      final japaneseRequest = adapter.requests.first;
+      expect(japaneseRequest.headers['Cookie'], 'cf_clearance=verified');
+      expect(japaneseRequest.headers['User-Agent'], 'Browser UA');
+      expect(
+        japaneseRequest.headers.keys.map((key) => key.toLowerCase()),
+        isNot(contains('authorization')),
+      );
+      final insecureJapaneseRequest = adapter.requests[1];
+      expect(insecureJapaneseRequest.uri.scheme, 'http');
+      expect(
+        insecureJapaneseRequest.headers.keys.map((key) => key.toLowerCase()),
+        isNot(contains(anyOf('cookie', 'user-agent'))),
+      );
+      for (final request in adapter.requests.skip(2)) {
+        expect(request.uri.host, isNot('japaneseasmr.com'));
+        expect(
+          request.headers.keys.map((key) => key.toLowerCase()),
+          isNot(contains(anyOf('authorization', 'cookie'))),
+        );
+        expect(request.headers['User-Agent'], isNot('Browser UA'));
+      }
+    },
+  );
+
+  test(
+    'keeps the previous verified session when verification is cancelled',
+    () async {
+      var callCount = 0;
+      messenger.setMockMethodCallHandler(_verificationChannel, (call) async {
+        callCount++;
+        return callCount == 1
+            ? {'cookie': 'cf_clearance=kept', 'userAgent': 'Browser UA'}
+            : null;
+      });
+      final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+      expect(
+        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
+        isTrue,
+      );
+      expect(
+        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
+        isFalse,
+      );
+      await service.getWorks(page: 1, pageSize: 20);
+      expect(adapter.requests.single.headers['Cookie'], 'cf_clearance=kept');
+      expect(adapter.requests.single.headers['User-Agent'], 'Browser UA');
+    },
+  );
+
+  test('rejects verification responses containing other cookies', () async {
+    messenger.setMockMethodCallHandler(
+      _verificationChannel,
+      (call) async => {
+        'cookie': 'session=private; cf_clearance=unexpected',
+        'userAgent': 'Browser UA',
+      },
+    );
+    final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
+    final service = JapaneseAsmrService(
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+    expect(
+      await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
+      isFalse,
+    );
+    await service.getWorks(page: 1, pageSize: 20);
+    expect(
+      adapter.requests.single.headers.keys.map((key) => key.toLowerCase()),
+      isNot(contains(anyOf('cookie', 'user-agent'))),
+    );
+  });
+
+  test('uses the browse route for an empty search keyword', () async {
+    final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
+    final service = JapaneseAsmrService(
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+    await service.searchWorks(keyword: '', page: 1, pageSize: 20);
+    expect(adapter.requests.single.uri.path, '/');
+    expect(adapter.requests.single.uri.queryParameters, isEmpty);
   });
 
   test(
@@ -189,26 +452,37 @@ void main() {
     },
   );
 
-  test('encodes search and never forwards audio account credentials', () async {
-    final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
-    final dio = Dio(
-      BaseOptions(
-        headers: {
-          'Authorization': 'Bearer private',
-          'Cookie': 'session=private',
-        },
-      ),
-    )..httpClientAdapter = adapter;
-    await JapaneseAsmrService(
-      dio: dio,
-    ).searchWorks(keyword: '耳かき & voice', page: 1, pageSize: 20);
-    final request = adapter.requests.single;
-    expect(request.uri.queryParameters['s'], '耳かき & voice');
-    expect(
-      request.headers.keys.map((k) => k.toLowerCase()),
-      isNot(contains(anyOf('authorization', 'cookie'))),
-    );
-  });
+  test(
+    'encodes search path segments and never forwards audio account credentials',
+    () async {
+      final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
+      final dio = Dio(
+        BaseOptions(
+          headers: {
+            'Authorization': 'Bearer private',
+            'Cookie': 'session=private',
+          },
+        ),
+      )..httpClientAdapter = adapter;
+      const keyword = '耳かき & voice #?/%+';
+      await JapaneseAsmrService(
+        dio: dio,
+      ).searchWorks(keyword: keyword, page: 1, pageSize: 20);
+      final request = adapter.requests.single;
+      expect(request.uri.pathSegments.where((s) => s.isNotEmpty), [
+        'search',
+        keyword,
+      ]);
+      expect(request.uri.path, contains('%23%3F%2F%25'));
+      expect(request.uri.path.endsWith('/'), isTrue);
+      expect(request.uri.queryParameters, isEmpty);
+      expect(request.uri.fragment, isEmpty);
+      expect(
+        request.headers.keys.map((k) => k.toLowerCase()),
+        isNot(contains(anyOf('authorization', 'cookie'))),
+      );
+    },
+  );
 
   test(
     'normalizes detail identity and uses only the work player media',

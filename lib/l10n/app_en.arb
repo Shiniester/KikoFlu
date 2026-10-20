@@ -1717,5 +1717,10 @@
   "libraryPageOrder": "Page order",
   "librarySearchHint": "Search {page}",
   "@librarySearchHint": { "placeholders": { "page": { "type": "String" } } },
-  "libraryPageOrderDescription": "Drag to change the page order in the sidebar."
+  "libraryPageOrderDescription": "Drag to change the page order in the sidebar.",
+  "jpAsmrVerificationTitle": "Verify JP-ASMR access",
+  "jpAsmrVerificationMessage": "JP-ASMR requires browser verification. Works will reload after verification.",
+  "jpAsmrVerify": "Verify website access",
+  "jpAsmrVerificationFailed": "Verification did not complete. Retry using the same network and proxy.",
+  "jpAsmrVerificationUnsupported": "In-app verification is unavailable on this platform. Change your network or proxy, then retry."
 }

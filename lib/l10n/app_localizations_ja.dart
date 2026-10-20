@@ -4095,4 +4095,22 @@ class SJa extends S {
 
   @override
   String get libraryPageOrderDescription => 'ドラッグしてサイドバーのページ順を変更します。';
+
+  @override
+  String get jpAsmrVerificationTitle => 'JP-ASMR へのアクセスを確認';
+
+  @override
+  String get jpAsmrVerificationMessage =>
+      'JP-ASMR はブラウザーでの認証が必要です。認証後に作品を再読み込みします。';
+
+  @override
+  String get jpAsmrVerify => 'サイトの認証を完了';
+
+  @override
+  String get jpAsmrVerificationFailed =>
+      '認証が完了しませんでした。同じネットワークとプロキシで再試行してください。';
+
+  @override
+  String get jpAsmrVerificationUnsupported =>
+      'このプラットフォームではアプリ内認証を利用できません。ネットワークまたはプロキシを変更して再試行してください。';
 }

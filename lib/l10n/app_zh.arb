@@ -1413,5 +1413,10 @@
   "librarySubtitles": "字幕",
   "libraryPageOrder": "页面顺序",
   "librarySearchHint": "搜索{page}",
-  "libraryPageOrderDescription": "拖动调整侧栏中的页面顺序。"
+  "libraryPageOrderDescription": "拖动调整侧栏中的页面顺序。",
+  "jpAsmrVerificationTitle": "验证 JP-ASMR 访问",
+  "jpAsmrVerificationMessage": "JP-ASMR 需要浏览器验证。完成验证后会重新加载作品。",
+  "jpAsmrVerify": "完成网站验证",
+  "jpAsmrVerificationFailed": "验证未完成。请重试，并保持相同的网络和代理。",
+  "jpAsmrVerificationUnsupported": "当前平台不支持应用内验证。请更换网络或代理后重试。"
 }

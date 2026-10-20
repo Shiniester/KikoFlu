@@ -56,6 +56,7 @@ import 'package:kikoeru_flutter/src/widgets/enhanced_work_card.dart';
 import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 import 'package:kikoeru_flutter/src/utils/snackbar_util.dart';
 import 'package:kikoeru_flutter/src/widgets/settings_section.dart';
+import 'package:kikoeru_flutter/src/widgets/japanese_asmr_access_prompt.dart';
 
 class _Reviews extends MyReviewsNotifier {
   _Reviews(Ref ref) : super(KikoeruApiService(), ref);
@@ -123,6 +124,17 @@ class _Works extends WorksNotifier {
   }
 
   void useGrid() => state = state.copyWith(layoutType: LayoutType.bigGrid);
+
+  void requireVerification() {
+    state = state.copyWith(
+      modeStates: {
+        ...state.modeStates,
+        state.displayMode: state.modeStates[state.displayMode]!.copyWith(
+          error: '[jp-asmr-verification-required]',
+        ),
+      },
+    );
+  }
 
   void useDistinctModeTitles() {
     final modeStates = Map<DisplayMode, WorksModeSnapshot>.from(
@@ -364,6 +376,31 @@ void main() {
       preferences: await SharedPreferences.getInstance(),
     );
   });
+
+  testWidgets(
+    'JP verification remains available when the home already has works',
+    (tester) async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        AudioSourceNotifier.preferenceKey,
+        audio_source.AudioSource.jpAsmr.name,
+      );
+      final reduced = ValueNotifier(true);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(AudioScreen)),
+      );
+      expect(container.read(worksProvider).works, isNotEmpty);
+
+      (container.read(worksProvider.notifier) as _Works).requireVerification();
+      await tester.pumpAndSettle();
+
+      expect(container.read(worksProvider).works, isNotEmpty);
+      expect(find.byType(JapaneseAsmrAccessPrompt), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('audio home remains visible after rotating the main screen', (
     tester,

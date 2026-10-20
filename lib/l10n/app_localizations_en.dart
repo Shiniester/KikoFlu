@@ -4212,4 +4212,22 @@ class SEn extends S {
   @override
   String get libraryPageOrderDescription =>
       'Drag to change the page order in the sidebar.';
+
+  @override
+  String get jpAsmrVerificationTitle => 'Verify JP-ASMR access';
+
+  @override
+  String get jpAsmrVerificationMessage =>
+      'JP-ASMR requires browser verification. Works will reload after verification.';
+
+  @override
+  String get jpAsmrVerify => 'Verify website access';
+
+  @override
+  String get jpAsmrVerificationFailed =>
+      'Verification did not complete. Retry using the same network and proxy.';
+
+  @override
+  String get jpAsmrVerificationUnsupported =>
+      'In-app verification is unavailable on this platform. Change your network or proxy, then retry.';
 }

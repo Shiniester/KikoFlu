@@ -1370,5 +1370,10 @@
   "librarySubtitles": "字幕",
   "libraryPageOrder": "ページ順",
   "librarySearchHint": "{page}を検索",
-  "libraryPageOrderDescription": "ドラッグしてサイドバーのページ順を変更します。"
+  "libraryPageOrderDescription": "ドラッグしてサイドバーのページ順を変更します。",
+  "jpAsmrVerificationTitle": "JP-ASMR へのアクセスを確認",
+  "jpAsmrVerificationMessage": "JP-ASMR はブラウザーでの認証が必要です。認証後に作品を再読み込みします。",
+  "jpAsmrVerify": "サイトの認証を完了",
+  "jpAsmrVerificationFailed": "認証が完了しませんでした。同じネットワークとプロキシで再試行してください。",
+  "jpAsmrVerificationUnsupported": "このプラットフォームではアプリ内認証を利用できません。ネットワークまたはプロキシを変更して再試行してください。"
 }

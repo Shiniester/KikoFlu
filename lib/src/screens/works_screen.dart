@@ -21,6 +21,7 @@ import '../utils/system_ui_style.dart';
 import '../utils/ui_tokens.dart';
 import '../widgets/async_state_view.dart';
 import '../widgets/audio_account_prompt.dart';
+import '../widgets/japanese_asmr_access_prompt.dart';
 
 class WorksScreen extends ConsumerStatefulWidget {
   const WorksScreen({
@@ -296,6 +297,20 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
       if (isActive()) unawaited(notifier.refresh());
     }
 
+    if (worksState.error?.contains('[jp-asmr-verification-required]') == true &&
+        ref.read(audioSourceProvider) == AudioSource.jpAsmr) {
+      void refreshJapaneseAsmr() {
+        if (mounted && ref.read(audioSourceProvider) == AudioSource.jpAsmr) {
+          guardedRefresh();
+        }
+      }
+
+      return JapaneseAsmrAccessPrompt(
+        onRetry: refreshJapaneseAsmr,
+        onVerified: refreshJapaneseAsmr,
+      );
+    }
+
     return WorksGridView(
       works: worksState.works,
       layoutType: worksState.layoutType,
@@ -351,32 +366,35 @@ class _WorksScreenState extends ConsumerState<WorksScreen>
         message: Text(S.of(context).loading),
         iconToTitleSpacing: UiSpacing.large,
       ),
-      errorBuilder: (context, error, retry) =>
-          error.toString().contains('[audio-login-required]')
-          ? const AudioAccountPrompt()
-          : AsyncStateView(
-              icon: Icon(
-                Icons.error_outline,
-                size: 64,
-                color: Theme.of(context).colorScheme.error,
-              ),
-              title: Text(
-                S.of(context).loadFailed,
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              message: Text(
-                error.toString(),
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              action: ElevatedButton.icon(
-                onPressed: retry,
-                icon: const Icon(Icons.refresh),
-                label: Text(S.of(context).retry),
-              ),
+      errorBuilder: (context, error, retry) {
+        final errorText = error.toString();
+        if (errorText.contains('[audio-login-required]')) {
+          return const AudioAccountPrompt();
+        }
+        return AsyncStateView(
+          icon: Icon(
+            Icons.error_outline,
+            size: 64,
+            color: Theme.of(context).colorScheme.error,
+          ),
+          title: Text(
+            S.of(context).loadFailed,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          message: Text(
+            error.toString(),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
+            textAlign: TextAlign.center,
+          ),
+          action: ElevatedButton.icon(
+            onPressed: retry,
+            icon: const Icon(Icons.refresh),
+            label: Text(S.of(context).retry),
+          ),
+        );
+      },
       emptyBuilder: (context) => AsyncStateView(
         icon: Icon(
           Icons.audiotrack,
