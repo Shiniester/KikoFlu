@@ -149,38 +149,66 @@ void main() {
     }
   }
 
-  testWidgets('drawer groups share settings cards with their headings inside', (
-    tester,
-  ) async {
-    await tester.pumpWidget(app(longDrawer: false));
-    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
-    await tester.pumpAndSettle();
-    final drawer = find.byKey(const ValueKey('library-drawer'));
-    expect(
-      find.descendant(of: drawer, matching: find.byType(SettingsSectionCard)),
-      findsNWidgets(3),
+  for (final brightness in Brightness.values) {
+    testWidgets(
+      'drawer uses settings background and contrasting cards ($brightness)',
+      (tester) async {
+        await tester.pumpWidget(app(longDrawer: false, brightness: brightness));
+        await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+        await tester.pumpAndSettle();
+        final drawer = find.byKey(const ValueKey('library-drawer'));
+        final background = tester
+            .widget<Material>(
+              find
+                  .descendant(of: drawer, matching: find.byType(Material))
+                  .first,
+            )
+            .color;
+        expect(
+          background,
+          Theme.of(tester.element(drawer)).scaffoldBackgroundColor,
+        );
+        expect(
+          find.descendant(
+            of: drawer,
+            matching: find.byType(SettingsSectionCard),
+          ),
+          findsNWidgets(3),
+        );
+        for (final title in ['来源', '页面', '浏览选项']) {
+          final section = find.ancestor(
+            of: find.text(title),
+            matching: find.byType(LibraryDrawerSection),
+          );
+          final card = find.descendant(
+            of: section,
+            matching: find.byType(Card),
+          );
+          expect(
+            find.descendant(of: card, matching: find.text(title)),
+            findsOneWidget,
+          );
+          final widget = tester.widget<Card>(card);
+          final cardColor = tester
+              .widget<Material>(
+                find
+                    .descendant(of: card, matching: find.byType(Material))
+                    .first,
+              )
+              .color;
+          expect(cardColor, isNot(background));
+          expect(widget.margin, EdgeInsets.zero);
+          expect(widget.clipBehavior, Clip.antiAlias);
+          expect(widget.shape, isA<RoundedRectangleBorder>());
+        }
+        expect(
+          tester.getSize(find.byKey(const ValueKey('history-row'))).height,
+          48,
+        );
+        expect(tester.takeException(), isNull);
+      },
     );
-    for (final title in ['来源', '页面', '浏览选项']) {
-      final section = find.ancestor(
-        of: find.text(title),
-        matching: find.byType(LibraryDrawerSection),
-      );
-      final card = find.descendant(of: section, matching: find.byType(Card));
-      expect(
-        find.descendant(of: card, matching: find.text(title)),
-        findsOneWidget,
-      );
-      final widget = tester.widget<Card>(card);
-      expect(widget.margin, EdgeInsets.zero);
-      expect(widget.clipBehavior, Clip.antiAlias);
-      expect(widget.shape, isA<RoundedRectangleBorder>());
-    }
-    expect(
-      tester.getSize(find.byKey(const ValueKey('history-row'))).height,
-      48,
-    );
-    expect(tester.takeException(), isNull);
-  });
+  }
 
   testWidgets(
     'compact drawer keeps settings at bottom without selected checks',

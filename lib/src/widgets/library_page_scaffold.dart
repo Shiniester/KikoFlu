@@ -34,6 +34,7 @@ class LibraryPageScaffold extends StatelessWidget {
       child: Scaffold(
         drawer: Drawer(
           key: const ValueKey('library-drawer'),
+          backgroundColor: theme.scaffoldBackgroundColor,
           width: math.min(256, width - 48),
           child: SafeArea(
             child: Column(
