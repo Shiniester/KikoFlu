@@ -206,7 +206,19 @@ v4.4.16，覆盖展开、部分切页、拖拽反向和交接。检查 Hero、�
 卡顿比例不增加。大文件切换中位数/P95 改善至少 25%。显式停止策略只有大文件
 两项均改善 25%、小文件回退不超过 5% 才采用。测量未达门槛时直接记录结果。
 
-Android 本地文件 seek 监听原生错误事件；错误或等待超过 8 秒时，由现有请求
+音源加载统一使用 `setAudioSource`，队列初始位置随 `initialPosition` 传入。
+已下载文件和完整缓存使用本地文件源，其他音频使用远程 URI 源；Android
+直接交给 Media3 发起请求，携带现有媒体请求头，不经过自定义音频流或本地代理。
+缓存下载完成后不改变当前音源，下次加载才使用完整缓存。
+
+音频自动缓存和下一首预加载共用 `AudioCacheDownloader`：正常播放时缓存当前
+在线曲目，剩余时间进入预加载阈值后优先缓存下一首。关闭下一首预加载仍保留
+当前曲目的自动缓存。后台任务复用 `ResumableFileTransfer`，保留 `.audio.part`
+用于续传，仅在长度校验通过后发布完整 `.audio` 文件。暂停、停止、切歌和进度
+跳转不等待后台下载收尾；缓冲或用户下载占满容量时暂停后台任务。缓存清理先
+停止后台写入，并保留正在播放或复制的缓存文件。
+
+Android 的本地及远程音源 seek 监听原生错误事件；错误或等待超过 8 秒时，由现有请求
 协调器停止旧原生实例，并以 `initialPosition` 重载当前音源一次。同位置或已到
 文件末尾且状态匹配的跳转允许没有 READY 回调。恢复不重新发布曲目，不删除
 完整缓存；正常完成的 seek 不换源。暂停、停止和新曲目选择始终保留最终意图。
@@ -222,7 +234,9 @@ Profile seek 场景的外层上限为 35 秒，覆盖 seek 及恢复各阶段的
 本机契约回归：
 
 ```powershell
-flutter test --no-pub test/audio_player_seek_recovery_test.dart `
+flutter test --no-pub test/audio_cache_downloader_test.dart `
+  test/audio_player_cache_independence_test.dart test/resumable_file_transfer_test.dart `
+  test/audio_player_seek_recovery_test.dart `
   test/audio_player_latest_request_test.dart test/android_audio_backend_guard_test.dart `
   test/playback_session_restore_failure_test.dart test/playback_history_service_test.dart `
   test/playback_session_store_test.dart

@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/models/lyric.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
@@ -39,7 +38,7 @@ const _native = MethodChannel('com.kikoeru.flutter/floating_lyric');
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  late _Player player;
+  late ControlledPlayer player;
   late AudioPlayerService audio;
   late ProviderContainer container;
   late _Lyrics lyrics;
@@ -104,7 +103,7 @@ void main() {
       }
       return true;
     });
-    player = _Player();
+    player = ControlledPlayer();
     audio = AudioPlayerService.forTesting(
       player,
       sessionStore: MemorySessionStore(),
@@ -254,17 +253,6 @@ void main() {
       expect(lyrics.loads, ['a']);
     },
   );
-}
-
-class _Player extends ControlledPlayer {
-  final states = StreamController<PlayerState>.broadcast();
-  @override
-  Stream<PlayerState> get playerStateStream => states.stream;
-  @override
-  Future<void> dispose() async {
-    await states.close();
-    await super.dispose();
-  }
 }
 
 class _Lyrics extends LyricController {

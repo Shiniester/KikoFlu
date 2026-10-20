@@ -39,3 +39,23 @@ String formatRJCode(int id) {
   }
   return 'RJ$code';
 }
+
+final _simplifiedChineseCharacters = RegExp(
+  '[这们说语让听觉过还给远边轻欢爱亲够练经绪线绵软细钟错门关录档风纸书读优务专业丝动对从无贝见车东乐买产仅传伤兴军农决况冻净减凑刘则创剧办势华协卖卢卫县变叹吗呜员响哑唤啰简标题频视览译备缩缓发头]',
+);
+final _distinctiveTraditionalChineseCharacters = RegExp(
+  '[這們說聽覺輕夠經關錄檔讀專絲對從產傳淨辦賣變嗎啞囉譯體聲戀發髮灣]',
+);
+final _kanaCharacters = RegExp(
+  '[\\u3041-\\u3096\\u309d-\\u309f\\u30a1-\\u30fa\\u30fc-\\u30ff\\u31f0-\\u31ff\\uff66-\\uff9d]',
+);
+final _latinPhrase = RegExp(r'\b[a-zA-Z]+(?:\s+[a-zA-Z]+)+\b');
+
+bool containsKana(String text) => _kanaCharacters.hasMatch(text);
+
+bool isClearlyChinese(String text) {
+  // shortcut: unknown Chinese/Japanese shared characters still need translation; use language detection if broader coverage is needed.
+  if (containsKana(text) || _latinPhrase.hasMatch(text)) return false;
+  return _simplifiedChineseCharacters.hasMatch(text) ||
+      _distinctiveTraditionalChineseCharacters.hasMatch(text);
+}

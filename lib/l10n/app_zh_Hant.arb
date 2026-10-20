@@ -1375,5 +1375,76 @@
   "jpAsmrVerificationMessage": "JP-ASMR 需要瀏覽器驗證。完成驗證後會重新載入作品。",
   "jpAsmrVerify": "完成網站驗證",
   "jpAsmrVerificationFailed": "驗證未完成。請重試，並保持相同的網路和代理。",
-  "jpAsmrVerificationUnsupported": "目前平台不支援應用程式內驗證。請更換網路或代理後重試。"
+  "jpAsmrVerificationUnsupported": "目前平台不支援應用程式內驗證。請更換網路或代理後重試。",
+  "subtitleGenerationTitle": "產生音訊字幕",
+  "subtitleGenerateAll": "產生全部字幕",
+  "subtitleGenerate": "產生字幕",
+  "subtitleGenerationTranslationFailed": "原文字幕已儲存。翻譯失敗，可重試翻譯。",
+  "subtitleGenerationRetryTranslation": "重試翻譯",
+  "subtitleGenerationTranslationConfirm": "產生的字幕文字將傳送給設定中選取的翻譯來源。目標語言跟隨全域翻譯目標。原文字幕會保留，譯文沿用自動儲存設定。",
+  "subtitleGenerationDescription": "在本裝置辨識日語。首次使用需下載約 160 MB 模型，支援 MP3、WAV、FLAC。產生的字幕文字會自動翻譯，翻譯來源和目標語言沿用設定。",
+  "subtitleGenerationQueued": "等待產生",
+  "subtitleGenerationChecking": "檢查現有字幕",
+  "subtitleGenerationDownloadingAudio": "下載完整音訊",
+  "subtitleGenerationDownloadingModel": "下載辨識模型",
+  "subtitleGenerationTranscribing": "辨識日語",
+  "subtitleGenerationSaving": "儲存字幕",
+  "subtitleGenerationCompleted": "已產生",
+  "subtitleGenerationSkipped": "已有字幕",
+  "subtitleGenerationUnsupported": "暫不支援此格式（僅支援 MP3、WAV、FLAC）",
+  "subtitleGenerationCancelled": "已取消",
+  "subtitleGenerationCancelAll": "取消全部",
+  "subtitleGenerationCloseHint": "關閉此面板後任務繼續。",
+  "subtitleGenerationFailed": "失敗：{stage}",
+  "subtitleGenerationProgress": "{stage} · {progress}",
+  "subtitleGenerationSummary": "已產生 {completed} · 已有字幕 {skipped} · 不支援 {unsupported} · 失敗 {failed} · 取消 {cancelled}",
+  "@subtitleGenerationTitle": {
+    "description": "Title of local audio subtitle generation progress panel."
+  },
+  "@subtitleGenerateAll": {
+    "description": "Audio tab action applying to all audio in the current filtered list."
+  },
+  "@subtitleGenerationDescription": {
+    "description": "Explains local Japanese recognition, first-use model download, supported formats and automatic translation."
+  },
+  "@subtitleGenerationFailed": {
+    "description": "Failed task with the processing stage where it stopped.",
+    "placeholders": {
+      "stage": {
+        "type": "String"
+      }
+    }
+  },
+  "@subtitleGenerationProgress": {
+    "description": "Current processing stage and localized percentage.",
+    "placeholders": {
+      "stage": {
+        "type": "String"
+      },
+      "progress": {
+        "type": "double",
+        "format": "percentPattern"
+      }
+    }
+  },
+  "@subtitleGenerationSummary": {
+    "description": "Counts of completed audio subtitle generation tasks by outcome.",
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "skipped": {
+        "type": "int"
+      },
+      "unsupported": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      },
+      "cancelled": {
+        "type": "int"
+      }
+    }
+  }
 }

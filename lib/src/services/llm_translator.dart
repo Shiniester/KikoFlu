@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:ui';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,11 +8,13 @@ import 'translation_service.dart';
 class LLMTranslator {
   final Dio _dio = Dio();
 
-  Future<String> translate(String text,
-      {String? sourceLang,
-      Locale? locale,
-      String? sourceLanguageName,
-      String? targetLanguageName}) async {
+  Future<String> translate(
+    String text, {
+    String? sourceLang,
+    Locale? locale,
+    String? sourceLanguageName,
+    String? targetLanguageName,
+  }) async {
     if (text.isEmpty) return text;
 
     try {
@@ -33,7 +36,7 @@ class LLMTranslator {
           : savedPrompt;
 
       if (apiKey.isEmpty) {
-        return 'Error: API Key is missing. Please configure LLM settings.';
+        throw StateError('LLM API key is not configured.');
       }
 
       final response = await _dio.post(
@@ -55,27 +58,29 @@ class LLMTranslator {
         },
       );
 
-      if (response.statusCode == 200) {
-        final data = response.data;
-        if (data != null &&
-            data['choices'] != null &&
-            data['choices'].isNotEmpty) {
-          final choice = data['choices'][0];
-          final message = choice is Map ? choice['message'] : null;
-          final content = message is Map ? message['content'] : null;
-          return content?.toString().trim() ?? text;
-        }
+      if (response.statusCode != 200) {
+        throw HttpException('LLM returned HTTP ${response.statusCode}.');
       }
-      return text;
+
+      final data = response.data;
+      if (data is! Map || data['choices'] is! List || data['choices'].isEmpty) {
+        throw const FormatException('Invalid LLM translation response.');
+      }
+      final choice = data['choices'].first;
+      final message = choice is Map ? choice['message'] : null;
+      final content = message is Map ? message['content'] : null;
+      if (content is! String || content.trim().isEmpty) {
+        throw const FormatException('Invalid LLM translation content.');
+      }
+      return content.trim();
     } catch (e) {
       logOutput('LLM translation error: $e');
       if (e is DioException) {
         if (e.response != null) {
           logOutput('Response data: ${e.response?.data}');
-          return 'Error: ${e.response?.statusCode} - ${e.response?.statusMessage}';
         }
       }
-      return text;
+      rethrow;
     }
   }
 }

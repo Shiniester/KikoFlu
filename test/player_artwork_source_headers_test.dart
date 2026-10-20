@@ -53,6 +53,7 @@ void main() {
     host = 'http://127.0.0.1:${server.port}';
     server.listen((request) async {
       requests.add(request);
+      request.response.persistentConnection = false;
       request.response.headers.contentType = ContentType('image', 'png');
       request.response.add(png);
       await request.response.close();

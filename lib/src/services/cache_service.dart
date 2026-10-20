@@ -13,7 +13,7 @@ import '../models/cache_inventory.dart';
 import '../models/scan_models.dart';
 import 'cache_inventory_scanner.dart';
 import 'audio_cache_files.dart';
-import 'audio_stream_cache.dart';
+import 'audio_cache_downloader.dart';
 import 'conditional_get_cache.dart';
 import 'remote_asset_cache.dart';
 import 'remote_text_loader.dart';
@@ -437,9 +437,8 @@ class CacheService {
   // 清除音频缓存
   static Future<void> clearAudioCache() async {
     try {
-      // Stop speculative writers first. Playback writers remain available so
-      // clearing the cache cannot interrupt the track the user is hearing.
-      await AudioStreamCache.cancelAllPreloads();
+      // Stop background downloads before deleting files; keep playback leases.
+      await AudioCacheDownloader.cancelAll();
 
       // 1. 清除自定义音频缓存（基于 hash）
       final customAudioCacheDir = await _getAudioCacheDirectory();
@@ -447,7 +446,7 @@ class CacheService {
       if (await customAudioCacheDir.exists()) {
         await for (final entity in customAudioCacheDir.list(recursive: true)) {
           if (entity is! File) continue;
-          if (AudioStreamCache.isCachePathActive(entity.path)) {
+          if (AudioCacheFiles.isCachePathActive(entity.path)) {
             final fileName = p.basename(entity.path);
             retainedSafeHashes.add(
               fileName
@@ -760,7 +759,7 @@ class CacheService {
       final now = DateTime.now();
       int deletedCount = 0;
       for (final entry in inventory.entries) {
-        if (AudioStreamCache.isCachePathActive(entry.path) ||
+        if (AudioCacheFiles.isCachePathActive(entry.path) ||
             FileRemoteAssetCache.isCachePathActive(entry.path)) {
           continue;
         }
@@ -872,7 +871,7 @@ class CacheService {
         if (currentSize <= targetSize) {
           break;
         }
-        if (AudioStreamCache.isCachePathActive(entry.path) ||
+        if (AudioCacheFiles.isCachePathActive(entry.path) ||
             FileRemoteAssetCache.isCachePathActive(entry.path)) {
           continue;
         }

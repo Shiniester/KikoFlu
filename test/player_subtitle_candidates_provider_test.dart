@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -24,6 +25,84 @@ const _track = AudioTrack(
 );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final priority in SubtitleLibraryPriority.values) {
+    test(
+      'origin priority $priority precedes target language and score',
+      () async {
+        final repository = PlayerSubtitleCandidateRepository(
+          libraryLoader: (_) async => const [
+            PlayerSubtitleCandidate(
+              identity: 'library',
+              title: 'scene01.en.srt',
+              pathLabel: 'scene01.en.srt',
+              origin: PlayerSubtitleCandidateOrigin.library,
+              source: {'localPath': 'scene01.en.srt', 'workId': 42},
+              matchesCurrentAudio: true,
+              matchScore: 1,
+              sameDirectory: false,
+            ),
+          ],
+        );
+        final candidates = await repository.load(
+          track: _track,
+          fileTree: const [
+            {'type': 'audio', 'title': 'scene01.wav', 'hash': 'audio-hash'},
+            {'type': 'text', 'title': 'scene01.ja.srt', 'hash': 'work'},
+          ],
+          libraryPriority: priority,
+          targetLocale: const Locale('en'),
+        );
+        expect(
+          candidates.first.origin,
+          priority == SubtitleLibraryPriority.highest
+              ? PlayerSubtitleCandidateOrigin.library
+              : PlayerSubtitleCandidateOrigin.work,
+        );
+      },
+    );
+  }
+
+  test(
+    'library target language wins within a work while saved fallback keeps its scope',
+    () async {
+      PlayerSubtitleCandidate candidate(
+        String identity,
+        String title,
+        int? workId,
+        double score,
+      ) => PlayerSubtitleCandidate(
+        identity: identity,
+        title: title,
+        pathLabel: title,
+        origin: PlayerSubtitleCandidateOrigin.library,
+        source: {'localPath': title, 'workId': workId},
+        matchesCurrentAudio: true,
+        matchScore: score,
+        sameDirectory: false,
+      );
+      final repository = PlayerSubtitleCandidateRepository(
+        libraryLoader: (_) async => [
+          candidate('original', 'scene01.ja.srt', 42, 1),
+          candidate('english', 'scene01.en.srt', 42, 0.9),
+          candidate('saved', 'scene01.en.lrc', null, 1),
+        ],
+      );
+      final candidates = await repository.load(
+        track: _track,
+        fileTree: const [],
+        libraryPriority: SubtitleLibraryPriority.highest,
+        targetLocale: const Locale('en'),
+      );
+      expect(candidates.map((candidate) => candidate.identity), [
+        'english',
+        'original',
+        'saved',
+      ]);
+    },
+  );
+
   test(
     'merges recursive work subtitles and keeps current source first',
     () async {

@@ -18,6 +18,51 @@ Map<String, dynamic> folderItem(String title, List<dynamic> children) {
 
 void main() {
   group('FilePreviewResolver', () {
+    for (final online in [true, false]) {
+      for (final exists in [true, false]) {
+        test('direct local document: online=$online, exists=$exists', () async {
+          final resolver = FilePreviewResolver(
+            pathContext: _posixPathContext,
+            downloadRootPath: () async =>
+                throw StateError('No download lookup'),
+            fileExists: (path) async =>
+                exists && path == '/subtitles/generated.srt',
+          );
+          final file = {
+            'type': 'text',
+            'title': 'generated.srt',
+            'localPath': '/subtitles/generated.srt',
+          };
+          final result = online
+              ? await resolver.resolveOnlineDocumentTarget(
+                  file: file,
+                  workId: 1,
+                  host: '',
+                  token: '',
+                  downloadedFiles: const {},
+                  fileRelativePaths: const {},
+                  unknownTitle: 'unknown',
+                )
+              : await resolver.resolveOfflineDocumentTarget(
+                  file: file,
+                  workId: 1,
+                  fileTree: const [],
+                  unknownTitle: 'unknown',
+                );
+          expect(
+            result.status,
+            exists
+                ? PreviewDocumentTargetStatus.ready
+                : PreviewDocumentTargetStatus.missingFile,
+          );
+          if (exists) {
+            expect(result.requireTarget.url, 'file:///subtitles/generated.srt');
+            expect(result.requireTarget.hash, isEmpty);
+          }
+        });
+      }
+    }
+
     test('normalizes host and builds media stream URLs', () {
       expect(
         FilePreviewResolver.mediaStreamUrl(

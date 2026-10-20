@@ -1375,5 +1375,76 @@
   "jpAsmrVerificationMessage": "JP-ASMR はブラウザーでの認証が必要です。認証後に作品を再読み込みします。",
   "jpAsmrVerify": "サイトの認証を完了",
   "jpAsmrVerificationFailed": "認証が完了しませんでした。同じネットワークとプロキシで再試行してください。",
-  "jpAsmrVerificationUnsupported": "このプラットフォームではアプリ内認証を利用できません。ネットワークまたはプロキシを変更して再試行してください。"
+  "jpAsmrVerificationUnsupported": "このプラットフォームではアプリ内認証を利用できません。ネットワークまたはプロキシを変更して再試行してください。",
+  "subtitleGenerationTitle": "音声の字幕を生成",
+  "subtitleGenerateAll": "すべての字幕を生成",
+  "subtitleGenerate": "字幕を生成",
+  "subtitleGenerationTranslationFailed": "原文の字幕は保存されました。翻訳に失敗しました。翻訳を再試行できます。",
+  "subtitleGenerationRetryTranslation": "翻訳を再試行",
+  "subtitleGenerationTranslationConfirm": "生成された字幕のテキストは、設定で選択した翻訳元に送信されます。翻訳先の言語は全体の翻訳設定に従います。原文の字幕は保持され、翻訳文は自動保存の設定に従います。",
+  "subtitleGenerationDescription": "この端末で日本語を認識します。初回は約 160 MB のモデルをダウンロードします。MP3、WAV、FLAC に対応しています。生成された字幕のテキストは、設定した翻訳元と翻訳先の言語で自動翻訳されます。",
+  "subtitleGenerationQueued": "待機中",
+  "subtitleGenerationChecking": "既存の字幕を確認中",
+  "subtitleGenerationDownloadingAudio": "音声全体をダウンロード中",
+  "subtitleGenerationDownloadingModel": "認識モデルをダウンロード中",
+  "subtitleGenerationTranscribing": "日本語を認識中",
+  "subtitleGenerationSaving": "字幕を保存中",
+  "subtitleGenerationCompleted": "生成済み",
+  "subtitleGenerationSkipped": "字幕あり",
+  "subtitleGenerationUnsupported": "未対応の形式（MP3、WAV、FLAC のみ対応）",
+  "subtitleGenerationCancelled": "キャンセル済み",
+  "subtitleGenerationCancelAll": "すべてキャンセル",
+  "subtitleGenerationCloseHint": "このパネルを閉じても処理は続きます。",
+  "subtitleGenerationFailed": "失敗：{stage}",
+  "subtitleGenerationProgress": "{stage} · {progress}",
+  "subtitleGenerationSummary": "生成 {completed} · 字幕あり {skipped} · 未対応 {unsupported} · 失敗 {failed} · キャンセル {cancelled}",
+  "@subtitleGenerationTitle": {
+    "description": "Title of local audio subtitle generation progress panel."
+  },
+  "@subtitleGenerateAll": {
+    "description": "Audio tab action applying to all audio in the current filtered list."
+  },
+  "@subtitleGenerationDescription": {
+    "description": "Explains local Japanese recognition, first-use model download, supported formats and automatic translation."
+  },
+  "@subtitleGenerationFailed": {
+    "description": "Failed task with the processing stage where it stopped.",
+    "placeholders": {
+      "stage": {
+        "type": "String"
+      }
+    }
+  },
+  "@subtitleGenerationProgress": {
+    "description": "Current processing stage and localized percentage.",
+    "placeholders": {
+      "stage": {
+        "type": "String"
+      },
+      "progress": {
+        "type": "double",
+        "format": "percentPattern"
+      }
+    }
+  },
+  "@subtitleGenerationSummary": {
+    "description": "Counts of completed audio subtitle generation tasks by outcome.",
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "skipped": {
+        "type": "int"
+      },
+      "unsupported": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      },
+      "cancelled": {
+        "type": "int"
+      }
+    }
+  }
 }

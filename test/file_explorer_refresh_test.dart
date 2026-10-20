@@ -339,6 +339,28 @@ void main() {
       expect(find.text('preferred.wav'), findsOneWidget);
       expect(find.text('nested.wav'), findsOneWidget);
       expect(find.text('crowded-1.mp3'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('work-resource-generate-all-subtitles')),
+        findsNothing,
+      );
+      await tester.longPress(find.text('preferred.wav'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('file-action-generate-subtitles')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('file-action-generate-all-subtitles')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('file-action-copy-name')),
+        findsOneWidget,
+      );
+      Navigator.of(
+        tester.element(find.byKey(const ValueKey('file-action-copy-name'))),
+      ).pop();
+      await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
       await tester.pumpAndSettle();
@@ -468,6 +490,25 @@ void main() {
     );
     expect(find.text('nested.wav'), findsOneWidget);
     expect(find.text('crowded-1.mp3'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('work-resource-generate-all-subtitles')),
+      findsNothing,
+    );
+    await tester.longPress(find.text('preferred.wav'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('file-action-generate-subtitles')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('file-action-generate-all-subtitles')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('file-action-copy-name')), findsOneWidget);
+    Navigator.of(
+      tester.element(find.byKey(const ValueKey('file-action-copy-name'))),
+    ).pop();
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('work-resource-files-tab')));
     await tester.pumpAndSettle();

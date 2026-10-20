@@ -7,7 +7,6 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/work.dart';
 import '../models/audio_track.dart';
@@ -40,6 +39,7 @@ import '../widgets/work_bookmark_manager.dart';
 import '../widgets/app_bottom_dock_transition.dart';
 import '../widgets/cover_preview_dialog.dart';
 import '../widgets/responsive_dialog.dart';
+import '../widgets/lyric_translation_confirmation.dart';
 import 'work_detail_screen.dart';
 import '../../l10n/app_localizations.dart';
 
@@ -84,7 +84,6 @@ class AudioPlayerScreen extends ConsumerStatefulWidget {
 }
 
 class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
-  static const _lyricTranslationConfirmKey = 'lyric_translation_confirmed_once';
   static const Duration _pageTransitionDuration = Duration(milliseconds: 300);
   static const Curve _pageTransitionCurve = Curves.ease;
 
@@ -94,6 +93,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
   int? _currentWorkId;
   final ValueNotifier<PlayerSeekPreview?> _seekPreview =
       ValueNotifier<PlayerSeekPreview?>(null);
+  Timer? _seekPreviewClearTimer;
   bool get _isSeekingManually => _seekPreview.value?.isSeekingManually ?? false;
   double get _seekValue => _seekPreview.value?.seekValue ?? 0;
   Duration? get _seekingPosition => _seekPreview.value?.position;
@@ -296,6 +296,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     _semanticPageRevision.dispose();
     _coverPreviewHeroTrackId.dispose();
     _progressGestureActive.dispose();
+    _seekPreviewClearTimer?.cancel();
     _seekPreview.dispose();
     _workProgress.dispose();
     _semanticTransitionGeneration++;
@@ -348,6 +349,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
   void _handleSeekChanged(double value) {
     if (ref.read(isTrackLoadingProvider).valueOrNull ?? false) return;
+    _seekPreviewClearTimer?.cancel();
     final dur = ref.read(durationProvider).value ?? Duration.zero;
     _seekPreview.value = (
       isSeekingManually: true,
@@ -358,6 +360,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
   void _handleSeekEnd(double value) {
     if (ref.read(isTrackLoadingProvider).valueOrNull ?? false) return;
+    _seekPreviewClearTimer?.cancel();
     final dur = ref.read(durationProvider).value ?? Duration.zero;
     final newPosition = Duration(
       milliseconds: (value * dur.inMilliseconds).round(),
@@ -373,43 +376,12 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         .read(audioPlayerControllerProvider.notifier)
         .seekAndPersist(newPosition);
 
-    Future.delayed(const Duration(milliseconds: 100), () {
+    _seekPreviewClearTimer = Timer(const Duration(milliseconds: 100), () {
+      _seekPreviewClearTimer = null;
       if (mounted) {
         _seekPreview.value = null;
       }
     });
-  }
-
-  Future<bool> _confirmLyricTranslationIfNeeded(BuildContext context) async {
-    final prefs = await SharedPreferences.getInstance();
-    if (prefs.getBool(_lyricTranslationConfirmKey) ?? false) {
-      return true;
-    }
-    if (!context.mounted) return false;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => ResponsiveAlertDialog(
-        title: Text(S.of(dialogContext).translateLyrics),
-        content: Text(S.of(dialogContext).lyricTranslationConfirmMessage),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(S.of(dialogContext).cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(S.of(dialogContext).confirm),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      await prefs.setBool(_lyricTranslationConfirmKey, true);
-      return true;
-    }
-    return false;
   }
 
   @override
@@ -3109,7 +3081,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
                       return;
                     }
 
-                    final confirmed = await _confirmLyricTranslationIfNeeded(
+                    final confirmed = await confirmLyricTranslationIfNeeded(
                       context,
                     );
                     if (!confirmed) return;

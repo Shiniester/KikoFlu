@@ -83,7 +83,8 @@ _Avoid_: Random recommendation, refresh result
 The Resources, Audio, Images and Related Recommendations views within a Work
 Details Screen. Related Recommendations is the rightmost tab of online details
 when enabled; Images is present only when the work has resource images. Audio
-contains preferred audio files and their best matching work subtitles; Images
+contains preferred audio files and their best matching work subtitles, with
+locally generated subtitles available through the same per-audio preview action; Images
 contains the work's resource images, separate from its cover.
 Each tab retains its resource-section scroll position during the current detail
 visit; an unvisited tab starts at the resource section's top.
@@ -97,22 +98,49 @@ It is separate from comic Reading Progress and does not add a comic history entr
 _Avoid_: Comic chapter, Reading Progress
 
 **Best Work Subtitle (最佳匹配作品字幕)**:
-The highest-scoring matching subtitle among a work's available resource files.
-Equal scores prefer the audio's directory, then path order. The resource audio
-view and player use this same selection; the player's subtitle library and manual
-selection keep their own priority.
+The matching subtitle that first prefers the effective global translation target
+language, identified by explicit file or directory language labels, then match
+score, the audio's directory, and path order. Without a target-language match,
+the existing score and path ordering applies. The resource audio view and player
+use this same selection; the player's subtitle library and manual selection keep
+their own priority.
 
 **Work Details Translation (作品详情翻译)**:
 The translated view of a work's title and currently displayed resource names.
 It remains active within that details page until the user switches back to the original.
+Automatic and manual translation resolve the source language separately for the
+title and each resource name. Hiragana, Katakana, and half-width Katakana select
+Japanese; text without Kana uses the work's recognized language. Matching source
+and effective target languages keep the original text;
+Simplified and Traditional Chinese use local OpenCC conversion. Other recognized
+languages are sent to translation sources with each text's resolved source.
+When text has no Kana and the work language is missing or unknown, clearly
+Chinese text targeting Chinese uses local conversion; other text uses automatic
+source detection.
+Original text and local conversion take precedence over translation-source caches.
+Local conversions of titles, resource names, and full subtitle text are cached
+persistently by source and target language, separately from remote translations.
+Translation-source failures trigger fallback sources before returning the original;
+only successful responses enter the remote cache. Resource names are grouped by
+their resolved source language before batching, and caches use that same source.
+Resource-name batches keep their original names when the response has missing,
+extra, or empty lines.
 
 **Automatic Work Details Translation (自动作品详情翻译)**:
 The preference that enables Work Details Translation when a details page opens,
 without requiring a manual translation action.
+Each text whose resolved source matches the effective translation target stays
+original while other texts in the same work can be translated. Manual translation
+uses the same policy.
 
 **Subtitle Preview Translation (字幕预览翻译)**:
 The translated text shown while inspecting a work subtitle when Work Details
-Translation is active. Otherwise, subtitle previews show the original text.
+Translation is active. Otherwise, work subtitle previews show the original text.
+Generated subtitle previews start with an available generated translation and
+allow switching back to the original. Without a completed translation, the
+preview shows the generated original.
+Translation uses the current original text, including edits. Editing the original
+invalidates its previous translation.
 
 **Save Current Image (保存当前图片)**:
 Exporting the reader's full loaded image bytes for the actual current page.
@@ -166,6 +194,20 @@ The full-screen player page containing the current track's synchronized lyrics
 or subtitles.
 _Avoid_: Subtitle screen
 
+**Audio Subtitle Generation (音频字幕生成)**:
+Producing synchronized original-language subtitles from an audio file on the
+user's device. It is distinct from translating existing subtitle text.
+_Avoid_: Subtitle translation
+
+**Generated Subtitle Translation (生成字幕翻译)**:
+Automatic translation of newly generated original-language subtitles using the
+selected Translation Source and global translation target. The original subtitles
+remain available independently of the translation.
+
+**Translation Source (翻译源)**:
+The translation provider selected in Settings, with the app's existing fallback
+providers used when the selected provider fails.
+
 **Playback Line (播放行)**:
 The vertical anchor in the Player Lyrics Page where the current lyric or
 selected search result is positioned while the player follows it.
@@ -188,6 +230,18 @@ _Avoid_: Cover transition, title animation
 Moving to a selected time within the current track from the player's progress
 control or lyrics. The current track and its queue position remain the same.
 _Avoid_: Track Switch, 曲目切换
+
+**Automatic Audio Cache (音频自动缓存)**:
+Saving online audio in the background for later playback. A cache entry becomes
+playable only when the entire file is saved. Cache progress, failure, or
+cancellation does not change the current playback source.
+_Avoid_: Audio Download, playback buffer
+
+**Next Track Preload (下一首预加载)**:
+Preparing the next queued track ahead of a Track Switch, using the configured
+remaining-time threshold. It may prepare a playback source or save audio through
+Automatic Audio Cache, without changing the currently published track.
+_Avoid_: Track Switch, playback buffer
 
 **Track Presentation Transition (曲目视觉过渡)**:
 The existing cover and title animation after a committed track is published.
