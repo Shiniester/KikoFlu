@@ -22,8 +22,6 @@ class AppNoticeController {
   }
 }
 
-enum _ExitDirection { up, left, right }
-
 /// 统一的顶部悬浮提示组件
 class TopFloatingNoticeWidget extends StatefulWidget {
   final Widget content;
@@ -100,60 +98,19 @@ class TopFloatingNoticeWidgetState extends State<TopFloatingNoticeWidget>
   }
 
   Future<void> dismiss({bool immediate = false}) async {
-    if (immediate) {
-      _timer?.cancel();
-      _isExiting = true;
-      widget.onDismissed();
-      return;
-    }
-    await _exitWithDirection(_ExitDirection.up);
-  }
-
-  Future<void> _exitWithDirection(_ExitDirection direction) async {
     if (_isExiting) return;
     _isExiting = true;
     _timer?.cancel();
 
-    if (!mounted) {
+    if (immediate || !mounted) {
       widget.onDismissed();
       return;
     }
 
-    if (direction == _ExitDirection.up) {
-      try {
-        await _controller.reverse();
-      } finally {
-        if (mounted) widget.onDismissed();
-      }
-    } else {
-      final width = MediaQuery.sizeOf(context).width;
-      final endOffset = direction == _ExitDirection.right
-          ? Offset(width, _dragOffset.dy)
-          : Offset(-width, _dragOffset.dy);
-      final startOffset = _dragOffset;
-      final animController = AnimationController(
-        vsync: this,
-        duration: const Duration(milliseconds: 180),
-      );
-      final anim = Tween<Offset>(begin: startOffset, end: endOffset).animate(
-        CurvedAnimation(parent: animController, curve: Curves.easeInCubic),
-      );
-      anim.addListener(() {
-        if (mounted) {
-          setState(() {
-            _dragOffset = anim.value;
-          });
-        }
-      });
-      try {
-        await Future.wait([
-          animController.forward(),
-          _controller.reverse(),
-        ]);
-      } finally {
-        animController.dispose();
-        if (mounted) widget.onDismissed();
-      }
+    try {
+      await _controller.reverse();
+    } finally {
+      if (mounted) widget.onDismissed();
     }
   }
 
@@ -162,30 +119,19 @@ class TopFloatingNoticeWidgetState extends State<TopFloatingNoticeWidget>
     _pauseTimer();
     setState(() {
       final newDy = _dragOffset.dy + details.delta.dy;
-      // 向下拉动增加阻尼
+      // 向下拉动增加阻尼，只响应纵向手势
       final clampedDy = newDy > 0 ? newDy * 0.2 : newDy;
-      _dragOffset = Offset(_dragOffset.dx + details.delta.dx, clampedDy);
+      _dragOffset = Offset(0, clampedDy);
     });
   }
 
   void _handlePanEnd(DragEndDetails details) {
     if (_isExiting) return;
-    final vx = details.velocity.pixelsPerSecond.dx;
     final vy = details.velocity.pixelsPerSecond.dy;
 
-    // 向上滑动划走
+    // 仅支持向上滑动划走
     if (_dragOffset.dy < -20 || vy < -200) {
-      _exitWithDirection(_ExitDirection.up);
-      return;
-    }
-    // 向右滑动划走
-    if (_dragOffset.dx > 40 || vx > 200) {
-      _exitWithDirection(_ExitDirection.right);
-      return;
-    }
-    // 向左滑动划走
-    if (_dragOffset.dx < -40 || vx < -200) {
-      _exitWithDirection(_ExitDirection.left);
+      dismiss();
       return;
     }
 
@@ -226,8 +172,16 @@ class TopFloatingNoticeWidgetState extends State<TopFloatingNoticeWidget>
     final colorScheme = theme.colorScheme;
     final bg = widget.backgroundColor ?? colorScheme.secondaryContainer;
 
+    // 针对移动端状态栏避让，桌面端 safeTop 为 0 时保持 topOffset 间距
+    final mediaQuery = MediaQuery.maybeOf(context);
+    final view = View.maybeOf(context);
+    final safeTop = (mediaQuery != null && mediaQuery.padding.top > 0)
+        ? mediaQuery.padding.top
+        : (view != null ? view.viewPadding.top / view.devicePixelRatio : 0.0);
+    final effectiveTop = safeTop + widget.topOffset;
+
     return Positioned(
-      top: widget.topOffset,
+      top: effectiveTop,
       left: 0,
       right: 0,
       child: Center(

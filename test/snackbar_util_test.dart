@@ -166,7 +166,7 @@ void main() {
       expect(find.text('swipe up'), findsNothing);
     });
 
-    testWidgets('swiping horizontally dismisses the notice', (tester) async {
+    testWidgets('swiping horizontally does not dismiss the notice', (tester) async {
       await tester.pumpWidget(
         _noticeTestApp(
           (context) => SnackBarUtil.showInfo(context, 'swipe right'),
@@ -179,7 +179,7 @@ void main() {
 
       await tester.drag(find.text('swipe right'), const Offset(80, 0));
       await tester.pumpAndSettle();
-      expect(find.text('swipe right'), findsNothing);
+      expect(find.text('swipe right'), findsOneWidget);
     });
 
     testWidgets('tapping body does not dismiss the notice', (tester) async {
@@ -194,6 +194,30 @@ void main() {
       await tester.tap(find.text('tap test'));
       await tester.pump();
       expect(find.text('tap test'), findsOneWidget);
+    });
+
+    testWidgets('positions below status bar safe area', (tester) async {
+      await tester.pumpWidget(
+        MediaQuery(
+          data: const MediaQueryData(padding: EdgeInsets.only(top: 36.0)),
+          child: _noticeTestApp(
+            (context) => SnackBarUtil.showInfo(context, 'safe top'),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('show'));
+      await tester.pumpAndSettle();
+      expect(find.text('safe top'), findsOneWidget);
+
+      final positioned = tester.widget<Positioned>(
+        find.descendant(
+          of: find.byType(TopFloatingNoticeWidget),
+          matching: find.byType(Positioned),
+        ),
+      );
+      // safeTop (36.0) + topOffset (16.0) = 52.0
+      expect(positioned.top, 52.0);
     });
   });
 }
