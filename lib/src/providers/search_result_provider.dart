@@ -11,7 +11,6 @@ import '../models/sort_options.dart';
 import 'auth_provider.dart';
 import 'audio_source_provider.dart';
 import 'settings_provider.dart';
-import 'subtitle_library_provider.dart';
 import '../utils/subtitle_filter.dart';
 import '../utils/paged_collection.dart';
 import '../utils/persistent_enum_preference.dart';
@@ -53,10 +52,7 @@ class SearchResultState extends Equatable {
   final String keyword;
   final Map<String, dynamic>? searchParams;
 
-  // 实际使用的分页大小（字幕筛选时翻倍）
-  int get pageSize => SubtitleFilterMode.fromValue(subtitleFilter).isActive
-      ? basePageSize * 2
-      : basePageSize;
+  int get pageSize => basePageSize;
 
   const SearchResultState({
     this.works = const [],
@@ -212,7 +208,9 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
 
     try {
       Map<String, dynamic> result;
-      const serverSubtitleParam = 0;
+      final serverSubtitleParam = SubtitleFilterMode.fromValue(
+        state.subtitleFilter,
+      ).value;
       final source = _ref.read(audioSourceProvider);
 
       if (source == AudioSource.jpAsmr) {
@@ -315,19 +313,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
   }
 
   List<Work> _filterWorks(List<Work> works, BlockedItemsState blockedItems) {
-    // 获取本地字幕库的作品ID
-    final localSubtitleIds = _ref.read(subtitleLibraryProvider);
-    final subtitleFilter = _ref.read(audioSourceProvider) == AudioSource.jpAsmr
-        ? 0
-        : state.subtitleFilter;
-
-    final subtitleFilteredWorks = filterWorksBySubtitleMode(
-      works,
-      localSubtitleIds,
-      subtitleFilter,
-    );
-
-    return subtitleFilteredWorks.where((work) {
+    return works.where((work) {
       // Check tags
       if (work.tags != null) {
         for (final tag in work.tags!) {
@@ -379,29 +365,17 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
 
   void toggleSubtitleFilter() {
     if (_ref.read(audioSourceProvider) == AudioSource.jpAsmr) return;
-    final currentPage = state.currentPage;
     final oldFilterMode = SubtitleFilterMode.fromValue(state.subtitleFilter);
     final newFilterMode = oldFilterMode.next;
     final newFilter = newFilterMode.value;
 
-    int newPage;
-    if (oldFilterMode == SubtitleFilterMode.all && newFilterMode.isActive) {
-      newPage = ((currentPage + 1) / 2).ceil();
-    } else if (oldFilterMode.isActive &&
-        newFilterMode == SubtitleFilterMode.all) {
-      newPage = (currentPage * 2) - 1;
-    } else {
-      newPage = currentPage;
-    }
-    newPage = newPage.clamp(1, 9999);
-
     state = state.copyWith(
       subtitleFilter: newFilter,
-      currentPage: newPage,
+      currentPage: 1,
       works: [],
       rawWorks: [],
     );
-    loadResults(targetPage: newPage, supersede: true);
+    loadResults(targetPage: 1, supersede: true);
   }
 
   void updateSort(SortOrder option, SortDirection direction) {
@@ -452,13 +426,6 @@ final searchResultProvider =
       // 监听屏蔽列表变化，重新过滤
       ref.listen(blockedItemsProvider, (previous, next) {
         if (previous != next) {
-          notifier.reapplyFilters();
-        }
-      });
-
-      // 监听本地字幕库变化，当字幕筛选开启时重新过滤
-      ref.listen(subtitleLibraryProvider, (previous, next) {
-        if (previous != next && notifier.isSubtitleFilterActive) {
           notifier.reapplyFilters();
         }
       });

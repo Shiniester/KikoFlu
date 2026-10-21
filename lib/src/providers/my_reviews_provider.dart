@@ -9,7 +9,6 @@ import '../services/kikoeru_api_service.dart' hide kikoeruApiServiceProvider;
 import '../services/log_service.dart';
 import 'auth_provider.dart';
 import 'settings_provider.dart';
-import 'subtitle_library_provider.dart';
 import '../utils/subtitle_filter.dart';
 import '../utils/paged_collection.dart';
 import '../utils/persistent_enum_preference.dart';
@@ -53,10 +52,7 @@ class MyReviewsState extends Equatable {
   final SortDirection sortOrder;
   final int subtitleFilter; // 0: 全部, 1: 有字幕
 
-  int get effectivePageSize =>
-      SubtitleFilterMode.fromValue(subtitleFilter).isActive
-      ? pageSize * 2
-      : pageSize;
+  int get effectivePageSize => pageSize;
 
   const MyReviewsState({
     this.works = const [],
@@ -141,8 +137,8 @@ class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
   static const String filterPreferenceKey = 'my_reviews_filter';
 
   final KikoeruApiService _apiService;
-  final Ref _ref;
   final PagedRequestGate _requestGate = PagedRequestGate();
+  List<Work>? _subtitledWorks;
   final _layoutPreference = PersistentEnumPreference<MyReviewLayoutType>(
     key: layoutPreferenceKey,
     values: MyReviewLayoutType.values,
@@ -155,7 +151,7 @@ class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
   );
   late final Future<void> preferencesReady;
 
-  MyReviewsNotifier(this._apiService, this._ref, {int initialPageSize = 20})
+  MyReviewsNotifier(this._apiService, Ref ref, {int initialPageSize = 20})
     : super(MyReviewsState(pageSize: initialPageSize)) {
     preferencesReady = _loadPreferences();
   }
@@ -201,8 +197,9 @@ class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
     await preferencesReady;
     if (!mounted) return;
 
-    final requestToken = _requestGate.begin(supersede: supersede);
+    final requestToken = _requestGate.begin(supersede: supersede || refresh);
     if (requestToken == null) return;
+    if (refresh) _subtitledWorks = null;
     final page = targetPage ?? state.currentPage;
 
     state = state.copyWith(
@@ -214,64 +211,88 @@ class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
     );
 
     try {
-      final result = await _apiService.getMyReviews(
-        page: page,
-        pageSize: state.effectivePageSize,
-        filter: state.filter.value,
-        order: state.sortType.value,
-        sort: state.sortOrder.value,
-        cancelToken: requestToken.cancelToken,
-      );
+      final subtitleFilter = state.subtitleFilter;
+      final filterSubtitles = SubtitleFilterMode.fromValue(
+        subtitleFilter,
+      ).isActive;
+      final pageSize = state.effectivePageSize;
+      var rawWorks = _subtitledWorks ?? const <Work>[];
+      var totalCount = 0;
+      if (!filterSubtitles || _subtitledWorks == null) {
+        final works = <Work>[];
+        var requestPage = filterSubtitles ? 1 : page;
+        final filter = state.filter.value;
+        final order = state.sortType.value;
+        final sort = state.sortOrder.value;
+        var receivedCount = 0;
+        // /api/review has no subtitle query; filter the complete mark collection.
+        do {
+          final result = await _apiService.getMyReviews(
+            page: requestPage,
+            pageSize: pageSize,
+            filter: filter,
+            order: order,
+            sort: sort,
+            cancelToken: requestToken.cancelToken,
+          );
+          if (!_requestGate.isCurrent(requestToken)) return;
+          final rawList =
+              (result['works'] as List?) ??
+              (result['reviews'] as List?) ??
+              (result['data'] as List?) ??
+              [];
+          receivedCount = rawList.length;
+          works.addAll(
+            rawList.map((item) {
+              if (item is Map<String, dynamic>) {
+                final workJson = item.containsKey('work')
+                    ? item['work'] as Map<String, dynamic>
+                    : item;
+                return Work.fromJson(workJson);
+              }
+              throw Exception('Unexpected review item format');
+            }),
+          );
+          final pagination = result['pagination'] as Map<String, dynamic>?;
+          totalCount = pagination?['totalCount'] as int? ?? 0;
+          requestPage++;
+        } while (filterSubtitles &&
+            receivedCount > 0 &&
+            (requestPage - 1) * pageSize < totalCount);
 
-      // 服务器返回结构未知，尝试多种字段名
-      final List<dynamic> rawList =
-          (result['works'] as List?) ?? // 与 searchWorks 保持一致
-          (result['reviews'] as List?) ??
-          (result['data'] as List?) ??
-          [];
-
-      // 每个条目可能直接是 Work 或包含 work 字段
-      final works = rawList.map((item) {
-        if (item is Map<String, dynamic>) {
-          if (item.containsKey('work')) {
-            final workJson = item['work'] as Map<String, dynamic>;
-            return Work.fromJson(workJson);
-          } else {
-            // 直接当作 Work
-            return Work.fromJson(item);
-          }
+        rawWorks = mergePagedItems<Work, int>(
+          existing: const [],
+          incoming: works,
+          idOf: (work) => work.id,
+          replace: true,
+        );
+        if (filterSubtitles) {
+          rawWorks = filterWorksBySubtitleMode(rawWorks, subtitleFilter);
+          _subtitledWorks = rawWorks;
         }
-        throw Exception('Unexpected review item format');
-      }).toList();
-
-      if (!_requestGate.isCurrent(requestToken)) return;
-
-      final rawWorks = mergePagedItems<Work, int>(
-        existing: const [],
-        incoming: works,
-        idOf: (work) => work.id,
-        replace: true,
-      );
-
-      // 获取分页信息
-      final pagination = result['pagination'] as Map<String, dynamic>?;
-      final totalCount = pagination?['totalCount'] ?? 0;
+      }
+      if (filterSubtitles) totalCount = rawWorks.length;
 
       // 计算是否有更多页
-      final totalPages = totalCount > 0
-          ? (totalCount / state.effectivePageSize).ceil()
-          : 1;
-      final hasMore = page < totalPages;
+      final totalPages = totalCount > 0 ? (totalCount / pageSize).ceil() : 1;
+      final currentPage = filterSubtitles ? page.clamp(1, totalPages) : page;
+      if (filterSubtitles) {
+        rawWorks = rawWorks
+            .skip((currentPage - 1) * pageSize)
+            .take(pageSize)
+            .toList();
+      }
+      final hasMore = currentPage < totalPages;
 
       state = state.copyWith(
-        works: _filterWorks(rawWorks),
+        works: rawWorks,
         rawWorks: rawWorks,
         totalCount: totalCount,
         hasMore: hasMore,
         isLoading: false,
         isRefreshing: false,
         isLoadingMore: false,
-        currentPage: page,
+        currentPage: currentPage,
         error: null,
         loadMoreError: null,
       );
@@ -317,6 +338,7 @@ class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
 
   void changeFilter(MyReviewFilter filter) {
     if (state.filter == filter) return;
+    _subtitledWorks = null;
     state = state.copyWith(filter: filter, currentPage: 1, totalCount: 0);
     unawaited(_filterPreference.save(filter));
     load(targetPage: 1, supersede: true);
@@ -331,31 +353,22 @@ class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
   }
 
   void setSubtitleFilter(SubtitleFilterMode newFilterMode) {
-    final currentPage = state.currentPage;
     final oldFilterMode = SubtitleFilterMode.fromValue(state.subtitleFilter);
     if (oldFilterMode == newFilterMode) return;
-
-    int newPage;
-    if (oldFilterMode == SubtitleFilterMode.all && newFilterMode.isActive) {
-      newPage = ((currentPage + 1) / 2).ceil();
-    } else if (oldFilterMode.isActive &&
-        newFilterMode == SubtitleFilterMode.all) {
-      newPage = (currentPage * 2) - 1;
-    } else {
-      newPage = currentPage;
-    }
-    newPage = newPage.clamp(1, 9999);
-
+    _subtitledWorks = null;
     state = state.copyWith(
       subtitleFilter: newFilterMode.value,
-      currentPage: newPage,
+      works: const [],
+      rawWorks: const [],
+      currentPage: 1,
       totalCount: 0,
     );
-    load(targetPage: newPage, supersede: true);
+    load(targetPage: 1, supersede: true);
   }
 
   void changeSort(SortOrder sortType, SortDirection sortOrder) {
     if (state.sortType == sortType && state.sortOrder == sortOrder) return;
+    _subtitledWorks = null;
     state = state.copyWith(
       sortType: sortType,
       sortOrder: sortOrder,
@@ -382,17 +395,7 @@ class MyReviewsNotifier extends StateNotifier<MyReviewsState> {
   }
 
   Future<void> refresh() =>
-      load(targetPage: state.currentPage, supersede: true);
-
-  void reapplyFilters() {
-    state = state.copyWith(works: _filterWorks(state.rawWorks));
-  }
-
-  List<Work> _filterWorks(List<Work> works) {
-    final localSubtitleIds = _ref.read(subtitleLibraryProvider);
-    final subtitleFilter = state.subtitleFilter;
-    return filterWorksBySubtitleMode(works, localSubtitleIds, subtitleFilter);
-  }
+      load(refresh: true, targetPage: state.currentPage, supersede: true);
 
   @override
   void dispose() {
@@ -425,12 +428,6 @@ final myReviewsProvider =
             prevUser?.host != nextUser?.host) {
           logOutput('[MyReviewsProvider] User changed, refreshing my reviews');
           notifier.refresh();
-        }
-      });
-
-      ref.listen(subtitleLibraryProvider, (previous, next) {
-        if (previous != next && notifier.isSubtitleFilterActive) {
-          notifier.reapplyFilters();
         }
       });
 

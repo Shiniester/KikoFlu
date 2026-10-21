@@ -14,11 +14,7 @@ const _localSubtitleWork = Work(
   hasSubtitle: false,
 );
 
-const _noSubtitleWork = Work(
-  id: 3,
-  title: 'no subtitle',
-  hasSubtitle: false,
-);
+const _noSubtitleWork = Work(id: 3, title: 'no subtitle', hasSubtitle: false);
 
 void main() {
   test('subtitle filter cycles through available states', () {
@@ -30,26 +26,24 @@ void main() {
     expect(SubtitleFilterMode.fromValue(2), SubtitleFilterMode.all);
   });
 
-  test('detects online and local library subtitles', () {
-    const localSubtitleIds = {2};
-
-    expect(workHasAnySubtitle(_onlineSubtitleWork, localSubtitleIds), true);
-    expect(workHasAnySubtitle(_localSubtitleWork, localSubtitleIds), true);
-    expect(workHasAnySubtitle(_noSubtitleWork, localSubtitleIds), false);
+  test('only includes works with online subtitles', () {
+    expect(
+      filterWorksBySubtitleMode([
+        _onlineSubtitleWork,
+        _localSubtitleWork,
+        _noSubtitleWork,
+        const Work(id: 4, title: 'unknown subtitle status'),
+      ], SubtitleFilterMode.withSubtitles.value),
+      [_onlineSubtitleWork],
+    );
   });
 
   test('filters works by subtitle mode', () {
-    const works = [
-      _onlineSubtitleWork,
-      _localSubtitleWork,
-      _noSubtitleWork,
-    ];
-    const localSubtitleIds = {2};
+    const works = [_onlineSubtitleWork, _localSubtitleWork, _noSubtitleWork];
 
     expect(
       filterWorksBySubtitleMode(
         works,
-        localSubtitleIds,
         SubtitleFilterMode.all.value,
       ).map((work) => work.id),
       [1, 2, 3],
@@ -57,15 +51,14 @@ void main() {
     expect(
       filterWorksBySubtitleMode(
         works,
-        localSubtitleIds,
         SubtitleFilterMode.withSubtitles.value,
       ).map((work) => work.id),
-      [1, 2],
+      [1],
     );
-    expect(
-        filterWorksBySubtitleMode(works, localSubtitleIds, 2).map(
-          (work) => work.id,
-        ),
-        [1, 2, 3]);
+    expect(filterWorksBySubtitleMode(works, 2).map((work) => work.id), [
+      1,
+      2,
+      3,
+    ]);
   });
 }
