@@ -2164,6 +2164,12 @@ abstract class S {
   /// **'Unavailable while audio passthrough is on'**
   String get audioGainPassthroughDesc;
 
+  /// No description provided for @block.
+  ///
+  /// In en, this message translates to:
+  /// **'Block'**
+  String get block;
+
   /// No description provided for @blockingSettings.
   ///
   /// In en, this message translates to:

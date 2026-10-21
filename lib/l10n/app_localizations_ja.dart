@@ -1102,6 +1102,9 @@ class SJa extends S {
   String get audioGainPassthroughDesc => 'オーディオパススルー中は使用不可';
 
   @override
+  String get block => 'ブロック';
+
+  @override
   String get blockingSettings => 'ブロック設定';
 
   @override

@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/models/japanese_asmr_browse.dart';
+import 'package:kikoeru_flutter/src/models/search_type.dart';
 import 'package:kikoeru_flutter/src/models/sort_options.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/services/japanese_asmr_service.dart';
@@ -133,6 +134,48 @@ void main() {
       expect(work.vas!.single.name, 'Voice');
     },
   );
+
+  test('keeps age rating routes and sorting on tail pages', () async {
+    final cases = [
+      (AgeRating.general, '/category/rating/sfw/'),
+      (AgeRating.r15, '/category/rating/r-15/'),
+      (AgeRating.adult, '/category/rating/maniax/'),
+    ];
+    for (final (ageRating, archivePath) in cases) {
+      final adapter = _Adapter((request) {
+        final page = request.uri.path.endsWith('/page/2/') ? 2 : 1;
+        final start = page == 1 ? 1 : 15;
+        final end = page == 1 ? 14 : 20;
+        return _page(
+          '<main class="site-main">'
+          '${[for (var id = start; id <= end; id++) _card(id)].join()}'
+          '${page == 1 ? '<a class="next page-numbers">Next</a><a class="page-numbers">2</a>' : ''}'
+          '</main>',
+        );
+      });
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final response = await service.getWorks(
+        page: 1,
+        pageSize: 20,
+        ageRating: ageRating,
+        sort: JapaneseAsmrSortOption.date,
+        direction: SortDirection.asc,
+      );
+
+      expect(response['pagination']['totalCount'], 20);
+      expect(adapter.requests.map((request) => request.uri.path), [
+        archivePath,
+        '${archivePath}page/2/',
+      ]);
+      expect(adapter.requests.map((request) => request.uri.queryParameters), [
+        {'order': 'asc', 'orderby': 'date'},
+        {'order': 'asc', 'orderby': 'date'},
+      ]);
+    }
+  });
 
   test(
     'maps Japanese ASMR browse sort and periods to native query params',

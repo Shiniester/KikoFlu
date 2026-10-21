@@ -19,6 +19,7 @@ class _JapaneseAsmrService extends JapaneseAsmrService {
   JapaneseAsmrPeriod? period;
   int? archiveYear;
   int? archiveMonth;
+  AgeRating? ageRating;
   List<SearchCondition> searchConditions = const [];
   final relatedWorkIds = <int>[];
 
@@ -31,6 +32,7 @@ class _JapaneseAsmrService extends JapaneseAsmrService {
     JapaneseAsmrPeriod period = JapaneseAsmrPeriod.week,
     int? archiveYear,
     int? archiveMonth,
+    AgeRating ageRating = AgeRating.all,
     CancelToken? cancelToken,
   }) async {
     this.sort = sort;
@@ -38,6 +40,7 @@ class _JapaneseAsmrService extends JapaneseAsmrService {
     this.period = period;
     this.archiveYear = archiveYear;
     this.archiveMonth = archiveMonth;
+    this.ageRating = ageRating;
     listCancelToken = cancelToken;
     return {'works': <dynamic>[], 'pagination': <String, dynamic>{}};
   }
@@ -116,6 +119,7 @@ void main() {
         japaneseAsmrPeriod: JapaneseAsmrPeriod.archiveMonth,
         japaneseAsmrArchiveYear: 2026,
         japaneseAsmrArchiveMonth: 1,
+        japaneseAsmrAgeRating: AgeRating.r15,
         cancelToken: cancelToken,
       );
       await api.getSearchCatalog(SearchType.va, cancelToken: cancelToken);
@@ -136,6 +140,7 @@ void main() {
       expect(japanese.period, JapaneseAsmrPeriod.archiveMonth);
       expect(japanese.archiveYear, 2026);
       expect(japanese.archiveMonth, 1);
+      expect(japanese.ageRating, AgeRating.r15);
       expect(japanese.searchCancelToken, same(cancelToken));
       expect(japanese.searchConditions, [category]);
       expect(japanese.catalogType, SearchType.va);

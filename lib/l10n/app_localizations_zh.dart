@@ -1101,6 +1101,9 @@ class SZh extends S {
   String get audioGainPassthroughDesc => '音频直通开启时不可用';
 
   @override
+  String get block => '屏蔽';
+
+  @override
   String get blockingSettings => '屏蔽设置';
 
   @override
@@ -5319,6 +5322,9 @@ class SZhHant extends SZh {
 
   @override
   String get audioGainPassthroughDesc => '音訊直通開啟時無法使用';
+
+  @override
+  String get block => '封鎖';
 
   @override
   String get blockingSettings => '封鎖設定';

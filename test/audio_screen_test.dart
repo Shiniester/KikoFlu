@@ -31,6 +31,8 @@ import 'package:kikoeru_flutter/src/models/user.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/models/japanese_asmr_browse.dart';
 import 'package:kikoeru_flutter/src/models/sort_options.dart';
+import 'package:kikoeru_flutter/src/models/search_type.dart';
+import 'package:kikoeru_flutter/src/screens/blocked_items_screen.dart';
 import 'package:kikoeru_flutter/src/models/history_record.dart';
 import 'package:kikoeru_flutter/src/models/search_query.dart';
 import 'package:kikoeru_flutter/src/providers/my_tabs_display_provider.dart';
@@ -515,6 +517,13 @@ void main() {
     _browseTile(tester, s.sort).onTap!();
     await tester.pumpAndSettle();
     await tester.tap(find.text(s.jpAsmrSortTitle));
+    await tester.tap(find.byType(DropdownButtonFormField<AgeRating>));
+    await tester.pumpAndSettle();
+    expect(find.text(s.ageRatingR15).last, findsOneWidget);
+    expect(find.text('R18').last, findsOneWidget);
+    await tester.tap(find.text(s.ageRatingGeneral).last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text(s.sortAsc));
     await tester.tap(find.text(s.sortAsc));
     await tester.tap(find.text(s.confirm));
     await tester.pumpAndSettle();
@@ -525,6 +534,10 @@ void main() {
     expect(
       container.read(worksProvider).japaneseAsmrDirection,
       SortDirection.asc,
+    );
+    expect(
+      container.read(worksProvider).japaneseAsmrAgeRating,
+      AgeRating.general,
     );
 
     _browseTile(tester, s.sort).onTap!();
@@ -578,6 +591,41 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  for (final source in audio_source.AudioSource.values) {
+    testWidgets('sidebar opens existing blocking settings for ${source.name}', (
+      tester,
+    ) async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(AudioSourceNotifier.preferenceKey, source.name);
+      final reduced = ValueNotifier(true);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced);
+      final s = S.of(tester.element(find.byType(AudioScreen)));
+      await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text(s.block),
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const ValueKey('library-drawer')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(s.block));
+      await tester.pumpAndSettle();
+      expect(find.byType(BlockedItemsScreen), findsOneWidget);
+      expect(find.text(s.blockedItems), findsOneWidget);
+      Navigator.of(tester.element(find.byType(BlockedItemsScreen))).pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(BlockedItemsScreen), findsNothing);
+      expect(find.byType(AudioScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('JP sidebar selects a calendar year and month', (tester) async {
     final prefs = await SharedPreferences.getInstance();

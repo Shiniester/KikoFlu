@@ -9,6 +9,7 @@ import '../../l10n/app_localizations.dart';
 import '../models/audio_source.dart';
 import '../models/japanese_asmr_browse.dart';
 import '../models/search_query.dart';
+import '../models/search_type.dart';
 import '../models/sort_options.dart';
 import '../providers/audio_source_provider.dart';
 import '../providers/auth_provider.dart';
@@ -38,6 +39,7 @@ import '../widgets/tab_page_motion.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 import '../widgets/works_grid_view.dart';
 import 'downloads_screen.dart';
+import 'blocked_items_screen.dart';
 import 'history_screen.dart';
 import 'local_downloads_screen.dart';
 import 'playlists_screen.dart';
@@ -656,6 +658,15 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     }
     options.add(
       LibraryDrawerTile(
+        icon: Icons.block,
+        title: s.block,
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (context) => const BlockedItemsScreen()),
+        ),
+      ),
+    );
+    options.add(
+      LibraryDrawerTile(
         icon: Icons.translate,
         title: s.autoTranslateWorkDetails,
         trailing: Switch(
@@ -884,80 +895,110 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     final s = S.of(context);
     var option = state.japaneseAsmrSortOption;
     var direction = state.japaneseAsmrDirection;
-    final result = await showDialog<(JapaneseAsmrSortOption, SortDirection)>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text(s.sortOptions),
-          content: SizedBox(
-            width: 360,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    s.sortField,
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  RadioOptionGroup<JapaneseAsmrSortOption>(
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    groupValue: option,
-                    onChanged: (value) => setDialogState(() => option = value),
-                    options: [
-                      for (final value in const [
-                        JapaneseAsmrSortOption.date,
-                        JapaneseAsmrSortOption.title,
-                        JapaneseAsmrSortOption.comments,
-                      ])
-                        RadioOption(
-                          title: Text(_japaneseAsmrSortLabel(s, value)),
-                          value: value,
+    var ageRating = state.japaneseAsmrAgeRating;
+    final result =
+        await showDialog<(JapaneseAsmrSortOption, SortDirection, AgeRating)>(
+          context: context,
+          builder: (dialogContext) => StatefulBuilder(
+            builder: (context, setDialogState) => AlertDialog(
+              title: Text(s.sortOptions),
+              content: SizedBox(
+                width: 360,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        s.sortField,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      RadioOptionGroup<JapaneseAsmrSortOption>(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        groupValue: option,
+                        onChanged: (value) =>
+                            setDialogState(() => option = value),
+                        options: [
+                          for (final value in const [
+                            JapaneseAsmrSortOption.date,
+                            JapaneseAsmrSortOption.title,
+                            JapaneseAsmrSortOption.comments,
+                          ])
+                            RadioOption(
+                              title: Text(_japaneseAsmrSortLabel(s, value)),
+                              value: value,
+                            ),
+                        ],
+                      ),
+                      const Divider(),
+                      DropdownButtonFormField<AgeRating>(
+                        initialValue: ageRating,
+                        decoration: InputDecoration(
+                          labelText: s.ageRatingLabel,
                         ),
+                        items: [
+                          for (final rating in AgeRating.values)
+                            DropdownMenuItem(
+                              value: rating,
+                              child: Text(
+                                rating == AgeRating.adult
+                                    ? 'R18'
+                                    : rating.localizedLabel(context),
+                              ),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value != null) {
+                            setDialogState(() => ageRating = value);
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        s.sortDirection,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      RadioOptionGroup<SortDirection>(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        groupValue: direction,
+                        onChanged: (value) =>
+                            setDialogState(() => direction = value),
+                        options: [
+                          for (final value in SortDirection.values)
+                            RadioOption(
+                              title: Text(value.localizedLabel(context)),
+                              value: value,
+                            ),
+                        ],
+                      ),
                     ],
                   ),
-                  const Divider(),
-                  Text(
-                    s.sortDirection,
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  RadioOptionGroup<SortDirection>(
-                    contentPadding: EdgeInsets.zero,
-                    dense: true,
-                    groupValue: direction,
-                    onChanged: (value) =>
-                        setDialogState(() => direction = value),
-                    options: [
-                      for (final value in SortDirection.values)
-                        RadioOption(
-                          title: Text(value.localizedLabel(context)),
-                          value: value,
-                        ),
-                    ],
-                  ),
-                ],
+                ),
               ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: Text(s.cancel),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, (
+                    option,
+                    direction,
+                    ageRating,
+                  )),
+                  child: Text(s.confirm),
+                ),
+              ],
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: Text(s.cancel),
-            ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.pop(dialogContext, (option, direction)),
-              child: Text(s.confirm),
-            ),
-          ],
-        ),
-      ),
-    );
+        );
     if (result == null || !mounted) return;
     final notifier = ref.read(worksProvider.notifier);
     notifier.setJapaneseAsmrSortOption(result.$1);
     notifier.setJapaneseAsmrSortDirection(result.$2);
+    notifier.setJapaneseAsmrAgeRating(result.$3);
   }
 
   Future<void> _showJapaneseAsmrPeriodDialog({required bool popular}) async {

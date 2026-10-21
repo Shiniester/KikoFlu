@@ -128,6 +128,7 @@ class JapaneseAsmrService {
   Future<Map<String, dynamic>> getWorks({
     required int page,
     required int pageSize,
+    AgeRating ageRating = AgeRating.all,
     JapaneseAsmrSortOption? sort,
     SortDirection direction = SortDirection.desc,
     JapaneseAsmrPeriod period = JapaneseAsmrPeriod.week,
@@ -137,6 +138,7 @@ class JapaneseAsmrService {
   }) => _list(
     page: page,
     pageSize: pageSize,
+    ageRating: ageRating,
     sort: sort,
     direction: direction,
     period: period,
@@ -404,6 +406,7 @@ class JapaneseAsmrService {
     required int pageSize,
     String? keyword,
     String? archivePath,
+    AgeRating ageRating = AgeRating.all,
     JapaneseAsmrSortOption? sort,
     SortDirection direction = SortDirection.desc,
     JapaneseAsmrPeriod period = JapaneseAsmrPeriod.week,
@@ -426,6 +429,12 @@ class JapaneseAsmrService {
       JapaneseAsmrPeriod.archiveMonth =>
         '/date/$archiveYear/${archiveMonth!.toString().padLeft(2, '0')}/',
       _ => null,
+    };
+    final ratingArchive = switch (ageRating) {
+      AgeRating.all => null,
+      AgeRating.general => '/category/rating/sfw/',
+      AgeRating.r15 => '/category/rating/r-15/',
+      AgeRating.adult => '/category/rating/maniax/',
     };
     final queryParameters = <String, String>{};
     if (sort != null) {
@@ -461,7 +470,7 @@ class JapaneseAsmrService {
       final uri = _listUri(
         sitePage,
         keyword: keyword,
-        archivePath: periodArchive ?? archivePath,
+        archivePath: periodArchive ?? archivePath ?? ratingArchive,
         queryParameters: queryParameters,
       );
       final document = html.parse(

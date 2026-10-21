@@ -98,6 +98,7 @@ class _RecordingApi extends KikoeruApiService {
     JapaneseAsmrPeriod japaneseAsmrPeriod = JapaneseAsmrPeriod.week,
     int? japaneseAsmrArchiveYear,
     int? japaneseAsmrArchiveMonth,
+    AgeRating japaneseAsmrAgeRating = AgeRating.all,
     CancelToken? cancelToken,
   }) => _request(
     endpoint: 'works',

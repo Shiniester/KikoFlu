@@ -6,6 +6,7 @@ import 'package:equatable/equatable.dart';
 import '../models/work.dart';
 import '../models/audio_source.dart';
 import '../models/japanese_asmr_browse.dart';
+import '../models/search_type.dart';
 import '../services/kikoeru_api_service.dart' hide kikoeruApiServiceProvider;
 import '../services/log_service.dart';
 import 'auth_provider.dart';
@@ -120,6 +121,7 @@ class WorksState extends Equatable {
   final SortDirection sortDirection;
   final JapaneseAsmrSortOption japaneseAsmrSortOption;
   final SortDirection japaneseAsmrDirection;
+  final AgeRating japaneseAsmrAgeRating;
   final JapaneseAsmrPeriod japaneseAsmrCommentsPeriod;
   final JapaneseAsmrPeriod japaneseAsmrPopularPeriod;
   final DateTime? japaneseAsmrArchiveDate;
@@ -141,6 +143,7 @@ class WorksState extends Equatable {
     this.sortDirection = SortDirection.desc,
     this.japaneseAsmrSortOption = JapaneseAsmrSortOption.date,
     this.japaneseAsmrDirection = SortDirection.desc,
+    this.japaneseAsmrAgeRating = AgeRating.all,
     this.japaneseAsmrCommentsPeriod = JapaneseAsmrPeriod.week,
     this.japaneseAsmrPopularPeriod = JapaneseAsmrPeriod.week,
     this.japaneseAsmrArchiveDate,
@@ -156,6 +159,7 @@ class WorksState extends Equatable {
     SortDirection? sortDirection,
     JapaneseAsmrSortOption? japaneseAsmrSortOption,
     SortDirection? japaneseAsmrDirection,
+    AgeRating? japaneseAsmrAgeRating,
     JapaneseAsmrPeriod? japaneseAsmrCommentsPeriod,
     JapaneseAsmrPeriod? japaneseAsmrPopularPeriod,
     Object? japaneseAsmrArchiveDate = _noArchiveDate,
@@ -172,6 +176,8 @@ class WorksState extends Equatable {
           japaneseAsmrSortOption ?? this.japaneseAsmrSortOption,
       japaneseAsmrDirection:
           japaneseAsmrDirection ?? this.japaneseAsmrDirection,
+      japaneseAsmrAgeRating:
+          japaneseAsmrAgeRating ?? this.japaneseAsmrAgeRating,
       japaneseAsmrCommentsPeriod:
           japaneseAsmrCommentsPeriod ?? this.japaneseAsmrCommentsPeriod,
       japaneseAsmrPopularPeriod:
@@ -215,6 +221,7 @@ class WorksState extends Equatable {
     sortDirection,
     japaneseAsmrSortOption,
     japaneseAsmrDirection,
+    japaneseAsmrAgeRating,
     japaneseAsmrCommentsPeriod,
     japaneseAsmrPopularPeriod,
     japaneseAsmrArchiveDate,
@@ -359,6 +366,9 @@ class WorksNotifier extends StateNotifier<WorksState> {
               ? JapaneseAsmrSortOption.popular
               : state.japaneseAsmrSortOption,
           japaneseAsmrDirection: state.japaneseAsmrDirection,
+          japaneseAsmrAgeRating: mode == DisplayMode.all
+              ? state.japaneseAsmrAgeRating
+              : AgeRating.all,
           japaneseAsmrPeriod: mode == DisplayMode.popular
               ? state.japaneseAsmrPopularPeriod
               : (state.japaneseAsmrSortOption == JapaneseAsmrSortOption.comments
@@ -600,6 +610,12 @@ class WorksNotifier extends StateNotifier<WorksState> {
   void setJapaneseAsmrSortDirection(SortDirection direction) {
     if (state.japaneseAsmrDirection == direction) return;
     state = state.copyWith(japaneseAsmrDirection: direction);
+    refresh(resetPage: true);
+  }
+
+  void setJapaneseAsmrAgeRating(AgeRating rating) {
+    if (state.japaneseAsmrAgeRating == rating) return;
+    state = state.copyWith(japaneseAsmrAgeRating: rating);
     refresh(resetPage: true);
   }
 

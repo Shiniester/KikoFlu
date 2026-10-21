@@ -521,6 +521,7 @@
   "audioGainDesc": "0 dB is original audio; excessive boost may distort or damage hearing",
   "audioGainAttenuationDesc": "Reduce all audio; 0 dB keeps the original level",
   "audioGainPassthroughDesc": "Unavailable while audio passthrough is on",
+  "block": "Block",
   "blockingSettings": "Blocking Settings",
   "blockingSettingsSubtitle": "Blocked tags, voice actors, and circles",
   "audioPassthrough": "Audio Passthrough (Beta)",

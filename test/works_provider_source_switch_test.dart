@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/models/audio_source.dart';
 import 'package:kikoeru_flutter/src/models/japanese_asmr_browse.dart';
 import 'package:kikoeru_flutter/src/models/sort_options.dart';
+import 'package:kikoeru_flutter/src/models/search_type.dart';
 import 'package:kikoeru_flutter/src/providers/audio_source_provider.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart'
     show kikoeruApiServiceProvider;
@@ -26,6 +27,7 @@ class _Request {
     this.sort,
     this.japaneseAsmrSort,
     this.japaneseAsmrDirection = SortDirection.desc,
+    this.japaneseAsmrAgeRating = AgeRating.all,
     this.japaneseAsmrPeriod = JapaneseAsmrPeriod.week,
     this.archiveYear,
     this.archiveMonth,
@@ -38,6 +40,7 @@ class _Request {
   final String? sort;
   final JapaneseAsmrSortOption? japaneseAsmrSort;
   final SortDirection japaneseAsmrDirection;
+  final AgeRating japaneseAsmrAgeRating;
   final JapaneseAsmrPeriod japaneseAsmrPeriod;
   final int? archiveYear;
   final int? archiveMonth;
@@ -58,6 +61,7 @@ class _DeferredApi extends KikoeruApiService {
     int? seed,
     JapaneseAsmrSortOption? japaneseAsmrSort,
     SortDirection japaneseAsmrDirection = SortDirection.desc,
+    AgeRating japaneseAsmrAgeRating = AgeRating.all,
     JapaneseAsmrPeriod japaneseAsmrPeriod = JapaneseAsmrPeriod.week,
     int? japaneseAsmrArchiveYear,
     int? japaneseAsmrArchiveMonth,
@@ -71,6 +75,7 @@ class _DeferredApi extends KikoeruApiService {
       sort: sort,
       japaneseAsmrSort: japaneseAsmrSort,
       japaneseAsmrDirection: japaneseAsmrDirection,
+      japaneseAsmrAgeRating: japaneseAsmrAgeRating,
       japaneseAsmrPeriod: japaneseAsmrPeriod,
       archiveYear: japaneseAsmrArchiveYear,
       archiveMonth: japaneseAsmrArchiveMonth,
@@ -125,6 +130,39 @@ Future<void> _completeRequest(
 }
 
 void main() {
+  test('JP rating changes reset the page and supersede old results', () async {
+    final api = _DeferredApi();
+    final container = await _createContainer(api);
+    final notifier = container.read(worksProvider.notifier);
+    await container
+        .read(audioSourceProvider.notifier)
+        .select(AudioSource.jpAsmr);
+    notifier.setJapaneseAsmrSortOption(JapaneseAsmrSortOption.title);
+    notifier.setJapaneseAsmrSortDirection(SortDirection.asc);
+    unawaited(notifier.loadWorks(targetPage: 3, supersede: true));
+    final oldRequest = api.requests.last;
+
+    notifier.setJapaneseAsmrAgeRating(AgeRating.general);
+    final newRequest = api.requests.last;
+    expect(oldRequest.cancelToken!.isCancelled, isTrue);
+    expect(newRequest.page, 1);
+    expect(newRequest.japaneseAsmrSort, JapaneseAsmrSortOption.title);
+    expect(newRequest.japaneseAsmrDirection, SortDirection.asc);
+    expect(newRequest.japaneseAsmrAgeRating, AgeRating.general);
+    await _completeRequest(container, newRequest, _response(-20));
+    oldRequest.response.complete(_response(-30));
+    await oldRequest.response.future;
+    expect(container.read(worksProvider).works.single.id, -20);
+
+    notifier.setDisplayMode(DisplayMode.popular);
+    expect(api.requests.last.japaneseAsmrAgeRating, AgeRating.all);
+    await container
+        .read(audioSourceProvider.notifier)
+        .select(AudioSource.asmrOne);
+    expect(api.requests.last.japaneseAsmrAgeRating, AgeRating.all);
+    expect(api.requests.last.japaneseAsmrSort, isNull);
+  });
+
   test(
     'JP sorting preserves ASMR.ONE sorting across source switches',
     () async {

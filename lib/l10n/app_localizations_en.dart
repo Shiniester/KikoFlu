@@ -1133,6 +1133,9 @@ class SEn extends S {
       'Unavailable while audio passthrough is on';
 
   @override
+  String get block => 'Block';
+
+  @override
   String get blockingSettings => 'Blocking Settings';
 
   @override

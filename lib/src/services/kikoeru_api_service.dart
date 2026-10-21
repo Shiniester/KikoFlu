@@ -634,12 +634,14 @@ class KikoeruApiService {
     JapaneseAsmrPeriod japaneseAsmrPeriod = JapaneseAsmrPeriod.week,
     int? japaneseAsmrArchiveYear,
     int? japaneseAsmrArchiveMonth,
+    AgeRating japaneseAsmrAgeRating = AgeRating.all,
     CancelToken? cancelToken,
   }) async {
     if (source == AudioSource.jpAsmr) {
       return _japaneseAsmrService.getWorks(
         page: page,
         pageSize: pageSize,
+        ageRating: japaneseAsmrAgeRating,
         sort: japaneseAsmrSort,
         direction: japaneseAsmrDirection,
         period: japaneseAsmrPeriod,

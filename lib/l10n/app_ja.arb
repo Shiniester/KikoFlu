@@ -382,6 +382,7 @@
   "audioGainDesc": "0 dB は原音。過度な増幅は歪みや聴力障害の原因になります",
   "audioGainAttenuationDesc": "全音声を減衰。0 dB は原音",
   "audioGainPassthroughDesc": "オーディオパススルー中は使用不可",
+  "block": "ブロック",
   "blockingSettings": "ブロック設定",
   "blockingSettingsSubtitle": "ブロック中のタグ、声優、サークル",
   "audioPassthrough": "オーディオパススルー(Beta)",
