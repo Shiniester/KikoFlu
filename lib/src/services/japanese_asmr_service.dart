@@ -18,6 +18,13 @@ class JapaneseAsmrVerificationRequiredException implements Exception {
   String toString() => marker;
 }
 
+class _JapaneseAsmrChapter {
+  const _JapaneseAsmrChapter({required this.title, required this.startTimeMs});
+
+  final String title;
+  final int startTimeMs;
+}
+
 /// The public Japanese ASMR catalog is HTML, independent of Kikoeru accounts.
 class JapaneseAsmrService {
   static final instance = JapaneseAsmrService();
@@ -538,14 +545,33 @@ class JapaneseAsmrService {
     final download = document.querySelector('#downloadlink a[href]');
     final downloadUrl = _url(download?.attributes['href']);
     final images = work['images'] as List<String>;
+    final chapters = _chapters(document);
     return [
-      {
-        'type': 'audio',
-        'title': '$productId.m4a',
-        'hash': 'jp-$postId-main',
-        'mediaStreamUrl': stream,
-        if (downloadUrl != null) 'mediaDownloadUrl': downloadUrl,
-      },
+      if (chapters.isEmpty)
+        {
+          'type': 'audio',
+          'title': '$productId.m4a',
+          'hash': 'jp-$postId-main',
+          'mediaStreamUrl': stream,
+          if (downloadUrl != null) 'mediaDownloadUrl': downloadUrl,
+        }
+      else
+        for (var i = 0; i < chapters.length; i++)
+          {
+            'type': 'audio',
+            'title': _chapterFileName(chapters[i].title),
+            'hash': 'jp-$postId-chapter-${chapters[i].startTimeMs}',
+            'mediaStreamUrl': stream,
+            'mediaDownloadUrl': stream,
+            'startTimeMs': chapters[i].startTimeMs,
+            'endTimeMs': i + 1 < chapters.length
+                ? chapters[i + 1].startTimeMs
+                : null,
+            if (i + 1 < chapters.length)
+              'duration':
+                  (chapters[i + 1].startTimeMs - chapters[i].startTimeMs) /
+                  1000,
+          },
       for (var i = 0; i < images.length; i++)
         {
           'type': 'image',
@@ -555,6 +581,46 @@ class JapaneseAsmrService {
           'mediaDownloadUrl': images[i],
         },
     ];
+  }
+
+  static List<_JapaneseAsmrChapter> _chapters(Document document) {
+    final playlist =
+        document.querySelector('#plyr-chapter-playlist') ??
+        document.querySelector('#basic-chapter-playlist');
+    if (playlist == null) return const [];
+
+    final chapters = <_JapaneseAsmrChapter>[];
+    int? previousStartTimeMs;
+    for (final link in playlist.querySelectorAll(
+      'tr .chapter_title a[data-track-title][data-value]',
+    )) {
+      final title = link.attributes['data-track-title']?.trim();
+      final seconds = num.tryParse(link.attributes['data-value']?.trim() ?? '');
+      if (title == null ||
+          title.isEmpty ||
+          seconds == null ||
+          !seconds.isFinite ||
+          seconds < 0) {
+        continue;
+      }
+      final startTimeMs = (seconds * 1000).round();
+      if (previousStartTimeMs != null && startTimeMs <= previousStartTimeMs) {
+        continue;
+      }
+      chapters.add(
+        _JapaneseAsmrChapter(title: title, startTimeMs: startTimeMs),
+      );
+      previousStartTimeMs = startTimeMs;
+    }
+    return chapters;
+  }
+
+  static String _chapterFileName(String title) {
+    final stem = title.replaceFirst(
+      RegExp(r'\.(?:aac|mp3|m4a|wav|flac|ogg|opus)$', caseSensitive: false),
+      '',
+    );
+    return '$stem.aac';
   }
 
   Future<List<dynamic>> getRelatedWorks(int postId) async {

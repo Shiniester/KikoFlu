@@ -24,6 +24,22 @@ void main() {
         createdAt: DateTime.utc(2026, 1, 1),
       ),
     );
+    tasks.add(
+      DownloadTask(
+        id: DownloadTask.createId(
+          workId: -1,
+          hash: 'final-chapter',
+          fileName: 'final.aac',
+        ),
+        workId: -1,
+        workTitle: 'ASMR',
+        fileName: 'final.aac',
+        downloadUrl: 'https://example.com/work.m3u8',
+        hash: 'final-chapter',
+        startTimeMs: 3956000,
+        createdAt: DateTime.utc(2026, 1, 1),
+      ),
+    );
 
     final encoded = await DownloadTaskPersistence.encode(
       tasks,

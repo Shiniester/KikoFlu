@@ -429,6 +429,12 @@ class AudioSubtitleActions {
             album: work.title,
             workId: work.id,
             hash: FileTreeUtils.property(variant.source, 'hash')?.toString(),
+            startTimeMs:
+                (FileTreeUtils.property(variant.source, 'startTimeMs') as num?)
+                    ?.toInt(),
+            endTimeMs:
+                (FileTreeUtils.property(variant.source, 'endTimeMs') as num?)
+                    ?.toInt(),
             subtitleWorkDirPath: workDirPath,
           );
       requests.add(
@@ -466,7 +472,10 @@ class AudioSubtitleActions {
           '$normalizedHost/api/media/download/${track.hash}/'
           '${Uri.encodeComponent(track.title)}';
     }
-    if (url.isNotEmpty && token.isNotEmpty && !url.contains('token=')) {
+    if ((track.workId ?? 0) >= 0 &&
+        url.isNotEmpty &&
+        token.isNotEmpty &&
+        !url.contains('token=')) {
       url += '${url.contains('?') ? '&' : '?'}token=$token';
     }
     final size = FileTreeUtils.property(source, 'size');

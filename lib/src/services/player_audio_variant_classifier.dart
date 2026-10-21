@@ -176,6 +176,9 @@ class PlayerAudioVariantClassifier {
     List<PlayerAudioVariant> variants, {
     AudioFormatPreference preference = const AudioFormatPreference(),
   }) {
+    final chapters = _chaptersInOrder(variants);
+    if (chapters.isNotEmpty) return chapters;
+
     final sorted = variants
         .where((variant) {
           return preference.includeUnknown ||
@@ -246,6 +249,16 @@ class PlayerAudioVariantClassifier {
     AudioFormatPreference preference = const AudioFormatPreference(),
   }) {
     final keyword = _normalize(filter.keyword).trim();
+    final chapters = _chaptersInOrder(variants);
+    if (chapters.isNotEmpty) {
+      return chapters
+          .where(
+            (variant) =>
+                keyword.isEmpty ||
+                _normalize(variant.fullPath).contains(keyword),
+          )
+          .toList(growable: false);
+    }
     final source = filter.showAll
         ? variants
         : _filterByDimensions(variants, filter, preference);
@@ -257,6 +270,23 @@ class PlayerAudioVariantClassifier {
         .toList(growable: false);
     _sort(result, preference: preference);
     return result;
+  }
+
+  List<PlayerAudioVariant> _chaptersInOrder(
+    Iterable<PlayerAudioVariant> variants,
+  ) {
+    final chapters = variants
+        .where((variant) => _chapterStartTimeMs(variant) != null)
+        .toList();
+    chapters.sort(
+      (a, b) => _chapterStartTimeMs(a)!.compareTo(_chapterStartTimeMs(b)!),
+    );
+    return chapters;
+  }
+
+  int? _chapterStartTimeMs(PlayerAudioVariant variant) {
+    final startTimeMs = FileTreeUtils.property(variant.source, 'startTimeMs');
+    return startTimeMs is num ? startTimeMs.toInt() : null;
   }
 
   Iterable<PlayerAudioVariant> _filterByDimensions(

@@ -25,6 +25,7 @@ import 'log_service.dart';
 import 'audio_cache_files.dart';
 import 'remote_asset_cache.dart';
 import 'resumable_file_transfer.dart';
+import 'japanese_asmr_chapter_downloader.dart';
 
 final _log = LogService.instance;
 
@@ -52,6 +53,8 @@ class DownloadService implements DownloadTaskRepository {
   int _performanceTaskRowBuilds = 0;
   int _performanceTemporaryListAllocations = 0;
   final ResumableFileTransfer _resumableFileTransfer = ResumableFileTransfer();
+  final JapaneseAsmrChapterDownloader _chapterDownloader =
+      JapaneseAsmrChapterDownloader();
   final LocalWorkMetadataService _localMetadataService =
       const LocalWorkMetadataService();
   final DownloadDiskInventoryScanner _diskInventoryScanner =
@@ -615,6 +618,8 @@ class DownloadService implements DownloadTaskRepository {
     Map<String, dynamic>? workMetadata,
     String? coverUrl,
     String? relativePath, // 相对路径，用于按文件树组织
+    int? startTimeMs,
+    int? endTimeMs,
   }) {
     final safeFileName = relativePath != null && relativePath.isNotEmpty
         ? '${DownloadFilePathService.safeRelativePath(relativePath)}/'
@@ -638,6 +643,8 @@ class DownloadService implements DownloadTaskRepository {
       totalBytes: totalBytes,
       workMetadata: workMetadata,
       coverUrl: coverUrl,
+      startTimeMs: startTimeMs,
+      endTimeMs: endTimeMs,
     );
     _pendingTaskAdds[identity] = operation;
     unawaited(
@@ -666,6 +673,8 @@ class DownloadService implements DownloadTaskRepository {
     int? totalBytes,
     Map<String, dynamic>? workMetadata,
     String? coverUrl,
+    int? startTimeMs,
+    int? endTimeMs,
   }) async {
     // 检查是否已存在
     final existingTask = _findTask(
@@ -691,7 +700,7 @@ class DownloadService implements DownloadTaskRepository {
     }
 
     // 检查缓存中是否已有此文件
-    if (hash != null && hash.isNotEmpty) {
+    if (startTimeMs == null && hash != null && hash.isNotEmpty) {
       final cachedFile = await CacheService.getCachedAudioFile(hash);
       if (cachedFile != null) {
         // 从缓存移动到下载目录
@@ -746,6 +755,8 @@ class DownloadService implements DownloadTaskRepository {
       totalBytes: totalBytes,
       createdAt: DateTime.now(),
       workMetadata: workMetadata,
+      startTimeMs: startTimeMs,
+      endTimeMs: endTimeMs,
     );
 
     _appendTask(task);
@@ -852,8 +863,13 @@ class DownloadService implements DownloadTaskRepository {
       tag: 'Download',
     );
 
+    final isChapter = task.startTimeMs != null;
     _updateTask(
-      task.copyWith(status: DownloadStatus.downloading),
+      task.copyWith(
+        status: DownloadStatus.downloading,
+        downloadedBytes: isChapter ? 0 : task.downloadedBytes,
+        totalBytes: isChapter ? 0 : task.totalBytes,
+      ),
       immediate: true,
     );
 
@@ -885,9 +901,10 @@ class DownloadService implements DownloadTaskRepository {
     _cancelTokens[task.id] = cancelToken;
 
     try {
-      final isAudio = FileIconUtils.inferFileType(task.fileName) == 'audio';
+      final isAudio =
+          isChapter || FileIconUtils.inferFileType(task.fileName) == 'audio';
       // 先检查缓存中是否已有此文件
-      if (task.hash != null && task.hash!.isNotEmpty) {
+      if (!isChapter && task.hash != null && task.hash!.isNotEmpty) {
         final fileType = task.fileName.split('.').last.toLowerCase();
         final cachedPath = task.workId < 0
             ? null
@@ -936,6 +953,67 @@ class DownloadService implements DownloadTaskRepository {
         }
       }
 
+      if (isChapter) {
+        if (!task.fileName.toLowerCase().endsWith('.aac')) {
+          throw const FormatException(
+            'Japanese ASMR chapter downloads require an .aac filename',
+          );
+        }
+        int lastUpdateTime = 0;
+        const chapterUpdateInterval = 500;
+        final outputBytes = await _chapterDownloader.download(
+          playlistUrl: task.downloadUrl,
+          startTimeMs: task.startTimeMs!,
+          endTimeMs: task.endTimeMs,
+          outputFile: tempFile,
+          cancellation: cancelToken,
+          onProgress: (received, total) {
+            if (total == null || total <= 0) return;
+            final now = DateTime.now().millisecondsSinceEpoch;
+            if (now - lastUpdateTime <= chapterUpdateInterval &&
+                received != total) {
+              return;
+            }
+            lastUpdateTime = now;
+            final currentTask = taskById(task.id);
+            if (currentTask?.status == DownloadStatus.downloading) {
+              _updateTask(
+                currentTask!.copyWith(
+                  downloadedBytes: received,
+                  totalBytes: total,
+                ),
+              );
+            }
+          },
+        );
+        if (cancelToken.isCancelled) {
+          throw const HttpException('Japanese ASMR chapter download cancelled');
+        }
+        await tempFile.rename(filePath);
+        final currentTask = taskById(task.id);
+        if (cancelToken.isCancelled ||
+            currentTask?.status != DownloadStatus.downloading) {
+          if (await file.exists()) await file.delete();
+          if (cancelToken.isCancelled) {
+            throw const HttpException(
+              'Japanese ASMR chapter download cancelled',
+            );
+          }
+          return;
+        }
+        final completedTask = currentTask!.copyWith(
+          status: DownloadStatus.completed,
+          completedAt: DateTime.now(),
+          downloadedBytes: outputBytes,
+          totalBytes: outputBytes,
+        );
+        _updateTask(completedTask, immediate: true);
+        if (identical(_cancelTokens[task.id], cancelToken)) {
+          _cancelTokens.remove(task.id);
+        }
+        return;
+      }
+
       // 缓存不存在,从网络下载
       // 节流：限制进度更新频率
       int lastUpdateTime = 0;
@@ -947,7 +1025,8 @@ class DownloadService implements DownloadTaskRepository {
         tag: 'Download',
       );
 
-      if (task.workId >= 0 &&
+      if (!isChapter &&
+          task.workId >= 0 &&
           (!await tempFile.exists() || await tempFile.length() == 0) &&
           task.hash != null &&
           task.hash!.isNotEmpty &&

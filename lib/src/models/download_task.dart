@@ -22,6 +22,8 @@ class DownloadTask extends Equatable {
   final DateTime createdAt;
   final DateTime? completedAt;
   final Map<String, dynamic>? workMetadata; // 作品详情元数据，用于离线预览
+  final int? startTimeMs;
+  final int? endTimeMs;
 
   const DownloadTask({
     required this.id,
@@ -37,6 +39,8 @@ class DownloadTask extends Equatable {
     required this.createdAt,
     this.completedAt,
     this.workMetadata,
+    this.startTimeMs,
+    this.endTimeMs,
   });
 
   static String createId({
@@ -70,6 +74,8 @@ class DownloadTask extends Equatable {
     DateTime? createdAt,
     DateTime? completedAt,
     Map<String, dynamic>? workMetadata,
+    int? startTimeMs,
+    int? endTimeMs,
   }) {
     return DownloadTask(
       id: id ?? this.id,
@@ -85,6 +91,8 @@ class DownloadTask extends Equatable {
       createdAt: createdAt ?? this.createdAt,
       completedAt: completedAt ?? this.completedAt,
       workMetadata: workMetadata ?? this.workMetadata,
+      startTimeMs: startTimeMs ?? this.startTimeMs,
+      endTimeMs: endTimeMs ?? this.endTimeMs,
     );
   }
 
@@ -102,6 +110,8 @@ class DownloadTask extends Equatable {
       'error': error,
       'createdAt': createdAt.toIso8601String(),
       'completedAt': completedAt?.toIso8601String(),
+      'startTimeMs': startTimeMs,
+      'endTimeMs': endTimeMs,
       // workMetadata 不序列化到 SharedPreferences，会从硬盘的 work_metadata.json 加载
     };
   }
@@ -128,6 +138,8 @@ class DownloadTask extends Equatable {
       completedAt: json['completedAt'] != null
           ? DateTime.parse(json['completedAt'] as String)
           : null,
+      startTimeMs: json['startTimeMs'] as int?,
+      endTimeMs: json['endTimeMs'] as int?,
       // workMetadata 不从 SharedPreferences 加载，会在启动时从硬盘同步
       workMetadata: null,
     );
@@ -148,5 +160,7 @@ class DownloadTask extends Equatable {
         createdAt,
         completedAt,
         workMetadata,
+        startTimeMs,
+        endTimeMs,
       ];
 }

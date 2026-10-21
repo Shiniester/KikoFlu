@@ -41,6 +41,9 @@ class WorkTrackFileBuilder {
         type: type == 'folder' ? 'folder' : 'file',
         children: children,
         size: size,
+        duration: fileMap['duration'],
+        startTimeMs: (fileMap['startTimeMs'] as num?)?.toInt(),
+        endTimeMs: (fileMap['endTimeMs'] as num?)?.toInt(),
         mediaDownloadUrl: _downloadUrlFor(fileMap, normalizedHost, hash, type),
       );
     }).toList();

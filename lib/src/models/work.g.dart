@@ -157,6 +157,8 @@ AudioFile _$AudioFileFromJson(Map<String, dynamic> json) => AudioFile(
       mediaDownloadUrl: json['mediaDownloadUrl'] as String?,
       size: (json['size'] as num?)?.toInt(),
       duration: json['duration'],
+      startTimeMs: (json['startTimeMs'] as num?)?.toInt(),
+      endTimeMs: (json['endTimeMs'] as num?)?.toInt(),
     );
 
 Map<String, dynamic> _$AudioFileToJson(AudioFile instance) => <String, dynamic>{
@@ -167,4 +169,6 @@ Map<String, dynamic> _$AudioFileToJson(AudioFile instance) => <String, dynamic>{
       'mediaDownloadUrl': instance.mediaDownloadUrl,
       'size': instance.size,
       'duration': instance.duration,
+      'startTimeMs': instance.startTimeMs,
+      'endTimeMs': instance.endTimeMs,
     };

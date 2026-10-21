@@ -74,6 +74,11 @@ The online or offline screen describing a work and its available resource files.
 It is distinct from the Player Audio Details Page for the current track.
 _Avoid_: Player details page, audio details page
 
+**Work Audio Chapter (作品音频章节)**:
+An individually playable, named section of an audio work, bounded within the
+complete work's timeline. It is distinct from a separately supplied audio file
+and from a comic chapter.
+
 **Related Recommendations (相关推荐)**:
 Works shown in the rightmost resource tab of an online Work Details Screen,
 ranked using subject tags,
@@ -104,6 +109,8 @@ when enabled; Images is present only when the work has resource images. Audio
 contains preferred audio files and their best matching work subtitles, with
 locally generated subtitles available through the same per-audio preview action; Images
 contains the work's resource images, separate from its cover.
+For Japanese ASMR works with a chapter index, Audio lists the Work Audio Chapters
+in source order in place of the complete-work audio entry.
 Each tab retains its resource-section scroll position during the current detail
 visit; an unvisited tab starts at the resource section's top.
 Swiping before the tab bar pins preserves its position on screen.

@@ -17,6 +17,8 @@ class AudioTrack extends Equatable {
   final String? hash;
   final String? sourcePath;
   final String? subtitleWorkDirPath;
+  final int? startTimeMs;
+  final int? endTimeMs;
 
   const AudioTrack({
     required this.id,
@@ -31,6 +33,8 @@ class AudioTrack extends Equatable {
     this.hash,
     this.sourcePath,
     this.subtitleWorkDirPath,
+    this.startTimeMs,
+    this.endTimeMs,
   });
 
   factory AudioTrack.fromJson(Map<String, dynamic> json) =>
@@ -51,6 +55,8 @@ class AudioTrack extends Equatable {
     String? hash,
     String? sourcePath,
     String? subtitleWorkDirPath,
+    int? startTimeMs,
+    int? endTimeMs,
   }) {
     return AudioTrack(
       id: id ?? this.id,
@@ -66,6 +72,8 @@ class AudioTrack extends Equatable {
       sourcePath: sourcePath ?? this.sourcePath,
       subtitleWorkDirPath:
           subtitleWorkDirPath ?? this.subtitleWorkDirPath,
+      startTimeMs: startTimeMs ?? this.startTimeMs,
+      endTimeMs: endTimeMs ?? this.endTimeMs,
     );
   }
 
@@ -83,6 +91,8 @@ class AudioTrack extends Equatable {
         hash,
         sourcePath,
         subtitleWorkDirPath,
+        startTimeMs,
+        endTimeMs,
       ];
 }
 

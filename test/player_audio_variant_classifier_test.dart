@@ -29,6 +29,42 @@ void main() {
     },
   );
 
+  test('keeps every chapter in time order outside audio variant filters', () {
+    final variants = classifier.scan([
+      _audio('Episode.aac', 'later', startTimeMs: 1200, endTimeMs: 2400),
+      _audio('SECut_Episode.aac', 'first', startTimeMs: 0, endTimeMs: 1200),
+      _audio('Episode.aac', 'same-title', startTimeMs: 2400),
+      _audio('whole-track.mp3', 'work'),
+    ]);
+    const preference = AudioFormatPreference(
+      priority: [AudioFormat.mp3],
+      se: PlayerBinaryTrait.absent,
+      ejaculation: PlayerBinaryTrait.absent,
+    );
+
+    expect(
+      classifier
+          .selectBest(variants, preference: preference)
+          .map((variant) => variant.source['hash']),
+      ['first', 'later', 'same-title'],
+    );
+    expect(
+      classifier
+          .applyFilter(
+            variants,
+            const PlayerAudioVariantFilter(
+              formats: {AudioFormat.mp3},
+              seValues: {PlayerBinaryTrait.absent},
+              ejaculationValues: {PlayerBinaryTrait.absent},
+              includeUnknown: false,
+            ),
+            preference: preference,
+          )
+          .map((variant) => variant.source['hash']),
+      ['first', 'later', 'same-title'],
+    );
+  });
+
   test(
     'saved language, format and trait preferences select one real combination',
     () {
@@ -487,9 +523,18 @@ Map<String, dynamic> _folder(
   return {'type': 'folder', 'title': title, 'children': children};
 }
 
-Map<String, dynamic> _audio(String title, String hash) {
-  return {'type': 'audio', 'title': title, 'hash': hash};
-}
+Map<String, dynamic> _audio(
+  String title,
+  String hash, {
+  int? startTimeMs,
+  int? endTimeMs,
+}) => {
+  'type': 'audio',
+  'title': title,
+  'hash': hash,
+  if (startTimeMs != null) 'startTimeMs': startTimeMs,
+  if (endTimeMs != null) 'endTimeMs': endTimeMs,
+};
 
 Map<String, dynamic> _subtitle(String title) {
   return {'type': 'text', 'title': title, 'hash': 'subtitle-$title'};

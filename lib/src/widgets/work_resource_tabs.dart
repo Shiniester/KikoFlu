@@ -363,6 +363,11 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
       workId: widget.workId,
       hash: hash,
       sourcePath: localPath,
+      startTimeMs:
+          (FileTreeUtils.property(variant.source, 'startTimeMs') as num?)
+              ?.toInt(),
+      endTimeMs: (FileTreeUtils.property(variant.source, 'endTimeMs') as num?)
+          ?.toInt(),
     );
   }
 

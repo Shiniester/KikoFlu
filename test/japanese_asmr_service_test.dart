@@ -68,6 +68,21 @@ const _detail = '''
 <video><source src="https://ads.example/ad.mp4"></video>
 </main>''';
 
+String _chapterTable(String id, List<MapEntry<String, String>> chapters) =>
+    '<table id="$id">'
+    '<tr><td class="chapter_list start_time"> </td>'
+    '<td class="chapter_list chapter_title">トラックリスト</td></tr>'
+    '${chapters.indexed.map((entry) {
+      final (index, chapter) = entry;
+      return '<tr><td class="chapter_list start_time">'
+          '<a href="#" data-index="$index" data-value="${chapter.key}">'
+          '</a></td><td class="chapter_list chapter_title">'
+          '<a href="#" data-track-title="${chapter.value}" '
+          'data-index="$index" data-value="${chapter.key}">'
+          '${chapter.value}</a></td></tr>';
+    }).join()}'
+    '</table>';
+
 String _relatedItem(String href, String title, {String? imageUrl}) =>
     '''<li><a href="$href"><span class="crp_title">$title</span>
 <img class="crp_thumb lazy" src="data:image/svg+xml,placeholder"${imageUrl == null ? '' : ' data-src="$imageUrl"'}></a>
@@ -493,6 +508,122 @@ void main() {
       );
     },
   );
+
+  test(
+    'uses the primary chapter table once and maps independent HLS tracks',
+    () async {
+      const chapters = [
+        MapEntry('0', 'sa05_01_Opening'),
+        MapEntry('425', 'sa05_02_Right ear'),
+        MapEntry('1313', 'sa05_03_Left ear'),
+        MapEntry('2222', 'sa05_04_Breath'),
+        MapEntry('3080', 'sa05_05_Sleep'),
+        MapEntry('3662', 'sa05_06_After story'),
+        MapEntry('3956', 'sa05_07_Talk'),
+      ];
+      final page = _detail.replaceFirst(
+        '</main>',
+        '${_chapterTable('plyr-chapter-playlist', chapters)}'
+            '${_chapterTable('basic-chapter-playlist', chapters)}</main>',
+      );
+      final adapter = _Adapter((_) => _page(page));
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final tracks = (await service.getWorkTracks(
+        31,
+      )).where((track) => track['type'] == 'audio').toList();
+
+      expect(tracks, hasLength(7));
+      expect(tracks.map((track) => track['title']), [
+        for (final chapter in chapters) '${chapter.value}.aac',
+      ]);
+      expect(tracks.map((track) => track['hash']), [
+        'jp-31-chapter-0',
+        'jp-31-chapter-425000',
+        'jp-31-chapter-1313000',
+        'jp-31-chapter-2222000',
+        'jp-31-chapter-3080000',
+        'jp-31-chapter-3662000',
+        'jp-31-chapter-3956000',
+      ]);
+      expect(tracks.map((track) => track['startTimeMs']), [
+        0,
+        425000,
+        1313000,
+        2222000,
+        3080000,
+        3662000,
+        3956000,
+      ]);
+      expect(tracks.map((track) => track['endTimeMs']), [
+        425000,
+        1313000,
+        2222000,
+        3080000,
+        3662000,
+        3956000,
+        null,
+      ]);
+      expect(tracks.first['duration'], 425);
+      expect(tracks.last.containsKey('duration'), isFalse);
+      expect(
+        tracks.map((track) => track['mediaStreamUrl']),
+        everyElement('https://media.example/work.m3u8'),
+      );
+      expect(
+        tracks.map((track) => track['mediaDownloadUrl']),
+        everyElement('https://media.example/work.m3u8'),
+      );
+    },
+  );
+
+  test('uses the basic chapter table when the primary table is absent', () async {
+    const chapters = [MapEntry('1.25', 'fallback chapter.m4a')];
+    final page = _detail.replaceFirst(
+      '</main>',
+      '${_chapterTable('basic-chapter-playlist', chapters)}</main>',
+    );
+    final service = JapaneseAsmrService(
+      dio: Dio()..httpClientAdapter = _Adapter((_) => _page(page)),
+    );
+
+    final track = (await service.getWorkTracks(31)).first;
+
+    expect(track['title'], 'fallback chapter.aac');
+    expect(track['startTimeMs'], 1250);
+    expect(track['endTimeMs'], isNull);
+  });
+
+  test('rejects invalid and non-increasing chapter times', () async {
+    const chapters = [
+      MapEntry('0', 'first'),
+      MapEntry('425', 'second'),
+      MapEntry('invalid', 'invalid'),
+      MapEntry('400', 'out of order'),
+      MapEntry('1313', 'third'),
+    ];
+    final page = _detail.replaceFirst(
+      '</main>',
+      '${_chapterTable('plyr-chapter-playlist', chapters)}</main>',
+    );
+    final service = JapaneseAsmrService(
+      dio: Dio()..httpClientAdapter = _Adapter((_) => _page(page)),
+    );
+
+    final audioFiles = await service.getWorkTracks(31);
+    final tracks = audioFiles
+        .where((track) => track['type'] == 'audio')
+        .toList();
+
+    expect(tracks.map((track) => track['title']), [
+      'first.aac',
+      'second.aac',
+      'third.aac',
+    ]);
+    expect(tracks.map((track) => track['startTimeMs']), [0, 425000, 1313000]);
+  });
 
   test(
     'normalizes detail identity and uses only the work player media',

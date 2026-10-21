@@ -28,7 +28,7 @@ class FileTreeMainFolder {
 class FileTreeUtils {
   FileTreeUtils._();
 
-  /// Sorts a local file tree by display name at every directory level.
+  /// Sorts local files by name and audio chapters by their source timeline.
   static void sortItemsByTitle(List<dynamic> items) {
     for (final item in items) {
       final children = childrenOf(item);
@@ -37,7 +37,14 @@ class FileTreeUtils {
       }
     }
 
-    items.sort((a, b) => compareTitles(titleOf(a), titleOf(b)));
+    items.sort((a, b) {
+      final aStart = property(a, 'startTimeMs') as num?;
+      final bStart = property(b, 'startTimeMs') as num?;
+      if (aStart != null && bStart != null) return aStart.compareTo(bStart);
+      if (aStart != null) return -1;
+      if (bStart != null) return 1;
+      return compareTitles(titleOf(a), titleOf(b));
+    });
   }
 
   static int compareTitles(String a, String b) {
@@ -73,6 +80,10 @@ class FileTreeUtils {
           return (item as dynamic).type ?? defaultValue;
         case 'duration':
           return (item as dynamic).duration ?? defaultValue;
+        case 'startTimeMs':
+          return (item as dynamic).startTimeMs ?? defaultValue;
+        case 'endTimeMs':
+          return (item as dynamic).endTimeMs ?? defaultValue;
         default:
           return defaultValue;
       }

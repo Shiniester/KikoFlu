@@ -22,6 +22,8 @@ void main() {
         duration: Duration(minutes: 3),
         workId: 10,
         hash: 'hash-one',
+        startTimeMs: 0,
+        endTimeMs: 425000,
       ),
       AudioTrack(
         id: 'two',
@@ -47,6 +49,27 @@ void main() {
     expect(restored.currentIndex, 1);
     expect(restored.position, snapshot.position);
     expect(restored.ownerKey, snapshot.ownerKey);
+  });
+
+  test('chapter boundaries survive AudioTrack JSON and copyWith', () {
+    const chapter = AudioTrack(
+      id: 'chapter',
+      title: 'Chapter.aac',
+      url: 'https://example.com/work.m3u8',
+      startTimeMs: 425000,
+      endTimeMs: 1313000,
+    );
+
+    expect(AudioTrack.fromJson(chapter.toJson()), chapter);
+    expect(chapter.copyWith(endTimeMs: 2000000).endTimeMs, 2000000);
+    expect(
+      AudioTrack.fromJson(const {
+        'id': 'legacy',
+        'title': 'old',
+        'url': 'old',
+      }).startTimeMs,
+      isNull,
+    );
   });
 
   test('position checkpoints do not rewrite queue metadata', () async {

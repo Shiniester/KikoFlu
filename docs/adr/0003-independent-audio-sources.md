@@ -55,6 +55,9 @@ HLS stream, and offline download resolves its full-work audio link. Signed file
 URLs are resolved for each download attempt. A failed resolution or an HTML
 response is a download failure, not a completed offline audio file.
 
+[ADR 0004](0004-japanese-asmr-chapter-tracks.md) extends this representation with
+separate playable and downloadable chapters when the source publishes an index.
+
 Japanese ASMR media requests carry its public Referer and Origin headers. Its
 catalog, images, player and downloads never receive ASMR.ONE account credentials.
 
