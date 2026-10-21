@@ -68,6 +68,16 @@ const _detail = '''
 <video><source src="https://ads.example/ad.mp4"></video>
 </main>''';
 
+String _relatedItem(String href, String title, {String? imageUrl}) =>
+    '''<li><a href="$href"><span class="crp_title">$title</span>
+<img class="crp_thumb lazy" src="data:image/svg+xml,placeholder"${imageUrl == null ? '' : ' data-src="$imageUrl"'}></a>
+<span class="crp_date">September 11, 2026</span></li>''';
+
+String _relatedDetail(String items) =>
+    '''<main class="site-main"><h1 class="page-title">Target</h1>
+<div class="yarpp-related"><ul>$items</ul></div>
+<ul class="site-archive-post">${_relatedItem('/999999/', 'Unrelated')}</ul></main>''';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final messenger =
@@ -614,6 +624,128 @@ void main() {
         service.resolveDownloadUrl('https://media.example/work.m3u8'),
         throwsFormatException,
       );
+    },
+  );
+
+  test(
+    'parses native related works in order with decoded titles and lazy covers',
+    () async {
+      final adapter = _Adapter(
+        (_) => _page(
+          _relatedDetail(
+            [
+              _relatedItem(
+                'https://japaneseasmr.com/150507/',
+                'First &amp; related',
+                imageUrl: 'https://pic.example/RJ01687815_img_main.jpg',
+              ),
+              _relatedItem(
+                '/147177/',
+                'Second work',
+                imageUrl: 'https://pic.example/RJ01619571_img_main.jpg',
+              ),
+              _relatedItem('/150859/', 'Third work'),
+              _relatedItem('/150864/', 'Fourth work'),
+            ].join(),
+          ),
+        ),
+      );
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final works = await service.getRelatedWorks(42);
+
+      expect(works.map((work) => work['id']), [
+        -150507,
+        -147177,
+        -150859,
+        -150864,
+      ]);
+      expect(works.first, {
+        'id': -150507,
+        'title': 'First & related',
+        'source_id': 'RJ01687815',
+        'source_url': 'https://japaneseasmr.com/150507/',
+        'cover_url': 'https://pic.example/RJ01687815_img_main.jpg',
+      });
+      expect(Work.fromJson(works.first).sourceId, 'RJ01687815');
+      expect(works[1]['source_id'], 'RJ01619571');
+      expect(
+        works[1]['cover_url'],
+        'https://pic.example/RJ01619571_img_main.jpg',
+      );
+      expect(works[2]['source_id'], 'JP-150859');
+      expect(works[2]['cover_url'], isNull);
+      expect(works.last['source_id'], 'JP-150864');
+    },
+  );
+
+  test('skips self, duplicate, external, and invalid related links', () async {
+    final adapter = _Adapter(
+      (_) => _page(
+        _relatedDetail(
+          [
+            _relatedItem('/42/', 'Self'),
+            _relatedItem('https://example.com/150507/', 'External'),
+            _relatedItem('/not-a-post/', 'Invalid'),
+            _relatedItem('/150507/reviews/', 'Nested path'),
+            _relatedItem('/150507/', 'First'),
+            _relatedItem('/150507/', 'Duplicate'),
+          ].join(),
+        ),
+      ),
+    );
+    final service = JapaneseAsmrService(
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+
+    expect(await service.getRelatedWorks(42), [
+      {
+        'id': -150507,
+        'title': 'First',
+        'source_id': 'JP-150507',
+        'source_url': 'https://japaneseasmr.com/150507/',
+        'cover_url': null,
+      },
+    ]);
+  });
+
+  test('returns no related works when the page has no native list', () async {
+    final adapter = _Adapter(
+      (_) => _page('<h1 class="page-title">Target</h1>'),
+    );
+    final service = JapaneseAsmrService(
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+
+    expect(await service.getRelatedWorks(42), isEmpty);
+  });
+
+  test('reuses the cached detail page for related works', () async {
+    final adapter = _Adapter(
+      (_) => _page(_relatedDetail(_relatedItem('/150507/', 'Related'))),
+    );
+    final service = JapaneseAsmrService(
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+
+    await service.getWork(42);
+    final works = await service.getRelatedWorks(42);
+
+    expect(works.single['id'], -150507);
+    expect(adapter.requests, hasLength(1));
+  });
+
+  test(
+    'propagates unavailable detail failures when loading related works',
+    () async {
+      final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      await expectLater(service.getRelatedWorks(42), throwsFormatException);
     },
   );
 }

@@ -8,6 +8,7 @@ class _JapaneseAsmrService extends JapaneseAsmrService {
   int? workId;
   CancelToken? listCancelToken;
   CancelToken? searchCancelToken;
+  final relatedWorkIds = <int>[];
 
   @override
   Future<Map<String, dynamic>> getWorks({
@@ -48,6 +49,14 @@ class _JapaneseAsmrService extends JapaneseAsmrService {
     workId = postId;
     return const [];
   }
+
+  @override
+  Future<List<dynamic>> getRelatedWorks(int postId) async {
+    relatedWorkIds.add(postId);
+    return [
+      {'id': -postId},
+    ];
+  }
 }
 
 void main() {
@@ -71,11 +80,18 @@ void main() {
       );
       final work = await api.getWork(-1726738, cancelToken: cancelToken);
       await api.getWorkTracks(-1726738);
+      final related = await api.getRelatedWorks(-1726738);
+      final asmrOneRelated = await api.getRelatedWorks(1726738);
 
       expect(japanese.listCancelToken, same(cancelToken));
       expect(japanese.searchCancelToken, same(cancelToken));
       expect(work['id'], -1726738);
       expect(japanese.workId, 1726738);
+      expect(related, [
+        {'id': -1726738},
+      ]);
+      expect(asmrOneRelated, isEmpty);
+      expect(japanese.relatedWorkIds, [1726738]);
     },
   );
 }

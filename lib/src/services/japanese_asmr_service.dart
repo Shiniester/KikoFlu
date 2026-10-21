@@ -330,6 +330,39 @@ class JapaneseAsmrService {
     ];
   }
 
+  Future<List<dynamic>> getRelatedWorks(int postId) async {
+    final document = await _detail(postId, false);
+    final seen = <int>{postId};
+    final works = <Map<String, dynamic>>[];
+    for (final item in document.querySelectorAll('.yarpp-related ul li')) {
+      final link = item.querySelector('a[href]');
+      final href = link?.attributes['href'];
+      final title = link?.querySelector('.crp_title')?.text.trim();
+      if (href == null || title == null || title.isEmpty) continue;
+      final relatedId = _postId(website.resolve(href));
+      if (relatedId == null || !seen.add(relatedId)) continue;
+
+      final cover = _url(_image(link?.querySelector('img.crp_thumb')));
+      final fileName = cover == null
+          ? null
+          : Uri.parse(cover).pathSegments.last;
+      final sourceId = fileName == null
+          ? null
+          : RegExp(
+              r'^((?:RJ|BJ|VJ)\d+)(?:_|\.|$)',
+              caseSensitive: false,
+            ).firstMatch(fileName)?.group(1)?.toUpperCase();
+      works.add({
+        'id': -relatedId,
+        'title': title,
+        'source_id': sourceId ?? 'JP-$relatedId',
+        'source_url': website.resolve('/$relatedId/').toString(),
+        'cover_url': cover,
+      });
+    }
+    return works;
+  }
+
   /// Resolves the site's download index and the host's public download button.
   /// Signed download addresses are resolved for each attempt, never persisted.
   Future<String> resolveDownloadUrl(

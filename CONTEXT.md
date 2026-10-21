@@ -71,6 +71,10 @@ personal preferences, voice actors, circles, subtitle availability and public
 ratings. Previously played works can remain in the list at a lower rank. When
 the same work has Chinese editions, simplified Chinese is preferred over
 traditional Chinese and other languages in recommendations.
+Japanese ASMR works instead use the source detail page's native “More Like This”
+list in its published order. The existing blocked-item filter applies only to
+metadata present in the source cards; native cards omit tags, voice actors and
+circles. Empty or failed source recommendations never fall back to ASMR.ONE.
 _Avoid_: Popular works, random works
 
 **Explicit Preference (明确喜好)**:

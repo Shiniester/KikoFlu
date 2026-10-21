@@ -68,6 +68,23 @@ class RecommendationNotifier extends StateNotifier<RecommendationState> {
     final scope = api.recommendationPreferenceScope;
     final revision = api.recommendationPreferenceRevision;
     try {
+      if (work.isJapaneseAsmr) {
+        final related = await api.getRelatedWorks(work.id);
+        if (!mounted) return;
+        final blocked = ref.read(blockedItemsProvider);
+        state = RecommendationState(
+          recommendations: _extractWorks({'works': related})
+              .where(
+                (candidate) =>
+                    candidate.isJapaneseAsmr &&
+                    candidate.id != work.id &&
+                    !_isBlocked(candidate, blocked),
+              )
+              .toList(growable: false),
+        );
+        return;
+      }
+
       // The visit takes one online-profile snapshot before any local or recall awaits.
       final profile = await _preferencesForVisit(api, scope, revision);
       if (!mounted) return;

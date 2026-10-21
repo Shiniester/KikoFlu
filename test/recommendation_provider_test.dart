@@ -70,6 +70,9 @@ class _Api extends KikoeruApiService {
   int directoryCalls = 0;
   int tagCalls = 0;
   int vaCalls = 0;
+  final relatedWorkIds = <int>[];
+  List<Work> relatedWorks = const [];
+  Completer<List<dynamic>>? relatedCompleter;
   int revision = 0;
   String scope;
   Work reviewWork;
@@ -97,6 +100,14 @@ class _Api extends KikoeruApiService {
 
   @override
   int get recommendationPreferenceRevision => revision;
+
+  @override
+  Future<List<dynamic>> getRelatedWorks(int workId) async {
+    relatedWorkIds.add(workId);
+    return relatedCompleter != null
+        ? await relatedCompleter!.future
+        : relatedWorks.map(_json).toList();
+  }
 
   @override
   Future<Map<String, dynamic>> getMyReviews({
@@ -234,6 +245,83 @@ ProviderContainer _container(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  test('Japanese recommendations preserve native order and source', () async {
+    final api = _Api(scope: 'server|user')
+      ..relatedWorks = const [
+        Work(id: -30, title: 'First native result'),
+        Work(id: -100, title: 'Current work'),
+        Work(id: 1, title: 'Other source'),
+        Work(id: -10, title: 'Blocked', tags: [_currentTag]),
+        Work(id: -20, title: 'Second native result'),
+      ];
+    final container = _container(
+      api,
+      historyLoader: () => throw StateError('Must not load history'),
+      heardIdsLoader: (_) => throw StateError('Must not load heard IDs'),
+    );
+    addTearDown(container.dispose);
+    await container.read(blockedItemsProvider.notifier).addTag('Current');
+    final id = createRecommendationAccessId();
+    final subscription = container.listen(
+      recommendationProvider(id),
+      (_, _) {},
+    );
+    addTearDown(subscription.close);
+
+    await container
+        .read(recommendationProvider(id).notifier)
+        .loadRecommendations(const Work(id: -100, title: 'Japanese work'));
+
+    final state = container.read(recommendationProvider(id));
+    expect(state.recommendations.map((work) => work.id), [-30, -20]);
+    expect(state.isLoading, isFalse);
+    expect(state.error, isNull);
+    expect(api.relatedWorkIds, [-100]);
+    expect(api.tagCalls, 0);
+    expect(api.vaCalls, 0);
+    expect(api.reviewFilters, isEmpty);
+    expect(api.directoryCalls, 0);
+  });
+
+  for (final fail in [false, true]) {
+    test(
+      'Japanese ${fail ? 'failure' : 'empty list'} never falls back',
+      () async {
+        final api = _Api(scope: 'server|user')
+          ..relatedCompleter = Completer<List<dynamic>>();
+        final container = _container(api);
+        addTearDown(container.dispose);
+        final id = createRecommendationAccessId();
+        final subscription = container.listen(
+          recommendationProvider(id),
+          (_, _) {},
+        );
+        addTearDown(subscription.close);
+        final loading = container
+            .read(recommendationProvider(id).notifier)
+            .loadRecommendations(const Work(id: -100, title: 'Japanese work'));
+        expect(container.read(recommendationProvider(id)).isLoading, isTrue);
+        if (fail) {
+          api.relatedCompleter!.completeError(
+            StateError('Native request failed'),
+          );
+        } else {
+          api.relatedCompleter!.complete([]);
+        }
+        await loading;
+
+        final state = container.read(recommendationProvider(id));
+        expect(state.recommendations, isEmpty);
+        expect(state.isLoading, isFalse);
+        expect(state.error, fail ? contains('Native request failed') : isNull);
+        expect(api.tagCalls, 0);
+        expect(api.vaCalls, 0);
+        expect(api.reviewFilters, isEmpty);
+        expect(api.directoryCalls, 0);
+      },
+    );
+  }
 
   test(
     'an account switch during history loading starts no old recall',

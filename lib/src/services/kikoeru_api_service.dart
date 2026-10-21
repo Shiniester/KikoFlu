@@ -959,6 +959,11 @@ class KikoeruApiService {
     }
   }
 
+  Future<List<dynamic>> getRelatedWorks(int workId) async {
+    if (workId >= 0) return const [];
+    return _japaneseAsmrService.getRelatedWorks(workId.abs());
+  }
+
   Future<Map<String, dynamic>> _getWorkOfficial(
     int workId, {
     required bool forceRefresh,
