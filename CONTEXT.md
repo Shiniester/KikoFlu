@@ -38,6 +38,11 @@ including the currently selected source. The drawer also has a fixed Home entry.
 The Audio Screen also contains the user's library pages.
 _Avoid_: Audio Screen, app home page
 
+**Popular Works Page (热门页)**:
+The selected Audio Source's works feed ranked by the source's native popularity
+measure for a chosen period. It is separate from Related Recommendations.
+_Avoid_: Recommended works
+
 **Automatic Work Translation (自动翻译)**:
 Automatic translation of an audio work's detail title, visible resource names,
 and subtitle previews into the selected target language.
