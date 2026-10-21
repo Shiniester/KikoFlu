@@ -275,7 +275,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
         idOf: (work) => work.id,
         replace: true,
       );
-      final blockedItems = _ref.read(blockedItemsProvider);
+      final blockedItems = _ref.read(blockedItemsBySourceProvider(source));
       final filteredWorks = _filterWorks(rawWorks, blockedItems);
       final pagination = result['pagination'] as Map<String, dynamic>?;
       final rawTotalCount = pagination?['totalCount'];
@@ -319,9 +319,15 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
   }
 
   void reapplyFilters() {
-    final blockedItems = _ref.read(blockedItemsProvider);
+    final blockedItems = _ref.read(
+      blockedItemsBySourceProvider(_sourceForActiveQuery),
+    );
     final filteredWorks = _filterWorks(state.rawWorks, blockedItems);
     state = state.copyWith(works: filteredWorks);
+  }
+
+  void reapplyFiltersForSource(AudioSource source) {
+    if (source == _sourceForActiveQuery) reapplyFilters();
   }
 
   void onSourceChanged() {
@@ -381,6 +387,10 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
 
   bool get _isPinnedJapaneseQuery =>
       state.searchParams?['source'] == AudioSource.jpAsmr.name;
+
+  AudioSource get _sourceForActiveQuery => _isPinnedJapaneseQuery
+      ? AudioSource.jpAsmr
+      : _ref.read(audioSourceProvider);
 
   List<SearchCondition> _japaneseConditions() {
     final conditions = state.searchParams?['conditions'];
@@ -483,9 +493,21 @@ final searchResultProvider =
       });
 
       // 监听屏蔽列表变化，重新过滤
-      ref.listen(blockedItemsProvider, (previous, next) {
+      ref.listen(blockedItemsBySourceProvider(AudioSource.asmrOne), (
+        previous,
+        next,
+      ) {
         if (previous != next) {
-          notifier.reapplyFilters();
+          notifier.reapplyFiltersForSource(AudioSource.asmrOne);
+        }
+      });
+
+      ref.listen(blockedItemsBySourceProvider(AudioSource.jpAsmr), (
+        previous,
+        next,
+      ) {
+        if (previous != next) {
+          notifier.reapplyFiltersForSource(AudioSource.jpAsmr);
         }
       });
 

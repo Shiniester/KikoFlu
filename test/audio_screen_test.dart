@@ -614,10 +614,16 @@ void main() {
             )
             .first,
       );
-        await tester.pumpAndSettle();
-        await tester.tap(find.text(s.block));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(s.block));
       await tester.pumpAndSettle();
       expect(find.byType(BlockedItemsScreen), findsOneWidget);
+      expect(
+        tester
+            .widget<BlockedItemsScreen>(find.byType(BlockedItemsScreen))
+            .source,
+        source,
+      );
       expect(find.text(s.blockedItems), findsOneWidget);
       Navigator.of(tester.element(find.byType(BlockedItemsScreen))).pop();
       await tester.pumpAndSettle();

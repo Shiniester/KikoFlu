@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/audio_source.dart';
 import '../models/history_record.dart';
 import '../models/playlist.dart';
 import '../models/work.dart';
@@ -71,7 +72,9 @@ class RecommendationNotifier extends StateNotifier<RecommendationState> {
       if (work.isJapaneseAsmr) {
         final related = await api.getRelatedWorks(work.id);
         if (!mounted) return;
-        final blocked = ref.read(blockedItemsProvider);
+        final blocked = ref.read(
+          blockedItemsBySourceProvider(AudioSource.jpAsmr),
+        );
         state = RecommendationState(
           recommendations: _extractWorks({'works': related})
               .where(
@@ -107,7 +110,9 @@ class RecommendationNotifier extends StateNotifier<RecommendationState> {
             ),
           )
           .toList(growable: false);
-      final blocked = ref.read(blockedItemsProvider);
+      final blocked = ref.read(
+        blockedItemsBySourceProvider(AudioSource.asmrOne),
+      );
       final explorationKey = '$scope|${work.id}';
       final previousExploration = Set<int>.of(
         _previousExplorationIds.putIfAbsent(api, () => {})[explorationKey] ??

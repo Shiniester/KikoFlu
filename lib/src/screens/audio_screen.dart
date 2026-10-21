@@ -661,7 +661,9 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         icon: Icons.block,
         title: s.block,
         onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (context) => const BlockedItemsScreen()),
+          MaterialPageRoute(
+            builder: (context) => BlockedItemsScreen(source: source),
+          ),
         ),
       ),
     );

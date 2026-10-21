@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kikoeru_flutter/src/models/audio_source.dart';
 import 'package:kikoeru_flutter/src/models/history_record.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
@@ -261,7 +262,9 @@ void main() {
       heardIdsLoader: (_) => throw StateError('Must not load heard IDs'),
     );
     addTearDown(container.dispose);
-    await container.read(blockedItemsProvider.notifier).addTag('Current');
+    await container
+        .read(blockedItemsBySourceProvider(AudioSource.jpAsmr).notifier)
+        .addTag('Current');
     final id = createRecommendationAccessId();
     final subscription = container.listen(
       recommendationProvider(id),
@@ -282,6 +285,37 @@ void main() {
     expect(api.vaCalls, 0);
     expect(api.reviewFilters, isEmpty);
     expect(api.directoryCalls, 0);
+  });
+
+  test('Japanese recommendations ignore ASMR.ONE blocked tags', () async {
+    SharedPreferences.setMockInitialValues({
+      'blocked_tags': ['Current'],
+    });
+    final api = _Api(scope: 'server|user')
+      ..relatedWorks = const [
+        Work(id: -10, title: 'ASMR.ONE blocked tag', tags: [_currentTag]),
+      ];
+    final container = _container(api);
+    addTearDown(container.dispose);
+    await container.read(blockedItemsProvider.notifier).addTag('Current');
+
+    final id = createRecommendationAccessId();
+    final subscription = container.listen(
+      recommendationProvider(id),
+      (_, _) {},
+    );
+    addTearDown(subscription.close);
+    await container
+        .read(recommendationProvider(id).notifier)
+        .loadRecommendations(const Work(id: -100, title: 'Japanese work'));
+
+    expect(
+      container
+          .read(recommendationProvider(id))
+          .recommendations
+          .map((work) => work.id),
+      [-10],
+    );
   });
 
   for (final fail in [false, true]) {

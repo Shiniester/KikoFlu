@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../models/audio_source.dart';
 import '../../models/work.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/settings_provider.dart';
+import '../../providers/settings_provider.dart'
+    show blockedItemsBySourceProvider;
 import '../../../l10n/app_localizations.dart';
 import '../responsive_dialog.dart';
 import '../../utils/tag_localizer.dart';
@@ -122,11 +124,13 @@ class _TagVoteDialogState extends ConsumerState<TagVoteDialog> {
   Widget build(BuildContext context) {
     return ResponsiveAlertDialog(
       title: Text(
-        TagLocalizer.localize(
-          _currentTag.id,
-          _currentTag.name,
-          Localizations.localeOf(context),
-        ),
+        widget.workId < 0
+            ? _currentTag.name
+            : TagLocalizer.localize(
+                _currentTag.id,
+                _currentTag.name,
+                Localizations.localeOf(context),
+              ),
         style: const TextStyle(fontSize: 16),
       ),
       content: Column(
@@ -242,7 +246,12 @@ class _TagVoteDialogState extends ConsumerState<TagVoteDialog> {
     return InkWell(
       onTap: () {
         // 获取 notifier 和 messenger，避免在 dispose 后使用 ref 和 context
-        final notifier = ref.read(blockedItemsProvider.notifier);
+        final source = widget.workId < 0
+            ? AudioSource.jpAsmr
+            : AudioSource.asmrOne;
+        final notifier = ref.read(
+          blockedItemsBySourceProvider(source).notifier,
+        );
         final messenger = ScaffoldMessenger.of(context);
         final tagName = _currentTag.name;
         final blockedMessage = S.of(context).tagBlockedWithName(tagName);

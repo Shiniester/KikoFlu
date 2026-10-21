@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/widgets.dart'
     show WidgetsBinding, WidgetsBindingObserver, basicLocaleListResolution;
 import '../../l10n/app_localizations.dart';
+import '../models/audio_source.dart';
 import 'locale_provider.dart';
 import '../models/audio_gain_settings.dart';
 import '../models/audio_preference.dart';
@@ -1225,17 +1226,29 @@ class BlockedItemsState {
 
 /// 屏蔽列表通知器
 class BlockedItemsNotifier extends StateNotifier<BlockedItemsState> {
-  static const String _tagsKey = 'blocked_tags';
-  static const String _cvsKey = 'blocked_cvs';
-  static const String _circlesKey = 'blocked_circles';
+  static const String _jpTagsKey = 'blocked_jp_asmr_tags';
+  static const String _jpCvsKey = 'blocked_jp_asmr_cvs';
+  static const String _jpCirclesKey = 'blocked_jp_asmr_circles';
 
-  BlockedItemsNotifier() : super(const BlockedItemsState()) {
-    _loadPreferences();
+  final AudioSource source;
+  late final Future<void> _preferencesReady;
+
+  BlockedItemsNotifier({this.source = AudioSource.asmrOne})
+    : super(const BlockedItemsState()) {
+    _preferencesReady = _loadPreferences();
   }
+
+  String get _tagsKey =>
+      source == AudioSource.jpAsmr ? _jpTagsKey : 'blocked_tags';
+  String get _cvsKey =>
+      source == AudioSource.jpAsmr ? _jpCvsKey : 'blocked_cvs';
+  String get _circlesKey =>
+      source == AudioSource.jpAsmr ? _jpCirclesKey : 'blocked_circles';
 
   Future<void> _loadPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
       final tags = prefs.getStringList(_tagsKey) ?? [];
       final cvs = prefs.getStringList(_cvsKey) ?? [];
       final circles = prefs.getStringList(_circlesKey) ?? [];
@@ -1257,6 +1270,8 @@ class BlockedItemsNotifier extends StateNotifier<BlockedItemsState> {
   }
 
   Future<void> addTag(String tag) async {
+    await _preferencesReady;
+    if (!mounted) return;
     if (!state.tags.contains(tag)) {
       state = state.copyWith(tags: [...state.tags, tag]);
       await _savePreferences();
@@ -1264,11 +1279,15 @@ class BlockedItemsNotifier extends StateNotifier<BlockedItemsState> {
   }
 
   Future<void> removeTag(String tag) async {
+    await _preferencesReady;
+    if (!mounted) return;
     state = state.copyWith(tags: state.tags.where((t) => t != tag).toList());
     await _savePreferences();
   }
 
   Future<void> addCv(String cv) async {
+    await _preferencesReady;
+    if (!mounted) return;
     if (!state.cvs.contains(cv)) {
       state = state.copyWith(cvs: [...state.cvs, cv]);
       await _savePreferences();
@@ -1276,11 +1295,15 @@ class BlockedItemsNotifier extends StateNotifier<BlockedItemsState> {
   }
 
   Future<void> removeCv(String cv) async {
+    await _preferencesReady;
+    if (!mounted) return;
     state = state.copyWith(cvs: state.cvs.where((c) => c != cv).toList());
     await _savePreferences();
   }
 
   Future<void> addCircle(String circle) async {
+    await _preferencesReady;
+    if (!mounted) return;
     if (!state.circles.contains(circle)) {
       state = state.copyWith(circles: [...state.circles, circle]);
       await _savePreferences();
@@ -1288,6 +1311,8 @@ class BlockedItemsNotifier extends StateNotifier<BlockedItemsState> {
   }
 
   Future<void> removeCircle(String circle) async {
+    await _preferencesReady;
+    if (!mounted) return;
     state = state.copyWith(
       circles: state.circles.where((c) => c != circle).toList(),
     );
@@ -1296,7 +1321,11 @@ class BlockedItemsNotifier extends StateNotifier<BlockedItemsState> {
 }
 
 /// 屏蔽列表提供者
-final blockedItemsProvider =
-    StateNotifierProvider<BlockedItemsNotifier, BlockedItemsState>((ref) {
-      return BlockedItemsNotifier();
-    });
+final blockedItemsBySourceProvider =
+    StateNotifierProvider.family<
+      BlockedItemsNotifier,
+      BlockedItemsState,
+      AudioSource
+    >((ref, source) => BlockedItemsNotifier(source: source));
+
+final blockedItemsProvider = blockedItemsBySourceProvider(AudioSource.asmrOne);

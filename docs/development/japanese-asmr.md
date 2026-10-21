@@ -90,12 +90,36 @@ JP-ASMR 不支持的默认排序回退到最新发布。
 年月路径和翻页路径都保留排序参数。
 
 音声页侧栏的“浏览选项”提供“屏蔽”入口。
-入口直接打开偏好设置中的屏蔽页面，共用已有屏蔽列表。
+入口打开当前音声源的屏蔽列表。
+JP-ASMR 的添加候选词来自源站标签、声优和社团目录。
+JP-ASMR 名称保留原文，不套用 ASMR.ONE 标签翻译。
+两种音声源分别保存屏蔽列表，ASMR.ONE 的旧数据保留。
+作品列表、搜索结果和相关推荐按作品所属音声源应用屏蔽。
+偏好设置不再提供屏蔽入口。
 
 2026-10-21，当前网络访问半年榜、年榜和月榜均返回 HTTP 403。
 这些榜单的在线结果尚未验证。
 
 ## 验证范围
+
+### 屏蔽列表隔离
+
+2026-10-22，以下命令中的 51 项测试全部通过：
+
+```text
+flutter test --no-pub test/blocked_items_source_test.dart test/preferences_proxy_settings_test.dart
+flutter test --no-pub test/blocked_items_provider_test.dart test/blocked_items_source_test.dart test/recommendation_provider_test.dart test/recommendation_section_test.dart test/online_subtitle_feed_pagination_test.dart test/works_provider_source_switch_test.dart
+flutter test --no-pub test/audio_screen_test.dart --plain-name "sidebar opens existing blocking settings"
+```
+
+测试覆盖两源的标签、声优和社团候选。
+测试覆盖独立保存、增删后的筛选和重启恢复。
+ASMR.ONE 旧屏蔽数据和两源的重启恢复测试通过。
+固定来源的 JP-ASMR 搜索和相关推荐分别应用 JP-ASMR 屏蔽列表。
+候选词重试保留输入，不回退到另一音声源。
+偏好设置不再显示屏蔽入口。
+
+### 目录、排序和访问验证
 
 以下命令中的 102 项测试全部通过：
 

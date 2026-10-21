@@ -440,7 +440,7 @@ class WorksNotifier extends StateNotifier<WorksState> {
         replace: !shouldAppend,
       );
 
-      final blockedItems = _ref.read(blockedItemsProvider);
+      final blockedItems = _ref.read(blockedItemsBySourceProvider(source));
       final filteredWorks = _filterWorks(newRawWorks, blockedItems);
 
       final totalCount = pagination?['totalCount'] as int? ?? 0;
@@ -704,7 +704,8 @@ class WorksNotifier extends StateNotifier<WorksState> {
   }
 
   void reapplyFilters() {
-    final blockedItems = _ref.read(blockedItemsProvider);
+    final source = _ref.read(audioSourceProvider);
+    final blockedItems = _ref.read(blockedItemsBySourceProvider(source));
     final updatedStates = state.modeStates.map((mode, snapshot) {
       final filteredWorks = _filterWorks(snapshot.rawWorks, blockedItems);
       return MapEntry(mode, snapshot.copyWith(works: filteredWorks));
@@ -786,9 +787,24 @@ final worksProvider = StateNotifierProvider<WorksNotifier, WorksState>((ref) {
   });
 
   // 监听屏蔽列表变化，重新过滤
-  ref.listen(blockedItemsProvider, (previous, next) {
-    if (previous != next) {
+  ref.listen(blockedItemsBySourceProvider(AudioSource.asmrOne), (
+    previous,
+    next,
+  ) {
+    if (previous != next &&
+        ref.read(audioSourceProvider) == AudioSource.asmrOne) {
       notifier.reapplyFilters();
+    }
+  });
+
+  ref.listen(blockedItemsBySourceProvider(AudioSource.jpAsmr), (
+    previous,
+    next,
+  ) {
+    if (previous != next) {
+      if (ref.read(audioSourceProvider) == AudioSource.jpAsmr) {
+        notifier.reapplyFilters();
+      }
     }
   });
 
