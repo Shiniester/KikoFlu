@@ -6,7 +6,7 @@
   #define MyAppVersion "1.0.0"
 #endif
 #define MyAppPublisher "KikoFlu Dev"
-#define MyAppURL "https://github.com/Meteor-Sage/KikoFlu"
+#define MyAppURL "https://github.com/Shiniester/KikoFlu"
 #define MyAppExeName "KikoFlu.exe"
 
 [Setup]

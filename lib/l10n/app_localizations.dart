@@ -2557,8 +2557,8 @@ abstract class S {
   /// No description provided for @downloadFailed.
   ///
   /// In en, this message translates to:
-  /// **'Download failed'**
-  String get downloadFailed;
+  /// **'Download failed: {error}'**
+  String downloadFailed(String error);
 
   /// No description provided for @startDownload.
   ///
@@ -7683,6 +7683,60 @@ abstract class S {
     int failed,
     int cancelled,
   );
+
+  /// No description provided for @installUpdate.
+  ///
+  /// In en, this message translates to:
+  /// **'Install Now'**
+  String get installUpdate;
+
+  /// No description provided for @downloadingUpdate.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading update...'**
+  String get downloadingUpdate;
+
+  /// No description provided for @downloadCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Download complete'**
+  String get downloadCompleted;
+
+  /// No description provided for @releaseNotes.
+  ///
+  /// In en, this message translates to:
+  /// **'Release Notes'**
+  String get releaseNotes;
+
+  /// No description provided for @packageSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Package size: {size}'**
+  String packageSize(String size);
+
+  /// No description provided for @cancelDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel Download'**
+  String get cancelDownload;
+
+  /// No description provided for @noPlatformPackage.
+  ///
+  /// In en, this message translates to:
+  /// **'No suitable installation package was found for the current system.'**
+  String get noPlatformPackage;
+
+  /// No description provided for @openReleasePage.
+  ///
+  /// In en, this message translates to:
+  /// **'Open GitHub Releases'**
+  String get openReleasePage;
+
+  /// No description provided for @installFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to launch installer'**
+  String get installFailed;
 }
 
 class _SDelegate extends LocalizationsDelegate<S> {

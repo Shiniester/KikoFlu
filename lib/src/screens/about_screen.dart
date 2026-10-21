@@ -9,6 +9,7 @@ import '../utils/ui_tokens.dart';
 import '../utils/snackbar_util.dart';
 import '../widgets/scrollable_appbar.dart';
 import '../widgets/settings_section.dart';
+import '../widgets/update_dialog.dart';
 import '../../l10n/app_localizations.dart';
 
 class AboutScreen extends ConsumerStatefulWidget {
@@ -117,6 +118,7 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
           final primaryColor = Theme.of(context).colorScheme.primary;
           final updateInfo = ref.watch(updateInfoProvider);
           final isCheckingUpdate = ref.watch(isCheckingUpdateProvider);
+          final updateState = ref.watch(updateControllerProvider);
 
           return ListView(
             padding: const EdgeInsets.all(16),
@@ -127,7 +129,11 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
                   color: Theme.of(context).colorScheme.secondaryContainer,
                   child: ListTile(
                     leading: Icon(
-                      Icons.system_update,
+                      updateState.status == UpdateStatus.downloading
+                          ? Icons.downloading
+                          : updateState.status == UpdateStatus.readyToInstall
+                              ? Icons.download_done
+                              : Icons.system_update,
                       color: Theme.of(context).colorScheme.onSecondaryContainer,
                     ),
                     title: Text(
@@ -139,24 +145,69 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    subtitle: Text(
-                      S
-                          .of(context)
-                          .newVersionAvailable(
-                            updateInfo.latestVersion,
-                            updateInfo.currentVersion,
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          S
+                              .of(context)
+                              .newVersionAvailable(
+                                updateInfo.latestVersion,
+                                updateInfo.currentVersion,
+                              ),
+                          style: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSecondaryContainer,
                           ),
-                      style: TextStyle(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.onSecondaryContainer,
-                      ),
+                        ),
+                        if (updateState.status == UpdateStatus.downloading) ...[
+                          const SizedBox(height: 8),
+                          LinearProgressIndicator(
+                            value: updateState.progress > 0
+                                ? updateState.progress
+                                : null,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${(updateState.progress * 100).toStringAsFixed(0)}% (${formatBytes(updateState.receivedBytes)} / ${formatBytes(updateState.totalBytes)})',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: Theme.of(context).colorScheme.onSecondaryContainer,
+                                ),
+                          ),
+                        ],
+                        if (updateState.status == UpdateStatus.readyToInstall) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            S.of(context).downloadCompleted,
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.primary,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                    trailing: Icon(
-                      Icons.open_in_new,
-                      color: Theme.of(context).colorScheme.onSecondaryContainer,
-                    ),
-                    onTap: () => _openUrl(updateInfo.releaseUrl),
+                    trailing: updateState.status == UpdateStatus.readyToInstall
+                        ? FilledButton.tonal(
+                            onPressed: () => ref
+                                .read(updateControllerProvider.notifier)
+                                .install(),
+                            child: Text(S.of(context).installUpdate),
+                          )
+                        : updateState.status == UpdateStatus.downloading
+                            ? IconButton(
+                                icon: const Icon(Icons.close),
+                                tooltip: S.of(context).cancelDownload,
+                                onPressed: () => ref
+                                    .read(updateControllerProvider.notifier)
+                                    .cancelDownload(),
+                              )
+                            : FilledButton.tonal(
+                                onPressed: () => _showUpdateDialog(updateInfo),
+                                child: Text(S.of(context).updateNow),
+                              ),
+                    onTap: () => _showUpdateDialog(updateInfo),
                   ),
                 ),
               if (updateInfo != null && updateInfo.hasNewVersion)
@@ -274,18 +325,8 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
 
       if (updateInfo != null && updateInfo.hasNewVersion) {
         ref.read(updateInfoProvider.notifier).state = updateInfo;
-        SnackBarUtil.showFromSnackBar(
-          context,
-          SnackBar(
-            content: Text(
-              S.of(context).foundNewVersion(updateInfo.latestVersion),
-            ),
-            action: SnackBarAction(
-              label: S.of(context).view,
-              onPressed: () => _openUrl(updateInfo.releaseUrl),
-            ),
-          ),
-        );
+        if (!mounted) return;
+        _showUpdateDialog(updateInfo);
       } else {
         SnackBarUtil.showInfo(context, S.of(context).alreadyLatestVersion);
       }
@@ -297,6 +338,13 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
         ref.read(isCheckingUpdateProvider.notifier).state = false;
       }
     }
+  }
+
+  void _showUpdateDialog(UpdateInfo updateInfo) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => UpdateDialog(updateInfo: updateInfo),
+    );
   }
 
   void _showLicenseDialog(String license) {

@@ -1342,7 +1342,9 @@ class SEn extends S {
   String get downloadComplete => 'Download complete';
 
   @override
-  String get downloadFailed => 'Download failed';
+  String downloadFailed(String error) {
+    return 'Download failed: $error';
+  }
 
   @override
   String get startDownload => 'Starting download';
@@ -4318,4 +4320,34 @@ class SEn extends S {
   ) {
     return 'Generated: $completed · Existing: $skipped · Unsupported: $unsupported · Failed: $failed · Cancelled: $cancelled';
   }
+
+  @override
+  String get installUpdate => 'Install Now';
+
+  @override
+  String get downloadingUpdate => 'Downloading update...';
+
+  @override
+  String get downloadCompleted => 'Download complete';
+
+  @override
+  String get releaseNotes => 'Release Notes';
+
+  @override
+  String packageSize(String size) {
+    return 'Package size: $size';
+  }
+
+  @override
+  String get cancelDownload => 'Cancel Download';
+
+  @override
+  String get noPlatformPackage =>
+      'No suitable installation package was found for the current system.';
+
+  @override
+  String get openReleasePage => 'Open GitHub Releases';
+
+  @override
+  String get installFailed => 'Failed to launch installer';
 }
