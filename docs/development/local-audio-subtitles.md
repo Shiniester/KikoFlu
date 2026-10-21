@@ -87,10 +87,13 @@ miniaudio C 解码桥把本地音频分块转换成识别所需的单声道 PCM�
 与解码、推理在专用工作 isolate 中运行，播放器交互不等待同步 native 推理。
 
 依赖固定为 `sherpa_onnx 1.13.8`、本项目的 `local_audio_decoder` 插件及其
-内置 `miniaudio 0.11.25`。首次下载 ReazonSpeech int8 的 encoder、decoder、
-joiner、tokens 和 Silero VAD，共约 161 MB，保存在应用支持目录的
-`local_audio_subtitles/ja_reazonspeech`。完成的模型文件可重复使用；失败或取消
+内置 `miniaudio 0.11.25`。首次下载 ReazonSpeech-k2-v2 混合精度模型、
+tokens 和 Silero VAD，共约 170 MB。encoder、joiner 使用 int8，decoder 使用 fp32。
+模型保存在应用支持目录的
+`local_audio_subtitles/ja_reazonspeech_int8_fp32`。完成的模型文件可重复使用；失败或取消
 时删除当前 `.part` 文件，下次手动生成时重试尚未完成的文件。
+新目录首次完整下载，不迁移旧模型缓存。
+替换范围与对比结果见[ReazonSpeech 混合精度替换](reazonspeech-mixed-precision.md)。
 
 长音频分块解码，按语音区段识别。字幕时间轴以原音频中的区段位置为依据，
 停止请求在区段之间生效；不把整条长音频的 PCM 同时保留在内存中。
@@ -104,7 +107,9 @@ joiner、tokens 和 Silero VAD，共约 161 MB，保存在应用支持目录的
 找到生成结果。取消生成会释放对共享音频下载的等待，下载队列中的音频仍可
 继续下载并供播放或后续生成复用。
 
-## 验证记录
+## 全 int8 模型验证记录
+
+本节记录替换前的全 int8 模型验证结果。
 
 Windows x64 使用模型公开的 13.433 秒日语 WAV 样本及转换得到的 MP3、FLAC，
 实际执行解码、ReazonSpeech 推理、SRT 生成和现有字幕解析器读取；三种格式
@@ -141,7 +146,7 @@ iOS 13、macOS、Linux x64/ARM64 的配置已接入，当前 Windows 环境未�
 
 公开日语语音片段的结果证明本地识别和字幕流程可运行，不能替代真实音声的
 准确率评估。耳语、气声和长时间音频的文本与时间轴仍需在实际设备试听校对；
-应先完成这些样本检查，再考虑调整 VAD 或更换模型。
+模型准确率及实际机型耗时以对应样本和设备的测量结果为准。
 
 ## 实施与验收
 

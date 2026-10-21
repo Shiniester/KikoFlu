@@ -9,8 +9,8 @@ class LocalSubtitleModelStore {
   static const _downloads = <String, String>{
     'encoder-epoch-99-avg-1.int8.onnx':
         'https://huggingface.co/csukuangfj/reazonspeech-k2-v2/resolve/main/encoder-epoch-99-avg-1.int8.onnx',
-    'decoder-epoch-99-avg-1.int8.onnx':
-        'https://huggingface.co/csukuangfj/reazonspeech-k2-v2/resolve/main/decoder-epoch-99-avg-1.int8.onnx',
+    'decoder-epoch-99-avg-1.onnx':
+        'https://huggingface.co/csukuangfj/reazonspeech-k2-v2/resolve/main/decoder-epoch-99-avg-1.onnx',
     'joiner-epoch-99-avg-1.int8.onnx':
         'https://huggingface.co/csukuangfj/reazonspeech-k2-v2/resolve/main/joiner-epoch-99-avg-1.int8.onnx',
     'tokens.txt':
@@ -32,7 +32,7 @@ class LocalSubtitleModelStore {
     _throwIfCancelled(cancelToken);
     final root = rootDirectory ?? await getApplicationSupportDirectory();
     final modelDirectory = Directory(
-      p.join(root.path, 'local_audio_subtitles', 'ja_reazonspeech'),
+      p.join(root.path, 'local_audio_subtitles', 'ja_reazonspeech_int8_fp32'),
     );
     await modelDirectory.create(recursive: true);
 
