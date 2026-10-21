@@ -7,7 +7,7 @@ Widget _testApp(SnackBar snackBar) {
     home: Scaffold(
       body: Builder(
         builder: (context) {
-          return TextButton(
+          return ElevatedButton(
             onPressed: () => SnackBarUtil.showFromSnackBar(context, snackBar),
             child: const Text('show'),
           );
@@ -21,7 +21,7 @@ Widget _noticeTestApp(void Function(BuildContext context) showNotice) {
   return MaterialApp(
     home: Scaffold(
       body: Builder(
-        builder: (context) => TextButton(
+        builder: (context) => ElevatedButton(
           onPressed: () => showNotice(context),
           child: const Text('show'),
         ),
@@ -31,6 +31,10 @@ Widget _noticeTestApp(void Function(BuildContext context) showNotice) {
 }
 
 void main() {
+  tearDown(() {
+    AppFloatingNotice.clearAll();
+  });
+
   group('SnackBarUtil.showFromSnackBar', () {
     testWidgets('converts red text snackbar to unified error style', (
       tester,
@@ -42,7 +46,7 @@ void main() {
       );
 
       await tester.tap(find.text('show'));
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       expect(find.text('failed'), findsOneWidget);
       expect(find.byIcon(Icons.error_outline), findsOneWidget);
@@ -64,13 +68,13 @@ void main() {
       );
 
       await tester.tap(find.text('show'));
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       expect(find.text('row message'), findsOneWidget);
       expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
     });
 
-    testWidgets('keeps custom content inside the unified floating notice', (
+    testWidgets('keeps custom content inside the unified top floating notice', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -78,16 +82,13 @@ void main() {
       );
 
       await tester.tap(find.text('show'));
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       expect(find.byIcon(Icons.circle), findsOneWidget);
-      final notice = tester.widget<SnackBar>(find.byType(SnackBar));
-      expect(notice.behavior, SnackBarBehavior.floating);
-      expect(notice.margin, isNotNull);
-      final margin = notice.margin! as EdgeInsets;
-      expect(margin.left, greaterThanOrEqualTo(16));
-      expect(margin.right, greaterThanOrEqualTo(16));
-      expect(margin.bottom, inInclusiveRange(88, 144));
+      final notice = tester.widget<TopFloatingNoticeWidget>(
+        find.byType(TopFloatingNoticeWidget),
+      );
+      expect(notice.topOffset, 16.0);
     });
 
     testWidgets('preserves actions and replaces the currently visible notice', (
@@ -107,11 +108,11 @@ void main() {
       );
 
       await tester.tap(find.text('show'));
-      await tester.pump();
+      await tester.pumpAndSettle();
       await tester.tap(find.text('show'));
-      await tester.pump(const Duration(milliseconds: 650));
-      expect(find.byType(SnackBar), findsOneWidget);
-      tester.widget<SnackBarAction>(find.byType(SnackBarAction)).onPressed();
+      await tester.pumpAndSettle();
+      expect(find.byType(TopFloatingNoticeWidget), findsOneWidget);
+      tester.widget<TextButton>(find.widgetWithText(TextButton, 'Undo')).onPressed!();
       expect(actionInvoked, isTrue);
     });
   });
@@ -124,8 +125,10 @@ void main() {
     ) async {
       await tester.pumpWidget(_noticeTestApp(showNotice));
       await tester.tap(find.text('show'));
-      await tester.pump();
-      return tester.widget<SnackBar>(find.byType(SnackBar)).duration;
+      await tester.pumpAndSettle();
+      return tester
+          .widget<TopFloatingNoticeWidget>(find.byType(TopFloatingNoticeWidget))
+          .duration;
     }
 
     expect(
@@ -146,5 +149,51 @@ void main() {
       await durationFor((context) => SnackBarUtil.showError(context, 'error')),
       const Duration(seconds: 3),
     );
+  });
+
+  group('TopFloatingNotice gestures and interaction', () {
+    testWidgets('swiping up dismisses the notice', (tester) async {
+      await tester.pumpWidget(
+        _noticeTestApp((context) => SnackBarUtil.showInfo(context, 'swipe up')),
+      );
+
+      await tester.tap(find.text('show'));
+      await tester.pumpAndSettle();
+      expect(find.text('swipe up'), findsOneWidget);
+
+      await tester.drag(find.text('swipe up'), const Offset(0, -60));
+      await tester.pumpAndSettle();
+      expect(find.text('swipe up'), findsNothing);
+    });
+
+    testWidgets('swiping horizontally dismisses the notice', (tester) async {
+      await tester.pumpWidget(
+        _noticeTestApp(
+          (context) => SnackBarUtil.showInfo(context, 'swipe right'),
+        ),
+      );
+
+      await tester.tap(find.text('show'));
+      await tester.pumpAndSettle();
+      expect(find.text('swipe right'), findsOneWidget);
+
+      await tester.drag(find.text('swipe right'), const Offset(80, 0));
+      await tester.pumpAndSettle();
+      expect(find.text('swipe right'), findsNothing);
+    });
+
+    testWidgets('tapping body does not dismiss the notice', (tester) async {
+      await tester.pumpWidget(
+        _noticeTestApp((context) => SnackBarUtil.showInfo(context, 'tap test')),
+      );
+
+      await tester.tap(find.text('show'));
+      await tester.pumpAndSettle();
+      expect(find.text('tap test'), findsOneWidget);
+
+      await tester.tap(find.text('tap test'));
+      await tester.pump();
+      expect(find.text('tap test'), findsOneWidget);
+    });
   });
 }

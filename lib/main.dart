@@ -696,6 +696,7 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
             : requestedMode;
 
         return MaterialApp(
+          navigatorKey: rootNavigatorKey,
           scaffoldMessengerKey: rootScaffoldMessengerKey,
           title: 'Kikoeru',
           debugShowCheckedModeBanner: false,
