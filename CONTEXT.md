@@ -179,6 +179,11 @@ Producing synchronized original-language subtitles from an audio file on the
 user's device. It is distinct from translating existing subtitle text.
 _Avoid_: Subtitle translation
 
+**Recognition Audio (识别用音频)**:
+The audio file transcribed during Audio Subtitle Generation. It can be a different
+format or effects mix of the selected track; the generated subtitles remain
+associated with the selected track.
+
 **Generated Subtitle Translation (生成字幕翻译)**:
 Automatic translation of newly generated original-language subtitles using the
 selected Translation Source and global translation target. The original subtitles

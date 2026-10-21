@@ -114,6 +114,22 @@ class AudioSubtitleGenerationService {
   final PlayerSubtitleCandidateRepository _candidateRepository;
   final AudioSubtitleAudioDownloader? audioDownloader;
 
+  static const _mixVersionMarkers = <String>[
+    '完全版',
+    'seあり',
+    'se有り',
+    'seなし',
+    'se無し',
+    '無se',
+    '无se',
+    '射精音なし',
+    '射精音無し',
+    '射精なし',
+    '射精無し',
+    '無射精',
+    '无射精',
+  ];
+
   Future<bool> hasUsableSubtitle(
     AudioSubtitleRequest request,
     CancelToken cancelToken,
@@ -333,26 +349,48 @@ class AudioSubtitleGenerationService {
     PlayerAudioVariant? original,
     List<PlayerAudioVariant> variants,
   ) {
-    if (original == null || original.format == PlayerAudioFormat.mp3) {
-      return null;
-    }
+    if (original == null) return null;
     final originalHash = _fileString(original.source, 'hash');
     final identity = _normalizedTrackPath(original.fullPath);
-    final alternatives = variants
-        .where((variant) {
-          if (identical(variant.source, original.source) ||
-              variant.fullPath == original.fullPath ||
-              variant.format != PlayerAudioFormat.mp3 ||
-              _normalizedTrackPath(variant.fullPath) != identity ||
-              variant.se != original.se ||
-              variant.ejaculation != original.ejaculation) {
-            return false;
-          }
-          final variantHash = _fileString(variant.source, 'hash');
-          return originalHash == null || variantHash != originalHash;
-        })
-        .toList(growable: false);
-    return alternatives.length == 1 ? alternatives.single : null;
+    final alternatives = variants.where((variant) {
+      if (identical(variant.source, original.source) ||
+          variant.fullPath == original.fullPath ||
+          variant.format != PlayerAudioFormat.mp3 ||
+          _normalizedTrackPath(variant.fullPath) != identity) {
+        return false;
+      }
+      final variantHash = _fileString(variant.source, 'hash');
+      return originalHash == null || variantHash != originalHash;
+    }).toList();
+    if (original.format == PlayerAudioFormat.mp3) alternatives.add(original);
+    if (alternatives.isEmpty) return null;
+
+    int traitRank(PlayerBinaryTrait trait) => switch (trait) {
+      PlayerBinaryTrait.absent => 0,
+      PlayerBinaryTrait.present => 1,
+      PlayerBinaryTrait.unknown => 2,
+    };
+    alternatives.sort((a, b) {
+      var compared = traitRank(a.se).compareTo(traitRank(b.se));
+      if (compared != 0) return compared;
+      compared = traitRank(a.ejaculation).compareTo(traitRank(b.ejaculation));
+      if (compared != 0) return compared;
+
+      final aSize = _fileSize(a.source);
+      final bSize = _fileSize(b.source);
+      if (aSize != null && bSize != null) {
+        compared = aSize.compareTo(bSize);
+        if (compared != 0) return compared;
+      } else if (aSize == null && bSize != null) {
+        return 1;
+      } else if (aSize != null && bSize == null) {
+        return -1;
+      }
+      compared = a.fullPath.toLowerCase().compareTo(b.fullPath.toLowerCase());
+      return compared != 0 ? compared : a.fullPath.compareTo(b.fullPath);
+    });
+    final best = alternatives.first;
+    return best.fullPath == original.fullPath ? null : best;
   }
 
   Future<String?> _existingAlternativePath(
@@ -534,22 +572,61 @@ class AudioSubtitleGenerationService {
         ? fileName
         : fileName.substring(0, fileName.length - extension.length);
     final directories = segments
-        .map(
-          (segment) => segment
-              .replaceAll(
-                RegExp(
-                  r'(?<![A-Za-z0-9])(?:wav|flac|mp3|opus|m4a|aac)(?![A-Za-z0-9])',
-                  caseSensitive: false,
-                ),
-                '',
-              )
-              .replaceAll(
-                RegExp(r'^[\s._\-()（）\[\]【】]+|[\s._\-()（）\[\]【】]+$'),
-                '',
-              ),
-        )
+        .map(_normalizedTrackDirectory)
         .where((segment) => segment.isNotEmpty);
-    return [...directories, stem].join('/');
+    return [...directories, _normalizedTrackStem(stem)].join('/');
+  }
+
+  String _normalizedTrackDirectory(String value) {
+    final normalized = value.toLowerCase();
+    final numberedDirectory = RegExp(r'^\d+[\s._\-]+').firstMatch(normalized);
+    final prefix = numberedDirectory?.group(0) ?? '';
+    final body = numberedDirectory == null
+        ? normalized
+        : normalized.substring(numberedDirectory.end);
+    var withoutVersionMarkers = body;
+    for (final marker in _mixVersionMarkers) {
+      withoutVersionMarkers = withoutVersionMarkers.replaceAll(marker, '');
+    }
+    final formatPattern = RegExp(
+      r'(?<![A-Za-z0-9])(?:wav|flac|mp3|opus|m4a|aac)(?![A-Za-z0-9])',
+    );
+    final formatStripped = withoutVersionMarkers.replaceAll(formatPattern, '');
+    final punctuation = RegExp(r'^[\s._\-()（）\[\]【】]+|[\s._\-()（）\[\]【】]+$');
+    final versionContent = formatStripped.replaceAll(punctuation, '');
+    if (versionContent.isEmpty) {
+      return withoutVersionMarkers != body ||
+              formatStripped != withoutVersionMarkers
+          ? ''
+          : normalized;
+    }
+
+    final remainder = _normalizedTrackStem(
+      body,
+    ).replaceAll(formatPattern, '').replaceAll(punctuation, '');
+    return remainder.isEmpty ? '' : '$prefix$remainder';
+  }
+
+  String _normalizedTrackStem(String value) {
+    var normalized = value.toLowerCase();
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (final marker in _mixVersionMarkers) {
+        final markerSuffix = RegExp(
+          '^(.+?)[\\s._\\-()（）\\[\\]【】]+${RegExp.escape(marker)}[\\s._\\-()（）\\[\\]【】]*\$',
+        );
+        final withoutMarker = normalized.replaceFirstMapped(
+          markerSuffix,
+          (match) => match[1]!,
+        );
+        if (withoutMarker != normalized) {
+          normalized = withoutMarker;
+          changed = true;
+        }
+      }
+    }
+    return normalized;
   }
 
   static Future<DownloadTask> waitForDownload({

@@ -225,7 +225,7 @@ void main() {
   );
 
   test(
-    'keeps disc and SE or ejaculation variants out of MP3 matching',
+    'prefers the no-SE mix and keeps disc variants out of MP3 matching',
     () async {
       final request = _request(
         title: '01.wav',
@@ -236,7 +236,12 @@ void main() {
             _folder('WAV', [_audioFile('01.wav', hash: 'wav-hash', size: 800)]),
             _folder('MP3', [
               _folder('無SE', [
-                _audioFile('01.mp3', hash: 'se-cut-hash', size: 60),
+                _audioFile(
+                  '01.mp3',
+                  hash: 'se-cut-hash',
+                  size: 60,
+                  mediaDownloadUrl: 'https://cdn.example/no-se.mp3',
+                ),
               ]),
               _audioFile('01_無射精.mp3', hash: 'no-climax-hash', size: 55),
             ]),
@@ -258,9 +263,10 @@ void main() {
               int? totalBytes,
             })
           >[];
+      final transcriber = _FakeTranscriber();
       final service = AudioSubtitleGenerationService(
         modelStore: _FakeModelStore(),
-        transcriber: _FakeTranscriber(),
+        transcriber: transcriber,
         subtitleStore: _FakeGeneratedSubtitleStore(),
         candidateRepository: _candidateRepository(const []),
         audioDownloader:
@@ -281,7 +287,7 @@ void main() {
                 hash: hash,
                 totalBytes: totalBytes,
               ));
-              return '/input/original.wav';
+              return '/input/$fileName';
             },
       );
 
@@ -290,13 +296,316 @@ void main() {
       expect(result.status, AudioSubtitleGenerationStatus.completed);
       expect(downloads, [
         (
-          fileName: '01.wav',
-          relativePath: 'CD1/WAV',
-          downloadUrl: 'https://cdn.example/original.wav',
-          hash: 'wav-hash',
-          totalBytes: 800,
+          fileName: '01.mp3',
+          relativePath: 'CD1/MP3/無SE',
+          downloadUrl: 'https://cdn.example/no-se.mp3',
+          hash: 'se-cut-hash',
+          totalBytes: 60,
         ),
       ]);
+      expect(transcriber.audioPaths, ['/input/01.mp3']);
+    },
+  );
+
+  test(
+    'matches numbered audio folders and ranks mixes before known file size',
+    () async {
+      final request = _request(
+        title: 'track-name(完全版).wav',
+        hash: null,
+        parentPath: '1_wav/1_完全版',
+        fileTree: [
+          _folder('1_wav', [
+            _folder('1_完全版', [
+              _audioFile('track-name(完全版).wav', hash: 'wav-hash', size: 1200),
+            ]),
+          ]),
+          _folder('2_mp3', [
+            _folder('6_SEなし(射精音なし)', [
+              _audioFile(
+                'track-name(SEなし)(射精音なし).mp3',
+                hash: 'smallest-clean-hash',
+                size: 20,
+                mediaDownloadUrl: 'https://cdn.example/smallest-clean.mp3',
+              ),
+            ]),
+            _folder('5_SEなし(射精音なし)', [
+              _audioFile(
+                'track-name(SEなし)(射精音なし).mp3',
+                hash: 'larger-clean-hash',
+                size: 40,
+                mediaDownloadUrl: 'https://cdn.example/larger-clean.mp3',
+              ),
+            ]),
+            _folder('2_SEあり(射精音なし)', [
+              _audioFile(
+                'track-name(射精音なし).mp3',
+                hash: 'no-ejaculation-hash',
+                size: 5,
+                mediaDownloadUrl: 'https://cdn.example/no-ejaculation.mp3',
+              ),
+            ]),
+            _folder('3_SEなし', [
+              _audioFile(
+                'track-name(SEなし).mp3',
+                hash: 'no-se-hash',
+                size: 5,
+                mediaDownloadUrl: 'https://cdn.example/no-se.mp3',
+              ),
+            ]),
+          ]),
+          _folder('4_即抜き用', [
+            _folder('2_mp3', [
+              _audioFile(
+                'track-name(即抜き).mp3',
+                hash: 'clip-hash',
+                size: 1,
+                mediaDownloadUrl: 'https://cdn.example/clip.mp3',
+              ),
+            ]),
+          ]),
+        ],
+        downloadUrl: 'https://cdn.example/original.wav',
+      );
+      final downloads =
+          <
+            ({
+              String fileName,
+              String relativePath,
+              String downloadUrl,
+              String? hash,
+              int? totalBytes,
+            })
+          >[];
+      final transcriber = _FakeTranscriber();
+      final service = AudioSubtitleGenerationService(
+        modelStore: _FakeModelStore(),
+        transcriber: transcriber,
+        subtitleStore: _FakeGeneratedSubtitleStore(),
+        candidateRepository: _candidateRepository(const []),
+        audioDownloader:
+            ({
+              required request,
+              required fileName,
+              required relativePath,
+              required downloadUrl,
+              required hash,
+              required totalBytes,
+              required cancelToken,
+              required onProgress,
+            }) async {
+              downloads.add((
+                fileName: fileName,
+                relativePath: relativePath,
+                downloadUrl: downloadUrl,
+                hash: hash,
+                totalBytes: totalBytes,
+              ));
+              return '/input/$fileName';
+            },
+      );
+
+      final result = await service.generate(request, CancelToken(), (_, _) {});
+
+      expect(result.status, AudioSubtitleGenerationStatus.completed);
+      expect(downloads, [
+        (
+          fileName: 'track-name(SEなし)(射精音なし).mp3',
+          relativePath: '2_mp3/6_SEなし(射精音なし)',
+          downloadUrl: 'https://cdn.example/smallest-clean.mp3',
+          hash: 'smallest-clean-hash',
+          totalBytes: 20,
+        ),
+      ]);
+      expect(transcriber.audioPaths, ['/input/track-name(SEなし)(射精音なし).mp3']);
+    },
+  );
+
+  test('allows a cleaner MP3 sibling for an MP3 original', () async {
+    final request = _request(
+      title: 'voice(完全版).mp3',
+      hash: 'original-hash',
+      parentPath: '2_mp3/1_完全版',
+      fileTree: [
+        _folder('2_mp3', [
+          _folder('1_完全版', [
+            _audioFile(
+              'voice(完全版).mp3',
+              hash: 'original-hash',
+              size: 100,
+              mediaDownloadUrl: 'https://cdn.example/original.mp3',
+            ),
+          ]),
+          _folder('3_SEなし', [
+            _audioFile(
+              'voice(SEなし).mp3',
+              hash: 'cleaner-hash',
+              size: 120,
+              mediaDownloadUrl: 'https://cdn.example/cleaner.mp3',
+            ),
+          ]),
+        ]),
+      ],
+    );
+    final downloads = <({String fileName, String? hash})>[];
+    final service = AudioSubtitleGenerationService(
+      modelStore: _FakeModelStore(),
+      transcriber: _FakeTranscriber(),
+      subtitleStore: _FakeGeneratedSubtitleStore(),
+      candidateRepository: _candidateRepository(const []),
+      audioDownloader:
+          ({
+            required request,
+            required fileName,
+            required relativePath,
+            required downloadUrl,
+            required hash,
+            required totalBytes,
+            required cancelToken,
+            required onProgress,
+          }) async {
+            downloads.add((fileName: fileName, hash: hash));
+            return '/input/$fileName';
+          },
+    );
+
+    final result = await service.generate(request, CancelToken(), (_, _) {});
+
+    expect(result.status, AudioSubtitleGenerationStatus.completed);
+    expect(downloads, [(fileName: 'voice(SEなし).mp3', hash: 'cleaner-hash')]);
+  });
+
+  test(
+    'preserves ordinary directory and track number prefixes when matching',
+    () async {
+      final request = _request(
+        title: '01(完全版).wav',
+        hash: null,
+        parentPath: 'CD1/01_本編/WAV',
+        fileTree: [
+          _folder('CD1', [
+            _folder('01_本編', [
+              _folder('WAV', [
+                _audioFile('01(完全版).wav', hash: 'original-hash', size: 800),
+              ]),
+              _folder('MP3', [
+                _audioFile(
+                  '02(SEなし).mp3',
+                  hash: 'different-track-hash',
+                  size: 70,
+                  mediaDownloadUrl: 'https://cdn.example/different-track.mp3',
+                ),
+              ]),
+            ]),
+            _folder('02_本編', [
+              _folder('MP3', [
+                _audioFile(
+                  '01(SEなし).mp3',
+                  hash: 'other-directory-hash',
+                  size: 80,
+                  mediaDownloadUrl: 'https://cdn.example/other-directory.mp3',
+                ),
+              ]),
+            ]),
+          ]),
+        ],
+        downloadUrl: 'https://cdn.example/original.wav',
+        totalBytes: 800,
+      );
+      final downloads =
+          <({String fileName, String? hash, String downloadUrl})>[];
+      final service = AudioSubtitleGenerationService(
+        modelStore: _FakeModelStore(),
+        transcriber: _FakeTranscriber(),
+        subtitleStore: _FakeGeneratedSubtitleStore(),
+        candidateRepository: _candidateRepository(const []),
+        audioDownloader:
+            ({
+              required request,
+              required fileName,
+              required relativePath,
+              required downloadUrl,
+              required hash,
+              required totalBytes,
+              required cancelToken,
+              required onProgress,
+            }) async {
+              downloads.add((
+                fileName: fileName,
+                hash: hash,
+                downloadUrl: downloadUrl,
+              ));
+              return '/input/$fileName';
+            },
+      );
+
+      final result = await service.generate(request, CancelToken(), (_, _) {});
+
+      expect(result.status, AudioSubtitleGenerationStatus.completed);
+      expect(downloads, [
+        (
+          fileName: '01(完全版).wav',
+          hash: 'original-hash',
+          downloadUrl: 'https://cdn.example/original.wav',
+        ),
+      ]);
+    },
+  );
+
+  test(
+    'does not downgrade a clean MP3 original to a noisier sibling',
+    () async {
+      final request = _request(
+        title: 'voice(SEなし).mp3',
+        hash: 'original-hash',
+        parentPath: '2_mp3/3_SEなし',
+        fileTree: [
+          _folder('2_mp3', [
+            _folder('3_SEなし', [
+              _audioFile(
+                'voice(SEなし).mp3',
+                hash: 'original-hash',
+                size: 100,
+                mediaDownloadUrl: 'https://cdn.example/original.mp3',
+              ),
+            ]),
+            _folder('1_完全版', [
+              _audioFile(
+                'voice(完全版).mp3',
+                hash: 'noisier-hash',
+                size: 50,
+                mediaDownloadUrl: 'https://cdn.example/noisier.mp3',
+              ),
+            ]),
+          ]),
+        ],
+      );
+      final downloads = <({String fileName, String? hash})>[];
+      final service = AudioSubtitleGenerationService(
+        modelStore: _FakeModelStore(),
+        transcriber: _FakeTranscriber(),
+        subtitleStore: _FakeGeneratedSubtitleStore(),
+        candidateRepository: _candidateRepository(const []),
+        audioDownloader:
+            ({
+              required request,
+              required fileName,
+              required relativePath,
+              required downloadUrl,
+              required hash,
+              required totalBytes,
+              required cancelToken,
+              required onProgress,
+            }) async {
+              downloads.add((fileName: fileName, hash: hash));
+              return '/input/$fileName';
+            },
+      );
+
+      final result = await service.generate(request, CancelToken(), (_, _) {});
+
+      expect(result.status, AudioSubtitleGenerationStatus.completed);
+      expect(downloads, [(fileName: 'voice(SEなし).mp3', hash: 'original-hash')]);
     },
   );
 
