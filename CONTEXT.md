@@ -43,6 +43,15 @@ The selected Audio Source's works feed ranked by the source's native popularity
 measure for a chosen period. It is separate from Related Recommendations.
 _Avoid_: Recommended works
 
+**Works Sort (作品排序)**:
+The field and direction that determine the order of a works feed.
+Age Rating Filter independently determines which works appear in the feed.
+
+**Age Rating Filter (年龄分级筛选)**:
+A restriction of a works feed to the selected Audio Source's age classification.
+“全部” includes every age classification supported by that source.
+_Avoid_: Age rating sort
+
 **Automatic Work Translation (自动翻译)**:
 Automatic translation of an audio work's detail title, visible resource names,
 and subtitle previews into the selected target language.

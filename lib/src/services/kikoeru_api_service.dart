@@ -1215,6 +1215,7 @@ class KikoeruApiService {
         order: order,
         sort: sort,
         subtitle: subtitle,
+        seed: seed,
         includeTranslationWorks: includeTranslationWorks,
         cancelToken: cancelToken,
       );
@@ -1250,6 +1251,7 @@ class KikoeruApiService {
     String? order,
     String? sort,
     int? subtitle,
+    int? seed,
     bool includeTranslationWorks = true,
     CancelToken? cancelToken,
   }) async {
@@ -1263,6 +1265,7 @@ class KikoeruApiService {
         'order': order ?? _order,
         'sort': sort ?? _sort,
         'subtitle': subtitle ?? _subtitle,
+        'seed': seed ?? 21,
         'includeTranslationWorks': includeTranslationWorks,
       };
 
@@ -1298,6 +1301,7 @@ class KikoeruApiService {
       // Construct the JSON keyword structure for custom backend
       dynamic keywordValue;
       int? nsfwParam = 0; // 默认为空
+      var hasAgeFilter = false;
 
       try {
         // 尝试解析 keyword 是否已经是 JSON 格式 (例如聚合搜索的结构)
@@ -1329,6 +1333,7 @@ class KikoeruApiService {
               // t=2: VA/Circle, d="0" (placeholder for UUID), name=Name
               conditions.add({'t': 2, 'd': "0", 'name': value});
             } else if (type == 'age') {
+              hasAgeFilter = true;
               if (value == 'general') {
                 nsfwParam = 1;
               } else if (value == 'adult') {
@@ -1359,7 +1364,7 @@ class KikoeruApiService {
         }
 
         // 如果解析后为空（例如只有排除条件或无匹配），且原关键词不为空，则作为普通文本搜索
-        if (conditions.isEmpty && keyword.isNotEmpty) {
+        if (conditions.isEmpty && keyword.isNotEmpty && !hasAgeFilter) {
           conditions.add({'t': 1, 'd': keyword, 'name': keyword});
         }
 

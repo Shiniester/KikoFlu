@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../l10n/app_localizations.dart';
+import '../models/search_type.dart';
 import '../models/sort_options.dart';
 import '../utils/l10n_extensions.dart';
 import 'radio_option_group.dart';
@@ -12,10 +13,8 @@ import 'settings_option_dialog.dart';
 /// 1. 回调模式：提供 currentOption, currentDirection 和 onSort 回调
 /// 2. 直接模式：选择后自动关闭对话框并触发回调
 ///
-/// 自动适配横屏/竖屏布局：
-/// - 横屏：两列布局（左：排序字段，右：排序方向）
-/// - 竖屏：单列布局
-class CommonSortDialog extends StatefulWidget {
+/// 按窗口宽度显示单列或两列布局。
+class CommonSortDialog extends StatelessWidget {
   final SortOrder currentOption;
   final SortDirection currentDirection;
   final Function(SortOrder, SortDirection) onSort;
@@ -34,26 +33,73 @@ class CommonSortDialog extends StatefulWidget {
   });
 
   @override
-  State<CommonSortDialog> createState() => _CommonSortDialogState();
+  Widget build(BuildContext context) => SortOptionsDialog<SortOrder>(
+    currentOption: currentOption,
+    currentDirection: currentDirection,
+    availableOptions: availableOptions ?? SortOrder.values,
+    labelBuilder: (option) => option.localizedLabel(context),
+    title: title,
+    autoClose: autoClose,
+    onSort: (option, direction, _) => onSort(option, direction),
+  );
 }
 
-class _CommonSortDialogState extends State<CommonSortDialog> {
-  late SortOrder _currentOption;
+class SortOptionsDialog<T> extends StatefulWidget {
+  const SortOptionsDialog({
+    super.key,
+    required this.currentOption,
+    required this.currentDirection,
+    required this.availableOptions,
+    required this.labelBuilder,
+    required this.onSort,
+    this.currentAgeRating,
+    this.availableAgeRatings = AgeRating.values,
+    this.title,
+    this.confirmChanges = false,
+    this.autoClose = true,
+  });
+
+  final T currentOption;
+  final SortDirection currentDirection;
+  final List<T> availableOptions;
+  final String Function(T option) labelBuilder;
+  final void Function(T option, SortDirection direction, AgeRating ageRating)
+  onSort;
+  final AgeRating? currentAgeRating;
+  final List<AgeRating> availableAgeRatings;
+  final String? title;
+  final bool confirmChanges;
+  final bool autoClose;
+
+  @override
+  State<SortOptionsDialog<T>> createState() => _SortOptionsDialogState<T>();
+}
+
+class _SortOptionsDialogState<T> extends State<SortOptionsDialog<T>> {
+  late T _currentOption;
   late SortDirection _currentDirection;
+  late AgeRating _currentAgeRating;
 
   @override
   void initState() {
     super.initState();
     _currentOption = widget.currentOption;
     _currentDirection = widget.currentDirection;
+    _currentAgeRating = widget.currentAgeRating ?? AgeRating.all;
   }
 
-  void _handleSort(SortOrder option, SortDirection direction) {
+  void _handleSort(T option, SortDirection direction, AgeRating ageRating) {
     setState(() {
       _currentOption = option;
       _currentDirection = direction;
+      _currentAgeRating = ageRating;
     });
-    widget.onSort(option, direction);
+    if (widget.confirmChanges) return;
+    _applySort();
+  }
+
+  void _applySort() {
+    widget.onSort(_currentOption, _currentDirection, _currentAgeRating);
     if (widget.autoClose) {
       Navigator.pop(context);
     }
@@ -61,16 +107,15 @@ class _CommonSortDialogState extends State<CommonSortDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final isLandscape =
-        MediaQuery.of(context).orientation == Orientation.landscape;
-    final options = widget.availableOptions ?? SortOrder.values;
-    final orderSection = _SortSection<SortOrder>(
+    final useColumns = MediaQuery.sizeOf(context).width >= 600;
+    final orderSection = _SortSection<T>(
       key: const ValueKey('sort-field-section'),
       title: S.of(context).sortField,
       value: _currentOption,
-      options: options,
-      labelBuilder: (option) => option.localizedLabel(context),
-      onChanged: (value) => _handleSort(value, _currentDirection),
+      options: widget.availableOptions,
+      labelBuilder: widget.labelBuilder,
+      onChanged: (value) =>
+          _handleSort(value, _currentDirection, _currentAgeRating),
     );
     final directionSection = _SortSection<SortDirection>(
       key: const ValueKey('sort-direction-section'),
@@ -78,11 +123,36 @@ class _CommonSortDialogState extends State<CommonSortDialog> {
       value: _currentDirection,
       options: SortDirection.values,
       labelBuilder: (direction) => direction.localizedLabel(context),
-      onChanged: (value) => _handleSort(_currentOption, value),
+      onChanged: (value) =>
+          _handleSort(_currentOption, value, _currentAgeRating),
+    );
+    final ageRatingSection = widget.currentAgeRating == null
+        ? null
+        : _SortSection<AgeRating>(
+            key: const ValueKey('sort-age-rating-section'),
+            title: S.of(context).ageRatingLabel,
+            value: _currentAgeRating,
+            options: widget.availableAgeRatings,
+            labelBuilder: (rating) => rating == AgeRating.adult
+                ? 'R18'
+                : rating.localizedLabel(context),
+            onChanged: (value) =>
+                _handleSort(_currentOption, _currentDirection, value),
+          );
+    const sectionDivider = Padding(
+      padding: EdgeInsets.symmetric(vertical: 10),
+      child: Divider(height: 1),
+    );
+    final secondarySections = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        directionSection,
+        if (ageRatingSection != null) ...[sectionDivider, ageRatingSection],
+      ],
     );
 
     return ResponsiveDialog(
-      maxWidth: isLandscape ? 640 : 420,
+      maxWidth: useColumns ? 640 : 420,
       titlePadding: const EdgeInsets.fromLTRB(20, 14, 8, 0),
       contentPadding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
       title: Row(
@@ -109,8 +179,8 @@ class _CommonSortDialogState extends State<CommonSortDialog> {
         ],
       ),
       content: SizedBox(
-        width: isLandscape ? 600 : 360,
-        child: isLandscape
+        width: useColumns ? 600 : 360,
+        child: useColumns
             ? IntrinsicHeight(
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -120,22 +190,27 @@ class _CommonSortDialogState extends State<CommonSortDialog> {
                       padding: EdgeInsets.symmetric(horizontal: 12),
                       child: VerticalDivider(width: 1),
                     ),
-                    Expanded(child: directionSection),
+                    Expanded(child: secondarySections),
                   ],
                 ),
               )
             : Column(
                 mainAxisSize: MainAxisSize.min,
-                children: [
-                  orderSection,
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 10),
-                    child: Divider(height: 1),
-                  ),
-                  directionSection,
-                ],
+                children: [orderSection, sectionDivider, secondarySections],
               ),
       ),
+      actions: widget.confirmChanges
+          ? [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(S.of(context).cancel),
+              ),
+              FilledButton(
+                onPressed: _applySort,
+                child: Text(S.of(context).confirm),
+              ),
+            ]
+          : null,
     );
   }
 }
