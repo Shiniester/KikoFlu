@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/app_localizations.dart';
 import '../models/search_type.dart';
 import '../models/sort_options.dart';
+import '../utils/age_rating.dart';
 import '../utils/l10n_extensions.dart';
 import 'radio_option_group.dart';
 import 'responsive_dialog.dart';
@@ -40,6 +41,7 @@ class CommonSortDialog extends StatelessWidget {
     labelBuilder: (option) => option.localizedLabel(context),
     title: title,
     autoClose: autoClose,
+    filledSelection: true,
     onSort: (option, direction, _) => onSort(option, direction),
   );
 }
@@ -57,6 +59,7 @@ class SortOptionsDialog<T> extends StatefulWidget {
     this.title,
     this.confirmChanges = false,
     this.autoClose = true,
+    this.filledSelection = false,
   });
 
   final T currentOption;
@@ -70,6 +73,7 @@ class SortOptionsDialog<T> extends StatefulWidget {
   final String? title;
   final bool confirmChanges;
   final bool autoClose;
+  final bool filledSelection;
 
   @override
   State<SortOptionsDialog<T>> createState() => _SortOptionsDialogState<T>();
@@ -113,6 +117,7 @@ class _SortOptionsDialogState<T> extends State<SortOptionsDialog<T>> {
       title: S.of(context).sortField,
       value: _currentOption,
       options: widget.availableOptions,
+      filledSelection: widget.filledSelection,
       labelBuilder: widget.labelBuilder,
       onChanged: (value) =>
           _handleSort(value, _currentDirection, _currentAgeRating),
@@ -122,6 +127,7 @@ class _SortOptionsDialogState<T> extends State<SortOptionsDialog<T>> {
       title: S.of(context).sortDirection,
       value: _currentDirection,
       options: SortDirection.values,
+      filledSelection: widget.filledSelection,
       labelBuilder: (direction) => direction.localizedLabel(context),
       onChanged: (value) =>
           _handleSort(_currentOption, value, _currentAgeRating),
@@ -133,9 +139,10 @@ class _SortOptionsDialogState<T> extends State<SortOptionsDialog<T>> {
             title: S.of(context).ageRatingLabel,
             value: _currentAgeRating,
             options: widget.availableAgeRatings,
-            labelBuilder: (rating) => rating == AgeRating.adult
-                ? 'R18'
-                : rating.localizedLabel(context),
+            filledSelection: widget.filledSelection,
+            labelBuilder: (rating) =>
+                AgeRatingFormatter.label(context, rating.value) ??
+                rating.localizedLabel(context),
             onChanged: (value) =>
                 _handleSort(_currentOption, _currentDirection, value),
           );
@@ -223,6 +230,7 @@ class _SortSection<T> extends StatelessWidget {
     required this.options,
     required this.labelBuilder,
     required this.onChanged,
+    required this.filledSelection,
   });
 
   final String title;
@@ -230,6 +238,7 @@ class _SortSection<T> extends StatelessWidget {
   final List<T> options;
   final String Function(T value) labelBuilder;
   final ValueChanged<T> onChanged;
+  final bool filledSelection;
 
   @override
   Widget build(BuildContext context) {
@@ -251,6 +260,7 @@ class _SortSection<T> extends StatelessWidget {
         ),
         CompactRadioOptionGroup<T>(
           groupValue: value,
+          filledSelection: filledSelection,
           options: [
             for (final option in options)
               RadioOption(value: option, title: Text(labelBuilder(option))),

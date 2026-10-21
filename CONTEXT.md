@@ -49,7 +49,8 @@ Age Rating Filter independently determines which works appear in the feed.
 
 **Age Rating Filter (年龄分级筛选)**:
 A restriction of a works feed to the selected Audio Source's age classification.
-“全部” includes every age classification supported by that source.
+“全部” includes every age classification supported by that source;
+individual classifications use 全年龄, R15, and R18.
 _Avoid_: Age rating sort
 
 **Automatic Work Translation (自动翻译)**:

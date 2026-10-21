@@ -59,17 +59,21 @@ class CompactRadioOptionGroup<T> extends StatelessWidget {
     required this.groupValue,
     required this.options,
     required this.onChanged,
+    this.filledSelection = true,
   });
 
   final T? groupValue;
   final List<RadioOption<T>> options;
   final ValueChanged<T> onChanged;
+  final bool filledSelection;
 
   Widget _buildOption(RadioOption<T> option, ColorScheme colorScheme) {
     final isEnabled = option.enabled ?? true;
     final isSelected = option.selected ?? option.value == groupValue;
     final titleColor = isEnabled
-        ? colorScheme.onSurface
+        ? (isSelected && !filledSelection
+              ? colorScheme.primary
+              : colorScheme.onSurface)
         : colorScheme.onSurface.withValues(alpha: 0.38);
     final subtitleColor = isEnabled
         ? colorScheme.onSurfaceVariant
@@ -94,7 +98,9 @@ class CompactRadioOptionGroup<T> extends StatelessWidget {
       ),
       radioScaleFactor: 0.9,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-      selectedTileColor: colorScheme.primaryContainer.withValues(alpha: 0.42),
+      selectedTileColor: filledSelection
+          ? colorScheme.primaryContainer.withValues(alpha: 0.42)
+          : Colors.transparent,
       title: DefaultTextStyle.merge(
         style: TextStyle(
           color: titleColor,

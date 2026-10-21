@@ -200,7 +200,7 @@ void main() {
       find.descendant(of: fields, matching: find.text(s.sortNsfw)),
       findsNothing,
     );
-    expect(find.text(s.ageRatingR15), findsNothing);
+    expect(find.text('R15'), findsNothing);
     expect(find.text('R18'), findsOneWidget);
     expect(find.byType(DropdownButtonFormField<AgeRating>), findsNothing);
 

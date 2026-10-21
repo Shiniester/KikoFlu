@@ -531,7 +531,7 @@ void main() {
     await tester.ensureVisible(find.text(s.jpAsmrSortTitle));
     await tester.tap(find.text(s.jpAsmrSortTitle));
     await tester.pumpAndSettle();
-    expect(find.text(s.ageRatingR15).last, findsOneWidget);
+    expect(find.text('R15').last, findsOneWidget);
     expect(find.text('R18').last, findsOneWidget);
     await tester.ensureVisible(find.text(s.sortAsc));
     await tester.tap(find.text(s.sortAsc));
@@ -679,7 +679,7 @@ void main() {
         find.descendant(of: fields, matching: find.text(s.sortNsfw)),
         findsNothing,
       );
-      expect(find.text(s.ageRatingR15), findsOneWidget);
+      expect(find.text('R15'), findsOneWidget);
       expect(find.text('R18'), findsOneWidget);
       expect(find.byType(DropdownButtonFormField<AgeRating>), findsNothing);
       await selectNewSortValues();
