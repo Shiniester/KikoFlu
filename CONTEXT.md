@@ -43,6 +43,10 @@ Automatic translation of an audio work's detail title, visible resource names,
 and subtitle previews into the selected target language.
 _Avoid_: Lyric translation, comic translation
 
+**Subtitle Filter (字幕筛选)**:
+“有字幕”仅包含音声源标记为有在线字幕的作品。本地字幕不属于字幕筛选范围。
+筛选后的作品按当前排序分页；切换筛选从第 1 页开始。
+
 **Global Works Search (全局作品搜索)**:
 The online work search opened from the home, popular, or recommended feed for the
 selected Audio Source. These feeds search that source's full catalog. Library

@@ -10,7 +10,6 @@ import '../services/log_service.dart';
 import 'auth_provider.dart';
 import 'settings_provider.dart';
 import '../models/sort_options.dart';
-import 'subtitle_library_provider.dart';
 import 'audio_source_provider.dart';
 import '../utils/subtitle_filter.dart';
 import '../utils/paged_collection.dart';
@@ -121,10 +120,7 @@ class WorksState extends Equatable {
   final int basePageSize; // 用户设置的基础分页大小
   final Map<DisplayMode, WorksModeSnapshot> modeStates;
 
-  // 实际使用的分页大小（字幕筛选时翻倍）
-  int get pageSize => SubtitleFilterMode.fromValue(subtitleFilter).isActive
-      ? basePageSize * 2
-      : basePageSize;
+  int get pageSize => basePageSize;
 
   WorksState({
     this.layoutType = LayoutType.bigGrid, // 默认大网格布局
@@ -302,9 +298,9 @@ class WorksNotifier extends StateNotifier<WorksState> {
       final sortOption = state.sortOption;
       final sortDirection = state.sortDirection;
 
-      // 当字幕筛选开启时，不发送 subtitle 参数给服务器，而是在前端过滤
-      // 这样可以同时显示服务器有字幕 和 本地字幕库有字幕的作品
-      const serverSubtitleParam = 0; // 始终请求所有作品，前端过滤
+      final serverSubtitleParam = SubtitleFilterMode.fromValue(
+        state.subtitleFilter,
+      ).value;
 
       if (source == AudioSource.jpAsmr) {
         response = await _apiService.getWorks(
@@ -555,24 +551,18 @@ class WorksNotifier extends StateNotifier<WorksState> {
 
   void setSubtitleFilter(SubtitleFilterMode newFilterMode) {
     if (_ref.read(audioSourceProvider) == AudioSource.jpAsmr) return;
-    final currentPage = state.currentPage;
     final oldFilterMode = SubtitleFilterMode.fromValue(state.subtitleFilter);
     if (oldFilterMode == newFilterMode) return;
-    final newFilter = newFilterMode.value;
-
-    int newPage;
-    if (oldFilterMode == SubtitleFilterMode.all && newFilterMode.isActive) {
-      newPage = ((currentPage + 1) / 2).ceil();
-    } else if (oldFilterMode.isActive &&
-        newFilterMode == SubtitleFilterMode.all) {
-      newPage = (currentPage * 2) - 1;
-    } else {
-      newPage = currentPage;
+    for (final gate in _requestGates.values) {
+      gate.invalidate();
     }
-    newPage = newPage.clamp(1, 9999);
-
-    state = state.copyWith(subtitleFilter: newFilter);
-    loadWorks(targetPage: newPage, supersede: true);
+    state = state.copyWith(
+      subtitleFilter: newFilterMode.value,
+      modeStates: {
+        for (final mode in DisplayMode.values) mode: const WorksModeSnapshot(),
+      },
+    );
+    loadWorks(targetPage: 1, supersede: true);
   }
 
   void reapplyFilters() {
@@ -585,19 +575,7 @@ class WorksNotifier extends StateNotifier<WorksState> {
   }
 
   List<Work> _filterWorks(List<Work> works, BlockedItemsState blockedItems) {
-    // 获取本地字幕库的作品ID
-    final localSubtitleIds = _ref.read(subtitleLibraryProvider);
-    final subtitleFilter = _ref.read(audioSourceProvider) == AudioSource.jpAsmr
-        ? 0
-        : state.subtitleFilter;
-
-    final subtitleFilteredWorks = filterWorksBySubtitleMode(
-      works,
-      localSubtitleIds,
-      subtitleFilter,
-    );
-
-    return subtitleFilteredWorks.where((work) {
+    return works.where((work) {
       // Check tags
       if (work.tags != null) {
         for (final tag in work.tags!) {
@@ -672,13 +650,6 @@ final worksProvider = StateNotifierProvider<WorksNotifier, WorksState>((ref) {
   // 监听屏蔽列表变化，重新过滤
   ref.listen(blockedItemsProvider, (previous, next) {
     if (previous != next) {
-      notifier.reapplyFilters();
-    }
-  });
-
-  // 监听本地字幕库变化，当字幕筛选开启时重新过滤
-  ref.listen(subtitleLibraryProvider, (previous, next) {
-    if (previous != next && notifier.isSubtitleFilterActive) {
       notifier.reapplyFilters();
     }
   });
