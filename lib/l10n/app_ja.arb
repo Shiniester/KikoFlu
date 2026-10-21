@@ -57,6 +57,21 @@
   "displayModePopular": "人気",
   "displayModeRecommended": "おすすめ",
 
+  "jpAsmrSortTitle": "タイトル",
+  "jpAsmrPopularPeriod": "人気期間",
+  "jpAsmrCommentsPeriod": "コメント期間",
+  "jpAsmrPeriodRecent": "最近",
+  "jpAsmrPeriodWeek": "週間",
+  "jpAsmrPeriodTwoWeeks": "2週間",
+  "jpAsmrPeriodMonth": "1か月",
+  "jpAsmrPeriodSixMonths": "6か月",
+  "jpAsmrPeriodYear": "1年",
+  "jpAsmrPeriodAllTime": "全期間",
+  "jpAsmrPeriodSelectYear": "年を選択",
+  "jpAsmrPeriodSelectMonth": "年月を選択",
+  "jpAsmrArchiveYear": "{year}年",
+  "jpAsmrArchiveMonth": "{year}年{month}月",
+
   "subtitlePriorityHighest": "優先",
   "subtitlePriorityLowest": "後回し",
 

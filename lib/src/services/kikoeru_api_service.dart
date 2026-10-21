@@ -2,8 +2,10 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:convert';
 import '../models/audio_source.dart';
+import '../models/japanese_asmr_browse.dart';
 import '../models/search_query.dart';
 import '../models/search_type.dart';
+import '../models/sort_options.dart';
 import '../models/work.dart';
 import '../utils/server_utils.dart';
 import '../services/storage_service.dart';
@@ -627,12 +629,22 @@ class KikoeruApiService {
     String? sort,
     int? subtitle,
     int? seed,
+    JapaneseAsmrSortOption? japaneseAsmrSort,
+    SortDirection japaneseAsmrDirection = SortDirection.desc,
+    JapaneseAsmrPeriod japaneseAsmrPeriod = JapaneseAsmrPeriod.week,
+    int? japaneseAsmrArchiveYear,
+    int? japaneseAsmrArchiveMonth,
     CancelToken? cancelToken,
   }) async {
     if (source == AudioSource.jpAsmr) {
       return _japaneseAsmrService.getWorks(
         page: page,
         pageSize: pageSize,
+        sort: japaneseAsmrSort,
+        direction: japaneseAsmrDirection,
+        period: japaneseAsmrPeriod,
+        archiveYear: japaneseAsmrArchiveYear,
+        archiveMonth: japaneseAsmrArchiveMonth,
         cancelToken: cancelToken,
       );
     }

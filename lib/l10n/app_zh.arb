@@ -57,6 +57,21 @@
   "displayModePopular": "热门",
   "displayModeRecommended": "推荐",
 
+  "jpAsmrSortTitle": "标题",
+  "jpAsmrPopularPeriod": "热门周期",
+  "jpAsmrCommentsPeriod": "评论周期",
+  "jpAsmrPeriodRecent": "最近",
+  "jpAsmrPeriodWeek": "周榜",
+  "jpAsmrPeriodTwoWeeks": "双周榜",
+  "jpAsmrPeriodMonth": "月榜",
+  "jpAsmrPeriodSixMonths": "半年榜",
+  "jpAsmrPeriodYear": "年榜",
+  "jpAsmrPeriodAllTime": "总榜",
+  "jpAsmrPeriodSelectYear": "指定年份",
+  "jpAsmrPeriodSelectMonth": "指定年月",
+  "jpAsmrArchiveYear": "{year}年",
+  "jpAsmrArchiveMonth": "{year}年{month}月",
+
   "subtitlePriorityHighest": "优先",
   "subtitlePriorityLowest": "滞后",
 

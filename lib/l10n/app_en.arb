@@ -57,6 +57,32 @@
   "displayModePopular": "Popular",
   "displayModeRecommended": "Recommended",
 
+  "jpAsmrSortTitle": "Title",
+  "jpAsmrPopularPeriod": "Popularity Period",
+  "jpAsmrCommentsPeriod": "Comment Period",
+  "jpAsmrPeriodRecent": "Recent",
+  "jpAsmrPeriodWeek": "Week",
+  "jpAsmrPeriodTwoWeeks": "Two Weeks",
+  "jpAsmrPeriodMonth": "Month",
+  "jpAsmrPeriodSixMonths": "Six Months",
+  "jpAsmrPeriodYear": "Year",
+  "jpAsmrPeriodAllTime": "All Time",
+  "jpAsmrPeriodSelectYear": "Select Year",
+  "jpAsmrPeriodSelectMonth": "Select Year and Month",
+  "jpAsmrArchiveYear": "{year}",
+  "@jpAsmrArchiveYear": {
+    "description": "Year selected for the Japanese ASMR archive",
+    "placeholders": { "year": { "type": "int" } }
+  },
+  "jpAsmrArchiveMonth": "{year}-{month}",
+  "@jpAsmrArchiveMonth": {
+    "description": "Year and month selected for the Japanese ASMR archive",
+    "placeholders": {
+      "year": { "type": "int" },
+      "month": { "type": "String" }
+    }
+  },
+
   "subtitlePriorityHighest": "Priority",
   "subtitlePriorityLowest": "Deferred",
 

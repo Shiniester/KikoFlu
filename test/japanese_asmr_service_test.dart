@@ -4,6 +4,8 @@ import 'dart:ui';
 import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kikoeru_flutter/src/models/japanese_asmr_browse.dart';
+import 'package:kikoeru_flutter/src/models/sort_options.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/services/japanese_asmr_service.dart';
 import 'package:kikoeru_flutter/src/services/proxy_config.dart';
@@ -129,6 +131,104 @@ void main() {
       expect(work.displayId, 'RJ00000001');
       expect(work.circleTitle, 'Studio');
       expect(work.vas!.single.name, 'Voice');
+    },
+  );
+
+  test(
+    'maps Japanese ASMR browse sort and periods to native query params',
+    () async {
+      final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+      final cases = [
+        (
+          JapaneseAsmrSortOption.date,
+          SortDirection.asc,
+          JapaneseAsmrPeriod.week,
+          {'order': 'asc', 'orderby': 'date'},
+        ),
+        (
+          JapaneseAsmrSortOption.title,
+          SortDirection.desc,
+          JapaneseAsmrPeriod.week,
+          {'order': 'desc', 'orderby': 'title'},
+        ),
+        (
+          JapaneseAsmrSortOption.popular,
+          SortDirection.asc,
+          JapaneseAsmrPeriod.recent,
+          {'order': 'desc', 'orderby': 'post_views', 'date': 'recent'},
+        ),
+        (
+          JapaneseAsmrSortOption.popular,
+          SortDirection.asc,
+          JapaneseAsmrPeriod.allTime,
+          {'order': 'desc', 'orderby': 'post_views'},
+        ),
+        (
+          JapaneseAsmrSortOption.comments,
+          SortDirection.desc,
+          JapaneseAsmrPeriod.twoWeeks,
+          {'order': 'desc', 'orderby': 'comment_count', 'date': '2_weeks'},
+        ),
+        (
+          JapaneseAsmrSortOption.comments,
+          SortDirection.desc,
+          JapaneseAsmrPeriod.allTime,
+          {'order': 'desc', 'orderby': 'comment_count'},
+        ),
+      ];
+
+      for (final (sort, direction, period, expected) in cases) {
+        await service.getWorks(
+          page: 1,
+          pageSize: 20,
+          sort: sort,
+          direction: direction,
+          period: period,
+        );
+        expect(adapter.requests.last.uri.queryParameters, expected);
+      }
+    },
+  );
+
+  test(
+    'keeps archive sorting and zero-padded month on internal tail pages',
+    () async {
+      final adapter = _Adapter((request) {
+        final page = request.uri.path.endsWith('/page/2/') ? 2 : 1;
+        final start = page == 1 ? 1 : 15;
+        final end = page == 1 ? 14 : 20;
+        return _page(
+          '<main class="site-main">'
+          '${[for (var id = start; id <= end; id++) _card(id)].join()}'
+          '${page == 1 ? '<a class="next page-numbers">Next</a><a class="page-numbers">2</a>' : ''}'
+          '</main>',
+        );
+      });
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final response = await service.getWorks(
+        page: 1,
+        pageSize: 20,
+        sort: JapaneseAsmrSortOption.popular,
+        period: JapaneseAsmrPeriod.archiveMonth,
+        archiveYear: 2026,
+        archiveMonth: 1,
+      );
+
+      expect(response['pagination']['totalCount'], 20);
+      expect(adapter.requests.map((request) => request.uri.path), [
+        '/date/2026/01/',
+        '/date/2026/01/page/2/',
+      ]);
+      expect(adapter.requests.map((request) => request.uri.queryParameters), [
+        {'order': 'desc', 'orderby': 'post_views'},
+        {'order': 'desc', 'orderby': 'post_views'},
+      ]);
     },
   );
 

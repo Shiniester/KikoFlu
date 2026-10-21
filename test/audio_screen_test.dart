@@ -29,6 +29,8 @@ import 'package:kikoeru_flutter/src/providers/auth_provider.dart'
     show AuthNotifier, AuthState, authProvider, kikoeruApiServiceProvider;
 import 'package:kikoeru_flutter/src/models/user.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
+import 'package:kikoeru_flutter/src/models/japanese_asmr_browse.dart';
+import 'package:kikoeru_flutter/src/models/sort_options.dart';
 import 'package:kikoeru_flutter/src/models/history_record.dart';
 import 'package:kikoeru_flutter/src/models/search_query.dart';
 import 'package:kikoeru_flutter/src/providers/my_tabs_display_provider.dart';
@@ -463,7 +465,12 @@ void main() {
           .whereType<LibraryDrawerTile>()
           .map((tile) => tile.title)
           .toList();
-      expect(pageTitles(), [s.navHome, s.libraryHistory, s.libraryDownloads]);
+      expect(pageTitles(), [
+        s.navHome,
+        s.displayModePopular,
+        s.libraryHistory,
+        s.libraryDownloads,
+      ]);
       expect(find.byType(TabBar), findsNothing);
       await tester.tap(find.byKey(const ValueKey('library-menu-button')));
       await tester.pumpAndSettle();
@@ -485,6 +492,138 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('JP sidebar sorts home and selects independent popular periods', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      AudioSourceNotifier.preferenceKey,
+      audio_source.AudioSource.jpAsmr.name,
+    );
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced);
+    final s = S.of(tester.element(find.byType(AudioScreen)));
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AudioScreen)),
+    );
+
+    _browseTile(tester, s.sort).onTap!();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(s.jpAsmrSortTitle));
+    await tester.tap(find.text(s.sortAsc));
+    await tester.tap(find.text(s.confirm));
+    await tester.pumpAndSettle();
+    expect(
+      container.read(worksProvider).japaneseAsmrSortOption,
+      JapaneseAsmrSortOption.title,
+    );
+    expect(
+      container.read(worksProvider).japaneseAsmrDirection,
+      SortDirection.asc,
+    );
+
+    _browseTile(tester, s.sort).onTap!();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(s.sortReviewCount));
+    await tester.tap(find.text(s.confirm));
+    await tester.pumpAndSettle();
+    _browseTile(tester, s.jpAsmrCommentsPeriod).onTap!();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(s.jpAsmrPeriodTwoWeeks));
+    await tester.pumpAndSettle();
+    expect(
+      container.read(worksProvider).japaneseAsmrPeriod,
+      JapaneseAsmrPeriod.twoWeeks,
+    );
+
+    _requestAudioPage(tester, 'popular');
+    await tester.pumpAndSettle();
+    expect(_library(tester).title, s.displayModePopular);
+    expect(
+      _section(tester, s.libraryBrowseOptions).children
+          .whereType<LibraryDrawerTile>()
+          .where((tile) => tile.title == s.sort),
+      isEmpty,
+    );
+    _browseTile(tester, s.jpAsmrPopularPeriod).onTap!();
+    await tester.pumpAndSettle();
+    for (final label in [
+      s.jpAsmrPeriodRecent,
+      s.jpAsmrPeriodWeek,
+      s.jpAsmrPeriodMonth,
+      s.jpAsmrPeriodSixMonths,
+      s.jpAsmrPeriodYear,
+      s.jpAsmrPeriodAllTime,
+      s.jpAsmrPeriodSelectYear,
+      s.jpAsmrPeriodSelectMonth,
+    ]) {
+      expect(find.text(label), findsOneWidget);
+    }
+    await tester.tap(find.text(s.jpAsmrPeriodRecent));
+    await tester.pumpAndSettle();
+    expect(
+      container.read(worksProvider).japaneseAsmrPeriod,
+      JapaneseAsmrPeriod.recent,
+    );
+    _requestAudioPage(tester, 'home');
+    await tester.pumpAndSettle();
+    expect(
+      container.read(worksProvider).japaneseAsmrPeriod,
+      JapaneseAsmrPeriod.twoWeeks,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('JP sidebar selects a calendar year and month', (tester) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      AudioSourceNotifier.preferenceKey,
+      audio_source.AudioSource.jpAsmr.name,
+    );
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced);
+    final s = S.of(tester.element(find.byType(AudioScreen)));
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AudioScreen)),
+    );
+    final ok = MaterialLocalizations.of(
+      tester.element(find.byType(AudioScreen)),
+    ).okButtonLabel;
+    _requestAudioPage(tester, 'popular');
+    await tester.pumpAndSettle();
+    _browseTile(tester, s.jpAsmrPopularPeriod).onTap!();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(s.jpAsmrPeriodSelectYear));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('2020'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(ok));
+    await tester.pumpAndSettle();
+    expect(
+      container.read(worksProvider).japaneseAsmrPeriod,
+      JapaneseAsmrPeriod.archiveYear,
+    );
+    expect(container.read(worksProvider).japaneseAsmrArchiveDate?.year, 2020);
+
+    _browseTile(tester, s.jpAsmrPopularPeriod).onTap!();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(s.jpAsmrPeriodSelectMonth));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(ok));
+    await tester.pumpAndSettle();
+    expect(
+      container.read(worksProvider).japaneseAsmrPeriod,
+      JapaneseAsmrPeriod.archiveMonth,
+    );
+    expect(container.read(worksProvider).japaneseAsmrArchiveDate?.year, 2020);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'Android system back restores the painted audio home after rotation',

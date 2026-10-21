@@ -5,6 +5,7 @@ import 'package:equatable/equatable.dart';
 
 import '../models/work.dart';
 import '../models/audio_source.dart';
+import '../models/japanese_asmr_browse.dart';
 import '../services/kikoeru_api_service.dart' hide kikoeruApiServiceProvider;
 import '../services/log_service.dart';
 import 'auth_provider.dart';
@@ -112,9 +113,16 @@ class WorksModeSnapshot extends Equatable {
 
 // Works state
 class WorksState extends Equatable {
+  static const _noArchiveDate = Object();
+
   final LayoutType layoutType;
   final SortOrder sortOption;
   final SortDirection sortDirection;
+  final JapaneseAsmrSortOption japaneseAsmrSortOption;
+  final SortDirection japaneseAsmrDirection;
+  final JapaneseAsmrPeriod japaneseAsmrCommentsPeriod;
+  final JapaneseAsmrPeriod japaneseAsmrPopularPeriod;
+  final DateTime? japaneseAsmrArchiveDate;
   final DisplayMode displayMode;
   final int subtitleFilter; // 0: 全部, 1: 有字幕
   final int basePageSize; // 用户设置的基础分页大小
@@ -122,10 +130,20 @@ class WorksState extends Equatable {
 
   int get pageSize => basePageSize;
 
+  JapaneseAsmrPeriod get japaneseAsmrPeriod =>
+      displayMode == DisplayMode.popular
+      ? japaneseAsmrPopularPeriod
+      : japaneseAsmrCommentsPeriod;
+
   WorksState({
     this.layoutType = LayoutType.bigGrid, // 默认大网格布局
     this.sortOption = SortOrder.release,
     this.sortDirection = SortDirection.desc,
+    this.japaneseAsmrSortOption = JapaneseAsmrSortOption.date,
+    this.japaneseAsmrDirection = SortDirection.desc,
+    this.japaneseAsmrCommentsPeriod = JapaneseAsmrPeriod.week,
+    this.japaneseAsmrPopularPeriod = JapaneseAsmrPeriod.week,
+    this.japaneseAsmrArchiveDate,
     this.displayMode = DisplayMode.all, // 默认显示全部作品
     this.subtitleFilter = 0, // 默认显示全部
     this.basePageSize = 40, // 全部模式每页40条
@@ -136,6 +154,11 @@ class WorksState extends Equatable {
     LayoutType? layoutType,
     SortOrder? sortOption,
     SortDirection? sortDirection,
+    JapaneseAsmrSortOption? japaneseAsmrSortOption,
+    SortDirection? japaneseAsmrDirection,
+    JapaneseAsmrPeriod? japaneseAsmrCommentsPeriod,
+    JapaneseAsmrPeriod? japaneseAsmrPopularPeriod,
+    Object? japaneseAsmrArchiveDate = _noArchiveDate,
     DisplayMode? displayMode,
     int? subtitleFilter,
     int? basePageSize,
@@ -145,6 +168,18 @@ class WorksState extends Equatable {
       layoutType: layoutType ?? this.layoutType,
       sortOption: sortOption ?? this.sortOption,
       sortDirection: sortDirection ?? this.sortDirection,
+      japaneseAsmrSortOption:
+          japaneseAsmrSortOption ?? this.japaneseAsmrSortOption,
+      japaneseAsmrDirection:
+          japaneseAsmrDirection ?? this.japaneseAsmrDirection,
+      japaneseAsmrCommentsPeriod:
+          japaneseAsmrCommentsPeriod ?? this.japaneseAsmrCommentsPeriod,
+      japaneseAsmrPopularPeriod:
+          japaneseAsmrPopularPeriod ?? this.japaneseAsmrPopularPeriod,
+      japaneseAsmrArchiveDate:
+          identical(japaneseAsmrArchiveDate, _noArchiveDate)
+          ? this.japaneseAsmrArchiveDate
+          : japaneseAsmrArchiveDate as DateTime?,
       displayMode: displayMode ?? this.displayMode,
       subtitleFilter: subtitleFilter ?? this.subtitleFilter,
       basePageSize: basePageSize ?? this.basePageSize,
@@ -178,6 +213,11 @@ class WorksState extends Equatable {
     layoutType,
     sortOption,
     sortDirection,
+    japaneseAsmrSortOption,
+    japaneseAsmrDirection,
+    japaneseAsmrCommentsPeriod,
+    japaneseAsmrPopularPeriod,
+    japaneseAsmrArchiveDate,
     displayMode,
     subtitleFilter,
     basePageSize,
@@ -211,6 +251,14 @@ class WorksNotifier extends StateNotifier<WorksState> {
            basePageSize: initialPageSize,
            sortOption: initialSortOption,
            sortDirection: initialSortDirection,
+           japaneseAsmrSortOption: initialSortOption == SortOrder.review
+               ? JapaneseAsmrSortOption.comments
+               : JapaneseAsmrSortOption.date,
+           japaneseAsmrDirection:
+               initialSortOption == SortOrder.release ||
+                   initialSortOption == SortOrder.review
+               ? initialSortDirection
+               : SortDirection.desc,
          ),
        ) {
     _loadLayoutPreference();
@@ -307,6 +355,26 @@ class WorksNotifier extends StateNotifier<WorksState> {
           page: page,
           pageSize: pageSize,
           source: source,
+          japaneseAsmrSort: mode == DisplayMode.popular
+              ? JapaneseAsmrSortOption.popular
+              : state.japaneseAsmrSortOption,
+          japaneseAsmrDirection: state.japaneseAsmrDirection,
+          japaneseAsmrPeriod: mode == DisplayMode.popular
+              ? state.japaneseAsmrPopularPeriod
+              : (state.japaneseAsmrSortOption == JapaneseAsmrSortOption.comments
+                    ? state.japaneseAsmrCommentsPeriod
+                    : JapaneseAsmrPeriod.week),
+          japaneseAsmrArchiveYear:
+              mode == DisplayMode.popular &&
+                  state.japaneseAsmrArchiveDate != null
+              ? state.japaneseAsmrArchiveDate!.year
+              : null,
+          japaneseAsmrArchiveMonth:
+              mode == DisplayMode.popular &&
+                  state.japaneseAsmrPopularPeriod ==
+                      JapaneseAsmrPeriod.archiveMonth
+              ? state.japaneseAsmrArchiveDate?.month
+              : null,
           cancelToken: requestToken.cancelToken,
         );
       } else if (mode == DisplayMode.popular) {
@@ -371,7 +439,8 @@ class WorksNotifier extends StateNotifier<WorksState> {
       bool hasMore;
       bool isLastPage = false;
 
-      if (mode == DisplayMode.popular || mode == DisplayMode.recommended) {
+      if (source == AudioSource.asmrOne &&
+          (mode == DisplayMode.popular || mode == DisplayMode.recommended)) {
         final currentTotal = filteredWorks.length;
         hasMore =
             works.length >= pageSize &&
@@ -482,6 +551,58 @@ class WorksNotifier extends StateNotifier<WorksState> {
     }
   }
 
+  void applyDefaultSort(SortOrder option, SortDirection direction) {
+    for (final gate in _requestGates.values) {
+      gate.invalidate();
+    }
+    state = state.copyWith(
+      sortOption: option,
+      sortDirection: direction,
+      japaneseAsmrSortOption: option == SortOrder.review
+          ? JapaneseAsmrSortOption.comments
+          : JapaneseAsmrSortOption.date,
+      japaneseAsmrDirection:
+          option == SortOrder.release || option == SortOrder.review
+          ? direction
+          : SortDirection.desc,
+      modeStates: {
+        for (final mode in DisplayMode.values) mode: const WorksModeSnapshot(),
+      },
+    );
+    refresh(resetPage: true);
+  }
+
+  void setJapaneseAsmrSortOption(JapaneseAsmrSortOption option) {
+    if (state.japaneseAsmrSortOption == option) return;
+    state = state.copyWith(japaneseAsmrSortOption: option);
+    refresh(resetPage: true);
+  }
+
+  void setJapaneseAsmrPeriod(
+    JapaneseAsmrPeriod period, {
+    DateTime? archiveDate,
+  }) {
+    final isPopular = state.displayMode == DisplayMode.popular;
+    if (state.japaneseAsmrPeriod == period &&
+        (!isPopular || state.japaneseAsmrArchiveDate == archiveDate)) {
+      return;
+    }
+    state = state.copyWith(
+      japaneseAsmrPopularPeriod: isPopular ? period : null,
+      japaneseAsmrCommentsPeriod: isPopular ? null : period,
+      japaneseAsmrArchiveDate: isPopular
+          ? archiveDate
+          : state.japaneseAsmrArchiveDate,
+    );
+    refresh(resetPage: true);
+  }
+
+  void setJapaneseAsmrSortDirection(SortDirection direction) {
+    if (state.japaneseAsmrDirection == direction) return;
+    state = state.copyWith(japaneseAsmrDirection: direction);
+    refresh(resetPage: true);
+  }
+
   void setSortDirection(SortDirection direction) {
     if (state.sortDirection != direction) {
       state = state.copyWith(sortDirection: direction);
@@ -524,7 +645,8 @@ class WorksNotifier extends StateNotifier<WorksState> {
 
   // Switch between all works and popular works
   void setDisplayMode(DisplayMode mode) {
-    if (_ref.read(audioSourceProvider) == AudioSource.jpAsmr) {
+    if (_ref.read(audioSourceProvider) == AudioSource.jpAsmr &&
+        mode == DisplayMode.recommended) {
       mode = DisplayMode.all;
     }
     if (state.displayMode == mode) return;
@@ -630,9 +752,9 @@ final worksProvider = StateNotifierProvider<WorksNotifier, WorksState>((ref) {
   });
 
   ref.listen(defaultSortProvider, (previous, next) {
-    if (previous != next) {
-      notifier.setSortOption(next.order);
-      notifier.setSortDirection(next.direction);
+    if (previous?.order != next.order ||
+        previous?.direction != next.direction) {
+      notifier.applyDefaultSort(next.order, next.direction);
     }
   });
 

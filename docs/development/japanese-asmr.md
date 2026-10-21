@@ -58,20 +58,58 @@ JP-ASMR 作品的相关推荐按源站顺序展示。
 源站卡片未提供的标签、声优和社团字段无法用于屏蔽。
 源站列表为空或请求失败时，不回退到 ASMR.ONE。
 
+## 热门和排序
+
+JP-ASMR 的“热门”入口位于音声页侧栏的“页面”中。
+榜单和排序控件位于侧栏的“浏览选项”中。
+
+热门默认显示周榜，支持以下范围：
+
+- 最近、周、月、半年、年和总榜。
+- 指定年份的榜单。
+- 指定年月的榜单。
+
+热门按源站浏览量降序展示。
+作品主页支持日期升降序、标题升降序和评论数排序。
+评论数支持周、双周、月、半年、年和总数。
+切换排序或榜单范围后，列表从第 1 页开始。
+翻页和计算总数时，保留当前排序和榜单范围。
+
+默认排序沿用 ASMR.ONE 的设置机制。
+列表内的排序修改只保留在当前会话。
+JP-ASMR 不支持的默认排序回退到最新发布。
+
+源站[排序菜单](https://japaneseasmr.com/)提供周期参数。
+[热门归档](https://japaneseasmr.com/extended-search/)提供年份和月份链接。
+热门请求使用 `orderby=post_views`。
+评论数请求使用 `orderby=comment_count`。
+指定年份使用 `/date/年份/`，指定年月使用 `/date/年份/月份/`。
+年月路径和翻页路径都保留排序参数。
+
+2026-10-21，当前网络访问半年榜、年榜和月榜均返回 HTTP 403。
+这些榜单的在线结果尚未验证。
+
 ## 验证范围
 
-以下命令中的 75 项测试全部通过：
+以下命令中的 98 项测试全部通过：
 
 ```text
-flutter test --no-pub test/japanese_asmr_service_test.dart test/japanese_asmr_access_prompt_test.dart
-flutter test --no-pub test/audio_screen_test.dart test/kikoeru_api_japanese_source_test.dart test/works_provider_source_switch_test.dart
+flutter test --no-pub test/japanese_asmr_service_test.dart test/kikoeru_api_japanese_source_test.dart test/online_subtitle_feed_pagination_test.dart
+flutter test --no-pub test/works_provider_source_switch_test.dart
+flutter test --no-pub test/audio_screen_test.dart
+flutter test --no-pub test/japanese_asmr_access_prompt_test.dart
 ```
 
 测试覆盖搜索地址、关键词编码、分页总数和账户凭据隔离。
 API 分发和音声源切换测试也通过。
+热门和排序测试覆盖原生参数、归档末页计数和过期响应。
+侧栏测试覆盖标题排序、评论周期和指定年月选择。
+320 像素宽度下的排序和周期选择测试通过。
+JP-ASMR 热门超过 100 条后仍能继续分页。
 验证取消、失败重试和已有作品时的验证入口均有回归覆盖。
 正常页面的 Cloudflare 后台脚本不会触发验证提示。
 修改的服务和测试通过定向 `flutter analyze --no-pub` 检查。
+新增界面文案已生成 4 种语言的本地化代码。
 修复后的实际服务搜索返回 20 个作品，总数为 247。
 
 Android 验证桥通过 `:app:compileDebugKotlin` 编译。

@@ -5,8 +5,10 @@ import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/models/audio_source.dart';
+import 'package:kikoeru_flutter/src/models/japanese_asmr_browse.dart';
 import 'package:kikoeru_flutter/src/models/search_query.dart';
 import 'package:kikoeru_flutter/src/models/search_type.dart';
+import 'package:kikoeru_flutter/src/models/sort_options.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart'
     show kikoeruApiServiceProvider;
 import 'package:kikoeru_flutter/src/providers/search_result_provider.dart';
@@ -91,6 +93,11 @@ class _RecordingApi extends KikoeruApiService {
     String? sort,
     int? subtitle,
     int? seed,
+    JapaneseAsmrSortOption? japaneseAsmrSort,
+    SortDirection japaneseAsmrDirection = SortDirection.desc,
+    JapaneseAsmrPeriod japaneseAsmrPeriod = JapaneseAsmrPeriod.week,
+    int? japaneseAsmrArchiveYear,
+    int? japaneseAsmrArchiveMonth,
     CancelToken? cancelToken,
   }) => _request(
     endpoint: 'works',

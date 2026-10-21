@@ -5,8 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
 
+import '../models/japanese_asmr_browse.dart';
 import '../models/search_query.dart';
 import '../models/search_type.dart';
+import '../models/sort_options.dart';
 import 'proxy_config.dart';
 
 class JapaneseAsmrVerificationRequiredException implements Exception {
@@ -126,8 +128,22 @@ class JapaneseAsmrService {
   Future<Map<String, dynamic>> getWorks({
     required int page,
     required int pageSize,
+    JapaneseAsmrSortOption? sort,
+    SortDirection direction = SortDirection.desc,
+    JapaneseAsmrPeriod period = JapaneseAsmrPeriod.week,
+    int? archiveYear,
+    int? archiveMonth,
     CancelToken? cancelToken,
-  }) => _list(page: page, pageSize: pageSize, cancelToken: cancelToken);
+  }) => _list(
+    page: page,
+    pageSize: pageSize,
+    sort: sort,
+    direction: direction,
+    period: period,
+    archiveYear: archiveYear,
+    archiveMonth: archiveMonth,
+    cancelToken: cancelToken,
+  );
 
   Future<Map<String, dynamic>> searchWorks({
     required String keyword,
@@ -268,19 +284,28 @@ class JapaneseAsmrService {
     return uri;
   }
 
-  Uri _listUri(int page, {String? keyword, String? archivePath}) =>
-      keyword != null && keyword.isNotEmpty
-      ? website.replace(
-          pathSegments: [
-            'search',
-            keyword,
-            if (page > 1) ...['page', '$page'],
-            '',
-          ],
-        )
-      : website.resolve(
-          '${archivePath ?? '/'}${page > 1 ? 'page/$page/' : ''}',
-        );
+  Uri _listUri(
+    int page, {
+    String? keyword,
+    String? archivePath,
+    Map<String, String>? queryParameters,
+  }) {
+    final uri = keyword != null && keyword.isNotEmpty
+        ? website.replace(
+            pathSegments: [
+              'search',
+              keyword,
+              if (page > 1) ...['page', '$page'],
+              '',
+            ],
+          )
+        : website.resolve(
+            '${archivePath ?? '/'}${page > 1 ? 'page/$page/' : ''}',
+          );
+    return queryParameters == null || queryParameters.isEmpty
+        ? uri
+        : uri.replace(queryParameters: queryParameters);
+  }
 
   int _lastPage(Document document) => document
       .querySelectorAll('.page-numbers')
@@ -379,9 +404,53 @@ class JapaneseAsmrService {
     required int pageSize,
     String? keyword,
     String? archivePath,
+    JapaneseAsmrSortOption? sort,
+    SortDirection direction = SortDirection.desc,
+    JapaneseAsmrPeriod period = JapaneseAsmrPeriod.week,
+    int? archiveYear,
+    int? archiveMonth,
     CancelToken? cancelToken,
   }) async {
     if (page < 1 || pageSize < 1) throw ArgumentError('Invalid page');
+    if ((period == JapaneseAsmrPeriod.archiveYear ||
+            period == JapaneseAsmrPeriod.archiveMonth) &&
+        archiveYear == null) {
+      throw ArgumentError('Archive period requires a year');
+    }
+    if (period == JapaneseAsmrPeriod.archiveMonth &&
+        (archiveMonth == null || archiveMonth < 1 || archiveMonth > 12)) {
+      throw ArgumentError('Archive month must be between 1 and 12');
+    }
+    final periodArchive = switch (period) {
+      JapaneseAsmrPeriod.archiveYear => '/date/$archiveYear/',
+      JapaneseAsmrPeriod.archiveMonth =>
+        '/date/$archiveYear/${archiveMonth!.toString().padLeft(2, '0')}/',
+      _ => null,
+    };
+    final queryParameters = <String, String>{};
+    if (sort != null) {
+      queryParameters.addAll({
+        'order': sort == JapaneseAsmrSortOption.popular
+            ? SortDirection.desc.value
+            : direction.value,
+        'orderby': switch (sort) {
+          JapaneseAsmrSortOption.date => 'date',
+          JapaneseAsmrSortOption.title => 'title',
+          JapaneseAsmrSortOption.comments => 'comment_count',
+          JapaneseAsmrSortOption.popular => 'post_views',
+        },
+      });
+      if ((sort == JapaneseAsmrSortOption.popular ||
+              sort == JapaneseAsmrSortOption.comments) &&
+          period.date != null) {
+        queryParameters['date'] = period.date!;
+      }
+    }
+    if (periodArchive != null) {
+      queryParameters
+        ..clear()
+        ..addAll({'order': 'desc', 'orderby': 'post_views'});
+    }
     final start = (page - 1) * pageSize;
     final first = start ~/ _sitePageSize + 1;
     final last = (start + pageSize - 1) ~/ _sitePageSize + 1;
@@ -392,7 +461,8 @@ class JapaneseAsmrService {
       final uri = _listUri(
         sitePage,
         keyword: keyword,
-        archivePath: archivePath,
+        archivePath: periodArchive ?? archivePath,
+        queryParameters: queryParameters,
       );
       final document = html.parse(
         (await _get(uri, cancelToken: cancelToken)).data,

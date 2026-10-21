@@ -382,6 +382,90 @@ abstract class S {
   /// **'Recommended'**
   String get displayModeRecommended;
 
+  /// No description provided for @jpAsmrSortTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Title'**
+  String get jpAsmrSortTitle;
+
+  /// No description provided for @jpAsmrPopularPeriod.
+  ///
+  /// In en, this message translates to:
+  /// **'Popularity Period'**
+  String get jpAsmrPopularPeriod;
+
+  /// No description provided for @jpAsmrCommentsPeriod.
+  ///
+  /// In en, this message translates to:
+  /// **'Comment Period'**
+  String get jpAsmrCommentsPeriod;
+
+  /// No description provided for @jpAsmrPeriodRecent.
+  ///
+  /// In en, this message translates to:
+  /// **'Recent'**
+  String get jpAsmrPeriodRecent;
+
+  /// No description provided for @jpAsmrPeriodWeek.
+  ///
+  /// In en, this message translates to:
+  /// **'Week'**
+  String get jpAsmrPeriodWeek;
+
+  /// No description provided for @jpAsmrPeriodTwoWeeks.
+  ///
+  /// In en, this message translates to:
+  /// **'Two Weeks'**
+  String get jpAsmrPeriodTwoWeeks;
+
+  /// No description provided for @jpAsmrPeriodMonth.
+  ///
+  /// In en, this message translates to:
+  /// **'Month'**
+  String get jpAsmrPeriodMonth;
+
+  /// No description provided for @jpAsmrPeriodSixMonths.
+  ///
+  /// In en, this message translates to:
+  /// **'Six Months'**
+  String get jpAsmrPeriodSixMonths;
+
+  /// No description provided for @jpAsmrPeriodYear.
+  ///
+  /// In en, this message translates to:
+  /// **'Year'**
+  String get jpAsmrPeriodYear;
+
+  /// No description provided for @jpAsmrPeriodAllTime.
+  ///
+  /// In en, this message translates to:
+  /// **'All Time'**
+  String get jpAsmrPeriodAllTime;
+
+  /// No description provided for @jpAsmrPeriodSelectYear.
+  ///
+  /// In en, this message translates to:
+  /// **'Select Year'**
+  String get jpAsmrPeriodSelectYear;
+
+  /// No description provided for @jpAsmrPeriodSelectMonth.
+  ///
+  /// In en, this message translates to:
+  /// **'Select Year and Month'**
+  String get jpAsmrPeriodSelectMonth;
+
+  /// Year selected for the Japanese ASMR archive
+  ///
+  /// In en, this message translates to:
+  /// **'{year}'**
+  String jpAsmrArchiveYear(int year);
+
+  /// Year and month selected for the Japanese ASMR archive
+  ///
+  /// In en, this message translates to:
+  /// **'{year}-{month}'**
+  String jpAsmrArchiveMonth(int year, String month);
+
   /// No description provided for @subtitlePriorityHighest.
   ///
   /// In en, this message translates to:
