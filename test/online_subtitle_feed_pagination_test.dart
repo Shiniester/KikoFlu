@@ -5,6 +5,10 @@ import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/models/audio_source.dart';
+import 'package:kikoeru_flutter/src/models/japanese_asmr_browse.dart';
+import 'package:kikoeru_flutter/src/models/search_query.dart';
+import 'package:kikoeru_flutter/src/models/search_type.dart';
+import 'package:kikoeru_flutter/src/models/sort_options.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart'
     show kikoeruApiServiceProvider;
 import 'package:kikoeru_flutter/src/providers/search_result_provider.dart';
@@ -26,6 +30,7 @@ class _FeedRequest {
     this.source,
     this.subtitle,
     this.keyword,
+    this.conditions = const [],
     this.tagId,
     this.vaId,
     this.recommenderUuid,
@@ -38,6 +43,7 @@ class _FeedRequest {
   final AudioSource? source;
   final int? subtitle;
   final String? keyword;
+  final List<SearchCondition> conditions;
   final int? tagId;
   final String? vaId;
   final String? recommenderUuid;
@@ -55,6 +61,7 @@ class _RecordingApi extends KikoeruApiService {
     AudioSource? source,
     int? subtitle,
     String? keyword,
+    List<SearchCondition> conditions = const [],
     int? tagId,
     String? vaId,
     String? recommenderUuid,
@@ -67,6 +74,7 @@ class _RecordingApi extends KikoeruApiService {
       source: source,
       subtitle: subtitle,
       keyword: keyword,
+      conditions: conditions,
       tagId: tagId,
       vaId: vaId,
       recommenderUuid: recommenderUuid,
@@ -85,6 +93,12 @@ class _RecordingApi extends KikoeruApiService {
     String? sort,
     int? subtitle,
     int? seed,
+    JapaneseAsmrSortOption? japaneseAsmrSort,
+    SortDirection japaneseAsmrDirection = SortDirection.desc,
+    JapaneseAsmrPeriod japaneseAsmrPeriod = JapaneseAsmrPeriod.week,
+    int? japaneseAsmrArchiveYear,
+    int? japaneseAsmrArchiveMonth,
+    AgeRating japaneseAsmrAgeRating = AgeRating.all,
     CancelToken? cancelToken,
   }) => _request(
     endpoint: 'works',
@@ -175,6 +189,7 @@ class _RecordingApi extends KikoeruApiService {
     int page = 1,
     int pageSize = 40,
     AudioSource source = AudioSource.asmrOne,
+    List<SearchCondition> conditions = const [],
     String? order,
     String? sort,
     int? subtitle,
@@ -188,6 +203,7 @@ class _RecordingApi extends KikoeruApiService {
     source: source,
     subtitle: subtitle,
     keyword: keyword,
+    conditions: conditions,
     cancelToken: cancelToken,
   );
 }
@@ -683,5 +699,68 @@ void main() {
       _response([2], currentPage: 1, pageSize: 20, totalCount: 1),
     );
     await searchLoad;
+  });
+
+  test('JP history query keeps taxonomy paths and unknown totals', () async {
+    await _initializeStorage();
+    final api = _RecordingApi();
+    final container = _container(api);
+    addTearDown(container.dispose);
+    final notifier = container.read(searchResultProvider.notifier);
+    const directoryPath = '/tag/%e8%80%b3/';
+
+    final firstLoad = notifier.initializeSearch(
+      keyword: '',
+      searchParams: {
+        'source': AudioSource.jpAsmr.name,
+        'conditions': [
+          {
+            'searchType': SearchType.tag.name,
+            'type': 'Tag',
+            'value': 'Name differs from the slug',
+            'sourcePath': directoryPath,
+            'isExclude': false,
+          },
+        ],
+      },
+    );
+    final first = api.requests.single;
+    expect(first.source, AudioSource.jpAsmr);
+    expect(first.keyword, '');
+    expect(first.conditions.single.sourcePath, directoryPath);
+    first.response.complete({
+      'works': [
+        {'id': -1, 'title': 'Japanese work'},
+      ],
+      'pagination': {
+        'currentPage': 1,
+        'pageSize': 20,
+        'totalCount': null,
+        'hasMore': true,
+      },
+    });
+    await firstLoad;
+
+    final state = container.read(searchResultProvider);
+    expect(state.totalCountKnown, isFalse);
+    expect(state.totalCount, 0);
+    expect(state.hasMore, isTrue);
+
+    final nextLoad = notifier.goToPage(2);
+    final second = api.requests.last;
+    expect(second.source, AudioSource.jpAsmr);
+    expect(second.conditions.single.sourcePath, directoryPath);
+    expect(second.page, 2);
+    second.response.complete({
+      'works': <dynamic>[],
+      'pagination': {
+        'currentPage': 2,
+        'pageSize': 20,
+        'totalCount': null,
+        'hasMore': false,
+      },
+    });
+    await nextLoad;
+    expect(container.read(searchResultProvider).hasMore, isFalse);
   });
 }

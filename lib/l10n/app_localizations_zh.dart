@@ -150,6 +150,52 @@ class SZh extends S {
   String get displayModeRecommended => '推荐';
 
   @override
+  String get jpAsmrSortTitle => '标题';
+
+  @override
+  String get jpAsmrPopularPeriod => '热门周期';
+
+  @override
+  String get jpAsmrCommentsPeriod => '评论周期';
+
+  @override
+  String get jpAsmrPeriodRecent => '最近';
+
+  @override
+  String get jpAsmrPeriodWeek => '周榜';
+
+  @override
+  String get jpAsmrPeriodTwoWeeks => '双周榜';
+
+  @override
+  String get jpAsmrPeriodMonth => '月榜';
+
+  @override
+  String get jpAsmrPeriodSixMonths => '半年榜';
+
+  @override
+  String get jpAsmrPeriodYear => '年榜';
+
+  @override
+  String get jpAsmrPeriodAllTime => '总榜';
+
+  @override
+  String get jpAsmrPeriodSelectYear => '指定年份';
+
+  @override
+  String get jpAsmrPeriodSelectMonth => '指定年月';
+
+  @override
+  String jpAsmrArchiveYear(int year) {
+    return '$year年';
+  }
+
+  @override
+  String jpAsmrArchiveMonth(int year, String month) {
+    return '$year年$month月';
+  }
+
+  @override
   String get subtitlePriorityHighest => '优先';
 
   @override
@@ -1053,6 +1099,9 @@ class SZh extends S {
 
   @override
   String get audioGainPassthroughDesc => '音频直通开启时不可用';
+
+  @override
+  String get block => '屏蔽';
 
   @override
   String get blockingSettings => '屏蔽设置';
@@ -4324,6 +4373,52 @@ class SZhHant extends SZh {
   String get displayModeRecommended => '推薦';
 
   @override
+  String get jpAsmrSortTitle => '標題';
+
+  @override
+  String get jpAsmrPopularPeriod => '熱門週期';
+
+  @override
+  String get jpAsmrCommentsPeriod => '評論週期';
+
+  @override
+  String get jpAsmrPeriodRecent => '最近';
+
+  @override
+  String get jpAsmrPeriodWeek => '週榜';
+
+  @override
+  String get jpAsmrPeriodTwoWeeks => '雙週榜';
+
+  @override
+  String get jpAsmrPeriodMonth => '月榜';
+
+  @override
+  String get jpAsmrPeriodSixMonths => '半年榜';
+
+  @override
+  String get jpAsmrPeriodYear => '年榜';
+
+  @override
+  String get jpAsmrPeriodAllTime => '總榜';
+
+  @override
+  String get jpAsmrPeriodSelectYear => '指定年份';
+
+  @override
+  String get jpAsmrPeriodSelectMonth => '指定年月';
+
+  @override
+  String jpAsmrArchiveYear(int year) {
+    return '$year年';
+  }
+
+  @override
+  String jpAsmrArchiveMonth(int year, String month) {
+    return '$year年$month月';
+  }
+
+  @override
   String get subtitlePriorityHighest => '優先';
 
   @override
@@ -5227,6 +5322,9 @@ class SZhHant extends SZh {
 
   @override
   String get audioGainPassthroughDesc => '音訊直通開啟時無法使用';
+
+  @override
+  String get block => '封鎖';
 
   @override
   String get blockingSettings => '封鎖設定';

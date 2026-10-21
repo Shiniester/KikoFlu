@@ -1,8 +1,37 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
+import 'package:kikoeru_flutter/src/services/download_file_path_service.dart';
 import 'package:kikoeru_flutter/src/services/work_track_file_builder.dart';
+import 'package:kikoeru_flutter/src/utils/file_tree_utils.dart';
 
 void main() {
+  test('keeps chapter bounds through bulk-download and offline metadata', () {
+    const builder = WorkTrackFileBuilder(host: '', token: '');
+    final chapter = builder.toAudioFiles([
+      {
+        'type': 'audio',
+        'title': 'Chapter 2.aac',
+        'hash': 'jp-151514-chapter-425000',
+        'mediaStreamUrl': 'https://v.weeab0o.xyz/RJ01737373.m3u8',
+        'startTimeMs': 425000,
+        'endTimeMs': 1313000,
+        'duration': 888,
+      },
+    ]).single;
+    final restored = AudioFile.fromJson(chapter.toJson());
+
+    expect(restored.type, 'file');
+    expect(restored.isAudio, isTrue);
+    expect(restored.mediaDownloadUrl, 'https://v.weeab0o.xyz/RJ01737373.m3u8');
+    expect(restored.duration, 888);
+    final offlineMetadata =
+        DownloadFilePathService.annotateFileTreeWithLocalPaths([chapter]);
+    final offlineChapter = AudioFile.fromJson(offlineMetadata.single);
+    expect(FileTreeUtils.property(offlineChapter, 'startTimeMs'), 425000);
+    expect(FileTreeUtils.property(offlineChapter, 'endTimeMs'), 1313000);
+    expect(AudioFile.fromJson(const {'title': 'old.mp3'}).startTimeMs, isNull);
+  });
+
   test('converts API file trees into AudioFile trees', () {
     const builder = WorkTrackFileBuilder(
       host: 'kiko.example',

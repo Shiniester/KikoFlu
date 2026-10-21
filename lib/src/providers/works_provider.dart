@@ -5,6 +5,8 @@ import 'package:equatable/equatable.dart';
 
 import '../models/work.dart';
 import '../models/audio_source.dart';
+import '../models/japanese_asmr_browse.dart';
+import '../models/search_type.dart';
 import '../services/kikoeru_api_service.dart' hide kikoeruApiServiceProvider;
 import '../services/log_service.dart';
 import 'auth_provider.dart';
@@ -112,9 +114,18 @@ class WorksModeSnapshot extends Equatable {
 
 // Works state
 class WorksState extends Equatable {
+  static const _noArchiveDate = Object();
+
   final LayoutType layoutType;
   final SortOrder sortOption;
   final SortDirection sortDirection;
+  final JapaneseAsmrSortOption japaneseAsmrSortOption;
+  final SortDirection japaneseAsmrDirection;
+  final AgeRating asmrOneAgeRating;
+  final AgeRating japaneseAsmrAgeRating;
+  final JapaneseAsmrPeriod japaneseAsmrCommentsPeriod;
+  final JapaneseAsmrPeriod japaneseAsmrPopularPeriod;
+  final DateTime? japaneseAsmrArchiveDate;
   final DisplayMode displayMode;
   final int subtitleFilter; // 0: 全部, 1: 有字幕
   final int basePageSize; // 用户设置的基础分页大小
@@ -122,10 +133,22 @@ class WorksState extends Equatable {
 
   int get pageSize => basePageSize;
 
+  JapaneseAsmrPeriod get japaneseAsmrPeriod =>
+      displayMode == DisplayMode.popular
+      ? japaneseAsmrPopularPeriod
+      : japaneseAsmrCommentsPeriod;
+
   WorksState({
     this.layoutType = LayoutType.bigGrid, // 默认大网格布局
     this.sortOption = SortOrder.release,
     this.sortDirection = SortDirection.desc,
+    this.japaneseAsmrSortOption = JapaneseAsmrSortOption.date,
+    this.japaneseAsmrDirection = SortDirection.desc,
+    this.asmrOneAgeRating = AgeRating.all,
+    this.japaneseAsmrAgeRating = AgeRating.all,
+    this.japaneseAsmrCommentsPeriod = JapaneseAsmrPeriod.week,
+    this.japaneseAsmrPopularPeriod = JapaneseAsmrPeriod.week,
+    this.japaneseAsmrArchiveDate,
     this.displayMode = DisplayMode.all, // 默认显示全部作品
     this.subtitleFilter = 0, // 默认显示全部
     this.basePageSize = 40, // 全部模式每页40条
@@ -136,6 +159,13 @@ class WorksState extends Equatable {
     LayoutType? layoutType,
     SortOrder? sortOption,
     SortDirection? sortDirection,
+    JapaneseAsmrSortOption? japaneseAsmrSortOption,
+    SortDirection? japaneseAsmrDirection,
+    AgeRating? asmrOneAgeRating,
+    AgeRating? japaneseAsmrAgeRating,
+    JapaneseAsmrPeriod? japaneseAsmrCommentsPeriod,
+    JapaneseAsmrPeriod? japaneseAsmrPopularPeriod,
+    Object? japaneseAsmrArchiveDate = _noArchiveDate,
     DisplayMode? displayMode,
     int? subtitleFilter,
     int? basePageSize,
@@ -145,6 +175,21 @@ class WorksState extends Equatable {
       layoutType: layoutType ?? this.layoutType,
       sortOption: sortOption ?? this.sortOption,
       sortDirection: sortDirection ?? this.sortDirection,
+      japaneseAsmrSortOption:
+          japaneseAsmrSortOption ?? this.japaneseAsmrSortOption,
+      japaneseAsmrDirection:
+          japaneseAsmrDirection ?? this.japaneseAsmrDirection,
+      asmrOneAgeRating: asmrOneAgeRating ?? this.asmrOneAgeRating,
+      japaneseAsmrAgeRating:
+          japaneseAsmrAgeRating ?? this.japaneseAsmrAgeRating,
+      japaneseAsmrCommentsPeriod:
+          japaneseAsmrCommentsPeriod ?? this.japaneseAsmrCommentsPeriod,
+      japaneseAsmrPopularPeriod:
+          japaneseAsmrPopularPeriod ?? this.japaneseAsmrPopularPeriod,
+      japaneseAsmrArchiveDate:
+          identical(japaneseAsmrArchiveDate, _noArchiveDate)
+          ? this.japaneseAsmrArchiveDate
+          : japaneseAsmrArchiveDate as DateTime?,
       displayMode: displayMode ?? this.displayMode,
       subtitleFilter: subtitleFilter ?? this.subtitleFilter,
       basePageSize: basePageSize ?? this.basePageSize,
@@ -178,6 +223,13 @@ class WorksState extends Equatable {
     layoutType,
     sortOption,
     sortDirection,
+    japaneseAsmrSortOption,
+    japaneseAsmrDirection,
+    asmrOneAgeRating,
+    japaneseAsmrAgeRating,
+    japaneseAsmrCommentsPeriod,
+    japaneseAsmrPopularPeriod,
+    japaneseAsmrArchiveDate,
     displayMode,
     subtitleFilter,
     basePageSize,
@@ -209,8 +261,19 @@ class WorksNotifier extends StateNotifier<WorksState> {
   }) : super(
          WorksState(
            basePageSize: initialPageSize,
-           sortOption: initialSortOption,
+           sortOption: _normalizedSortOption(initialSortOption),
            sortDirection: initialSortDirection,
+           japaneseAsmrSortOption: initialSortOption == SortOrder.review
+               ? JapaneseAsmrSortOption.comments
+               : JapaneseAsmrSortOption.date,
+           japaneseAsmrDirection:
+               initialSortOption == SortOrder.release ||
+                   initialSortOption == SortOrder.review
+               ? initialSortDirection
+               : SortDirection.desc,
+           asmrOneAgeRating: initialSortOption == SortOrder.nsfw
+               ? AgeRating.general
+               : AgeRating.all,
          ),
        ) {
     _loadLayoutPreference();
@@ -307,6 +370,29 @@ class WorksNotifier extends StateNotifier<WorksState> {
           page: page,
           pageSize: pageSize,
           source: source,
+          japaneseAsmrSort: mode == DisplayMode.popular
+              ? JapaneseAsmrSortOption.popular
+              : state.japaneseAsmrSortOption,
+          japaneseAsmrDirection: state.japaneseAsmrDirection,
+          japaneseAsmrAgeRating: mode == DisplayMode.all
+              ? state.japaneseAsmrAgeRating
+              : AgeRating.all,
+          japaneseAsmrPeriod: mode == DisplayMode.popular
+              ? state.japaneseAsmrPopularPeriod
+              : (state.japaneseAsmrSortOption == JapaneseAsmrSortOption.comments
+                    ? state.japaneseAsmrCommentsPeriod
+                    : JapaneseAsmrPeriod.week),
+          japaneseAsmrArchiveYear:
+              mode == DisplayMode.popular &&
+                  state.japaneseAsmrArchiveDate != null
+              ? state.japaneseAsmrArchiveDate!.year
+              : null,
+          japaneseAsmrArchiveMonth:
+              mode == DisplayMode.popular &&
+                  state.japaneseAsmrPopularPeriod ==
+                      JapaneseAsmrPeriod.archiveMonth
+              ? state.japaneseAsmrArchiveDate?.month
+              : null,
           cancelToken: requestToken.cancelToken,
         );
       } else if (mode == DisplayMode.popular) {
@@ -329,12 +415,24 @@ class WorksNotifier extends StateNotifier<WorksState> {
           subtitle: serverSubtitleParam,
           cancelToken: requestToken.cancelToken,
         );
+      } else if (mode == DisplayMode.all &&
+          state.asmrOneAgeRating != AgeRating.all) {
+        response = await _apiService.searchWorks(
+          keyword: '\$age:${state.asmrOneAgeRating.value}\$',
+          page: page,
+          pageSize: pageSize,
+          source: AudioSource.asmrOne,
+          order: sortOption.value,
+          sort: sortDirection.value,
+          subtitle: serverSubtitleParam,
+          cancelToken: requestToken.cancelToken,
+        );
       } else {
         response = await _apiService.getWorks(
           page: page,
           source: source,
           order: sortOption.value,
-          sort: sortOption == SortOrder.nsfw ? 'asc' : sortDirection.value,
+          sort: sortDirection.value,
           subtitle: serverSubtitleParam,
           pageSize: pageSize,
           cancelToken: requestToken.cancelToken,
@@ -362,7 +460,7 @@ class WorksNotifier extends StateNotifier<WorksState> {
         replace: !shouldAppend,
       );
 
-      final blockedItems = _ref.read(blockedItemsProvider);
+      final blockedItems = _ref.read(blockedItemsBySourceProvider(source));
       final filteredWorks = _filterWorks(newRawWorks, blockedItems);
 
       final totalCount = pagination?['totalCount'] as int? ?? 0;
@@ -371,7 +469,8 @@ class WorksNotifier extends StateNotifier<WorksState> {
       bool hasMore;
       bool isLastPage = false;
 
-      if (mode == DisplayMode.popular || mode == DisplayMode.recommended) {
+      if (source == AudioSource.asmrOne &&
+          (mode == DisplayMode.popular || mode == DisplayMode.recommended)) {
         final currentTotal = filteredWorks.length;
         hasMore =
             works.length >= pageSize &&
@@ -476,17 +575,133 @@ class WorksNotifier extends StateNotifier<WorksState> {
   }
 
   void setSortOption(SortOrder option) {
-    if (state.sortOption != option) {
-      state = state.copyWith(sortOption: option);
-      refresh(resetPage: true);
+    applyWorksSort(
+      option,
+      state.sortDirection,
+      option == SortOrder.nsfw ? AgeRating.general : state.asmrOneAgeRating,
+    );
+  }
+
+  void applyWorksSort(
+    SortOrder option,
+    SortDirection direction,
+    AgeRating ageRating,
+  ) {
+    final normalizedOption = _normalizedSortOption(option);
+    final normalizedAgeRating = option == SortOrder.nsfw
+        ? AgeRating.general
+        : ageRating;
+    if (state.sortOption == normalizedOption &&
+        state.sortDirection == direction &&
+        state.asmrOneAgeRating == normalizedAgeRating) {
+      return;
     }
+    state = state.copyWith(
+      sortOption: normalizedOption,
+      sortDirection: direction,
+      asmrOneAgeRating: normalizedAgeRating,
+    );
+    refresh(resetPage: true);
+  }
+
+  void applyDefaultSort(SortOrder option, SortDirection direction) {
+    final normalizedOption = _normalizedSortOption(option);
+    final ageRating = option == SortOrder.nsfw
+        ? AgeRating.general
+        : AgeRating.all;
+    final japaneseAsmrSortOption = option == SortOrder.review
+        ? JapaneseAsmrSortOption.comments
+        : JapaneseAsmrSortOption.date;
+    final japaneseAsmrDirection =
+        option == SortOrder.release || option == SortOrder.review
+        ? direction
+        : SortDirection.desc;
+    if (state.sortOption == normalizedOption &&
+        state.sortDirection == direction &&
+        state.asmrOneAgeRating == ageRating &&
+        state.japaneseAsmrSortOption == japaneseAsmrSortOption &&
+        state.japaneseAsmrDirection == japaneseAsmrDirection) {
+      return;
+    }
+    for (final gate in _requestGates.values) {
+      gate.invalidate();
+    }
+    state = state.copyWith(
+      sortOption: normalizedOption,
+      sortDirection: direction,
+      asmrOneAgeRating: ageRating,
+      japaneseAsmrSortOption: japaneseAsmrSortOption,
+      japaneseAsmrDirection: japaneseAsmrDirection,
+      modeStates: {
+        for (final mode in DisplayMode.values) mode: const WorksModeSnapshot(),
+      },
+    );
+    refresh(resetPage: true);
+  }
+
+  void setJapaneseAsmrSortOption(JapaneseAsmrSortOption option) {
+    applyJapaneseAsmrSort(
+      option,
+      state.japaneseAsmrDirection,
+      state.japaneseAsmrAgeRating,
+    );
+  }
+
+  void applyJapaneseAsmrSort(
+    JapaneseAsmrSortOption option,
+    SortDirection direction,
+    AgeRating ageRating,
+  ) {
+    if (state.japaneseAsmrSortOption == option &&
+        state.japaneseAsmrDirection == direction &&
+        state.japaneseAsmrAgeRating == ageRating) {
+      return;
+    }
+    state = state.copyWith(
+      japaneseAsmrSortOption: option,
+      japaneseAsmrDirection: direction,
+      japaneseAsmrAgeRating: ageRating,
+    );
+    refresh(resetPage: true);
+  }
+
+  void setJapaneseAsmrPeriod(
+    JapaneseAsmrPeriod period, {
+    DateTime? archiveDate,
+  }) {
+    final isPopular = state.displayMode == DisplayMode.popular;
+    if (state.japaneseAsmrPeriod == period &&
+        (!isPopular || state.japaneseAsmrArchiveDate == archiveDate)) {
+      return;
+    }
+    state = state.copyWith(
+      japaneseAsmrPopularPeriod: isPopular ? period : null,
+      japaneseAsmrCommentsPeriod: isPopular ? null : period,
+      japaneseAsmrArchiveDate: isPopular
+          ? archiveDate
+          : state.japaneseAsmrArchiveDate,
+    );
+    refresh(resetPage: true);
+  }
+
+  void setJapaneseAsmrSortDirection(SortDirection direction) {
+    applyJapaneseAsmrSort(
+      state.japaneseAsmrSortOption,
+      direction,
+      state.japaneseAsmrAgeRating,
+    );
+  }
+
+  void setJapaneseAsmrAgeRating(AgeRating rating) {
+    applyJapaneseAsmrSort(
+      state.japaneseAsmrSortOption,
+      state.japaneseAsmrDirection,
+      rating,
+    );
   }
 
   void setSortDirection(SortDirection direction) {
-    if (state.sortDirection != direction) {
-      state = state.copyWith(sortDirection: direction);
-      refresh(resetPage: true);
-    }
+    applyWorksSort(state.sortOption, direction, state.asmrOneAgeRating);
   }
 
   void toggleSortDirection() {
@@ -524,7 +739,8 @@ class WorksNotifier extends StateNotifier<WorksState> {
 
   // Switch between all works and popular works
   void setDisplayMode(DisplayMode mode) {
-    if (_ref.read(audioSourceProvider) == AudioSource.jpAsmr) {
+    if (_ref.read(audioSourceProvider) == AudioSource.jpAsmr &&
+        mode == DisplayMode.recommended) {
       mode = DisplayMode.all;
     }
     if (state.displayMode == mode) return;
@@ -566,12 +782,30 @@ class WorksNotifier extends StateNotifier<WorksState> {
   }
 
   void reapplyFilters() {
-    final blockedItems = _ref.read(blockedItemsProvider);
+    final source = _ref.read(audioSourceProvider);
+    final blockedItems = _ref.read(blockedItemsBySourceProvider(source));
     final updatedStates = state.modeStates.map((mode, snapshot) {
       final filteredWorks = _filterWorks(snapshot.rawWorks, blockedItems);
       return MapEntry(mode, snapshot.copyWith(works: filteredWorks));
     });
     state = state.copyWith(modeStates: updatedStates);
+  }
+
+  void onCurrentUserChanged() {
+    if (!_apiService.isOfficialServer &&
+        state.asmrOneAgeRating == AgeRating.r15) {
+      _requestGates[DisplayMode.all]!.invalidate();
+      final modeStates = Map<DisplayMode, WorksModeSnapshot>.from(
+        state.modeStates,
+      )..[DisplayMode.all] = const WorksModeSnapshot();
+      state = state.copyWith(
+        asmrOneAgeRating: AgeRating.all,
+        modeStates: modeStates,
+      );
+      refresh(resetPage: true);
+      return;
+    }
+    refresh();
   }
 
   List<Work> _filterWorks(List<Work> works, BlockedItemsState blockedItems) {
@@ -605,6 +839,9 @@ class WorksNotifier extends StateNotifier<WorksState> {
   }
 }
 
+SortOrder _normalizedSortOption(SortOrder option) =>
+    option == SortOrder.nsfw ? SortOrder.release : option;
+
 // Provider
 final worksProvider = StateNotifierProvider<WorksNotifier, WorksState>((ref) {
   final apiService = ref.watch(kikoeruApiServiceProvider);
@@ -630,9 +867,9 @@ final worksProvider = StateNotifierProvider<WorksNotifier, WorksState>((ref) {
   });
 
   ref.listen(defaultSortProvider, (previous, next) {
-    if (previous != next) {
-      notifier.setSortOption(next.order);
-      notifier.setSortDirection(next.direction);
+    if (previous?.order != next.order ||
+        previous?.direction != next.direction) {
+      notifier.applyDefaultSort(next.order, next.direction);
     }
   });
 
@@ -643,14 +880,29 @@ final worksProvider = StateNotifierProvider<WorksNotifier, WorksState>((ref) {
     final nextUser = next;
     if (prevUser?.name != nextUser?.name || prevUser?.host != nextUser?.host) {
       _log.captureOutput('[WorksProvider] User changed, refreshing works list');
-      notifier.refresh();
+      notifier.onCurrentUserChanged();
     }
   });
 
   // 监听屏蔽列表变化，重新过滤
-  ref.listen(blockedItemsProvider, (previous, next) {
-    if (previous != next) {
+  ref.listen(blockedItemsBySourceProvider(AudioSource.asmrOne), (
+    previous,
+    next,
+  ) {
+    if (previous != next &&
+        ref.read(audioSourceProvider) == AudioSource.asmrOne) {
       notifier.reapplyFilters();
+    }
+  });
+
+  ref.listen(blockedItemsBySourceProvider(AudioSource.jpAsmr), (
+    previous,
+    next,
+  ) {
+    if (previous != next) {
+      if (ref.read(audioSourceProvider) == AudioSource.jpAsmr) {
+        notifier.reapplyFilters();
+      }
     }
   });
 

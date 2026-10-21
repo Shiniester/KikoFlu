@@ -116,7 +116,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
   }
 
   void _showSortDialog(BuildContext context) {
-    if (ref.read(audioSourceProvider) == AudioSource.jpAsmr) return;
+    if (_isJapaneseQuery) return;
     final state = ref.read(searchResultProvider);
     showDialog(
       context: context,
@@ -136,6 +136,10 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
       ),
     );
   }
+
+  bool get _isJapaneseQuery =>
+      widget.searchParams?['source'] == AudioSource.jpAsmr.name ||
+      ref.read(audioSourceProvider) == AudioSource.jpAsmr;
 
   IconData _getLayoutIcon(SearchLayoutType layoutType) {
     switch (layoutType) {
@@ -169,7 +173,10 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
   @override
   Widget build(BuildContext context) {
     final searchState = ref.watch(searchResultProvider);
-    final isJapaneseAsmr = ref.watch(audioSourceProvider) == AudioSource.jpAsmr;
+    final currentSource = ref.watch(audioSourceProvider);
+    final isJapaneseAsmr =
+        widget.searchParams?['source'] == AudioSource.jpAsmr.name ||
+        currentSource == AudioSource.jpAsmr;
 
     final horizontalPadding = FloatingToolbarLayout.horizontalPadding(context);
 
@@ -309,7 +316,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
             ),
 
           // 结果统计
-          if (searchState.totalCount > 0)
+          if (searchState.totalCountKnown && searchState.totalCount > 0)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: Text(
@@ -361,7 +368,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
             ],
           ),
         ),
-        if (searchState.totalCount > 0)
+        if (searchState.totalCountKnown && searchState.totalCount > 0)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
@@ -396,9 +403,9 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
     if (searchState.error != null) {
       final error = searchState.error!;
       if (error.contains('[jp-asmr-verification-required]') &&
-          ref.read(audioSourceProvider) == AudioSource.jpAsmr) {
+          _isJapaneseQuery) {
         void refreshForJapaneseAsmr() {
-          if (mounted && ref.read(audioSourceProvider) == AudioSource.jpAsmr) {
+          if (mounted && _isJapaneseQuery) {
             ref.read(searchResultProvider.notifier).refresh();
           }
         }
@@ -466,7 +473,9 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
       pagination: VirtualizedPagination(
         currentPage: searchState.currentPage,
         pageSize: searchState.pageSize,
-        totalCount: searchState.totalCount,
+        totalCount: searchState.totalCountKnown
+            ? searchState.totalCount
+            : null,
         hasMore: searchState.hasMore,
         isLoading: searchState.isLoading || searchState.isRefreshing,
         onPreviousPage: () => ref

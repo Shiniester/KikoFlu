@@ -8,6 +8,7 @@ import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/services/proxy_config.dart';
 import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
+import 'package:kikoeru_flutter/src/widgets/settings_section.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Widget _testApp({
@@ -94,6 +95,28 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('preload_next_mode'), 'custom');
     expect(prefs.getInt('preload_next_custom_seconds'), 60);
+  });
+
+  testWidgets('preferences omit the blocking settings navigation tile', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_testApp());
+    await tester.pump();
+
+    final preferences = find.byType(PreferencesScreen);
+    final strings = S.of(tester.element(preferences));
+    await tester.scrollUntilVisible(
+      find.text(strings.defaultSortSettingTitle),
+      250,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+
+    expect(find.text(strings.defaultSortSettingTitle), findsOneWidget);
+    expect(
+      find.widgetWithText(SettingsNavigationTile, strings.blockingSettings),
+      findsNothing,
+    );
   });
 
   testWidgets('translated lyrics auto-save switch toggles and persists', (

@@ -27,6 +27,20 @@ Map<String, dynamic> folderItem(
 
 void main() {
   group('FileTreeUtils', () {
+    test('keeps offline chapters in source order when names sort differently',
+        () {
+      final files = <dynamic>[
+        fileItem('cover.jpg'),
+        {...fileItem('A final chapter.aac'), 'startTimeMs': 425000},
+        {...fileItem('Z opening.aac'), 'startTimeMs': 0},
+      ];
+
+      FileTreeUtils.sortItemsByTitle(files);
+
+      expect(files.map(FileTreeUtils.titleOf),
+          ['Z opening.aac', 'A final chapter.aac', 'cover.jpg']);
+    });
+
     test('reads map properties and builds item paths', () {
       final item = fileItem('track01.mp3', type: 'audio');
 

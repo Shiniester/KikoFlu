@@ -151,6 +151,52 @@ class SJa extends S {
   String get displayModeRecommended => 'おすすめ';
 
   @override
+  String get jpAsmrSortTitle => 'タイトル';
+
+  @override
+  String get jpAsmrPopularPeriod => '人気期間';
+
+  @override
+  String get jpAsmrCommentsPeriod => 'コメント期間';
+
+  @override
+  String get jpAsmrPeriodRecent => '最近';
+
+  @override
+  String get jpAsmrPeriodWeek => '週間';
+
+  @override
+  String get jpAsmrPeriodTwoWeeks => '2週間';
+
+  @override
+  String get jpAsmrPeriodMonth => '1か月';
+
+  @override
+  String get jpAsmrPeriodSixMonths => '6か月';
+
+  @override
+  String get jpAsmrPeriodYear => '1年';
+
+  @override
+  String get jpAsmrPeriodAllTime => '全期間';
+
+  @override
+  String get jpAsmrPeriodSelectYear => '年を選択';
+
+  @override
+  String get jpAsmrPeriodSelectMonth => '年月を選択';
+
+  @override
+  String jpAsmrArchiveYear(int year) {
+    return '$year年';
+  }
+
+  @override
+  String jpAsmrArchiveMonth(int year, String month) {
+    return '$year年$month月';
+  }
+
+  @override
   String get subtitlePriorityHighest => '優先';
 
   @override
@@ -1054,6 +1100,9 @@ class SJa extends S {
 
   @override
   String get audioGainPassthroughDesc => 'オーディオパススルー中は使用不可';
+
+  @override
+  String get block => 'ブロック';
 
   @override
   String get blockingSettings => 'ブロック設定';

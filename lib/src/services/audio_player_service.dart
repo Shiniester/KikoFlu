@@ -1161,13 +1161,14 @@ class AudioPlayerService {
                       )
                     : null,
               );
+        final trackSource = _clipAudioSourceForTrack(track, source, uri);
         performanceRecorder.markPlaybackPhase(
           performanceRequestId,
           'sourcePrepared',
         );
         await _setAudioSourceForTrackLoad(
           request,
-          source,
+          trackSource,
           initialPosition: request.initialPosition,
         );
         _releaseCachedPlaybackLease();
@@ -1186,6 +1187,22 @@ class AudioPlayerService {
       _log.captureOutput('Error loading audio source: $e');
       rethrow;
     }
+  }
+
+  AudioSource _clipAudioSourceForTrack(
+    AudioTrack track,
+    UriAudioSource source,
+    Uri uri,
+  ) {
+    final startTimeMs = track.startTimeMs;
+    if (startTimeMs == null || uri.scheme == 'file') return source;
+    return ClippingAudioSource(
+      child: source,
+      start: Duration(milliseconds: startTimeMs),
+      end: track.endTimeMs == null
+          ? null
+          : Duration(milliseconds: track.endTimeMs!),
+    );
   }
 
   Future<void> _waitForNativeWindowReady(_TrackLoadRequest request) async {

@@ -7,7 +7,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../models/audio_source.dart';
+import '../models/japanese_asmr_browse.dart';
 import '../models/search_query.dart';
+import '../models/search_type.dart';
 import '../models/sort_options.dart';
 import '../providers/audio_source_provider.dart';
 import '../providers/auth_provider.dart';
@@ -19,7 +21,7 @@ import '../providers/my_tabs_display_provider.dart';
 import '../providers/settings_provider.dart'
     show autoTranslateWorkDetailsProvider;
 import '../providers/works_provider.dart'
-    show DisplayMode, LayoutType, worksProvider;
+    show DisplayMode, LayoutType, WorksState, worksProvider;
 import '../utils/l10n_extensions.dart';
 import '../utils/scroll_optimization.dart';
 import '../utils/server_utils.dart';
@@ -36,6 +38,7 @@ import '../widgets/tab_page_motion.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 import '../widgets/works_grid_view.dart';
 import 'downloads_screen.dart';
+import 'blocked_items_screen.dart';
 import 'history_screen.dart';
 import 'local_downloads_screen.dart';
 import 'playlists_screen.dart';
@@ -357,7 +360,8 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     required AudioSource source,
     required bool isOfficialServer,
   }) => switch (page) {
-    'popular' || 'recommended' => source == AudioSource.asmrOne,
+    'popular' => source == AudioSource.asmrOne || source == AudioSource.jpAsmr,
+    'recommended' => source == AudioSource.asmrOne,
     'onlineMarks' => source == AudioSource.asmrOne && settings.showOnlineMarks,
     'history' || 'downloads' => true,
     'playlists' =>
@@ -510,9 +514,51 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
             LibraryDrawerTile(
               icon: Icons.sort,
               title: s.sort,
+              trailing: Text(
+                worksState.sortOption.localizedLabel(context),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
               onTap: displayMode == DisplayMode.all
                   ? _showWorksSortDialog
                   : null,
+            ),
+          if (source == AudioSource.jpAsmr && displayMode == DisplayMode.all)
+            LibraryDrawerTile(
+              icon: Icons.sort,
+              title: s.sort,
+              trailing: Text(
+                _japaneseAsmrSortLabel(s, worksState.japaneseAsmrSortOption),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              onTap: () => _showJapaneseAsmrSortDialog(worksState),
+            ),
+          if (source == AudioSource.jpAsmr &&
+              displayMode == DisplayMode.popular)
+            LibraryDrawerTile(
+              icon: Icons.date_range,
+              title: s.jpAsmrPopularPeriod,
+              trailing: Text(
+                _japaneseAsmrPeriodLabel(s, worksState),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              onTap: () => _showJapaneseAsmrPeriodDialog(popular: true),
+            ),
+          if (source == AudioSource.jpAsmr &&
+              displayMode == DisplayMode.all &&
+              worksState.japaneseAsmrSortOption ==
+                  JapaneseAsmrSortOption.comments)
+            LibraryDrawerTile(
+              icon: Icons.date_range,
+              title: s.jpAsmrCommentsPeriod,
+              trailing: Text(
+                _japaneseAsmrPeriodLabel(s, worksState),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              onTap: () => _showJapaneseAsmrPeriodDialog(popular: false),
             ),
         ]);
         break;
@@ -614,6 +660,17 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         options.addAll(_subtitleBrowseOptions(s));
         break;
     }
+    options.add(
+      LibraryDrawerTile(
+        icon: Icons.block,
+        title: s.block,
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => BlockedItemsScreen(source: source),
+          ),
+        ),
+      ),
+    );
     options.add(
       LibraryDrawerTile(
         icon: Icons.translate,
@@ -798,20 +855,145 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     final state = ref.read(worksProvider);
     showDialog(
       context: context,
-      builder: (context) => CommonSortDialog(
+      builder: (context) => SortOptionsDialog<SortOrder>(
         currentOption: state.sortOption,
         currentDirection: state.sortDirection,
+        currentAgeRating: state.asmrOneAgeRating,
         availableOptions: SortOrder.values
-            .where((option) => option != SortOrder.updatedAt)
+            .where(
+              (option) =>
+                  option != SortOrder.updatedAt && option != SortOrder.nsfw,
+            )
             .toList(),
-        onSort: (option, direction) {
-          ref.read(worksProvider.notifier).setSortOption(option);
-          ref.read(worksProvider.notifier).setSortDirection(direction);
-        },
-        autoClose: true,
+        labelBuilder: (option) => option.localizedLabel(context),
+        availableAgeRatings:
+            ServerUtils.isOfficialServer(ref.read(authProvider).host)
+            ? AgeRating.values
+            : const [AgeRating.all, AgeRating.general, AgeRating.adult],
+        onSort: (option, direction, ageRating) => ref
+            .read(worksProvider.notifier)
+            .applyWorksSort(option, direction, ageRating),
+        confirmChanges: true,
       ),
     );
   }
+
+  String _japaneseAsmrSortLabel(S s, JapaneseAsmrSortOption option) =>
+      switch (option) {
+        JapaneseAsmrSortOption.date => s.sortRelease,
+        JapaneseAsmrSortOption.title => s.jpAsmrSortTitle,
+        JapaneseAsmrSortOption.comments => s.sortReviewCount,
+        JapaneseAsmrSortOption.popular => s.displayModePopular,
+      };
+
+  String _japaneseAsmrPeriodLabel(S s, WorksState state) {
+    final period = state.japaneseAsmrPeriod;
+    final archiveDate = state.japaneseAsmrArchiveDate ?? DateTime.now();
+    return switch (period) {
+      JapaneseAsmrPeriod.recent => s.jpAsmrPeriodRecent,
+      JapaneseAsmrPeriod.week => s.jpAsmrPeriodWeek,
+      JapaneseAsmrPeriod.twoWeeks => s.jpAsmrPeriodTwoWeeks,
+      JapaneseAsmrPeriod.month => s.jpAsmrPeriodMonth,
+      JapaneseAsmrPeriod.sixMonths => s.jpAsmrPeriodSixMonths,
+      JapaneseAsmrPeriod.year => s.jpAsmrPeriodYear,
+      JapaneseAsmrPeriod.allTime => s.jpAsmrPeriodAllTime,
+      JapaneseAsmrPeriod.archiveYear => s.jpAsmrArchiveYear(archiveDate.year),
+      JapaneseAsmrPeriod.archiveMonth => s.jpAsmrArchiveMonth(
+        archiveDate.year,
+        archiveDate.month.toString().padLeft(2, '0'),
+      ),
+    };
+  }
+
+  void _showJapaneseAsmrSortDialog(WorksState state) {
+    final s = S.of(context);
+    showDialog<void>(
+      context: context,
+      builder: (context) => SortOptionsDialog<JapaneseAsmrSortOption>(
+        currentOption: state.japaneseAsmrSortOption,
+        currentDirection: state.japaneseAsmrDirection,
+        currentAgeRating: state.japaneseAsmrAgeRating,
+        availableOptions: const [
+          JapaneseAsmrSortOption.date,
+          JapaneseAsmrSortOption.title,
+          JapaneseAsmrSortOption.comments,
+        ],
+        labelBuilder: (option) => _japaneseAsmrSortLabel(s, option),
+        onSort: (option, direction, ageRating) => ref
+            .read(worksProvider.notifier)
+            .applyJapaneseAsmrSort(option, direction, ageRating),
+        confirmChanges: true,
+      ),
+    );
+  }
+
+  Future<void> _showJapaneseAsmrPeriodDialog({required bool popular}) async {
+    final s = S.of(context);
+    final periods = popular
+        ? const [
+            JapaneseAsmrPeriod.recent,
+            JapaneseAsmrPeriod.week,
+            JapaneseAsmrPeriod.month,
+            JapaneseAsmrPeriod.sixMonths,
+            JapaneseAsmrPeriod.year,
+            JapaneseAsmrPeriod.allTime,
+            JapaneseAsmrPeriod.archiveYear,
+            JapaneseAsmrPeriod.archiveMonth,
+          ]
+        : const [
+            JapaneseAsmrPeriod.week,
+            JapaneseAsmrPeriod.twoWeeks,
+            JapaneseAsmrPeriod.month,
+            JapaneseAsmrPeriod.sixMonths,
+            JapaneseAsmrPeriod.year,
+            JapaneseAsmrPeriod.allTime,
+          ];
+    final period = await showDialog<JapaneseAsmrPeriod>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: Text(popular ? s.jpAsmrPopularPeriod : s.jpAsmrCommentsPeriod),
+        children: [
+          for (final value in periods)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogContext, value),
+              child: Text(_japaneseAsmrPeriodOptionLabel(s, value)),
+            ),
+        ],
+      ),
+    );
+    if (period == null || !mounted) return;
+
+    DateTime? archiveDate;
+    if (period.isArchive) {
+      archiveDate = await showDatePicker(
+        context: context,
+        initialDate:
+            ref.read(worksProvider).japaneseAsmrArchiveDate ?? DateTime.now(),
+        firstDate: DateTime(2018, 11),
+        lastDate: DateTime.now(),
+        initialDatePickerMode: period == JapaneseAsmrPeriod.archiveYear
+            ? DatePickerMode.year
+            : DatePickerMode.day,
+      );
+      if (archiveDate == null || !mounted) return;
+    }
+    ref
+        .read(worksProvider.notifier)
+        .setJapaneseAsmrPeriod(period, archiveDate: archiveDate);
+  }
+
+  String _japaneseAsmrPeriodOptionLabel(S s, JapaneseAsmrPeriod period) =>
+      switch (period) {
+        JapaneseAsmrPeriod.recent => s.jpAsmrPeriodRecent,
+        JapaneseAsmrPeriod.week => s.jpAsmrPeriodWeek,
+        JapaneseAsmrPeriod.twoWeeks => s.jpAsmrPeriodTwoWeeks,
+        JapaneseAsmrPeriod.month => s.jpAsmrPeriodMonth,
+        JapaneseAsmrPeriod.sixMonths => s.jpAsmrPeriodSixMonths,
+        JapaneseAsmrPeriod.year => s.jpAsmrPeriodYear,
+        JapaneseAsmrPeriod.allTime => s.jpAsmrPeriodAllTime,
+        JapaneseAsmrPeriod.archiveYear => s.jpAsmrPeriodSelectYear,
+        JapaneseAsmrPeriod.archiveMonth => s.jpAsmrPeriodSelectMonth,
+      };
 
   Future<void> _showClearHistoryConfirmation() async {
     final confirmed = await showDialog<bool>(

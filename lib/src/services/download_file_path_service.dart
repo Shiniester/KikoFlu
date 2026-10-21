@@ -255,6 +255,10 @@ class DownloadFilePathService {
         'size': FileTreeUtils.property(item, 'size'),
       if (FileTreeUtils.property(item, 'duration') != null)
         'duration': FileTreeUtils.property(item, 'duration'),
+      if (FileTreeUtils.property(item, 'startTimeMs') != null)
+        'startTimeMs': FileTreeUtils.property(item, 'startTimeMs'),
+      if (FileTreeUtils.property(item, 'endTimeMs') != null)
+        'endTimeMs': FileTreeUtils.property(item, 'endTimeMs'),
     };
   }
 

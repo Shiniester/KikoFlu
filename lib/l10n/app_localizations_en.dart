@@ -151,6 +151,52 @@ class SEn extends S {
   String get displayModeRecommended => 'Recommended';
 
   @override
+  String get jpAsmrSortTitle => 'Title';
+
+  @override
+  String get jpAsmrPopularPeriod => 'Popularity Period';
+
+  @override
+  String get jpAsmrCommentsPeriod => 'Comment Period';
+
+  @override
+  String get jpAsmrPeriodRecent => 'Recent';
+
+  @override
+  String get jpAsmrPeriodWeek => 'Week';
+
+  @override
+  String get jpAsmrPeriodTwoWeeks => 'Two Weeks';
+
+  @override
+  String get jpAsmrPeriodMonth => 'Month';
+
+  @override
+  String get jpAsmrPeriodSixMonths => 'Six Months';
+
+  @override
+  String get jpAsmrPeriodYear => 'Year';
+
+  @override
+  String get jpAsmrPeriodAllTime => 'All Time';
+
+  @override
+  String get jpAsmrPeriodSelectYear => 'Select Year';
+
+  @override
+  String get jpAsmrPeriodSelectMonth => 'Select Year and Month';
+
+  @override
+  String jpAsmrArchiveYear(int year) {
+    return '$year';
+  }
+
+  @override
+  String jpAsmrArchiveMonth(int year, String month) {
+    return '$year-$month';
+  }
+
+  @override
   String get subtitlePriorityHighest => 'Priority';
 
   @override
@@ -1085,6 +1131,9 @@ class SEn extends S {
   @override
   String get audioGainPassthroughDesc =>
       'Unavailable while audio passthrough is on';
+
+  @override
+  String get block => 'Block';
 
   @override
   String get blockingSettings => 'Blocking Settings';

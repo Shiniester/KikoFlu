@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/audio_source.dart';
 import '../models/history_record.dart';
 import '../models/playlist.dart';
 import '../models/work.dart';
@@ -68,6 +69,25 @@ class RecommendationNotifier extends StateNotifier<RecommendationState> {
     final scope = api.recommendationPreferenceScope;
     final revision = api.recommendationPreferenceRevision;
     try {
+      if (work.isJapaneseAsmr) {
+        final related = await api.getRelatedWorks(work.id);
+        if (!mounted) return;
+        final blocked = ref.read(
+          blockedItemsBySourceProvider(AudioSource.jpAsmr),
+        );
+        state = RecommendationState(
+          recommendations: _extractWorks({'works': related})
+              .where(
+                (candidate) =>
+                    candidate.isJapaneseAsmr &&
+                    candidate.id != work.id &&
+                    !_isBlocked(candidate, blocked),
+              )
+              .toList(growable: false),
+        );
+        return;
+      }
+
       // The visit takes one online-profile snapshot before any local or recall awaits.
       final profile = await _preferencesForVisit(api, scope, revision);
       if (!mounted) return;
@@ -90,7 +110,9 @@ class RecommendationNotifier extends StateNotifier<RecommendationState> {
             ),
           )
           .toList(growable: false);
-      final blocked = ref.read(blockedItemsProvider);
+      final blocked = ref.read(
+        blockedItemsBySourceProvider(AudioSource.asmrOne),
+      );
       final explorationKey = '$scope|${work.id}';
       final previousExploration = Set<int>.of(
         _previousExplorationIds.putIfAbsent(api, () => {})[explorationKey] ??

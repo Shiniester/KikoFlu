@@ -37,7 +37,7 @@ class VirtualizedPagination {
 
   final int currentPage;
   final int pageSize;
-  final int totalCount;
+  final int? totalCount;
   final bool hasMore;
   final bool isLoading;
   final FutureOr<void> Function()? onPreviousPage;

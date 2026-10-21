@@ -424,7 +424,9 @@ class AudioSubtitleGenerationService {
           '$host/api/media/download/$hash/${Uri.encodeComponent(variant.title)}';
     }
     if (url.isEmpty) return null;
-    if (request.token.isNotEmpty && !url.contains('token=')) {
+    if ((request.track.workId ?? 0) >= 0 &&
+        request.token.isNotEmpty &&
+        !url.contains('token=')) {
       url += '${url.contains('?') ? '&' : '?'}token=${request.token}';
     }
     return url;
@@ -476,6 +478,8 @@ class AudioSubtitleGenerationService {
       hash: hash,
       totalBytes: totalBytes,
       workMetadata: request.workMetadata,
+      startTimeMs: track.startTimeMs,
+      endTimeMs: track.endTimeMs,
       coverUrl: track.artworkUrl,
     );
     if (cancelToken.isCancelled) throw cancelToken.cancelError!;

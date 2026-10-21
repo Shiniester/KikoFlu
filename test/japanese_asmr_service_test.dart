@@ -4,7 +4,12 @@ import 'dart:ui';
 import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kikoeru_flutter/src/models/japanese_asmr_browse.dart';
+import 'package:kikoeru_flutter/src/models/search_type.dart';
+import 'package:kikoeru_flutter/src/models/sort_options.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
+import 'package:kikoeru_flutter/src/services/download_file_path_service.dart';
+import 'package:kikoeru_flutter/src/services/downloaded_file_state_scanner.dart';
 import 'package:kikoeru_flutter/src/services/japanese_asmr_service.dart';
 import 'package:kikoeru_flutter/src/services/proxy_config.dart';
 import 'package:kikoeru_flutter/src/utils/tag_localizer.dart';
@@ -68,6 +73,31 @@ const _detail = '''
 <video><source src="https://ads.example/ad.mp4"></video>
 </main>''';
 
+String _chapterTable(String id, List<MapEntry<String, String>> chapters) =>
+    '<table id="$id">'
+    '<tr><td class="chapter_list start_time"> </td>'
+    '<td class="chapter_list chapter_title">トラックリスト</td></tr>'
+    '${chapters.indexed.map((entry) {
+      final (index, chapter) = entry;
+      return '<tr><td class="chapter_list start_time">'
+          '<a href="#" data-index="$index" data-value="${chapter.key}">'
+          '</a></td><td class="chapter_list chapter_title">'
+          '<a href="#" data-track-title="${chapter.value}" '
+          'data-index="$index" data-value="${chapter.key}">'
+          '${chapter.value}</a></td></tr>';
+    }).join()}'
+    '</table>';
+
+String _relatedItem(String href, String title, {String? imageUrl}) =>
+    '''<li><a href="$href"><span class="crp_title">$title</span>
+<img class="crp_thumb lazy" src="data:image/svg+xml,placeholder"${imageUrl == null ? '' : ' data-src="$imageUrl"'}></a>
+<span class="crp_date">September 11, 2026</span></li>''';
+
+String _relatedDetail(String items) =>
+    '''<main class="site-main"><h1 class="page-title">Target</h1>
+<div class="yarpp-related"><ul>$items</ul></div>
+<ul class="site-archive-post">${_relatedItem('/999999/', 'Unrelated')}</ul></main>''';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final messenger =
@@ -104,6 +134,146 @@ void main() {
       expect(work.displayId, 'RJ00000001');
       expect(work.circleTitle, 'Studio');
       expect(work.vas!.single.name, 'Voice');
+    },
+  );
+
+  test('keeps age rating routes and sorting on tail pages', () async {
+    final cases = [
+      (AgeRating.general, '/category/rating/sfw/'),
+      (AgeRating.r15, '/category/rating/r-15/'),
+      (AgeRating.adult, '/category/rating/maniax/'),
+    ];
+    for (final (ageRating, archivePath) in cases) {
+      final adapter = _Adapter((request) {
+        final page = request.uri.path.endsWith('/page/2/') ? 2 : 1;
+        final start = page == 1 ? 1 : 15;
+        final end = page == 1 ? 14 : 20;
+        return _page(
+          '<main class="site-main">'
+          '${[for (var id = start; id <= end; id++) _card(id)].join()}'
+          '${page == 1 ? '<a class="next page-numbers">Next</a><a class="page-numbers">2</a>' : ''}'
+          '</main>',
+        );
+      });
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final response = await service.getWorks(
+        page: 1,
+        pageSize: 20,
+        ageRating: ageRating,
+        sort: JapaneseAsmrSortOption.date,
+        direction: SortDirection.asc,
+      );
+
+      expect(response['pagination']['totalCount'], 20);
+      expect(adapter.requests.map((request) => request.uri.path), [
+        archivePath,
+        '${archivePath}page/2/',
+      ]);
+      expect(adapter.requests.map((request) => request.uri.queryParameters), [
+        {'order': 'asc', 'orderby': 'date'},
+        {'order': 'asc', 'orderby': 'date'},
+      ]);
+    }
+  });
+
+  test(
+    'maps Japanese ASMR browse sort and periods to native query params',
+    () async {
+      final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+      final cases = [
+        (
+          JapaneseAsmrSortOption.date,
+          SortDirection.asc,
+          JapaneseAsmrPeriod.week,
+          {'order': 'asc', 'orderby': 'date'},
+        ),
+        (
+          JapaneseAsmrSortOption.title,
+          SortDirection.desc,
+          JapaneseAsmrPeriod.week,
+          {'order': 'desc', 'orderby': 'title'},
+        ),
+        (
+          JapaneseAsmrSortOption.popular,
+          SortDirection.asc,
+          JapaneseAsmrPeriod.recent,
+          {'order': 'desc', 'orderby': 'post_views', 'date': 'recent'},
+        ),
+        (
+          JapaneseAsmrSortOption.popular,
+          SortDirection.asc,
+          JapaneseAsmrPeriod.allTime,
+          {'order': 'desc', 'orderby': 'post_views'},
+        ),
+        (
+          JapaneseAsmrSortOption.comments,
+          SortDirection.desc,
+          JapaneseAsmrPeriod.twoWeeks,
+          {'order': 'desc', 'orderby': 'comment_count', 'date': '2_weeks'},
+        ),
+        (
+          JapaneseAsmrSortOption.comments,
+          SortDirection.desc,
+          JapaneseAsmrPeriod.allTime,
+          {'order': 'desc', 'orderby': 'comment_count'},
+        ),
+      ];
+
+      for (final (sort, direction, period, expected) in cases) {
+        await service.getWorks(
+          page: 1,
+          pageSize: 20,
+          sort: sort,
+          direction: direction,
+          period: period,
+        );
+        expect(adapter.requests.last.uri.queryParameters, expected);
+      }
+    },
+  );
+
+  test(
+    'keeps archive sorting and zero-padded month on internal tail pages',
+    () async {
+      final adapter = _Adapter((request) {
+        final page = request.uri.path.endsWith('/page/2/') ? 2 : 1;
+        final start = page == 1 ? 1 : 15;
+        final end = page == 1 ? 14 : 20;
+        return _page(
+          '<main class="site-main">'
+          '${[for (var id = start; id <= end; id++) _card(id)].join()}'
+          '${page == 1 ? '<a class="next page-numbers">Next</a><a class="page-numbers">2</a>' : ''}'
+          '</main>',
+        );
+      });
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final response = await service.getWorks(
+        page: 1,
+        pageSize: 20,
+        sort: JapaneseAsmrSortOption.popular,
+        period: JapaneseAsmrPeriod.archiveMonth,
+        archiveYear: 2026,
+        archiveMonth: 1,
+      );
+
+      expect(response['pagination']['totalCount'], 20);
+      expect(adapter.requests.map((request) => request.uri.path), [
+        '/date/2026/01/',
+        '/date/2026/01/page/2/',
+      ]);
+      expect(adapter.requests.map((request) => request.uri.queryParameters), [
+        {'order': 'desc', 'orderby': 'post_views'},
+        {'order': 'desc', 'orderby': 'post_views'},
+      ]);
     },
   );
 
@@ -485,6 +655,188 @@ void main() {
   );
 
   test(
+    'uses the primary chapter table once and maps independent HLS tracks',
+    () async {
+      const chapters = [
+        MapEntry('0', 'sa05_01_Opening'),
+        MapEntry('425', 'sa05_02_Right ear'),
+        MapEntry('1313', 'sa05_03_Left ear'),
+        MapEntry('2222', 'sa05_04_Breath'),
+        MapEntry('3080', 'sa05_05_Sleep'),
+        MapEntry('3662', 'sa05_06_After story'),
+        MapEntry('3956', 'sa05_07_Talk'),
+      ];
+      final page = _detail.replaceFirst(
+        '</main>',
+        '${_chapterTable('plyr-chapter-playlist', chapters)}'
+            '${_chapterTable('basic-chapter-playlist', chapters)}</main>',
+      );
+      final adapter = _Adapter((_) => _page(page));
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final tracks = (await service.getWorkTracks(
+        31,
+      )).where((track) => track['type'] == 'audio').toList();
+
+      expect(tracks, hasLength(7));
+      expect(tracks.map((track) => track['title']), [
+        for (var i = 0; i < chapters.length; i++)
+          '${i + 1}_${chapters[i].value}.aac',
+      ]);
+      expect(tracks.map((track) => track['hash']), [
+        'jp-31-chapter-0',
+        'jp-31-chapter-425000',
+        'jp-31-chapter-1313000',
+        'jp-31-chapter-2222000',
+        'jp-31-chapter-3080000',
+        'jp-31-chapter-3662000',
+        'jp-31-chapter-3956000',
+      ]);
+      expect(tracks.map((track) => track['startTimeMs']), [
+        0,
+        425000,
+        1313000,
+        2222000,
+        3080000,
+        3662000,
+        3956000,
+      ]);
+      expect(tracks.map((track) => track['endTimeMs']), [
+        425000,
+        1313000,
+        2222000,
+        3080000,
+        3662000,
+        3956000,
+        null,
+      ]);
+      expect(tracks.first['duration'], 425);
+      expect(tracks.last.containsKey('duration'), isFalse);
+      expect(
+        tracks.map((track) => track['mediaStreamUrl']),
+        everyElement('https://media.example/work.m3u8'),
+      );
+      expect(
+        tracks.map((track) => track['mediaDownloadUrl']),
+        everyElement('https://media.example/work.m3u8'),
+      );
+    },
+  );
+
+  test(
+    'keeps chapter download paths unique after filename normalization',
+    () async {
+      final longTitle = List.filled(100, 'a').join();
+      final titles = [
+        'Repeat',
+        'Repeat',
+        'Ending.mp3',
+        'Ending.wav',
+        'Right?ear',
+        'Right*ear',
+        '${longTitle}A',
+        '${longTitle}B',
+      ];
+      final chapters = [
+        for (var i = 0; i < titles.length; i++)
+          MapEntry('${i * 10}', titles[i]),
+      ];
+      final page = _detail.replaceFirst(
+        '</main>',
+        '${_chapterTable('plyr-chapter-playlist', chapters)}</main>',
+      );
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = _Adapter((_) => _page(page)),
+      );
+      final tracks = (await service.getWorkTracks(
+        31,
+      )).where((track) => track['type'] == 'audio').toList();
+      final relativePaths = DownloadedFileStateScanner.collectFilePaths(tracks);
+      final safeRelativePaths = {
+        for (final entry in relativePaths.entries)
+          entry.key: DownloadFilePathService.safeRelativePath(entry.value),
+      };
+      final localPaths = [
+        for (final path in safeRelativePaths.values)
+          DownloadFilePathService.localPathForWorkRelativePath(
+            rootPath: r'C:\downloads',
+            workId: -31,
+            relativePath: path,
+          ),
+      ];
+
+      expect(tracks, hasLength(titles.length));
+      expect(relativePaths, hasLength(titles.length));
+      expect(localPaths.toSet(), hasLength(titles.length));
+
+      final scanner = DownloadedFileStateScanner(
+        resolveDownloadedPath: (_, _) async => null,
+        downloadRootPath: () async => r'C:\downloads',
+        fileExists: (path) async => path == localPaths.first,
+      );
+      final state = await scanner.scan(
+        workId: -31,
+        fileTree: tracks,
+        fileRelativePaths: safeRelativePaths,
+      );
+      expect(state.downloadedFiles, {
+        for (var i = 0; i < tracks.length; i++) tracks[i]['hash']: i == 0,
+      });
+    },
+  );
+
+  test(
+    'uses the basic chapter table when the primary table is absent',
+    () async {
+      const chapters = [MapEntry('1.25', 'fallback chapter.m4a')];
+      final page = _detail.replaceFirst(
+        '</main>',
+        '${_chapterTable('basic-chapter-playlist', chapters)}</main>',
+      );
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = _Adapter((_) => _page(page)),
+      );
+
+      final track = (await service.getWorkTracks(31)).first;
+
+      expect(track['title'], '1_fallback chapter.aac');
+      expect(track['startTimeMs'], 1250);
+      expect(track['endTimeMs'], isNull);
+    },
+  );
+
+  test('rejects invalid and non-increasing chapter times', () async {
+    const chapters = [
+      MapEntry('0', 'first'),
+      MapEntry('425', 'second'),
+      MapEntry('invalid', 'invalid'),
+      MapEntry('400', 'out of order'),
+      MapEntry('1313', 'third'),
+    ];
+    final page = _detail.replaceFirst(
+      '</main>',
+      '${_chapterTable('plyr-chapter-playlist', chapters)}</main>',
+    );
+    final service = JapaneseAsmrService(
+      dio: Dio()..httpClientAdapter = _Adapter((_) => _page(page)),
+    );
+
+    final audioFiles = await service.getWorkTracks(31);
+    final tracks = audioFiles
+        .where((track) => track['type'] == 'audio')
+        .toList();
+
+    expect(tracks.map((track) => track['title']), [
+      '1_first.aac',
+      '2_second.aac',
+      '3_third.aac',
+    ]);
+    expect(tracks.map((track) => track['startTimeMs']), [0, 425000, 1313000]);
+  });
+
+  test(
     'normalizes detail identity and uses only the work player media',
     () async {
       final adapter = _Adapter((_) => _page(_detail));
@@ -614,6 +966,128 @@ void main() {
         service.resolveDownloadUrl('https://media.example/work.m3u8'),
         throwsFormatException,
       );
+    },
+  );
+
+  test(
+    'parses native related works in order with decoded titles and lazy covers',
+    () async {
+      final adapter = _Adapter(
+        (_) => _page(
+          _relatedDetail(
+            [
+              _relatedItem(
+                'https://japaneseasmr.com/150507/',
+                'First &amp; related',
+                imageUrl: 'https://pic.example/RJ01687815_img_main.jpg',
+              ),
+              _relatedItem(
+                '/147177/',
+                'Second work',
+                imageUrl: 'https://pic.example/RJ01619571_img_main.jpg',
+              ),
+              _relatedItem('/150859/', 'Third work'),
+              _relatedItem('/150864/', 'Fourth work'),
+            ].join(),
+          ),
+        ),
+      );
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      final works = await service.getRelatedWorks(42);
+
+      expect(works.map((work) => work['id']), [
+        -150507,
+        -147177,
+        -150859,
+        -150864,
+      ]);
+      expect(works.first, {
+        'id': -150507,
+        'title': 'First & related',
+        'source_id': 'RJ01687815',
+        'source_url': 'https://japaneseasmr.com/150507/',
+        'cover_url': 'https://pic.example/RJ01687815_img_main.jpg',
+      });
+      expect(Work.fromJson(works.first).sourceId, 'RJ01687815');
+      expect(works[1]['source_id'], 'RJ01619571');
+      expect(
+        works[1]['cover_url'],
+        'https://pic.example/RJ01619571_img_main.jpg',
+      );
+      expect(works[2]['source_id'], 'JP-150859');
+      expect(works[2]['cover_url'], isNull);
+      expect(works.last['source_id'], 'JP-150864');
+    },
+  );
+
+  test('skips self, duplicate, external, and invalid related links', () async {
+    final adapter = _Adapter(
+      (_) => _page(
+        _relatedDetail(
+          [
+            _relatedItem('/42/', 'Self'),
+            _relatedItem('https://example.com/150507/', 'External'),
+            _relatedItem('/not-a-post/', 'Invalid'),
+            _relatedItem('/150507/reviews/', 'Nested path'),
+            _relatedItem('/150507/', 'First'),
+            _relatedItem('/150507/', 'Duplicate'),
+          ].join(),
+        ),
+      ),
+    );
+    final service = JapaneseAsmrService(
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+
+    expect(await service.getRelatedWorks(42), [
+      {
+        'id': -150507,
+        'title': 'First',
+        'source_id': 'JP-150507',
+        'source_url': 'https://japaneseasmr.com/150507/',
+        'cover_url': null,
+      },
+    ]);
+  });
+
+  test('returns no related works when the page has no native list', () async {
+    final adapter = _Adapter(
+      (_) => _page('<h1 class="page-title">Target</h1>'),
+    );
+    final service = JapaneseAsmrService(
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+
+    expect(await service.getRelatedWorks(42), isEmpty);
+  });
+
+  test('reuses the cached detail page for related works', () async {
+    final adapter = _Adapter(
+      (_) => _page(_relatedDetail(_relatedItem('/150507/', 'Related'))),
+    );
+    final service = JapaneseAsmrService(
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+
+    await service.getWork(42);
+    final works = await service.getRelatedWorks(42);
+
+    expect(works.single['id'], -150507);
+    expect(adapter.requests, hasLength(1));
+  });
+
+  test(
+    'propagates unavailable detail failures when loading related works',
+    () async {
+      final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+
+      await expectLater(service.getRelatedWorks(42), throwsFormatException);
     },
   );
 }

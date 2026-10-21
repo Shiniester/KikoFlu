@@ -28,12 +28,12 @@ class SearchHistoryItem {
   });
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'keyword': keyword,
-        'displayText': displayText,
-        'timestamp': timestamp.toIso8601String(),
-        'searchParams': searchParams,
-      };
+    'id': id,
+    'keyword': keyword,
+    'displayText': displayText,
+    'timestamp': timestamp.toIso8601String(),
+    'searchParams': searchParams,
+  };
 
   factory SearchHistoryItem.fromJson(Map<String, dynamic> json) {
     return SearchHistoryItem(
@@ -45,15 +45,44 @@ class SearchHistoryItem {
     );
   }
 
+  bool get _hasStructuredQuery =>
+      searchParams?['source'] == 'jpAsmr' ||
+      (searchParams?['conditions'] is List &&
+          (searchParams!['conditions'] as List).any(
+            (condition) =>
+                condition is Map && condition['sourcePath'] is String,
+          ));
+
+  String get _conditionKey {
+    final conditions = searchParams?['conditions'];
+    if (conditions is! List) return '[]';
+    return json.encode([
+      for (final condition in conditions)
+        if (condition is Map)
+          {
+            'type': condition['searchType'] ?? condition['type'],
+            'value': condition['value'],
+            'isExclude': condition['isExclude'] == true,
+            'sourcePath': condition['sourcePath'],
+          },
+    ]);
+  }
+
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is SearchHistoryItem &&
           runtimeType == other.runtimeType &&
-          keyword == other.keyword;
+          keyword == other.keyword &&
+          (!_hasStructuredQuery && !other._hasStructuredQuery
+              ? true
+              : searchParams?['source'] == other.searchParams?['source'] &&
+                    _conditionKey == other._conditionKey);
 
   @override
-  int get hashCode => keyword.hashCode;
+  int get hashCode => !_hasStructuredQuery
+      ? keyword.hashCode
+      : Object.hash(keyword, searchParams?['source'], _conditionKey);
 }
 
 /// 搜索历史状态
@@ -61,10 +90,7 @@ class SearchHistoryState {
   final List<SearchHistoryItem> items;
   final bool isLoading;
 
-  const SearchHistoryState({
-    this.items = const [],
-    this.isLoading = false,
-  });
+  const SearchHistoryState({this.items = const [], this.isLoading = false});
 
   SearchHistoryState copyWith({
     List<SearchHistoryItem>? items,
@@ -134,8 +160,7 @@ class SearchHistoryNotifier extends StateNotifier<SearchHistoryState> {
     );
 
     // 移除相同关键词的旧记录
-    final updatedItems =
-        state.items.where((item) => item.keyword != keyword).toList();
+    final updatedItems = state.items.where((item) => item != newItem).toList();
 
     // 添加新记录到开头
     updatedItems.insert(0, newItem);
@@ -166,5 +191,5 @@ class SearchHistoryNotifier extends StateNotifier<SearchHistoryState> {
 /// 搜索历史 Provider
 final searchHistoryProvider =
     StateNotifierProvider<SearchHistoryNotifier, SearchHistoryState>((ref) {
-  return SearchHistoryNotifier();
-});
+      return SearchHistoryNotifier();
+    });

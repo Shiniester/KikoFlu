@@ -11,12 +11,14 @@ class SearchCondition {
     required this.type,
     required this.value,
     this.isExclude = false,
+    this.sourcePath,
   });
 
   final String id;
   final SearchType type;
   final String value;
   final bool isExclude;
+  final String? sourcePath;
 
   String toSearchString() {
     switch (type) {

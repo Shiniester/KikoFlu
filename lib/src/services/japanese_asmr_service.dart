@@ -5,6 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
 
+import '../models/japanese_asmr_browse.dart';
+import '../models/search_query.dart';
+import '../models/search_type.dart';
+import '../models/sort_options.dart';
 import 'proxy_config.dart';
 
 class JapaneseAsmrVerificationRequiredException implements Exception {
@@ -14,6 +18,13 @@ class JapaneseAsmrVerificationRequiredException implements Exception {
 
   @override
   String toString() => marker;
+}
+
+class _JapaneseAsmrChapter {
+  const _JapaneseAsmrChapter({required this.title, required this.startTimeMs});
+
+  final String title;
+  final int startTimeMs;
 }
 
 /// The public Japanese ASMR catalog is HTML, independent of Kikoeru accounts.
@@ -117,28 +128,338 @@ class JapaneseAsmrService {
   Future<Map<String, dynamic>> getWorks({
     required int page,
     required int pageSize,
+    AgeRating ageRating = AgeRating.all,
+    JapaneseAsmrSortOption? sort,
+    SortDirection direction = SortDirection.desc,
+    JapaneseAsmrPeriod period = JapaneseAsmrPeriod.week,
+    int? archiveYear,
+    int? archiveMonth,
     CancelToken? cancelToken,
-  }) => _list(page: page, pageSize: pageSize, cancelToken: cancelToken);
+  }) => _list(
+    page: page,
+    pageSize: pageSize,
+    ageRating: ageRating,
+    sort: sort,
+    direction: direction,
+    period: period,
+    archiveYear: archiveYear,
+    archiveMonth: archiveMonth,
+    cancelToken: cancelToken,
+  );
 
   Future<Map<String, dynamic>> searchWorks({
     required String keyword,
     required int page,
     required int pageSize,
+    List<SearchCondition> conditions = const [],
     CancelToken? cancelToken,
-  }) => _list(
-    page: page,
-    pageSize: pageSize,
-    keyword: keyword,
-    cancelToken: cancelToken,
-  );
+  }) async {
+    final filters = conditions
+        .where(
+          (condition) =>
+              condition.type == SearchType.tag ||
+              condition.type == SearchType.va ||
+              condition.type == SearchType.circle,
+        )
+        .toList();
+    for (final filter in filters) {
+      final path = _catalogPath(filter.sourcePath);
+      if (path.pathSegments.first !=
+          (filter.type == SearchType.circle ? 'category' : 'tag')) {
+        throw ArgumentError('Japanese ASMR catalog type does not match path');
+      }
+    }
+    if (filters.isEmpty) {
+      return _list(
+        page: page,
+        pageSize: pageSize,
+        keyword: keyword,
+        cancelToken: cancelToken,
+      );
+    }
+    if (keyword.trim().isEmpty &&
+        filters.every((filter) => !filter.isExclude) &&
+        (filters.length == 1 ||
+            filters.every((filter) => filter.type != SearchType.circle))) {
+      final prefix = filters.first.type == SearchType.circle
+          ? 'category'
+          : 'tag';
+      // Only the separator is literal: percent-encoding '+' breaks the archive.
+      final slugs = filters.map(
+        (filter) => Uri.encodeComponent(
+          _catalogPath(filter.sourcePath).pathSegments[1],
+        ),
+      );
+      return _list(
+        page: page,
+        pageSize: pageSize,
+        archivePath: '/$prefix/${slugs.join('+')}/',
+        cancelToken: cancelToken,
+      );
+    }
+    return _filteredList(
+      keyword: keyword,
+      filters: filters,
+      page: page,
+      pageSize: pageSize,
+      cancelToken: cancelToken,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getSearchCatalog(
+    SearchType type, {
+    CancelToken? cancelToken,
+  }) async {
+    final directory = switch (type) {
+      SearchType.tag => 'tags',
+      SearchType.va => 'cv',
+      SearchType.circle => 'circles',
+      _ => throw ArgumentError.value(type, 'type'),
+    };
+    final document = html.parse(
+      (await _get(
+        website.resolve('/$directory/'),
+        cancelToken: cancelToken,
+      )).data,
+    );
+    final entries = <String, Map<String, dynamic>>{};
+    for (final link in document.querySelectorAll(
+      '.entry-content .tag-groups-tag a[href]',
+    )) {
+      final uri = website.resolve(link.attributes['href']!);
+      final name = link.querySelector('.tag-groups-label')?.text.trim();
+      if (uri.scheme != website.scheme ||
+          uri.host != website.host ||
+          name == null ||
+          name.isEmpty) {
+        continue;
+      }
+      final path = uri.path;
+      final expected = type == SearchType.circle ? 'category' : 'tag';
+      if (uri.pathSegments.length != 3 ||
+          uri.pathSegments.first != expected ||
+          uri.pathSegments[1].isEmpty ||
+          uri.pathSegments.last.isNotEmpty ||
+          uri.hasQuery ||
+          uri.hasFragment) {
+        continue;
+      }
+      final count = int.tryParse(
+        (link.attributes['title'] ?? '').replaceAll(RegExp(r'[^0-9]'), ''),
+      );
+      entries[path] = {
+        'name': name,
+        'sourcePath': path,
+        if (count != null) 'count': count,
+      };
+    }
+    if (entries.isEmpty) {
+      throw const FormatException(
+        'Japanese ASMR search catalog is unavailable',
+      );
+    }
+    return entries.values.toList()..sort(
+      (a, b) =>
+          ((b['count'] as int?) ?? 0).compareTo((a['count'] as int?) ?? 0),
+    );
+  }
+
+  static Uri _catalogPath(String? value) {
+    final uri = value == null ? null : Uri.tryParse(value);
+    if (uri == null ||
+        uri.hasScheme ||
+        uri.hasAuthority ||
+        uri.hasQuery ||
+        uri.hasFragment ||
+        !value!.startsWith('/') ||
+        uri.pathSegments.length != 3 ||
+        !const ['tag', 'category'].contains(uri.pathSegments.first) ||
+        uri.pathSegments[1].isEmpty ||
+        uri.pathSegments[1].contains('/') ||
+        uri.pathSegments.last.isNotEmpty) {
+      throw ArgumentError.value(
+        value,
+        'sourcePath',
+        'Invalid Japanese ASMR catalog path',
+      );
+    }
+    return uri;
+  }
+
+  Uri _listUri(
+    int page, {
+    String? keyword,
+    String? archivePath,
+    Map<String, String>? queryParameters,
+  }) {
+    final uri = keyword != null && keyword.isNotEmpty
+        ? website.replace(
+            pathSegments: [
+              'search',
+              keyword,
+              if (page > 1) ...['page', '$page'],
+              '',
+            ],
+          )
+        : website.resolve(
+            '${archivePath ?? '/'}${page > 1 ? 'page/$page/' : ''}',
+          );
+    return queryParameters == null || queryParameters.isEmpty
+        ? uri
+        : uri.replace(queryParameters: queryParameters);
+  }
+
+  int _lastPage(Document document) => document
+      .querySelectorAll('.page-numbers')
+      .map(
+        (number) => int.tryParse(number.text.replaceAll(',', '').trim()) ?? 1,
+      )
+      .fold(1, math.max);
+
+  List<Element> _cards(Document document) {
+    final cards = document.querySelectorAll('li.site-archive-post');
+    if (cards.isEmpty &&
+        document.querySelector('#site-main, .site-main') == null) {
+      throw const FormatException('Japanese ASMR catalog is unavailable');
+    }
+    return cards;
+  }
+
+  Future<Map<String, dynamic>> _filteredList({
+    required String keyword,
+    required List<SearchCondition> filters,
+    required int page,
+    required int pageSize,
+    CancelToken? cancelToken,
+  }) async {
+    if (page < 1 || pageSize < 1) throw ArgumentError('Invalid page');
+    final documents = <Uri, Document>{};
+    Future<Document> read(Uri uri) async => documents[uri] ??= html.parse(
+      (await _get(uri, cancelToken: cancelToken)).data,
+    );
+    final identities = <String>[];
+    String? seedPath;
+    var seedPages = 1 << 30;
+    for (final filter in filters) {
+      final uri = website.resolve(filter.sourcePath!);
+      final document = await read(uri);
+      final prefix = filter.type == SearchType.circle ? 'category-' : 'tag-';
+      final identity = document.body?.classes.where(
+        (name) => name.startsWith(prefix),
+      );
+      if (identity == null || identity.isEmpty) {
+        throw const FormatException(
+          'Japanese ASMR classification is unavailable',
+        );
+      }
+      identities.add(identity.first);
+      if (!filter.isExclude && _lastPage(document) < seedPages) {
+        seedPath = filter.sourcePath;
+        seedPages = _lastPage(document);
+      }
+    }
+    final start = (page - 1) * pageSize;
+    final matches = <Map<String, dynamic>>[];
+    var matchedCount = 0;
+    var sitePage = 1;
+    var hasNext = true;
+    while (hasNext && matchedCount <= start + pageSize) {
+      final uri = _listUri(sitePage, keyword: keyword, archivePath: seedPath);
+      final document =
+          documents.remove(uri) ??
+          html.parse((await _get(uri, cancelToken: cancelToken)).data);
+      for (final card in _cards(document)) {
+        if (!Iterable<int>.generate(filters.length).every(
+          (index) =>
+              card.classes.contains(identities[index]) !=
+              filters[index].isExclude,
+        )) {
+          continue;
+        }
+        final link = card.querySelector('h2.entry-title a[href]');
+        final id = link == null
+            ? null
+            : _postId(website.resolve(link.attributes['href']!));
+        if (id != null && link!.text.trim().isNotEmpty) {
+          if (matchedCount >= start && matches.length < pageSize) {
+            matches.add(_work(card, id, link.text.trim()));
+          }
+          matchedCount++;
+        }
+      }
+      hasNext = document.querySelector('a.next.page-numbers') != null;
+      sitePage++;
+    }
+    return {
+      'works': matches,
+      'pagination': {
+        'currentPage': page,
+        'pageSize': pageSize,
+        'totalCount': hasNext ? null : matchedCount,
+        'hasMore': hasNext || matchedCount > start + pageSize,
+      },
+    };
+  }
 
   Future<Map<String, dynamic>> _list({
     required int page,
     required int pageSize,
     String? keyword,
+    String? archivePath,
+    AgeRating ageRating = AgeRating.all,
+    JapaneseAsmrSortOption? sort,
+    SortDirection direction = SortDirection.desc,
+    JapaneseAsmrPeriod period = JapaneseAsmrPeriod.week,
+    int? archiveYear,
+    int? archiveMonth,
     CancelToken? cancelToken,
   }) async {
     if (page < 1 || pageSize < 1) throw ArgumentError('Invalid page');
+    if ((period == JapaneseAsmrPeriod.archiveYear ||
+            period == JapaneseAsmrPeriod.archiveMonth) &&
+        archiveYear == null) {
+      throw ArgumentError('Archive period requires a year');
+    }
+    if (period == JapaneseAsmrPeriod.archiveMonth &&
+        (archiveMonth == null || archiveMonth < 1 || archiveMonth > 12)) {
+      throw ArgumentError('Archive month must be between 1 and 12');
+    }
+    final periodArchive = switch (period) {
+      JapaneseAsmrPeriod.archiveYear => '/date/$archiveYear/',
+      JapaneseAsmrPeriod.archiveMonth =>
+        '/date/$archiveYear/${archiveMonth!.toString().padLeft(2, '0')}/',
+      _ => null,
+    };
+    final ratingArchive = switch (ageRating) {
+      AgeRating.all => null,
+      AgeRating.general => '/category/rating/sfw/',
+      AgeRating.r15 => '/category/rating/r-15/',
+      AgeRating.adult => '/category/rating/maniax/',
+    };
+    final queryParameters = <String, String>{};
+    if (sort != null) {
+      queryParameters.addAll({
+        'order': sort == JapaneseAsmrSortOption.popular
+            ? SortDirection.desc.value
+            : direction.value,
+        'orderby': switch (sort) {
+          JapaneseAsmrSortOption.date => 'date',
+          JapaneseAsmrSortOption.title => 'title',
+          JapaneseAsmrSortOption.comments => 'comment_count',
+          JapaneseAsmrSortOption.popular => 'post_views',
+        },
+      });
+      if ((sort == JapaneseAsmrSortOption.popular ||
+              sort == JapaneseAsmrSortOption.comments) &&
+          period.date != null) {
+        queryParameters['date'] = period.date!;
+      }
+    }
+    if (periodArchive != null) {
+      queryParameters
+        ..clear()
+        ..addAll({'order': 'desc', 'orderby': 'post_views'});
+    }
     final start = (page - 1) * pageSize;
     final first = start ~/ _sitePageSize + 1;
     final last = (start + pageSize - 1) ~/ _sitePageSize + 1;
@@ -146,24 +467,16 @@ class JapaneseAsmrService {
     var total = 0;
     var sitePage = first;
     while (true) {
-      final uri = keyword == null || keyword.isEmpty
-          ? website.resolve(sitePage == 1 ? '/' : '/page/$sitePage/')
-          : website.replace(
-              pathSegments: [
-                'search',
-                keyword,
-                if (sitePage > 1) ...['page', '$sitePage'],
-                '',
-              ],
-            );
+      final uri = _listUri(
+        sitePage,
+        keyword: keyword,
+        archivePath: periodArchive ?? archivePath ?? ratingArchive,
+        queryParameters: queryParameters,
+      );
       final document = html.parse(
         (await _get(uri, cancelToken: cancelToken)).data,
       );
-      final cards = document.querySelectorAll('li.site-archive-post');
-      if (cards.isEmpty &&
-          document.querySelector('#site-main, .site-main') == null) {
-        throw const FormatException('Japanese ASMR catalog is unavailable');
-      }
+      final cards = _cards(document);
       final batch = <Map<String, dynamic>>[];
       for (final card in cards) {
         final link = card.querySelector('h2.entry-title a');
@@ -311,14 +624,33 @@ class JapaneseAsmrService {
     final download = document.querySelector('#downloadlink a[href]');
     final downloadUrl = _url(download?.attributes['href']);
     final images = work['images'] as List<String>;
+    final chapters = _chapters(document);
     return [
-      {
-        'type': 'audio',
-        'title': '$productId.m4a',
-        'hash': 'jp-$postId-main',
-        'mediaStreamUrl': stream,
-        if (downloadUrl != null) 'mediaDownloadUrl': downloadUrl,
-      },
+      if (chapters.isEmpty)
+        {
+          'type': 'audio',
+          'title': '$productId.m4a',
+          'hash': 'jp-$postId-main',
+          'mediaStreamUrl': stream,
+          if (downloadUrl != null) 'mediaDownloadUrl': downloadUrl,
+        }
+      else
+        for (var i = 0; i < chapters.length; i++)
+          {
+            'type': 'audio',
+            'title': _chapterFileName(chapters[i].title, i + 1),
+            'hash': 'jp-$postId-chapter-${chapters[i].startTimeMs}',
+            'mediaStreamUrl': stream,
+            'mediaDownloadUrl': stream,
+            'startTimeMs': chapters[i].startTimeMs,
+            'endTimeMs': i + 1 < chapters.length
+                ? chapters[i + 1].startTimeMs
+                : null,
+            if (i + 1 < chapters.length)
+              'duration':
+                  (chapters[i + 1].startTimeMs - chapters[i].startTimeMs) /
+                  1000,
+          },
       for (var i = 0; i < images.length; i++)
         {
           'type': 'image',
@@ -328,6 +660,79 @@ class JapaneseAsmrService {
           'mediaDownloadUrl': images[i],
         },
     ];
+  }
+
+  static List<_JapaneseAsmrChapter> _chapters(Document document) {
+    final playlist =
+        document.querySelector('#plyr-chapter-playlist') ??
+        document.querySelector('#basic-chapter-playlist');
+    if (playlist == null) return const [];
+
+    final chapters = <_JapaneseAsmrChapter>[];
+    int? previousStartTimeMs;
+    for (final link in playlist.querySelectorAll(
+      'tr .chapter_title a[data-track-title][data-value]',
+    )) {
+      final title = link.attributes['data-track-title']?.trim();
+      final seconds = num.tryParse(link.attributes['data-value']?.trim() ?? '');
+      if (title == null ||
+          title.isEmpty ||
+          seconds == null ||
+          !seconds.isFinite ||
+          seconds < 0) {
+        continue;
+      }
+      final startTimeMs = (seconds * 1000).round();
+      if (previousStartTimeMs != null && startTimeMs <= previousStartTimeMs) {
+        continue;
+      }
+      chapters.add(
+        _JapaneseAsmrChapter(title: title, startTimeMs: startTimeMs),
+      );
+      previousStartTimeMs = startTimeMs;
+    }
+    return chapters;
+  }
+
+  static String _chapterFileName(String title, int chapterNumber) {
+    final stem = title.replaceFirst(
+      RegExp(r'\.(?:aac|mp3|m4a|wav|flac|ogg|opus)$', caseSensitive: false),
+      '',
+    );
+    return '${chapterNumber}_$stem.aac';
+  }
+
+  Future<List<dynamic>> getRelatedWorks(int postId) async {
+    final document = await _detail(postId, false);
+    final seen = <int>{postId};
+    final works = <Map<String, dynamic>>[];
+    for (final item in document.querySelectorAll('.yarpp-related ul li')) {
+      final link = item.querySelector('a[href]');
+      final href = link?.attributes['href'];
+      final title = link?.querySelector('.crp_title')?.text.trim();
+      if (href == null || title == null || title.isEmpty) continue;
+      final relatedId = _postId(website.resolve(href));
+      if (relatedId == null || !seen.add(relatedId)) continue;
+
+      final cover = _url(_image(link?.querySelector('img.crp_thumb')));
+      final fileName = cover == null
+          ? null
+          : Uri.parse(cover).pathSegments.last;
+      final sourceId = fileName == null
+          ? null
+          : RegExp(
+              r'^((?:RJ|BJ|VJ)\d+)(?:_|\.|$)',
+              caseSensitive: false,
+            ).firstMatch(fileName)?.group(1)?.toUpperCase();
+      works.add({
+        'id': -relatedId,
+        'title': title,
+        'source_id': sourceId ?? 'JP-$relatedId',
+        'source_url': website.resolve('/$relatedId/').toString(),
+        'cover_url': cover,
+      });
+    }
+    return works;
   }
 
   /// Resolves the site's download index and the host's public download button.

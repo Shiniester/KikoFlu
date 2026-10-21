@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
 import 'audio_format_settings_screen.dart';
-import 'blocked_items_screen.dart';
 import 'llm_settings_screen.dart';
 import '../models/audio_gain_settings.dart';
 import '../models/audio_tap_playlist_mode.dart';
@@ -372,18 +371,6 @@ class PreferencesScreen extends ConsumerWidget {
                 subtitle:
                     '${defaultSort.order.localizedLabel(context)} - ${defaultSort.direction.localizedLabel(context)}',
                 onTap: () => _showDefaultSortDialog(context, ref),
-              ),
-              SettingsNavigationTile(
-                icon: Icons.block,
-                title: S.of(context).blockingSettings,
-                subtitle: S.of(context).blockingSettingsSubtitle,
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => const BlockedItemsScreen(),
-                    ),
-                  );
-                },
               ),
             ],
           ),

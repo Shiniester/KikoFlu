@@ -5,6 +5,8 @@ import 'package:equatable/equatable.dart';
 
 import '../models/work.dart';
 import '../models/audio_source.dart';
+import '../models/search_query.dart';
+import '../models/search_type.dart';
 import '../services/kikoeru_api_service.dart' hide kikoeruApiServiceProvider;
 import '../providers/works_provider.dart';
 import '../models/sort_options.dart';
@@ -43,6 +45,7 @@ class SearchResultState extends Equatable {
   final String? loadMoreError;
   final int currentPage;
   final int totalCount;
+  final bool totalCountKnown;
   final bool hasMore;
   final SearchLayoutType layoutType;
   final SortOrder sortOption;
@@ -64,6 +67,7 @@ class SearchResultState extends Equatable {
     this.loadMoreError,
     this.currentPage = 1,
     this.totalCount = 0,
+    this.totalCountKnown = true,
     this.hasMore = true,
     this.layoutType = SearchLayoutType.bigGrid,
     this.sortOption = SortOrder.release,
@@ -84,6 +88,7 @@ class SearchResultState extends Equatable {
     String? loadMoreError,
     int? currentPage,
     int? totalCount,
+    bool? totalCountKnown,
     bool? hasMore,
     SearchLayoutType? layoutType,
     SortOrder? sortOption,
@@ -103,6 +108,7 @@ class SearchResultState extends Equatable {
       loadMoreError: loadMoreError,
       currentPage: currentPage ?? this.currentPage,
       totalCount: totalCount ?? this.totalCount,
+      totalCountKnown: totalCountKnown ?? this.totalCountKnown,
       hasMore: hasMore ?? this.hasMore,
       layoutType: layoutType ?? this.layoutType,
       sortOption: sortOption ?? this.sortOption,
@@ -125,6 +131,7 @@ class SearchResultState extends Equatable {
     loadMoreError,
     currentPage,
     totalCount,
+    totalCountKnown,
     hasMore,
     layoutType,
     sortOption,
@@ -211,7 +218,9 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
       final serverSubtitleParam = SubtitleFilterMode.fromValue(
         state.subtitleFilter,
       ).value;
-      final source = _ref.read(audioSourceProvider);
+      final source = state.searchParams?['source'] == AudioSource.jpAsmr.name
+          ? AudioSource.jpAsmr
+          : _ref.read(audioSourceProvider);
 
       if (source == AudioSource.jpAsmr) {
         result = await _apiService.searchWorks(
@@ -219,6 +228,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
           page: page,
           pageSize: state.pageSize,
           source: source,
+          conditions: _japaneseConditions(),
           cancelToken: requestToken.cancelToken,
         );
       } else if (state.searchParams?.containsKey('vaId') == true) {
@@ -265,10 +275,17 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
         idOf: (work) => work.id,
         replace: true,
       );
-      final blockedItems = _ref.read(blockedItemsProvider);
+      final blockedItems = _ref.read(blockedItemsBySourceProvider(source));
       final filteredWorks = _filterWorks(rawWorks, blockedItems);
       final pagination = result['pagination'] as Map<String, dynamic>?;
-      final totalCount = pagination?['totalCount'] ?? pageWorks.length;
+      final rawTotalCount = pagination?['totalCount'];
+      final totalCountKnown =
+          rawTotalCount is num || source != AudioSource.jpAsmr;
+      final totalCount = rawTotalCount is num
+          ? rawTotalCount.toInt()
+          : source == AudioSource.jpAsmr
+          ? 0
+          : pageWorks.length;
       final totalPages = totalCount > 0
           ? (totalCount / state.pageSize).ceil()
           : 1;
@@ -278,7 +295,8 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
         rawWorks: rawWorks,
         currentPage: page,
         totalCount: totalCount,
-        hasMore: page < totalPages,
+        totalCountKnown: totalCountKnown,
+        hasMore: pagination?['hasMore'] as bool? ?? page < totalPages,
         isLoading: false,
         isRefreshing: false,
         isLoadingMore: false,
@@ -301,13 +319,20 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
   }
 
   void reapplyFilters() {
-    final blockedItems = _ref.read(blockedItemsProvider);
+    final blockedItems = _ref.read(
+      blockedItemsBySourceProvider(_sourceForActiveQuery),
+    );
     final filteredWorks = _filterWorks(state.rawWorks, blockedItems);
     state = state.copyWith(works: filteredWorks);
   }
 
+  void reapplyFiltersForSource(AudioSource source) {
+    if (source == _sourceForActiveQuery) reapplyFilters();
+  }
+
   void onSourceChanged() {
     if (!hasActiveQuery) return;
+    if (_isPinnedJapaneseQuery) return;
     state = state.copyWith(currentPage: 1, works: [], rawWorks: []);
     loadResults(targetPage: 1, supersede: true);
   }
@@ -360,11 +385,55 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
   bool get isSubtitleFilterActive =>
       SubtitleFilterMode.fromValue(state.subtitleFilter).isActive;
 
+  bool get _isPinnedJapaneseQuery =>
+      state.searchParams?['source'] == AudioSource.jpAsmr.name;
+
+  AudioSource get _sourceForActiveQuery => _isPinnedJapaneseQuery
+      ? AudioSource.jpAsmr
+      : _ref.read(audioSourceProvider);
+
+  List<SearchCondition> _japaneseConditions() {
+    final conditions = state.searchParams?['conditions'];
+    if (conditions is! List) return const [];
+    return [
+      for (var index = 0; index < conditions.length; index++)
+        if (conditions[index] is Map)
+          _conditionFromSearchParams(
+            Map<String, dynamic>.from(conditions[index] as Map),
+            index,
+          ),
+    ].where((condition) => condition.sourcePath != null).toList();
+  }
+
+  SearchCondition _conditionFromSearchParams(
+    Map<String, dynamic> condition,
+    int index,
+  ) {
+    final typeName = condition['searchType'] as String?;
+    final type = SearchType.values.firstWhere(
+      (candidate) => candidate.name == typeName,
+      orElse: () =>
+          (condition['sourcePath'] as String?)?.startsWith('/category/') == true
+          ? SearchType.circle
+          : SearchType.tag,
+    );
+    return SearchCondition(
+      id: 'jp-$index',
+      type: type,
+      value: condition['value']?.toString() ?? '',
+      isExclude: condition['isExclude'] == true,
+      sourcePath: condition['sourcePath'] as String?,
+    );
+  }
+
   bool get hasActiveQuery =>
       state.keyword.isNotEmpty || state.searchParams != null;
 
   void toggleSubtitleFilter() {
-    if (_ref.read(audioSourceProvider) == AudioSource.jpAsmr) return;
+    if (_isPinnedJapaneseQuery ||
+        _ref.read(audioSourceProvider) == AudioSource.jpAsmr) {
+      return;
+    }
     final oldFilterMode = SubtitleFilterMode.fromValue(state.subtitleFilter);
     final newFilterMode = oldFilterMode.next;
     final newFilter = newFilterMode.value;
@@ -424,9 +493,21 @@ final searchResultProvider =
       });
 
       // 监听屏蔽列表变化，重新过滤
-      ref.listen(blockedItemsProvider, (previous, next) {
+      ref.listen(blockedItemsBySourceProvider(AudioSource.asmrOne), (
+        previous,
+        next,
+      ) {
         if (previous != next) {
-          notifier.reapplyFilters();
+          notifier.reapplyFiltersForSource(AudioSource.asmrOne);
+        }
+      });
+
+      ref.listen(blockedItemsBySourceProvider(AudioSource.jpAsmr), (
+        previous,
+        next,
+      ) {
+        if (previous != next) {
+          notifier.reapplyFiltersForSource(AudioSource.jpAsmr);
         }
       });
 

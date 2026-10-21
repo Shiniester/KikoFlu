@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
+import '../../models/audio_source.dart';
 import '../../models/work.dart';
 import '../../providers/recommendation_provider.dart';
 import '../../providers/work_card_display_provider.dart';
 import '../../providers/work_detail_display_provider.dart';
-import '../../providers/settings_provider.dart' show blockedItemsProvider;
+import '../../providers/settings_provider.dart'
+    show blockedItemsBySourceProvider;
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../utils/collection_grid_layout.dart';
 import '../enhanced_work_card.dart';
@@ -66,7 +68,11 @@ class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
       return const SliverToBoxAdapter(child: SizedBox.shrink());
     }
     _loadRecommendations();
-    final blockedItems = ref.watch(blockedItemsProvider);
+    final blockedItems = ref.watch(
+      blockedItemsBySourceProvider(
+        widget.work.isJapaneseAsmr ? AudioSource.jpAsmr : AudioSource.asmrOne,
+      ),
+    );
     final recommendations = state.recommendations
         .where((work) {
           if (work.tags?.any((tag) => blockedItems.tags.contains(tag.name)) ??

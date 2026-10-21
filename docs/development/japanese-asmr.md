@@ -45,20 +45,136 @@ Android 系统 WebView 展示站点验证页。
 关键词作为单个路径段编码，保留空格、日文和特殊字符。
 搜索翻页沿用原生路径。
 
+## 相关推荐
+
+2026-10-21，公开[作品详情页](https://japaneseasmr.com/151342/)包含原生的
+“More Like This”列表。
+推荐作品位于 `.yarpp-related`，包含作品链接、标题和封面。
+
+JP-ASMR 作品的相关推荐按源站顺序展示。
+推荐请求复用详情页缓存和访问验证会话。
+推荐作品沿用 JP-ASMR 的负数内部 ID。
+推荐列表沿用已有屏蔽逻辑。
+源站卡片未提供的标签、声优和社团字段无法用于屏蔽。
+源站列表为空或请求失败时，不回退到 ASMR.ONE。
+
+## 热门和排序
+
+JP-ASMR 的“热门”入口位于音声页侧栏的“页面”中。
+榜单和排序控件位于侧栏的“浏览选项”中。
+
+热门默认显示周榜，支持以下范围：
+
+- 最近、周、月、半年、年和总榜。
+- 指定年份的榜单。
+- 指定年月的榜单。
+
+热门按源站浏览量降序展示。
+作品主页支持日期升降序、标题升降序和评论数排序。
+排序窗口的年龄分级支持全部、全年龄、R15 和 R18。
+分级与当前排序共同生效，切换分级后从第 1 页开始。
+分级选择只用于作品主页，热门榜单保持原有范围。
+评论数支持周、双周、月、半年、年和总数。
+切换排序或榜单范围后，列表从第 1 页开始。
+翻页和计算总数时，保留当前排序和榜单范围。
+
+默认排序沿用 ASMR.ONE 的设置机制。
+列表内的排序修改只保留在当前会话。
+JP-ASMR 不支持的默认排序回退到最新发布。
+
+源站[排序菜单](https://japaneseasmr.com/)提供周期参数。
+[热门归档](https://japaneseasmr.com/extended-search/)提供年份和月份链接。
+热门请求使用 `orderby=post_views`。
+评论数请求使用 `orderby=comment_count`。
+指定年份使用 `/date/年份/`，指定年月使用 `/date/年份/月份/`。
+年月路径和翻页路径都保留排序参数。
+
+JP-ASMR 和 ASMR.ONE 的作品主页共用排序窗口。
+排序字段、排序方向和年龄分级均使用相同字号的单选列表。
+选中项保留圆圈，文字加粗并使用强调色，不显示背景色块。
+窗口内的选择先暂存，点击“确定”后一次应用并返回第 1 页。
+点击“取消”或关闭窗口会放弃未确认的选择。
+两个源的侧栏“排序”右侧均显示当前排序字段。
+
+ASMR.ONE 官方接口支持全部、全年龄、R15 和 R18。
+年龄分级独立于排序字段，通过 `$age:general$`、`$age:r15$`、
+`$age:adult$` 搜索条件筛选作品。
+原“全年龄”排序不再出现在作品主页的排序字段中。
+旧默认排序为“全年龄”时，主页使用发布日期排序并筛选全年龄作品。
+自定义服务器沿用现有 `nsfw=1/2` 适配，不提供 R15 选项。
+从官方服务器切到自定义服务器时，已选的 R15 会重置为全部。
+自定义服务器需支持相应参数才能筛选分级。
+
+音声页侧栏的“浏览选项”提供“屏蔽”入口。
+入口打开当前音声源的屏蔽列表。
+JP-ASMR 的添加候选词来自源站标签、声优和社团目录。
+JP-ASMR 名称保留原文，不套用 ASMR.ONE 标签翻译。
+两种音声源分别保存屏蔽列表，ASMR.ONE 的旧数据保留。
+作品列表、搜索结果和相关推荐按作品所属音声源应用屏蔽。
+偏好设置不再提供屏蔽入口。
+
+2026-10-21，当前网络访问半年榜、年榜和月榜均返回 HTTP 403。
+这些榜单的在线结果尚未验证。
+
 ## 验证范围
 
-以下命令中的 75 项测试全部通过：
+### 排序窗口和年龄分级
+
+2026-10-22，以下命令中的 87 项测试全部通过：
 
 ```text
-flutter test --no-pub test/japanese_asmr_service_test.dart test/japanese_asmr_access_prompt_test.dart
-flutter test --no-pub test/audio_screen_test.dart test/kikoeru_api_japanese_source_test.dart test/works_provider_source_switch_test.dart
+flutter test --no-pub test/audio_screen_test.dart test/sort_dialog_test.dart test/preferences_proxy_settings_test.dart test/online_subtitle_feed_pagination_test.dart
+flutter test --no-pub test/works_provider_source_switch_test.dart test/kikoeru_api_age_filter_test.dart test/kikoeru_api_japanese_source_test.dart
+```
+
+测试覆盖两源的单选样式、暂存选择、取消和一次确认。
+侧栏当前排序字段、320 像素单列和 844 像素双列布局均有覆盖。
+接口测试覆盖年龄条件、排序参数和随机种子的传递。
+状态测试覆盖分页、过期响应、音声源隔离和旧默认排序。
+从 R15 切换到自定义服务器后，旧主页缓存会清空。
+本轮修改的 4 个生产文件和 4 个测试文件通过定向静态检查。
+本轮未做真机验证，未验证自定义服务器的在线分级结果。
+
+### 屏蔽列表隔离
+
+2026-10-22，以下命令中的 51 项测试全部通过：
+
+```text
+flutter test --no-pub test/blocked_items_source_test.dart test/preferences_proxy_settings_test.dart
+flutter test --no-pub test/blocked_items_provider_test.dart test/blocked_items_source_test.dart test/recommendation_provider_test.dart test/recommendation_section_test.dart test/online_subtitle_feed_pagination_test.dart test/works_provider_source_switch_test.dart
+flutter test --no-pub test/audio_screen_test.dart --plain-name "sidebar opens existing blocking settings"
+```
+
+测试覆盖两源的标签、声优和社团候选。
+测试覆盖独立保存、增删后的筛选和重启恢复。
+ASMR.ONE 旧屏蔽数据和两源的重启恢复测试通过。
+固定来源的 JP-ASMR 搜索和相关推荐分别应用 JP-ASMR 屏蔽列表。
+候选词重试保留输入，不回退到另一音声源。
+偏好设置不再显示屏蔽入口。
+
+### 目录、排序和访问验证
+
+以下命令中的 102 项测试全部通过：
+
+```text
+flutter test --no-pub test/japanese_asmr_service_test.dart test/kikoeru_api_japanese_source_test.dart test/online_subtitle_feed_pagination_test.dart
+flutter test --no-pub test/works_provider_source_switch_test.dart
+flutter test --no-pub test/audio_screen_test.dart
+flutter test --no-pub test/japanese_asmr_access_prompt_test.dart
 ```
 
 测试覆盖搜索地址、关键词编码、分页总数和账户凭据隔离。
 API 分发和音声源切换测试也通过。
+热门和排序测试覆盖原生参数、归档末页计数和过期响应。
+侧栏测试覆盖标题排序、评论周期和指定年月选择。
+分级测试覆盖源站目录、分页参数和旧响应处理。
+ASMR.ONE 和 JP-ASMR 的侧栏屏蔽入口均通过跳转和返回测试。
+320 像素宽度下的排序和周期选择测试通过。
+JP-ASMR 热门超过 100 条后仍能继续分页。
 验证取消、失败重试和已有作品时的验证入口均有回归覆盖。
 正常页面的 Cloudflare 后台脚本不会触发验证提示。
 修改的服务和测试通过定向 `flutter analyze --no-pub` 检查。
+新增界面文案已生成 4 种语言的本地化代码。
 修复后的实际服务搜索返回 20 个作品，总数为 247。
 
 Android 验证桥通过 `:app:compileDebugKotlin` 编译。

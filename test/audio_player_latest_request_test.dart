@@ -137,6 +137,58 @@ void main() {
     expect(cacheDownloader.targets.whereType<AudioCacheRequest>(), isEmpty);
   });
 
+  test(
+    'clips online chapter playback and leaves downloaded chapter files alone',
+    () async {
+      const chapter = AudioTrack(
+        id: 'jp-31-chapter-425000',
+        title: 'Chapter.aac',
+        url: 'https://media.example.invalid/work.m3u8',
+        workId: -31,
+        hash: 'jp-31-chapter-425000',
+        startTimeMs: 425000,
+        endTimeMs: 1313000,
+      );
+      const relativePosition = Duration(seconds: 12);
+
+      await service.updateQueue([chapter], initialPosition: relativePosition);
+
+      final source = player.audioSource;
+      expect(source, isA<ClippingAudioSource>());
+      final clippingSource = source! as ClippingAudioSource;
+      expect(clippingSource.start, const Duration(seconds: 425));
+      expect(clippingSource.end, const Duration(seconds: 1313));
+      expect(clippingSource.child.uri, Uri.parse(chapter.url));
+      expect(player.initialPositions.last, relativePosition);
+
+      const lastChapter = AudioTrack(
+        id: 'jp-31-chapter-3956000',
+        title: 'Chapter 7.aac',
+        url: 'https://media.example.invalid/work.m3u8',
+        workId: -31,
+        hash: 'jp-31-chapter-3956000',
+        startTimeMs: 3956000,
+      );
+      await service.updateQueue([lastChapter]);
+
+      final lastSource = player.audioSource! as ClippingAudioSource;
+      expect(lastSource.start, const Duration(milliseconds: 3956000));
+      expect(lastSource.end, isNull);
+
+      final localFile = await File(
+        '${cacheRoot.path}/Chapter.aac',
+      ).writeAsBytes([1, 2, 3]);
+      final downloadedChapter = chapter.copyWith(
+        id: 'offline-chapter',
+        url: localFile.uri.toString(),
+      );
+      await service.updateQueue([downloadedChapter]);
+
+      expect(player.audioSource, isA<UriAudioSource>());
+      expect((player.audioSource! as UriAudioSource).uri.scheme, 'file');
+    },
+  );
+
   test('next during A loading merges B and C and publishes only C', () async {
     final published = <String?>[];
     final loading = <bool>[];
@@ -968,7 +1020,9 @@ class ControlledPlayer extends Fake implements AudioPlayer {
     int? initialIndex,
     Duration? initialPosition,
   }) async {
-    final uriAudioSource = audioSource as UriAudioSource;
+    final uriAudioSource = audioSource is ClippingAudioSource
+        ? audioSource.child
+        : audioSource as UriAudioSource;
     final uri = uriAudioSource.uri;
     requestHeaders = uriAudioSource.headers;
     if (failFileAudioSource && uri.scheme == 'file') {

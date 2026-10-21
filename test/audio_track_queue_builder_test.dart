@@ -5,12 +5,16 @@ Map<String, dynamic> audioItem(
   String title, {
   String? hash,
   num? duration,
+  int? startTimeMs,
+  int? endTimeMs,
 }) {
   return {
     'type': 'audio',
     'title': title,
     if (hash != null) 'hash': hash,
     if (duration != null) 'duration': duration,
+    if (startTimeMs != null) 'startTimeMs': startTimeMs,
+    if (endTimeMs != null) 'endTimeMs': endTimeMs,
   };
 }
 
@@ -67,6 +71,31 @@ void main() {
       expect(result.tracks.single.id, 'track01.mp3');
       expect(result.startIndex, 0);
     });
+
+    test(
+      'copies chapter boundaries into audio tracks as milliseconds',
+      () async {
+        final file = audioItem(
+          'chapter.aac',
+          hash: 'jp-31-chapter-425000',
+          duration: 888,
+          startTimeMs: 425000,
+          endTimeMs: 1313000,
+        );
+        final result = await const AudioTrackQueueBuilder().build(
+          audioFiles: [file],
+          selectedFile: file,
+          resolveUrl: (_) async => 'https://example.test/work.m3u8',
+          workId: -31,
+          albumTitle: 'Work',
+          unknownTitle: 'Unknown',
+        );
+
+        expect(result.tracks.single.startTimeMs, 425000);
+        expect(result.tracks.single.endTimeMs, 1313000);
+        expect(result.tracks.single.duration, const Duration(seconds: 888));
+      },
+    );
 
     test('keeps raw local source path when file URL is not percent-encoded',
         () async {

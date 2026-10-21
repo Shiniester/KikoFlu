@@ -57,6 +57,10 @@ class AudioTrackQueueBuilder {
         hash: hash,
         sourcePath: _sourcePathFromUrl(url),
         subtitleWorkDirPath: subtitleWorkDirPath,
+        startTimeMs: (FileTreeUtils.property(file, 'startTimeMs') as num?)
+            ?.toInt(),
+        endTimeMs: (FileTreeUtils.property(file, 'endTimeMs') as num?)
+            ?.toInt(),
       ));
     }
 

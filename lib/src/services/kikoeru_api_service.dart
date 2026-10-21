@@ -2,6 +2,10 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:convert';
 import '../models/audio_source.dart';
+import '../models/japanese_asmr_browse.dart';
+import '../models/search_query.dart';
+import '../models/search_type.dart';
+import '../models/sort_options.dart';
 import '../models/work.dart';
 import '../utils/server_utils.dart';
 import '../services/storage_service.dart';
@@ -625,12 +629,24 @@ class KikoeruApiService {
     String? sort,
     int? subtitle,
     int? seed,
+    JapaneseAsmrSortOption? japaneseAsmrSort,
+    SortDirection japaneseAsmrDirection = SortDirection.desc,
+    JapaneseAsmrPeriod japaneseAsmrPeriod = JapaneseAsmrPeriod.week,
+    int? japaneseAsmrArchiveYear,
+    int? japaneseAsmrArchiveMonth,
+    AgeRating japaneseAsmrAgeRating = AgeRating.all,
     CancelToken? cancelToken,
   }) async {
     if (source == AudioSource.jpAsmr) {
       return _japaneseAsmrService.getWorks(
         page: page,
         pageSize: pageSize,
+        ageRating: japaneseAsmrAgeRating,
+        sort: japaneseAsmrSort,
+        direction: japaneseAsmrDirection,
+        period: japaneseAsmrPeriod,
+        archiveYear: japaneseAsmrArchiveYear,
+        archiveMonth: japaneseAsmrArchiveMonth,
         cancelToken: cancelToken,
       );
     }
@@ -959,6 +975,11 @@ class KikoeruApiService {
     }
   }
 
+  Future<List<dynamic>> getRelatedWorks(int workId) async {
+    if (workId >= 0) return const [];
+    return _japaneseAsmrService.getRelatedWorks(workId.abs());
+  }
+
   Future<Map<String, dynamic>> _getWorkOfficial(
     int workId, {
     required bool forceRefresh,
@@ -1168,6 +1189,7 @@ class KikoeruApiService {
     int page = 1,
     int pageSize = 40,
     AudioSource source = AudioSource.asmrOne,
+    List<SearchCondition> conditions = const [],
     String? order,
     String? sort,
     int? subtitle,
@@ -1180,6 +1202,7 @@ class KikoeruApiService {
         keyword: keyword,
         page: page,
         pageSize: pageSize,
+        conditions: conditions,
         cancelToken: cancelToken,
       );
     }
@@ -1192,6 +1215,7 @@ class KikoeruApiService {
         order: order,
         sort: sort,
         subtitle: subtitle,
+        seed: seed,
         includeTranslationWorks: includeTranslationWorks,
         cancelToken: cancelToken,
       );
@@ -1210,6 +1234,16 @@ class KikoeruApiService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> getSearchCatalog(
+    SearchType type, {
+    CancelToken? cancelToken,
+  }) {
+    return _japaneseAsmrService.getSearchCatalog(
+      type,
+      cancelToken: cancelToken,
+    );
+  }
+
   Future<Map<String, dynamic>> _searchWorksOfficial({
     required String keyword,
     int page = 1,
@@ -1217,6 +1251,7 @@ class KikoeruApiService {
     String? order,
     String? sort,
     int? subtitle,
+    int? seed,
     bool includeTranslationWorks = true,
     CancelToken? cancelToken,
   }) async {
@@ -1230,6 +1265,7 @@ class KikoeruApiService {
         'order': order ?? _order,
         'sort': sort ?? _sort,
         'subtitle': subtitle ?? _subtitle,
+        'seed': seed ?? 21,
         'includeTranslationWorks': includeTranslationWorks,
       };
 
@@ -1265,6 +1301,7 @@ class KikoeruApiService {
       // Construct the JSON keyword structure for custom backend
       dynamic keywordValue;
       int? nsfwParam = 0; // 默认为空
+      var hasAgeFilter = false;
 
       try {
         // 尝试解析 keyword 是否已经是 JSON 格式 (例如聚合搜索的结构)
@@ -1296,6 +1333,7 @@ class KikoeruApiService {
               // t=2: VA/Circle, d="0" (placeholder for UUID), name=Name
               conditions.add({'t': 2, 'd': "0", 'name': value});
             } else if (type == 'age') {
+              hasAgeFilter = true;
               if (value == 'general') {
                 nsfwParam = 1;
               } else if (value == 'adult') {
@@ -1326,7 +1364,7 @@ class KikoeruApiService {
         }
 
         // 如果解析后为空（例如只有排除条件或无匹配），且原关键词不为空，则作为普通文本搜索
-        if (conditions.isEmpty && keyword.isNotEmpty) {
+        if (conditions.isEmpty && keyword.isNotEmpty && !hasAgeFilter) {
           conditions.add({'t': 1, 'd': keyword, 'name': keyword});
         }
 

@@ -38,6 +38,21 @@ including the currently selected source. The drawer also has a fixed Home entry.
 The Audio Screen also contains the user's library pages.
 _Avoid_: Audio Screen, app home page
 
+**Popular Works Page (热门页)**:
+The selected Audio Source's works feed ranked by the source's native popularity
+measure for a chosen period. It is separate from Related Recommendations.
+_Avoid_: Recommended works
+
+**Works Sort (作品排序)**:
+The field and direction that determine the order of a works feed.
+Age Rating Filter independently determines which works appear in the feed.
+
+**Age Rating Filter (年龄分级筛选)**:
+A restriction of a works feed to the selected Audio Source's age classification.
+“全部” includes every age classification supported by that source;
+individual classifications use 全年龄, R15, and R18.
+_Avoid_: Age rating sort
+
 **Automatic Work Translation (自动翻译)**:
 Automatic translation of an audio work's detail title, visible resource names,
 and subtitle previews into the selected target language.
@@ -59,10 +74,20 @@ to that page's complete collection, such as one online-mark state, history,
 playlists, or completed downloads.
 _Avoid_: global works search
 
+**Audio Search Catalog (音声搜索目录)**:
+The selected Audio Source's lists of tags, voice actors, and circles used to
+choose work search conditions. Catalog entries identify a tag, voice actor, or
+circle; they are distinct from the matching works.
+
 **Work Details Screen (作品详情页)**:
 The online or offline screen describing a work and its available resource files.
 It is distinct from the Player Audio Details Page for the current track.
 _Avoid_: Player details page, audio details page
+
+**Work Audio Chapter (作品音频章节)**:
+An individually playable, named section of an audio work, bounded within the
+complete work's timeline. It is distinct from a separately supplied audio file
+and from a comic chapter.
 
 **Related Recommendations (相关推荐)**:
 Works shown in the rightmost resource tab of an online Work Details Screen,
@@ -71,6 +96,10 @@ personal preferences, voice actors, circles, subtitle availability and public
 ratings. Previously played works can remain in the list at a lower rank. When
 the same work has Chinese editions, simplified Chinese is preferred over
 traditional Chinese and other languages in recommendations.
+Japanese ASMR works instead use the source detail page's native “More Like This”
+list in its published order. The existing blocked-item filter applies only to
+metadata present in the source cards; native cards omit tags, voice actors and
+circles. Empty or failed source recommendations never fall back to ASMR.ONE.
 _Avoid_: Popular works, random works
 
 **Explicit Preference (明确喜好)**:
@@ -90,6 +119,8 @@ when enabled; Images is present only when the work has resource images. Audio
 contains preferred audio files and their best matching work subtitles, with
 locally generated subtitles available through the same per-audio preview action; Images
 contains the work's resource images, separate from its cover.
+For Japanese ASMR works with a chapter index, Audio lists the Work Audio Chapters
+in source order in place of the complete-work audio entry.
 Each tab retains its resource-section scroll position during the current detail
 visit; an unvisited tab starts at the resource section's top.
 Swiping before the tab bar pins preserves its position on screen.
