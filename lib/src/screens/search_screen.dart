@@ -53,8 +53,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   final List<SearchCondition> _searchConditions = [];
   final SearchScopeSession _scopeSession = SearchScopeSession();
   Key _autocompleteKey = UniqueKey(); // 用于强制刷新 Autocomplete
-  FocusNode _searchFocusNode =
-      FocusNode(); // 用于控制焦点（非 final，因为会在 Autocomplete 中重新赋值）
 
   SearchType _currentSearchType = SearchType.keyword;
   bool _isExcludeMode = false; // 是否处于反选（排除）模式
@@ -91,7 +89,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     _conditionsReveal.dispose();
     _conditionsScrollController.dispose();
     _searchController.dispose();
-    _searchFocusNode.dispose();
     _suggestionCancelToken?.cancel();
     super.dispose();
   }
@@ -159,7 +156,13 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           case SearchType.tag:
             if (_allTags.isEmpty) {
               final data = await api.getAllTags(cancelToken: cancelToken);
-              if (!_isCurrentSuggestionRequest(requestId, searchType, isJapanese)) return;
+              if (!_isCurrentSuggestionRequest(
+                requestId,
+                searchType,
+                isJapanese,
+              )) {
+                return;
+              }
               _allTags = List<Map<String, dynamic>>.from(data);
               _allTags.sort(
                 (a, b) => (b['count'] ?? 0).compareTo(a['count'] ?? 0),
@@ -169,7 +172,13 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           case SearchType.va:
             if (_allVas.isEmpty) {
               final data = await api.getAllVas(cancelToken: cancelToken);
-              if (!_isCurrentSuggestionRequest(requestId, searchType, isJapanese)) return;
+              if (!_isCurrentSuggestionRequest(
+                requestId,
+                searchType,
+                isJapanese,
+              )) {
+                return;
+              }
               _allVas = List<Map<String, dynamic>>.from(data);
               _allVas.sort(
                 (a, b) => (b['count'] ?? 0).compareTo(a['count'] ?? 0),
@@ -179,7 +188,13 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           case SearchType.circle:
             if (_allCircles.isEmpty) {
               final data = await api.getAllCircles(cancelToken: cancelToken);
-              if (!_isCurrentSuggestionRequest(requestId, searchType, isJapanese)) return;
+              if (!_isCurrentSuggestionRequest(
+                requestId,
+                searchType,
+                isJapanese,
+              )) {
+                return;
+              }
               _allCircles = List<Map<String, dynamic>>.from(data);
               _allCircles.sort(
                 (a, b) => (b['count'] ?? 0).compareTo(a['count'] ?? 0),
@@ -192,7 +207,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       }
 
       // 数据加载完成后刷新 Autocomplete
-      if (!_isCurrentSuggestionRequest(requestId, searchType, isJapanese)) return;
+      if (!_isCurrentSuggestionRequest(requestId, searchType, isJapanese)) {
+        return;
+      }
       setState(() {
         _autocompleteKey = UniqueKey();
       });
@@ -253,14 +270,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   ) {
     final name = (item['name'] ?? item['title']).toString();
     final id = item['id'];
-    final localizedName = !isJapanese &&
-            _currentSearchType == SearchType.tag &&
-            id is int
-        ? TagLocalizer.localize(
-            id,
-            name,
-            Localizations.localeOf(context),
-          )
+    final localizedName =
+        !isJapanese && _currentSearchType == SearchType.tag && id is int
+        ? TagLocalizer.localize(id, name, Localizations.localeOf(context))
         : name;
     final count = item['count'];
     return _SearchSuggestion(
@@ -295,7 +307,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           value: value,
           isExclude: _isExcludeMode,
           sourcePath: suggestion?.sourcePath,
-          sourceCount: suggestion?.sourceCount,
         ),
       );
       _searchController.clear();
@@ -390,7 +401,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
               'value': c.value,
               'isExclude': c.isExclude,
               if (c.sourcePath != null) 'sourcePath': c.sourcePath,
-              if (c.sourceCount != null) 'sourceCount': c.sourceCount,
             },
           )
           .toList(),
@@ -762,8 +772,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                   ? Autocomplete<_SearchSuggestion>(
                       displayStringForOption: (option) => option.display,
                       key: _autocompleteKey,
-                      optionsBuilder: (value) =>
-                          _searchSuggestions(value.text),
+                      optionsBuilder: (value) => _searchSuggestions(value.text),
                       optionsMaxHeight: 300,
                       optionsViewBuilder: (context, onSelected, options) {
                         final highlightedIndex =
@@ -805,7 +814,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                       onSelected: _addSearchCondition,
                       fieldViewBuilder:
                           (context, controller, focusNode, onSubmitted) {
-                            _searchFocusNode = focusNode;
                             controller.text = _searchController.text;
                             controller.addListener(() {
                               _searchController.text = controller.text;
@@ -830,8 +838,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                               ),
                               textInputAction: TextInputAction.done,
                               onSubmitted: (_) {
-                                onSubmitted();
-                                _addSearchCondition();
+                                if (_isJapaneseGlobalSearch) {
+                                  onSubmitted();
+                                } else {
+                                  _addSearchCondition();
+                                }
                               },
                             );
                           },
@@ -870,9 +881,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         ],
       ),
       if (_suggestionError != null)
-        if (_suggestionError!.contains(
-          '[jp-asmr-verification-required]',
-        ))
+        if (_suggestionError!.contains('[jp-asmr-verification-required]'))
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: JapaneseAsmrAccessPrompt(
@@ -1366,8 +1375,6 @@ class _SearchSuggestion {
   final String localizedName;
   final int count;
   final String? sourcePath;
-
-  int? get sourceCount => sourcePath == null ? null : count;
 
   String get display => '$localizedName ($count)';
 }

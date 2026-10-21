@@ -55,5 +55,21 @@ JP-ASMR 在全局作品搜索中补充标签、声优、社团目录。
 源站[说明](https://japaneseasmr.com/info/)列出了排除语法。
 实测 `/tag/binaural+-asmr/` 仍返回带 ASMR 标签的作品，不能用于精确排除。
 
+## 验证
+
+2026-10-21，以下定向回归共 45 项通过：
+
+```text
+flutter test --no-pub test/japanese_asmr_catalog_test.dart test/japanese_asmr_service_test.dart test/kikoeru_api_japanese_source_test.dart test/online_subtitle_feed_pagination_test.dart test/japanese_search_history_test.dart test/japanese_search_keyboard_test.dart test/browse_motion_test.dart
+```
+
+真实源站 HTML 回放的 3 项测试通过。
+回放覆盖 3 类目录解析、日文分类、声优与社团的交集和排除。
+本次修改的 13 个 Dart 文件通过定向 `flutter analyze --no-pub` 检查。
+独立代码审查未发现需要修复的问题。
+
+本次未检查真机交互。
+组合筛选可能读取多个源站页面。
+
 交互依据见 `lib/src/screens/search_screen.dart`。
 音声源边界见 [ADR 0003](../adr/0003-independent-audio-sources.md)。

@@ -12,7 +12,6 @@ class SearchCondition {
     required this.value,
     this.isExclude = false,
     this.sourcePath,
-    this.sourceCount,
   });
 
   final String id;
@@ -20,7 +19,6 @@ class SearchCondition {
   final String value;
   final bool isExclude;
   final String? sourcePath;
-  final int? sourceCount;
 
   String toSearchString() {
     switch (type) {

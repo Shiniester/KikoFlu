@@ -83,7 +83,7 @@ void main() {
       final japanese = _JapaneseAsmrService();
       final api = KikoeruApiService(japaneseAsmrService: japanese);
       final cancelToken = CancelToken();
-      final category = SearchCondition(
+      const category = SearchCondition(
         id: 'catalog',
         type: SearchType.tag,
         value: 'Binaural',
@@ -94,13 +94,13 @@ void main() {
         page: 2,
         pageSize: 20,
         source: AudioSource.jpAsmr,
-        conditions: [category],
         cancelToken: cancelToken,
       );
       await api.getSearchCatalog(SearchType.va, cancelToken: cancelToken);
       await api.searchWorks(
         keyword: 'RJ01726738',
         source: AudioSource.jpAsmr,
+        conditions: [category],
         cancelToken: cancelToken,
       );
       final work = await api.getWork(-1726738, cancelToken: cancelToken);

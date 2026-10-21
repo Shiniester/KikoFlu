@@ -206,8 +206,9 @@ class JapaneseAsmrService {
       if (uri.scheme != website.scheme ||
           uri.host != website.host ||
           name == null ||
-          name.isEmpty)
+          name.isEmpty) {
         continue;
+      }
       final path = uri.path;
       final expected = type == SearchType.circle ? 'category' : 'tag';
       if (uri.pathSegments.length != 3 ||
@@ -215,8 +216,9 @@ class JapaneseAsmrService {
           uri.pathSegments[1].isEmpty ||
           uri.pathSegments.last.isNotEmpty ||
           uri.hasQuery ||
-          uri.hasFragment)
+          uri.hasFragment) {
         continue;
+      }
       final count = int.tryParse(
         (link.attributes['title'] ?? '').replaceAll(RegExp(r'[^0-9]'), ''),
       );
@@ -324,37 +326,43 @@ class JapaneseAsmrService {
     }
     final start = (page - 1) * pageSize;
     final matches = <Map<String, dynamic>>[];
+    var matchedCount = 0;
     var sitePage = 1;
     var hasNext = true;
-    while (hasNext && matches.length <= start + pageSize) {
-      final document = await read(
-        _listUri(sitePage, keyword: keyword, archivePath: seedPath),
-      );
+    while (hasNext && matchedCount <= start + pageSize) {
+      final uri = _listUri(sitePage, keyword: keyword, archivePath: seedPath);
+      final document =
+          documents.remove(uri) ??
+          html.parse((await _get(uri, cancelToken: cancelToken)).data);
       for (final card in _cards(document)) {
         if (!Iterable<int>.generate(filters.length).every(
           (index) =>
               card.classes.contains(identities[index]) !=
               filters[index].isExclude,
-        ))
+        )) {
           continue;
+        }
         final link = card.querySelector('h2.entry-title a[href]');
         final id = link == null
             ? null
             : _postId(website.resolve(link.attributes['href']!));
         if (id != null && link!.text.trim().isNotEmpty) {
-          matches.add(_work(card, id, link.text.trim()));
+          if (matchedCount >= start && matches.length < pageSize) {
+            matches.add(_work(card, id, link.text.trim()));
+          }
+          matchedCount++;
         }
       }
       hasNext = document.querySelector('a.next.page-numbers') != null;
       sitePage++;
     }
     return {
-      'works': matches.skip(start).take(pageSize).toList(),
+      'works': matches,
       'pagination': {
         'currentPage': page,
         'pageSize': pageSize,
-        'totalCount': hasNext ? null : matches.length,
-        'hasMore': hasNext || matches.length > start + pageSize,
+        'totalCount': hasNext ? null : matchedCount,
+        'hasMore': hasNext || matchedCount > start + pageSize,
       },
     };
   }

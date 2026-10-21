@@ -699,7 +699,7 @@ void main() {
     final container = _container(api);
     addTearDown(container.dispose);
     final notifier = container.read(searchResultProvider.notifier);
-    final directoryPath = '/tag/%e8%80%b3/';
+    const directoryPath = '/tag/%e8%80%b3/';
 
     final firstLoad = notifier.initializeSearch(
       keyword: '',
@@ -711,7 +711,6 @@ void main() {
             'type': 'Tag',
             'value': 'Name differs from the slug',
             'sourcePath': directoryPath,
-            'sourceCount': 123,
             'isExclude': false,
           },
         ],
@@ -721,7 +720,6 @@ void main() {
     expect(first.source, AudioSource.jpAsmr);
     expect(first.keyword, '');
     expect(first.conditions.single.sourcePath, directoryPath);
-    expect(first.conditions.single.sourceCount, 123);
     first.response.complete({
       'works': [
         {'id': -1, 'title': 'Japanese work'},

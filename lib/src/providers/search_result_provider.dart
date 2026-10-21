@@ -279,8 +279,8 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
       final filteredWorks = _filterWorks(rawWorks, blockedItems);
       final pagination = result['pagination'] as Map<String, dynamic>?;
       final rawTotalCount = pagination?['totalCount'];
-      final totalCountKnown = pagination?['totalCountKnown'] as bool? ??
-          (rawTotalCount is num || source != AudioSource.jpAsmr);
+      final totalCountKnown =
+          rawTotalCount is num || source != AudioSource.jpAsmr;
       final totalCount = rawTotalCount is num
           ? rawTotalCount.toInt()
           : source == AudioSource.jpAsmr
@@ -402,21 +402,17 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
     final typeName = condition['searchType'] as String?;
     final type = SearchType.values.firstWhere(
       (candidate) => candidate.name == typeName,
-      orElse: () => (condition['sourcePath'] as String?)?.startsWith(
-                '/category/',
-              ) ==
-              true
+      orElse: () =>
+          (condition['sourcePath'] as String?)?.startsWith('/category/') == true
           ? SearchType.circle
           : SearchType.tag,
     );
-    final sourceCount = condition['sourceCount'];
     return SearchCondition(
       id: 'jp-$index',
       type: type,
       value: condition['value']?.toString() ?? '',
       isExclude: condition['isExclude'] == true,
       sourcePath: condition['sourcePath'] as String?,
-      sourceCount: sourceCount is num ? sourceCount.toInt() : null,
     );
   }
 
