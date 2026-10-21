@@ -8,6 +8,8 @@ import 'package:kikoeru_flutter/src/models/japanese_asmr_browse.dart';
 import 'package:kikoeru_flutter/src/models/search_type.dart';
 import 'package:kikoeru_flutter/src/models/sort_options.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
+import 'package:kikoeru_flutter/src/services/download_file_path_service.dart';
+import 'package:kikoeru_flutter/src/services/downloaded_file_state_scanner.dart';
 import 'package:kikoeru_flutter/src/services/japanese_asmr_service.dart';
 import 'package:kikoeru_flutter/src/services/proxy_config.dart';
 import 'package:kikoeru_flutter/src/utils/tag_localizer.dart';
@@ -680,7 +682,8 @@ void main() {
 
       expect(tracks, hasLength(7));
       expect(tracks.map((track) => track['title']), [
-        for (final chapter in chapters) '${chapter.value}.aac',
+        for (var i = 0; i < chapters.length; i++)
+          '${i + 1}_${chapters[i].value}.aac',
       ]);
       expect(tracks.map((track) => track['hash']), [
         'jp-31-chapter-0',
@@ -722,22 +725,87 @@ void main() {
     },
   );
 
-  test('uses the basic chapter table when the primary table is absent', () async {
-    const chapters = [MapEntry('1.25', 'fallback chapter.m4a')];
-    final page = _detail.replaceFirst(
-      '</main>',
-      '${_chapterTable('basic-chapter-playlist', chapters)}</main>',
-    );
-    final service = JapaneseAsmrService(
-      dio: Dio()..httpClientAdapter = _Adapter((_) => _page(page)),
-    );
+  test(
+    'keeps chapter download paths unique after filename normalization',
+    () async {
+      final longTitle = List.filled(100, 'a').join();
+      final titles = [
+        'Repeat',
+        'Repeat',
+        'Ending.mp3',
+        'Ending.wav',
+        'Right?ear',
+        'Right*ear',
+        '${longTitle}A',
+        '${longTitle}B',
+      ];
+      final chapters = [
+        for (var i = 0; i < titles.length; i++)
+          MapEntry('${i * 10}', titles[i]),
+      ];
+      final page = _detail.replaceFirst(
+        '</main>',
+        '${_chapterTable('plyr-chapter-playlist', chapters)}</main>',
+      );
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = _Adapter((_) => _page(page)),
+      );
+      final tracks = (await service.getWorkTracks(
+        31,
+      )).where((track) => track['type'] == 'audio').toList();
+      final relativePaths = DownloadedFileStateScanner.collectFilePaths(tracks);
+      final safeRelativePaths = {
+        for (final entry in relativePaths.entries)
+          entry.key: DownloadFilePathService.safeRelativePath(entry.value),
+      };
+      final localPaths = [
+        for (final path in safeRelativePaths.values)
+          DownloadFilePathService.localPathForWorkRelativePath(
+            rootPath: r'C:\downloads',
+            workId: -31,
+            relativePath: path,
+          ),
+      ];
 
-    final track = (await service.getWorkTracks(31)).first;
+      expect(tracks, hasLength(titles.length));
+      expect(relativePaths, hasLength(titles.length));
+      expect(localPaths.toSet(), hasLength(titles.length));
 
-    expect(track['title'], 'fallback chapter.aac');
-    expect(track['startTimeMs'], 1250);
-    expect(track['endTimeMs'], isNull);
-  });
+      final scanner = DownloadedFileStateScanner(
+        resolveDownloadedPath: (_, _) async => null,
+        downloadRootPath: () async => r'C:\downloads',
+        fileExists: (path) async => path == localPaths.first,
+      );
+      final state = await scanner.scan(
+        workId: -31,
+        fileTree: tracks,
+        fileRelativePaths: safeRelativePaths,
+      );
+      expect(state.downloadedFiles, {
+        for (var i = 0; i < tracks.length; i++) tracks[i]['hash']: i == 0,
+      });
+    },
+  );
+
+  test(
+    'uses the basic chapter table when the primary table is absent',
+    () async {
+      const chapters = [MapEntry('1.25', 'fallback chapter.m4a')];
+      final page = _detail.replaceFirst(
+        '</main>',
+        '${_chapterTable('basic-chapter-playlist', chapters)}</main>',
+      );
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = _Adapter((_) => _page(page)),
+      );
+
+      final track = (await service.getWorkTracks(31)).first;
+
+      expect(track['title'], '1_fallback chapter.aac');
+      expect(track['startTimeMs'], 1250);
+      expect(track['endTimeMs'], isNull);
+    },
+  );
 
   test('rejects invalid and non-increasing chapter times', () async {
     const chapters = [
@@ -761,9 +829,9 @@ void main() {
         .toList();
 
     expect(tracks.map((track) => track['title']), [
-      'first.aac',
-      'second.aac',
-      'third.aac',
+      '1_first.aac',
+      '2_second.aac',
+      '3_third.aac',
     ]);
     expect(tracks.map((track) => track['startTimeMs']), [0, 425000, 1313000]);
   });

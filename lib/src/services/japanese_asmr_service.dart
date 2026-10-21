@@ -638,7 +638,7 @@ class JapaneseAsmrService {
         for (var i = 0; i < chapters.length; i++)
           {
             'type': 'audio',
-            'title': _chapterFileName(chapters[i].title),
+            'title': _chapterFileName(chapters[i].title, i + 1),
             'hash': 'jp-$postId-chapter-${chapters[i].startTimeMs}',
             'mediaStreamUrl': stream,
             'mediaDownloadUrl': stream,
@@ -694,12 +694,12 @@ class JapaneseAsmrService {
     return chapters;
   }
 
-  static String _chapterFileName(String title) {
+  static String _chapterFileName(String title, int chapterNumber) {
     final stem = title.replaceFirst(
       RegExp(r'\.(?:aac|mp3|m4a|wav|flac|ogg|opus)$', caseSensitive: false),
       '',
     );
-    return '$stem.aac';
+    return '${chapterNumber}_$stem.aac';
   }
 
   Future<List<dynamic>> getRelatedWorks(int postId) async {
