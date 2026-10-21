@@ -12,10 +12,6 @@ The default five-role triage label vocabulary is used. See `docs/agents/triage-l
 
 This repository uses a single-context domain documentation layout. See `docs/agents/domain.md`.
 
-### Scope limits
-
-Before proposing fixes, running verification, reviewing work, or writing deliverables, follow `docs/agents/scope-limits.md`.
-
 ### Commit messages
 
 Use Conventional Commits: `fix: ...` for fixes, `feat: ...` for features, and
