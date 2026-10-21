@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
 
+import '../models/search_query.dart';
+import '../models/search_type.dart';
 import 'proxy_config.dart';
 
 class JapaneseAsmrVerificationRequiredException implements Exception {
@@ -124,18 +126,244 @@ class JapaneseAsmrService {
     required String keyword,
     required int page,
     required int pageSize,
+    List<SearchCondition> conditions = const [],
     CancelToken? cancelToken,
-  }) => _list(
-    page: page,
-    pageSize: pageSize,
-    keyword: keyword,
-    cancelToken: cancelToken,
-  );
+  }) async {
+    final filters = conditions
+        .where(
+          (condition) =>
+              condition.type == SearchType.tag ||
+              condition.type == SearchType.va ||
+              condition.type == SearchType.circle,
+        )
+        .toList();
+    for (final filter in filters) {
+      final path = _catalogPath(filter.sourcePath);
+      if (path.pathSegments.first !=
+          (filter.type == SearchType.circle ? 'category' : 'tag')) {
+        throw ArgumentError('Japanese ASMR catalog type does not match path');
+      }
+    }
+    if (filters.isEmpty) {
+      return _list(
+        page: page,
+        pageSize: pageSize,
+        keyword: keyword,
+        cancelToken: cancelToken,
+      );
+    }
+    if (keyword.trim().isEmpty &&
+        filters.every((filter) => !filter.isExclude) &&
+        (filters.length == 1 ||
+            filters.every((filter) => filter.type != SearchType.circle))) {
+      final prefix = filters.first.type == SearchType.circle
+          ? 'category'
+          : 'tag';
+      // Only the separator is literal: percent-encoding '+' breaks the archive.
+      final slugs = filters.map(
+        (filter) => Uri.encodeComponent(
+          _catalogPath(filter.sourcePath).pathSegments[1],
+        ),
+      );
+      return _list(
+        page: page,
+        pageSize: pageSize,
+        archivePath: '/$prefix/${slugs.join('+')}/',
+        cancelToken: cancelToken,
+      );
+    }
+    return _filteredList(
+      keyword: keyword,
+      filters: filters,
+      page: page,
+      pageSize: pageSize,
+      cancelToken: cancelToken,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> getSearchCatalog(
+    SearchType type, {
+    CancelToken? cancelToken,
+  }) async {
+    final directory = switch (type) {
+      SearchType.tag => 'tags',
+      SearchType.va => 'cv',
+      SearchType.circle => 'circles',
+      _ => throw ArgumentError.value(type, 'type'),
+    };
+    final document = html.parse(
+      (await _get(
+        website.resolve('/$directory/'),
+        cancelToken: cancelToken,
+      )).data,
+    );
+    final entries = <String, Map<String, dynamic>>{};
+    for (final link in document.querySelectorAll(
+      '.entry-content .tag-groups-tag a[href]',
+    )) {
+      final uri = website.resolve(link.attributes['href']!);
+      final name = link.querySelector('.tag-groups-label')?.text.trim();
+      if (uri.scheme != website.scheme ||
+          uri.host != website.host ||
+          name == null ||
+          name.isEmpty)
+        continue;
+      final path = uri.path;
+      final expected = type == SearchType.circle ? 'category' : 'tag';
+      if (uri.pathSegments.length != 3 ||
+          uri.pathSegments.first != expected ||
+          uri.pathSegments[1].isEmpty ||
+          uri.pathSegments.last.isNotEmpty ||
+          uri.hasQuery ||
+          uri.hasFragment)
+        continue;
+      final count = int.tryParse(
+        (link.attributes['title'] ?? '').replaceAll(RegExp(r'[^0-9]'), ''),
+      );
+      entries[path] = {
+        'name': name,
+        'sourcePath': path,
+        if (count != null) 'count': count,
+      };
+    }
+    if (entries.isEmpty) {
+      throw const FormatException(
+        'Japanese ASMR search catalog is unavailable',
+      );
+    }
+    return entries.values.toList()..sort(
+      (a, b) =>
+          ((b['count'] as int?) ?? 0).compareTo((a['count'] as int?) ?? 0),
+    );
+  }
+
+  static Uri _catalogPath(String? value) {
+    final uri = value == null ? null : Uri.tryParse(value);
+    if (uri == null ||
+        uri.hasScheme ||
+        uri.hasAuthority ||
+        uri.hasQuery ||
+        uri.hasFragment ||
+        !value!.startsWith('/') ||
+        uri.pathSegments.length != 3 ||
+        !const ['tag', 'category'].contains(uri.pathSegments.first) ||
+        uri.pathSegments[1].isEmpty ||
+        uri.pathSegments[1].contains('/') ||
+        uri.pathSegments.last.isNotEmpty) {
+      throw ArgumentError.value(
+        value,
+        'sourcePath',
+        'Invalid Japanese ASMR catalog path',
+      );
+    }
+    return uri;
+  }
+
+  Uri _listUri(int page, {String? keyword, String? archivePath}) =>
+      keyword != null && keyword.isNotEmpty
+      ? website.replace(
+          pathSegments: [
+            'search',
+            keyword,
+            if (page > 1) ...['page', '$page'],
+            '',
+          ],
+        )
+      : website.resolve(
+          '${archivePath ?? '/'}${page > 1 ? 'page/$page/' : ''}',
+        );
+
+  int _lastPage(Document document) => document
+      .querySelectorAll('.page-numbers')
+      .map(
+        (number) => int.tryParse(number.text.replaceAll(',', '').trim()) ?? 1,
+      )
+      .fold(1, math.max);
+
+  List<Element> _cards(Document document) {
+    final cards = document.querySelectorAll('li.site-archive-post');
+    if (cards.isEmpty &&
+        document.querySelector('#site-main, .site-main') == null) {
+      throw const FormatException('Japanese ASMR catalog is unavailable');
+    }
+    return cards;
+  }
+
+  Future<Map<String, dynamic>> _filteredList({
+    required String keyword,
+    required List<SearchCondition> filters,
+    required int page,
+    required int pageSize,
+    CancelToken? cancelToken,
+  }) async {
+    if (page < 1 || pageSize < 1) throw ArgumentError('Invalid page');
+    final documents = <Uri, Document>{};
+    Future<Document> read(Uri uri) async => documents[uri] ??= html.parse(
+      (await _get(uri, cancelToken: cancelToken)).data,
+    );
+    final identities = <String>[];
+    String? seedPath;
+    var seedPages = 1 << 30;
+    for (final filter in filters) {
+      final uri = website.resolve(filter.sourcePath!);
+      final document = await read(uri);
+      final prefix = filter.type == SearchType.circle ? 'category-' : 'tag-';
+      final identity = document.body?.classes.where(
+        (name) => name.startsWith(prefix),
+      );
+      if (identity == null || identity.isEmpty) {
+        throw const FormatException(
+          'Japanese ASMR classification is unavailable',
+        );
+      }
+      identities.add(identity.first);
+      if (!filter.isExclude && _lastPage(document) < seedPages) {
+        seedPath = filter.sourcePath;
+        seedPages = _lastPage(document);
+      }
+    }
+    final start = (page - 1) * pageSize;
+    final matches = <Map<String, dynamic>>[];
+    var sitePage = 1;
+    var hasNext = true;
+    while (hasNext && matches.length <= start + pageSize) {
+      final document = await read(
+        _listUri(sitePage, keyword: keyword, archivePath: seedPath),
+      );
+      for (final card in _cards(document)) {
+        if (!Iterable<int>.generate(filters.length).every(
+          (index) =>
+              card.classes.contains(identities[index]) !=
+              filters[index].isExclude,
+        ))
+          continue;
+        final link = card.querySelector('h2.entry-title a[href]');
+        final id = link == null
+            ? null
+            : _postId(website.resolve(link.attributes['href']!));
+        if (id != null && link!.text.trim().isNotEmpty) {
+          matches.add(_work(card, id, link.text.trim()));
+        }
+      }
+      hasNext = document.querySelector('a.next.page-numbers') != null;
+      sitePage++;
+    }
+    return {
+      'works': matches.skip(start).take(pageSize).toList(),
+      'pagination': {
+        'currentPage': page,
+        'pageSize': pageSize,
+        'totalCount': hasNext ? null : matches.length,
+        'hasMore': hasNext || matches.length > start + pageSize,
+      },
+    };
+  }
 
   Future<Map<String, dynamic>> _list({
     required int page,
     required int pageSize,
     String? keyword,
+    String? archivePath,
     CancelToken? cancelToken,
   }) async {
     if (page < 1 || pageSize < 1) throw ArgumentError('Invalid page');
@@ -146,24 +374,15 @@ class JapaneseAsmrService {
     var total = 0;
     var sitePage = first;
     while (true) {
-      final uri = keyword == null || keyword.isEmpty
-          ? website.resolve(sitePage == 1 ? '/' : '/page/$sitePage/')
-          : website.replace(
-              pathSegments: [
-                'search',
-                keyword,
-                if (sitePage > 1) ...['page', '$sitePage'],
-                '',
-              ],
-            );
+      final uri = _listUri(
+        sitePage,
+        keyword: keyword,
+        archivePath: archivePath,
+      );
       final document = html.parse(
         (await _get(uri, cancelToken: cancelToken)).data,
       );
-      final cards = document.querySelectorAll('li.site-archive-post');
-      if (cards.isEmpty &&
-          document.querySelector('#site-main, .site-main') == null) {
-        throw const FormatException('Japanese ASMR catalog is unavailable');
-      }
+      final cards = _cards(document);
       final batch = <Map<String, dynamic>>[];
       for (final card in cards) {
         final link = card.querySelector('h2.entry-title a');

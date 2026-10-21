@@ -2,6 +2,7 @@ import '../widgets/app_bottom_dock_transition.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../models/audio_source.dart';
@@ -23,6 +24,7 @@ import '../widgets/download_fab.dart';
 import '../widgets/floating_feed_toolbar.dart';
 import '../widgets/material_popup_surface.dart';
 import '../widgets/search_condition_chip.dart';
+import '../widgets/japanese_asmr_access_prompt.dart';
 import 'search_result_screen.dart';
 import 'scoped_search_result_screen.dart';
 import '../widgets/global_audio_player_wrapper.dart';
@@ -65,7 +67,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   List<Map<String, dynamic>> _allTags = [];
   List<Map<String, dynamic>> _allVas = [];
   List<Map<String, dynamic>> _allCircles = [];
+  final Map<SearchType, List<Map<String, dynamic>>> _japaneseCatalogs = {};
   bool _isLoadingSuggestions = false;
+  String? _suggestionError;
+  CancelToken? _suggestionCancelToken;
+  int _suggestionRequestId = 0;
 
   @override
   bool get wantKeepAlive => true; // 保持状态不被销毁
@@ -86,6 +92,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     _conditionsScrollController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
+    _suggestionCancelToken?.cancel();
     super.dispose();
   }
 
@@ -112,74 +119,168 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
 
   // 加载建议数据
   Future<void> _loadSuggestions() async {
-    if (_isJapaneseGlobalSearch) return;
+    final requestId = ++_suggestionRequestId;
+    _suggestionCancelToken?.cancel();
+    _suggestionCancelToken = null;
     final searchType = _currentSearchType;
+    final isJapanese = _isJapaneseGlobalSearch;
     if (searchType == SearchType.keyword || searchType == SearchType.rjNumber) {
+      _isLoadingSuggestions = false;
+      _suggestionError = null;
       return; // 关键词和RJ号不需要建议列表
     }
 
     if (!mounted) return;
-    setState(() => _isLoadingSuggestions = true);
+    final cancelToken = CancelToken();
+    _suggestionCancelToken = cancelToken;
+    setState(() {
+      _isLoadingSuggestions = true;
+      _suggestionError = null;
+    });
 
     try {
       final api = ref.read(kikoeruApiServiceProvider);
-
-      switch (_currentSearchType) {
-        case SearchType.tag:
-          if (_allTags.isEmpty) {
-            final data = await api.getAllTags();
-            if (!mounted || _currentSearchType != searchType) return;
-            _allTags = List<Map<String, dynamic>>.from(data);
-            // 按 count 字段从大到小排序
-            _allTags.sort(
-              (a, b) => (b['count'] ?? 0).compareTo(a['count'] ?? 0),
-            );
+      if (isJapanese) {
+        if (!_japaneseCatalogs.containsKey(searchType)) {
+          final data = await api.getSearchCatalog(
+            searchType,
+            cancelToken: cancelToken,
+          );
+          if (!mounted ||
+              requestId != _suggestionRequestId ||
+              _currentSearchType != searchType ||
+              _isJapaneseGlobalSearch != isJapanese) {
+            return;
           }
-          break;
-        case SearchType.va:
-          if (_allVas.isEmpty) {
-            final data = await api.getAllVas();
-            if (!mounted || _currentSearchType != searchType) return;
-            _allVas = List<Map<String, dynamic>>.from(data);
-            // 按 count 字段从大到小排序
-            _allVas.sort(
-              (a, b) => (b['count'] ?? 0).compareTo(a['count'] ?? 0),
-            );
-          }
-          break;
-        case SearchType.circle:
-          if (_allCircles.isEmpty) {
-            final data = await api.getAllCircles();
-            if (!mounted || _currentSearchType != searchType) return;
-            _allCircles = List<Map<String, dynamic>>.from(data);
-            // 按 count 字段从大到小排序
-            _allCircles.sort(
-              (a, b) => (b['count'] ?? 0).compareTo(a['count'] ?? 0),
-            );
-          }
-          break;
-        default:
-          break;
+          _japaneseCatalogs[searchType] = data;
+        }
+      } else {
+        switch (searchType) {
+          case SearchType.tag:
+            if (_allTags.isEmpty) {
+              final data = await api.getAllTags(cancelToken: cancelToken);
+              if (!_isCurrentSuggestionRequest(requestId, searchType, isJapanese)) return;
+              _allTags = List<Map<String, dynamic>>.from(data);
+              _allTags.sort(
+                (a, b) => (b['count'] ?? 0).compareTo(a['count'] ?? 0),
+              );
+            }
+            break;
+          case SearchType.va:
+            if (_allVas.isEmpty) {
+              final data = await api.getAllVas(cancelToken: cancelToken);
+              if (!_isCurrentSuggestionRequest(requestId, searchType, isJapanese)) return;
+              _allVas = List<Map<String, dynamic>>.from(data);
+              _allVas.sort(
+                (a, b) => (b['count'] ?? 0).compareTo(a['count'] ?? 0),
+              );
+            }
+            break;
+          case SearchType.circle:
+            if (_allCircles.isEmpty) {
+              final data = await api.getAllCircles(cancelToken: cancelToken);
+              if (!_isCurrentSuggestionRequest(requestId, searchType, isJapanese)) return;
+              _allCircles = List<Map<String, dynamic>>.from(data);
+              _allCircles.sort(
+                (a, b) => (b['count'] ?? 0).compareTo(a['count'] ?? 0),
+              );
+            }
+            break;
+          default:
+            break;
+        }
       }
 
       // 数据加载完成后刷新 Autocomplete
-      if (!mounted || _currentSearchType != searchType) return;
+      if (!_isCurrentSuggestionRequest(requestId, searchType, isJapanese)) return;
       setState(() {
         _autocompleteKey = UniqueKey();
       });
     } catch (e) {
+      if (!mounted || requestId != _suggestionRequestId) return;
       logOutput('加载建议列表失败: $e');
+      setState(() => _suggestionError = e.toString());
     } finally {
-      if (mounted) setState(() => _isLoadingSuggestions = false);
+      if (mounted && requestId == _suggestionRequestId) {
+        setState(() => _isLoadingSuggestions = false);
+      }
     }
   }
+
+  bool _isCurrentSuggestionRequest(
+    int requestId,
+    SearchType type,
+    bool isJapanese,
+  ) =>
+      mounted &&
+      requestId == _suggestionRequestId &&
+      _currentSearchType == type &&
+      _isJapaneseGlobalSearch == isJapanese;
 
   bool get _isJapaneseGlobalSearch =>
       (widget.scope == null || widget.scope == SearchScope.globalWorks) &&
       ref.read(audioSourceProvider) == AudioSource.jpAsmr;
 
-  void _addSearchCondition() {
-    final value = _searchController.text.trim();
+  List<_SearchSuggestion> _searchSuggestions(String query) {
+    final isJapanese = _isJapaneseGlobalSearch;
+    final source = isJapanese
+        ? _japaneseCatalogs[_currentSearchType] ?? const []
+        : switch (_currentSearchType) {
+            SearchType.tag => _allTags,
+            SearchType.va => _allVas,
+            SearchType.circle => _allCircles,
+            _ => const <Map<String, dynamic>>[],
+          };
+    final normalizedQuery = query.trim().toLowerCase();
+    return [
+      for (final item in source)
+        if (item['name'] != null || item['title'] != null)
+          _suggestionFromItem(item, isJapanese),
+    ].where((suggestion) {
+      if (normalizedQuery.isEmpty ||
+          suggestion.name.toLowerCase().contains(normalizedQuery)) {
+        return true;
+      }
+      return !isJapanese &&
+          _currentSearchType == SearchType.tag &&
+          suggestion.localizedName.toLowerCase().contains(normalizedQuery);
+    }).toList();
+  }
+
+  _SearchSuggestion _suggestionFromItem(
+    Map<String, dynamic> item,
+    bool isJapanese,
+  ) {
+    final name = (item['name'] ?? item['title']).toString();
+    final id = item['id'];
+    final localizedName = !isJapanese &&
+            _currentSearchType == SearchType.tag &&
+            id is int
+        ? TagLocalizer.localize(
+            id,
+            name,
+            Localizations.localeOf(context),
+          )
+        : name;
+    final count = item['count'];
+    return _SearchSuggestion(
+      name: name,
+      value: isJapanese ? name : localizedName,
+      localizedName: localizedName,
+      count: count is num ? count.toInt() : 0,
+      sourcePath: isJapanese ? item['sourcePath'] as String? : null,
+    );
+  }
+
+  void _addSearchCondition([_SearchSuggestion? suggestion]) {
+    final isDirectoryType =
+        _currentSearchType == SearchType.tag ||
+        _currentSearchType == SearchType.va ||
+        _currentSearchType == SearchType.circle;
+    if (suggestion == null && _isJapaneseGlobalSearch && isDirectoryType) {
+      return;
+    }
+    final value = suggestion?.value ?? _searchController.text.trim();
     if (value.isEmpty) {
       SnackBarUtil.showWarning(context, S.of(context).enterSearchContent);
       return;
@@ -193,6 +294,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
           type: _currentSearchType,
           value: value,
           isExclude: _isExcludeMode,
+          sourcePath: suggestion?.sourcePath,
+          sourceCount: suggestion?.sourceCount,
         ),
       );
       _searchController.clear();
@@ -258,7 +361,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     // 构建搜索关键词
     List<String> searchParts = [];
     for (var condition in _searchConditions) {
-      searchParts.add(condition.toSearchString());
+      if (condition.sourcePath == null) {
+        searchParts.add(condition.toSearchString());
+      }
     }
 
     // 添加高级筛选条件
@@ -275,17 +380,21 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     final searchKeyword = searchParts.join(' ');
 
     // 构建搜索条件列表用于显示
-    final searchParams = {
+    final searchParams = <String, dynamic>{
       'keyword': searchKeyword,
       'conditions': _searchConditions
           .map(
             (c) => {
               'type': c.type.localizedLabel(context),
+              'searchType': c.type.name,
               'value': c.value,
               'isExclude': c.isExclude,
+              if (c.sourcePath != null) 'sourcePath': c.sourcePath,
+              if (c.sourceCount != null) 'sourceCount': c.sourceCount,
             },
           )
           .toList(),
+      if (_isJapaneseGlobalSearch) 'source': AudioSource.jpAsmr.name,
     };
 
     // 添加高级筛选显示
@@ -372,24 +481,41 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   Widget build(BuildContext context) {
     super.build(context); // 必须调用以保持状态
     ref.listen<AudioSource>(audioSourceProvider, (previous, next) {
-      if (previous == next || next != AudioSource.jpAsmr) return;
+      if (previous == next) return;
       if (widget.scope != null && widget.scope != SearchScope.globalWorks) {
         return;
       }
-      setState(() {
-        _currentSearchType = SearchType.keyword;
-        _searchConditions.removeWhere(
-          (condition) =>
-              condition.type != SearchType.keyword &&
-              condition.type != SearchType.rjNumber,
-        );
-        _minRate = 0;
-        _ageRating = AgeRating.all;
-        _salesRange = SalesRange.all;
-        _showAdvancedFilters = false;
-        _isExcludeMode = false;
-      });
+      if (next == AudioSource.jpAsmr) {
+        setState(() {
+          _currentSearchType = SearchType.keyword;
+          _searchConditions.removeWhere(
+            (condition) =>
+                condition.type != SearchType.keyword &&
+                condition.type != SearchType.rjNumber,
+          );
+          _minRate = 0;
+          _ageRating = AgeRating.all;
+          _salesRange = SalesRange.all;
+          _showAdvancedFilters = false;
+          _isExcludeMode = false;
+        });
+      } else if (previous == AudioSource.jpAsmr) {
+        setState(() {
+          _searchConditions.removeWhere(
+            (condition) => condition.sourcePath != null,
+          );
+          if (_currentSearchType == SearchType.tag ||
+              _currentSearchType == SearchType.va ||
+              _currentSearchType == SearchType.circle) {
+            _currentSearchType = SearchType.keyword;
+          }
+          _isExcludeMode = false;
+        });
+      } else {
+        return;
+      }
       _updateConditionsReveal();
+      _loadSuggestions();
     });
     final isJapaneseGlobalSearch =
         (widget.scope == null || widget.scope == SearchScope.globalWorks) &&
@@ -572,7 +698,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                     (type) =>
                         !isJapaneseGlobalSearch ||
                         type == SearchType.keyword ||
-                        type == SearchType.rjNumber,
+                        type == SearchType.rjNumber ||
+                        type == SearchType.tag ||
+                        type == SearchType.va ||
+                        type == SearchType.circle,
                   )
                   .map((type) => _buildSearchTypeButton(type, theme))
                   .toList(),
@@ -630,67 +759,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                   (_currentSearchType == SearchType.tag ||
                       _currentSearchType == SearchType.va ||
                       _currentSearchType == SearchType.circle)
-                  ? Autocomplete<String>(
+                  ? Autocomplete<_SearchSuggestion>(
+                      displayStringForOption: (option) => option.display,
                       key: _autocompleteKey,
-                      optionsBuilder: (TextEditingValue textEditingValue) {
-                        List<Map<String, dynamic>> sourceList;
-                        switch (_currentSearchType) {
-                          case SearchType.tag:
-                            sourceList = _allTags;
-                            break;
-                          case SearchType.va:
-                            sourceList = _allVas;
-                            break;
-                          case SearchType.circle:
-                            sourceList = _allCircles;
-                            break;
-                          default:
-                            sourceList = [];
-                        }
-
-                        List<Map<String, dynamic>> filteredList;
-                        if (textEditingValue.text.trim().isEmpty) {
-                          filteredList = sourceList.toList();
-                        } else {
-                          final query = textEditingValue.text
-                              .trim()
-                              .toLowerCase();
-                          filteredList = sourceList.where((item) {
-                            final name = (item['name'] ?? item['title'] ?? '')
-                                .toString();
-                            if (name.toLowerCase().contains(query)) return true;
-                            // Also search by localized name for tags
-                            if (_currentSearchType == SearchType.tag) {
-                              final id = item['id'] as int?;
-                              if (id != null) {
-                                final localizedName = TagLocalizer.localize(
-                                  id,
-                                  name,
-                                  Localizations.localeOf(context),
-                                ).toLowerCase();
-                                if (localizedName.contains(query)) return true;
-                              }
-                            }
-                            return false;
-                          }).toList();
-                        }
-
-                        return filteredList.map((item) {
-                          final name = (item['name'] ?? item['title'] ?? '')
-                              .toString();
-                          final count = item['count'] ?? 0;
-                          final displayName =
-                              (_currentSearchType == SearchType.tag &&
-                                  item['id'] != null)
-                              ? TagLocalizer.localize(
-                                  item['id'] as int,
-                                  name,
-                                  Localizations.localeOf(context),
-                                )
-                              : name;
-                          return '$displayName ($count)';
-                        });
-                      },
+                      optionsBuilder: (value) =>
+                          _searchSuggestions(value.text),
                       optionsMaxHeight: 300,
                       optionsViewBuilder: (context, onSelected, options) {
                         final highlightedIndex =
@@ -708,7 +781,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                                 return Semantics(
                                   button: true,
                                   child: InkWell(
-                                    key: ValueKey(option),
+                                    key: ValueKey(
+                                      option.sourcePath ?? option.value,
+                                    ),
                                     onTap: () => onSelected(option),
                                     child: Container(
                                       color: highlightedIndex == index
@@ -718,7 +793,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                                         horizontal: 16,
                                         vertical: 12,
                                       ),
-                                      child: Text(option),
+                                      child: Text(option.display),
                                     ),
                                   ),
                                 );
@@ -727,14 +802,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                           ),
                         );
                       },
-                      onSelected: (String selection) {
-                        final name = selection.substring(
-                          0,
-                          selection.lastIndexOf(' ('),
-                        );
-                        _searchController.text = name;
-                        _addSearchCondition();
-                      },
+                      onSelected: _addSearchCondition,
                       fieldViewBuilder:
                           (context, controller, focusNode, onSubmitted) {
                             _searchFocusNode = focusNode;
@@ -782,21 +850,55 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                     ),
             ),
           ),
-          const SizedBox(width: 8),
-          SizedBox(
-            height: 48,
-            child: FilledButton.icon(
-              onPressed: _addSearchCondition,
-              icon: const Icon(Icons.add),
-              label: Text(S.of(context).add),
-              style: FilledButton.styleFrom(
-                shape: const StadiumBorder(),
-                padding: const EdgeInsets.symmetric(horizontal: 18),
+          if (!_isJapaneseGlobalSearch ||
+              _currentSearchType == SearchType.keyword ||
+              _currentSearchType == SearchType.rjNumber) ...[
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 48,
+              child: FilledButton.icon(
+                onPressed: _addSearchCondition,
+                icon: const Icon(Icons.add),
+                label: Text(S.of(context).add),
+                style: FilledButton.styleFrom(
+                  shape: const StadiumBorder(),
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                ),
               ),
             ),
-          ),
+          ],
         ],
       ),
+      if (_suggestionError != null)
+        if (_suggestionError!.contains(
+          '[jp-asmr-verification-required]',
+        ))
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: JapaneseAsmrAccessPrompt(
+              onRetry: _loadSuggestions,
+              onVerified: _loadSuggestions,
+            ),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    S.of(context).loadFailed,
+                    style: TextStyle(color: theme.colorScheme.error),
+                  ),
+                ),
+                IconButton(
+                  tooltip: S.of(context).retry,
+                  onPressed: _loadSuggestions,
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            ),
+          ),
       const SizedBox(height: 12),
       if (!isLandscape && _showAdvancedFilters) ...[
         const Divider(),
@@ -1030,11 +1132,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
                   _isExcludeMode = false;
                   _searchController.clear();
                   _autocompleteKey = UniqueKey();
-                  if (supportsExclude) {
-                    _loadSuggestions();
-                  }
                 }
               });
+              if (!isCurrentType) _loadSuggestions();
             },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 180),
@@ -1250,4 +1350,24 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         return Icons.person;
     }
   }
+}
+
+class _SearchSuggestion {
+  const _SearchSuggestion({
+    required this.name,
+    required this.value,
+    required this.localizedName,
+    required this.count,
+    this.sourcePath,
+  });
+
+  final String name;
+  final String value;
+  final String localizedName;
+  final int count;
+  final String? sourcePath;
+
+  int? get sourceCount => sourcePath == null ? null : count;
+
+  String get display => '$localizedName ($count)';
 }

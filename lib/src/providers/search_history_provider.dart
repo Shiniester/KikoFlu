@@ -134,8 +134,18 @@ class SearchHistoryNotifier extends StateNotifier<SearchHistoryState> {
     );
 
     // 移除相同关键词的旧记录
-    final updatedItems =
-        state.items.where((item) => item.keyword != keyword).toList();
+    final updatedItems = state.items.where((item) {
+      final oldSource = item.searchParams?['source'];
+      final newSource = searchParams?['source'];
+      final hasStructuredQuery =
+          oldSource == 'jpAsmr' ||
+          newSource == 'jpAsmr' ||
+          _hasSourcePath(item.searchParams) ||
+          _hasSourcePath(searchParams);
+      if (!hasStructuredQuery) return item.keyword != keyword;
+      if (item.keyword != keyword || oldSource != newSource) return true;
+      return _conditionKey(item.searchParams) != _conditionKey(searchParams);
+    }).toList();
 
     // 添加新记录到开头
     updatedItems.insert(0, newItem);
@@ -147,6 +157,30 @@ class SearchHistoryNotifier extends StateNotifier<SearchHistoryState> {
 
     state = state.copyWith(items: updatedItems);
     await _saveHistory();
+  }
+
+  bool _hasSourcePath(Map<String, dynamic>? searchParams) {
+    final conditions = searchParams?['conditions'];
+    return conditions is List &&
+        conditions.any(
+          (condition) =>
+              condition is Map && condition['sourcePath'] is String,
+        );
+  }
+
+  String _conditionKey(Map<String, dynamic>? searchParams) {
+    final conditions = searchParams?['conditions'];
+    if (conditions is! List) return '[]';
+    return json.encode([
+      for (final condition in conditions)
+        if (condition is Map)
+          {
+            'type': condition['searchType'] ?? condition['type'],
+            'value': condition['value'],
+            'isExclude': condition['isExclude'] == true,
+            'sourcePath': condition['sourcePath'],
+          },
+    ]);
   }
 
   /// 移除单条记录

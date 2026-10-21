@@ -64,6 +64,11 @@ to that page's complete collection, such as one online-mark state, history,
 playlists, or completed downloads.
 _Avoid_: global works search
 
+**Audio Search Catalog (音声搜索目录)**:
+The selected Audio Source's lists of tags, voice actors, and circles used to
+choose work search conditions. Catalog entries identify a tag, voice actor, or
+circle; they are distinct from the matching works.
+
 **Work Details Screen (作品详情页)**:
 The online or offline screen describing a work and its available resource files.
 It is distinct from the Player Audio Details Page for the current track.

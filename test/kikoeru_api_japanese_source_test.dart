@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/models/audio_source.dart';
+import 'package:kikoeru_flutter/src/models/search_query.dart';
+import 'package:kikoeru_flutter/src/models/search_type.dart';
 import 'package:kikoeru_flutter/src/services/japanese_asmr_service.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart';
 
@@ -8,6 +10,9 @@ class _JapaneseAsmrService extends JapaneseAsmrService {
   int? workId;
   CancelToken? listCancelToken;
   CancelToken? searchCancelToken;
+  CancelToken? catalogCancelToken;
+  SearchType? catalogType;
+  List<SearchCondition> searchConditions = const [];
   final relatedWorkIds = <int>[];
 
   @override
@@ -25,10 +30,22 @@ class _JapaneseAsmrService extends JapaneseAsmrService {
     required String keyword,
     required int page,
     required int pageSize,
+    List<SearchCondition> conditions = const [],
     CancelToken? cancelToken,
   }) async {
     searchCancelToken = cancelToken;
+    searchConditions = conditions;
     return {'works': <dynamic>[], 'pagination': <String, dynamic>{}};
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getSearchCatalog(
+    SearchType type, {
+    CancelToken? cancelToken,
+  }) async {
+    catalogType = type;
+    catalogCancelToken = cancelToken;
+    return const [];
   }
 
   @override
@@ -66,13 +83,21 @@ void main() {
       final japanese = _JapaneseAsmrService();
       final api = KikoeruApiService(japaneseAsmrService: japanese);
       final cancelToken = CancelToken();
+      final category = SearchCondition(
+        id: 'catalog',
+        type: SearchType.tag,
+        value: 'Binaural',
+        sourcePath: '/tag/binaural/',
+      );
 
       await api.getWorks(
         page: 2,
         pageSize: 20,
         source: AudioSource.jpAsmr,
+        conditions: [category],
         cancelToken: cancelToken,
       );
+      await api.getSearchCatalog(SearchType.va, cancelToken: cancelToken);
       await api.searchWorks(
         keyword: 'RJ01726738',
         source: AudioSource.jpAsmr,
@@ -85,6 +110,9 @@ void main() {
 
       expect(japanese.listCancelToken, same(cancelToken));
       expect(japanese.searchCancelToken, same(cancelToken));
+      expect(japanese.searchConditions, [category]);
+      expect(japanese.catalogType, SearchType.va);
+      expect(japanese.catalogCancelToken, same(cancelToken));
       expect(work['id'], -1726738);
       expect(japanese.workId, 1726738);
       expect(related, [

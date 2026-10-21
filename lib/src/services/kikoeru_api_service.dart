@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:convert';
 import '../models/audio_source.dart';
+import '../models/search_query.dart';
+import '../models/search_type.dart';
 import '../models/work.dart';
 import '../utils/server_utils.dart';
 import '../services/storage_service.dart';
@@ -1173,6 +1175,7 @@ class KikoeruApiService {
     int page = 1,
     int pageSize = 40,
     AudioSource source = AudioSource.asmrOne,
+    List<SearchCondition> conditions = const [],
     String? order,
     String? sort,
     int? subtitle,
@@ -1185,6 +1188,7 @@ class KikoeruApiService {
         keyword: keyword,
         page: page,
         pageSize: pageSize,
+        conditions: conditions,
         cancelToken: cancelToken,
       );
     }
@@ -1213,6 +1217,16 @@ class KikoeruApiService {
         cancelToken: cancelToken,
       );
     }
+  }
+
+  Future<List<Map<String, dynamic>>> getSearchCatalog(
+    SearchType type, {
+    CancelToken? cancelToken,
+  }) {
+    return _japaneseAsmrService.getSearchCatalog(
+      type,
+      cancelToken: cancelToken,
+    );
   }
 
   Future<Map<String, dynamic>> _searchWorksOfficial({
