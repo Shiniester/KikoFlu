@@ -2557,8 +2557,8 @@ abstract class S {
   /// No description provided for @downloadFailed.
   ///
   /// In en, this message translates to:
-  /// **'Download failed: {error}'**
-  String downloadFailed(String error);
+  /// **'Download failed'**
+  String get downloadFailed;
 
   /// No description provided for @startDownload.
   ///

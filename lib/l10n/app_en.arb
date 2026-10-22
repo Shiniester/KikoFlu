@@ -1813,13 +1813,5 @@
   "cancelDownload": "Cancel Download",
   "noPlatformPackage": "No suitable installation package was found for the current system.",
   "openReleasePage": "Open GitHub Releases",
-  "installFailed": "Failed to launch installer",
-  "downloadFailed": "Download failed: {error}",
-  "@downloadFailed": {
-    "placeholders": {
-      "error": {
-        "type": "String"
-      }
-    }
-  }
+  "installFailed": "Failed to launch installer"
 }

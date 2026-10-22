@@ -1306,9 +1306,7 @@ class SJa extends S {
   String get downloadComplete => 'ダウンロード完了';
 
   @override
-  String downloadFailed(String error) {
-    return 'ダウンロードに失敗しました：$error';
-  }
+  String get downloadFailed => 'ダウンロード失敗';
 
   @override
   String get startDownload => 'ダウンロード開始';

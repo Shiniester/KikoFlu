@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -63,6 +64,11 @@ void main() {
         'size': 56000000,
       },
       {
+        'name': 'KikoFlu-linux-arm64_4192.tar.gz',
+        'browser_download_url': 'https://example.com/linux-arm64.tar.gz',
+        'size': 38000000,
+      },
+      {
         'name': 'KikoFlu-linux-x64_4192.tar.gz',
         'browser_download_url': 'https://example.com/linux.tar.gz',
         'size': 38000000,
@@ -97,11 +103,49 @@ void main() {
       expect(matched!['name'], 'KikoFlu-macos_4192.dmg');
     });
 
-    test('matches Linux tar.gz', () {
+    test('matches Linux x64 even when ARM64 is listed first', () {
       final service = UpdateService();
-      final matched = service.findPlatformAsset(assets, targetPlatform: 'linux');
+      final matched = service.findPlatformAsset(
+        assets,
+        targetPlatform: 'linux',
+        targetAbi: Abi.linuxX64,
+      );
       expect(matched, isNotNull);
       expect(matched!['name'], 'KikoFlu-linux-x64_4192.tar.gz');
+    });
+
+    test('matches Linux ARM64 even when x64 is listed first', () {
+      final service = UpdateService();
+      final matched = service.findPlatformAsset(
+        assets.reversed.toList(),
+        targetPlatform: 'linux',
+        targetAbi: Abi.linuxArm64,
+      );
+      expect(matched?['name'], 'KikoFlu-linux-arm64_4192.tar.gz');
+    });
+
+    test('does not fall back to a different Linux architecture', () {
+      final service = UpdateService();
+      final matched = service.findPlatformAsset(
+        assets
+            .where((asset) => asset['name']!.toString().contains('arm64'))
+            .toList(),
+        targetPlatform: 'linux',
+        targetAbi: Abi.linuxX64,
+      );
+      expect(matched, isNull);
+    });
+
+    test('does not offer a package for unsupported Linux architectures', () {
+      final service = UpdateService();
+      expect(
+        service.findPlatformAsset(
+          assets,
+          targetPlatform: 'linux',
+          targetAbi: Abi.linuxRiscv64,
+        ),
+        isNull,
+      );
     });
 
     test('matches iOS IPA', () {
@@ -232,46 +276,89 @@ void main() {
   });
 
   group('UpdateController Flow', () {
-    test('starts download, reports progress, and transitions to readyToInstall', () async {
-      final adapter = _MockHttpClientAdapter((options) {
-        return ResponseBody.fromString('exe data', HttpStatus.ok);
-      });
-      final dio = Dio()..httpClientAdapter = adapter;
+    for (final success in [true, false]) {
+      test(
+        'returns to readyToInstall and reuses the installer (launch success: $success)',
+        () async {
+          var downloadRequests = 0;
+          final adapter = _MockHttpClientAdapter((options) {
+            downloadRequests++;
+            return ResponseBody.fromString('exe data', HttpStatus.ok);
+          });
+          final dio = Dio()..httpClientAdapter = adapter;
+          final openedPaths = <String>[];
+          final installerStarted = Completer<void>();
+          final installerResult = Completer<OpenResult>();
 
-      final service = UpdateService(
-        dio: dio,
-        openFile: (filePath, {type}) async => OpenResult(type: ResultType.done, message: 'done'),
-        processStarter: (executable, arguments, {ProcessStartMode mode = ProcessStartMode.normal, bool runInShell = false}) async {
-          throw Exception('Fallback to openFile in test');
+          final service = UpdateService(
+            dio: dio,
+            openFile: (filePath, {type}) {
+              openedPaths.add(filePath);
+              if (!installerStarted.isCompleted) installerStarted.complete();
+              return installerResult.future;
+            },
+            processStarter:
+                (
+                  executable,
+                  arguments, {
+                  ProcessStartMode mode = ProcessStartMode.normal,
+                  bool runInShell = false,
+                }) async {
+                  throw Exception('Fallback to openFile in test');
+                },
+            getTempDirectory: () async => temporaryDirectory,
+          );
+
+          final container = ProviderContainer(
+            overrides: [updateServiceProvider.overrideWithValue(service)],
+          );
+          addTearDown(container.dispose);
+
+          final controller = container.read(updateControllerProvider.notifier);
+
+          const updateInfo = UpdateInfo(
+            latestVersion: '4.19.2',
+            currentVersion: '4.4.0',
+            releaseUrl:
+                'https://github.com/Shiniester/KikoFlu/releases/tag/v4.19.2',
+            hasNewVersion: true,
+            downloadUrl: 'https://example.com/setup.exe',
+            assetName: 'setup.exe',
+            assetSize: 1024,
+          );
+
+          final download = controller.startDownload(updateInfo);
+          await installerStarted.future;
+          expect(
+            container.read(updateControllerProvider).status,
+            UpdateStatus.installing,
+          );
+          installerResult.complete(
+            OpenResult(
+              type: success ? ResultType.done : ResultType.error,
+              message: success ? 'done' : 'failed',
+            ),
+          );
+          await download;
+
+          final state = container.read(updateControllerProvider);
+          expect(state.status, UpdateStatus.readyToInstall);
+          expect(state.progress, 1.0);
+          expect(state.downloadedFilePath, openedPaths.single);
+          if (!success) expect(state.errorMessage, '打开安装程序失败');
+          expect(await controller.install(), success);
+          expect(
+            container.read(updateControllerProvider).status,
+            UpdateStatus.readyToInstall,
+          );
+          expect(openedPaths, [
+            state.downloadedFilePath,
+            state.downloadedFilePath,
+          ]);
+          expect(downloadRequests, 1);
         },
-        getTempDirectory: () async => temporaryDirectory,
       );
-
-      final container = ProviderContainer(
-        overrides: [
-          updateServiceProvider.overrideWithValue(service),
-        ],
-      );
-      addTearDown(container.dispose);
-
-      final controller = container.read(updateControllerProvider.notifier);
-
-      const updateInfo = UpdateInfo(
-        latestVersion: '4.19.2',
-        currentVersion: '4.4.0',
-        releaseUrl: 'https://github.com/Shiniester/KikoFlu/releases/tag/v4.19.2',
-        hasNewVersion: true,
-        downloadUrl: 'https://example.com/setup.exe',
-        assetName: 'setup.exe',
-        assetSize: 1024,
-      );
-
-      await controller.startDownload(updateInfo);
-
-      final state = container.read(updateControllerProvider);
-      expect(state.status, anyOf(UpdateStatus.readyToInstall, UpdateStatus.installing));
-      expect(state.progress, 1.0);
-    });
+    }
   });
 }
 

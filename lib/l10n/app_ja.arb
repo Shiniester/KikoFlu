@@ -1462,13 +1462,5 @@
   "cancelDownload": "ダウンロードをキャンセル",
   "noPlatformPackage": "現在のプラットフォームに適したパッケージが見つかりません",
   "openReleasePage": "GitHub でダウンロード",
-  "installFailed": "インストーラーの起動に失敗しました",
-  "downloadFailed": "ダウンロードに失敗しました：{error}",
-  "@downloadFailed": {
-    "placeholders": {
-      "error": {
-        "type": "String"
-      }
-    }
-  }
+  "installFailed": "インストーラーの起動に失敗しました"
 }

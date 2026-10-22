@@ -146,12 +146,10 @@ class UpdateController extends StateNotifier<UpdateState> {
 
     state = state.copyWith(status: UpdateStatus.installing);
     final success = await _updateService.installUpdate(path);
-    if (!success) {
-      state = state.copyWith(
-        status: UpdateStatus.readyToInstall,
-        errorMessage: '打开安装程序失败',
-      );
-    }
+    state = state.copyWith(
+      status: UpdateStatus.readyToInstall,
+      errorMessage: success ? null : '打开安装程序失败',
+    );
     return success;
   }
 

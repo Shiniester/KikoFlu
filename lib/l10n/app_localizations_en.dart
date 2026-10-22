@@ -1342,9 +1342,7 @@ class SEn extends S {
   String get downloadComplete => 'Download complete';
 
   @override
-  String downloadFailed(String error) {
-    return 'Download failed: $error';
-  }
+  String get downloadFailed => 'Download failed';
 
   @override
   String get startDownload => 'Starting download';

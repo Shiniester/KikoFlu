@@ -1304,9 +1304,7 @@ class SZh extends S {
   String get downloadComplete => '下载完成';
 
   @override
-  String downloadFailed(String error) {
-    return '下载失败：$error';
-  }
+  String get downloadFailed => '下载失败';
 
   @override
   String get startDownload => '开始下载';
@@ -5509,9 +5507,7 @@ class SZhHant extends SZh {
   String get downloadComplete => '下載完成';
 
   @override
-  String downloadFailed(String error) {
-    return '下載失敗：$error';
-  }
+  String get downloadFailed => '下載失敗';
 
   @override
   String get startDownload => '開始下載';

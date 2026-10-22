@@ -1,3 +1,4 @@
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -179,6 +180,7 @@ class UpdateService {
   Map<String, dynamic>? findPlatformAsset(
     List<dynamic> assets, {
     String? targetPlatform,
+    Abi? targetAbi,
   }) {
     final os = targetPlatform ?? (kIsWeb ? 'web' : Platform.operatingSystem);
     final assetList = assets.whereType<Map<String, dynamic>>().toList();
@@ -217,11 +219,17 @@ class UpdateService {
         );
         break;
       case 'linux':
-        result = assetList.firstWhere(
-          (a) =>
-              (a['name'] as String? ?? '').toLowerCase().endsWith('.tar.gz'),
-          orElse: () => <String, dynamic>{},
-        );
+        final architecture = switch (targetAbi ?? Abi.current()) {
+          Abi.linuxX64 => 'x64',
+          Abi.linuxArm64 => 'arm64',
+          _ => null,
+        };
+        if (architecture == null) return null;
+        result = assetList.firstWhere((a) {
+          final name = (a['name'] as String? ?? '').toLowerCase();
+          return name.contains('linux-$architecture') &&
+              name.endsWith('.tar.gz');
+        }, orElse: () => <String, dynamic>{});
         break;
       case 'ios':
         result = assetList.firstWhere(

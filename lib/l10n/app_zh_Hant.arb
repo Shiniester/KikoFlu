@@ -1462,13 +1462,5 @@
   "cancelDownload": "取消下載",
   "noPlatformPackage": "未找到適用於當前系統的安裝包",
   "openReleasePage": "前往 GitHub 下載",
-  "installFailed": "開啟安裝程式失敗",
-  "downloadFailed": "下載失敗：{error}",
-  "@downloadFailed": {
-    "placeholders": {
-      "error": {
-        "type": "String"
-      }
-    }
-  }
+  "installFailed": "開啟安裝程式失敗"
 }
