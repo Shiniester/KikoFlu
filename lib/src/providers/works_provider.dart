@@ -252,30 +252,8 @@ class WorksNotifier extends StateNotifier<WorksState> {
     for (final mode in DisplayMode.values) mode: PagedRequestGate(),
   };
 
-  WorksNotifier(
-    this._apiService,
-    this._ref, {
-    int initialPageSize = 40,
-    SortOrder initialSortOption = SortOrder.release,
-    SortDirection initialSortDirection = SortDirection.desc,
-  }) : super(
-         WorksState(
-           basePageSize: initialPageSize,
-           sortOption: _normalizedSortOption(initialSortOption),
-           sortDirection: initialSortDirection,
-           japaneseAsmrSortOption: initialSortOption == SortOrder.review
-               ? JapaneseAsmrSortOption.comments
-               : JapaneseAsmrSortOption.date,
-           japaneseAsmrDirection:
-               initialSortOption == SortOrder.release ||
-                   initialSortOption == SortOrder.review
-               ? initialSortDirection
-               : SortDirection.desc,
-           asmrOneAgeRating: initialSortOption == SortOrder.nsfw
-               ? AgeRating.general
-               : AgeRating.all,
-         ),
-       ) {
+  WorksNotifier(this._apiService, this._ref, {int initialPageSize = 40})
+    : super(WorksState(basePageSize: initialPageSize)) {
     _loadLayoutPreference();
   }
 
@@ -604,41 +582,6 @@ class WorksNotifier extends StateNotifier<WorksState> {
     refresh(resetPage: true);
   }
 
-  void applyDefaultSort(SortOrder option, SortDirection direction) {
-    final normalizedOption = _normalizedSortOption(option);
-    final ageRating = option == SortOrder.nsfw
-        ? AgeRating.general
-        : AgeRating.all;
-    final japaneseAsmrSortOption = option == SortOrder.review
-        ? JapaneseAsmrSortOption.comments
-        : JapaneseAsmrSortOption.date;
-    final japaneseAsmrDirection =
-        option == SortOrder.release || option == SortOrder.review
-        ? direction
-        : SortDirection.desc;
-    if (state.sortOption == normalizedOption &&
-        state.sortDirection == direction &&
-        state.asmrOneAgeRating == ageRating &&
-        state.japaneseAsmrSortOption == japaneseAsmrSortOption &&
-        state.japaneseAsmrDirection == japaneseAsmrDirection) {
-      return;
-    }
-    for (final gate in _requestGates.values) {
-      gate.invalidate();
-    }
-    state = state.copyWith(
-      sortOption: normalizedOption,
-      sortDirection: direction,
-      asmrOneAgeRating: ageRating,
-      japaneseAsmrSortOption: japaneseAsmrSortOption,
-      japaneseAsmrDirection: japaneseAsmrDirection,
-      modeStates: {
-        for (final mode in DisplayMode.values) mode: const WorksModeSnapshot(),
-      },
-    );
-    refresh(resetPage: true);
-  }
-
   void setJapaneseAsmrSortOption(JapaneseAsmrSortOption option) {
     applyJapaneseAsmrSort(
       option,
@@ -846,15 +789,8 @@ SortOrder _normalizedSortOption(SortOrder option) =>
 final worksProvider = StateNotifierProvider<WorksNotifier, WorksState>((ref) {
   final apiService = ref.watch(kikoeruApiServiceProvider);
   final pageSize = ref.read(pageSizeProvider);
-  final defaultSort = ref.read(defaultSortProvider);
 
-  final notifier = WorksNotifier(
-    apiService,
-    ref,
-    initialPageSize: pageSize,
-    initialSortOption: defaultSort.order,
-    initialSortDirection: defaultSort.direction,
-  );
+  final notifier = WorksNotifier(apiService, ref, initialPageSize: pageSize);
 
   ref.listen(pageSizeProvider, (previous, next) {
     if (previous != next) {
@@ -864,13 +800,6 @@ final worksProvider = StateNotifierProvider<WorksNotifier, WorksState>((ref) {
 
   ref.listen(audioSourceProvider, (previous, next) {
     if (previous != next) notifier.onSourceChanged();
-  });
-
-  ref.listen(defaultSortProvider, (previous, next) {
-    if (previous?.order != next.order ||
-        previous?.direction != next.direction) {
-      notifier.applyDefaultSort(next.order, next.direction);
-    }
   });
 
   // 监听用户切换，自动刷新作品列表
