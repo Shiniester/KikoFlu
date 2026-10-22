@@ -443,6 +443,122 @@ void main() {
   });
 
   test(
+    'verifies the challenged catalog URL including sort parameters',
+    () async {
+      final adapter = _Adapter(
+        (request) => request.headers['Cookie'] == 'cf_clearance=verified'
+            ? _page('<main class="site-main">${_card(1)}</main>')
+            : _page(
+                '<script>window._cf_chl_opt = {}</script>',
+                statusCode: 403,
+                headers: {
+                  'cf-mitigated': ['challenge'],
+                },
+              ),
+      );
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+      await expectLater(
+        service.getWorks(
+          page: 1,
+          pageSize: 20,
+          sort: JapaneseAsmrSortOption.date,
+        ),
+        throwsA(isA<JapaneseAsmrVerificationRequiredException>()),
+      );
+      MethodCall? verification;
+      messenger.setMockMethodCallHandler(_verificationChannel, (call) async {
+        verification = call;
+        return {'cookie': 'cf_clearance=verified', 'userAgent': 'Browser UA'};
+      });
+
+      expect(
+        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
+        isTrue,
+      );
+      expect(
+        verification!.arguments['url'],
+        adapter.requests.single.uri.toString(),
+      );
+      final result = await service.getWorks(
+        page: 1,
+        pageSize: 20,
+        sort: JapaneseAsmrSortOption.date,
+      );
+      expect((result['works'] as List).single['id'], -1);
+    },
+  );
+
+  test(
+    'verifies the challenged tail page instead of the catalog root',
+    () async {
+      final adapter = _Adapter(
+        (request) => request.uri.path == '/page/3/'
+            ? _page('<script>window._cf_chl_opt = {}</script>')
+            : _page(
+                '<main class="site-main">${_card(1)}'
+                '<a class="next page-numbers">Next</a>'
+                '<a class="page-numbers">3</a></main>',
+              ),
+      );
+      final service = JapaneseAsmrService(
+        dio: Dio()..httpClientAdapter = adapter,
+      );
+      await expectLater(
+        service.getWorks(
+          page: 1,
+          pageSize: 1,
+          sort: JapaneseAsmrSortOption.title,
+        ),
+        throwsA(isA<JapaneseAsmrVerificationRequiredException>()),
+      );
+      messenger.setMockMethodCallHandler(_verificationChannel, (call) async {
+        expect(
+          call.arguments['url'],
+          'https://japaneseasmr.com/page/3/?order=desc&orderby=title',
+        );
+        return null;
+      });
+
+      expect(
+        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
+        isFalse,
+      );
+      expect(
+        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
+        isFalse,
+      );
+    },
+  );
+
+  test('empty clearance does not replace a verified session', () async {
+    var calls = 0;
+    messenger.setMockMethodCallHandler(
+      _verificationChannel,
+      (call) async => {
+        'cookie': calls++ == 0 ? 'cf_clearance=kept' : '',
+        'userAgent': 'Browser UA',
+      },
+    );
+    final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
+    final service = JapaneseAsmrService(
+      dio: Dio()..httpClientAdapter = adapter,
+    );
+    expect(
+      await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
+      isTrue,
+    );
+    expect(
+      await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
+      isFalse,
+    );
+
+    await service.getWorks(page: 1, pageSize: 20);
+    expect(adapter.requests.single.headers['Cookie'], 'cf_clearance=kept');
+  });
+
+  test(
     'uses the verified cookie and user agent only for Japanese ASMR',
     () async {
       final previousMode = ProxyConfig.mode;

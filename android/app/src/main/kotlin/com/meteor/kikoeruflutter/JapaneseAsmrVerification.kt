@@ -38,6 +38,7 @@ class JapaneseAsmrVerification(
     private class PendingRequest(val result: MethodChannel.Result) {
         var dialog: Dialog? = null
         var webView: WebView? = null
+        var pageCheck: Runnable? = null
         var proxyChanged = false
         var finishing = false
     }
@@ -111,6 +112,8 @@ class JapaneseAsmrVerification(
                 }
 
                 override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                    request.pageCheck?.let { view.removeCallbacks(it) }
+                    request.pageCheck = null
                     pageFailed = false
                     if (url == null || !isSiteUrl(Uri.parse(url))) {
                         pageFailed = true
@@ -135,19 +138,36 @@ class JapaneseAsmrVerification(
                     if (request.finishing || pageFailed || url == null ||
                         view.url != url || !isSiteUrl(Uri.parse(url))
                     ) return
-                    view.evaluateJavascript(
-                        "location.origin === 'https://japaneseasmr.com' && " +
-                            "document.querySelector('#site-main, .site-main') !== null"
-                    ) { loaded ->
-                        if (loaded == "true" && !request.finishing && !pageFailed && view.url == url) {
-                            val cookie = CookieManager.getInstance().getCookie(url)
-                                ?.split(';')
-                                ?.map { it.trim() }
-                                ?.firstOrNull { it.startsWith("cf_clearance=") }
-                                .orEmpty()
-                            finish(request, mapOf("cookie" to cookie, "userAgent" to view.settings.userAgentString))
+                    request.pageCheck?.let { view.removeCallbacks(it) }
+                    val check = object : Runnable {
+                        override fun run() {
+                            if (request.finishing || pageFailed || view.url != url ||
+                                request.pageCheck !== this
+                            ) return
+                            view.evaluateJavascript(
+                                "location.origin === 'https://japaneseasmr.com' && " +
+                                    "typeof window._cf_chl_opt === 'undefined' && " +
+                                    "!document.documentElement.innerHTML.includes('/orchestrate/chl_page/')"
+                            ) { loaded ->
+                                if (request.finishing || pageFailed || view.url != url ||
+                                    request.pageCheck !== this
+                                ) return@evaluateJavascript
+                                val cookie = CookieManager.getInstance().getCookie(url)
+                                    ?.split(';')
+                                    ?.map { it.trim() }
+                                    ?.firstOrNull { it.startsWith("cf_clearance=") && it.length > "cf_clearance=".length }
+                                if (loaded == "true" && cookie != null) {
+                                    CookieManager.getInstance().flush()
+                                    finish(request, mapOf("cookie" to cookie, "userAgent" to view.settings.userAgentString))
+                                } else {
+                                    // Clearance may be written after the catalog finishes loading.
+                                    view.postDelayed(this, 500)
+                                }
+                            }
                         }
                     }
+                    request.pageCheck = check
+                    check.run()
                 }
             }
 
@@ -209,6 +229,8 @@ class JapaneseAsmrVerification(
         request.dialog?.dismiss()
         request.dialog = null
         request.webView?.apply {
+            request.pageCheck?.let { removeCallbacks(it) }
+            request.pageCheck = null
             stopLoading()
             webChromeClient = null
             webViewClient = WebViewClient()

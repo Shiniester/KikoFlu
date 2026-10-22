@@ -36,6 +36,7 @@ class JapaneseAsmrService {
   );
   static const _sitePageSize = 14;
   final Dio _dio;
+  Uri? _verificationUri;
   String? _verificationCookie;
   String? _verificationUserAgent;
   int? _lastPostId;
@@ -79,17 +80,24 @@ class JapaneseAsmrService {
         cancelToken: cancelToken,
       );
       if (_isCloudflareChallenge(response.headers, response.data)) {
-        throw const JapaneseAsmrVerificationRequiredException();
+        _requireVerification(uri);
       }
       return response;
     } on DioException catch (error) {
       final response = error.response;
       if (response != null &&
           _isCloudflareChallenge(response.headers, response.data)) {
-        throw const JapaneseAsmrVerificationRequiredException();
+        _requireVerification(uri);
       }
       rethrow;
     }
+  }
+
+  Never _requireVerification(Uri uri) {
+    if (uri.origin == website.origin && uri.userInfo.isEmpty) {
+      _verificationUri = uri;
+    }
+    throw const JapaneseAsmrVerificationRequiredException();
   }
 
   bool _isCloudflareChallenge(Headers headers, Object? data) =>
@@ -104,7 +112,7 @@ class JapaneseAsmrService {
   }) async {
     final result = await _verificationChannel
         .invokeMapMethod<String, String>('verify', {
-          'url': website.toString(),
+          'url': (_verificationUri ?? website).toString(),
           'proxyMode': ProxyConfig.mode.name,
           'proxyAddress': ProxyConfig.httpsProxyUrl,
           'title': title,
@@ -116,12 +124,12 @@ class JapaneseAsmrService {
     if (cookie == null ||
         userAgent == null ||
         userAgent.trim().isEmpty ||
-        (cookie.isNotEmpty &&
-            !RegExp(r'^cf_clearance=[^;\r\n]+$').hasMatch(cookie))) {
+        !RegExp(r'^cf_clearance=[^;\r\n]+$').hasMatch(cookie)) {
       return false;
     }
-    _verificationCookie = cookie.isEmpty ? null : cookie;
+    _verificationCookie = cookie;
     _verificationUserAgent = userAgent;
+    _verificationUri = null;
     return true;
   }
 
