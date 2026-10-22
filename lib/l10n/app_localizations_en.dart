@@ -4428,7 +4428,25 @@ class SEn extends S {
 
   @override
   String get videoVerificationRequired =>
-      'MissAV requires browser verification. Continue on MissAV or retry later.';
+      'MissAV requires browser verification. Verify access, then retry.';
+
+  @override
+  String get videoVerifyAccess => 'Verify access';
+
+  @override
+  String get videoVerificationHelp =>
+      'Complete verification on MissAV, then select Check access.';
+
+  @override
+  String get videoVerificationContinue => 'Check access';
+
+  @override
+  String get videoVerificationFailed =>
+      'Access check failed. Complete browser verification, then retry.';
+
+  @override
+  String get videoVerificationSystemProxyRequired =>
+      'Browser verification requires the system proxy mode. Change the network settings, then retry.';
 
   @override
   String get videoLoginRequired =>

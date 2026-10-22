@@ -8,6 +8,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../missav_client.dart';
+import '../missav_verification.dart';
 import '../video_download_task.dart';
 import '../video_downloads.dart';
 import '../video_library.dart';
@@ -43,6 +44,9 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
   bool _loading = true;
   bool _favorite = false;
   String? _error;
+  MissavVerificationRequiredException? _verificationError;
+  bool _verifyingAccess = false;
+  bool _accountChangedDuringVerification = false;
   int _loadGeneration = 0;
   bool _accountWasLoggedIn = false;
   String? _accountName;
@@ -83,6 +87,11 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
     _accountWasLoggedIn = isLoggedIn;
     _accountName = accountName;
     if (!mounted || _isOffline) return;
+    if (_verifyingAccess) {
+      _loadGeneration++;
+      _accountChangedDuringVerification = true;
+      return;
+    }
 
     final covered = ModalRoute.of(context)?.isCurrent == false;
     if (_loading && !covered) return;
@@ -92,6 +101,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
       _favorite = false;
       _selectedStream = null;
       _error = null;
+      _verificationError = null;
       _loading = true;
     });
     unawaited(_initialize());
@@ -102,6 +112,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _verificationError = null;
     });
     try {
       await Future.wait([_library.initialize(), _downloads.initialize()]);
@@ -135,6 +146,9 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
       setState(() {
         _loading = false;
         _error = error.toString();
+        _verificationError = error is MissavVerificationRequiredException
+            ? error
+            : null;
       });
     }
   }
@@ -164,6 +178,50 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
         SnackBar(content: Text(S.of(context).videoSourceUnavailable)),
       );
     }
+  }
+
+  Future<void> _verifyAndRetry() async {
+    final verification = _verificationError;
+    if (verification == null) return;
+    _verifyingAccess = true;
+    var verified = false;
+    try {
+      verified = await verifyMissavAccess(
+        context,
+        _client,
+        sourceUrl: verification.sourceUrl ?? widget.video.pageUrl,
+      );
+    } catch (_) {
+      verified = false;
+    } finally {
+      _verifyingAccess = false;
+    }
+    if (!mounted) return;
+    if (_accountChangedDuringVerification) {
+      _accountChangedDuringVerification = false;
+      if (!verified) {
+        setState(() {
+          _details = null;
+          _favorite = false;
+          _selectedStream = null;
+          _loading = false;
+          _error = verification.toString();
+          _verificationError = verification;
+        });
+        return;
+      }
+      setState(() {
+        _details = null;
+        _favorite = false;
+        _selectedStream = null;
+        _error = null;
+        _verificationError = null;
+        _loading = true;
+      });
+    } else if (!verified) {
+      return;
+    }
+    await _initialize();
   }
 
   Future<void> _sourceFallback([String? url]) async {
@@ -408,14 +466,6 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
     builder: (_) => VideoDetailsScreen(video: video),
   );
 
-  bool _isVerificationError(String value) {
-    final normalized = value.toLowerCase();
-    return normalized.contains('verif') ||
-        normalized.contains('challenge') ||
-        normalized.contains('captcha') ||
-        normalized.contains('403');
-  }
-
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
@@ -472,7 +522,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
   }
 
   Widget _buildLoadFailure(S s) {
-    final label = _isVerificationError(_error!)
+    final label = _verificationError != null
         ? s.videoVerificationRequired
         : s.videoLoadFailed;
     return Center(
@@ -492,6 +542,12 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
                   icon: const Icon(Icons.refresh),
                   label: Text(s.retry),
                 ),
+                if (_verificationError != null)
+                  OutlinedButton.icon(
+                    onPressed: _verifyAndRetry,
+                    icon: const Icon(Icons.verified_user_outlined),
+                    label: Text(s.videoVerifyAccess),
+                  ),
                 OutlinedButton.icon(
                   onPressed: () => unawaited(_openSource()),
                   icon: const Icon(Icons.open_in_new),

@@ -19,17 +19,15 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
-import androidx.webkit.ProxyConfig
-import androidx.webkit.ProxyController
 import androidx.webkit.WebViewFeature
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
-import java.util.concurrent.Executor
 
-class JapaneseAsmrVerification(
+internal class JapaneseAsmrVerification(
     private val activity: Activity,
-    messenger: BinaryMessenger
+    messenger: BinaryMessenger,
+    private val proxyCoordinator: WebViewProxyCoordinator
 ) : MethodChannel.MethodCallHandler {
     companion object {
         const val CHANNEL_NAME = "com.meteor.kikoeruflutter/japanese_asmr"
@@ -38,12 +36,10 @@ class JapaneseAsmrVerification(
     private class PendingRequest(val result: MethodChannel.Result) {
         var dialog: Dialog? = null
         var webView: WebView? = null
-        var proxyChanged = false
         var finishing = false
     }
 
     private val channel = MethodChannel(messenger, CHANNEL_NAME)
-    private val executor = Executor { activity.runOnUiThread(it) }
     private var pendingRequest: PendingRequest? = null
 
     init {
@@ -179,12 +175,25 @@ class JapaneseAsmrVerification(
             val load = Runnable {
                 if (!request.finishing) webView.loadUrl(url)
             }
-            val config = ProxyConfig.Builder().apply {
-                if (proxyMode == "direct" || proxyAddress.isNullOrBlank()) addDirect()
-                else addProxyRule(proxyAddress)
-            }.build()
-            request.proxyChanged = true
-            ProxyController.getInstance().setProxyOverride(config, executor, load)
+            proxyCoordinator.acquire(
+                WebViewProxyCoordinator.Owner.JAPANESE_ASMR,
+                proxyMode!!,
+                proxyAddress
+            ) { failure ->
+                if (failure != null) {
+                    finish(
+                        request,
+                        errorCode = if (failure.code == "proxy_configuration_failed") {
+                            "verification_unavailable"
+                        } else {
+                            failure.code
+                        },
+                        errorMessage = failure.message
+                    )
+                } else {
+                    load.run()
+                }
+            }
         } catch (error: Exception) {
             finish(request, errorCode = "verification_unavailable", errorMessage = error.message)
         }
@@ -224,15 +233,15 @@ class JapaneseAsmrVerification(
                 else request.result.error(errorCode, errorMessage, null)
             }
         }
-        if (request.proxyChanged) {
-            try {
-                ProxyController.getInstance().clearProxyOverride(executor, complete)
-            } catch (error: Exception) {
-                pendingRequest = null
-                request.result.error("proxy_cleanup_failed", error.message, null)
+        proxyCoordinator.release(WebViewProxyCoordinator.Owner.JAPANESE_ASMR) { failure ->
+            if (failure != null) {
+                if (pendingRequest === request) {
+                    pendingRequest = null
+                    request.result.error("proxy_cleanup_failed", failure.message, null)
+                }
+            } else {
+                complete.run()
             }
-        } else {
-            complete.run()
         }
     }
 

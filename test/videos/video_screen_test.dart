@@ -65,6 +65,7 @@ void main() {
   testWidgets('logout clears and reloads an account catalog on return', (
     tester,
   ) async {
+    var browserCleanupCalls = 0;
     final client = _TestMissavClient(
       loggedIn: true,
       accountName: 'Account A',
@@ -93,6 +94,7 @@ void main() {
         library,
         downloads,
         const VideoScreen.catalog(url: 'https://missav.ai/cn/favorites'),
+        clearBrowserSession: () async { browserCleanupCalls++; },
       ),
     );
     await tester.pumpAndSettle();
@@ -106,6 +108,7 @@ void main() {
     await tester.tap(find.text(l10n.logout));
     await tester.pumpAndSettle();
     expect(client.isLoggedIn, isFalse);
+    expect(browserCleanupCalls, 1);
     await tester.pageBack();
     await tester.pumpAndSettle();
 
@@ -192,6 +195,28 @@ void main() {
 
   testWidgets('source challenge exposes a source action', (tester) async {
     final client = _TestMissavClient(
+      browseError: const MissavVerificationRequiredException(
+        sourceUrl: 'https://missav.ai/cn',
+      ),
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    await tester.pumpAndSettle();
+
+    final l10n = await S.delegate.load(const Locale('en'));
+    expect(find.text(l10n.videoVerificationRequired), findsOneWidget);
+    expect(find.text(l10n.videoVerifyAccess), findsOneWidget);
+    expect(find.text(l10n.videoOpenSource), findsOneWidget);
+  });
+
+  testWidgets('ordinary error does not offer browser verification', (
+    tester,
+  ) async {
+    final client = _TestMissavClient(
       browseError: const MissavException(
         'MissAV requires browser verification.',
         sourceUrl: 'https://missav.ai/cn',
@@ -206,7 +231,8 @@ void main() {
     await tester.pumpAndSettle();
 
     final l10n = await S.delegate.load(const Locale('en'));
-    expect(find.text(l10n.videoVerificationRequired), findsOneWidget);
+    expect(find.text(l10n.videoLoadFailed), findsOneWidget);
+    expect(find.text(l10n.videoVerifyAccess), findsNothing);
     expect(find.text(l10n.videoOpenSource), findsOneWidget);
   });
 
@@ -298,11 +324,13 @@ Widget _app(
   VideoDownloads downloads,
   Widget home, {
   double textScale = 1,
+  Future<void> Function()? clearBrowserSession,
 }) => ProviderScope(
   overrides: [
     videoClientProvider.overrideWith((ref) => client),
     videoLibraryProvider.overrideWith((ref) => library),
     videoDownloadsProvider.overrideWith((ref) => downloads),
+    videoBrowserSessionCleanupProvider.overrideWithValue(clearBrowserSession ?? () async {}),
     currentTrackProvider.overrideWith((ref) => Stream.value(null)),
   ],
   child: MaterialApp(

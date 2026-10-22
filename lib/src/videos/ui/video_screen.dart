@@ -9,6 +9,7 @@ import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../../widgets/library_page_scaffold.dart';
 import '../missav_client.dart';
+import '../missav_verification.dart';
 import '../video_downloads.dart';
 import '../video_library.dart';
 import '../video_models.dart';
@@ -39,7 +40,10 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   late final VideoDownloads _downloads;
   VideoCatalogPage? _page;
   bool _loading = false;
+  bool _verifyingAccess = false;
   String? _error;
+  MissavVerificationRequiredException? _verificationError;
+  Future<void> Function()? _retryRequest;
   int _request = 0;
   bool _dependenciesReady = false;
   bool _accountWasLoggedIn = false;
@@ -99,6 +103,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   Future<void> _initialize() async {
+    _retryRequest = () => _initialize();
     try {
       await Future.wait([
         _client.initialize(),
@@ -115,7 +120,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = error.toString();
+        _recordError(error);
       });
     }
   }
@@ -141,6 +146,8 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     setState(() {
       _page = null;
       _error = null;
+      _verificationError = null;
+      _retryRequest = null;
       _loading = false;
     });
     if (!_dependenciesReady) return;
@@ -152,7 +159,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   void _onRouteStatusChanged(AnimationStatus _) {
-    if (!mounted) return;
+    if (!mounted || _verifyingAccess) return;
     final url = _pendingAccountReloadUrl;
     if (url == null || _route?.isCurrent != true || !widget.active) return;
     _pendingAccountReloadUrl = null;
@@ -161,9 +168,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
 
   Future<void> _loadUrl(String url) async {
     final request = ++_request;
+    _retryRequest = () => _loadUrl(url);
     setState(() {
       _loading = true;
       _error = null;
+      _verificationError = null;
     });
     try {
       final page = await _client.browse(url);
@@ -172,12 +181,13 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         _page = page;
         _loading = false;
         _error = null;
+        _verificationError = null;
       });
     } catch (error) {
       if (!mounted || request != _request) return;
       setState(() {
         _loading = false;
-        _error = error.toString();
+        _recordError(error);
       });
     }
   }
@@ -210,10 +220,16 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     );
     controller.dispose();
     if (!mounted || query == null || query.isEmpty) return;
+    await _searchCatalog(query);
+  }
+
+  Future<void> _searchCatalog(String query) async {
     final request = ++_request;
+    _retryRequest = () => _searchCatalog(query);
     setState(() {
       _loading = true;
       _error = null;
+      _verificationError = null;
     });
     try {
       final page = await _client.search(query);
@@ -221,13 +237,59 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       setState(() {
         _page = page;
         _loading = false;
+        _error = null;
+        _verificationError = null;
       });
     } catch (error) {
       if (!mounted || request != _request) return;
       setState(() {
         _loading = false;
-        _error = error.toString();
+        _recordError(error);
       });
+    }
+  }
+
+  void _recordError(Object error) {
+    _error = error.toString();
+    _verificationError = error is MissavVerificationRequiredException
+        ? error
+        : null;
+  }
+
+  Future<void> _retryCurrentPage() async {
+    final retry = _retryRequest;
+    if (retry != null) {
+      await retry();
+    } else {
+      await _loadUrl(widget.initialUrl ?? _client.homeUrl);
+    }
+  }
+
+  Future<void> _verifyAndRetry() async {
+    final verification = _verificationError;
+    if (verification == null) return;
+    final retry =
+        _retryRequest ?? () => _loadUrl(widget.initialUrl ?? _client.homeUrl);
+    _verifyingAccess = true;
+    var verified = false;
+    try {
+      verified = await verifyMissavAccess(
+        context,
+        _client,
+        sourceUrl: verification.sourceUrl ?? _client.homeUrl,
+      );
+    } catch (_) {
+      verified = false;
+    } finally {
+      _verifyingAccess = false;
+    }
+    if (!mounted) return;
+    final pendingAccountReloadUrl = _pendingAccountReloadUrl;
+    _pendingAccountReloadUrl = null;
+    if (verified) {
+      await retry();
+    } else if (pendingAccountReloadUrl != null) {
+      await _loadUrl(pendingAccountReloadUrl);
     }
   }
 
@@ -560,13 +622,8 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
 
   String _errorMessage(S s) {
     if (_error == null) return s.videoLoadFailed;
+    if (_verificationError != null) return s.videoVerificationRequired;
     final normalized = _error!.toLowerCase();
-    if (normalized.contains('verif') ||
-        normalized.contains('challenge') ||
-        normalized.contains('captcha') ||
-        normalized.contains('403')) {
-      return s.videoVerificationRequired;
-    }
     if (normalized.contains('login') || normalized.contains('authentication')) {
       return s.videoLoginRequired;
     }
@@ -664,12 +721,16 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                 spacing: 8,
                 children: [
                   FilledButton.icon(
-                    onPressed: () => unawaited(
-                      _loadUrl(widget.initialUrl ?? _client.homeUrl),
-                    ),
+                    onPressed: _retryCurrentPage,
                     icon: const Icon(Icons.refresh),
                     label: Text(s.retry),
                   ),
+                  if (_verificationError != null)
+                    OutlinedButton.icon(
+                      onPressed: _verifyAndRetry,
+                      icon: const Icon(Icons.verified_user_outlined),
+                      label: Text(s.videoVerifyAccess),
+                    ),
                   OutlinedButton.icon(
                     onPressed: () => unawaited(
                       _openSource(widget.initialUrl ?? _client.homeUrl),
@@ -730,9 +791,15 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                           child: Text(_errorMessage(s)),
                         ),
                         TextButton(
-                          onPressed: () => unawaited(_loadUrl(page.url)),
+                          onPressed: _retryCurrentPage,
                           child: Text(s.retry),
                         ),
+                        if (_verificationError != null)
+                          TextButton.icon(
+                            onPressed: _verifyAndRetry,
+                            icon: const Icon(Icons.verified_user_outlined),
+                            label: Text(s.videoVerifyAccess),
+                          ),
                         TextButton(
                           onPressed: () => unawaited(_openSource(page.url)),
                           child: Text(s.videoOpenSource),

@@ -7885,8 +7885,38 @@ abstract class S {
   /// No description provided for @videoVerificationRequired.
   ///
   /// In en, this message translates to:
-  /// **'MissAV requires browser verification. Continue on MissAV or retry later.'**
+  /// **'MissAV requires browser verification. Verify access, then retry.'**
   String get videoVerificationRequired;
+
+  /// No description provided for @videoVerifyAccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify access'**
+  String get videoVerifyAccess;
+
+  /// No description provided for @videoVerificationHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Complete verification on MissAV, then select Check access.'**
+  String get videoVerificationHelp;
+
+  /// No description provided for @videoVerificationContinue.
+  ///
+  /// In en, this message translates to:
+  /// **'Check access'**
+  String get videoVerificationContinue;
+
+  /// No description provided for @videoVerificationFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Access check failed. Complete browser verification, then retry.'**
+  String get videoVerificationFailed;
+
+  /// No description provided for @videoVerificationSystemProxyRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Browser verification requires the system proxy mode. Change the network settings, then retry.'**
+  String get videoVerificationSystemProxyRequired;
 
   /// No description provided for @videoLoginRequired.
   ///

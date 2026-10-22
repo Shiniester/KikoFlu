@@ -168,3 +168,8 @@ class MissavAuthenticationException extends MissavException {
     String? sourceUrl,
   }) : super(message, sourceUrl: sourceUrl);
 }
+
+class MissavVerificationRequiredException extends MissavException {
+  const MissavVerificationRequiredException({required String sourceUrl})
+    : super('MissAV requires browser verification.', sourceUrl: sourceUrl);
+}

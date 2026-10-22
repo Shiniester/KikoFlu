@@ -7,6 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../missav_client.dart';
+import '../missav_verification.dart';
+import '../video_models.dart';
 import '../video_providers.dart';
 
 class VideoAccountScreen extends ConsumerStatefulWidget {
@@ -23,6 +25,7 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
   bool _loading = false;
   bool _ready = false;
   String? _error;
+  MissavVerificationRequiredException? _verificationError;
 
   @override
   void initState() {
@@ -35,11 +38,16 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     try {
       await _client.initialize();
       if (mounted) setState(() => _ready = true);
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
         setState(() {
           _ready = true;
-          _error = S.of(context).videoSourceUnavailable;
+          _verificationError = error is MissavVerificationRequiredException
+              ? error
+              : null;
+          _error = _verificationError == null
+              ? S.of(context).videoSourceUnavailable
+              : S.of(context).videoVerificationRequired;
         });
       }
     }
@@ -60,34 +68,67 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
         password: _passwordController.text,
       );
       if (!mounted) return;
-      setState(() => _loading = false);
+      _passwordController.clear();
+      setState(() {
+        _loading = false;
+        _error = null;
+        _verificationError = null;
+      });
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(S.of(context).loginSuccess)));
-    } catch (error) {
+    } on MissavVerificationRequiredException catch (error) {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = _isVerificationError(error)
-            ? S.of(context).videoVerificationRequired
-            : S.of(context).loginFailed;
+        _error = S.of(context).videoVerificationRequired;
+        _verificationError = error;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = S.of(context).loginFailed;
+        _verificationError = null;
       });
     }
   }
 
   Future<void> _logout() async {
+    final clearBrowserSession = ref.read(videoBrowserSessionCleanupProvider);
     setState(() => _loading = true);
+    Object? logoutError;
     try {
       await _client.logout();
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(S.of(context).videoSourceUnavailable)),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
+    } catch (error) {
+      logoutError = error;
     }
+    try {
+      await clearBrowserSession();
+    } catch (error) {
+      logoutError ??= error;
+    }
+    if (logoutError != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(S.of(context).videoSourceUnavailable)),
+      );
+    }
+    if (mounted) {
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _verifyAccess() async {
+    final verified = await verifyMissavAccess(
+      context,
+      _client,
+      sourceUrl: _verificationError?.sourceUrl ?? _client.homeUrl,
+    );
+    if (!mounted || !verified) return;
+    setState(() {
+      _error = null;
+      _verificationError = null;
+    });
   }
 
   Future<void> _openSource() async {
@@ -190,6 +231,11 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                                 )
                               : Text(s.login),
                         ),
+                        OutlinedButton.icon(
+                          onPressed: _loading ? null : _verifyAccess,
+                          icon: const Icon(Icons.verified_user_outlined),
+                          label: Text(s.videoVerifyAccess),
+                        ),
                         TextButton(
                           onPressed: _openSource,
                           child: Text(s.videoRegisterOnSource),
@@ -216,12 +262,4 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
       ),
     );
   }
-}
-
-bool _isVerificationError(Object error) {
-  final message = error.toString().toLowerCase();
-  return message.contains('verif') ||
-      message.contains('challenge') ||
-      message.contains('captcha') ||
-      message.contains('403');
 }

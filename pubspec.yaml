@@ -91,6 +91,8 @@ dependencies:
   package_info_plus: ^9.0.0
   window_manager: ^0.4.3
   desktop_multi_window: ^0.3.0
+  desktop_webview_window: ^0.4.0
+  webview_flutter: ^4.14.1
   audio_session: ^0.1.25
   ffi: ^2.1.4
   sherpa_onnx: 1.13.8

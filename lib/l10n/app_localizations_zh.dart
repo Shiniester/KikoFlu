@@ -4283,7 +4283,23 @@ class SZh extends S {
   String get videoSourceUnavailable => '此功能暂无法在应用内使用，可打开源站。';
 
   @override
-  String get videoVerificationRequired => '源站要求浏览器验证，可打开源站或稍后重试。';
+  String get videoVerificationRequired => '源站要求浏览器验证。请先验证访问，再重试。';
+
+  @override
+  String get videoVerifyAccess => '验证访问';
+
+  @override
+  String get videoVerificationHelp => '完成源站验证后，点击“检查访问”。';
+
+  @override
+  String get videoVerificationContinue => '检查访问';
+
+  @override
+  String get videoVerificationFailed => '访问检查未通过。请完成浏览器验证后重试。';
+
+  @override
+  String get videoVerificationSystemProxyRequired =>
+      '浏览器验证需要使用系统代理。请在网络设置中切换后重试。';
 
   @override
   String get videoLoginRequired => '登录 MissAV 账号后可使用此功能。';
@@ -8649,7 +8665,23 @@ class SZhHant extends SZh {
   String get videoSourceUnavailable => '此功能暫時無法在應用程式內使用，可開啟來源網站。';
 
   @override
-  String get videoVerificationRequired => '來源網站要求瀏覽器驗證，可開啟來源網站或稍後重試。';
+  String get videoVerificationRequired => '來源網站要求瀏覽器驗證。請先驗證存取，再重試。';
+
+  @override
+  String get videoVerifyAccess => '驗證存取';
+
+  @override
+  String get videoVerificationHelp => '完成來源網站驗證後，按一下「檢查存取」。';
+
+  @override
+  String get videoVerificationContinue => '檢查存取';
+
+  @override
+  String get videoVerificationFailed => '存取檢查未通過。請完成瀏覽器驗證後重試。';
+
+  @override
+  String get videoVerificationSystemProxyRequired =>
+      '瀏覽器驗證需要使用系統代理。請在網路設定中切換後重試。';
 
   @override
   String get videoLoginRequired => '登入 MissAV 帳號後可使用此功能。';

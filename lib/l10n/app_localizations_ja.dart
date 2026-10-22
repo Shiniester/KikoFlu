@@ -4306,7 +4306,24 @@ class SJa extends S {
 
   @override
   String get videoVerificationRequired =>
-      'MissAV でブラウザー認証が必要です。サイトで続けるか、後で再試行してください。';
+      'MissAV でブラウザー認証が必要です。アクセスを確認してから再試行してください。';
+
+  @override
+  String get videoVerifyAccess => 'アクセス認証';
+
+  @override
+  String get videoVerificationHelp => 'MissAV で認証を完了してから「アクセスを確認」を選択してください。';
+
+  @override
+  String get videoVerificationContinue => 'アクセスを確認';
+
+  @override
+  String get videoVerificationFailed =>
+      'アクセスを確認できませんでした。ブラウザー認証を完了してから再試行してください。';
+
+  @override
+  String get videoVerificationSystemProxyRequired =>
+      'ブラウザー認証にはシステムプロキシモードが必要です。ネットワーク設定を変更してから再試行してください。';
 
   @override
   String get videoLoginRequired => 'この機能を使うには MissAV にログインしてください。';

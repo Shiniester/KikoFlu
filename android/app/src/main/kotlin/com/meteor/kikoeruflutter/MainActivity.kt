@@ -4,6 +4,7 @@ import android.content.Intent
 import android.view.WindowManager
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.net.InetSocketAddress
 import java.net.Proxy
@@ -15,6 +16,8 @@ class MainActivity : AudioServiceActivity() {
     private var audioHapticsBridge: AudioHapticsBridge? = null
     private var subtitleDirectoryPicker: SubtitleDirectoryPicker? = null
     private var japaneseAsmrVerification: JapaneseAsmrVerification? = null
+    private var missavBrowserBridge: MissavBrowserBridge? = null
+    private val webViewProxyCoordinator = WebViewProxyCoordinator
     private val screenAwakeChannelName = "com.meteor.kikoeruflutter/screen_awake"
     private val systemProxyChannelName = "com.meteor.kikoeruflutter/system_proxy"
 
@@ -39,7 +42,13 @@ class MainActivity : AudioServiceActivity() {
         )
         japaneseAsmrVerification = JapaneseAsmrVerification(
             activity = this,
-            messenger = flutterEngine.dartExecutor.binaryMessenger
+            messenger = flutterEngine.dartExecutor.binaryMessenger,
+            proxyCoordinator = webViewProxyCoordinator
+        )
+        missavBrowserBridge = MissavBrowserBridge(
+            activity = this,
+            messenger = flutterEngine.dartExecutor.binaryMessenger,
+            proxyCoordinator = webViewProxyCoordinator
         )
 
         MethodChannel(
@@ -48,6 +57,7 @@ class MainActivity : AudioServiceActivity() {
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getSystemProxy" -> result.success(getSystemProxy())
+                "updateWebViewProxy" -> updateWebViewProxy(call, result)
                 else -> result.notImplemented()
             }
         }
@@ -113,6 +123,23 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
+    private fun updateWebViewProxy(call: MethodCall, result: MethodChannel.Result) {
+        val arguments = call.arguments as? Map<*, *>
+        val mode = arguments?.get("mode") as? String
+        val rawProxyUrl = arguments?.get("proxyUrl")
+        if (arguments == null || mode == null ||
+            (rawProxyUrl != null && rawProxyUrl !is String)
+        ) {
+            result.error("invalid_arguments", "Invalid proxy configuration.", null)
+            return
+        }
+
+        webViewProxyCoordinator.updateConfiguration(mode, rawProxyUrl as? String) { failure ->
+            if (failure == null) result.success(null)
+            else result.error(failure.code, failure.message, null)
+        }
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (subtitleDirectoryPicker?.handleActivityResult(requestCode, resultCode, data) == true) {
@@ -128,6 +155,8 @@ class MainActivity : AudioServiceActivity() {
         audioHapticsBridge = null
         subtitleDirectoryPicker?.dispose()
         subtitleDirectoryPicker = null
+        missavBrowserBridge?.dispose()
+        missavBrowserBridge = null
         japaneseAsmrVerification?.dispose()
         japaneseAsmrVerification = null
         super.onDestroy()

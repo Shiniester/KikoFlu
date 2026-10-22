@@ -154,6 +154,15 @@ class MediaKitVideoPlaybackSession implements VideoPlaybackSession {
     _update((old) => old.copyWith(clearError: true));
     await _configureProxy;
     final platform = _player.platform;
+    if (platform is NativePlayer) {
+      final uri = Uri.parse(stream.url);
+      await platform.setProperty(
+        'http-proxy',
+        ProxyConfig.findProxyFor(uri) == 'DIRECT'
+            ? ''
+            : ProxyConfig.httpsProxyUrl ?? '',
+      );
+    }
     if (defaultTargetPlatform == TargetPlatform.windows &&
         platform is NativePlayer) {
       await platform.setProperty('load-unsafe-playlists', 'no');

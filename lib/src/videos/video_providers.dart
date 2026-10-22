@@ -1,11 +1,16 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'missav_client.dart';
+import 'missav_verification.dart';
 import 'video_downloads.dart';
 import 'video_library.dart';
 
 final videoClientProvider = ChangeNotifierProvider<MissavClient>(
   (ref) => MissavClient(),
+);
+
+final videoBrowserSessionCleanupProvider = Provider<Future<void> Function()>(
+  (ref) => clearMissavBrowserSession,
 );
 
 final videoLibraryProvider = ChangeNotifierProvider<VideoLibrary>(
