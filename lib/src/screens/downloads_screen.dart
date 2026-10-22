@@ -8,10 +8,23 @@ import '../services/download_service.dart';
 import '../utils/string_utils.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/ui_tokens.dart';
+import '../widgets/responsive_dialog.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 
+Future<void> showDownloadTasksSheet(BuildContext context) async {
+  final screenHeight = MediaQuery.sizeOf(context).height;
+  await showResponsiveBottomSheet<void>(
+    context: context,
+    maxWidth: 560,
+    maxHeight: screenHeight * 0.84,
+    builder: (_) => const DownloadsScreen(asSheet: true),
+  );
+}
+
 class DownloadsScreen extends ConsumerStatefulWidget {
-  const DownloadsScreen({super.key});
+  const DownloadsScreen({super.key, this.asSheet = false});
+
+  final bool asSheet;
 
   @override
   ConsumerState<DownloadsScreen> createState() => _DownloadsScreenState();
@@ -105,15 +118,24 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
             .where((task) => task.status != DownloadStatus.completed)
             .map((task) => task.id)
             .toList(growable: false);
-    return Scaffold(
+    final screen = Scaffold(
       appBar: AppBar(
         scrolledUnderElevation: 0,
+        automaticallyImplyLeading: !widget.asSheet,
         title: _isSelectionMode
             ? Text(S.of(context).selectedCount(_selectedTaskIds.length))
-            : Text(S.of(context).downloadTasks, style: UiTextStyles.pageTitle),
+            : Text(
+                S.of(context).downloadTasks,
+                style: widget.asSheet
+                    ? Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      )
+                    : UiTextStyles.pageTitle,
+              ),
         leading: _isSelectionMode
             ? IconButton(
                 icon: const Icon(Icons.close),
+                tooltip: widget.asSheet ? S.of(context).close : null,
                 onPressed: _toggleSelectionMode,
               )
             : null,
@@ -171,9 +193,26 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
                   onPressed: _toggleSelectionMode,
                   tooltip: S.of(context).select,
                 ),
+                if (widget.asSheet)
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    tooltip: S.of(context).close,
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
               ],
       ),
       body: _buildDownloadingList(activeTaskIds),
+    );
+    if (!widget.asSheet) return screen;
+
+    return SafeArea(
+      top: false,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.84,
+        ),
+        child: screen,
+      ),
     );
   }
 

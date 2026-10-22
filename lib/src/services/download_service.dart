@@ -226,6 +226,16 @@ class DownloadService implements DownloadTaskRepository {
     return workDir.path;
   }
 
+  Future<void> _discardDownloadCheckpoint(int workId, String fileName) async {
+    final workDir = await _getWorkDownloadDirectory(workId);
+    final filePath = DownloadFilePathService.localPathForRelativePath(
+      rootPath: workDir,
+      relativePath: fileName,
+    );
+    final partialFile = File('$filePath.downloading');
+    if (await partialFile.exists()) await partialFile.delete();
+  }
+
   File _workMetadataFile(Directory workDir) {
     return File(
       p.join(workDir.path, LocalWorkMetadataService.metadataFileName),
@@ -609,6 +619,7 @@ class DownloadService implements DownloadTaskRepository {
     Map<String, dynamic>? workMetadata,
     String? coverUrl,
     String? relativePath, // 相对路径，用于按文件树组织
+    bool forceDownload = false,
   }) {
     final safeFileName = relativePath != null && relativePath.isNotEmpty
         ? '${DownloadFilePathService.safeRelativePath(relativePath)}/'
@@ -632,6 +643,7 @@ class DownloadService implements DownloadTaskRepository {
       totalBytes: totalBytes,
       workMetadata: workMetadata,
       coverUrl: coverUrl,
+      forceDownload: forceDownload,
     );
     _pendingTaskAdds[identity] = operation;
     unawaited(
@@ -660,6 +672,7 @@ class DownloadService implements DownloadTaskRepository {
     int? totalBytes,
     Map<String, dynamic>? workMetadata,
     String? coverUrl,
+    required bool forceDownload,
   }) async {
     // 检查是否已存在
     final existingTask = _findTask(
@@ -669,6 +682,44 @@ class DownloadService implements DownloadTaskRepository {
     );
 
     if (existingTask != null) {
+      if (forceDownload) {
+        if (existingTask.status == DownloadStatus.downloading) {
+          return existingTask;
+        }
+        if (existingTask.status == DownloadStatus.pending) {
+          _updateTask(
+            existingTask.copyWith(status: DownloadStatus.paused),
+            immediate: true,
+          );
+        }
+        await _waitForRunningDownload(existingTask.id);
+        final latestTask = taskById(existingTask.id);
+        if (latestTask == null) return existingTask;
+        await _discardDownloadCheckpoint(
+          latestTask.workId,
+          latestTask.fileName,
+        );
+        final refreshedTask = DownloadTask(
+          id: latestTask.id,
+          workId: latestTask.workId,
+          workTitle: workTitle,
+          fileName: latestTask.fileName,
+          downloadUrl: downloadUrl,
+          hash: hash,
+          totalBytes: totalBytes ?? latestTask.totalBytes,
+          downloadedBytes: 0,
+          status: DownloadStatus.pending,
+          createdAt: latestTask.createdAt,
+          workMetadata: workMetadata ?? latestTask.workMetadata,
+          forceDownload: true,
+        );
+        _updateTask(refreshedTask, immediate: true);
+        if (workMetadata != null) {
+          await _saveWorkMetadata(workId, workMetadata, coverUrl);
+        }
+        unawaited(_processQueue());
+        return refreshedTask;
+      }
       if (existingTask.status == DownloadStatus.completed) {
         // 如果任务已完成但没有元数据，更新元数据
         if (existingTask.workMetadata == null && workMetadata != null) {
@@ -685,7 +736,7 @@ class DownloadService implements DownloadTaskRepository {
     }
 
     // 检查缓存中是否已有此文件
-    if (hash != null && hash.isNotEmpty) {
+    if (!forceDownload && hash != null && hash.isNotEmpty) {
       final cachedFile = await CacheService.getCachedAudioFile(hash);
       if (cachedFile != null) {
         // 从缓存移动到下载目录
@@ -730,6 +781,10 @@ class DownloadService implements DownloadTaskRepository {
       }
     }
 
+    if (forceDownload) {
+      await _discardDownloadCheckpoint(workId, fileName);
+    }
+
     final task = DownloadTask(
       id: _taskIdentity(workId: workId, hash: hash, fileName: fileName),
       workId: workId,
@@ -740,6 +795,7 @@ class DownloadService implements DownloadTaskRepository {
       totalBytes: totalBytes,
       createdAt: DateTime.now(),
       workMetadata: workMetadata,
+      forceDownload: forceDownload,
     );
 
     _appendTask(task);
@@ -834,6 +890,28 @@ class DownloadService implements DownloadTaskRepository {
     }
   }
 
+  Future<void> _replaceDownloadedFile(
+    File temporaryFile,
+    File targetFile,
+  ) async {
+    if (!await targetFile.exists()) {
+      await temporaryFile.rename(targetFile.path);
+      return;
+    }
+
+    final backupFile = File('${targetFile.path}.previous');
+    if (await backupFile.exists()) await backupFile.delete();
+    await targetFile.rename(backupFile.path);
+    try {
+      await temporaryFile.rename(targetFile.path);
+      await backupFile.delete();
+    } catch (_) {
+      if (await targetFile.exists()) await targetFile.delete();
+      if (await backupFile.exists()) await backupFile.rename(targetFile.path);
+      rethrow;
+    }
+  }
+
   Future<void> _startDownload(DownloadTask task) async {
     final currentTask = taskById(task.id);
     if (currentTask == null || currentTask.status != DownloadStatus.pending) {
@@ -874,13 +952,14 @@ class DownloadService implements DownloadTaskRepository {
     if (latestTask == null || latestTask.status != DownloadStatus.downloading) {
       return;
     }
+    task = latestTask;
 
     final cancelToken = RemoteAssetCancellation();
     _cancelTokens[task.id] = cancelToken;
 
     try {
       // 先检查缓存中是否已有此文件
-      if (task.hash != null && task.hash!.isNotEmpty) {
+      if (!task.forceDownload && task.hash != null && task.hash!.isNotEmpty) {
         final fileType = task.fileName.split('.').last.toLowerCase();
         final isAudio = FileIconUtils.inferFileType(task.fileName) == 'audio';
         final cachedPath = isAudio
@@ -939,7 +1018,8 @@ class DownloadService implements DownloadTaskRepository {
         tag: 'Download',
       );
 
-      if ((!await tempFile.exists() || await tempFile.length() == 0) &&
+      if (!task.forceDownload &&
+          (!await tempFile.exists() || await tempFile.length() == 0) &&
           task.hash != null &&
           task.hash!.isNotEmpty &&
           FileIconUtils.inferFileType(task.fileName) == 'audio') {
@@ -1011,8 +1091,14 @@ class DownloadService implements DownloadTaskRepository {
         },
       );
 
-      // 下载完成，重命名临时文件为最终文件
-      await tempFile.rename(filePath);
+      final currentTaskBeforeReplace = taskById(task.id);
+      if (cancelToken.isCancelled ||
+          currentTaskBeforeReplace?.status != DownloadStatus.downloading) {
+        return;
+      }
+
+      // Download refreshes keep the previous completed file until this point.
+      await _replaceDownloadedFile(tempFile, file);
 
       _log.info('下载完成: ${task.fileName}', tag: 'Download');
 
@@ -1023,6 +1109,7 @@ class DownloadService implements DownloadTaskRepository {
         completedAt: DateTime.now(),
         downloadedBytes: transferResult.totalBytes,
         totalBytes: transferResult.totalBytes,
+        forceDownload: false,
       );
       _updateTask(completedTask, immediate: true); // 完成时立即保存
       if (identical(_cancelTokens[task.id], cancelToken)) {

@@ -29,6 +29,7 @@ import '../services/file_name_translation_service.dart';
 import '../services/file_name_translation_controller.dart';
 import '../services/file_explorer_tap_resolver.dart';
 import '../services/player_audio_variant_classifier.dart';
+import '../services/audio_variant_selection.dart';
 import '../utils/file_icon_utils.dart';
 import '../utils/file_tree_utils.dart';
 import '../utils/l10n_extensions.dart';
@@ -38,6 +39,7 @@ import 'file_tree_actions.dart';
 import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
 import 'audio_subtitle_generation_sheet.dart';
+import 'audio_variant_selection_sheet.dart';
 import 'lyric_translation_confirmation.dart';
 import 'work_image_reader.dart';
 import 'work_resource_tabs.dart';
@@ -526,12 +528,24 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
         return;
       }
       if (!mounted) return;
+      final choices = await showAudioVariantSelectionSheet(
+        context,
+        targets: variants,
+        allVariants: _audioVariants,
+        purpose: AudioVariantSelectionPurpose.subtitleGeneration,
+        preference: ref.read(audioFormatPreferenceProvider),
+      );
+      if (!mounted || choices == null || choices.isEmpty) return;
       await ref
           .read(audioSubtitleActionsProvider)
           .startWork(
             work: _work,
             fileTree: _rootFiles,
-            variants: variants,
+            variants: choices.map((choice) => choice.target).toList(),
+            selectedVariants: {
+              for (final choice in choices)
+                choice.target.fullPath: choice.selected,
+            },
             downloadedFiles: _downloadedFiles,
             fileRelativePaths: _fileRelativePaths,
           );
@@ -550,6 +564,23 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   }
 
   Future<void> _downloadSingleFile(dynamic file, String parentPath) async {
+    if (FileTreeUtils.isAudio(file)) {
+      final path = FileTreeUtils.itemPath(parentPath, file);
+      final target = _audioVariants
+          .where((variant) => variant.fullPath == path)
+          .firstOrNull;
+      if (target == null) return;
+      final choices = await showAudioVariantSelectionSheet(
+        context,
+        targets: [target],
+        allVariants: _audioVariants,
+        purpose: AudioVariantSelectionPurpose.download,
+        preference: ref.read(audioFormatPreferenceProvider),
+      );
+      if (!mounted || choices == null || choices.isEmpty) return;
+      file = choices.single.selected.source;
+      parentPath = choices.single.selected.parentPath;
+    }
     final l10n = S.of(context);
     final title = FileTreeUtils.titleOf(file, defaultValue: l10n.unknown);
     final hash = FileTreeUtils.property(file, 'hash')?.toString();
@@ -602,6 +633,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
         totalBytes: size is num ? size.toInt() : null,
         workMetadata: workMetadata,
         coverUrl: coverUrl,
+        forceDownload: FileTreeUtils.isAudio(file),
       );
       if (!mounted) return;
       SnackBarUtil.showSuccess(context, l10n.addedNFilesToDownloadQueue(1));

@@ -1430,5 +1430,12 @@
         "type": "int"
       }
     }
-  }
+  },
+  "audioVariantSelectionTitle": "選擇音軌版本",
+  "audioVariantGenerationHint": "選擇用於生成字幕的音軌。",
+  "audioVariantDownloadHint": "選擇要下載的音軌。",
+  "audioVariantShowAll": "查看全部音訊",
+  "audioVariantShowSimilar": "只看相近音軌",
+  "audioVariantOriginal": "原音軌",
+  "audioVariantSkip": "略過此曲目"
 }

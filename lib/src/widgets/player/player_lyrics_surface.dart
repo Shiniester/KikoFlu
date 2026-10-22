@@ -8,8 +8,11 @@ import '../../../l10n/app_localizations.dart';
 import '../../providers/audio_subtitle_generation_provider.dart';
 import '../../providers/lyric_provider.dart';
 import '../../providers/player_lyric_style_provider.dart';
+import '../../providers/settings_provider.dart';
+import '../../services/audio_variant_selection.dart';
 import '../../utils/snackbar_util.dart';
 import '../audio_subtitle_generation_sheet.dart';
+import '../audio_variant_selection_sheet.dart';
 import '../lyric_translation_confirmation.dart';
 import '../responsive_dialog.dart';
 import 'lyric_display_widget.dart';
@@ -88,6 +91,17 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
           .startCurrentTrack(
             beforeGenerate: () =>
                 confirmLyricTranslationIfNeeded(context, forGeneration: true),
+            chooseAudio: (target, allVariants) async {
+              if (!mounted) return null;
+              final choices = await showAudioVariantSelectionSheet(
+                context,
+                targets: [target],
+                allVariants: allVariants,
+                purpose: AudioVariantSelectionPurpose.subtitleGeneration,
+                preference: ref.read(audioFormatPreferenceProvider),
+              );
+              return choices?.firstOrNull?.selected;
+            },
           );
       if (!mounted) return;
       setState(() => _startingSubtitleGeneration = false);

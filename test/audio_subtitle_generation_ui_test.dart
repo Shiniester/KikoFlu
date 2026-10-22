@@ -108,7 +108,16 @@ void main() {
           expect(find.text('Select subtitles'), findsOneWidget);
           expect(controller.state, isEmpty);
         } else {
+          expect(find.text('Select audio version'), findsOneWidget);
+          expect(actions.calls, 0);
+          await tester.tap(find.text('Confirm'));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 400));
           expect(actions.calls, 1);
+          expect(
+            controller.state.single.request.selectedAudio?.format,
+            AudioFormat.mp3,
+          );
           expect(find.text('Generate audio subtitles'), findsOneWidget);
           expect(find.text('voice.wav'), findsOneWidget);
           await tester.tap(find.byTooltip('Close'));
@@ -255,6 +264,11 @@ void main() {
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(find.text('Confirm'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Select audio version'), findsOneWidget);
+      expect(actions.calls, 0);
       await tester.tap(find.text('Confirm'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
@@ -416,10 +430,33 @@ class _Actions extends AudioSubtitleActions {
   @override
   Future<bool?> startCurrentTrack({
     Future<bool> Function()? beforeGenerate,
+    Future<PlayerAudioVariant?> Function(
+      PlayerAudioVariant target,
+      List<PlayerAudioVariant> allVariants,
+    )?
+    chooseAudio,
   }) async {
     if (beforeGenerate != null && !await beforeGenerate()) return null;
+    PlayerAudioVariant? selected;
+    if (chooseAudio != null) {
+      final variants = const PlayerAudioVariantClassifier().scan([
+        {'type': 'audio', 'title': 'voice.wav', 'hash': 'wav-hash'},
+        {'type': 'audio', 'title': 'voice.mp3', 'hash': 'mp3-hash'},
+      ]);
+      selected = await chooseAudio(
+        variants.firstWhere((variant) => variant.format == AudioFormat.wav),
+        variants,
+      );
+      if (selected == null) return null;
+    }
     calls++;
-    controller.enqueue([_request]);
+    controller.enqueue([
+      AudioSubtitleRequest(
+        track: _request.track,
+        fileTree: _request.fileTree,
+        selectedAudio: selected,
+      ),
+    ]);
     return true;
   }
 }

@@ -4264,4 +4264,27 @@ class SEn extends S {
   ) {
     return 'Generated: $completed · Existing: $skipped · Unsupported: $unsupported · Failed: $failed · Cancelled: $cancelled';
   }
+
+  @override
+  String get audioVariantSelectionTitle => 'Select audio version';
+
+  @override
+  String get audioVariantGenerationHint =>
+      'Choose the audio used to generate subtitles.';
+
+  @override
+  String get audioVariantDownloadHint =>
+      'Choose the audio version to download.';
+
+  @override
+  String get audioVariantShowAll => 'Show all audio';
+
+  @override
+  String get audioVariantShowSimilar => 'Show similar audio';
+
+  @override
+  String get audioVariantOriginal => 'Original audio';
+
+  @override
+  String get audioVariantSkip => 'Skip this track';
 }

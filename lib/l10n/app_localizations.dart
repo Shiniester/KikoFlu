@@ -7587,6 +7587,48 @@ abstract class S {
     int failed,
     int cancelled,
   );
+
+  /// Audio version selection: SelectionTitle
+  ///
+  /// In en, this message translates to:
+  /// **'Select audio version'**
+  String get audioVariantSelectionTitle;
+
+  /// Audio version selection: GenerationHint
+  ///
+  /// In en, this message translates to:
+  /// **'Choose the audio used to generate subtitles.'**
+  String get audioVariantGenerationHint;
+
+  /// Audio version selection: DownloadHint
+  ///
+  /// In en, this message translates to:
+  /// **'Choose the audio version to download.'**
+  String get audioVariantDownloadHint;
+
+  /// Audio version selection: ShowAll
+  ///
+  /// In en, this message translates to:
+  /// **'Show all audio'**
+  String get audioVariantShowAll;
+
+  /// Audio version selection: ShowSimilar
+  ///
+  /// In en, this message translates to:
+  /// **'Show similar audio'**
+  String get audioVariantShowSimilar;
+
+  /// Audio version selection: Original
+  ///
+  /// In en, this message translates to:
+  /// **'Original audio'**
+  String get audioVariantOriginal;
+
+  /// Audio version selection: Skip
+  ///
+  /// In en, this message translates to:
+  /// **'Skip this track'**
+  String get audioVariantSkip;
 }
 
 class _SDelegate extends LocalizationsDelegate<S> {

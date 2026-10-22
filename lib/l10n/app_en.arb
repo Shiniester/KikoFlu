@@ -1780,5 +1780,19 @@
         "type": "int"
       }
     }
-  }
+  },
+  "audioVariantSelectionTitle": "Select audio version",
+  "@audioVariantSelectionTitle": {"description": "Audio version selection: SelectionTitle"},
+  "audioVariantGenerationHint": "Choose the audio used to generate subtitles.",
+  "@audioVariantGenerationHint": {"description": "Audio version selection: GenerationHint"},
+  "audioVariantDownloadHint": "Choose the audio version to download.",
+  "@audioVariantDownloadHint": {"description": "Audio version selection: DownloadHint"},
+  "audioVariantShowAll": "Show all audio",
+  "@audioVariantShowAll": {"description": "Audio version selection: ShowAll"},
+  "audioVariantShowSimilar": "Show similar audio",
+  "@audioVariantShowSimilar": {"description": "Audio version selection: ShowSimilar"},
+  "audioVariantOriginal": "Original audio",
+  "@audioVariantOriginal": {"description": "Audio version selection: Original"},
+  "audioVariantSkip": "Skip this track",
+  "@audioVariantSkip": {"description": "Audio version selection: Skip"}
 }

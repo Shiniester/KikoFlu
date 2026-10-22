@@ -4126,6 +4126,27 @@ class SZh extends S {
   ) {
     return '已生成 $completed · 已有字幕 $skipped · 不支持 $unsupported · 失败 $failed · 取消 $cancelled';
   }
+
+  @override
+  String get audioVariantSelectionTitle => '选择音轨版本';
+
+  @override
+  String get audioVariantGenerationHint => '选择用于生成字幕的音轨。';
+
+  @override
+  String get audioVariantDownloadHint => '选择要下载的音轨。';
+
+  @override
+  String get audioVariantShowAll => '查看全部音频';
+
+  @override
+  String get audioVariantShowSimilar => '只看相近音轨';
+
+  @override
+  String get audioVariantOriginal => '原音轨';
+
+  @override
+  String get audioVariantSkip => '跳过此曲目';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -8250,4 +8271,25 @@ class SZhHant extends SZh {
   ) {
     return '已產生 $completed · 已有字幕 $skipped · 不支援 $unsupported · 失敗 $failed · 取消 $cancelled';
   }
+
+  @override
+  String get audioVariantSelectionTitle => '選擇音軌版本';
+
+  @override
+  String get audioVariantGenerationHint => '選擇用於生成字幕的音軌。';
+
+  @override
+  String get audioVariantDownloadHint => '選擇要下載的音軌。';
+
+  @override
+  String get audioVariantShowAll => '查看全部音訊';
+
+  @override
+  String get audioVariantShowSimilar => '只看相近音軌';
+
+  @override
+  String get audioVariantOriginal => '原音軌';
+
+  @override
+  String get audioVariantSkip => '略過此曲目';
 }

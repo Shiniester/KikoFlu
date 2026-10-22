@@ -184,6 +184,10 @@ The audio file transcribed during Audio Subtitle Generation. It can be a differe
 format or effects mix of the selected track; the generated subtitles remain
 associated with the selected track.
 
+**Audio Variant Selection (音轨版本选择)**:
+The user's choice of the resource audio file used for a download or as Recognition
+Audio. It is distinct from the audio format and effects preferences used for playback.
+
 **Generated Subtitle Translation (生成字幕翻译)**:
 Automatic translation of newly generated original-language subtitles using the
 selected Translation Source and global translation target. The original subtitles

@@ -1430,5 +1430,12 @@
         "type": "int"
       }
     }
-  }
+  },
+  "audioVariantSelectionTitle": "音声バージョンを選択",
+  "audioVariantGenerationHint": "字幕生成に使う音声を選択してください。",
+  "audioVariantDownloadHint": "ダウンロードする音声を選択してください。",
+  "audioVariantShowAll": "すべての音声を表示",
+  "audioVariantShowSimilar": "類似の音声のみ表示",
+  "audioVariantOriginal": "元の音声",
+  "audioVariantSkip": "このトラックをスキップ"
 }

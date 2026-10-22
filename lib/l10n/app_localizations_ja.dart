@@ -4145,4 +4145,25 @@ class SJa extends S {
   ) {
     return '生成 $completed · 字幕あり $skipped · 未対応 $unsupported · 失敗 $failed · キャンセル $cancelled';
   }
+
+  @override
+  String get audioVariantSelectionTitle => '音声バージョンを選択';
+
+  @override
+  String get audioVariantGenerationHint => '字幕生成に使う音声を選択してください。';
+
+  @override
+  String get audioVariantDownloadHint => 'ダウンロードする音声を選択してください。';
+
+  @override
+  String get audioVariantShowAll => 'すべての音声を表示';
+
+  @override
+  String get audioVariantShowSimilar => '類似の音声のみ表示';
+
+  @override
+  String get audioVariantOriginal => '元の音声';
+
+  @override
+  String get audioVariantSkip => 'このトラックをスキップ';
 }

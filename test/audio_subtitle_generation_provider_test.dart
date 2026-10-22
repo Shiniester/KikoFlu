@@ -13,8 +13,10 @@ import 'package:kikoeru_flutter/src/providers/player_work_details_provider.dart'
 import 'package:kikoeru_flutter/src/services/audio_subtitle_generation_service.dart';
 import 'package:kikoeru_flutter/src/services/download_file_path_service.dart';
 import 'package:kikoeru_flutter/src/services/generated_subtitle_translation_service.dart';
+import 'package:kikoeru_flutter/src/services/player_audio_variant_classifier.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/utils/file_tree_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -245,6 +247,134 @@ void main() {
       },
     );
   }
+
+  test(
+    'startCurrentTrack sends the chosen audio variant to generation',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      await StorageService.initCritical();
+      final track = _track('track-a', 'wav-hash');
+      final files = <dynamic>[
+        {
+          'type': 'folder',
+          'title': 'WAV',
+          'children': [
+            {'type': 'audio', 'title': track.title, 'hash': track.hash},
+          ],
+        },
+        {
+          'type': 'folder',
+          'title': 'MP3',
+          'children': [
+            {
+              'type': 'audio',
+              'title': 'track-a-selected.mp3',
+              'hash': 'mp3-hash',
+              'mediaDownloadUrl': 'https://cdn.example/track-a.mp3',
+            },
+          ],
+        },
+      ];
+      final variants = const PlayerAudioVariantClassifier().scan(files);
+      final selected = variants.singleWhere(
+        (variant) => variant.title == 'track-a-selected.mp3',
+      );
+      final captured = Completer<AudioSubtitleRequest>();
+      final service = _DelayedGenerationService((request, _, __) async {
+        captured.complete(request);
+        return (status: AudioSubtitleGenerationStatus.completed, path: null);
+      });
+      final container = ProviderContainer(
+        overrides: [
+          currentTrackProvider.overrideWith((ref) => Stream.value(track)),
+          audioSubtitleGenerationServiceProvider.overrideWithValue(service),
+          playerWorkDetailsProvider.overrideWith((ref) async => null),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(currentTrackProvider.future);
+      await container.read(playerWorkDetailsProvider.future);
+      container
+          .read(fileListControllerProvider.notifier)
+          .updateFiles(files, workId: track.workId!);
+
+      final result = await container
+          .read(audioSubtitleActionsProvider)
+          .startCurrentTrack(
+            chooseAudio: (target, allVariants) async {
+              expect(FileTreeUtils.property(target.source, 'hash'), track.hash);
+              expect(allVariants, hasLength(2));
+              return selected;
+            },
+          );
+      final request = await captured.future;
+
+      expect(result, isTrue);
+      expect(request.track, same(track));
+      expect(request.selectedAudio, same(selected));
+    },
+  );
+
+  test(
+    'startWork associates selected variants by the original full path',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      await StorageService.initCritical();
+      const work = Work(id: 123, title: 'Work');
+      final files = <dynamic>[
+        {
+          'type': 'folder',
+          'title': 'WAV',
+          'children': [
+            {'type': 'audio', 'title': 'track.wav', 'hash': 'wav-hash'},
+          ],
+        },
+        {
+          'type': 'folder',
+          'title': 'MP3',
+          'children': [
+            {
+              'type': 'audio',
+              'title': 'track.mp3',
+              'hash': 'mp3-hash',
+              'mediaDownloadUrl': 'https://cdn.example/track.mp3',
+            },
+          ],
+        },
+      ];
+      final variants = const PlayerAudioVariantClassifier().scan(files);
+      final original = variants.singleWhere(
+        (variant) => variant.title == 'track.wav',
+      );
+      final selected = variants.singleWhere(
+        (variant) => variant.title == 'track.mp3',
+      );
+      final captured = Completer<AudioSubtitleRequest>();
+      final service = _DelayedGenerationService((request, _, __) async {
+        captured.complete(request);
+        return (status: AudioSubtitleGenerationStatus.completed, path: null);
+      });
+      final container = ProviderContainer(
+        overrides: [
+          audioSubtitleGenerationServiceProvider.overrideWithValue(service),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(audioSubtitleActionsProvider)
+          .startWork(
+            work: work,
+            fileTree: files,
+            variants: [original],
+            selectedVariants: {original.fullPath: selected},
+          );
+      final request = await captured.future;
+
+      expect(request.track.title, 'track.wav');
+      expect(request.selectedAudio, same(selected));
+    },
+  );
 
   test(
     'deduplicates, runs serially, continues after failure, and retries',

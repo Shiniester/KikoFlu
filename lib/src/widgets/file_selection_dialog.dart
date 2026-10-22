@@ -5,11 +5,16 @@ import '../models/download_task.dart';
 import '../models/work.dart';
 import '../services/download_file_path_service.dart';
 import '../services/download_service.dart';
+import '../services/player_audio_variant_classifier.dart';
+import '../services/audio_variant_selection.dart';
+import '../providers/settings_provider.dart';
+import '../utils/file_tree_utils.dart';
 import '../utils/string_utils.dart';
 import '../utils/file_icon_utils.dart';
 import '../utils/snackbar_util.dart';
 import '../providers/auth_provider.dart';
 import 'responsive_dialog.dart';
+import 'audio_variant_selection_sheet.dart';
 
 class FileSelectionDialog extends ConsumerStatefulWidget {
   final Work work;
@@ -29,10 +34,21 @@ class _FileSelectionDialogState extends ConsumerState<FileSelectionDialog> {
   final Set<String> _expandedFolders = {}; // 展开的文件夹路径
   bool _isCheckingDownloads = true;
   bool _isSubmitting = false;
+  late final List<PlayerAudioVariant> _audioVariants;
+  late final Set<String> _audioHashes;
 
   @override
   void initState() {
     super.initState();
+    _audioVariants = const PlayerAudioVariantClassifier().scan(
+      widget.work.children ?? const [],
+    );
+    _audioHashes = {
+      for (final variant in _audioVariants)
+        if (FileTreeUtils.property(variant.source, 'hash')
+            case final String hash)
+          hash,
+    };
     _initializeSelection();
     _checkDownloadedFiles();
   }
@@ -94,7 +110,8 @@ class _FileSelectionDialogState extends ConsumerState<FileSelectionDialog> {
   }
 
   bool _isUnavailable(String hash) {
-    return (_downloadedFiles[hash] ?? false) || (_queuedFiles[hash] ?? false);
+    return (_queuedFiles[hash] ?? false) ||
+        ((_downloadedFiles[hash] ?? false) && !_audioHashes.contains(hash));
   }
 
   // 生成文件/文件夹的唯一路径
@@ -128,7 +145,6 @@ class _FileSelectionDialogState extends ConsumerState<FileSelectionDialog> {
         final itemPath = _getItemPath(parentPath, item);
 
         if (item.type == 'file' && item.hash != null) {
-          // 只选择未下载的文件
           if (!_isUnavailable(item.hash!)) {
             _selectedFiles[item.hash!] = selected;
           }
@@ -163,7 +179,6 @@ class _FileSelectionDialogState extends ConsumerState<FileSelectionDialog> {
 
   // 全选/取消全选
   void _toggleSelectAll() {
-    // 只考虑未下载的文件
     final availableFiles = _selectedFiles.keys
         .where((hash) => !_isUnavailable(hash))
         .toList();
@@ -192,7 +207,6 @@ class _FileSelectionDialogState extends ConsumerState<FileSelectionDialog> {
     void countSelection(List<AudioFile> items) {
       for (final item in items) {
         if (item.type == 'file' && item.hash != null) {
-          // 排除已下载的文件
           if (!_isUnavailable(item.hash!)) {
             totalCount++;
             if (_selectedFiles[item.hash!] ?? false) {
@@ -209,7 +223,7 @@ class _FileSelectionDialogState extends ConsumerState<FileSelectionDialog> {
     countSelection(folder.children!);
 
     if (totalCount == 0) {
-      return false; // 文件夹中所有文件都已下载
+      return false;
     } else if (selectedCount == 0) {
       return false;
     } else if (selectedCount == totalCount) {
@@ -288,6 +302,29 @@ class _FileSelectionDialogState extends ConsumerState<FileSelectionDialog> {
     );
 
     try {
+      final selectedPaths = {
+        for (final entry in selectedFilesWithPaths.entries)
+          FileTreeUtils.itemPath(entry.value, entry.key),
+      };
+      final audioTargets = _audioVariants
+          .where((variant) => selectedPaths.contains(variant.fullPath))
+          .toList();
+      if (audioTargets.isNotEmpty) {
+        final choices = await showAudioVariantSelectionSheet(
+          context,
+          targets: audioTargets,
+          allVariants: _audioVariants,
+          purpose: AudioVariantSelectionPurpose.download,
+          preference: ref.read(audioFormatPreferenceProvider),
+        );
+        if (!mounted || choices == null) return;
+        selectedFilesWithPaths.removeWhere((file, _) => file.isAudio);
+        for (final choice in choices) {
+          selectedFilesWithPaths[choice.selected.source as AudioFile] =
+              choice.selected.parentPath;
+        }
+      }
+      if (selectedFilesWithPaths.isEmpty) return;
       for (final entry in selectedFilesWithPaths.entries) {
         final file = entry.key;
         final relativePath = entry.value;
@@ -351,6 +388,7 @@ class _FileSelectionDialogState extends ConsumerState<FileSelectionDialog> {
           totalBytes: file.size,
           workMetadata: workMetadata,
           coverUrl: coverUrl,
+          forceDownload: file.isAudio,
         );
       }
 
@@ -606,8 +644,7 @@ class _FileSelectionDialogState extends ConsumerState<FileSelectionDialog> {
         // 文件行
         final hash = file.hash ?? '';
         final isDownloaded = _downloadedFiles[hash] ?? false;
-        final isQueued = _queuedFiles[hash] ?? false;
-        final isUnavailable = isDownloaded || isQueued;
+        final isUnavailable = _isUnavailable(hash);
         final isSelected = _selectedFiles[hash] ?? false;
 
         widgets.add(

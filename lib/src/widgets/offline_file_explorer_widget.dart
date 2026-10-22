@@ -22,6 +22,7 @@ import '../services/file_name_translation_service.dart';
 import '../services/file_name_translation_controller.dart';
 import '../services/file_delete_request_builder.dart';
 import '../services/player_audio_variant_classifier.dart';
+import '../services/audio_variant_selection.dart';
 import '../providers/audio_provider.dart';
 import '../providers/audio_subtitle_generation_provider.dart';
 import '../providers/lyric_provider.dart';
@@ -32,6 +33,7 @@ import 'file_tree_actions.dart';
 import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
 import 'audio_subtitle_generation_sheet.dart';
+import 'audio_variant_selection_sheet.dart';
 import 'lyric_translation_confirmation.dart';
 import 'file_delete_confirmation_dialog.dart';
 import 'work_image_reader.dart';
@@ -447,12 +449,24 @@ class _OfflineFileExplorerWidgetState
         return;
       }
       if (!mounted) return;
+      final choices = await showAudioVariantSelectionSheet(
+        context,
+        targets: variants,
+        allVariants: _audioVariants,
+        purpose: AudioVariantSelectionPurpose.subtitleGeneration,
+        preference: ref.read(audioFormatPreferenceProvider),
+      );
+      if (!mounted || choices == null || choices.isEmpty) return;
       await ref
           .read(audioSubtitleActionsProvider)
           .startWork(
             work: widget.work,
             fileTree: _localFiles,
-            variants: variants,
+            variants: choices.map((choice) => choice.target).toList(),
+            selectedVariants: {
+              for (final choice in choices)
+                choice.target.fullPath: choice.selected,
+            },
             workDirPath: _workDirPath,
           );
       if (!mounted) return;

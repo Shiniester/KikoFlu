@@ -40,4 +40,19 @@ void main() {
     expect(task.id, '42:hash:shared-hash');
     expect(task.status, DownloadStatus.paused);
   });
+
+  test('force download intent survives task persistence', () {
+    final task = DownloadTask(
+      id: 'refresh',
+      workId: 42,
+      workTitle: 'Work',
+      fileName: 'track.mp3',
+      downloadUrl: 'https://example.invalid/track.mp3',
+      hash: 'track-hash',
+      createdAt: DateTime.utc(2026),
+      forceDownload: true,
+    );
+
+    expect(DownloadTask.fromJson(task.toJson()).forceDownload, isTrue);
+  });
 }

@@ -19,9 +19,7 @@ import '../widgets/library_tab_strip.dart';
 import '../widgets/tab_page_motion.dart';
 import '../widgets/audio_account_prompt.dart';
 import '../widgets/download_fab.dart';
-import '../providers/download_provider.dart';
 import '../models/search_query.dart';
-import 'downloads_screen.dart';
 import 'local_downloads_screen.dart';
 import 'subtitle_library_screen.dart';
 import 'playlists_screen.dart';
@@ -84,8 +82,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     ];
     final authState = ref.watch(authProvider);
     final isOfficialServer = ServerUtils.isOfficialServer(authState.host);
-    final activeDownloadCount =
-        ref.watch(downloadSummaryProvider).valueOrNull?.active ?? 0;
 
     if (settings.showOnlineMarks) {
       tabs.add(
@@ -147,15 +143,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
           onSearchOnline: () => _openSearch(scope: SearchScope.downloads),
         ),
         showFab: true,
-        fabWidget: Badge(
-          isLabelVisible: activeDownloadCount > 0,
-          label: Text('$activeDownloadCount'),
-          child: FloatingActionButton(
-            onPressed: _navigateToDownloads,
-            tooltip: S.of(context).downloadTasks,
-            child: const Icon(Icons.download),
-          ),
-        ),
+        fabWidget: const DownloadFab(showDownloadButtonWhenIdle: true),
       ),
     );
 
@@ -208,12 +196,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
     _tabSwitcherVisible.dispose();
     _scrollController.dispose();
     super.dispose();
-  }
-
-  void _navigateToDownloads() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (context) => const DownloadsScreen()));
   }
 
   void _handleTabChanged() {

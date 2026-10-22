@@ -2,17 +2,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../providers/audio_subtitle_generation_notice_provider.dart';
 import '../providers/audio_subtitle_generation_provider.dart';
 import 'responsive_dialog.dart';
 
-Future<void> showAudioSubtitleGenerationSheet(BuildContext context) {
+Future<void> showAudioSubtitleGenerationSheet(BuildContext context) async {
+  final container = ProviderScope.containerOf(context, listen: false);
+  final notice = container.read(audioSubtitleGenerationNoticeProvider.notifier);
+  notice.markViewed(container.read(audioSubtitleGenerationProvider));
+
   final screenHeight = MediaQuery.sizeOf(context).height;
-  return showResponsiveBottomSheet<void>(
-    context: context,
-    maxWidth: 560,
-    maxHeight: screenHeight * 0.84,
-    builder: (_) => const _AudioSubtitleGenerationSheet(),
-  );
+  try {
+    await showResponsiveBottomSheet<void>(
+      context: context,
+      maxWidth: 560,
+      maxHeight: screenHeight * 0.84,
+      builder: (_) => const _AudioSubtitleGenerationSheet(),
+    );
+  } finally {
+    notice.markViewed(container.read(audioSubtitleGenerationProvider));
+  }
 }
 
 class _AudioSubtitleGenerationSheet extends ConsumerWidget {

@@ -1,8 +1,5 @@
 class SubtitleMatchResult {
-  const SubtitleMatchResult({
-    required this.isMatch,
-    required this.score,
-  });
+  const SubtitleMatchResult({required this.isMatch, required this.score});
 
   final bool isMatch;
   final double score;
@@ -68,6 +65,18 @@ class SubtitleMatcher {
       baseName: audioBaseName,
       normalized: normalizeForMatching(audioBaseName),
     );
+  }
+
+  static SubtitleMatchResult checkAudioNames(
+    String candidateName,
+    String targetName,
+  ) {
+    final candidate = prepareAudio(candidateName);
+    final target = prepareAudio(targetName);
+    if (candidate.baseName == target.baseName) {
+      return const SubtitleMatchResult(isMatch: true, score: 1.0);
+    }
+    return _checkNormalized(candidate.normalized, target.normalized);
   }
 
   static PreparedSubtitleName? prepareSubtitle(String subtitleFileName) {

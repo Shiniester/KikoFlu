@@ -298,6 +298,11 @@ class AudioSubtitleActions {
   /// Returns false for the subtitle picker and null when generation is declined.
   Future<bool?> startCurrentTrack({
     Future<bool> Function()? beforeGenerate,
+    Future<PlayerAudioVariant?> Function(
+      PlayerAudioVariant target,
+      List<PlayerAudioVariant> allVariants,
+    )?
+    chooseAudio,
   }) async {
     final track = ref.read(currentTrackProvider).valueOrNull;
     if (track == null) return false;
@@ -321,7 +326,7 @@ class AudioSubtitleActions {
       try {
         files = await loader(track);
       } catch (_) {
-        // Local files and complete caches can still be transcribed offline.
+        // The current track remains selectable if resource loading fails.
       }
     }
     final variants = const PlayerAudioVariantClassifier().scan(files);
@@ -343,6 +348,7 @@ class AudioSubtitleActions {
         })
         .toList(growable: false);
     final variant = matches.length == 1 ? matches.single : null;
+    final target = variant ?? _variantForTrack(track);
     final metadata = Map<String, dynamic>.from(work.toJson());
     metadata['children'] =
         DownloadFilePathService.annotateFileTreeWithLocalPaths(
@@ -356,6 +362,7 @@ class AudioSubtitleActions {
       track: track,
       files: files,
       variant: variant,
+      selectedAudio: target,
       host: auth.host ?? '',
       token: auth.token ?? '',
       metadata: metadata,
@@ -372,7 +379,22 @@ class AudioSubtitleActions {
       return false;
     }
     if (beforeGenerate != null && !await beforeGenerate()) return null;
-    ref.read(audioSubtitleGenerationProvider.notifier).enqueue([request]);
+    final selected = chooseAudio == null
+        ? target
+        : await chooseAudio(target, variant == null ? [target] : variants);
+    if (selected == null) return null;
+    final selectedRequest = _request(
+      track: track,
+      files: files,
+      variant: variant,
+      selectedAudio: selected,
+      host: auth.host ?? '',
+      token: auth.token ?? '',
+      metadata: metadata,
+    );
+    ref.read(audioSubtitleGenerationProvider.notifier).enqueue([
+      selectedRequest,
+    ]);
     return true;
   }
 
@@ -383,6 +405,7 @@ class AudioSubtitleActions {
     String? workDirPath,
     Map<String, bool> downloadedFiles = const {},
     Map<String, String> fileRelativePaths = const {},
+    Map<String, PlayerAudioVariant> selectedVariants = const {},
   }) async {
     final auth = ref.read(authProvider);
     final host = auth.host ?? '';
@@ -436,6 +459,7 @@ class AudioSubtitleActions {
           track: track,
           files: fileTree,
           variant: variant,
+          selectedAudio: selectedVariants[variant.fullPath],
           host: host,
           token: token,
           metadata: metadata,
@@ -449,6 +473,7 @@ class AudioSubtitleActions {
     required AudioTrack track,
     required List<dynamic> files,
     PlayerAudioVariant? variant,
+    PlayerAudioVariant? selectedAudio,
     required String host,
     required String token,
     Map<String, dynamic>? metadata,
@@ -476,10 +501,23 @@ class AudioSubtitleActions {
       parentPath: variant?.parentPath,
       downloadUrl: url.isEmpty ? null : url,
       totalBytes: size is num ? size.toInt() : null,
+      selectedAudio: selectedAudio,
       workMetadata: metadata,
       host: host,
       token: token,
     );
+  }
+
+  PlayerAudioVariant _variantForTrack(AudioTrack track) {
+    final sourcePath = track.sourcePath ?? LocalFileUrl.pathFromUrl(track.url);
+    final source = <String, dynamic>{
+      'type': 'audio',
+      'title': track.title,
+      if (track.hash != null) 'hash': track.hash,
+      if (sourcePath != null) 'localPath': sourcePath,
+      if (track.url.startsWith('http')) 'mediaDownloadUrl': track.url,
+    };
+    return const PlayerAudioVariantClassifier().scan([source]).single;
   }
 }
 
