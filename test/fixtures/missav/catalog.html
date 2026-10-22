@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ja">
+  <head><title>Newest videos</title></head>
+  <body x-data="{user: null}">
+    <nav><a href="/dm285/ja">Home</a><a href="/ja/actresses">Actors</a></nav>
+    <nav><a href="/ja/actresses">Actors</a><a href="#menu">Menu</a></nav>
+    <a href="/dm349/ja/genres/sample">Sample category</a>
+    <a :href="localizedUrl('cn')" href="/cn/open-sample-001">简体中文</a>
+    <a :href="localizedUrl('zh')" href="/open-sample-001">繁體中文</a>
+    <div class="actor-card">
+      <a href="/dm288/ja/actresses/sample-actor">
+        <img alt="Sample actor" src="https://fourhoi.com/actor/987654321-t.jpg">
+      </a>
+    </div>
+    <main>
+      <h1>Newest videos</h1>
+      <div class="relative aspect-w-16 aspect-h-9 rounded overflow-hidden shadow-lg">
+        <a href="/ja/open-sample-001#recommend">
+          <img alt="Sample title" src="data:image/svg+xml,placeholder"
+               data-src="https://fourhoi.com/sample-001/cover-t.jpg">
+        </a>
+        <span class="absolute bottom-1 right-1">1:23</span>
+      </div>
+      <a href="/ja/open-sample-001#another-tracking-id">Sample title</a>
+      <div class="relative aspect-w-16 aspect-h-9 rounded overflow-hidden shadow-lg">
+        <a href="/dm285/ja/sample-002"><img alt="Second sample"
+          src="https://fourhoi.com/sample-002/cover-t.jpg"></a>
+        <span class="absolute bottom-1 right-1">1:02:03</span>
+      </div>
+      <div x-data="recommendationWidget"></div>
+    </main>
+  </body>
+</html>

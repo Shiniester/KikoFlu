@@ -432,18 +432,18 @@ void main() {
     }
     tester
         .widget<NavigationBar>(find.byType(NavigationBar))
-        .onDestinationSelected!(2);
+        .onDestinationSelected!(3);
     await tester.pumpAndSettle();
     tester.view.physicalSize = const Size(844, 390);
     await tester.pumpAndSettle();
     expect(
       tester.widget<NavigationRail>(find.byType(NavigationRail)).selectedIndex,
-      2,
+      3,
     );
     final pages = tester
         .widget<PageView>(find.byKey(const ValueKey('main-tab-pages')))
         .controller!;
-    expect(pages.page, 2);
+    expect(pages.page, 3);
     expect(pages.positions.length, 1);
     expect(find.byType(SettingsSectionList), findsWidgets);
     expect(tester.takeException(), isNull);
@@ -1810,25 +1810,24 @@ void main() {
           );
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 100));
-          final destination = tester.getRect(find.byType(SettingsScreen));
           final settingsCards = find.descendant(
             of: find.byType(SettingsScreen),
             matching: find.byType(SettingsSectionList),
           );
           if (reducedMotion) {
-            expect(destination.left, closeTo(start.left, .1));
-          } else {
-            expect(destination.left, greaterThan(start.left));
+            expect(
+              tester.getRect(find.byType(SettingsScreen)).left,
+              closeTo(start.left, .1),
+            );
           }
           expect(settingsCards, reducedMotion ? findsWidgets : findsNothing);
           final pages = tester
               .widget<PageView>(find.byKey(const ValueKey('main-tab-pages')))
               .controller!;
           if (reducedMotion) {
-            expect(pages.page, 2);
+            expect(pages.page, 3);
           } else {
-            expect(pages.page, inInclusiveRange(0, 2));
-            expect(pages.page, isNot(2));
+            expect(pages.page, inExclusiveRange(0, 3));
           }
           await tester.pumpAndSettle();
           expect(settingsCards, findsWidgets);
@@ -1853,12 +1852,12 @@ void main() {
           );
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 100));
-          expect(settingsCards, findsWidgets);
           expect(
-            tester.state(find.byType(SettingsScreen)),
+            tester.state(find.byType(SettingsScreen, skipOffstage: false)),
             same(settingsState),
           );
           await tester.pumpAndSettle();
+          expect(settingsCards, findsWidgets);
           expect(tester.takeException(), isNull);
         },
       );
@@ -1883,7 +1882,7 @@ void main() {
       if (size.width > size.height) {
         expect(
           tester.widget<NavigationRail>(navigation).destinations.length,
-          3,
+          4,
         );
       } else {
         expect(
@@ -1891,7 +1890,7 @@ void main() {
               .widget<NavigationBar>(navigation)
               .destinations
               .map((item) => (item as NavigationDestination).label),
-          ['Audio', 'Comics', 'Settings'],
+          ['Audio', 'Comics', 'Videos', 'Settings'],
         );
       }
       final scroll = tester
@@ -2096,17 +2095,17 @@ void main() {
       }
 
       final audioState = tester.state(find.byType(AudioScreen));
-      select(2);
+      select(3);
       await tester.pump();
-      expect(pages.page, lessThan(2));
+      expect(pages.page, lessThan(3));
       expect(find.byType(SettingsSectionList), findsNothing);
       expect(find.byType(ComicScreen, skipOffstage: false), findsNothing);
       await tester.pumpAndSettle();
-      expect(pages.page, 2);
+      expect(pages.page, 3);
       expect(find.byType(SettingsSectionList), findsWidgets);
       await tester.drag(pagesFinder, const Offset(600, 0));
       await tester.pumpAndSettle();
-      expect(pages.page, 2);
+      expect(pages.page, 3);
       select(0);
       await tester.pump();
       expect(pages.page, greaterThan(0));

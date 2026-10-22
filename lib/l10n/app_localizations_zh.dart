@@ -4254,6 +4254,120 @@ class SZh extends S {
 
   @override
   String get installFailed => '打开安装程序失败';
+
+  @override
+  String get navVideos => '视频';
+
+  @override
+  String get videoSearchHint => '搜索视频、演员或厂商';
+
+  @override
+  String get videoSourceAccount => 'MissAV 账号';
+
+  @override
+  String get videoCatalog => '视频目录';
+
+  @override
+  String get videoFavorites => '视频收藏';
+
+  @override
+  String get videoActorFavorites => '演员收藏';
+
+  @override
+  String get videoWatchHistory => '观看历史';
+
+  @override
+  String get videoDownloads => '视频下载';
+
+  @override
+  String get videoSourceUnavailable => '此功能暂无法在应用内使用，可打开源站。';
+
+  @override
+  String get videoVerificationRequired => '源站要求浏览器验证，可打开源站或稍后重试。';
+
+  @override
+  String get videoLoginRequired => '登录 MissAV 账号后可使用此功能。';
+
+  @override
+  String get videoLoadFailed => '视频加载失败，请重试或打开源站。';
+
+  @override
+  String get videoPlaybackFailed => '视频播放失败，请重试或打开源站。';
+
+  @override
+  String get videoDownloadFailed => '视频下载失败，可在视频下载中重试。';
+
+  @override
+  String get videoEmail => '邮箱';
+
+  @override
+  String get videoRegisterOnSource => '在源站注册';
+
+  @override
+  String get videoResetPasswordOnSource => '在源站重置密码';
+
+  @override
+  String get videoPasswordOnSource => '在源站修改密码';
+
+  @override
+  String get videoQuality => '画质';
+
+  @override
+  String get videoRelated => '相关推荐';
+
+  @override
+  String get videoDownloadQueued => '等待下载';
+
+  @override
+  String get videoDownloadPaused => '已暂停';
+
+  @override
+  String get videoDownloadFailedStatus => '下载失败';
+
+  @override
+  String get videoDownloadCompleted => '已下载';
+
+  @override
+  String get videoDownloadInProgress => '正在下载';
+
+  @override
+  String get videoNoStreams => '未找到可播放的视频流，可打开源站播放。';
+
+  @override
+  String get videoPlaylistName => '播放列表名称';
+
+  @override
+  String get videoAddToPlaylist => '添加到播放列表';
+
+  @override
+  String get videoCreatePlaylist => '新建播放列表';
+
+  @override
+  String get videoRenamePlaylist => '重命名播放列表';
+
+  @override
+  String get videoDeletePlaylist => '删除播放列表';
+
+  @override
+  String get videoOpenSource => '打开源站';
+
+  @override
+  String get videoDownloadDeleteConfirm => '删除此视频下载后，将无法离线播放。';
+
+  @override
+  String get videoPlay => '播放';
+
+  @override
+  String get videoFullscreen => '切换全屏';
+
+  @override
+  String get videoSubtitle => '字幕';
+
+  @override
+  String get videoFavoriteActor => '收藏演员';
+
+  @override
+  String get videoUnfavoriteActor => '取消演员收藏';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -8506,4 +8620,118 @@ class SZhHant extends SZh {
 
   @override
   String get installFailed => '開啟安裝程式失敗';
+
+  @override
+  String get navVideos => '影片';
+
+  @override
+  String get videoSearchHint => '搜尋影片、演員或片商';
+
+  @override
+  String get videoSourceAccount => 'MissAV 帳號';
+
+  @override
+  String get videoCatalog => '影片目錄';
+
+  @override
+  String get videoFavorites => '影片收藏';
+
+  @override
+  String get videoActorFavorites => '演員收藏';
+
+  @override
+  String get videoWatchHistory => '觀看記錄';
+
+  @override
+  String get videoDownloads => '影片下載';
+
+  @override
+  String get videoSourceUnavailable => '此功能暫時無法在應用程式內使用，可開啟來源網站。';
+
+  @override
+  String get videoVerificationRequired => '來源網站要求瀏覽器驗證，可開啟來源網站或稍後重試。';
+
+  @override
+  String get videoLoginRequired => '登入 MissAV 帳號後可使用此功能。';
+
+  @override
+  String get videoLoadFailed => '影片載入失敗，請重試或開啟來源網站。';
+
+  @override
+  String get videoPlaybackFailed => '影片播放失敗，請重試或開啟來源網站。';
+
+  @override
+  String get videoDownloadFailed => '影片下載失敗，可在影片下載中重試。';
+
+  @override
+  String get videoEmail => '電子郵件';
+
+  @override
+  String get videoRegisterOnSource => '在來源網站註冊';
+
+  @override
+  String get videoResetPasswordOnSource => '在來源網站重設密碼';
+
+  @override
+  String get videoPasswordOnSource => '在來源網站變更密碼';
+
+  @override
+  String get videoQuality => '畫質';
+
+  @override
+  String get videoRelated => '相關推薦';
+
+  @override
+  String get videoDownloadQueued => '等待下載';
+
+  @override
+  String get videoDownloadPaused => '已暫停';
+
+  @override
+  String get videoDownloadFailedStatus => '下載失敗';
+
+  @override
+  String get videoDownloadCompleted => '已下載';
+
+  @override
+  String get videoDownloadInProgress => '正在下載';
+
+  @override
+  String get videoNoStreams => '找不到可播放的影片串流，可開啟來源網站播放。';
+
+  @override
+  String get videoPlaylistName => '播放清單名稱';
+
+  @override
+  String get videoAddToPlaylist => '加入播放清單';
+
+  @override
+  String get videoCreatePlaylist => '新增播放清單';
+
+  @override
+  String get videoRenamePlaylist => '重新命名播放清單';
+
+  @override
+  String get videoDeletePlaylist => '刪除播放清單';
+
+  @override
+  String get videoOpenSource => '開啟來源網站';
+
+  @override
+  String get videoDownloadDeleteConfirm => '刪除此影片下載後，將無法離線播放。';
+
+  @override
+  String get videoPlay => '播放';
+
+  @override
+  String get videoFullscreen => '切換全螢幕';
+
+  @override
+  String get videoSubtitle => '字幕';
+
+  @override
+  String get videoFavoriteActor => '收藏演員';
+
+  @override
+  String get videoUnfavoriteActor => '取消演員收藏';
 }

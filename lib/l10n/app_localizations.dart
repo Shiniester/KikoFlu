@@ -7827,6 +7827,234 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Failed to launch installer'**
   String get installFailed;
+
+  /// No description provided for @navVideos.
+  ///
+  /// In en, this message translates to:
+  /// **'Videos'**
+  String get navVideos;
+
+  /// No description provided for @videoSearchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search videos, actors, or studios'**
+  String get videoSearchHint;
+
+  /// No description provided for @videoSourceAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'MissAV account'**
+  String get videoSourceAccount;
+
+  /// No description provided for @videoCatalog.
+  ///
+  /// In en, this message translates to:
+  /// **'Browse videos'**
+  String get videoCatalog;
+
+  /// No description provided for @videoFavorites.
+  ///
+  /// In en, this message translates to:
+  /// **'Video favorites'**
+  String get videoFavorites;
+
+  /// No description provided for @videoActorFavorites.
+  ///
+  /// In en, this message translates to:
+  /// **'Actor favorites'**
+  String get videoActorFavorites;
+
+  /// No description provided for @videoWatchHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Watch history'**
+  String get videoWatchHistory;
+
+  /// No description provided for @videoDownloads.
+  ///
+  /// In en, this message translates to:
+  /// **'Video downloads'**
+  String get videoDownloads;
+
+  /// No description provided for @videoSourceUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'This source feature is unavailable in the app. Open it on MissAV.'**
+  String get videoSourceUnavailable;
+
+  /// No description provided for @videoVerificationRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'MissAV requires browser verification. Continue on MissAV or retry later.'**
+  String get videoVerificationRequired;
+
+  /// No description provided for @videoLoginRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to a MissAV account to use this feature.'**
+  String get videoLoginRequired;
+
+  /// No description provided for @videoLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Videos could not be loaded. Retry or open MissAV.'**
+  String get videoLoadFailed;
+
+  /// No description provided for @videoPlaybackFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback failed. Retry or open MissAV.'**
+  String get videoPlaybackFailed;
+
+  /// No description provided for @videoDownloadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Download failed. Retry from video downloads.'**
+  String get videoDownloadFailed;
+
+  /// No description provided for @videoEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'Email'**
+  String get videoEmail;
+
+  /// No description provided for @videoRegisterOnSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Register on MissAV'**
+  String get videoRegisterOnSource;
+
+  /// No description provided for @videoResetPasswordOnSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset password on MissAV'**
+  String get videoResetPasswordOnSource;
+
+  /// No description provided for @videoPasswordOnSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Change password on MissAV'**
+  String get videoPasswordOnSource;
+
+  /// No description provided for @videoQuality.
+  ///
+  /// In en, this message translates to:
+  /// **'Quality'**
+  String get videoQuality;
+
+  /// No description provided for @videoRelated.
+  ///
+  /// In en, this message translates to:
+  /// **'Related videos'**
+  String get videoRelated;
+
+  /// No description provided for @videoDownloadQueued.
+  ///
+  /// In en, this message translates to:
+  /// **'Queued'**
+  String get videoDownloadQueued;
+
+  /// No description provided for @videoDownloadPaused.
+  ///
+  /// In en, this message translates to:
+  /// **'Paused'**
+  String get videoDownloadPaused;
+
+  /// No description provided for @videoDownloadFailedStatus.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get videoDownloadFailedStatus;
+
+  /// No description provided for @videoDownloadCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloaded'**
+  String get videoDownloadCompleted;
+
+  /// No description provided for @videoDownloadInProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading'**
+  String get videoDownloadInProgress;
+
+  /// No description provided for @videoNoStreams.
+  ///
+  /// In en, this message translates to:
+  /// **'No playable stream was found. Open MissAV to play this video.'**
+  String get videoNoStreams;
+
+  /// No description provided for @videoPlaylistName.
+  ///
+  /// In en, this message translates to:
+  /// **'Playlist name'**
+  String get videoPlaylistName;
+
+  /// No description provided for @videoAddToPlaylist.
+  ///
+  /// In en, this message translates to:
+  /// **'Add to playlist'**
+  String get videoAddToPlaylist;
+
+  /// No description provided for @videoCreatePlaylist.
+  ///
+  /// In en, this message translates to:
+  /// **'Create playlist'**
+  String get videoCreatePlaylist;
+
+  /// No description provided for @videoRenamePlaylist.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename playlist'**
+  String get videoRenamePlaylist;
+
+  /// No description provided for @videoDeletePlaylist.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete playlist'**
+  String get videoDeletePlaylist;
+
+  /// No description provided for @videoOpenSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Open MissAV'**
+  String get videoOpenSource;
+
+  /// No description provided for @videoDownloadDeleteConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this video download? Offline playback will no longer be available.'**
+  String get videoDownloadDeleteConfirm;
+
+  /// No description provided for @videoPlay.
+  ///
+  /// In en, this message translates to:
+  /// **'Play'**
+  String get videoPlay;
+
+  /// No description provided for @videoFullscreen.
+  ///
+  /// In en, this message translates to:
+  /// **'Fullscreen'**
+  String get videoFullscreen;
+
+  /// No description provided for @videoSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitles'**
+  String get videoSubtitle;
+
+  /// No description provided for @videoFavoriteActor.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorite actor'**
+  String get videoFavoriteActor;
+
+  /// No description provided for @videoUnfavoriteActor.
+  ///
+  /// In en, this message translates to:
+  /// **'Unfavorite actor'**
+  String get videoUnfavoriteActor;
 }
 
 class _SDelegate extends LocalizationsDelegate<S> {

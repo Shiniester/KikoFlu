@@ -1,8 +1,9 @@
 # KikoFlu
 
-KikoFlu combines audio playback and comic reading. Audio uses a persistent compact
-surface and a full-screen player; comics use source-backed libraries and a
-full-screen reader with shared playback access.
+KikoFlu combines audio playback, comic reading, and video playback. Audio uses a
+persistent compact surface and a full-screen player; comics use source-backed
+libraries and a full-screen reader with shared playback access. Video uses a
+separate inline player with full-screen playback and local downloads.
 
 ## Language
 
@@ -11,8 +12,45 @@ The persistent compact playback surface shown below the app's main content.
 _Avoid_: Player bar
 
 **App Tab Bar (应用标签栏)**:
-The primary app navigation containing Audio, Comics, and Settings.
+The primary app navigation containing Audio, Comics, Videos, and Settings.
 _Avoid_: Player navigation, bottom menu
+
+**Video Screen (视频页)**:
+The app page for browsing videos from a Video Source.
+_Avoid_: Video player, source website
+
+**Video Source (视频源)**:
+A provider of video catalogs and playback, such as MissAV (missav.ai).
+_Avoid_: Audio Source, Comic Source
+
+**Video Source Account (视频源账号)**:
+A user's account with a Video Source and the source-owned collections belonging
+to that account.
+_Avoid_: Audio account, comic account
+
+**Video Details Screen (视频详情页)**:
+The app page describing one video's information and related recommendations.
+_Avoid_: Video Screen, source website
+
+**Video Source Favorite (视频源收藏)**:
+A video saved in a Video Source Account's collection, belonging to that account.
+_Avoid_: Local Favorite, comic Source Favorite
+
+**Video Watch History (视频观看历史)**:
+A Video Source Account's list of watched videos.
+_Avoid_: Video Resume Position, audio playback history
+
+**Video Resume Position (视频续播进度)**:
+The saved playback time used to resume a particular video.
+_Avoid_: Video Watch History, Reading Progress
+
+**Video Download (视频下载)**:
+A saved copy of a video for playback without access to its Video Source.
+_Avoid_: Video Source Favorite, playback buffer
+
+**Simultaneous Audio and Video Playback (音声与视频同时播放)**:
+Playing an audio track and a video at the same time, each with independently
+adjustable volume.
 
 **Audio Screen (音声页)**:
 The app page that contains the Works Home Page and the user's online marks,

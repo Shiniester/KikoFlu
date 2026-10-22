@@ -42,6 +42,8 @@
         android:label="KikoFlu"
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:usesCleartextTraffic="true"
         android:requestLegacyExternalStorage="true"
         android:preserveLegacyExternalStorage="true">

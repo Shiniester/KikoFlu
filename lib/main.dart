@@ -10,6 +10,7 @@ import 'package:dynamic_color/dynamic_color.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
+import 'package:media_kit/media_kit.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -430,12 +431,12 @@ void main(List<String> args) async {
     return;
   }
 
-  // Use media_kit only for desktop platforms. Android is natively supported
-  // by just_audio and should stay on its Media3/AudioTrack backend.
   if (isDesktop) {
     await _configureMpv();
+    // Keep the existing desktop audio backend; video uses its own Player.
     JustAudioMediaKit.ensureInitialized();
   }
+  MediaKit.ensureInitialized();
 
   if (Platform.isWindows || Platform.isLinux) {
     _initSqfliteFfi();

@@ -1,0 +1,1064 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:html/dom.dart';
+import 'package:html/parser.dart' as html_parser;
+
+import '../services/proxy_config.dart';
+import 'video_models.dart';
+
+class MissavClient extends ChangeNotifier {
+  MissavClient({Dio? dio, FlutterSecureStorage? secureStorage})
+    : _secureStorage =
+          secureStorage ??
+          const FlutterSecureStorage(
+            mOptions: MacOsOptions(usesDataProtectionKeychain: false),
+          ),
+      _dio = dio ?? Dio(_defaultOptions()) {
+    if (dio == null) {
+      _dio.httpClientAdapter = IOHttpClientAdapter(
+        createHttpClient: () =>
+            HttpClient()..findProxy = ProxyConfig.findProxyFor,
+      );
+    }
+  }
+
+  static const origin = 'https://missav.ai';
+  static const _cookieKey = 'missav_session_cookie';
+  static const _pageLimit = 5;
+
+  final FlutterSecureStorage _secureStorage;
+  final Dio _dio;
+  int _sessionGeneration = 0;
+  Future<void> _pendingSessionWrite = Future.value();
+  Future<void>? _initializing;
+  bool _initialized = false;
+  String? _cookie;
+  String? _accountName;
+  String _locale = 'zh';
+  String _homeUrl = '$origin/cn';
+  bool _isLoggedIn = false;
+  bool _disposed = false;
+
+  bool get isLoggedIn => _isLoggedIn;
+  String? get accountName => _accountName;
+  String get homeUrl => _homeUrl;
+
+  Future<void> initialize() async {
+    if (_initialized) return;
+    await (_initializing ??= _loadSession());
+  }
+
+  Future<void> _loadSession() async {
+    final generation = _sessionGeneration;
+    try {
+      final cookie = await _secureStorage.read(key: _cookieKey);
+      if (generation == _sessionGeneration && !_disposed) {
+        _cookie = cookie;
+        _initialized = true;
+      }
+    } finally {
+      _initializing = null;
+    }
+  }
+
+  Future<VideoCatalogPage> browse(String url) async {
+    await initialize();
+    final uri = _sourceUri(url);
+    _rememberLocale(uri);
+    final response = await _request(uri);
+    final document = _parsePage(response.data as String, uri);
+    _updateAccountFromPage(document);
+    _updateHomeUrl(document, uri);
+    final videos = _parseVideos(document, uri);
+
+    return VideoCatalogPage(
+      title: _pageTitle(document),
+      url: uri.toString(),
+      videos: videos,
+      links: _parseLinks(document, uri),
+      navigation: _parseNavigation(document, uri),
+      nextUrl: _paginationUrl(document, uri, 'next'),
+      previousUrl: _paginationUrl(document, uri, 'prev'),
+    );
+  }
+
+  Future<VideoCatalogPage> search(String query) async {
+    final path = _locale == 'zh'
+        ? '/search/${Uri.encodeComponent(query)}'
+        : '/$_locale/search/${Uri.encodeComponent(query)}';
+    return browse('$origin$path');
+  }
+
+  Future<VideoDetails> details(VideoItem item) async {
+    await initialize();
+    final uri = _sourceUri(item.pageUrl);
+    _rememberLocale(uri);
+    final response = await _request(uri);
+    final document = _parsePage(response.data as String, uri);
+    _updateAccountFromPage(document);
+    final title =
+        (document.querySelector('main h1') ?? document.querySelector('h1'))
+            ?.text
+            .trim();
+    final poster = document
+        .querySelector('video[data-poster]')
+        ?.attributes['data-poster'];
+    final video = VideoItem(
+      id: item.id,
+      title: title?.isNotEmpty == true ? title! : item.title,
+      pageUrl: uri.toString(),
+      cover: poster?.isNotEmpty == true
+          ? uri.resolve(poster!).toString()
+          : item.cover,
+      durationSeconds: item.durationSeconds,
+    );
+    final sourceId = _sourceId(document);
+    var saved = _savedState(document);
+    if (sourceId != null) {
+      final viewUri = Uri.parse(
+        '$origin/api/items/${Uri.encodeComponent(sourceId)}/view',
+      );
+      final viewResponse = await _request(viewUri);
+      final viewBody = _decodeObject(viewResponse.data, viewUri);
+      if (viewBody['saved'] is bool) saved = viewBody['saved'] as bool;
+      if (viewBody.containsKey('user')) {
+        _updateAccountFromSource(viewBody['user']);
+      }
+    }
+    return VideoDetails(
+      video: video,
+      description: _parseDescription(document),
+      metadata: _parseMetadata(document),
+      actors: _parseDetailLinks(document, uri, VideoLinkKind.actor),
+      tags: _parseDetailLinks(document, uri, VideoLinkKind.tag),
+      related: _parseVideos(
+        document,
+        uri,
+      ).where((related) => related.id != item.id).toList(),
+      streams: _parseStreams(document, uri),
+      sourceId: sourceId,
+      isFavorite: saved,
+    );
+  }
+
+  Future<void> login({required String email, required String password}) async {
+    await initialize();
+    final generation = ++_sessionGeneration;
+    final uri = Uri.parse('$origin/$_localePath/api/login');
+
+    try {
+      final response = await _request(
+        uri,
+        method: 'POST',
+        data: {'email': email, 'password': password, 'remember': true},
+        generation: generation,
+      );
+      if (generation != _sessionGeneration) {
+        throw const MissavException('MissAV account changed during login.');
+      }
+
+      final body = response.data is String
+          ? jsonDecode(response.data as String)
+          : response.data;
+      if (body is! Map || body['user'] is! Map) {
+        throw MissavException(
+          'MissAV returned an invalid login response.',
+          sourceUrl: uri.toString(),
+        );
+      }
+      final user = Map<String, dynamic>.from(body['user'] as Map);
+      _accountName = _accountNameFrom(user);
+      _setAccountState(loggedIn: true, notify: false);
+      notifyListeners();
+    } on MissavException {
+      rethrow;
+    } on DioException catch (error) {
+      throw MissavException(
+        'MissAV login failed (${error.response?.statusCode ?? error.type.name}).',
+        sourceUrl: uri.toString(),
+      );
+    } on FormatException {
+      throw MissavException(
+        'MissAV returned an invalid login response.',
+        sourceUrl: uri.toString(),
+      );
+    }
+  }
+
+  Future<void> logout() async {
+    await initialize();
+    await _clearSession(++_sessionGeneration);
+  }
+
+  Future<void> setVideoFavorite(VideoDetails details, bool favorite) async {
+    await initialize();
+    final sourceId = details.sourceId;
+    if (sourceId == null || !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(sourceId)) {
+      throw MissavUnsupportedException(
+        capability: 'video favorites without a source item ID',
+        sourceUrl: details.video.pageUrl,
+      );
+    }
+    await _request(
+      Uri.parse('$origin/api/items/${Uri.encodeComponent(sourceId)}/save'),
+      method: favorite ? 'POST' : 'DELETE',
+    );
+  }
+
+  Future<List<VideoLink>> playlistsFor(VideoItem item) async {
+    await initialize();
+    _rememberLocale(_sourceUri(item.pageUrl));
+    final uri = Uri.parse(
+      '$origin/api/playlists/${Uri.encodeComponent(item.id)}',
+    );
+    final response = await _request(uri);
+    final body = _decodeObject(response.data, uri);
+    final entries = body['data'];
+    if (entries is! List) {
+      throw MissavException(
+        'MissAV returned an invalid playlist response.',
+        sourceUrl: uri.toString(),
+      );
+    }
+    return entries
+        .whereType<Map>()
+        .map((entry) {
+          final key = entry['key'];
+          final name = entry['name'];
+          if (key is! String || name is! String) return null;
+          return VideoLink(
+            label: name,
+            url: '$origin/$_localePath/playlists',
+            kind: VideoLinkKind.playlist,
+            sourceKey: key,
+            isAdded: entry['is_added'] is bool
+                ? entry['is_added'] as bool
+                : null,
+          );
+        })
+        .whereType<VideoLink>()
+        .toList();
+  }
+
+  Future<void> setActorFavorite(VideoLink actor, bool favorite) async {
+    await initialize();
+    final actorUri = _sourceUri(actor.url);
+    _rememberLocale(actorUri);
+    final pageResponse = await _request(actorUri);
+    final document = _parsePage(pageResponse.data as String, actorUri);
+    final sourceId = _actorSourceId(document);
+    if (sourceId == null) {
+      throw MissavUnsupportedException(
+        capability: 'actor favorites without a source actor ID',
+        sourceUrl: actor.url,
+      );
+    }
+    final viewUri = Uri.parse('$origin/api/actresses/$sourceId/view');
+    final viewResponse = await _request(viewUri);
+    final viewBody = _decodeObject(viewResponse.data, viewUri);
+    if (viewBody.containsKey('user')) {
+      _updateAccountFromSource(viewBody['user']);
+    }
+    await _request(
+      Uri.parse('$origin/api/actresses/$sourceId/save'),
+      method: favorite ? 'POST' : 'DELETE',
+    );
+  }
+
+  Future<void> createPlaylist(String title) async =>
+      throw MissavUnsupportedException(
+        capability: 'creating a playlist',
+        sourceUrl: '$origin/$_localePath/playlists',
+      );
+
+  Future<void> renamePlaylist(VideoLink playlist, String title) async =>
+      throw MissavUnsupportedException(
+        capability: 'renaming a playlist',
+        sourceUrl: playlist.url,
+      );
+
+  Future<void> deletePlaylist(VideoLink playlist) async =>
+      throw MissavUnsupportedException(
+        capability: 'deleting a playlist',
+        sourceUrl: playlist.url,
+      );
+
+  Future<void> addToPlaylist(VideoLink playlist, VideoItem item) =>
+      _setPlaylistMembership(playlist, item, added: true);
+
+  Future<void> removeFromPlaylist(VideoLink playlist, VideoItem item) =>
+      _setPlaylistMembership(playlist, item, added: false);
+
+  Future<void> _setPlaylistMembership(
+    VideoLink playlist,
+    VideoItem item, {
+    required bool added,
+  }) async {
+    await initialize();
+    final key = playlist.sourceKey;
+    if (key == null || key.isEmpty) {
+      throw MissavUnsupportedException(
+        capability: 'playlist action without a source playlist key',
+        sourceUrl: playlist.url,
+      );
+    }
+    await _request(
+      Uri.parse('$origin/api/playlists/${added ? 'add' : 'remove'}'),
+      method: 'POST',
+      data: {'dvdId': item.id, 'key': key},
+    );
+  }
+
+  Future<void> clearWatchHistory() async {
+    await initialize();
+    await _request(Uri.parse('$origin/api/history'), method: 'DELETE');
+  }
+
+  Future<Response<dynamic>> _request(
+    Uri uri, {
+    String method = 'GET',
+    Object? data,
+    int? generation,
+  }) async {
+    final requestGeneration = generation ?? _sessionGeneration;
+    var requestUri = _sourceUri(uri.toString());
+    var requestMethod = method;
+    var requestData = data;
+
+    for (var redirect = 0; redirect <= _pageLimit; redirect++) {
+      _checkGeneration(requestGeneration, requestUri);
+      final headers = <String, dynamic>{
+        'Accept': 'text/html,application/json,application/xhtml+xml,*/*',
+        'User-Agent': 'Mozilla/5.0',
+      };
+      if (_isSource(requestUri)) {
+        final cookie = _cookie;
+        if (cookie != null && cookie.isNotEmpty) {
+          headers['Cookie'] = cookie;
+          final xsrfToken = _cookieValue('XSRF-TOKEN');
+          if (xsrfToken != null) {
+            headers['X-XSRF-TOKEN'] = Uri.decodeComponent(xsrfToken);
+          }
+        }
+      }
+
+      late final Response<dynamic> response;
+      try {
+        response = await _dio.request<dynamic>(
+          requestUri.toString(),
+          data: requestData,
+          options: Options(
+            method: requestMethod,
+            headers: headers,
+            responseType: ResponseType.plain,
+            followRedirects: false,
+            validateStatus: (status) =>
+                status != null && status >= 200 && status < 500,
+          ),
+        );
+      } on DioException catch (error) {
+        throw MissavException(
+          'MissAV request failed (${error.response?.statusCode ?? error.type.name}).',
+          sourceUrl: requestUri.toString(),
+        );
+      }
+      _checkGeneration(requestGeneration, requestUri);
+
+      final status = response.statusCode ?? 0;
+      final location = response.headers.value(HttpHeaders.locationHeader);
+      if (_isChallengeResponse(response.data)) {
+        throw MissavException(
+          'MissAV requires browser verification.',
+          sourceUrl: requestUri.toString(),
+        );
+      }
+      await _saveResponseCookies(response, requestUri, requestGeneration);
+      _checkGeneration(requestGeneration, requestUri);
+      if (status >= 300 && status < 400 && location != null) {
+        final redirectedUri = requestUri.resolve(location);
+        if (!_isSource(redirectedUri)) {
+          throw MissavUnsupportedException(
+            capability: 'following a redirect outside MissAV',
+            sourceUrl: redirectedUri.toString(),
+          );
+        }
+        requestUri = redirectedUri;
+        if (status == 303 ||
+            ((status == 301 || status == 302) && requestMethod != 'GET')) {
+          requestMethod = 'GET';
+          requestData = null;
+        }
+        continue;
+      }
+      if (status == HttpStatus.unauthorized) {
+        throw MissavAuthenticationException(sourceUrl: requestUri.toString());
+      }
+      if (status < 200 || status >= 300) {
+        throw MissavException(
+          'MissAV returned HTTP $status.',
+          sourceUrl: requestUri.toString(),
+        );
+      }
+      return response;
+    }
+
+    throw MissavException(
+      'MissAV redirected too many times.',
+      sourceUrl: uri.toString(),
+    );
+  }
+
+  Future<void> _saveResponseCookies(
+    Response<dynamic> response,
+    Uri uri,
+    int generation,
+  ) async {
+    if (!_isSource(uri) || generation != _sessionGeneration) return;
+    final values = response.headers['set-cookie'];
+    if (values == null || values.isEmpty) return;
+
+    await _writeSession(generation, () async {
+      final cookies = <String, String>{};
+      for (final part in (_cookie ?? '').split(';')) {
+        final separator = part.indexOf('=');
+        if (separator > 0) {
+          cookies[part.substring(0, separator).trim()] = part
+              .substring(separator + 1)
+              .trim();
+        }
+      }
+      for (final value in values) {
+        try {
+          final cookie = Cookie.fromSetCookieValue(value);
+          if ((cookie.maxAge != null && cookie.maxAge! <= 0) ||
+              (cookie.expires != null &&
+                  cookie.expires!.isBefore(DateTime.now()))) {
+            cookies.remove(cookie.name);
+          } else {
+            cookies[cookie.name] = cookie.value;
+          }
+        } on FormatException {
+          continue;
+        }
+      }
+
+      final updatedCookie = cookies.entries
+          .map((entry) => '${entry.key}=${entry.value}')
+          .join('; ');
+      if (updatedCookie.isEmpty) {
+        await _secureStorage.delete(key: _cookieKey);
+      } else {
+        await _secureStorage.write(key: _cookieKey, value: updatedCookie);
+      }
+      if (generation == _sessionGeneration) {
+        _cookie = updatedCookie.isEmpty ? null : updatedCookie;
+      }
+    });
+  }
+
+  Future<void> _writeSession(
+    int generation,
+    Future<void> Function() write,
+  ) async {
+    final previous = _pendingSessionWrite;
+    final completed = Completer<void>();
+    _pendingSessionWrite = completed.future;
+    await previous;
+    try {
+      if (generation == _sessionGeneration) await write();
+    } finally {
+      completed.complete();
+    }
+  }
+
+  Future<void> _clearSession(int generation) async {
+    if (generation != _sessionGeneration) return;
+    _cookie = null;
+    _accountName = null;
+    _setAccountState(loggedIn: false);
+    await _writeSession(
+      generation,
+      () => _secureStorage.delete(key: _cookieKey),
+    );
+  }
+
+  String? _cookieValue(String name) {
+    for (final pair in (_cookie ?? '').split(';')) {
+      final separator = pair.indexOf('=');
+      if (separator > 0 && pair.substring(0, separator).trim() == name) {
+        return pair.substring(separator + 1).trim();
+      }
+    }
+    return null;
+  }
+
+  void _setAccountState({required bool loggedIn, bool notify = true}) {
+    if (_isLoggedIn == loggedIn) return;
+    _isLoggedIn = loggedIn;
+    if (notify && !_disposed) notifyListeners();
+  }
+
+  void _checkGeneration(int generation, Uri uri) {
+    if (_disposed || generation != _sessionGeneration) {
+      throw MissavException(
+        'MissAV account changed during the request.',
+        sourceUrl: uri.toString(),
+      );
+    }
+  }
+
+  static Uri _sourceUri(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || !_isSource(uri)) {
+      throw MissavUnsupportedException(
+        capability: 'opening a non-MissAV page in the native client',
+        sourceUrl: url,
+      );
+    }
+    return uri;
+  }
+
+  static bool _isSource(Uri uri) =>
+      uri.scheme == 'https' &&
+      uri.port == 443 &&
+      uri.userInfo.isEmpty &&
+      uri.host.toLowerCase() == 'missav.ai';
+
+  void _rememberLocale(Uri uri) {
+    final segments = uri.pathSegments;
+    final locale = segments.contains('cn')
+        ? 'zh'
+        : segments.firstWhere(
+            (segment) => const {'ja', 'en', 'zh'}.contains(segment),
+            orElse: () => _locale,
+          );
+    _locale = locale;
+  }
+
+  String get _localePath => _locale == 'zh' ? 'cn' : _locale;
+
+  static Document _parsePage(String source, Uri uri) {
+    if (_isChallengeResponse(source)) {
+      throw MissavException(
+        'MissAV requires browser verification.',
+        sourceUrl: uri.toString(),
+      );
+    }
+    return html_parser.parse(source);
+  }
+
+  static bool _isChallengeResponse(Object? body) {
+    if (body is! String) return false;
+    final lower = body.toLowerCase();
+    return lower.contains('challenge-platform') ||
+        lower.contains('cf-chl-') ||
+        RegExp(r'<title>\s*just a moment').hasMatch(lower);
+  }
+
+  void _updateHomeUrl(Document document, Uri pageUri) {
+    for (final anchor in document.querySelectorAll('nav a[href]')) {
+      final href = anchor.attributes['href'];
+      if (href == null) continue;
+      final candidate = pageUri.resolve(href);
+      if (!_isSource(candidate)) continue;
+      final segments = candidate.pathSegments;
+      if (segments.any((segment) => RegExp(r'^dm\d+$').hasMatch(segment)) &&
+          segments.contains(_localePath)) {
+        _homeUrl = candidate.toString();
+        return;
+      }
+    }
+  }
+
+  static String? _accountNameFrom(Map<String, dynamic> user) {
+    for (final key in const ['email', 'username', 'name']) {
+      final value = user[key];
+      if (value is String && value.trim().isNotEmpty) return value.trim();
+    }
+    return null;
+  }
+
+  Map<String, dynamic> _decodeObject(Object? value, Uri uri) {
+    try {
+      final decoded = value is String ? jsonDecode(value) : value;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } on FormatException catch (error) {
+      throw MissavException(
+        'MissAV returned an invalid response.',
+        sourceUrl: uri.toString(),
+        cause: error,
+      );
+    }
+    throw MissavException(
+      'MissAV returned an invalid response.',
+      sourceUrl: uri.toString(),
+    );
+  }
+
+  void _updateAccountFromSource(Object? sourceUser) {
+    final previousName = _accountName;
+    final previousLoginState = _isLoggedIn;
+    if (sourceUser is Map) {
+      _accountName = _accountNameFrom(Map<String, dynamic>.from(sourceUser));
+      _setAccountState(loggedIn: true, notify: false);
+    } else if (sourceUser == null) {
+      _accountName = null;
+      _setAccountState(loggedIn: false, notify: false);
+    } else {
+      return;
+    }
+    if (previousName != _accountName || previousLoginState != _isLoggedIn) {
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  void _updateAccountFromPage(Document document) {
+    final sourceUser = _readAccountFromPage(document);
+    // Public markup initializes user before /view confirms the session.
+    if (sourceUser is Map) {
+      _updateAccountFromSource(sourceUser);
+    }
+  }
+
+  static Object? _readAccountFromPage(Document document) {
+    for (final element in document.querySelectorAll('[x-data]')) {
+      final source = element.attributes['x-data'] ?? '';
+      final match = RegExp(r'\buser\s*:\s*(null|\{)').firstMatch(source);
+      if (match == null) continue;
+      if (match.group(1) == 'null') return null;
+      final user = <String, dynamic>{};
+      final property = RegExp(
+        r'''['"]?(email|username|name)['"]?\s*:\s*(['"])(.*?)\2''',
+      ).firstMatch(source.substring(match.end));
+      if (property != null) user[property.group(1)!] = property.group(3);
+      return user;
+    }
+    return null;
+  }
+
+  static String? _sourceId(Document document) {
+    for (final element in document.querySelectorAll(
+      'script, [x-init], [x-data]',
+    )) {
+      final source = '${element.text} ${element.attributes.values.join(' ')}';
+      final match = RegExp(
+        r'''/api/items/([A-Za-z0-9_-]+)/(?:save|view)\b''',
+      ).firstMatch(source);
+      if (match != null) return match.group(1);
+    }
+    return null;
+  }
+
+  static String? _actorSourceId(Document document) {
+    for (final element in document.querySelectorAll(
+      'script, [x-init], [x-data]',
+    )) {
+      final source = '${element.text} ${element.attributes.values.join(' ')}';
+      final match = RegExp(
+        r'''/api/actresses/(\d+)/(?:save|view)\b''',
+      ).firstMatch(source);
+      if (match != null) return match.group(1);
+    }
+    return null;
+  }
+
+  static bool? _savedState(Document document) {
+    for (final element in document.querySelectorAll('[x-data]')) {
+      final source = element.attributes['x-data'] ?? '';
+      final match = RegExp(r'\bsaved\s*:\s*(true|false)\b').firstMatch(source);
+      if (match != null) return match.group(1) == 'true';
+    }
+    return null;
+  }
+
+  static String _parseDescription(Document document) {
+    final sourceDescription = document
+        .querySelector(
+          '[x-data*="showMore"] .mb-1.text-secondary.break-all.line-clamp-2',
+        )
+        ?.text
+        .trim();
+    if (sourceDescription?.isNotEmpty == true) return sourceDescription!;
+    return document.querySelector('[itemprop="description"]')?.text.trim() ??
+        document
+            .querySelector('meta[name="description"]')
+            ?.attributes['content']
+            ?.trim() ??
+        '';
+  }
+
+  static Map<String, String> _parseMetadata(Document document) {
+    final metadata = <String, String>{};
+    for (final row in _detailMetadataRows(document)) {
+      final labelElement = row.querySelector('span');
+      if (labelElement == null) continue;
+      final label = _metadataLabel(labelElement);
+      final value = row.nodes
+          .where((node) => node != labelElement)
+          .map((node) => node.text)
+          .join()
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      if (label.isNotEmpty && value.isNotEmpty) metadata[label] = value;
+    }
+    return metadata;
+  }
+
+  static Iterable<Element> _detailMetadataRows(Document document) =>
+      document.querySelectorAll('div.text-secondary').where((row) {
+        final label = row.children.isEmpty ? null : row.children.first;
+        return label?.localName == 'span' &&
+            RegExp(r'[:：]$').hasMatch(label!.text.trim());
+      });
+
+  static String _metadataLabel(Element element) =>
+      element.text.trim().replaceAll(RegExp(r'[:：]$'), '').trim();
+
+  static List<VideoLink> _parseDetailLinks(
+    Document document,
+    Uri pageUri,
+    VideoLinkKind kind,
+  ) {
+    final seen = <String>{};
+    final links = <VideoLink>[];
+    for (final row in _detailMetadataRows(document)) {
+      for (final anchor in row.querySelectorAll('a[href]')) {
+        final href = anchor.attributes['href'];
+        if (href == null) continue;
+        final uri = pageUri.resolve(href);
+        if (!_isSource(uri) || uri == pageUri || !seen.add(uri.toString())) {
+          continue;
+        }
+        final label = anchor.text.trim();
+        if (label.isEmpty) continue;
+        final route = uri.path.toLowerCase();
+        final isActor =
+            route.contains('/actresses/') || route.contains('/actors/');
+        final isTag =
+            route.contains('/category') ||
+            route.contains('/genre') ||
+            route.contains('/tag') ||
+            route.contains('/studio') ||
+            route.contains('/label') ||
+            route.contains('/maker') ||
+            route.contains('/director') ||
+            route.contains('/series');
+        if (kind == VideoLinkKind.actor && !isActor) continue;
+        if (kind == VideoLinkKind.tag && (!isTag || isActor)) continue;
+        links.add(
+          VideoLink(
+            label: label,
+            url: uri.toString(),
+            kind: isActor ? VideoLinkKind.actor : _detailLinkKind(route),
+          ),
+        );
+      }
+    }
+    return links;
+  }
+
+  static VideoLinkKind _detailLinkKind(String route) {
+    if (route.contains('/genre') ||
+        route.contains('/category') ||
+        route.contains('/tag') ||
+        route.contains('/label') ||
+        route.contains('/series')) {
+      return VideoLinkKind.category;
+    }
+    if (route.contains('/maker') || route.contains('/studio')) {
+      return VideoLinkKind.studio;
+    }
+    return VideoLinkKind.other;
+  }
+
+  static List<VideoStream> _parseStreams(Document document, Uri pageUri) {
+    final streams = <VideoStream>[];
+    final urls = <String>{};
+    for (final script in document.querySelectorAll('script')) {
+      final text = _unpackPacker(script.text);
+      if (text == null) continue;
+      for (final match in RegExp(
+        r'''\b(source\d*)\s*=\s*(['"])(.*?)\2''',
+        dotAll: true,
+      ).allMatches(text)) {
+        final name = match.group(1)!;
+        final url = match.group(3)!.replaceAll(r'\/', '/');
+        final uri = Uri.tryParse(url);
+        if (uri == null ||
+            (uri.scheme != 'https' && uri.scheme != 'http') ||
+            uri.host.isEmpty ||
+            !RegExp(
+              r'\.(m3u8|mp4)$',
+              caseSensitive: false,
+            ).hasMatch(uri.path) ||
+            !urls.add(uri.toString())) {
+          continue;
+        }
+        streams.add(
+          VideoStream(
+            label: name == 'source' ? 'Source' : 'Source ${name.substring(6)}',
+            url: uri.toString(),
+            headers: {
+              HttpHeaders.refererHeader: pageUri.toString(),
+              'Origin': origin,
+              HttpHeaders.userAgentHeader: 'Mozilla/5.0',
+            },
+            isHls: uri.path.toLowerCase().endsWith('.m3u8'),
+          ),
+        );
+      }
+    }
+    return streams;
+  }
+
+  // Expands the packed token table without evaluating page JavaScript.
+  static String? _unpackPacker(String source) {
+    final match = RegExp(
+      r'''eval\(function\(p,a,c,k,e,d\).*?\}\('((?:\\.|[^'])*)',\s*(\d+),\s*(\d+),\s*'((?:\\.|[^'])*)'\.split\('\|'\)''',
+      dotAll: true,
+    ).firstMatch(source);
+    if (match == null) return null;
+    final payload = match.group(1)!.replaceAll(r"\'", "'");
+    final radix = int.parse(match.group(2)!);
+    final count = int.parse(match.group(3)!);
+    final words = match.group(4)!.split('|');
+    var result = payload;
+    for (var index = count - 1; index >= 0; index--) {
+      final word = index < words.length ? words[index] : '';
+      if (word.isEmpty) continue;
+      result = result.replaceAll(
+        RegExp('\\b${RegExp.escape(_encodeRadix(index, radix))}\\b'),
+        word,
+      );
+    }
+    return result;
+  }
+
+  static String _encodeRadix(int value, int radix) {
+    const digits = '0123456789abcdefghijklmnopqrstuvwxyz';
+    if (value == 0) return '0';
+    var remainder = value;
+    final result = StringBuffer();
+    while (remainder > 0) {
+      result.write(digits[remainder % radix]);
+      remainder ~/= radix;
+    }
+    return result.toString().split('').reversed.join();
+  }
+
+  static String _pageTitle(Document document) {
+    final heading =
+        (document.querySelector('main h1') ?? document.querySelector('h1'))
+            ?.text
+            .trim();
+    return heading?.isNotEmpty == true
+        ? heading!
+        : document.querySelector('title')?.text.trim() ?? '';
+  }
+
+  static List<VideoItem> _parseVideos(Document document, Uri pageUri) {
+    final seen = <String>{};
+    final videos = <VideoItem>[];
+    for (final card in document.querySelectorAll(
+      'div.relative.aspect-w-16.aspect-h-9',
+    )) {
+      final anchor = card.querySelector('a[href]');
+      final image = card.querySelector('img[alt]');
+      if (anchor == null || image == null) continue;
+      final href = anchor.attributes['href'];
+      final title = image.attributes['alt']?.trim() ?? '';
+      if (href == null || title.isEmpty) continue;
+      final itemUri = pageUri.resolve(href).removeFragment();
+      if (!_isSource(itemUri)) continue;
+      final id = itemUri.pathSegments.isEmpty ? '' : itemUri.pathSegments.last;
+      if (id.isEmpty || !seen.add(id)) continue;
+      final dataCover = image.attributes['data-src'];
+      final sourceCover = image.attributes['src'] ?? '';
+      final cover = dataCover?.isNotEmpty == true
+          ? pageUri.resolve(dataCover!).toString()
+          : sourceCover.startsWith('data:')
+          ? ''
+          : sourceCover.isEmpty
+          ? ''
+          : pageUri.resolve(sourceCover).toString();
+
+      videos.add(
+        VideoItem(
+          id: id,
+          title: title,
+          pageUrl: itemUri.toString(),
+          cover: cover,
+          durationSeconds: _durationSeconds(
+            card.querySelector('span.bottom-1.right-1')?.text.trim(),
+          ),
+        ),
+      );
+    }
+    return videos;
+  }
+
+  List<VideoLink> _parseNavigation(Document document, Uri pageUri) {
+    final seen = <String>{};
+    return document
+        .querySelectorAll('nav a[href]')
+        .map((anchor) {
+          final url = anchor.attributes['href'];
+          if (url == null || url.startsWith('#')) return null;
+          final label = anchor.text.trim();
+          if (label.isEmpty) return null;
+          final uri = pageUri.resolve(url).removeFragment();
+          if (!_isSource(uri) ||
+              _isLanguageAnchor(anchor) ||
+              !seen.add(uri.toString())) {
+            return null;
+          }
+          return VideoLink(
+            label: label,
+            url: uri.toString(),
+            kind: VideoLinkKind.navigation,
+          );
+        })
+        .whereType<VideoLink>()
+        .toList();
+  }
+
+  static List<VideoLink> _parseLinks(Document document, Uri pageUri) {
+    final seen = <String>{};
+    final videoAnchors = document
+        .querySelectorAll('div.relative.aspect-w-16.aspect-h-9 a[href]')
+        .toSet();
+    final videoUrls = videoAnchors
+        .map(
+          (anchor) => pageUri
+              .resolve(anchor.attributes['href']!)
+              .removeFragment()
+              .toString(),
+        )
+        .toSet();
+    final navigationAnchors = document.querySelectorAll('nav a[href]').toSet();
+    final links = <VideoLink>[];
+    for (final anchor in document.querySelectorAll('a[href]')) {
+      if (videoAnchors.contains(anchor) ||
+          navigationAnchors.contains(anchor) ||
+          _isLanguageAnchor(anchor)) {
+        continue;
+      }
+      final href = anchor.attributes['href'];
+      if (href == null || href.startsWith('#')) continue;
+      final uri = pageUri.resolve(href).removeFragment();
+      if (!_isSource(uri) || uri == pageUri) {
+        continue;
+      }
+      if (videoUrls.contains(uri.toString())) continue;
+      final image = anchor.querySelector('img[alt]');
+      final label = anchor.text.trim().isNotEmpty
+          ? anchor.text.trim()
+          : image?.attributes['alt']?.trim() ?? '';
+      if (label.isEmpty || !seen.add(uri.toString())) continue;
+      final imageSource =
+          image?.attributes['data-src'] ?? image?.attributes['src'] ?? '';
+      final cover = imageSource.isEmpty || imageSource.startsWith('data:')
+          ? ''
+          : pageUri.resolve(imageSource).toString();
+      links.add(
+        VideoLink(
+          label: label,
+          url: uri.toString(),
+          cover: cover,
+          kind: _browseLinkKind(uri),
+        ),
+      );
+    }
+    return links;
+  }
+
+  static bool _isLanguageAnchor(Element anchor) =>
+      (anchor.attributes[':href'] ?? '').contains('localizedUrl(');
+
+  static VideoLinkKind _browseLinkKind(Uri uri) {
+    final route = uri.path.toLowerCase();
+    if (route.contains('/actresses') || route.contains('/actors')) {
+      return VideoLinkKind.actor;
+    }
+    if (route.contains('/maker') || route.contains('/studio')) {
+      return VideoLinkKind.studio;
+    }
+    if (route.contains('/category') ||
+        route.contains('/genre') ||
+        route.contains('/tag') ||
+        route.contains('/director') ||
+        route.contains('/label') ||
+        route.contains('/series')) {
+      return VideoLinkKind.category;
+    }
+    return VideoLinkKind.other;
+  }
+
+  static String? _paginationUrl(
+    Document document,
+    Uri pageUri,
+    String direction,
+  ) {
+    Element? candidate = document.querySelector('a[rel="$direction"][href]');
+    if (candidate == null) {
+      for (final link in document.querySelectorAll('a[href]')) {
+        final label = link.text.trim().toLowerCase();
+        final aria = link.attributes['aria-label']?.toLowerCase() ?? '';
+        final matches = direction == 'next'
+            ? const {'next', '›', '»', '下一页', '次へ'}.contains(label) ||
+                  aria.contains('next')
+            : const {
+                    'previous',
+                    'prev',
+                    '‹',
+                    '«',
+                    '上一页',
+                    '前へ',
+                  }.contains(label) ||
+                  aria.contains('previous') ||
+                  aria.contains('prev');
+        if (matches) {
+          candidate = link;
+          break;
+        }
+      }
+    }
+    final href = candidate?.attributes['href'];
+    if (href == null) return null;
+    final uri = pageUri.resolve(href);
+    return _isSource(uri) ? uri.toString() : null;
+  }
+
+  static int? _durationSeconds(String? value) {
+    if (value == null) return null;
+    final parts = value.split(':');
+    if (parts.length < 2 || parts.length > 3) return null;
+    final numbers = parts.map(int.tryParse).toList();
+    if (numbers.any((part) => part == null || part < 0)) return null;
+    final minutes = numbers[numbers.length - 2]!;
+    final seconds = numbers.last!;
+    if (minutes > 59 || seconds > 59) return null;
+    if (parts.length == 2) return minutes * 60 + seconds;
+    return numbers.first! * 3600 + minutes * 60 + seconds;
+  }
+
+  static BaseOptions _defaultOptions() => BaseOptions(
+    connectTimeout: const Duration(seconds: 20),
+    receiveTimeout: const Duration(seconds: 30),
+    sendTimeout: const Duration(seconds: 20),
+  );
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _sessionGeneration++;
+    _dio.close(force: true);
+    super.dispose();
+  }
+}

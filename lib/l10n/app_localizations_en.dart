@@ -4397,4 +4397,125 @@ class SEn extends S {
 
   @override
   String get installFailed => 'Failed to launch installer';
+
+  @override
+  String get navVideos => 'Videos';
+
+  @override
+  String get videoSearchHint => 'Search videos, actors, or studios';
+
+  @override
+  String get videoSourceAccount => 'MissAV account';
+
+  @override
+  String get videoCatalog => 'Browse videos';
+
+  @override
+  String get videoFavorites => 'Video favorites';
+
+  @override
+  String get videoActorFavorites => 'Actor favorites';
+
+  @override
+  String get videoWatchHistory => 'Watch history';
+
+  @override
+  String get videoDownloads => 'Video downloads';
+
+  @override
+  String get videoSourceUnavailable =>
+      'This source feature is unavailable in the app. Open it on MissAV.';
+
+  @override
+  String get videoVerificationRequired =>
+      'MissAV requires browser verification. Continue on MissAV or retry later.';
+
+  @override
+  String get videoLoginRequired =>
+      'Sign in to a MissAV account to use this feature.';
+
+  @override
+  String get videoLoadFailed =>
+      'Videos could not be loaded. Retry or open MissAV.';
+
+  @override
+  String get videoPlaybackFailed => 'Playback failed. Retry or open MissAV.';
+
+  @override
+  String get videoDownloadFailed =>
+      'Download failed. Retry from video downloads.';
+
+  @override
+  String get videoEmail => 'Email';
+
+  @override
+  String get videoRegisterOnSource => 'Register on MissAV';
+
+  @override
+  String get videoResetPasswordOnSource => 'Reset password on MissAV';
+
+  @override
+  String get videoPasswordOnSource => 'Change password on MissAV';
+
+  @override
+  String get videoQuality => 'Quality';
+
+  @override
+  String get videoRelated => 'Related videos';
+
+  @override
+  String get videoDownloadQueued => 'Queued';
+
+  @override
+  String get videoDownloadPaused => 'Paused';
+
+  @override
+  String get videoDownloadFailedStatus => 'Failed';
+
+  @override
+  String get videoDownloadCompleted => 'Downloaded';
+
+  @override
+  String get videoDownloadInProgress => 'Downloading';
+
+  @override
+  String get videoNoStreams =>
+      'No playable stream was found. Open MissAV to play this video.';
+
+  @override
+  String get videoPlaylistName => 'Playlist name';
+
+  @override
+  String get videoAddToPlaylist => 'Add to playlist';
+
+  @override
+  String get videoCreatePlaylist => 'Create playlist';
+
+  @override
+  String get videoRenamePlaylist => 'Rename playlist';
+
+  @override
+  String get videoDeletePlaylist => 'Delete playlist';
+
+  @override
+  String get videoOpenSource => 'Open MissAV';
+
+  @override
+  String get videoDownloadDeleteConfirm =>
+      'Delete this video download? Offline playback will no longer be available.';
+
+  @override
+  String get videoPlay => 'Play';
+
+  @override
+  String get videoFullscreen => 'Fullscreen';
+
+  @override
+  String get videoSubtitle => 'Subtitles';
+
+  @override
+  String get videoFavoriteActor => 'Favorite actor';
+
+  @override
+  String get videoUnfavoriteActor => 'Unfavorite actor';
 }

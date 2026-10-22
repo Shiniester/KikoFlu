@@ -12,6 +12,7 @@ import '../widgets/mini_player.dart';
 import '../widgets/tab_page_motion.dart';
 import 'audio_screen.dart';
 import '../comics/ui/comic_screen.dart';
+import '../videos/ui/video_screen.dart';
 import 'settings_screen.dart';
 import '../providers/settings_provider.dart';
 
@@ -30,7 +31,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
   int _currentIndex = 0;
   final _selection = ValueNotifier<int?>(0);
-  static const int _settingsTabIndex = 2;
+  static const int _settingsTabIndex = 3;
 
   // 使用 PageStorageBucket 来保存页面状态
   final PageStorageBucket _bucket = PageStorageBucket();
@@ -47,6 +48,13 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         builder: (context, index, child) => ComicScreen(
           key: const PageStorageKey('comic_screen'),
           active: index == 1,
+        ),
+      ),
+      ValueListenableBuilder<int?>(
+        valueListenable: _selection,
+        builder: (context, index, child) => VideoScreen(
+          key: const PageStorageKey('video_screen'),
+          active: index == 2,
         ),
       ),
       const SettingsScreen(key: PageStorageKey('settings_screen')),
@@ -103,6 +111,11 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         icon: const Icon(Icons.menu_book_outlined),
         selectedIcon: const Icon(Icons.menu_book),
         label: s.navComics,
+      ),
+      NavigationDestination(
+        icon: const Icon(Icons.video_library_outlined),
+        selectedIcon: const Icon(Icons.video_library),
+        label: s.navVideos,
       ),
       NavigationDestination(
         icon: Badge(

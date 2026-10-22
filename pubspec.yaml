@@ -33,8 +33,8 @@ dependencies:
   just_audio_media_kit:
     path: third_party/just_audio_media_kit
   media_kit: ^1.2.0
-  media_kit_libs_windows_audio: ^1.0.9
-  media_kit_libs_linux: ^1.1.5
+  media_kit_video: ^2.0.1
+  media_kit_libs_video: ^1.0.7
   # Includes the upstream Darwin Now Playing fixes queued for audio_service
   # 0.18.20, without pulling the unrelated AGP 9 migration.
   audio_service:
@@ -47,6 +47,7 @@ dependencies:
   
   # Local Storage
   shared_preferences: ^2.2.2
+  flutter_secure_storage: ^10.3.4
   path: ^1.8.3
   sqflite: ^2.3.0
   sqflite_common_ffi: ^2.3.0

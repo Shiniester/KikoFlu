@@ -4276,4 +4276,119 @@ class SJa extends S {
 
   @override
   String get installFailed => 'インストーラーの起動に失敗しました';
+
+  @override
+  String get navVideos => '動画';
+
+  @override
+  String get videoSearchHint => '動画・出演者・メーカーを検索';
+
+  @override
+  String get videoSourceAccount => 'MissAV アカウント';
+
+  @override
+  String get videoCatalog => '動画一覧';
+
+  @override
+  String get videoFavorites => '動画のお気に入り';
+
+  @override
+  String get videoActorFavorites => '出演者のお気に入り';
+
+  @override
+  String get videoWatchHistory => '視聴履歴';
+
+  @override
+  String get videoDownloads => '動画のダウンロード';
+
+  @override
+  String get videoSourceUnavailable => 'この機能はアプリ内で利用できません。MissAV で開いてください。';
+
+  @override
+  String get videoVerificationRequired =>
+      'MissAV でブラウザー認証が必要です。サイトで続けるか、後で再試行してください。';
+
+  @override
+  String get videoLoginRequired => 'この機能を使うには MissAV にログインしてください。';
+
+  @override
+  String get videoLoadFailed => '動画を読み込めません。再試行するか、MissAV を開いてください。';
+
+  @override
+  String get videoPlaybackFailed => '再生できません。再試行するか、MissAV を開いてください。';
+
+  @override
+  String get videoDownloadFailed => 'ダウンロードできません。動画のダウンロード画面で再試行してください。';
+
+  @override
+  String get videoEmail => 'メールアドレス';
+
+  @override
+  String get videoRegisterOnSource => 'MissAV で登録';
+
+  @override
+  String get videoResetPasswordOnSource => 'MissAV でパスワードを再設定';
+
+  @override
+  String get videoPasswordOnSource => 'MissAV でパスワードを変更';
+
+  @override
+  String get videoQuality => '画質';
+
+  @override
+  String get videoRelated => '関連動画';
+
+  @override
+  String get videoDownloadQueued => '待機中';
+
+  @override
+  String get videoDownloadPaused => '一時停止中';
+
+  @override
+  String get videoDownloadFailedStatus => '失敗';
+
+  @override
+  String get videoDownloadCompleted => 'ダウンロード済み';
+
+  @override
+  String get videoDownloadInProgress => 'ダウンロード中';
+
+  @override
+  String get videoNoStreams => '再生可能な動画が見つかりません。MissAV で開いてください。';
+
+  @override
+  String get videoPlaylistName => 'プレイリスト名';
+
+  @override
+  String get videoAddToPlaylist => 'プレイリストに追加';
+
+  @override
+  String get videoCreatePlaylist => 'プレイリストを作成';
+
+  @override
+  String get videoRenamePlaylist => 'プレイリスト名を変更';
+
+  @override
+  String get videoDeletePlaylist => 'プレイリストを削除';
+
+  @override
+  String get videoOpenSource => 'MissAV を開く';
+
+  @override
+  String get videoDownloadDeleteConfirm => 'ダウンロードを削除するとオフラインで再生できなくなります。';
+
+  @override
+  String get videoPlay => '再生';
+
+  @override
+  String get videoFullscreen => '全画面表示';
+
+  @override
+  String get videoSubtitle => '字幕';
+
+  @override
+  String get videoFavoriteActor => '出演者をお気に入りに追加';
+
+  @override
+  String get videoUnfavoriteActor => '出演者のお気に入りを解除';
 }
