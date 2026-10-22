@@ -1462,5 +1462,21 @@
         "type": "int"
       }
     }
-  }
+  },
+  "installUpdate": "立即安裝",
+  "downloadingUpdate": "正在下載更新...",
+  "downloadCompleted": "下載完成",
+  "releaseNotes": "更新日誌",
+  "packageSize": "安裝包大小：{size}",
+  "@packageSize": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "cancelDownload": "取消下載",
+  "noPlatformPackage": "未找到適用於當前系統的安裝包",
+  "openReleasePage": "前往 GitHub 下載",
+  "installFailed": "開啟安裝程式失敗"
 }

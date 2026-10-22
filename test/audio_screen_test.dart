@@ -1000,15 +1000,14 @@ void main() {
       expect(tester.getRect(source), viewport);
       expect(scroll.offset, offset);
       SnackBarUtil.showInfo(sourceContext, 'Dock notice');
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(
-        (tester.widget<SnackBar>(find.byType(SnackBar)).margin! as EdgeInsets)
-            .bottom,
-        34 + 144,
+        tester.widget<TopFloatingNoticeWidget>(find.byType(TopFloatingNoticeWidget)).topOffset,
+        16.0,
         reason:
-            'Notice placement uses the physical safe area, not Dock height.',
+            'Notice placement is fixed at the top (16 dp).',
       );
-      ScaffoldMessenger.of(sourceContext).removeCurrentSnackBar();
+      SnackBarUtil.clearAll();
       _requestAudioPage(tester, 'downloads');
       await tester.pumpAndSettle();
       expect(

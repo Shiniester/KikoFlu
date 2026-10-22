@@ -4247,4 +4247,33 @@ class SJa extends S {
   ) {
     return '生成 $completed · 字幕あり $skipped · 未対応 $unsupported · 失敗 $failed · キャンセル $cancelled';
   }
+
+  @override
+  String get installUpdate => '今すぐインストール';
+
+  @override
+  String get downloadingUpdate => 'アップデートをダウンロード中...';
+
+  @override
+  String get downloadCompleted => 'ダウンロード完了';
+
+  @override
+  String get releaseNotes => '更新履歴';
+
+  @override
+  String packageSize(String size) {
+    return 'パッケージサイズ：$size';
+  }
+
+  @override
+  String get cancelDownload => 'ダウンロードをキャンセル';
+
+  @override
+  String get noPlatformPackage => '現在のプラットフォームに適したパッケージが見つかりません';
+
+  @override
+  String get openReleasePage => 'GitHub でダウンロード';
+
+  @override
+  String get installFailed => 'インストーラーの起動に失敗しました';
 }

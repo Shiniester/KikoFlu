@@ -340,12 +340,14 @@ void main() {
       'lib/src/widgets/player/player_cover_widget.dart',
     ).readAsStringSync();
 
-    expect(RegExp(r'\.showSnackBar\(').allMatches(appSources), hasLength(1));
+    expect(appSources, isNot(contains('.showSnackBar(')));
     expect(playerSources, isNot(contains('.showSnackBar(')));
-    expect(RegExp(r'\.showSnackBar\(').allMatches(noticeSource), hasLength(1));
-    expect(noticeSource, contains('SnackBarBehavior.floating'));
-    expect(noticeSource, contains('(width - 420) / 2'));
-    expect(noticeSource, contains('(height * 0.18).clamp(88.0, 144.0)'));
+    expect(
+      appSources.replaceFirst(noticeSource, ''),
+      isNot(contains('TopFloatingNoticeWidget(')),
+    );
+    expect(noticeSource, contains('class AppFloatingNotice'));
+    expect(noticeSource, contains('OverlayEntry('));
     expect(playerCover, contains('enum PlayerArtworkFlightTarget'));
     expect(playerCover, contains('class PlayerCompactArtwork'));
     expect(playerCover, contains('Tween<double>('));

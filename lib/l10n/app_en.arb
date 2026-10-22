@@ -1824,5 +1824,21 @@
         "type": "int"
       }
     }
-  }
+  },
+  "installUpdate": "Install Now",
+  "downloadingUpdate": "Downloading update...",
+  "downloadCompleted": "Download complete",
+  "releaseNotes": "Release Notes",
+  "packageSize": "Package size: {size}",
+  "@packageSize": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "cancelDownload": "Cancel Download",
+  "noPlatformPackage": "No suitable installation package was found for the current system.",
+  "openReleasePage": "Open GitHub Releases",
+  "installFailed": "Failed to launch installer"
 }

@@ -4225,6 +4225,35 @@ class SZh extends S {
   ) {
     return '已生成 $completed · 已有字幕 $skipped · 不支持 $unsupported · 失败 $failed · 取消 $cancelled';
   }
+
+  @override
+  String get installUpdate => '立即安装';
+
+  @override
+  String get downloadingUpdate => '正在下载更新...';
+
+  @override
+  String get downloadCompleted => '下载完成';
+
+  @override
+  String get releaseNotes => '更新日志';
+
+  @override
+  String packageSize(String size) {
+    return '安装包大小：$size';
+  }
+
+  @override
+  String get cancelDownload => '取消下载';
+
+  @override
+  String get noPlatformPackage => '未找到适用于当前系统的安装包';
+
+  @override
+  String get openReleasePage => '前往 GitHub 下载';
+
+  @override
+  String get installFailed => '打开安装程序失败';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -8448,4 +8477,33 @@ class SZhHant extends SZh {
   ) {
     return '已產生 $completed · 已有字幕 $skipped · 不支援 $unsupported · 失敗 $failed · 取消 $cancelled';
   }
+
+  @override
+  String get installUpdate => '立即安裝';
+
+  @override
+  String get downloadingUpdate => '正在下載更新...';
+
+  @override
+  String get downloadCompleted => '下載完成';
+
+  @override
+  String get releaseNotes => '更新日誌';
+
+  @override
+  String packageSize(String size) {
+    return '安裝包大小：$size';
+  }
+
+  @override
+  String get cancelDownload => '取消下載';
+
+  @override
+  String get noPlatformPackage => '未找到適用於當前系統的安裝包';
+
+  @override
+  String get openReleasePage => '前往 GitHub 下載';
+
+  @override
+  String get installFailed => '開啟安裝程式失敗';
 }

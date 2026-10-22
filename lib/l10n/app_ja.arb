@@ -1462,5 +1462,21 @@
         "type": "int"
       }
     }
-  }
+  },
+  "installUpdate": "今すぐインストール",
+  "downloadingUpdate": "アップデートをダウンロード中...",
+  "downloadCompleted": "ダウンロード完了",
+  "releaseNotes": "更新履歴",
+  "packageSize": "パッケージサイズ：{size}",
+  "@packageSize": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "cancelDownload": "ダウンロードをキャンセル",
+  "noPlatformPackage": "現在のプラットフォームに適したパッケージが見つかりません",
+  "openReleasePage": "GitHub でダウンロード",
+  "installFailed": "インストーラーの起動に失敗しました"
 }
