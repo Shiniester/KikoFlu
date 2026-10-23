@@ -929,12 +929,6 @@ class SZh extends S {
   String get subtitlePriorityLowestDesc => '优先查找在线/下载，再查找字幕库';
 
   @override
-  String get defaultSortSettings => '默认排序设置';
-
-  @override
-  String get defaultSortUpdated => '默认排序已更新';
-
-  @override
   String get translationSourceSettings => '翻译源设置';
 
   @override
@@ -984,9 +978,6 @@ class SZh extends S {
 
   @override
   String get subtitlePrioritySettingSubtitle => '字幕库优先级';
-
-  @override
-  String get defaultSortSettingTitle => '首页默认排序方式';
 
   @override
   String get translationSource => '翻译源';
@@ -5181,12 +5172,6 @@ class SZhHant extends SZh {
   String get subtitlePriorityLowestDesc => '優先查找線上/下載，再查找字幕庫';
 
   @override
-  String get defaultSortSettings => '預設排序設定';
-
-  @override
-  String get defaultSortUpdated => '預設排序已更新';
-
-  @override
   String get translationSourceSettings => '翻譯源設定';
 
   @override
@@ -5236,9 +5221,6 @@ class SZhHant extends SZh {
 
   @override
   String get subtitlePrioritySettingSubtitle => '字幕庫優先順序';
-
-  @override
-  String get defaultSortSettingTitle => '首頁預設排序方式';
 
   @override
   String get translationSource => '翻譯源';

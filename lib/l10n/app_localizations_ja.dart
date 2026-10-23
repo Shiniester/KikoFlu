@@ -930,12 +930,6 @@ class SJa extends S {
   String get subtitlePriorityLowestDesc => 'オンライン/ダウンロードを優先して検索';
 
   @override
-  String get defaultSortSettings => 'デフォルトの並べ替え設定';
-
-  @override
-  String get defaultSortUpdated => 'デフォルトの並べ替えを更新しました';
-
-  @override
   String get translationSourceSettings => '翻訳ソース設定';
 
   @override
@@ -985,9 +979,6 @@ class SJa extends S {
 
   @override
   String get subtitlePrioritySettingSubtitle => '字幕ライブラリの優先度';
-
-  @override
-  String get defaultSortSettingTitle => 'ホームのデフォルト並べ替え';
 
   @override
   String get translationSource => '翻訳ソース';

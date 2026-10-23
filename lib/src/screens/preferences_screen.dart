@@ -7,7 +7,6 @@ import 'audio_format_settings_screen.dart';
 import 'llm_settings_screen.dart';
 import '../models/audio_gain_settings.dart';
 import '../models/audio_tap_playlist_mode.dart';
-import '../models/sort_options.dart';
 import '../providers/proxy_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/proxy_config.dart';
@@ -17,7 +16,6 @@ import '../widgets/radio_option_group.dart';
 import '../widgets/responsive_dialog.dart';
 import '../widgets/settings_section.dart';
 import '../widgets/settings_option_dialog.dart';
-import '../widgets/sort_dialog.dart';
 
 /// 偏好设置页面
 class PreferencesScreen extends ConsumerWidget {
@@ -101,29 +99,6 @@ class PreferencesScreen extends ConsumerWidget {
           );
           return true;
         },
-      ),
-    );
-  }
-
-  void _showDefaultSortDialog(BuildContext context, WidgetRef ref) {
-    final currentSort = ref.read(defaultSortProvider);
-
-    showDialog(
-      context: context,
-      builder: (context) => CommonSortDialog(
-        title: S.of(context).defaultSortSettings,
-        currentOption: currentSort.order,
-        currentDirection: currentSort.direction,
-        availableOptions: SortOrder.values
-            .where((option) => option != SortOrder.updatedAt)
-            .toList(),
-        onSort: (option, direction) {
-          ref
-              .read(defaultSortProvider.notifier)
-              .updateDefaultSort(option, direction);
-          SnackBarUtil.showSuccess(context, S.of(context).defaultSortUpdated);
-        },
-        autoClose: false,
       ),
     );
   }
@@ -288,7 +263,6 @@ class PreferencesScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final priority = ref.watch(subtitleLibraryPriorityProvider);
-    final defaultSort = ref.watch(defaultSortProvider);
     final translationSource = ref.watch(translationSourceProvider);
     final translationLanguagePreferences = ref.watch(
       translationLanguagePreferencesProvider,
@@ -364,13 +338,6 @@ class PreferencesScreen extends ConsumerWidget {
                     .of(context)
                     .currentSettingLabel(priority.localizedName(context)),
                 onTap: () => _showSubtitleLibraryPriorityDialog(context, ref),
-              ),
-              SettingsNavigationTile(
-                icon: Icons.sort,
-                title: S.of(context).defaultSortSettingTitle,
-                subtitle:
-                    '${defaultSort.order.localizedLabel(context)} - ${defaultSort.direction.localizedLabel(context)}',
-                onTap: () => _showDefaultSortDialog(context, ref),
               ),
             ],
           ),

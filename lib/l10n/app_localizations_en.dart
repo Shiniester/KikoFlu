@@ -949,12 +949,6 @@ class SEn extends S {
       'Search online/downloads first, then subtitle library';
 
   @override
-  String get defaultSortSettings => 'Default Sort Settings';
-
-  @override
-  String get defaultSortUpdated => 'Default sort updated';
-
-  @override
   String get translationSourceSettings => 'Translation Source Settings';
 
   @override
@@ -1007,9 +1001,6 @@ class SEn extends S {
 
   @override
   String get subtitlePrioritySettingSubtitle => 'Subtitle library priority';
-
-  @override
-  String get defaultSortSettingTitle => 'Default sort for home page';
 
   @override
   String get translationSource => 'Translation Source';

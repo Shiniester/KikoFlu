@@ -12,7 +12,6 @@ import 'package:kikoeru_flutter/src/models/user.dart';
 import 'package:kikoeru_flutter/src/providers/audio_source_provider.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
 import 'package:kikoeru_flutter/src/providers/subtitle_library_provider.dart';
-import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
@@ -334,62 +333,37 @@ void main() {
     },
   );
 
-  test(
-    'saved and legacy nsfw sorting maps to the general age filter',
-    () async {
-      final api = _DeferredApi();
-      final container = await _createContainer(
-        api,
-        preferences: {
-          'default_sort_order': SortOrder.nsfw.value,
-          'default_sort_direction': SortDirection.asc.value,
-        },
-      );
-      final notifier = container.read(worksProvider.notifier);
-      final loaded = Completer<void>();
-      final subscription = container.listen(defaultSortProvider, (_, state) {
-        if (state.order == SortOrder.nsfw && !loaded.isCompleted) {
-          loaded.complete();
-        }
-      });
-      await loaded.future;
-      subscription.close();
+  test('legacy nsfw sorting maps to the general age filter', () async {
+    final api = _DeferredApi();
+    final container = await _createContainer(api);
+    final notifier = container.read(worksProvider.notifier);
 
-      expect(container.read(worksProvider).sortOption, SortOrder.release);
-      expect(container.read(worksProvider).sortDirection, SortDirection.asc);
-      expect(container.read(worksProvider).asmrOneAgeRating, AgeRating.general);
-      expect(api.requests, hasLength(1));
-      expect(api.requests.single.endpoint, 'search');
-      expect(api.requests.single.keyword, r'$age:general$');
-      await _completeRequest(container, api.requests.single, _response(1));
+    notifier.setSortOption(SortOrder.nsfw);
+    final legacySetterRequest = api.requests.last;
+    expect(legacySetterRequest.endpoint, 'search');
+    expect(legacySetterRequest.keyword, r'$age:general$');
+    expect(container.read(worksProvider).sortOption, SortOrder.release);
+    expect(container.read(worksProvider).asmrOneAgeRating, AgeRating.general);
+    await _completeRequest(container, legacySetterRequest, _response(1));
 
-      notifier.applyWorksSort(
-        SortOrder.release,
-        SortDirection.asc,
-        AgeRating.all,
-      );
-      final allAgesRequest = api.requests.last;
-      expect(allAgesRequest.endpoint, 'works');
-      await _completeRequest(container, allAgesRequest, _response(2));
+    notifier.applyWorksSort(
+      SortOrder.release,
+      SortDirection.asc,
+      AgeRating.all,
+    );
+    final allAgesRequest = api.requests.last;
+    expect(allAgesRequest.endpoint, 'works');
+    await _completeRequest(container, allAgesRequest, _response(2));
 
-      notifier.setSortOption(SortOrder.nsfw);
-      final legacySetterRequest = api.requests.last;
-      expect(legacySetterRequest.endpoint, 'search');
-      expect(legacySetterRequest.keyword, r'$age:general$');
-      expect(container.read(worksProvider).sortOption, SortOrder.release);
-      expect(container.read(worksProvider).asmrOneAgeRating, AgeRating.general);
-      await _completeRequest(container, legacySetterRequest, _response(3));
-
-      notifier.applyDefaultSort(SortOrder.nsfw, SortDirection.desc);
-      final legacyDefaultRequest = api.requests.last;
-      expect(legacyDefaultRequest.endpoint, 'search');
-      expect(legacyDefaultRequest.keyword, r'$age:general$');
-      expect(legacyDefaultRequest.order, SortOrder.release.value);
-      expect(container.read(worksProvider).sortOption, SortOrder.release);
-      expect(container.read(worksProvider).asmrOneAgeRating, AgeRating.general);
-      await _completeRequest(container, legacyDefaultRequest, _response(4));
-    },
-  );
+    notifier.setSortOption(SortOrder.nsfw);
+    final legacyDefaultRequest = api.requests.last;
+    expect(legacyDefaultRequest.endpoint, 'search');
+    expect(legacyDefaultRequest.keyword, r'$age:general$');
+    expect(legacyDefaultRequest.order, SortOrder.release.value);
+    expect(legacyDefaultRequest.sort, SortDirection.asc.value);
+    expect(container.read(worksProvider).asmrOneAgeRating, AgeRating.general);
+    await _completeRequest(container, legacyDefaultRequest, _response(3));
+  });
 
   test(
     'switching to a custom host clears unsupported ASMR R-15 filtering',
@@ -480,14 +454,31 @@ void main() {
   });
 
   test(
-    'JP sorting preserves ASMR.ONE sorting across source switches',
+    'source sidebar sorting ignores legacy default sort preferences',
     () async {
       final api = _DeferredApi();
-      final container = await _createContainer(api);
+      final container = await _createContainer(
+        api,
+        preferences: {
+          'default_sort_order': SortOrder.review.value,
+          'default_sort_direction': SortDirection.asc.value,
+        },
+      );
       final notifier = container.read(worksProvider.notifier);
+
+      expect(container.read(worksProvider).sortOption, SortOrder.release);
+      expect(container.read(worksProvider).sortDirection, SortDirection.desc);
+      expect(
+        container.read(worksProvider).japaneseAsmrSortOption,
+        JapaneseAsmrSortOption.date,
+      );
+      expect(
+        container.read(worksProvider).japaneseAsmrDirection,
+        SortDirection.desc,
+      );
+
       notifier.setSortOption(SortOrder.rating);
       notifier.setSortDirection(SortDirection.asc);
-
       await container
           .read(audioSourceProvider.notifier)
           .select(AudioSource.jpAsmr);
@@ -507,39 +498,14 @@ void main() {
         container.read(worksProvider).japaneseAsmrSortOption,
         JapaneseAsmrSortOption.title,
       );
+
+      await container
+          .read(audioSourceProvider.notifier)
+          .select(AudioSource.jpAsmr);
+      expect(api.requests.last.japaneseAsmrSort, JapaneseAsmrSortOption.title);
+      expect(api.requests.last.japaneseAsmrDirection, SortDirection.asc);
     },
   );
-
-  test('saved unsupported defaults fall back to latest JP works', () async {
-    final api = _DeferredApi();
-    final container = await _createContainer(
-      api,
-      preferences: {
-        'default_sort_order': SortOrder.rating.value,
-        'default_sort_direction': SortDirection.asc.value,
-      },
-    );
-    final loaded = Completer<void>();
-    final subscription = container.listen(defaultSortProvider, (_, state) {
-      if (state.order == SortOrder.rating && !loaded.isCompleted) {
-        loaded.complete();
-      }
-    });
-    await loaded.future;
-    subscription.close();
-
-    await container
-        .read(audioSourceProvider.notifier)
-        .select(AudioSource.jpAsmr);
-    final notifier = container.read(worksProvider.notifier);
-    unawaited(notifier.loadWorks(targetPage: 1, supersede: true));
-    expect(api.requests.last.japaneseAsmrSort, JapaneseAsmrSortOption.date);
-    expect(api.requests.last.japaneseAsmrDirection, SortDirection.desc);
-
-    notifier.applyDefaultSort(SortOrder.review, SortDirection.asc);
-    expect(api.requests.last.japaneseAsmrSort, JapaneseAsmrSortOption.comments);
-    expect(api.requests.last.japaneseAsmrDirection, SortDirection.asc);
-  });
 
   test('archive popularity does not change home or comment periods', () async {
     final api = _DeferredApi();

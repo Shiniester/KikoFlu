@@ -1834,18 +1834,6 @@ abstract class S {
   /// **'Search online/downloads first, then subtitle library'**
   String get subtitlePriorityLowestDesc;
 
-  /// No description provided for @defaultSortSettings.
-  ///
-  /// In en, this message translates to:
-  /// **'Default Sort Settings'**
-  String get defaultSortSettings;
-
-  /// No description provided for @defaultSortUpdated.
-  ///
-  /// In en, this message translates to:
-  /// **'Default sort updated'**
-  String get defaultSortUpdated;
-
   /// No description provided for @translationSourceSettings.
   ///
   /// In en, this message translates to:
@@ -1947,12 +1935,6 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Subtitle library priority'**
   String get subtitlePrioritySettingSubtitle;
-
-  /// No description provided for @defaultSortSettingTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Default sort for home page'**
-  String get defaultSortSettingTitle;
 
   /// No description provided for @translationSource.
   ///
