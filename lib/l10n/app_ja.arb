@@ -1502,6 +1502,7 @@
   "videoRegisterOnSource": "MissAV で登録",
   "videoResetPasswordOnSource": "MissAV でパスワードを再設定",
   "videoPasswordOnSource": "MissAV でパスワードを変更",
+  "videoAccountSourceHint": "以下の操作は MissAV を開きます。サイトで登録またはパスワード管理を選択してください。",
   "videoQuality": "画質",
   "videoRelated": "関連動画",
   "videoDownloadQueued": "待機中",

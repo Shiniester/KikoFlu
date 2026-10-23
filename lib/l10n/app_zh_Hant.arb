@@ -1502,6 +1502,7 @@
   "videoRegisterOnSource": "在來源網站註冊",
   "videoResetPasswordOnSource": "在來源網站重設密碼",
   "videoPasswordOnSource": "在來源網站變更密碼",
+  "videoAccountSourceHint": "以下操作會開啟來源網站。請在來源網站選擇註冊或密碼管理。",
   "videoQuality": "畫質",
   "videoRelated": "相關推薦",
   "videoDownloadQueued": "等待下載",

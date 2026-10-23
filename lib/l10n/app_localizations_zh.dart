@@ -4326,6 +4326,9 @@ class SZh extends S {
   String get videoPasswordOnSource => '在源站修改密码';
 
   @override
+  String get videoAccountSourceHint => '以下操作会打开源站页面。请在源站选择注册或密码管理。';
+
+  @override
   String get videoQuality => '画质';
 
   @override
@@ -8706,6 +8709,9 @@ class SZhHant extends SZh {
 
   @override
   String get videoPasswordOnSource => '在來源網站變更密碼';
+
+  @override
+  String get videoAccountSourceHint => '以下操作會開啟來源網站。請在來源網站選擇註冊或密碼管理。';
 
   @override
   String get videoQuality => '畫質';

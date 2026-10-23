@@ -5,12 +5,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../providers/works_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../video_download_task.dart';
 import '../video_downloads.dart';
+import '../video_models.dart';
 import '../video_providers.dart';
 import 'video_details_screen.dart';
+import 'video_collection_view.dart';
+import 'video_search_screen.dart';
 
 class VideoDownloadsScreen extends ConsumerStatefulWidget {
   const VideoDownloadsScreen({super.key});
@@ -87,6 +91,64 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
     builder: (_) => VideoDetailsScreen(video: task.video, downloadedTask: task),
   );
 
+  Future<void> _searchDownloads(VideoDownloads downloads) async {
+    final s = S.of(context);
+    final client = ref.read(videoClientProvider);
+    VideoDownloadTask? taskFor(VideoItem video) {
+      for (final task in downloads.tasks) {
+        if (task.video.id == video.id) return task;
+      }
+      return null;
+    }
+
+    await pushWorkDetailRoute(
+      context,
+      builder: (_) => GlobalAudioPlayerWrapper.workDetails(
+        child: VideoSearchScreen(
+          title: s.videoDownloads,
+          search: (query, _) async {
+            final normalized = query.toLowerCase();
+            final matches = downloads.tasks
+                .where(
+                  (task) =>
+                      task.video.title.toLowerCase().contains(normalized) ||
+                      task.video.id.toLowerCase().contains(normalized),
+                )
+                .map((task) => task.video)
+                .toList(growable: false);
+            return VideoSearchResults.collection(matches);
+          },
+          browsePage: client.browse,
+          canOpenVideo: (video) {
+            final task = taskFor(video);
+            return task?.status == VideoDownloadStatus.completed &&
+                task?.localPath?.isNotEmpty == true;
+          },
+          itemBuilder: (context, video, layoutType, onTap) {
+            final task = taskFor(video);
+            return VideoCard(
+              video: video,
+              layoutType: layoutType,
+              onTap: onTap,
+              subtitle: layoutType == LayoutType.list && task != null
+                  ? '${_status(task, s)} · ${task.quality}'
+                  : null,
+            );
+          },
+          onOpenVideo: (searchContext, video) {
+            final task = taskFor(video);
+            if (task == null) return;
+            pushWorkDetailRoute(
+              searchContext,
+              builder: (_) =>
+                  VideoDetailsScreen(video: task.video, downloadedTask: task),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _openSource(String url) async {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
@@ -112,7 +174,16 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
     final downloads = ref.watch(videoDownloadsProvider);
     return GlobalAudioPlayerWrapper(
       child: Scaffold(
-        appBar: AppBar(title: Text(s.videoDownloads)),
+        appBar: AppBar(
+          title: Text(s.videoDownloads),
+          actions: [
+            IconButton(
+              tooltip: s.search,
+              icon: const Icon(Icons.search),
+              onPressed: () => _searchDownloads(downloads),
+            ),
+          ],
+        ),
         body: !_ready
             ? const Center(child: CircularProgressIndicator())
             : _initializationFailed

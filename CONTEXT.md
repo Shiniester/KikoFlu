@@ -19,6 +19,10 @@ _Avoid_: Player navigation, bottom menu
 The app page for browsing videos from a Video Source.
 _Avoid_: Video player, source website
 
+**Video Collection Layout (视频集合布局)**:
+The presentation of video cards as a big grid, small grid, or list.
+_Avoid_: Video playback mode
+
 **Video Source (视频源)**:
 A provider of video catalogs and playback, such as MissAV (missav.ai).
 _Avoid_: Audio Source, Comic Source

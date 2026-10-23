@@ -306,6 +306,7 @@ class VideoPlaybackPanel extends StatefulWidget {
     this.sessionFactory,
     this.onStreamChanged,
     this.onOpenSource,
+    this.onVerifyAccess,
   });
 
   final String videoId;
@@ -317,6 +318,7 @@ class VideoPlaybackPanel extends StatefulWidget {
   final VideoPlaybackSessionFactory? sessionFactory;
   final ValueChanged<VideoStream>? onStreamChanged;
   final VoidCallback? onOpenSource;
+  final Future<void> Function()? onVerifyAccess;
 
   @override
   State<VideoPlaybackPanel> createState() => _VideoPlaybackPanelState();
@@ -333,6 +335,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   Duration? _pendingLoadPosition;
   Duration _pendingLoadBasePosition = Duration.zero;
   ModalRoute<dynamic>? _route;
+  PageRoute<void>? _fullscreenRoute;
   bool _loading = true;
   bool _fullscreen = false;
   bool _routeCovered = false;
@@ -530,28 +533,44 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     _updatePlayerState(() => _fullscreen = true);
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted) return;
-    await Navigator.of(context).push<void>(
-      PageRouteBuilder<void>(
-        opaque: true,
-        pageBuilder: (fullScreenContext, animation, secondaryAnimation) =>
-            Scaffold(
-              backgroundColor: Colors.black,
-              body: SafeArea(
-                child: ValueListenableBuilder<int>(
-                  valueListenable: _uiRevision,
-                  builder: (context, _, _) => _buildPlayerLayout(
-                    fullScreenContext,
-                    fullscreen: true,
-                    onFullscreen: () => Navigator.of(fullScreenContext).pop(),
-                  ),
+    final route = PageRouteBuilder<void>(
+      opaque: true,
+      pageBuilder: (fullScreenContext, animation, secondaryAnimation) =>
+          Scaffold(
+            backgroundColor: Colors.black,
+            body: SafeArea(
+              child: ValueListenableBuilder<int>(
+                valueListenable: _uiRevision,
+                builder: (context, _, _) => _buildPlayerLayout(
+                  fullScreenContext,
+                  fullscreen: true,
+                  onFullscreen: () => Navigator.of(fullScreenContext).pop(),
                 ),
               ),
             ),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-            FadeTransition(opacity: animation, child: child),
-      ),
+          ),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+          FadeTransition(opacity: animation, child: child),
     );
-    if (mounted) _updatePlayerState(() => _fullscreen = false);
+    _fullscreenRoute = route;
+    try {
+      await Navigator.of(context).push<void>(route);
+      await route.completed;
+    } finally {
+      if (identical(_fullscreenRoute, route)) _fullscreenRoute = null;
+      if (mounted) _updatePlayerState(() => _fullscreen = false);
+    }
+  }
+
+  Future<void> _verifyAccess() async {
+    final onVerifyAccess = widget.onVerifyAccess;
+    if (onVerifyAccess == null) return;
+    final route = _fullscreenRoute;
+    if (route != null) {
+      if (route.isCurrent) Navigator.of(context).pop();
+      await route.completed;
+    }
+    if (mounted) await _invoke(onVerifyAccess);
   }
 
   Widget _buildPlayerLayout(
@@ -571,6 +590,52 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
           ValueListenableBuilder<VideoPlaybackSnapshot>(
             valueListenable: _session.snapshot,
             builder: (context, snapshot, _) {
+              if (_error != null || snapshot.error != null) {
+                return Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(8, 52, 8, 4),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          S.of(context).videoPlaybackFailed,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        Wrap(
+                          alignment: WrapAlignment.center,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            IconButton(
+                              tooltip: S.of(context).retry,
+                              color: Colors.white,
+                              icon: const Icon(Icons.refresh),
+                              onPressed: () => unawaited(
+                                _loadSource(
+                                  position: snapshot.position,
+                                  resume: snapshot.playing,
+                                ),
+                              ),
+                            ),
+                            if (widget.onVerifyAccess != null)
+                              TextButton.icon(
+                                onPressed: () => unawaited(_verifyAccess()),
+                                icon: const Icon(Icons.verified_user_outlined),
+                                label: Text(S.of(context).videoVerifyAccess),
+                              ),
+                            if (widget.onOpenSource != null)
+                              TextButton.icon(
+                                onPressed: widget.onOpenSource,
+                                icon: const Icon(Icons.open_in_new),
+                                label: Text(S.of(context).videoOpenSource),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
               if (_loading || snapshot.buffering) {
                 return const Center(
                   child: CircularProgressIndicator(
@@ -579,54 +644,37 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                   ),
                 );
               }
-              if (_error != null || snapshot.error != null) {
-                return Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        S.of(context).videoPlaybackFailed,
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                      IconButton(
-                        tooltip: S.of(context).retry,
-                        color: Colors.white,
-                        icon: const Icon(Icons.refresh),
-                        onPressed: () => unawaited(
-                          _loadSource(
-                            position: snapshot.position,
-                            resume: snapshot.playing,
-                          ),
-                        ),
-                      ),
-                      if (widget.onOpenSource != null)
-                        TextButton.icon(
-                          onPressed: widget.onOpenSource,
-                          icon: const Icon(Icons.open_in_new),
-                          label: Text(S.of(context).videoOpenSource),
-                        ),
-                    ],
-                  ),
-                );
-              }
               return const SizedBox.shrink();
             },
           ),
-          Positioned(
-            top: 4,
-            right: 4,
-            child: IconButton(
-              tooltip: S.of(context).videoFullscreen,
-              color: Colors.white,
-              icon: Icon(fullscreen ? Icons.fullscreen_exit : Icons.fullscreen),
-              onPressed: onFullscreen,
-            ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _buildControls(context, fullscreen: fullscreen),
+          ValueListenableBuilder<VideoPlaybackSnapshot>(
+            valueListenable: _session.snapshot,
+            builder: (context, snapshot, _) {
+              final hasError = _error != null || snapshot.error != null;
+              return Stack(
+                children: [
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: IconButton(
+                      tooltip: S.of(context).videoFullscreen,
+                      color: Colors.white,
+                      icon: Icon(
+                        fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+                      ),
+                      onPressed: onFullscreen,
+                    ),
+                  ),
+                  if (!hasError)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: _buildControls(context, fullscreen: fullscreen),
+                    ),
+                ],
+              );
+            },
           ),
         ],
       ),

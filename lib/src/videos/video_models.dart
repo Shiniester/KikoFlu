@@ -90,6 +90,8 @@ class VideoCatalogPage {
     this.navigation = const [],
     this.nextUrl,
     this.previousUrl,
+    this.currentPage = 1,
+    this.jumpMaxPage,
   });
 
   final String title;
@@ -99,6 +101,15 @@ class VideoCatalogPage {
   final List<VideoLink> navigation;
   final String? nextUrl;
   final String? previousUrl;
+  final int currentPage;
+  final int? jumpMaxPage;
+
+  String pageUrl(int page) {
+    final uri = Uri.parse(nextUrl ?? previousUrl ?? url);
+    return uri
+        .replace(queryParameters: {...uri.queryParameters, 'page': '$page'})
+        .toString();
+  }
 }
 
 class VideoStream {

@@ -49,7 +49,7 @@ class MissavClient extends ChangeNotifier {
   String? _cookie;
   String _userAgent = _defaultUserAgent;
   String? _accountName;
-  String _locale = 'zh';
+  String _locale = 'cn';
   String _homeUrl = '$origin/cn';
   bool _isLoggedIn = false;
   bool _disposed = false;
@@ -58,6 +58,31 @@ class MissavClient extends ChangeNotifier {
   int get sessionGeneration => _sessionGeneration;
   String? get accountName => _accountName;
   String get homeUrl => _homeUrl;
+
+  bool setLocale(String languageTag) {
+    final parts = languageTag.replaceAll('_', '-').toLowerCase().split('-');
+    final locale = switch (parts.first) {
+      'zh' =>
+        parts.any(const {'hant', 'tw', 'hk', 'mo'}.contains) ? 'zh' : 'cn',
+      'ja' => 'ja',
+      _ => 'en',
+    };
+    if (_locale == locale) return false;
+    _locale = locale;
+    _homeUrl = '$origin${_localePrefix.isEmpty ? '/' : _localePrefix}';
+    return true;
+  }
+
+  String collectionUrl(String kind) {
+    final path = switch (kind) {
+      'favorites' => 'saved',
+      'actorFavorites' => 'saved/actresses',
+      'playlists' => 'playlists',
+      'history' => 'history',
+      _ => throw ArgumentError.value(kind, 'kind'),
+    };
+    return '$origin$_localePrefix/$path';
+  }
 
   void useVerifiedBrowserTransport(
     HttpClientAdapter adapter, {
@@ -119,9 +144,15 @@ class MissavClient extends ChangeNotifier {
   Future<VideoCatalogPage> browse(String url) async {
     await initialize();
     final generation = _sessionGeneration;
-    final uri = _sourceUri(url);
-    _rememberLocale(uri);
+    final uri = _localizedSourceUri(url);
+    final locale = _locale;
     final document = await _loadDocument(uri, generation);
+    if (_locale != locale) {
+      throw MissavException(
+        'MissAV language changed during the request.',
+        sourceUrl: uri.toString(),
+      );
+    }
     _updateAccountFromPage(document);
     _updateHomeUrl(document, uri);
     final videos = _parseVideos(document, uri);
@@ -134,21 +165,53 @@ class MissavClient extends ChangeNotifier {
       navigation: _parseNavigation(document, uri),
       nextUrl: _paginationUrl(document, uri, 'next'),
       previousUrl: _paginationUrl(document, uri, 'prev'),
+      currentPage: _pageNumber(uri) ?? 1,
+      jumpMaxPage: _jumpMaxPage(document, uri),
     );
   }
 
   Future<VideoCatalogPage> search(String query) async {
-    final path = _locale == 'zh'
-        ? '/search/${Uri.encodeComponent(query)}'
-        : '/$_locale/search/${Uri.encodeComponent(query)}';
+    final path = '$_localePrefix/search/${Uri.encodeComponent(query)}';
     return browse('$origin$path');
+  }
+
+  Future<List<VideoItem>> searchCollection(
+    String url,
+    String query, {
+    bool Function()? isCurrent,
+  }) async {
+    await initialize();
+    final generation = _sessionGeneration;
+    final locale = _locale;
+    final first = _localizedSourceUri(url);
+    final parameters = Map<String, String>.of(first.queryParameters)
+      ..remove('page');
+    String? next = first.replace(queryParameters: parameters).toString();
+    final visited = <String>{};
+    final seen = <String>{};
+    final matches = <VideoItem>[];
+    final needle = query.trim().toLowerCase();
+    while (next != null && visited.add(next)) {
+      if (isCurrent?.call() == false || _locale != locale) return [];
+      _checkGeneration(generation, first);
+      final page = await browse(next);
+      if (isCurrent?.call() == false || _locale != locale) return [];
+      _checkGeneration(generation, first);
+      for (final video in page.videos) {
+        if (seen.add(video.id) &&
+            '${video.id} ${video.title}'.toLowerCase().contains(needle)) {
+          matches.add(video);
+        }
+      }
+      next = page.nextUrl;
+    }
+    return matches;
   }
 
   Future<VideoDetails> details(VideoItem item) async {
     await initialize();
     final generation = _sessionGeneration;
-    final uri = _sourceUri(item.pageUrl);
-    _rememberLocale(uri);
+    final uri = _localizedSourceUri(item.pageUrl);
     final document = await _loadDocument(uri, generation);
     _updateAccountFromPage(document);
     final title =
@@ -211,7 +274,7 @@ class MissavClient extends ChangeNotifier {
   Future<void> login({required String email, required String password}) async {
     await initialize();
     final generation = _advanceSessionGeneration();
-    final uri = Uri.parse('$origin/$_localePath/api/login');
+    final uri = Uri.parse('$origin$_localePrefix/api/login');
 
     try {
       final response = await _request(
@@ -307,7 +370,7 @@ class MissavClient extends ChangeNotifier {
 
   Future<List<VideoLink>> playlistsFor(VideoItem item) async {
     await initialize();
-    _rememberLocale(_sourceUri(item.pageUrl));
+    _sourceUri(item.pageUrl);
     final uri = Uri.parse(
       '$origin/api/playlists/${Uri.encodeComponent(item.id)}',
     );
@@ -328,7 +391,7 @@ class MissavClient extends ChangeNotifier {
           if (key is! String || name is! String) return null;
           return VideoLink(
             label: name,
-            url: '$origin/$_localePath/playlists',
+            url: collectionUrl('playlists'),
             kind: VideoLinkKind.playlist,
             sourceKey: key,
             isAdded: entry['is_added'] is bool
@@ -343,8 +406,7 @@ class MissavClient extends ChangeNotifier {
   Future<void> setActorFavorite(VideoLink actor, bool favorite) async {
     await initialize();
     final generation = _sessionGeneration;
-    final actorUri = _sourceUri(actor.url);
-    _rememberLocale(actorUri);
+    final actorUri = _localizedSourceUri(actor.url);
     final document = await _loadDocument(actorUri, generation);
     final sourceId = _actorSourceId(document);
     if (sourceId == null) {
@@ -370,7 +432,7 @@ class MissavClient extends ChangeNotifier {
   Future<void> createPlaylist(String title) async =>
       throw MissavUnsupportedException(
         capability: 'creating a playlist',
-        sourceUrl: '$origin/$_localePath/playlists',
+        sourceUrl: collectionUrl('playlists'),
       );
 
   Future<void> renamePlaylist(VideoLink playlist, String title) async =>
@@ -724,18 +786,37 @@ class MissavClient extends ChangeNotifier {
       uri.userInfo.isEmpty &&
       uri.host.toLowerCase() == 'missav.ai';
 
-  void _rememberLocale(Uri uri) {
-    final segments = uri.pathSegments;
-    final locale = segments.contains('cn')
-        ? 'zh'
-        : segments.firstWhere(
-            (segment) => const {'ja', 'en', 'zh'}.contains(segment),
-            orElse: () => _locale,
-          );
-    _locale = locale;
-  }
+  static const _sourceLanguages = {
+    'cn',
+    'zh',
+    'ja',
+    'en',
+    'ko',
+    'ms',
+    'th',
+    'de',
+    'fr',
+    'vi',
+    'id',
+    'fil',
+    'pt',
+  };
 
-  String get _localePath => _locale == 'zh' ? 'cn' : _locale;
+  String get _localePrefix => _locale == 'zh' ? '' : '/$_locale';
+
+  Uri _localizedSourceUri(String url) {
+    final uri = _sourceUri(url);
+    final segments = uri.pathSegments.where((part) => part.isNotEmpty).toList();
+    final index =
+        segments.isNotEmpty && RegExp(r'^dm\d+$').hasMatch(segments.first)
+        ? 1
+        : 0;
+    if (segments.length > index && _sourceLanguages.contains(segments[index])) {
+      segments.removeAt(index);
+    }
+    if (_locale != 'zh') segments.insert(index, _locale);
+    return uri.replace(pathSegments: segments);
+  }
 
   static Document _parsePage(String source, Uri uri) {
     if (_isChallengeResponse(source)) {
@@ -781,10 +862,14 @@ class MissavClient extends ChangeNotifier {
       if (href == null) continue;
       final candidate = pageUri.resolve(href);
       if (!_isSource(candidate)) continue;
-      final segments = candidate.pathSegments;
-      if (segments.length == 2 &&
-          RegExp(r'^dm\d+$').hasMatch(segments.first) &&
-          segments.last == _localePath) {
+      final segments = candidate.pathSegments
+          .where((part) => part.isNotEmpty)
+          .toList();
+      if (segments.isNotEmpty && RegExp(r'^dm\d+$').hasMatch(segments.first)) {
+        segments.removeAt(0);
+      }
+      if ((_locale == 'zh' && segments.isEmpty) ||
+          (segments.length == 1 && segments.single == _locale)) {
         _homeUrl = candidate.toString();
         return;
       }
@@ -1133,7 +1218,7 @@ class MissavClient extends ChangeNotifier {
           if (label.isEmpty) return null;
           final uri = pageUri.resolve(url).removeFragment();
           if (!_isSource(uri) ||
-              _isLanguageAnchor(anchor) ||
+              _excludeDirectoryAnchor(anchor, uri) ||
               !seen.add(uri.toString())) {
             return null;
           }
@@ -1174,6 +1259,7 @@ class MissavClient extends ChangeNotifier {
       if (!_isSource(uri) || uri == pageUri) {
         continue;
       }
+      if (_excludeDirectoryAnchor(anchor, uri)) continue;
       if (videoUrls.contains(uri.toString())) continue;
       final image = anchor.querySelector('img[alt]');
       final label = anchor.text.trim().isNotEmpty
@@ -1197,11 +1283,75 @@ class MissavClient extends ChangeNotifier {
     return links;
   }
 
-  static bool _isLanguageAnchor(Element anchor) =>
-      (anchor.attributes[':href'] ?? '').contains('localizedUrl(');
+  static bool _isLanguageAnchor(Element anchor) {
+    if (anchor.attributes.containsKey('hreflang') ||
+        (anchor.attributes[':href'] ?? '').contains('localizedUrl(') ||
+        (anchor.attributes['x-bind:href'] ?? '').contains('localizedUrl(')) {
+      return true;
+    }
+    final label = anchor.text.trim().toLowerCase();
+    return const {
+      '简体中文',
+      '簡體中文',
+      '繁体中文',
+      '繁體中文',
+      'english',
+      '日本語',
+      '한국의',
+      '한국어',
+      'melayu',
+      'ไทย',
+      'deutsch',
+      'français',
+      'tiếng việt',
+      'bahasa indonesia',
+      'filipino',
+      'português',
+    }.contains(label);
+  }
+
+  static bool _excludeDirectoryAnchor(Element anchor, Uri uri) {
+    final label = anchor.text.trim().toLowerCase();
+    final relations = (anchor.attributes['rel'] ?? '').split(' ');
+    return _isLanguageAnchor(anchor) ||
+        _pageNumber(uri) != null ||
+        relations.any(const {'next', 'prev', 'first', 'last'}.contains) ||
+        RegExp(r'\bvip\b').hasMatch(label) ||
+        RegExp(
+          r'/(vip|premium|subscription|upgrade)(/|$)',
+        ).hasMatch(uri.path) ||
+        RegExp(r'/(actresses|actors)/ranking(/|$)').hasMatch(uri.path);
+  }
+
+  static int? _pageNumber(Uri uri) {
+    final page = int.tryParse(uri.queryParameters['page'] ?? '');
+    return page != null && page > 0 ? page : null;
+  }
+
+  static int? _jumpMaxPage(Document document, Uri pageUri) {
+    int? maximum;
+    final prefix = RegExp(r'^/dm\d+(?=/|$)');
+    final path = pageUri.path.replaceFirst(prefix, '');
+    final sourceQuery = Map<String, String>.of(pageUri.queryParameters)
+      ..remove('page');
+    for (final anchor in document.querySelectorAll('a[href]')) {
+      final uri = pageUri.resolve(anchor.attributes['href']!);
+      if (!_isSource(uri) || uri.path.replaceFirst(prefix, '') != path) {
+        continue;
+      }
+      final targetQuery = Map<String, String>.of(uri.queryParameters)
+        ..remove('page');
+      if (!mapEquals(sourceQuery, targetQuery)) continue;
+      final page = _pageNumber(uri);
+      if (page != null && (maximum == null || page > maximum)) maximum = page;
+    }
+    final current = _pageNumber(pageUri) ?? 1;
+    return maximum == null ? null : (maximum < current ? current : maximum);
+  }
 
   static VideoLinkKind _browseLinkKind(Uri uri) {
     final route = uri.path.toLowerCase();
+    if (route.contains('/playlists')) return VideoLinkKind.playlist;
     if (route.contains('/actresses') || route.contains('/actors')) {
       return VideoLinkKind.actor;
     }
@@ -1215,6 +1365,9 @@ class MissavClient extends ChangeNotifier {
         route.contains('/label') ||
         route.contains('/series')) {
       return VideoLinkKind.category;
+    }
+    if (RegExp(r'/(saved|favorites|history)(/|$)').hasMatch(route)) {
+      return VideoLinkKind.collection;
     }
     return VideoLinkKind.other;
   }
@@ -1230,7 +1383,7 @@ class MissavClient extends ChangeNotifier {
         final label = link.text.trim().toLowerCase();
         final aria = link.attributes['aria-label']?.toLowerCase() ?? '';
         final matches = direction == 'next'
-            ? const {'next', '›', '»', '下一页', '次へ'}.contains(label) ||
+            ? const {'next', '›', '»', '下一页', '下一頁', '次へ'}.contains(label) ||
                   aria.contains('next')
             : const {
                     'previous',
@@ -1238,6 +1391,7 @@ class MissavClient extends ChangeNotifier {
                     '‹',
                     '«',
                     '上一页',
+                    '上一頁',
                     '前へ',
                   }.contains(label) ||
                   aria.contains('previous') ||

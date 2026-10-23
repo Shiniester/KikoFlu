@@ -1864,6 +1864,10 @@
   "videoRegisterOnSource": "Register on MissAV",
   "videoResetPasswordOnSource": "Reset password on MissAV",
   "videoPasswordOnSource": "Change password on MissAV",
+  "videoAccountSourceHint": "These actions open MissAV. Select registration or password management on the website.",
+  "@videoAccountSourceHint": {
+    "description": "Explains that account actions open the source website, where the user selects the corresponding form."
+  },
   "videoQuality": "Quality",
   "videoRelated": "Related videos",
   "videoDownloadQueued": "Queued",

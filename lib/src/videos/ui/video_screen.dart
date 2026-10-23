@@ -8,15 +8,20 @@ import '../../../l10n/app_localizations.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../../widgets/library_page_scaffold.dart';
+import '../../widgets/pagination_bar.dart';
+import '../../providers/works_provider.dart';
 import '../missav_client.dart';
 import '../missav_verification.dart';
 import '../video_downloads.dart';
 import '../video_library.dart';
 import '../video_models.dart';
 import '../video_providers.dart';
+import '../video_browse_preferences.dart';
 import 'video_account_screen.dart';
+import 'video_collection_view.dart';
 import 'video_details_screen.dart';
 import 'video_downloads_screen.dart';
+import 'video_search_screen.dart';
 
 class VideoScreen extends ConsumerStatefulWidget {
   const VideoScreen({super.key, this.active = true}) : initialUrl = null;
@@ -50,6 +55,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   String? _accountName;
   String? _pendingAccountReloadUrl;
   ModalRoute<dynamic>? _route;
+  final ScrollController _scrollController = ScrollController();
+  String? _activeCollectionKey;
+  String? _sourceLocaleTag;
 
   @override
   void initState() {
@@ -69,20 +77,48 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     });
   }
 
-  void _scheduleLoadUrl(String url) {
+  void _scheduleLoadUrl(String url, {String? collectionKey}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && widget.active) unawaited(_loadUrl(url));
+      if (mounted && widget.active) {
+        unawaited(
+          _loadUrl(url, collectionKey: collectionKey, preserveCollection: true),
+        );
+      }
     });
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _syncSourceLocale();
     final route = ModalRoute.of(context);
     if (route == _route) return;
     _route?.secondaryAnimation?.removeStatusListener(_onRouteStatusChanged);
     _route = route;
     _route?.secondaryAnimation?.addStatusListener(_onRouteStatusChanged);
+  }
+
+  void _syncSourceLocale() {
+    final languageTag = Localizations.localeOf(context).toLanguageTag();
+    if (_sourceLocaleTag == languageTag) return;
+    _sourceLocaleTag = languageTag;
+    final changed = _client.setLocale(languageTag);
+    if (!changed || !_dependenciesReady) return;
+    final url =
+        _page?.url ??
+        _pendingAccountReloadUrl ??
+        widget.initialUrl ??
+        _client.homeUrl;
+    if (!widget.active) {
+      _pendingAccountReloadUrl = url;
+      _page = null;
+      return;
+    }
+    if (ModalRoute.of(context)?.isCurrent == false) {
+      _pendingAccountReloadUrl = url;
+      return;
+    }
+    _scheduleLoadUrl(url, collectionKey: _activeCollectionKey);
   }
 
   @override
@@ -92,7 +128,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       final url = _pendingAccountReloadUrl;
       _pendingAccountReloadUrl = null;
       if (_dependenciesReady && url != null) {
-        _scheduleLoadUrl(url);
+        _scheduleLoadUrl(url, collectionKey: _activeCollectionKey);
       } else {
         _scheduleInitialize();
       }
@@ -166,7 +202,16 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     unawaited(_loadUrl(url));
   }
 
-  Future<void> _loadUrl(String url) async {
+  Future<void> _loadUrl(
+    String url, {
+    String? collectionKey,
+    bool preserveCollection = false,
+  }) async {
+    if (collectionKey != null) {
+      _activeCollectionKey = collectionKey;
+    } else if (!preserveCollection) {
+      _activeCollectionKey = _collectionKeyForUrl(url);
+    }
     final request = ++_request;
     _retryRequest = () => _loadUrl(url);
     setState(() {
@@ -183,6 +228,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         _error = null;
         _verificationError = null;
       });
+      if (_scrollController.hasClients) _scrollController.jumpTo(0);
     } catch (error) {
       if (!mounted || request != _request) return;
       setState(() {
@@ -194,59 +240,37 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
 
   Future<void> _search() async {
     final s = S.of(context);
-    final controller = TextEditingController();
-    final query = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(s.search),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          textInputAction: TextInputAction.search,
-          decoration: InputDecoration(hintText: s.videoSearchHint),
-          onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+    final collectionKey = _activeCollectionKey;
+    await pushWorkDetailRoute(
+      context,
+      builder: (_) => GlobalAudioPlayerWrapper.workDetails(
+        child: VideoSearchScreen(
+          title: s.search,
+          search: (query, isCurrent) async {
+            if (collectionKey != null &&
+                (collectionKey == 'favorites' || collectionKey == 'history')) {
+              final videos = await _client.searchCollection(
+                _client.collectionUrl(collectionKey),
+                query,
+                isCurrent: isCurrent,
+              );
+              return VideoSearchResults.collection(videos);
+            }
+            return VideoSearchResults.catalog(await _client.search(query));
+          },
+          browsePage: _client.browse,
+          accountClient:
+              collectionKey == 'favorites' || collectionKey == 'history'
+              ? _client
+              : null,
+          verifyAccess: (searchContext, verification) => verifyMissavAccess(
+            searchContext,
+            _client,
+            sourceUrl: verification.sourceUrl ?? _client.homeUrl,
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(s.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: Text(s.search),
-          ),
-        ],
       ),
     );
-    controller.dispose();
-    if (!mounted || query == null || query.isEmpty) return;
-    await _searchCatalog(query);
-  }
-
-  Future<void> _searchCatalog(String query) async {
-    final request = ++_request;
-    _retryRequest = () => _searchCatalog(query);
-    setState(() {
-      _loading = true;
-      _error = null;
-      _verificationError = null;
-    });
-    try {
-      final page = await _client.search(query);
-      if (!mounted || request != _request) return;
-      setState(() {
-        _page = page;
-        _loading = false;
-        _error = null;
-        _verificationError = null;
-      });
-    } catch (error) {
-      if (!mounted || request != _request) return;
-      setState(() {
-        _loading = false;
-        _recordError(error);
-      });
-    }
   }
 
   void _recordError(Object error) {
@@ -293,10 +317,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
   }
 
-  Future<void> _openCatalog(VideoLink link) => pushBottomDockRoute(
-    context,
-    builder: (_) => VideoScreen.catalog(url: link.url),
-  );
+  Future<void> _openCatalog(VideoLink link) => _loadUrl(link.url);
 
   Future<void> _openAccount() =>
       pushBottomDockRoute(context, builder: (_) => const VideoAccountScreen());
@@ -311,41 +332,119 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     builder: (_) => VideoDetailsScreen(video: video),
   );
 
-  VideoLink? _findCollection(String collection) {
-    final links = [...?_page?.navigation, ...?_page?.links];
-    for (final link in links) {
-      final path = Uri.tryParse(link.url)?.path.toLowerCase() ?? '';
-      final label = link.label.toLowerCase();
-      final isMatch = switch (collection) {
-        'favorites' =>
-          RegExp(r'favorite|favourite|bookmark|saved').hasMatch(path) ||
-              RegExp(r'favorite|favourite|bookmark|saved').hasMatch(label),
-        'actorFavorites' =>
-          (path.contains('actress') || path.contains('actor')) &&
-              RegExp(r'favorite|favourite|saved').hasMatch('$path $label'),
-        'playlists' => path.contains('playlist') || label.contains('playlist'),
-        'history' => RegExp(r'history|watch').hasMatch('$path $label'),
-        _ => false,
-      };
-      if (isMatch) return link;
+  bool _isCollectionLink(VideoLink link) {
+    final segments = Uri.tryParse(
+      link.url,
+    )?.pathSegments.map((segment) => segment.toLowerCase()).toList();
+    if (segments == null) return false;
+    if (segments.isNotEmpty && RegExp(r'^dm\d+$').hasMatch(segments.first)) {
+      segments.removeAt(0);
+    }
+    if (segments.isNotEmpty &&
+        const {'cn', 'en', 'ja'}.contains(segments.first)) {
+      segments.removeAt(0);
+    }
+    if (segments.length == 1) {
+      return const {
+        'saved',
+        'favorites',
+        'favourites',
+        'bookmarks',
+        'history',
+        'playlists',
+      }.contains(segments.single);
+    }
+    return segments.length == 2 &&
+        const {'saved', 'favorites', 'favourites'}.contains(segments.first) &&
+        const {'actresses', 'actors'}.contains(segments.last);
+  }
+
+  String? _collectionKeyForUrl(String url) {
+    final path = Uri.tryParse(url)?.path.toLowerCase();
+    if (path == null) return null;
+    for (final key in const [
+      'favorites',
+      'actorFavorites',
+      'playlists',
+      'history',
+    ]) {
+      final collectionPath = Uri.tryParse(
+        _client.collectionUrl(key),
+      )?.path.toLowerCase();
+      if (collectionPath == path) return key;
     }
     return null;
   }
 
-  bool _isCollectionLink(VideoLink link) {
+  Future<void> _openCollection(String key) =>
+      _loadUrl(_client.collectionUrl(key), collectionKey: key);
+
+  bool _isRemovedSourceEntry(VideoLink link) {
     final path = Uri.tryParse(link.url)?.path.toLowerCase() ?? '';
-    return RegExp(
-      r'favorite|favourite|bookmark|saved|history|watch|playlist',
-    ).hasMatch(path);
+    final label = link.label.toLowerCase();
+    return path.contains('/vip') ||
+        label.contains('vip') ||
+        path.contains('/actresses/ranking') ||
+        path.contains('/actors/ranking') ||
+        ((path.contains('actress') || path.contains('actor')) &&
+            (path.contains('ranking') ||
+                label.contains('排行') ||
+                label.contains('ランキング')));
   }
 
-  Future<void> _openCollection(String key) async {
-    final link = _findCollection(key);
-    if (link != null) {
-      await _openCatalog(link);
-      return;
+  IconData _directoryIcon(VideoLink link) => switch (link.kind) {
+    VideoLinkKind.actor => Icons.person_outline,
+    VideoLinkKind.category => Icons.category_outlined,
+    VideoLinkKind.tag => Icons.sell_outlined,
+    VideoLinkKind.studio => Icons.movie_creation_outlined,
+    VideoLinkKind.playlist => Icons.playlist_play,
+    _ => Icons.explore_outlined,
+  };
+
+  Widget _directoryTile(VideoLink link) {
+    Widget? trailing;
+    if (link.kind == VideoLinkKind.actor) {
+      final s = S.of(context);
+      trailing = PopupMenuButton<String>(
+        tooltip: link.label,
+        onSelected: (action) {
+          if (action == 'favorite') unawaited(_setActorFavorite(link, true));
+          if (action == 'unfavorite') unawaited(_setActorFavorite(link, false));
+          if (action == 'source') unawaited(_openSource(link.url));
+        },
+        itemBuilder: (_) => [
+          PopupMenuItem(value: 'favorite', child: Text(s.videoFavoriteActor)),
+          PopupMenuItem(
+            value: 'unfavorite',
+            child: Text(s.videoUnfavoriteActor),
+          ),
+          PopupMenuItem(value: 'source', child: Text(s.videoOpenSource)),
+        ],
+      );
+    } else if (link.kind == VideoLinkKind.playlist) {
+      final s = S.of(context);
+      trailing = PopupMenuButton<String>(
+        tooltip: link.label,
+        onSelected: (action) {
+          if (action == 'source') unawaited(_openSource(link.url));
+          if (action == 'rename') {
+            unawaited(_showPlaylistNameDialog(playlist: link));
+          }
+          if (action == 'delete') unawaited(_deletePlaylist(link));
+        },
+        itemBuilder: (_) => [
+          PopupMenuItem(value: 'source', child: Text(s.videoOpenSource)),
+          PopupMenuItem(value: 'rename', child: Text(s.videoRenamePlaylist)),
+          PopupMenuItem(value: 'delete', child: Text(s.videoDeletePlaylist)),
+        ],
+      );
     }
-    await _showSourceFallback(_page?.url ?? _client.homeUrl);
+    return LibraryDrawerTile(
+      icon: _directoryIcon(link),
+      title: link.label,
+      trailing: trailing,
+      onTap: () => _openCatalog(link),
+    );
   }
 
   Future<void> _loginRequired() async {
@@ -472,18 +571,17 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
 
   Future<void> _showPlaylistNameDialog({VideoLink? playlist}) async {
     final s = S.of(context);
-    final controller = TextEditingController(text: playlist?.label ?? '');
+    final nameFieldKey = GlobalKey<_PlaylistNameFieldState>();
     final title = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(
           playlist == null ? s.videoCreatePlaylist : s.videoRenamePlaylist,
         ),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(labelText: s.videoPlaylistName),
-          onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+        content: _PlaylistNameField(
+          key: nameFieldKey,
+          initialName: playlist?.label ?? '',
+          label: s.videoPlaylistName,
         ),
         actions: [
           TextButton(
@@ -491,13 +589,14 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
             child: Text(s.cancel),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            onPressed: () => Navigator.of(
+              context,
+            ).pop(nameFieldKey.currentState?.value.trim() ?? ''),
             child: Text(s.confirm),
           ),
         ],
       ),
     );
-    controller.dispose();
     if (!mounted || title == null || title.isEmpty) return;
     try {
       if (playlist == null) {
@@ -509,11 +608,16 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     } on MissavException catch (error) {
       if (mounted) {
         await _showSourceFallback(
-          error.sourceUrl ?? _page?.url ?? _client.homeUrl,
+          error.sourceUrl ??
+              (playlist?.url ?? _client.collectionUrl('playlists')),
         );
       }
     } catch (_) {
-      if (mounted) await _showSourceFallback(_page?.url ?? _client.homeUrl);
+      if (mounted) {
+        await _showSourceFallback(
+          playlist?.url ?? _client.collectionUrl('playlists'),
+        );
+      }
     }
   }
 
@@ -547,79 +651,6 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
   }
 
-  Widget _linkChip(VideoLink link, {required bool playlistPage}) {
-    if (link.kind == VideoLinkKind.actor) {
-      final s = S.of(context);
-      return PopupMenuButton<String>(
-        tooltip: link.label,
-        onSelected: (action) {
-          switch (action) {
-            case 'open':
-              unawaited(_openCatalog(link));
-              break;
-            case 'favorite':
-              unawaited(_setActorFavorite(link, true));
-              break;
-            case 'unfavorite':
-              unawaited(_setActorFavorite(link, false));
-              break;
-            case 'source':
-              unawaited(_openSource(link.url));
-              break;
-          }
-        },
-        itemBuilder: (context) => [
-          PopupMenuItem(value: 'open', child: Text(s.videoCatalog)),
-          PopupMenuItem(value: 'favorite', child: Text(s.videoFavoriteActor)),
-          PopupMenuItem(
-            value: 'unfavorite',
-            child: Text(s.videoUnfavoriteActor),
-          ),
-          PopupMenuItem(value: 'source', child: Text(s.videoOpenSource)),
-        ],
-        child: Chip(label: Text(link.label)),
-      );
-    }
-    final isPlaylistLink =
-        link.kind == VideoLinkKind.playlist ||
-        playlistPage &&
-            (Uri.tryParse(link.url)?.path.toLowerCase().contains('playlist') ??
-                false);
-    if (!isPlaylistLink) {
-      return ActionChip(
-        label: Text(link.label),
-        onPressed: () => _openCatalog(link),
-      );
-    }
-    final s = S.of(context);
-    return PopupMenuButton<String>(
-      tooltip: link.label,
-      onSelected: (action) {
-        switch (action) {
-          case 'open':
-            unawaited(_openCatalog(link));
-            break;
-          case 'source':
-            unawaited(_openSource(link.url));
-            break;
-          case 'rename':
-            unawaited(_showPlaylistNameDialog(playlist: link));
-            break;
-          case 'delete':
-            unawaited(_deletePlaylist(link));
-            break;
-        }
-      },
-      itemBuilder: (context) => [
-        PopupMenuItem(value: 'open', child: Text(s.videoCatalog)),
-        PopupMenuItem(value: 'source', child: Text(s.videoOpenSource)),
-        PopupMenuItem(value: 'rename', child: Text(s.videoRenamePlaylist)),
-        PopupMenuItem(value: 'delete', child: Text(s.videoDeletePlaylist)),
-      ],
-      child: Chip(label: Text(link.label)),
-    );
-  }
-
   String _errorMessage(S s) {
     if (_error == null) return s.videoLoadFailed;
     if (_verificationError != null) return s.videoVerificationRequired;
@@ -630,9 +661,19 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     return s.videoLoadFailed;
   }
 
-  List<Widget> _drawer() {
+  List<Widget> _drawer(LayoutType layoutType) {
     final s = S.of(context);
     final navigation = _page?.navigation ?? const <VideoLink>[];
+    final navigationUrls = navigation.map((link) => link.url).toSet();
+    final directoryLinks = (_page?.links ?? const <VideoLink>[])
+        .where(
+          (link) =>
+              link.kind != VideoLinkKind.video &&
+              !_isCollectionLink(link) &&
+              !_isRemovedSourceEntry(link) &&
+              !navigationUrls.contains(link.url),
+        )
+        .toList(growable: false);
     return [
       LibraryDrawerSection(
         title: s.videoSourceAccount,
@@ -652,16 +693,46 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
           LibraryDrawerTile(
             icon: Icons.home_outlined,
             title: s.videoCatalog,
-            selected: widget.initialUrl == null,
+            selected:
+                _collectionKeyForUrl(_page?.url ?? '') == null &&
+                (_page?.url == null ||
+                    Uri.tryParse(_page!.url)?.path ==
+                        Uri.tryParse(_client.homeUrl)?.path),
             onTap: () => _loadUrl(_client.homeUrl),
           ),
           for (final link in navigation.where(
-            (link) => !_isCollectionLink(link),
+            (link) =>
+                link.url != _client.homeUrl &&
+                !_isCollectionLink(link) &&
+                !_isRemovedSourceEntry(link),
           ))
             LibraryDrawerTile(
               icon: Icons.explore_outlined,
               title: link.label,
               onTap: () => _openCatalog(link),
+            ),
+        ],
+      ),
+      if (directoryLinks.isNotEmpty)
+        LibraryDrawerSection(
+          title: s.videoCatalog,
+          children: [for (final link in directoryLinks) _directoryTile(link)],
+        ),
+      LibraryDrawerSection(
+        title: s.libraryBrowseOptions,
+        children: [
+          for (final entry in [
+            (LayoutType.bigGrid, Icons.grid_view, s.layoutBigGrid),
+            (LayoutType.smallGrid, Icons.apps, s.layoutSmallGrid),
+            (LayoutType.list, Icons.view_list, s.layoutList),
+          ])
+            LibraryDrawerTile(
+              icon: entry.$2,
+              title: entry.$3,
+              selected: layoutType == entry.$1,
+              onTap: () => ref
+                  .read(videoBrowseLayoutProvider.notifier)
+                  .setLayout(entry.$1),
             ),
         ],
       ),
@@ -703,7 +774,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     ];
   }
 
-  Widget _content(S s) {
+  Widget _content(S s, LayoutType layoutType) {
     if (_loading && _page == null) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -749,26 +820,8 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     if (page == null) return const SizedBox.shrink();
     return LayoutBuilder(
       builder: (context, constraints) {
-        final crossAxisCount = (constraints.maxWidth / 184)
-            .floor()
-            .clamp(1, 6)
-            .toInt();
         return Column(
           children: [
-            if (page.links.isNotEmpty)
-              SizedBox(
-                height: 48,
-                child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  scrollDirection: Axis.horizontal,
-                  itemBuilder: (context, index) {
-                    final link = page.links[index];
-                    return _linkChip(link, playlistPage: _isPlaylistPage(page));
-                  },
-                  separatorBuilder: (_, _) => const SizedBox(width: 6),
-                  itemCount: page.links.length,
-                ),
-              ),
             if (_loading) const LinearProgressIndicator(minHeight: 2),
             if (_error != null)
               Padding(
@@ -810,48 +863,52 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                 ),
               ),
             Expanded(
-              child: page.videos.isEmpty
-                  ? Center(child: Text(s.noResults))
-                  : GridView.builder(
-                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: crossAxisCount,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                        childAspectRatio: .76,
-                      ),
-                      itemCount: page.videos.length,
-                      itemBuilder: (context, index) => _VideoCard(
-                        video: page.videos[index],
-                        onTap: () => _openDetails(page.videos[index]),
-                      ),
-                    ),
+              child: VideoCollectionView(
+                items: page.videos,
+                layoutType: layoutType,
+                itemId: (video) => video.id,
+                itemBuilder: (context, video, _) => VideoCard(
+                  video: video,
+                  layoutType: layoutType,
+                  onTap: () => _openDetails(video),
+                ),
+                controller: _scrollController,
+                pageStorageKey: PageStorageKey<String>('video-${page.url}'),
+                emptyBuilder: (_) => Center(child: Text(s.noResults)),
+              ),
             ),
-            if (page.previousUrl != null || page.nextUrl != null)
+            if (page.previousUrl != null ||
+                page.nextUrl != null ||
+                (page.jumpMaxPage ?? 0) > 1)
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: page.previousUrl == null
-                            ? null
-                            : () => _loadUrl(page.previousUrl!),
-                        icon: const Icon(Icons.chevron_left),
-                        label: Text(s.previousPage),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: page.nextUrl == null
-                            ? null
-                            : () => _loadUrl(page.nextUrl!),
-                        icon: const Icon(Icons.chevron_right),
-                        label: Text(s.nextPage),
-                      ),
-                    ),
-                  ],
+                child: PaginationBar(
+                  currentPage: page.currentPage,
+                  pageSize: page.videos.length.clamp(1, 1000).toInt(),
+                  totalCount: null,
+                  jumpMaxPage: page.jumpMaxPage,
+                  hasMore: page.nextUrl != null,
+                  isLoading: _loading,
+                  onPreviousPage: page.previousUrl == null
+                      ? null
+                      : () => _loadUrl(
+                          page.previousUrl!,
+                          preserveCollection: true,
+                        ),
+                  onNextPage: page.nextUrl == null
+                      ? null
+                      : () => _loadUrl(page.nextUrl!, preserveCollection: true),
+                  onGoToPage: page.jumpMaxPage == null
+                      ? null
+                      : (targetPage) => _loadUrl(
+                          page.pageUrl(targetPage),
+                          preserveCollection: true,
+                        ),
+                  onScrollToTop: () {
+                    if (_scrollController.hasClients) {
+                      _scrollController.jumpTo(0);
+                    }
+                  },
                 ),
               ),
           ],
@@ -863,13 +920,14 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
+    final layoutType = ref.watch(videoBrowseLayoutProvider);
     final title = _page?.title.isNotEmpty == true ? _page!.title : s.navVideos;
     final page = LibraryPageScaffold(
       title: title,
       searchHint: s.videoSearchHint,
       onSearch: _search,
-      drawerChildren: _drawer(),
-      body: _content(s),
+      drawerChildren: _drawer(layoutType),
+      body: _content(s, layoutType),
       floatingActionButton: _page != null && _isPlaylistPage(_page!)
           ? FloatingActionButton.extended(
               heroTag: 'video-create-playlist',
@@ -896,98 +954,43 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _client.removeListener(_onClientChanged);
     _route?.secondaryAnimation?.removeStatusListener(_onRouteStatusChanged);
     _request++;
+    _scrollController.dispose();
     super.dispose();
   }
 }
 
-class _VideoCard extends StatelessWidget {
-  const _VideoCard({required this.video, required this.onTap});
+class _PlaylistNameField extends StatefulWidget {
+  const _PlaylistNameField({
+    super.key,
+    required this.initialName,
+    required this.label,
+  });
 
-  final VideoItem video;
-  final VoidCallback onTap;
+  final String initialName;
+  final String label;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              flex: 5,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (video.cover.isNotEmpty)
-                    Image.network(
-                      video.cover,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const ColoredBox(
-                        color: Colors.black12,
-                        child: Center(child: Icon(Icons.movie_outlined)),
-                      ),
-                    )
-                  else
-                    const ColoredBox(
-                      color: Colors.black12,
-                      child: Center(child: Icon(Icons.movie_outlined)),
-                    ),
-                  if (video.durationSeconds != null)
-                    Positioned(
-                      right: 6,
-                      bottom: 6,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: .7),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 5,
-                            vertical: 2,
-                          ),
-                          child: Text(
-                            _durationLabel(video.durationSeconds!),
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            Expanded(
-              flex: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Align(
-                  alignment: Alignment.topLeft,
-                  child: Text(
-                    video.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  State<_PlaylistNameField> createState() => _PlaylistNameFieldState();
 }
 
-String _durationLabel(int seconds) {
-  final hours = seconds ~/ 3600;
-  final minutes = (seconds % 3600) ~/ 60;
-  final remainder = seconds % 60;
-  final mm = minutes.toString().padLeft(2, '0');
-  final ss = remainder.toString().padLeft(2, '0');
-  return hours == 0 ? '$mm:$ss' : '$hours:$mm:$ss';
+class _PlaylistNameFieldState extends State<_PlaylistNameField> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialName,
+  );
+
+  String get value => _controller.text;
+
+  @override
+  Widget build(BuildContext context) => TextField(
+    controller: _controller,
+    autofocus: true,
+    decoration: InputDecoration(labelText: widget.label),
+    onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 }

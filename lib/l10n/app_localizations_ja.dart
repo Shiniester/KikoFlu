@@ -4350,6 +4350,10 @@ class SJa extends S {
   String get videoPasswordOnSource => 'MissAV でパスワードを変更';
 
   @override
+  String get videoAccountSourceHint =>
+      '以下の操作は MissAV を開きます。サイトで登録またはパスワード管理を選択してください。';
+
+  @override
   String get videoQuality => '画質';
 
   @override

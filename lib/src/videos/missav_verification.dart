@@ -1138,93 +1138,45 @@ class _MissavVerificationState extends State<_MissavVerification> {
     try {
       await widget.client.initialize();
       if (!mounted || _closed) throw StateError('Verification window closed.');
-      var clientGeneration = widget.client.sessionGeneration;
-      String cookieHeader;
-      String? userAgent;
-      if (_isDesktop) {
-        final browser = _desktop;
-        if (browser == null ||
-            _closed ||
-            !isMissavVerificationUrl(browser.navigationState.value.url ?? '')) {
-          throw StateError('Source browser unavailable');
-        }
-        final cookies = await browser.getAllCookies();
-        if (!mounted ||
-            _closed ||
-            widget.client.sessionGeneration != clientGeneration) {
-          throw StateError('Verification session changed.');
-        }
-        cookieHeader = missavVerificationCookieHeader(cookies);
-        final result = await browser.evaluateJavaScript('navigator.userAgent');
-        if (!mounted ||
-            _closed ||
-            widget.client.sessionGeneration != clientGeneration) {
-          throw StateError('Verification session changed.');
-        }
-        userAgent = result is String ? result : null;
-      } else {
-        final controller = _mobile!;
-        final currentUrl = await controller.currentUrl();
-        if (!mounted ||
-            _closed ||
-            widget.client.sessionGeneration != clientGeneration) {
-          throw StateError('Verification session changed.');
-        }
-        if (!isMissavVerificationUrl(currentUrl ?? '')) {
-          throw StateError('Source browser unavailable');
-        }
-        cookieHeader = await _mobileCookieHeader();
-        if (!mounted ||
-            _closed ||
-            widget.client.sessionGeneration != clientGeneration) {
-          throw StateError('Verification session changed.');
-        }
-        userAgent = await controller.getUserAgent();
-        if (!mounted ||
-            _closed ||
-            widget.client.sessionGeneration != clientGeneration) {
-          throw StateError('Verification session changed.');
-        }
-      }
-      if (userAgent == null || userAgent.isEmpty || cookieHeader.isEmpty) {
-        throw StateError('Browser session unavailable');
-      }
-      await widget.client.importVerifiedSession(
-        cookieHeader: cookieHeader,
-        userAgent: userAgent,
-      );
-      if (!mounted ||
-          _closed ||
-          widget.client.sessionGeneration != clientGeneration + 1) {
-        throw StateError('Verification session changed.');
-      }
-      clientGeneration = widget.client.sessionGeneration;
-      var browserConnected = false;
+      final cancellation = Completer<void>();
+      _connectCancellation = cancellation;
+      if (mounted) setState(() => _connectingBrowser = true);
       try {
-        await widget.client.browse(widget.client.homeUrl);
-        if (!mounted ||
-            _closed ||
-            widget.client.sessionGeneration != clientGeneration) {
-          throw StateError('Verification session changed.');
+        final connection = connectMissavBrowserSession(
+          widget.client,
+          mobile: _isDesktop ? null : _mobile,
+          cancelSignal: cancellation,
+        );
+        final connectionGeneration = _browserConnectionGeneration;
+        await connection;
+        final browserAdapter = _activeBrowser;
+        if (browserAdapter == null ||
+            _activeBrowserConnectionGeneration != connectionGeneration) {
+          throw StateError('Verification connection was replaced.');
         }
-      } on MissavVerificationRequiredException {
-        final cancellation = Completer<void>();
-        _connectCancellation = cancellation;
-        if (mounted) setState(() => _connectingBrowser = true);
-        try {
-          final connection = connectMissavBrowserSession(
+        if (!mounted || _closed || cancellation.isCompleted) {
+          _restoreOwnedBrowserTransport(
             widget.client,
-            mobile: _isDesktop ? null : _mobile,
-            cancelSignal: cancellation,
+            browserAdapter,
+            connectionGeneration,
           );
-          final connectionGeneration = _browserConnectionGeneration;
-          await connection;
-          final browserAdapter = _activeBrowser;
-          if (browserAdapter == null ||
-              _activeBrowserConnectionGeneration != connectionGeneration) {
-            throw StateError('Verification connection was replaced.');
+          try {
+            await browserAdapter.whenClosed;
+          } catch (_) {}
+          throw StateError('Verification was cancelled.');
+        }
+        if (_isDesktop) {
+          final browser = _desktop;
+          if (browser != null) {
+            try {
+              await browser.close();
+              await browser.onClose;
+            } catch (_) {}
           }
-          if (!mounted || _closed || cancellation.isCompleted) {
+        } else {
+          try {
+            _retainMobileBrowser();
+          } catch (_) {
             _restoreOwnedBrowserTransport(
               widget.client,
               browserAdapter,
@@ -1233,40 +1185,16 @@ class _MissavVerificationState extends State<_MissavVerification> {
             try {
               await browserAdapter.whenClosed;
             } catch (_) {}
-            throw StateError('Verification was cancelled.');
+            rethrow;
           }
-          if (_isDesktop) {
-            final browser = _desktop;
-            if (browser != null) {
-              try {
-                await browser.close();
-                await browser.onClose;
-              } catch (_) {}
-            }
-          } else {
-            try {
-              _retainMobileBrowser();
-            } catch (_) {
-              _restoreOwnedBrowserTransport(
-                widget.client,
-                browserAdapter,
-                connectionGeneration,
-              );
-              try {
-                await browserAdapter.whenClosed;
-              } catch (_) {}
-              rethrow;
-            }
-          }
-          browserConnected = true;
-        } finally {
-          if (identical(_connectCancellation, cancellation)) {
-            _connectCancellation = null;
-          }
-          if (mounted) setState(() => _connectingBrowser = false);
         }
+      } finally {
+        if (identical(_connectCancellation, cancellation)) {
+          _connectCancellation = null;
+        }
+        if (mounted) setState(() => _connectingBrowser = false);
       }
-      _finish(browserConnected || !_closed);
+      _finish(true);
     } catch (_) {
       if (mounted) setState(() => _failed = true);
     } finally {

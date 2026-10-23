@@ -170,6 +170,114 @@ void main() {
     expect(session.playCount, 0);
   });
 
+  testWidgets('player errors replace loading while an open is pending', (
+    tester,
+  ) async {
+    final client = _TestMissavClient(_details());
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final session = _FakePlaybackSession();
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        VideoDetailsScreen(video: _video(), sessionFactory: () => session),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final l10n = await S.delegate.load(const Locale('en'));
+    final opening = Completer<void>();
+    session.nextLoadCompleter = opening;
+    await tester.tap(find.byTooltip(l10n.videoQuality));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('720p'));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('video-playback-loading')),
+      findsOneWidget,
+    );
+
+    session.emitError('The media relay returned HTTP 502.');
+    await tester.pump();
+    expect(find.text(l10n.videoPlaybackFailed), findsOneWidget);
+    expect(find.byKey(const ValueKey('video-playback-loading')), findsNothing);
+
+    opening.complete();
+    await tester.pump();
+  });
+
+  testWidgets('fullscreen playback recovery stays usable on a narrow screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final library = await _testLibrary();
+    final session = _FakePlaybackSession();
+    final navigatorKey = GlobalKey<NavigatorState>();
+    var callbackSawFullscreenRoute = true;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        locale: const Locale('en'),
+        supportedLocales: S.supportedLocales,
+        localizationsDelegates: S.localizationsDelegates,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const TextScaler.linear(1.3)),
+          child: child!,
+        ),
+        home: Scaffold(
+          body: VideoPlaybackPanel(
+            videoId: 'dvd-1',
+            library: library,
+            streams: _details().streams,
+            sessionFactory: () => session,
+            onVerifyAccess: () async {
+              callbackSawFullscreenRoute = navigatorKey.currentState!.canPop();
+            },
+            onOpenSource: () {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final l10n = await S.delegate.load(const Locale('en'));
+    await tester.tap(find.byTooltip(l10n.videoFullscreen));
+    await tester.pumpAndSettle();
+    session.nextLoadError = StateError('Fixture stream error');
+    await tester.tap(find.byTooltip(l10n.videoQuality));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('720p'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(l10n.videoPlaybackFailed), findsOneWidget);
+    expect(find.byTooltip(l10n.videoFullscreen), findsOneWidget);
+    final verifyAccess = find.text(l10n.videoVerifyAccess);
+    final verifyRect = tester.getRect(verifyAccess);
+    expect(verifyRect.left, greaterThanOrEqualTo(0));
+    expect(verifyRect.right, lessThanOrEqualTo(360));
+    expect(verifyRect.top, greaterThanOrEqualTo(0));
+    expect(verifyRect.bottom, lessThanOrEqualTo(800));
+
+    await tester.tap(verifyAccess);
+    await tester.pumpAndSettle();
+
+    expect(callbackSawFullscreenRoute, isFalse);
+    expect(
+      find.byKey(const ValueKey('video-fullscreen-placeholder')),
+      findsNothing,
+    );
+    expect(find.text(l10n.videoVerifyAccess), findsOneWidget);
+  });
+
   testWidgets('account change clears and reloads detail favorite state', (
     tester,
   ) async {
@@ -613,6 +721,10 @@ class _FakePlaybackSession implements VideoPlaybackSession {
   String? lastStreamUrl;
   Completer<void>? nextLoadCompleter;
   Object? nextLoadError;
+
+  void emitError(String error) {
+    _snapshot.value = _snapshot.value.copyWith(error: error, buffering: true);
+  }
 
   @override
   ValueListenable<VideoPlaybackSnapshot> get snapshot => _snapshot;

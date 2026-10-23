@@ -1545,6 +1545,7 @@
   "videoRegisterOnSource": "在源站注册",
   "videoResetPasswordOnSource": "在源站重置密码",
   "videoPasswordOnSource": "在源站修改密码",
+  "videoAccountSourceHint": "以下操作会打开源站页面。请在源站选择注册或密码管理。",
   "videoQuality": "画质",
   "videoRelated": "相关推荐",
   "videoDownloadQueued": "等待下载",

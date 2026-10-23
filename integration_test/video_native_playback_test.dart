@@ -13,11 +13,13 @@ import 'package:media_kit/media_kit.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
+import 'package:kikoeru_flutter/src/videos/missav_media_server.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_playback_panel.dart';
 import 'package:kikoeru_flutter/src/videos/video_download_task.dart';
 import 'package:kikoeru_flutter/src/videos/video_downloads.dart';
 import 'package:kikoeru_flutter/src/videos/video_library.dart';
 import 'package:kikoeru_flutter/src/videos/video_models.dart';
+import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -162,6 +164,49 @@ void main() {
     },
     skip: fixturePath.isEmpty,
   );
+
+  testWidgets(
+    'Android relay open errors terminate the native player load',
+    (tester) async {
+      MediaKit.ensureInitialized();
+      final transport = _FailingTransport();
+      final server = await MissavMediaServer.start(transport);
+      final player = Player();
+      final session = MediaKitVideoPlaybackSession(player: player);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: session.buildSurface(aspectRatio: 16 / 9)),
+        ),
+      );
+      final stream = VideoStream(
+        label: 'Rejected relay response',
+        url: server
+            .register(Uri.parse('https://surrit.com/fixture.mp4'))
+            .toString(),
+      );
+
+      try {
+        final opening = session.loadStream(
+          stream,
+          position: Duration.zero,
+          volume: 0,
+        );
+        await _wait(tester, () => session.snapshot.value.error != null);
+        expect(session.snapshot.value.error, isNotEmpty);
+        expect(session.snapshot.value.buffering, isTrue);
+        expect(transport.openCount, 1);
+        await opening.timeout(const Duration(seconds: 2));
+        debugPrint(
+          'ANDROID_RELAY requestCount=${transport.openCount} errorReported=true openCompleted=true buffering=true',
+        );
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await session.dispose();
+        await server.close();
+      }
+    },
+    skip: !Platform.isAndroid,
+  );
 }
 
 Future<void> _wait(WidgetTester tester, bool Function() condition) async {
@@ -203,5 +248,19 @@ class _FixtureClient extends MissavClient {
   Future<VideoDetails> details(VideoItem item) async {
     detailsCalls++;
     return VideoDetails(video: video, streams: [stream]);
+  }
+}
+
+class _FailingTransport implements RemoteAssetTransport {
+  int openCount = 0;
+
+  @override
+  Future<RemoteAssetResponse> open(RemoteAssetTransportRequest request) async {
+    openCount++;
+    return const RemoteAssetResponse(
+      statusCode: HttpStatus.badGateway,
+      headers: {'content-type': 'text/plain'},
+      stream: Stream<List<int>>.empty(),
+    );
   }
 }

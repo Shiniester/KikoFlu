@@ -4476,6 +4476,10 @@ class SEn extends S {
   String get videoPasswordOnSource => 'Change password on MissAV';
 
   @override
+  String get videoAccountSourceHint =>
+      'These actions open MissAV. Select registration or password management on the website.';
+
+  @override
   String get videoQuality => 'Quality';
 
   @override

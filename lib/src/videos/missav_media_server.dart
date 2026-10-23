@@ -393,9 +393,7 @@ class MissavMediaServer {
     RemoteAssetCancellation cancellation,
   ) async* {
     final iterator = StreamIterator<List<int>>(source);
-    final cancelled = cancellation.whenCancelled.then<bool>(
-      (_) => throw const _MediaRequestCancelled(),
-    );
+    final cancelled = cancellation.whenCancelled.then<bool>((_) => false);
     var completed = false;
     try {
       while (true) {

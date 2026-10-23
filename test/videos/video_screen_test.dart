@@ -59,7 +59,118 @@ void main() {
     await tester.tap(find.text(l10n.videoFavorites));
     await tester.pumpAndSettle();
 
-    expect(client.browsedUrls, contains('https://missav.ai/cn/favorites'));
+    expect(client.browsedUrls, contains('https://missav.ai/en/saved'));
+  });
+
+  testWidgets('playlist entries stay in drawer and browse in place', (
+    tester,
+  ) async {
+    const playlistUrl = 'https://missav.ai/en/playlists/123';
+    final client = _TestMissavClient(
+      catalog: const VideoCatalogPage(
+        title: 'Playlists',
+        url: 'https://missav.ai/en/playlists',
+        links: [
+          VideoLink(
+            label: 'Playlist one',
+            url: playlistUrl,
+            kind: VideoLinkKind.playlist,
+            sourceKey: '123',
+          ),
+        ],
+      ),
+      pagesByUrl: {
+        playlistUrl: const VideoCatalogPage(
+          title: 'Playlist one videos',
+          url: playlistUrl,
+          videos: [
+            VideoItem(
+              id: 'playlist-video',
+              title: 'Playlist video',
+              pageUrl: 'https://missav.ai/en/playlist-video',
+            ),
+          ],
+        ),
+      },
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final observer = _PushObserver();
+
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        const VideoScreen.catalog(url: 'https://missav.ai/en/playlists'),
+        observer: observer,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Playlist one'), findsOneWidget);
+    await tester.tap(find.byTooltip('Playlist one'));
+    await tester.pumpAndSettle();
+    final l10n = await S.delegate.load(const Locale('en'));
+    expect(find.text(l10n.videoRenamePlaylist), findsOneWidget);
+    expect(find.text(l10n.videoDeletePlaylist), findsOneWidget);
+    await tester.tap(find.text(l10n.videoRenamePlaylist));
+    await tester.pumpAndSettle();
+    expect(find.text(l10n.videoPlaylistName), findsOneWidget);
+    await tester.tap(find.text(l10n.cancel));
+    await tester.pumpAndSettle();
+
+    final pushesBeforeSelection = observer.pushes;
+    await tester.tap(find.text('Playlist one'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Playlist video'), findsOneWidget);
+    expect(client.browsedUrls, contains(playlistUrl));
+    expect(observer.pushes, pushesBeforeSelection);
+  });
+
+  testWidgets('drawer catalog selection replaces the current page in place', (
+    tester,
+  ) async {
+    const destination = 'https://missav.ai/cn/genres';
+    final client = _TestMissavClient(
+      catalog: const VideoCatalogPage(
+        title: 'Home catalog',
+        url: 'https://missav.ai/cn',
+        navigation: [
+          VideoLink(
+            label: 'Genres',
+            url: destination,
+            kind: VideoLinkKind.navigation,
+          ),
+        ],
+      ),
+      pagesByUrl: {
+        destination: const VideoCatalogPage(
+          title: 'Genres page',
+          url: destination,
+        ),
+      },
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final observer = _PushObserver();
+
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen(), observer: observer),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+    final pushesAfterOpeningDrawer = observer.pushes;
+    await tester.tap(find.text('Genres'));
+    await tester.pumpAndSettle();
+
+    expect(client.browsedUrls, contains(destination));
+    expect(find.text('Genres page'), findsOneWidget);
+    expect(observer.pushes, pushesAfterOpeningDrawer);
   });
 
   testWidgets('logout clears and reloads an account catalog on return', (
@@ -94,7 +205,9 @@ void main() {
         library,
         downloads,
         const VideoScreen.catalog(url: 'https://missav.ai/cn/favorites'),
-        clearBrowserSession: () async { browserCleanupCalls++; },
+        clearBrowserSession: () async {
+          browserCleanupCalls++;
+        },
       ),
     );
     await tester.pumpAndSettle();
@@ -105,6 +218,8 @@ void main() {
     await tester.tap(find.text('Account A'));
     await tester.pumpAndSettle();
     final l10n = await S.delegate.load(const Locale('en'));
+    expect(find.text(l10n.videoPasswordOnSource), findsOneWidget);
+    expect(find.text(l10n.videoAccountSourceHint), findsOneWidget);
     await tester.tap(find.text(l10n.logout));
     await tester.pumpAndSettle();
     expect(client.isLoggedIn, isFalse);
@@ -147,6 +262,8 @@ void main() {
         const VideoScreen.catalog(url: 'https://missav.ai/cn/actresses'),
       ),
     );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Fixture actor'));
     await tester.pumpAndSettle();
@@ -262,7 +379,8 @@ void main() {
       _app(client, library, downloads, const VideoScreen(), textScale: 1.3),
     );
     await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
+    final narrowError = tester.takeException();
+    expect(narrowError, isNull);
 
     tester.view.physicalSize = const Size(1280, 900);
     await tester.pump();
@@ -325,18 +443,22 @@ Widget _app(
   Widget home, {
   double textScale = 1,
   Future<void> Function()? clearBrowserSession,
+  NavigatorObserver? observer,
 }) => ProviderScope(
   overrides: [
     videoClientProvider.overrideWith((ref) => client),
     videoLibraryProvider.overrideWith((ref) => library),
     videoDownloadsProvider.overrideWith((ref) => downloads),
-    videoBrowserSessionCleanupProvider.overrideWithValue(clearBrowserSession ?? () async {}),
+    videoBrowserSessionCleanupProvider.overrideWithValue(
+      clearBrowserSession ?? () async {},
+    ),
     currentTrackProvider.overrideWith((ref) => Stream.value(null)),
   ],
   child: MaterialApp(
     locale: const Locale('en'),
     supportedLocales: S.supportedLocales,
     localizationsDelegates: S.localizationsDelegates,
+    navigatorObservers: [if (observer != null) observer],
     theme: ThemeData(useMaterial3: true),
     builder: (context, child) => MediaQuery(
       data: MediaQuery.of(
@@ -360,11 +482,13 @@ class _TestMissavClient extends MissavClient {
     this.signedOutCatalog,
     this.loggedIn = false,
     this.accountName,
+    this.pagesByUrl = const {},
   });
 
   final VideoCatalogPage? catalog;
   final Object? browseError;
   final VideoCatalogPage? signedOutCatalog;
+  final Map<String, VideoCatalogPage> pagesByUrl;
   bool loggedIn;
   @override
   String? accountName;
@@ -385,6 +509,7 @@ class _TestMissavClient extends MissavClient {
   Future<VideoCatalogPage> browse(String url) async {
     browsedUrls.add(url);
     if (browseError != null) throw browseError!;
+    if (pagesByUrl[url] case final page?) return page;
     if (!loggedIn && signedOutCatalog != null) return signedOutCatalog!;
     return catalog ?? VideoCatalogPage(title: 'Fixture', url: url);
   }
@@ -404,6 +529,16 @@ class _TestMissavClient extends MissavClient {
   @override
   Future<void> clearWatchHistory() async {
     clearHistoryCalls++;
+  }
+}
+
+class _PushObserver extends NavigatorObserver {
+  int pushes = 0;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    pushes++;
+    super.didPush(route, previousRoute);
   }
 }
 

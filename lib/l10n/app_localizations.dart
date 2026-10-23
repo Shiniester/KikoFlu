@@ -7966,6 +7966,12 @@ abstract class S {
   /// **'Change password on MissAV'**
   String get videoPasswordOnSource;
 
+  /// Explains that account actions open the source website, where the user selects the corresponding form.
+  ///
+  /// In en, this message translates to:
+  /// **'These actions open MissAV. Select registration or password management on the website.'**
+  String get videoAccountSourceHint;
+
   /// No description provided for @videoQuality.
   ///
   /// In en, this message translates to:

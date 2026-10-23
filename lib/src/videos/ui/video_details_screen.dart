@@ -187,8 +187,10 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
   }
 
   Future<void> _verifyAndRetry() async {
-    final verification = _verificationError;
-    if (verification == null) return;
+    if (_verifyingAccess) return;
+    final verification =
+        _verificationError ??
+        MissavVerificationRequiredException(sourceUrl: widget.video.pageUrl);
     _verifyingAccess = true;
     var verified = false;
     try {
@@ -583,6 +585,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
             onStreamChanged: (stream) =>
                 setState(() => _selectedStream = stream),
             onOpenSource: () => unawaited(_openSource()),
+            onVerifyAccess: _isOffline ? null : _verifyAndRetry,
           ),
           const SizedBox(height: 16),
           if (details.metadata.isNotEmpty)

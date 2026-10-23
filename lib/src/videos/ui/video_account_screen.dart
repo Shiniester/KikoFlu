@@ -236,6 +236,14 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                           icon: const Icon(Icons.verified_user_outlined),
                           label: Text(s.videoVerifyAccess),
                         ),
+                      ],
+                      const SizedBox(height: 16),
+                      Text(
+                        s.videoAccountSourceHint,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      if (!loggedIn) ...[
                         TextButton(
                           onPressed: _openSource,
                           child: Text(s.videoRegisterOnSource),
@@ -244,12 +252,11 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
                           onPressed: _openSource,
                           child: Text(s.videoResetPasswordOnSource),
                         ),
-                        TextButton(
-                          onPressed: _openSource,
-                          child: Text(s.videoPasswordOnSource),
-                        ),
                       ],
-                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: _openSource,
+                        child: Text(s.videoPasswordOnSource),
+                      ),
                       OutlinedButton.icon(
                         onPressed: _openSource,
                         icon: const Icon(Icons.open_in_new),

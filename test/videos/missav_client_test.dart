@@ -208,6 +208,7 @@ void main() {
       );
       addTearDown(client.dispose);
 
+      client.setLocale('ja');
       final page = await client.browse('https://missav.ai/dm285/ja');
 
       expect(page.title, 'Newest videos');
@@ -256,6 +257,201 @@ void main() {
     await client.browse('https://missav.ai/cn');
 
     expect(client.homeUrl, 'https://missav.ai/cn');
+  });
+
+  test(
+    'keeps pagination, languages and excluded entries out of directories',
+    () async {
+      final adapter = _Adapter(
+        (_) => _response('''
+<nav>
+  <a href="/cn">Home</a>
+  <a href="/cn/actresses">Actors</a>
+  <a href="/cn/genres">Categories</a>
+  <a href="/cn/vip">升级 VIP</a>
+  <a href="/cn/actresses/ranking">女优排行 NOV 2026</a>
+  <a href="/">繁體中文</a>
+  <a href="/en" hreflang="en">English</a>
+  <a href="/ja" x-bind:href="localizedUrl('ja')">日本語</a>
+</nav>
+<nav aria-label="Pagination">
+  <a href="/cn/new?page=1">1</a>
+  <a href="/cn/new?page=2" rel="next">Next</a>
+  <a href="/cn/new?page=80">80</a>
+</nav>
+<a href="/cn/new?page=2">2</a>
+<a href="/cn/vip">Upgrade VIP</a>
+<a href="/cn/actresses/ranking">Ranking</a>
+<a href="/cn/new" hreflang="zh-CN">简体中文</a>
+<a href="/cn/genres/sample">Sample category</a>
+'''),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+
+      final page = await client.browse('https://missav.ai/cn/new');
+
+      expect(page.navigation.map((link) => link.label), [
+        'Home',
+        'Actors',
+        'Categories',
+      ]);
+      expect(page.links.map((link) => link.label), ['Sample category']);
+      expect(page.nextUrl, 'https://missav.ai/cn/new?page=2');
+      expect(page.currentPage, 1);
+      expect(page.jumpMaxPage, 80);
+      expect(page.pageUrl(37), 'https://missav.ai/cn/new?page=37');
+    },
+  );
+
+  for (final entry in {
+    'zh': 'cn',
+    'zh-Hant': '',
+    'zh-TW': '',
+    'en': 'en',
+    'ja': 'ja',
+  }.entries) {
+    test(
+      'follows app locale ${entry.key} across old-locale routes and search',
+      () async {
+        final adapter = _Adapter((_) => _response('<main></main>'));
+        final client = MissavClient(
+          dio: Dio()..httpClientAdapter = adapter,
+          secureStorage: _MemorySecureStorage(),
+        );
+        addTearDown(client.dispose);
+        client.setLocale(entry.key);
+        expect(client.setLocale(entry.key), isFalse);
+        final prefix = entry.value.isEmpty ? '' : '/${entry.value}';
+        expect(
+          client.homeUrl,
+          'https://missav.ai${prefix.isEmpty ? '/' : prefix}',
+        );
+
+        await client.browse('https://missav.ai/dm123/cn/new?page=4');
+        expect(adapter.requests.single.uri.path, '/dm123$prefix/new');
+        expect(adapter.requests.single.uri.queryParameters['page'], '4');
+        await client.search('sample query');
+        expect(adapter.requests.last.uri.path, '$prefix/search/sample%20query');
+        expect(adapter.requests.last.uri.pathSegments.last, 'sample query');
+        expect(
+          client.collectionUrl('favorites'),
+          'https://missav.ai$prefix/saved',
+        );
+        expect(
+          client.collectionUrl('actorFavorites'),
+          'https://missav.ai$prefix/saved/actresses',
+        );
+        expect(
+          client.collectionUrl('playlists'),
+          'https://missav.ai$prefix/playlists',
+        );
+        expect(
+          client.collectionUrl('history'),
+          'https://missav.ai$prefix/history',
+        );
+      },
+    );
+  }
+
+  test(
+    'page jumps preserve collection filters without counting other catalogs',
+    () async {
+      final adapter = _Adapter(
+        (_) => _response('''
+<nav aria-label="Pagination">
+  <a href="/cn/new?sort=views&amp;page=3" rel="next">Next</a>
+  <a href="/cn/new?sort=views&amp;page=18">18</a>
+  <a href="/cn/new?sort=date&amp;page=99">Other sort</a>
+  <a href="/cn/actresses?page=200">Other catalog</a>
+</nav>
+'''),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+
+      final page = await client.browse(
+        'https://missav.ai/dm123/cn/new?sort=views&page=2',
+      );
+
+      expect(page.currentPage, 2);
+      expect(page.jumpMaxPage, 18);
+      expect(Uri.parse(page.pageUrl(12)).queryParameters, {
+        'sort': 'views',
+        'page': '12',
+      });
+    },
+  );
+
+  test(
+    'collection search starts at the first page and includes later matches',
+    () async {
+      final adapter = _Adapter((request) {
+        final page =
+            int.tryParse(request.uri.queryParameters['page'] ?? '') ?? 1;
+        final id = page == 1 ? 'first' : 'matching';
+        final title = page == 1 ? 'Unrelated title' : 'Needle video';
+        return _response('''
+<main>
+<div class="relative aspect-w-16 aspect-h-9">
+  <a href="/cn/$id"><img alt="$title" src="https://media.example/cover.jpg"></a>
+</div>
+${page < 3 ? '<a href="/cn/saved?page=${page + 1}" rel="next">Next</a>' : ''}
+</main>
+''');
+      });
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+
+      final results = await client.searchCollection(
+        'https://missav.ai/cn/saved?page=9',
+        'NEEDLE',
+      );
+
+      expect(results.map((video) => video.id), ['matching']);
+      expect(
+        adapter.requests.map(
+          (request) => request.uri.queryParameters['page'] ?? '1',
+        ),
+        ['1', '2', '3'],
+      );
+      expect(
+        adapter.requests.every((request) => request.uri.path == '/cn/saved'),
+        isTrue,
+      );
+    },
+  );
+
+  test('superseded collection search stops fetching later pages', () async {
+    var current = true;
+    final adapter = _Adapter((_) {
+      current = false;
+      return _response('<a href="/cn/history?page=2" rel="next">Next</a>');
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = adapter,
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    expect(
+      await client.searchCollection(
+        client.collectionUrl('history'),
+        'sample',
+        isCurrent: () => current,
+      ),
+      isEmpty,
+    );
+    expect(adapter.requests, hasLength(1));
   });
 
   test(
@@ -335,6 +531,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         secureStorage: _MemorySecureStorage(),
       );
       addTearDown(client.dispose);
+      client.setLocale('ja');
       late final MissavBrowserAdapter browser;
       browser = MissavBrowserAdapter(
         currentUrl: () async => 'https://missav.ai/ja/open-sample-001',
@@ -724,6 +921,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       secureStorage: storage,
     );
     addTearDown(client.dispose);
+    client.setLocale('ja');
 
     await expectLater(
       client.browse('https://missav.ai/dm285/ja'),
@@ -872,6 +1070,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         secureStorage: _MemorySecureStorage(),
       );
       addTearDown(client.dispose);
+      client.setLocale('ja');
 
       await client.login(email: 'viewer@example.invalid', password: 'sample');
       final accountStates = <bool>[];
@@ -1052,6 +1251,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       secureStorage: _MemorySecureStorage(),
     );
     addTearDown(client.dispose);
+    client.setLocale('ja');
 
     await client.setActorFavorite(
       const VideoLink(
@@ -1095,6 +1295,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         secureStorage: _MemorySecureStorage(),
       );
       addTearDown(client.dispose);
+      client.setLocale('ja');
       const item = VideoItem(
         id: 'open-sample-001',
         title: 'Sample video',
