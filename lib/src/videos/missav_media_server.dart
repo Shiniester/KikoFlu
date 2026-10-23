@@ -109,26 +109,39 @@ class MissavMediaServer {
 
       final isHead = request.method == 'HEAD';
       final isManifest = _isManifest(registration.source);
-      final remoteResponse = await _openRemote(
+      var remoteResponse = await _openRemote(
         registration.source,
         _copyRequestHeaders(request, includeRange: !isManifest),
         cancellation,
       );
       _ensureActive(cancellation);
+      if (remoteResponse.statusCode == HttpStatus.partialContent &&
+          remoteResponse.header('content-range') == null &&
+          request.headers.value(HttpHeaders.rangeHeader) != null) {
+        // CORS can hide Content-Range; restart this resource instead of
+        // appending bytes whose offset the browser cannot verify.
+        await remoteResponse.stream.listen(null).cancel();
+        remoteResponse = await _openRemote(
+          registration.source,
+          _copyRequestHeaders(request, includeRange: false),
+          cancellation,
+        );
+        _ensureActive(cancellation);
+      }
 
       if (_isManifestResponse(registration.source, remoteResponse) &&
           remoteResponse.statusCode == HttpStatus.ok) {
+        final manifestUri = _requirePublicHttps(
+          remoteResponse.finalUri ?? registration.source,
+        );
+        _seedOrigins.add(_origin(manifestUri));
         final bytes = await _rewriteManifest(
-          registration.source,
+          manifestUri,
           remoteResponse.stream,
           cancellation,
         );
         _ensureActive(cancellation);
-        _copyResponseHeaders(
-          response,
-          remoteResponse,
-          rewrittenManifest: true,
-        );
+        _copyResponseHeaders(response, remoteResponse, rewrittenManifest: true);
         response.statusCode = remoteResponse.statusCode;
         response.headers.set(
           HttpHeaders.contentTypeHeader,
@@ -157,6 +170,8 @@ class MissavMediaServer {
       }
 
       try {
+        response.bufferOutput = false;
+        await response.flush();
         await response.addStream(
           _cancellableStream(remoteResponse.stream, cancellation),
         );
@@ -231,6 +246,7 @@ class MissavMediaServer {
           name == 'set-cookie' ||
           name == 'set-cookie2' ||
           name == 'content-length' ||
+          name == 'content-encoding' ||
           (rewrittenManifest && _manifestHeaders.contains(name))) {
         continue;
       }
@@ -305,7 +321,9 @@ class MissavMediaServer {
   Uri _resolveDependency(Uri base, String reference) {
     final resolved = _requirePublicHttps(base.resolve(reference));
     if (!_seedOrigins.contains(_origin(resolved))) {
-      throw const FormatException('The HLS playlist references another origin.');
+      throw const FormatException(
+        'The HLS playlist references another origin.',
+      );
     }
     return resolved;
   }
@@ -471,7 +489,7 @@ class MissavMediaServer {
     if (address == null && !host.contains('.')) {
       throw ArgumentError.value(uri, 'source', 'Expected a public HTTPS URI.');
     }
-    return uri.replace(fragment: '');
+    return uri.removeFragment();
   }
 
   static bool _isPublicAddress(InternetAddress address) {
@@ -511,7 +529,9 @@ class MissavMediaServer {
         bytes[10] == 0xff &&
         bytes[11] == 0xff;
     if (isMappedIpv4) {
-      return _isPublicAddress(InternetAddress.fromRawAddress(bytes.sublist(12)));
+      return _isPublicAddress(
+        InternetAddress.fromRawAddress(bytes.sublist(12)),
+      );
     }
     if ((bytes[0] & 0xe0) != 0x20) return false;
     if (bytes[0] == 0x20 &&

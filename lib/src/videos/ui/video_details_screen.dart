@@ -50,6 +50,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
   int _loadGeneration = 0;
   bool _accountWasLoggedIn = false;
   String? _accountName;
+  late int _sessionGeneration;
 
   VideoDownloadTask? get _availableTask =>
       widget.downloadedTask ??
@@ -68,6 +69,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
     _downloads = ref.read(videoDownloadsProvider);
     _accountWasLoggedIn = _client.isLoggedIn;
     _accountName = _client.accountName;
+    _sessionGeneration = _client.sessionGeneration;
     _client.addListener(_onClientChanged);
     _scheduleInitialize();
   }
@@ -81,9 +83,13 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
   void _onClientChanged() {
     final isLoggedIn = _client.isLoggedIn;
     final accountName = _client.accountName;
-    if (isLoggedIn == _accountWasLoggedIn && accountName == _accountName) {
+    final sessionChanged = _sessionGeneration != _client.sessionGeneration;
+    if (!sessionChanged &&
+        isLoggedIn == _accountWasLoggedIn &&
+        accountName == _accountName) {
       return;
     }
+    _sessionGeneration = _client.sessionGeneration;
     _accountWasLoggedIn = isLoggedIn;
     _accountName = accountName;
     if (!mounted || _isOffline) return;
@@ -94,7 +100,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
     }
 
     final covered = ModalRoute.of(context)?.isCurrent == false;
-    if (_loading && !covered) return;
+    if (_loading && !covered && !sessionChanged) return;
     _loadGeneration++;
     setState(() {
       _details = null;

@@ -464,7 +464,8 @@ _createMissavMediaRelay({
     final browser = controller;
     if (browser == null) return;
     try {
-      await _disposeMobileBrowser(browser,
+      await _disposeMobileBrowser(
+        browser,
         preservePage: false,
         channelName: MissavBrowserMediaTransport.channelName,
       );
@@ -475,7 +476,8 @@ _createMissavMediaRelay({
     }
   }
 
-  final startUrl = '${MissavClient.origin}/${Uri.parse(homeUrl).pathSegments.last}';
+  final startUrl =
+      '${MissavClient.origin}/${Uri.parse(homeUrl).pathSegments.last}';
   try {
     ensureActive();
     if (!mobile) {
@@ -483,10 +485,14 @@ _createMissavMediaRelay({
       desktop = browser;
       ensureActive();
       final media = MissavBrowserMediaTransport(
-        runJavaScript: (script) async { await browser.evaluateJavaScript(script); },
+        runJavaScript: (script) async {
+          await browser.evaluateJavaScript(script);
+        },
         currentUrl: () async => browser.navigationState.value.url,
         disposeBrowser: () async {
-          browser.removeJavaScriptHandler(MissavBrowserMediaTransport.channelName);
+          browser.removeJavaScriptHandler(
+            MissavBrowserMediaTransport.channelName,
+          );
           await _disposeDesktopBrowser(browser);
         },
       );
@@ -507,9 +513,15 @@ _createMissavMediaRelay({
       ensureActive();
       final overlay = rootNavigatorKey.currentState?.overlay;
       if (overlay == null) throw StateError('Application overlay unavailable');
-      final view = OverlayEntry(builder: (_) => Offstage(
-        child: SizedBox(width: 1, height: 1, child: WebViewWidget(controller: browser)),
-      ));
+      final view = OverlayEntry(
+        builder: (_) => Offstage(
+          child: SizedBox(
+            width: 1,
+            height: 1,
+            child: WebViewWidget(controller: browser),
+          ),
+        ),
+      );
       overlay.insert(view);
       entry = view;
       await WidgetsBinding.instance.endOfFrame;
@@ -525,11 +537,15 @@ _createMissavMediaRelay({
         onMessageReceived: (message) => media.receiveMessage(message.message),
       );
       ensureActive();
-      await _waitForMobilePage(browser, startUrl,
-        cancelSignal: cancelSignal, ensureActive: ensureActive);
+      await _waitForMobilePage(
+        browser,
+        startUrl,
+        cancelSignal: cancelSignal,
+        ensureActive: ensureActive,
+      );
       ensureActive();
     }
-    final media = transport!;
+    final media = transport;
     final server = await MissavMediaServer.start(media);
     try {
       ensureActive();
@@ -569,7 +585,8 @@ Future<void> connectMissavBrowserSession(
 
   Webview? desktop;
   MissavBrowserAdapter? adapter;
-  ({MissavMediaServer server, MissavBrowserMediaTransport transport})? mediaRelay;
+  ({MissavMediaServer server, MissavBrowserMediaTransport transport})?
+  mediaRelay;
   Future<void> closeMedia() async {
     final relay = mediaRelay;
     mediaRelay = null;
@@ -581,6 +598,7 @@ Future<void> connectMissavBrowserSession(
       await relay.transport.whenClosed;
     }
   }
+
   var preserveMobilePage = false;
   try {
     await _awaitConnectionPhase(
@@ -848,8 +866,10 @@ Future<void> connectMissavBrowserSession(
       homeUrl: client.homeUrl,
       cancelSignal: cancelSignal,
       ensureActive: () => _ensureConnectionCurrent(
-        connectionGeneration, cancelSignal,
-        client: client, clientGeneration: clientGeneration,
+        connectionGeneration,
+        cancelSignal,
+        client: client,
+        clientGeneration: clientGeneration,
       ),
     );
     mediaRelay = relay;
@@ -861,8 +881,15 @@ Future<void> connectMissavBrowserSession(
       client: client,
       clientGeneration: clientGeneration,
     );
-    unawaited(relay.transport.whenClosed.then((_) => connectedAdapter.close(force: true)));
-    client.useVerifiedBrowserTransport(connectedAdapter, mediaRoute: relay.server.register);
+    unawaited(
+      relay.transport.whenClosed.then(
+        (_) => connectedAdapter.close(force: true),
+      ),
+    );
+    client.useVerifiedBrowserTransport(
+      connectedAdapter,
+      mediaRoute: relay.server.register,
+    );
     _activeBrowser = connectedAdapter;
     _activeBrowserClient = client;
     clientGeneration = client.sessionGeneration;

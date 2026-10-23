@@ -23,14 +23,14 @@ class MissavBrowserMediaTransport implements RemoteAssetTransport {
   final _requests = <int, _MediaRequest>{};
   var _nextId = 0;
   var _closed = false;
-  Future<void>? _cleanup;
+  final _closedCompletion = Completer<void>();
 
   static const channelName = 'KikoMissavMedia';
   static const _origin = 'https://missav.ai';
   static const _timeout = Duration(seconds: 30);
   static const _chunkSize = 64 * 1024;
 
-  Future<void> get whenClosed => _cleanup ?? Future<void>.value();
+  Future<void> get whenClosed => _closedCompletion.future;
 
   @override
   Future<RemoteAssetResponse> open(RemoteAssetTransportRequest input) async {
@@ -131,7 +131,7 @@ class MissavBrowserMediaTransport implements RemoteAssetTransport {
               data['message'] is String
                   ? data['message'] as String
                   : 'Browser media request failed.',
-              request.input.uri.toString(),
+              uri: request.input.uri,
             ),
             StackTrace.current,
           );
@@ -155,10 +155,10 @@ class MissavBrowserMediaTransport implements RemoteAssetTransport {
         abortBrowser: false,
       );
     }
-    _cleanup = () async {
+    final cleanup = () async {
       try {
         await runJavaScript('''
-for (const request of window.__kikoMissavMediaRequests?.values ?? []) {
+for (const request of window.__kikoMissavMediaRequests?.values() ?? []) {
   request.controller.abort();
   for (const resolve of request.acks.values()) resolve();
 }
@@ -170,11 +170,14 @@ window.__kikoMissavMediaRequests?.clear();
       }
       await disposeBrowser();
     }();
-    _cleanup!.ignore();
+    _closedCompletion.complete(cleanup);
+    _closedCompletion.future.ignore();
   }
 
   void _receiveHeaders(_MediaRequest request, Map data) {
-    if (request.headersReceived || data['status'] is! int || data['url'] is! String) {
+    if (request.headersReceived ||
+        data['status'] is! int ||
+        data['url'] is! String) {
       _terminate(
         request,
         const HttpException('Invalid browser media response headers.'),
@@ -184,7 +187,10 @@ window.__kikoMissavMediaRequests?.clear();
     }
     final finalUri = Uri.tryParse(data['url'] as String);
     final status = data['status'] as int;
-    if (status < 100 || status > 599 || finalUri == null || !_isPublicHttps(finalUri)) {
+    if (status < 100 ||
+        status > 599 ||
+        finalUri == null ||
+        !_isPublicHttps(finalUri)) {
       _terminate(
         request,
         HttpException('Unsupported media response URL: ${data['url']}'),
@@ -217,6 +223,7 @@ window.__kikoMissavMediaRequests?.clear();
     request.headers.complete(
       RemoteAssetResponse(
         statusCode: status,
+        finalUri: finalUri,
         contentLength: length != null && length >= 0 ? length : null,
         headers: headers,
         stream: request.streamController.stream,
@@ -284,7 +291,8 @@ window.__kikoMissavMediaRequests?.clear();
     }
     request.pendingAck = null;
     _armIdleTimer(request);
-    final script = '''
+    final script =
+        '''
 window.__kikoMissavMediaRequests?.get(${request.id})?.acks.get($index)?.();
 ''';
     unawaited(
@@ -306,7 +314,9 @@ window.__kikoMissavMediaRequests?.get(${request.id})?.acks.get($index)?.();
     if (request.pendingChunk != null || request.pendingAck != null) {
       _terminate(
         request,
-        const HttpException('Media stream ended before its chunk was accepted.'),
+        const HttpException(
+          'Media stream ended before its chunk was accepted.',
+        ),
         StackTrace.current,
       );
       return;
@@ -346,11 +356,13 @@ window.__kikoMissavMediaRequests?.get(${request.id})?.acks.get($index)?.();
 
   void _armIdleTimer(_MediaRequest request) {
     request.idleTimer?.cancel();
-    if (request.failed || request.finished || request.pendingAck != null) return;
+    if (request.failed || request.finished || request.pendingAck != null) {
+      return;
+    }
     request.idleTimer = Timer(_timeout, () {
       _cancelRequest(
         request,
-        const TimeoutException('Browser media stream was idle for 30 seconds.'),
+        TimeoutException('Browser media stream was idle for 30 seconds.'),
       );
     });
   }
@@ -462,6 +474,7 @@ const send = data => {
         const waiting = new Promise(resolve => entry.acks.set(index, resolve));
         send({type:'chunk', index, data:btoa(binary)});
         await waiting;
+        if (entry.controller.signal.aborted) return;
         entry.acks.delete(index);
         index++;
       }
@@ -533,9 +546,11 @@ const send = data => {
     )) {
       return false;
     }
-    if (const {'example.com', 'example.net', 'example.org'}.any(
-      (suffix) => host == suffix || host.endsWith('.$suffix'),
-    )) {
+    if (const {
+      'example.com',
+      'example.net',
+      'example.org',
+    }.any((suffix) => host == suffix || host.endsWith('.$suffix'))) {
       return false;
     }
     return true;

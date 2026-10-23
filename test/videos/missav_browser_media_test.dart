@@ -1,94 +1,123 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/services/remote_asset_cache.dart';
 import 'package:kikoeru_flutter/src/videos/missav_browser_media.dart';
 
 void main() {
-  test('streams response headers and binary chunks through the browser', () async {
+  test('whenClosed waits until the browser is disposed', () async {
     final browser = _BrowserMedia();
-    final opened = browser.open();
-    await browser.fetchStarted.future;
-    final request = browser.requestDescriptor;
-    expect(request['headers'], {'range': 'bytes=0-3', 'if-range': '"etag"'});
-    expect(browser.fetchScript, contains("credentials:'omit', mode:'cors'"));
-    expect(browser.fetchScript, contains("redirect:'follow'"));
-    expect(browser.fetchScript, isNot(contains('secret-cookie')));
-    expect(browser.fetchScript, isNot(contains('Authorization')));
-
-    browser.reply('headers', {
-      'status': 206,
-      'url': 'https://cdn.surrit.com/video.mp4',
-      'headers': {
-        'content-type': 'video/mp4',
-        'content-length': '4',
-        'content-range': 'bytes 0-3/4',
-      },
-    });
-    final response = await opened;
-    expect(response.statusCode, 206);
-    expect(response.contentLength, 4);
-    expect(response.header('content-range'), 'bytes 0-3/4');
-
-    final bytes = <int>[];
-    final done = Completer<void>();
-    response.stream.listen(
-      bytes.addAll,
-      onDone: done.complete,
-      onError: done.completeError,
-    );
-    browser.reply('chunk', {
-      'index': 0,
-      'data': base64Encode([0, 1, 254, 255]),
-    });
-    await _until(() => bytes.isNotEmpty);
-    await _until(() => browser.scripts.any((script) => script.contains('.acks.get(0)')));
-    browser.reply('end', {});
-    await done.future;
-    expect(bytes, [0, 1, 254, 255]);
+    var closed = false;
+    final closing = browser.transport.whenClosed.then((_) => closed = true);
+    await Future<void>.delayed(Duration.zero);
+    expect(closed, isFalse);
     browser.transport.close();
-    await browser.transport.whenClosed;
+    await closing;
+    expect(browser.disposeCalls, 1);
+    expect(closed, isTrue);
+    expect(browser.scripts.single, contains('values()'));
   });
 
-  test('browser chunks wait for a listener and resume after stream pause', () async {
-    final browser = _BrowserMedia();
-    final opened = browser.open();
-    await browser.fetchStarted.future;
-    browser.reply('headers', {
-      'status': 200,
-      'url': 'https://cdn.surrit.com/video.mp4',
-      'headers': {'content-type': 'video/mp4'},
-    });
-    final response = await opened;
-    browser.reply('chunk', {
-      'index': 0,
-      'data': base64Encode([1, 2, 3]),
-    });
-    await Future<void>.delayed(Duration.zero);
-    expect(browser.scripts.any((script) => script.contains('.acks.get(0)')), isFalse);
+  test(
+    'streams response headers and binary chunks through the browser',
+    () async {
+      final browser = _BrowserMedia();
+      final opened = browser.open();
+      await browser.fetchStarted.future;
+      final request = browser.requestDescriptor;
+      expect(request['headers'], {'range': 'bytes=0-3', 'if-range': '"etag"'});
+      expect(browser.fetchScript, contains("credentials:'omit', mode:'cors'"));
+      expect(browser.fetchScript, contains("redirect:'follow'"));
+      expect(browser.fetchScript, isNot(contains('secret-cookie')));
+      expect(browser.fetchScript, isNot(contains('Authorization')));
 
-    final received = Completer<void>();
-    final done = Completer<void>();
-    late StreamSubscription<List<int>> subscription;
-    subscription = response.stream.listen((_) {
-      if (!received.isCompleted) {
-        received.complete();
-        subscription.pause();
-      }
-    }, onDone: done.complete);
-    await received.future;
-    await Future<void>.delayed(Duration.zero);
-    expect(browser.scripts.any((script) => script.contains('.acks.get(0)')), isFalse);
+      browser.reply('headers', {
+        'status': 206,
+        'url': 'https://cdn.surrit.com/video.mp4',
+        'headers': {
+          'content-type': 'video/mp4',
+          'content-length': '4',
+          'content-range': 'bytes 0-3/4',
+        },
+      });
+      final response = await opened;
+      expect(response.statusCode, 206);
+      expect(response.finalUri, Uri.parse('https://cdn.surrit.com/video.mp4'));
+      expect(response.contentLength, 4);
+      expect(response.header('content-range'), 'bytes 0-3/4');
 
-    subscription.resume();
-    await _until(() => browser.scripts.any((script) => script.contains('.acks.get(0)')));
-    browser.reply('end', {});
-    await done.future;
-    browser.transport.close();
-    await browser.transport.whenClosed;
-  });
+      final bytes = <int>[];
+      final done = Completer<void>();
+      response.stream.listen(
+        bytes.addAll,
+        onDone: done.complete,
+        onError: done.completeError,
+      );
+      browser.reply('chunk', {
+        'index': 0,
+        'data': base64Encode([0, 1, 254, 255]),
+      });
+      await _until(() => bytes.isNotEmpty);
+      await _until(
+        () => browser.scripts.any((script) => script.contains('.acks.get(0)')),
+      );
+      browser.reply('end', {});
+      await done.future;
+      expect(bytes, [0, 1, 254, 255]);
+      browser.transport.close();
+      await browser.transport.whenClosed;
+    },
+  );
+
+  test(
+    'browser chunks wait for a listener and resume after stream pause',
+    () async {
+      final browser = _BrowserMedia();
+      final opened = browser.open();
+      await browser.fetchStarted.future;
+      browser.reply('headers', {
+        'status': 200,
+        'url': 'https://cdn.surrit.com/video.mp4',
+        'headers': {'content-type': 'video/mp4'},
+      });
+      final response = await opened;
+      browser.reply('chunk', {
+        'index': 0,
+        'data': base64Encode([1, 2, 3]),
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        browser.scripts.any((script) => script.contains('.acks.get(0)')),
+        isFalse,
+      );
+
+      final received = Completer<void>();
+      final done = Completer<void>();
+      late StreamSubscription<List<int>> subscription;
+      subscription = response.stream.listen((_) {
+        if (!received.isCompleted) {
+          received.complete();
+          subscription.pause();
+        }
+      }, onDone: done.complete);
+      await received.future;
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        browser.scripts.any((script) => script.contains('.acks.get(0)')),
+        isFalse,
+      );
+
+      subscription.resume();
+      await _until(
+        () => browser.scripts.any((script) => script.contains('.acks.get(0)')),
+      );
+      browser.reply('end', {});
+      await done.future;
+      browser.transport.close();
+      await browser.transport.whenClosed;
+    },
+  );
 
   test('unlistened body stays bounded until cancellation', () async {
     final browser = _BrowserMedia();
@@ -106,7 +135,10 @@ void main() {
       'data': base64Encode(List<int>.filled(64 * 1024, 7)),
     });
     await Future<void>.delayed(Duration.zero);
-    expect(browser.scripts.any((script) => script.contains('.acks.get(0)')), isFalse);
+    expect(
+      browser.scripts.any((script) => script.contains('.acks.get(0)')),
+      isFalse,
+    );
 
     final streamError = Completer<Object>();
     final streamDone = Completer<void>();
@@ -122,16 +154,20 @@ void main() {
     await browser.transport.whenClosed;
   });
 
-  test('cancellation while checking the page prevents browser fetch setup', () async {
-    final browser = _BrowserMedia()..currentUrlResult = Completer<String?>().future;
-    final cancellation = RemoteAssetCancellation();
-    final opened = browser.open(cancellation: cancellation);
-    cancellation.cancel();
-    await expectLater(opened, throwsA(isA<Exception>()));
-    expect(browser.fetchScript, isEmpty);
-    browser.transport.close();
-    await browser.transport.whenClosed;
-  });
+  test(
+    'cancellation while checking the page prevents browser fetch setup',
+    () async {
+      final browser = _BrowserMedia()
+        ..currentUrlResult = Completer<String?>().future;
+      final cancellation = RemoteAssetCancellation();
+      final opened = browser.open(cancellation: cancellation);
+      cancellation.cancel();
+      await expectLater(opened, throwsA(isA<Exception>()));
+      expect(browser.fetchScript, isEmpty);
+      browser.transport.close();
+      await browser.transport.whenClosed;
+    },
+  );
 
   test('rejects private targets and non-MissAV browser pages', () async {
     for (final url in [
@@ -176,10 +212,10 @@ void main() {
       'headers': <String, String>{},
     };
     browser.transport.receiveMessage(valid, origin: 'https://wrong.example');
-    browser.transport.receiveMessage(
-      {...valid, 'nonce': 'different-session'},
-      origin: 'https://missav.ai',
-    );
+    browser.transport.receiveMessage({
+      ...valid,
+      'nonce': 'different-session',
+    }, origin: 'https://missav.ai');
     browser.transport.receiveMessage(valid, origin: 'https://missav.ai');
     final response = await opened;
     browser.reply('end', {});

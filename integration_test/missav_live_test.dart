@@ -9,6 +9,8 @@ import 'package:media_kit/media_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:kikoeru_flutter/l10n/app_localizations.dart';
+import 'package:kikoeru_flutter/src/utils/global_keys.dart';
 import 'package:kikoeru_flutter/src/services/proxy_config.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_verification.dart';
@@ -21,6 +23,7 @@ import 'package:kikoeru_flutter/src/videos/video_models.dart';
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
+  binding.shouldPropagateDevicePointerEvents = true;
   const enabled = bool.fromEnvironment('KIKOFLU_LIVE_MISSAV');
   const selectedPage = String.fromEnvironment('KIKOFLU_LIVE_MISSAV_PAGE');
 
@@ -43,6 +46,14 @@ void main() {
             debugPrint(
               'MISSAV_LIVE route=$route status=${response.statusCode} challenge=${response.headers.value('cf-mitigated') == 'challenge'}',
             );
+            if (route == 'api') {
+              final body = response.data is String
+                  ? jsonDecode(response.data as String)
+                  : response.data;
+              debugPrint(
+                'MISSAV_LIVE sourceUserField=${body is Map && body.containsKey('user')} sourceUserMap=${body is Map && body['user'] is Map}',
+              );
+            }
             handler.next(response);
           },
         ),
@@ -59,8 +70,21 @@ void main() {
       );
       final player = Player();
       final session = MediaKitVideoPlaybackSession(player: player);
+      Future<void> seekAndDecode(Duration position) async {
+        await session.seek(position);
+        await _wait(
+          tester,
+          () => player.state.position > position + const Duration(seconds: 1),
+          const Duration(seconds: 30),
+          'Source video did not decode after seeking',
+        );
+      }
+
       await tester.pumpWidget(
         MaterialApp(
+          navigatorKey: rootNavigatorKey,
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
           home: Scaffold(
             body: Column(
               children: [
@@ -102,11 +126,6 @@ void main() {
         debugPrint(
           'MISSAV_LIVE authenticated=${client.isLoggedIn} streamCount=${details.streams.length}',
         );
-        expect(
-          client.isLoggedIn,
-          isTrue,
-          reason: 'Source API must confirm the signed-in account',
-        );
         expect(details.streams.isNotEmpty, isTrue);
         final streams = [...details.streams]
           ..sort(
@@ -142,6 +161,7 @@ void main() {
             debugPrint(
               'MISSAV_LIVE mediaPlaylist=${manifest.startsWith('#EXTM3U')} playlistLines=${manifest.split('\n').length}',
             );
+            await _probeMediaRange(mediaHttp, manifest);
           } else {
             await response.drain<void>();
           }
@@ -168,9 +188,13 @@ void main() {
           const Duration(seconds: 60),
           'Source playback did not decode',
         );
+        expect(player.state.duration, greaterThan(const Duration(seconds: 8)));
+        await seekAndDecode(
+          Duration(milliseconds: player.state.duration.inMilliseconds ~/ 2),
+        );
         await session.pause();
         debugPrint(
-          'MISSAV_LIVE onlinePlayback=true width=${player.state.width} height=${player.state.height}',
+          'MISSAV_LIVE onlinePlayback=true onlineSeek=true width=${player.state.width} height=${player.state.height}',
         );
 
         await downloads.add(video, stream);
@@ -247,8 +271,28 @@ void main() {
           const Duration(seconds: 30),
           'Downloaded source video did not play offline',
         );
+        final offlineDuration = player.state.duration;
+        expect(offlineDuration, greaterThan(const Duration(seconds: 8)));
+        await seekAndDecode(
+          Duration(milliseconds: offlineDuration.inMilliseconds ~/ 2),
+        );
+        await seekAndDecode(offlineDuration - const Duration(seconds: 4));
         await session.pause();
-        debugPrint('MISSAV_LIVE offlinePlayback=true');
+        debugPrint(
+          'MISSAV_LIVE offlinePlayback=true offlineSeekMiddle=true offlineSeekEnd=true',
+        );
+        if (!client.isLoggedIn) {
+          debugPrint('MISSAV_LIVE awaitingManualLogin=true');
+          final verified = await verifyMissavAccess(
+            tester.element(find.byType(Scaffold).first),
+            client,
+            sourceUrl: client.homeUrl,
+          );
+          expect(verified, isTrue);
+          await client.details(video);
+          expect(client.isLoggedIn, isTrue);
+          debugPrint('MISSAV_LIVE manualLoginConfirmed=true');
+        }
         await connectMissavBrowserSession(client);
         await client.details(video);
         expect(client.isLoggedIn, isTrue);
@@ -274,6 +318,33 @@ void main() {
     skip: !enabled,
     timeout: const Timeout(Duration(minutes: 30)),
   );
+}
+
+Future<void> _probeMediaRange(HttpClient client, String manifest) async {
+  for (var depth = 0; depth < 4; depth++) {
+    final resource = const LineSplitter()
+        .convert(manifest)
+        .map((line) => line.trim())
+        .firstWhere((line) => line.isNotEmpty && !line.startsWith('#'));
+    final uri = Uri.parse(resource);
+    final request = await client.getUrl(uri);
+    final isPlaylist = uri.path.endsWith('.m3u8');
+    if (!isPlaylist) request.headers.set('Range', 'bytes=1-1023');
+    final response = await request.close();
+    if (isPlaylist) {
+      manifest = await utf8.decodeStream(response);
+      continue;
+    }
+    final count = await response.fold<int>(
+      0,
+      (total, bytes) => total + bytes.length,
+    );
+    debugPrint(
+      'MISSAV_LIVE rangeStatus=${response.statusCode} contentRange=${response.headers.value('content-range') != null} rangeBytes=$count',
+    );
+    return;
+  }
+  fail('Media playlist nesting exceeded the verification limit');
 }
 
 int _quality(String label) =>

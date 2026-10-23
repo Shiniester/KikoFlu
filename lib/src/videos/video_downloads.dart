@@ -700,7 +700,7 @@ class VideoDownloads extends ChangeNotifier {
       );
     }
     final text = utf8.decode(bytes, allowMalformed: false);
-    final finalUri = response is _VideoAssetResponse ? response.finalUri : uri;
+    final finalUri = response.finalUri ?? uri;
     return _FetchedText(finalUri, text);
   }
 
@@ -1089,18 +1089,6 @@ class _HlsVariant {
   final String? audioGroup;
 }
 
-class _VideoAssetResponse extends RemoteAssetResponse {
-  const _VideoAssetResponse({
-    required super.statusCode,
-    required super.stream,
-    required super.headers,
-    super.contentLength,
-    required this.finalUri,
-  });
-
-  final Uri finalUri;
-}
-
 class _VideoAssetTransport implements RemoteAssetTransport {
   _VideoAssetTransport({HttpClient? client})
     : _client = client ?? sharedMediaHttpClient;
@@ -1164,7 +1152,7 @@ class _VideoAssetTransport implements RemoteAssetTransport {
       response.headers.forEach((name, values) {
         responseHeaders[name.toLowerCase()] = values.join(',');
       });
-      return _VideoAssetResponse(
+      return RemoteAssetResponse(
         statusCode: response.statusCode,
         contentLength: response.contentLength < 0
             ? null

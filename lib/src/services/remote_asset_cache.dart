@@ -160,10 +160,12 @@ class RemoteAssetResponse {
     required this.stream,
     required this.headers,
     this.contentLength,
+    this.finalUri,
   });
 
   final int statusCode;
   final int? contentLength;
+  final Uri? finalUri;
   final Map<String, String> headers;
   final Stream<List<int>> stream;
 

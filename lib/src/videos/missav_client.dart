@@ -79,6 +79,7 @@ class MissavClient extends ChangeNotifier {
         !identical(previousBrowserAdapter, _nativeAdapter)) {
       previousBrowserAdapter.close(force: true);
     }
+    notifyListeners();
   }
 
   void restoreNativeTransport() {
@@ -91,6 +92,7 @@ class MissavClient extends ChangeNotifier {
     if (browserAdapter != null && !identical(browserAdapter, _nativeAdapter)) {
       browserAdapter.close(force: true);
     }
+    notifyListeners();
   }
 
   Future<void> initialize() async {
@@ -190,7 +192,9 @@ class MissavClient extends ChangeNotifier {
         document,
         uri,
       ).where((related) => related.id != item.id).toList(),
-      streams: _parseStreams(document, uri, userAgent: _userAgent).map((stream) {
+      streams: _parseStreams(document, uri, userAgent: _userAgent).map((
+        stream,
+      ) {
         final route = _mediaRoute;
         if (route == null) return stream;
         return VideoStream(

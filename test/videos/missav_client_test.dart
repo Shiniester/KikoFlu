@@ -324,7 +324,12 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       ).readAsString();
       final documents = <Uri>[];
       final apiRequests = <String>[];
-      final nativeAdapter = _Adapter((_) => throw StateError('Native request'));
+      final nativeAdapter = _Adapter(
+        (request) => ResponseBody.fromString(
+          request.uri.path.contains('/api/') ? '{"user":null}' : fixture,
+          200,
+        ),
+      );
       final client = MissavClient(
         dio: Dio()..httpClientAdapter = nativeAdapter,
         secureStorage: _MemorySecureStorage(),
@@ -354,7 +359,10 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
           }, origin: MissavClient.origin);
         },
       );
-      client.useVerifiedBrowserTransport(browser);
+      client.useVerifiedBrowserTransport(
+        browser,
+        mediaRoute: (uri) => Uri.parse('http://127.0.0.1:1234${uri.path}'),
+      );
 
       final details = await client.details(
         const VideoItem(
@@ -368,7 +376,24 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       expect(apiRequests, ['https://missav.ai/api/items/source-123/view']);
       expect(client.isLoggedIn, isTrue);
       expect(details.streams, hasLength(2));
+      expect(
+        details.streams.every(
+          (stream) => Uri.parse(stream.url).host == '127.0.0.1',
+        ),
+        isTrue,
+      );
+      expect(details.streams.every((stream) => stream.headers.isEmpty), isTrue);
       expect(nativeAdapter.requests, isEmpty);
+
+      client.restoreNativeTransport();
+      final nativeDetails = await client.details(details.video);
+      expect(
+        nativeDetails.streams.every(
+          (stream) => Uri.parse(stream.url).host == 'media.example',
+        ),
+        isTrue,
+      );
+      expect(nativeAdapter.requests, hasLength(2));
     },
   );
 
@@ -538,9 +563,13 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         secureStorage: _MemorySecureStorage(),
       );
 
+      var sessionChanges = 0;
+      client.addListener(() => sessionChanges++);
+
       client.useVerifiedBrowserTransport(firstBrowserAdapter);
       client.useVerifiedBrowserTransport(firstBrowserAdapter);
       client.useVerifiedBrowserTransport(secondBrowserAdapter);
+      expect(sessionChanges, 2);
 
       expect(firstBrowserAdapter.closeCalls, 1);
       expect(secondBrowserAdapter.closeCalls, 0);

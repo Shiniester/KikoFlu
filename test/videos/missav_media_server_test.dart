@@ -11,6 +11,11 @@ void main() {
   late _FakeTransport transport;
   late MissavMediaServer server;
 
+  Future<HttpClientResponse> get(Uri uri) async {
+    final request = await client.getUrl(uri);
+    return request.close();
+  }
+
   setUp(() async {
     client = HttpClient();
     transport = _FakeTransport();
@@ -28,7 +33,7 @@ void main() {
       final masterUri = Uri.parse(
         'https://surrit.com/open/playlist.m3u8?signature=seed',
       );
-      final masterBody = '''#EXTM3U
+      const masterBody = '''#EXTM3U
 #EXT-X-STREAM-INF:BANDWIDTH=1800000
 media/index.m3u8?quality=high
 ''';
@@ -37,7 +42,7 @@ media/index.m3u8?quality=high
       final localMaster = server.register(masterUri);
       expect(localMaster.path, endsWith('.m3u8'));
       expect(localMaster.query, isEmpty);
-      final masterResponse = await _get(localMaster);
+      final masterResponse = await get(localMaster);
       expect(masterResponse.statusCode, HttpStatus.ok);
       final rewrittenMaster = await utf8.decoder.bind(masterResponse).join();
       final localMediaText = rewrittenMaster
@@ -61,7 +66,7 @@ segment.ts?part=1
 '''),
       );
 
-      final mediaResponse = await _get(localMedia);
+      final mediaResponse = await get(localMedia);
       expect(mediaResponse.statusCode, HttpStatus.ok);
       expect(
         mediaResponse.headers.contentType?.mimeType,
@@ -89,45 +94,76 @@ segment.ts?part=1
     },
   );
 
-  test('streams binary ranges without forwarding local cookies or auth', () async {
-    final source = Uri.parse('https://surrit.com/video/clip.mp4?token=abc');
+  test('resolves HLS resources relative to the final response URL', () async {
+    final source = Uri.parse('https://surrit.com/master.m3u8');
     transport.whenOpened(
       source,
-      () => _responseBytes(
-        [4, 5, 6],
-        statusCode: HttpStatus.partialContent,
-        headers: const {
-          'content-type': 'video/mp4',
-          'content-range': 'bytes 4-6/10',
-          'accept-ranges': 'bytes',
-          'content-encoding': 'gzip',
-          'connection': 'keep-alive',
-          'set-cookie': 'source=secret',
-        },
+      () => RemoteAssetResponse(
+        statusCode: 200,
+        finalUri: Uri.parse('https://cdn.surrit.com/moved/master.m3u8'),
+        headers: const {'content-type': 'application/vnd.apple.mpegurl'},
+        stream: Stream.value(utf8.encode('#EXTM3U\nsegment.ts\n')),
       ),
     );
-
-    final local = server.register(source);
-    final request = await client.getUrl(local);
-    request.headers.set(HttpHeaders.rangeHeader, 'bytes=4-6');
-    request.headers.set(HttpHeaders.cookieHeader, 'local=must-not-forward');
-    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer local');
-    final response = await request.close();
-
-    expect(response.statusCode, HttpStatus.partialContent);
-    expect(response.headers.value('content-range'), 'bytes 4-6/10');
-    expect(response.headers.value('content-encoding'), isNull);
-    expect(response.headers.value('connection'), isNull);
-    expect(response.headers.value('set-cookie'), isNull);
-    expect(
-      await response.fold<List<int>>([], (all, chunk) => all..addAll(chunk)),
-      [4, 5, 6],
+    final response = await get(server.register(source));
+    expect(response.statusCode, HttpStatus.ok);
+    final manifest = await utf8.decodeStream(response);
+    final segment = Uri.parse(
+      manifest.split('\n').firstWhere((line) => line.startsWith('http://')),
     );
-    expect(transport.requests, hasLength(1));
-    expect(transport.requests.single.headers['range'], 'bytes=4-6');
-    expect(transport.requests.single.headers, isNot(contains('cookie')));
-    expect(transport.requests.single.headers, isNot(contains('authorization')));
+    final segmentResponse = await get(segment);
+    await segmentResponse.drain<void>();
+    expect(
+      transport.requests.last.uri,
+      Uri.parse('https://cdn.surrit.com/moved/segment.ts'),
+    );
   });
+
+  test(
+    'streams binary ranges without forwarding local cookies or auth',
+    () async {
+      final source = Uri.parse('https://surrit.com/video/clip.mp4?token=abc');
+      transport.whenOpened(
+        source,
+        () => _responseBytes(
+          [4, 5, 6],
+          statusCode: HttpStatus.partialContent,
+          headers: const {
+            'content-type': 'video/mp4',
+            'content-range': 'bytes 4-6/10',
+            'accept-ranges': 'bytes',
+            'content-encoding': 'gzip',
+            'connection': 'keep-alive',
+            'set-cookie': 'source=secret',
+          },
+        ),
+      );
+
+      final local = server.register(source);
+      final request = await client.getUrl(local);
+      request.headers.set(HttpHeaders.rangeHeader, 'bytes=4-6');
+      request.headers.set(HttpHeaders.cookieHeader, 'local=must-not-forward');
+      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer local');
+      final response = await request.close();
+
+      expect(response.statusCode, HttpStatus.partialContent);
+      expect(response.headers.value('content-range'), 'bytes 4-6/10');
+      expect(response.headers.value('content-encoding'), isNull);
+      expect(response.headers.value('connection'), isNot('keep-alive'));
+      expect(response.headers.value('set-cookie'), isNull);
+      expect(
+        await response.fold<List<int>>([], (all, chunk) => all..addAll(chunk)),
+        [4, 5, 6],
+      );
+      expect(transport.requests, hasLength(1));
+      expect(transport.requests.single.headers['range'], 'bytes=4-6');
+      expect(transport.requests.single.headers, isNot(contains('cookie')));
+      expect(
+        transport.requests.single.headers,
+        isNot(contains('authorization')),
+      );
+    },
+  );
 
   test('serves HEAD metadata without forwarding the response body', () async {
     final source = Uri.parse('https://surrit.com/video/clip.mp4');
@@ -151,12 +187,32 @@ segment.ts?part=1
     expect(transport.requests, hasLength(1));
   });
 
+  test('restarts a ranged resource when CORS hides Content-Range', () async {
+    final source = Uri.parse('https://surrit.com/segment.ts');
+    transport.onOpen = (request) async {
+      if (request.headers.containsKey('range')) {
+        return _responseBytes([2, 3], statusCode: HttpStatus.partialContent);
+      }
+      return _responseBytes([0, 1, 2, 3]);
+    };
+    final request = await client.getUrl(server.register(source));
+    request.headers.set(HttpHeaders.rangeHeader, 'bytes=2-');
+    request.headers.set('if-range', '"old"');
+    final response = await request.close();
+    expect(response.statusCode, HttpStatus.ok);
+    expect(
+      await response.fold<List<int>>([], (all, bytes) => all..addAll(bytes)),
+      [0, 1, 2, 3],
+    );
+    expect(transport.requests, hasLength(2));
+    expect(transport.requests.last.headers, isNot(contains('range')));
+    expect(transport.requests.last.headers, isNot(contains('if-range')));
+  });
+
   test('cancels the remote body when the local client disconnects', () async {
     final source = Uri.parse('https://surrit.com/video/clip.mp4');
     final bodyListening = Completer<void>();
-    final body = StreamController<List<int>>(
-      onListen: bodyListening.complete,
-    );
+    final body = StreamController<List<int>>(onListen: bodyListening.complete);
     final remoteStarted = Completer<RemoteAssetCancellation>();
     transport.onOpen = (request) async {
       remoteStarted.complete(request.cancellation);
@@ -168,48 +224,63 @@ segment.ts?part=1
     };
 
     final request = await client.getUrl(server.register(source));
-    final response = await request.close();
+    final pending = request.close().then<Object>(
+      (response) => response,
+      onError: (Object error) => error,
+    );
     final cancellation = await remoteStarted.future;
     await bodyListening.future.timeout(const Duration(seconds: 2));
-    final subscription = response.listen((_) {});
-    await subscription.cancel();
-    body.add([1, 2, 3]);
-
-    await cancellation.whenCancelled.timeout(const Duration(seconds: 2));
-    expect(cancellation.isCancelled, isTrue);
-    await body.close();
+    request.abort();
+    final chunk = List<int>.filled(64 * 1024, 1);
+    final producer = Timer.periodic(const Duration(milliseconds: 10), (_) {
+      body.add(chunk);
+    });
+    try {
+      await cancellation.whenCancelled.timeout(const Duration(seconds: 2));
+      expect(cancellation.isCancelled, isTrue);
+      await pending;
+    } finally {
+      producer.cancel();
+      await body.close();
+    }
   });
 
-  test('rejects unregistered paths, query strings, and non-GET methods', () async {
-    final registered = server.register(
-      Uri.parse('https://surrit.com/video/clip.mp4'),
-    );
+  test(
+    'rejects unregistered paths, query strings, and non-GET methods',
+    () async {
+      final registered = server.register(
+        Uri.parse('https://surrit.com/video/clip.mp4'),
+      );
 
-    final unknown = await _get(
-      registered.replace(path: '/media/not-a-token/clip.mp4'),
-    );
-    expect(unknown.statusCode, HttpStatus.notFound);
-    await unknown.drain<void>();
+      final unknown = await get(
+        registered.replace(path: '/media/not-a-token/clip.mp4'),
+      );
+      expect(unknown.statusCode, HttpStatus.notFound);
+      await unknown.drain<void>();
 
-    final withQuery = await _get(registered.replace(query: 'url=https://x'));
-    expect(withQuery.statusCode, HttpStatus.notFound);
-    await withQuery.drain<void>();
+      final withQuery = await get(registered.replace(query: 'url=https://x'));
+      expect(withQuery.statusCode, HttpStatus.notFound);
+      await withQuery.drain<void>();
 
-    final request = await client.postUrl(registered);
-    final post = await request.close();
-    expect(post.statusCode, HttpStatus.methodNotAllowed);
-    expect(post.headers.value('allow'), 'GET, HEAD');
-    await post.drain<void>();
-    expect(transport.requests, isEmpty);
-  });
+      final request = await client.postUrl(registered);
+      final post = await request.close();
+      expect(post.statusCode, HttpStatus.methodNotAllowed);
+      expect(post.headers.value('allow'), 'GET, HEAD');
+      await post.drain<void>();
+      expect(transport.requests, isEmpty);
+    },
+  );
 
   test('rejects cross-origin HLS dependencies before fetching them', () async {
     final source = Uri.parse('https://surrit.com/open/playlist.m3u8');
-    transport.whenOpened(source, () => _response('''#EXTM3U
+    transport.whenOpened(
+      source,
+      () => _response('''#EXTM3U
 https://fourhoi.com/segment.ts
-'''));
+'''),
+    );
 
-    final response = await _get(server.register(source));
+    final response = await get(server.register(source));
     expect(response.statusCode, HttpStatus.badGateway);
     await response.drain<void>();
     expect(transport.requests.map((request) => request.uri), [source]);
@@ -225,10 +296,9 @@ https://fourhoi.com/segment.ts
     };
 
     final local = server.register(source);
-    final pendingResponse = _get(local).then<Object>(
-      (response) => response,
-      onError: (Object error) => error,
-    );
+    final pendingResponse = get(
+      local,
+    ).then<Object>((response) => response, onError: (Object error) => error);
     final cancellation = await started.future.timeout(
       const Duration(seconds: 2),
     );
@@ -248,11 +318,6 @@ https://fourhoi.com/segment.ts
       throwsArgumentError,
     );
   });
-
-  Future<HttpClientResponse> _get(Uri uri) async {
-    final request = await client.getUrl(uri);
-    return request.close();
-  }
 }
 
 Uri _attributeUri(String manifest, String tag) {
@@ -269,20 +334,22 @@ RemoteAssetResponse _response(
   Map<String, String> headers = const {
     'content-type': 'application/vnd.apple.mpegurl',
   },
-}) =>
-    _responseBytes(utf8.encode(value), statusCode: statusCode, headers: headers);
+}) => _responseBytes(
+  utf8.encode(value),
+  statusCode: statusCode,
+  headers: headers,
+);
 
 RemoteAssetResponse _responseBytes(
   List<int> bytes, {
   int statusCode = HttpStatus.ok,
   Map<String, String> headers = const {},
-}) =>
-    RemoteAssetResponse(
-      statusCode: statusCode,
-      contentLength: bytes.length,
-      headers: headers,
-      stream: Stream<List<int>>.value(bytes),
-    );
+}) => RemoteAssetResponse(
+  statusCode: statusCode,
+  contentLength: bytes.length,
+  headers: headers,
+  stream: Stream<List<int>>.value(bytes),
+);
 
 class _FakeTransport implements RemoteAssetTransport {
   final Map<String, RemoteAssetResponse Function()> _responses = {};

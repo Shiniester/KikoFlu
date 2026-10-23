@@ -234,6 +234,30 @@ void main() {
     expect(client.actorFavoriteChanges, [true]);
   });
 
+  testWidgets('a new media session reloads the stream for the same account', (
+    tester,
+  ) async {
+    final client = _TestMissavClient(_details());
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final session = _FakePlaybackSession();
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        VideoDetailsScreen(video: _video(), sessionFactory: () => session),
+      ),
+    );
+    await tester.pumpAndSettle();
+    client.reconnect();
+    await tester.pumpAndSettle();
+    expect(client.isLoggedIn, isFalse);
+    expect(client.detailsCalls, 2);
+    expect(session.loadStreamCount, 2);
+    expect(session.lastStreamUrl, 'http://127.0.0.1:1235/video.m3u8');
+  });
+
   testWidgets('covering or backgrounding the detail pauses without resuming', (
     tester,
   ) async {
@@ -492,6 +516,21 @@ class _TestMissavClient extends MissavClient {
   int playlistsCalls = 0;
   List<VideoLink> playlists = [];
   final List<String> addedPlaylists = [];
+  int _generation = 0;
+
+  @override
+  int get sessionGeneration => _generation;
+
+  void reconnect() {
+    _generation++;
+    detailsResult = VideoDetails(
+      video: _video(),
+      streams: const [
+        VideoStream(label: 'Auto', url: 'http://127.0.0.1:1235/video.m3u8'),
+      ],
+    );
+    notifyListeners();
+  }
 
   @override
   String get homeUrl => 'https://missav.ai/cn';
@@ -571,6 +610,7 @@ class _FakePlaybackSession implements VideoPlaybackSession {
   double lastVolume = 0;
   double lastRate = 1;
   String? localPath;
+  String? lastStreamUrl;
   Completer<void>? nextLoadCompleter;
   Object? nextLoadError;
 
@@ -590,6 +630,7 @@ class _FakePlaybackSession implements VideoPlaybackSession {
     required double volume,
   }) async {
     loadStreamCount++;
+    lastStreamUrl = stream.url;
     lastPosition = position;
     lastVolume = volume;
     final loadCompleter = nextLoadCompleter;

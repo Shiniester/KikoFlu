@@ -23,7 +23,7 @@
 
 注册、找回密码、修改密码，以及播放列表的新建、改名和删除，提供源站入口。这些操作尚未完成原生协议验证。会员功能不在首版范围内。
 
-源站账号与音声、漫画账号独立。Cookie 只发送到 `https://missav.ai`，不发送给媒体 CDN。媒体请求只携带公开来源页、Origin 和 User-Agent。账号切换使旧请求失效；源站验证页不会被当作登录成功。
+源站账号与音声、漫画账号独立。Cookie 只发送到 `https://missav.ai`，不发送给媒体 CDN。浏览器媒体请求不携带认证信息。账号切换使旧请求失效；源站验证页不会被当作登录成功。
 
 Android 排除安全存储文件的云备份和设备迁移，避免恢复无法在新设备解密的会话。macOS 使用系统传统 Keychain，避免为未配置 provisioning profile 的分发增加 Keychain Sharing 要求。Linux 构建需要 `libsecret-1-dev`，运行需要 `libsecret-1-0` 和可用的桌面密钥环。
 
@@ -35,11 +35,15 @@ Android 排除安全存储文件的云备份和设备迁移，避免恢复无法
 
 Windows 和 Android 的验证浏览器使用应用代理设置。Android 与 Japanese ASMR 验证共用代理协调器，关闭一个验证窗口不会移除另一个会话的代理。iOS、macOS 和 Linux 的验证浏览器目前需要系统代理模式。Linux 构建还需要 `libwebkit2gtk-4.1-dev` 和 `libsoup-3.0-dev`。
 
-退出视频源账号会清除源站浏览器会话。取消验证或切换账号后，旧连接不能导入迟到的会话，也不能发送旧账号操作。媒体 CDN 请求仍由原生播放器和下载器发送。
+媒体 CDN 的原生请求同样返回 HTTP 403。媒体改由独立的源站浏览器读取，再通过本机转发交给播放器和下载器。浏览器按片段流式传输数据；HLS 清单中的地址改写为本机地址。媒体浏览器与网页浏览器分开，浏览目录不会打断播放或下载。
+
+退出视频源账号会清除源站浏览器会话。取消验证或切换账号后，旧连接不能导入迟到的会话，也不能发送旧账号操作。关闭会话时，同时取消媒体读取并关闭本机转发。
 
 ## 离线下载
 
 下载页提供队列、进度、暂停、继续、重试和删除。未完成任务在重启后恢复为暂停状态，手动继续时重新获取源站流地址。任务文件不保存流地址或认证请求头。
+
+媒体浏览器未暴露 `Content-Range` 时，继续下载会重新读取当前片段。已完成片段保留，不会重新下载。
 
 支持 MP4 和 HLS VOD。HLS 下载会保存清单、媒体片段、初始化片段和 AES-128 identity 密钥，并改写为本机相对路径。已完成的视频直接读取本机文件，不依赖源站访问或账号安全存储。
 
@@ -47,15 +51,18 @@ Windows 和 Android 的验证浏览器使用应用代理设置。Android 与 Jap
 
 ## 验证
 
-2026-10-22 使用 Windows、Flutter 3.44.7 和 Dart 3.12.2 检查。
+2026-10-23 使用 Windows、Flutter 3.44.7 和 Dart 3.12.2 检查。
 
-- 源站：浏览器已核对目录、详情和视频流。还核对了登录、收藏、播放列表成员和清空历史的请求定义。未提交真实账号操作。
-- 网络：当前网络的原生源站请求和媒体 CDN 请求返回 Cloudflare 验证或拦截。真实登录、在线播放和源站视频下载尚未通过验收。
-- 静态检查：格式检查通过，`flutter analyze --no-pub --fatal-infos` 未发现问题。
-- 自动检查：251 项视频、音声、主导航、代理和传输回归通过。
-- Android：调试 APK 构建通过，尚未实机检查。
-- Windows：调试应用构建通过。SMTC 库按[现有解包方法](comics-integration.md#限制与后续验收)恢复。
-- Windows 原生检查：MP4 和 HLS 下载后断网解码通过。续播起点、并发音声和独立音量通过。安全存储读写和删除通过。
+- 源站目录、详情和账号 API 可通过验证浏览器访问。原生源站请求和媒体 CDN 请求仍返回 HTTP 403。
+- 真实在线播放：361 秒 HLS 在原生播放器中解码为 1280×720，在线中段跳转通过。
+- 真实下载：完整下载 105,692,066 字节，暂停后继续下载通过。
+- 真实离线：本机清单不含远程地址。起播、中段和片尾均可解码。
+- 登录接续：人工重新登录后，关闭验证进程并启动新进程。源站账号 API 确认登录状态已恢复。关闭媒体连接并重新建立浏览器会话后，账号 API 再次确认已登录。
+- 静态检查：`flutter analyze --no-pub --fatal-infos` 未发现问题。
+- 自动检查：209 项视频、代理、音声下载、共享传输和应用标签栏回归通过。
+- Android：本轮调试 APK 构建通过，尚未实机检查。
+- Windows：正常入口和真实测试应用均构建通过。SMTC 库按[现有解包方法](comics-integration.md#限制与后续验收)恢复。
+- 先前原生检查：2026-10-22 示例 MP4 和 HLS 的本机解码、续播起点、并发音声及独立音量通过。安全存储读写和删除通过。
 - iOS、macOS 和 Linux 尚未构建或实机检查。
 
 原生播放检查使用 [Flutter 官方示例短片](https://docs.flutter.dev/cookbook/plugins/play-video) 作为临时素材。将文件放在目标设备可读路径后运行：
@@ -69,11 +76,20 @@ flutter test --no-pub -d windows integration_test/video_native_playback_test.dar
 `KIKOFLU_TEST_VIDEO` 也可传入本机 `.m3u8`。清单引用的片段和初始化文件须放在清单所在目录。
 HLS 检查使用 [Apple 官方示例](https://developer.apple.com/streaming/examples/) 的两个 AVC 片段和初始化文件。
 
+真实源站检查使用应用保存的浏览器配置目录：
+
+```powershell
+flutter test --no-pub -d windows integration_test/missav_live_test.dart --dart-define=KIKOFLU_LIVE_MISSAV=true
+```
+
+该检查读取实际目录和账号 API，静音解码视频并跳转到中段，再下载完整 HLS。下载中检查暂停与继续，完成后检查本机中段、片尾播放和浏览器重连。账号未登录时，检查会打开源站窗口等待人工登录。测试不保存密码，结束后删除临时下载文件。未启用 `KIKOFLU_LIVE_MISSAV` 时跳过此检查。
+
 ## 实施交接
 
 - `task_brief`：新增 MissAV 原生视频页、源站账号、独立播放和可恢复下载，保留现有页面结构。
 - `dispatch.read_only`：入口定位顾问核对导航、音频会话和下载复用边界；独立评审者核对会话、下载和播放器生命周期。
 - `dispatch.write_stages`：先确定模型与公有接口，再由三个 Flutter writer 分别修改源站、离线和界面文件。主执行者负责依赖、主导航、本地化、平台配置、组合验证和文档。共享 Flutter 命令串行执行。
+- 媒体接入阶段：沿用 `RemoteAssetTransport` 契约，由两个 Flutter writer 分别编写浏览器媒体传输与本机转发。文件归属独立。主执行者负责会话集成和真实验证，独立评审者检查取消、续传及重连。
 - `dispatch.skipped`：没有另派构建、依赖、测试和文档 writer；主执行者与模块 writer 已覆盖这些任务，避免重复归属。
 
 | name | focus | result | risks | next_step |
@@ -83,11 +99,12 @@ HLS 检查使用 [Apple 官方示例](https://developer.apple.com/streaming/exam
 | video_offline | 本机资料、下载队列、协议测试 | MP4、HLS、本机重写及恢复 | 未支持的 HLS 格式会明确失败 | 验收设备离线播放 |
 | video_ui | 视频界面、播放器及 Widget 测试 | 沿用资料库结构和独立播放 | 需要平台交互验收 | 验收后台、全屏与并发音频 |
 | video_review | 源站、下载和界面代码评审 | 找出会话和异步生命周期问题并交回修复 | 静态评审不替代运行检查 | 主执行者运行回归 |
+| media_review | 浏览器媒体、本机转发和会话接续 | 核对取消、续传与重连，提出修复 | 浏览器响应头由 CORS 策略决定 | 主执行者验证实际源站 |
 
 - `implementation_plan`：模型与行为契约先行；源站、离线和界面文件归属独立，可分别验收，因此在接口确定后并行写入。主执行者集中处理共享配置并验收组合行为。
 - `verification`：覆盖协议解析、账号切换、挑战页、下载恢复及 HLS 本地化。还检查离线入口、页面约束、后台暂停和全屏状态。平台构建和设备检查按上节记录。
-- `dependency_risks`：新增 `media_kit_video` 2.0.1、`media_kit_libs_video` 1.0.7 和 `flutter_secure_storage` 10.3.4。完整视频库替换 Windows 音频专用库；安全存储版本与现有 `share_plus` 的 `win32` 5.x 依赖兼容。具体传递版本由锁文件固定。
+- `dependency_risks`：新增 `media_kit_video` 2.0.1、`media_kit_libs_video` 1.0.7、`flutter_secure_storage` 10.3.4、`desktop_webview_window` 0.4.0 和 `webview_flutter` 4.14.1。完整视频库替换 Windows 音频专用库；安全存储版本与现有 `share_plus` 的 `win32` 5.x 依赖兼容。浏览器插件分别依赖平台 WebView，具体传递版本由锁文件固定。
 - `conflicts`：`[]`。共享文件由主执行者集中修改；模块 writer 保留并适配其他模块的改动。
-- `handoff.what`：在可访问源站的网络和五个平台上执行真实账号、播放与离线验收。
-- `handoff.why`：模拟协议和 Widget 检查不能证明源站当前可访问，也不能替代各平台音频会话与系统生命周期检查。
-- `handoff.next`：按已确认的 [ADR 0005](adr/0005-native-video-and-source-account.md) 验收；未验证端点保留源站入口。
+- `handoff.what`：Windows 真实账号、播放、下载和离线播放已通过。其余平台仍需设备验收。
+- `handoff.why`：Windows 的结果不能替代其他平台的浏览器、解码和系统生命周期检查。
+- `handoff.next`：按已确认的 [ADR 0005](adr/0005-native-video-and-source-account.md) 检查其他平台；未验证端点保留源站入口。
