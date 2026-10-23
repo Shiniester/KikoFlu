@@ -308,11 +308,12 @@ Future<void> stopMissavDesktopNavigation(Webview browser) async {
   }
 }
 
-Future<String> _navigateMissavDocument(
+@visibleForTesting
+Future<String> navigateMissavDocument(
   Uri uri,
   Future<void> cancelled, {
   required Future<void> Function(Completer<void> signal) navigate,
-  required Future<Object?> Function() read,
+  required Future<Object?> Function(String script) read,
   required Future<void> Function() stop,
 }) async {
   final cancellation = Completer<void>();
@@ -328,8 +329,10 @@ Future<String> _navigateMissavDocument(
   );
   try {
     await navigate(cancellation);
-    final raw = await _cancelable(read(), cancellation);
-    final document = raw is String ? jsonDecode(raw) : raw;
+    final raw = await _cancelable(read(_documentMarkupScript), cancellation);
+    var document = raw is String ? jsonDecode(raw) : raw;
+    // Android WebView JSON-encodes JavaScript string results once more.
+    if (document is String) document = jsonDecode(document);
     if (document is! Map ||
         document['html'] is! String ||
         !isMissavVerificationUrl('${document['url'] ?? ''}')) {
@@ -684,7 +687,7 @@ Future<void> connectMissavBrowserSession(
           await browser.evaluateJavaScript(script);
         },
         currentUrl: () async => browser.navigationState.value.url,
-        navigateDocument: (uri, cancelled) => _navigateMissavDocument(
+        navigateDocument: (uri, cancelled) => navigateMissavDocument(
           uri,
           cancelled,
           navigate: (signal) => _waitForDesktopPage(
@@ -692,7 +695,7 @@ Future<void> connectMissavBrowserSession(
             uri.toString(),
             cancelSignal: signal,
           ),
-          read: () => browser.evaluateJavaScript(_documentMarkupScript),
+          read: browser.evaluateJavaScript,
           stop: () => stopMissavDesktopNavigation(browser),
         ),
         disposeBrowser: () async {
@@ -763,7 +766,7 @@ Future<void> connectMissavBrowserSession(
       browserAdapter = MissavBrowserAdapter(
         runJavaScript: mobile.runJavaScript,
         currentUrl: mobile.currentUrl,
-        navigateDocument: (uri, cancelled) => _navigateMissavDocument(
+        navigateDocument: (uri, cancelled) => navigateMissavDocument(
           uri,
           cancelled,
           navigate: (signal) => _waitForMobilePage(
@@ -776,8 +779,7 @@ Future<void> connectMissavBrowserSession(
               }
             },
           ),
-          read: () =>
-              mobile.runJavaScriptReturningResult(_documentMarkupScript),
+          read: mobile.runJavaScriptReturningResult,
           stop: () => mobile.runJavaScript('window.stop();'),
         ),
         disposeBrowser: () async {

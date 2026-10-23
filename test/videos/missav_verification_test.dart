@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -6,12 +7,74 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_verification.dart';
+import 'package:kikoeru_flutter/src/videos/video_models.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 // This mock extends the transitive platform API used by webview_flutter.
 // ignore: depend_on_referenced_packages
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
 
 void main() {
+  test('Android accepts the verified browser document', () async {
+    const html = '<html><a href="/logout">退出登录</a></html>';
+    final document = jsonEncode({'url': 'https://missav.ai/cn', 'html': html});
+    var stopped = false;
+
+    final result = await navigateMissavDocument(
+      Uri.parse('https://missav.ai/cn'),
+      Completer<void>().future,
+      navigate: (_) async {},
+      // Android evaluateJavascript encodes string results as JSON strings.
+      read: (_) async => jsonEncode(document),
+      stop: () async => stopped = true,
+    );
+
+    expect(result, html);
+    expect(stopped, isFalse);
+  });
+
+  test('accepts a document returned as JSON or a platform map', () async {
+    const document = {
+      'url': 'https://missav.ai/en',
+      'html': '<html><a href="/logout">Log out</a></html>',
+    };
+    for (final result in [jsonEncode(document), document]) {
+      expect(
+        await navigateMissavDocument(
+          Uri.parse('https://missav.ai/en'),
+          Completer<void>().future,
+          navigate: (_) async {},
+          read: (_) async => result,
+          stop: () async {},
+        ),
+        document['html'],
+      );
+    }
+  });
+
+  test(
+    'rejects a browser document from another origin after decoding',
+    () async {
+      final document = jsonEncode({
+        'url': 'https://other.example/cn',
+        'html': '<html>Not the source</html>',
+      });
+      for (final result in [document, jsonEncode(document)]) {
+        var stopped = false;
+        await expectLater(
+          navigateMissavDocument(
+            Uri.parse('https://missav.ai/cn'),
+            Completer<void>().future,
+            navigate: (_) async {},
+            read: (_) async => result,
+            stop: () async => stopped = true,
+          ),
+          throwsA(isA<MissavVerificationRequiredException>()),
+        );
+        expect(stopped, isTrue);
+      }
+    },
+  );
+
   test(
     'desktop cancellation waits for the old navigation completion',
     () async {
