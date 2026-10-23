@@ -94,11 +94,14 @@ class _PaginationBarState extends State<PaginationBar> {
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
           const SizedBox(width: 8),
-          Text(
-            widget.endMessage ?? S.of(context).reachedEnd,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontSize: 14,
+          Flexible(
+            child: Text(
+              widget.endMessage ?? S.of(context).reachedEnd,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 14,
+              ),
             ),
           ),
         ],
@@ -316,7 +319,10 @@ class _PaginationBarState extends State<PaginationBar> {
               _buildPageButton(
                 icon: Icons.chevron_left,
                 label: S.of(context).previousPage,
-                enabled: widget.currentPage > 1 && !widget.isLoading,
+                enabled:
+                    widget.currentPage > 1 &&
+                    !widget.isLoading &&
+                    widget.onPreviousPage != null,
                 onPressed: widget.onPreviousPage,
               ),
 
@@ -327,7 +333,10 @@ class _PaginationBarState extends State<PaginationBar> {
               _buildPageButton(
                 label: S.of(context).nextPage,
                 icon: Icons.chevron_right,
-                enabled: widget.hasMore && !widget.isLoading,
+                enabled:
+                    widget.hasMore &&
+                    !widget.isLoading &&
+                    widget.onNextPage != null,
                 iconOnRight: true,
                 onPressed: widget.onNextPage,
               ),

@@ -5,10 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../providers/settings_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../../widgets/library_page_scaffold.dart';
-import '../../widgets/pagination_bar.dart';
+import '../../widgets/virtualized_sliver_collection.dart';
 import '../../providers/works_provider.dart';
 import '../missav_client.dart';
 import '../missav_verification.dart';
@@ -58,6 +59,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   final ScrollController _scrollController = ScrollController();
   String? _activeCollectionKey;
   String? _sourceLocaleTag;
+  int _localPage = 1;
 
   @override
   void initState() {
@@ -224,6 +226,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       if (!mounted || request != _request) return;
       setState(() {
         _page = page;
+        _localPage = 1;
         _loading = false;
         _error = null;
         _verificationError = null;
@@ -688,11 +691,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         ],
       ),
       LibraryDrawerSection(
-        title: s.videoCatalog,
+        title: s.videoContent,
         children: [
           LibraryDrawerTile(
             icon: Icons.home_outlined,
-            title: s.videoCatalog,
+            title: s.navHome,
             selected:
                 _collectionKeyForUrl(_page?.url ?? '') == null &&
                 (_page?.url == null ||
@@ -711,29 +714,21 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
               title: link.label,
               onTap: () => _openCatalog(link),
             ),
+          for (final link in directoryLinks) _directoryTile(link),
         ],
       ),
-      if (directoryLinks.isNotEmpty)
-        LibraryDrawerSection(
-          title: s.videoCatalog,
-          children: [for (final link in directoryLinks) _directoryTile(link)],
-        ),
       LibraryDrawerSection(
         title: s.libraryBrowseOptions,
         children: [
-          for (final entry in [
-            (LayoutType.bigGrid, Icons.grid_view, s.layoutBigGrid),
-            (LayoutType.smallGrid, Icons.apps, s.layoutSmallGrid),
-            (LayoutType.list, Icons.view_list, s.layoutList),
-          ])
-            LibraryDrawerTile(
-              icon: entry.$2,
-              title: entry.$3,
-              selected: layoutType == entry.$1,
-              onTap: () => ref
-                  .read(videoBrowseLayoutProvider.notifier)
-                  .setLayout(entry.$1),
-            ),
+          LibraryDrawerTile(
+            icon: switch (layoutType) {
+              LayoutType.bigGrid => Icons.grid_view,
+              LayoutType.smallGrid => Icons.apps,
+              LayoutType.list => Icons.view_list,
+            },
+            title: s.layout,
+            onTap: () => ref.read(videoBrowseLayoutProvider.notifier).cycle(),
+          ),
         ],
       ),
       LibraryDrawerSection(
@@ -818,6 +813,61 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
     final page = _page;
     if (page == null) return const SizedBox.shrink();
+    final pageSize = ref.watch(pageSizeProvider);
+    final hasSourcePagination =
+        page.previousUrl != null ||
+        page.nextUrl != null ||
+        page.jumpMaxPage != null;
+    final localPageCount = ((page.videos.length + pageSize - 1) ~/ pageSize)
+        .clamp(1, 1 << 30)
+        .toInt();
+    final hasLocalPagination =
+        !hasSourcePagination && page.videos.length > pageSize;
+    final localPage = _localPage.clamp(1, localPageCount).toInt();
+    final videos = hasLocalPagination
+        ? page.videos
+              .skip((localPage - 1) * pageSize)
+              .take(pageSize)
+              .toList(growable: false)
+        : page.videos;
+    final pagination = VirtualizedPagination(
+      currentPage: hasSourcePagination ? page.currentPage : localPage,
+      pageSize: hasSourcePagination
+          ? page.videos.length.clamp(1, 1000).toInt()
+          : pageSize,
+      totalCount: hasSourcePagination ? null : page.videos.length,
+      jumpMaxPage: hasSourcePagination ? page.jumpMaxPage : null,
+      hasMore: hasSourcePagination
+          ? page.nextUrl != null
+          : hasLocalPagination && localPage < localPageCount,
+      isLoading: _loading,
+      onPreviousPage: hasSourcePagination
+          ? page.previousUrl == null
+                ? null
+                : () => _loadUrl(page.previousUrl!, preserveCollection: true)
+          : hasLocalPagination && localPage > 1
+          ? () => setState(() => _localPage = localPage - 1)
+          : null,
+      onNextPage: hasSourcePagination
+          ? page.nextUrl == null
+                ? null
+                : () => _loadUrl(page.nextUrl!, preserveCollection: true)
+          : hasLocalPagination && localPage < localPageCount
+          ? () => setState(() => _localPage = localPage + 1)
+          : null,
+      onGoToPage: hasSourcePagination
+          ? page.jumpMaxPage == null
+                ? null
+                : (targetPage) => _loadUrl(
+                    page.pageUrl(targetPage),
+                    preserveCollection: true,
+                  )
+          : hasLocalPagination
+          ? (targetPage) => setState(() => _localPage = targetPage)
+          : null,
+      showWhenEmpty: true,
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+    );
     return LayoutBuilder(
       builder: (context, constraints) {
         return Column(
@@ -864,7 +914,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
               ),
             Expanded(
               child: VideoCollectionView(
-                items: page.videos,
+                items: videos,
                 layoutType: layoutType,
                 itemId: (video) => video.id,
                 itemBuilder: (context, video, _) => VideoCard(
@@ -875,42 +925,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                 controller: _scrollController,
                 pageStorageKey: PageStorageKey<String>('video-${page.url}'),
                 emptyBuilder: (_) => Center(child: Text(s.noResults)),
+                pagination: pagination,
               ),
             ),
-            if (page.previousUrl != null ||
-                page.nextUrl != null ||
-                (page.jumpMaxPage ?? 0) > 1)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                child: PaginationBar(
-                  currentPage: page.currentPage,
-                  pageSize: page.videos.length.clamp(1, 1000).toInt(),
-                  totalCount: null,
-                  jumpMaxPage: page.jumpMaxPage,
-                  hasMore: page.nextUrl != null,
-                  isLoading: _loading,
-                  onPreviousPage: page.previousUrl == null
-                      ? null
-                      : () => _loadUrl(
-                          page.previousUrl!,
-                          preserveCollection: true,
-                        ),
-                  onNextPage: page.nextUrl == null
-                      ? null
-                      : () => _loadUrl(page.nextUrl!, preserveCollection: true),
-                  onGoToPage: page.jumpMaxPage == null
-                      ? null
-                      : (targetPage) => _loadUrl(
-                          page.pageUrl(targetPage),
-                          preserveCollection: true,
-                        ),
-                  onScrollToTop: () {
-                    if (_scrollController.hasClients) {
-                      _scrollController.jumpTo(0);
-                    }
-                  },
-                ),
-              ),
           ],
         );
       },

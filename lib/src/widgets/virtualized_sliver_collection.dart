@@ -22,6 +22,7 @@ class VirtualizedPagination {
     required this.totalCount,
     required this.hasMore,
     required this.isLoading,
+    this.jumpMaxPage,
     this.onPreviousPage,
     this.onNextPage,
     this.onGoToPage,
@@ -38,6 +39,7 @@ class VirtualizedPagination {
   final int currentPage;
   final int pageSize;
   final int? totalCount;
+  final int? jumpMaxPage;
   final bool hasMore;
   final bool isLoading;
   final FutureOr<void> Function()? onPreviousPage;
@@ -59,6 +61,7 @@ class VirtualizedPagination {
       totalCount: totalCount,
       hasMore: hasMore,
       isLoading: isLoading,
+      jumpMaxPage: jumpMaxPage,
       onPreviousPage: onPreviousPage,
       onNextPage: onNextPage,
       onGoToPage: onGoToPage,
@@ -661,6 +664,7 @@ class _VirtualizedSliverCollectionState<T>
               currentPage: pagination.currentPage,
               pageSize: pagination.pageSize,
               totalCount: pagination.totalCount,
+              jumpMaxPage: pagination.jumpMaxPage,
               hasMore: pagination.hasMore,
               isLoading: pagination.isLoading || _pageRequestInFlight,
               onPreviousPage: pagination.onPreviousPage == null

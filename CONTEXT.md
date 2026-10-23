@@ -23,6 +23,15 @@ _Avoid_: Video player, source website
 The presentation of video cards as a big grid, small grid, or list.
 _Avoid_: Video playback mode
 
+**Video Content Navigation (视频内容导航)**:
+The browsing entries supplied by a Video Source for feeds, rankings, actors,
+categories, studios, and topics.
+_Avoid_: Source website services, Video Collection Layout
+
+**Video Collection Page (视频集合分页)**:
+A numbered portion of a video feed, search result, or download list.
+_Avoid_: Video Resume Position
+
 **Video Source (视频源)**:
 A provider of video catalogs and playback, such as MissAV (missav.ai).
 _Avoid_: Audio Source, Comic Source

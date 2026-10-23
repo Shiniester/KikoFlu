@@ -4290,6 +4290,9 @@ class SJa extends S {
   String get videoCatalog => '動画一覧';
 
   @override
+  String get videoContent => 'コンテンツ';
+
+  @override
   String get videoFavorites => '動画のお気に入り';
 
   @override

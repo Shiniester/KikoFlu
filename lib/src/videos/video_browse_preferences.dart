@@ -29,6 +29,12 @@ class VideoBrowseLayoutNotifier extends StateNotifier<LayoutType> {
     state = layout;
     await _preference.save(layout);
   }
+
+  Future<void> cycle() => setLayout(switch (state) {
+    LayoutType.bigGrid => LayoutType.smallGrid,
+    LayoutType.smallGrid => LayoutType.list,
+    LayoutType.list => LayoutType.bigGrid,
+  });
 }
 
 final videoBrowseLayoutProvider =

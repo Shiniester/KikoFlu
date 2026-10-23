@@ -4268,6 +4268,9 @@ class SZh extends S {
   String get videoCatalog => '视频目录';
 
   @override
+  String get videoContent => '内容';
+
+  @override
   String get videoFavorites => '视频收藏';
 
   @override
@@ -8651,6 +8654,9 @@ class SZhHant extends SZh {
 
   @override
   String get videoCatalog => '影片目錄';
+
+  @override
+  String get videoContent => '內容';
 
   @override
   String get videoFavorites => '影片收藏';

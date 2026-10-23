@@ -8,6 +8,7 @@ import 'package:kikoeru_flutter/src/videos/ui/video_search_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/video_models.dart';
+import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -46,6 +47,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(submitted, ['actor']);
     expect(find.text('Video result'), findsOneWidget);
+    expect(find.byType(PaginationBar), findsOneWidget);
 
     final l10n = await S.delegate.load(const Locale('en'));
     await tester.tap(find.byTooltip(l10n.clear));
@@ -76,6 +78,59 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.history), findsNothing);
   });
+
+  testWidgets(
+    'global search locally pages loaded results without source URLs',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final items = [
+        for (var index = 0; index < 41; index++)
+          VideoItem(
+            id: 'global-$index',
+            title: 'Global result $index',
+            pageUrl: 'https://missav.ai/global-$index',
+          ),
+      ];
+      final browsed = <String>[];
+      await tester.pumpWidget(
+        _app(
+          VideoSearchScreen(
+            title: 'Video search',
+            initialQuery: 'actor',
+            search: (_, _) async => VideoSearchResults.catalog(
+              VideoCatalogPage(
+                title: 'Search results',
+                url: 'https://missav.ai/en/search/actor',
+                videos: items,
+              ),
+            ),
+            browsePage: (url) async {
+              browsed.add(url);
+              return VideoCatalogPage(title: 'Results', url: url);
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _scrollToPagination(tester);
+      expect(
+        tester.widget<PaginationBar>(find.byType(PaginationBar)).currentPage,
+        1,
+      );
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.text(l10n.nextPage));
+      await tester.pumpAndSettle();
+      await _scrollToPagination(tester);
+
+      expect(
+        tester.widget<PaginationBar>(find.byType(PaginationBar)).currentPage,
+        2,
+      );
+      expect(browsed, isEmpty);
+      expect(find.text('Global result 40'), findsOneWidget);
+    },
+  );
 
   testWidgets('search result stays mounted when a detail route is pushed', (
     tester,
@@ -272,6 +327,14 @@ void main() {
     final coverSize = tester.getSize(cover);
     expect(coverSize.width / coverSize.height, closeTo(16 / 9, .02));
   });
+}
+
+Future<void> _scrollToPagination(WidgetTester tester) async {
+  final scrollController = tester
+      .widget<CustomScrollView>(find.byType(CustomScrollView))
+      .controller!;
+  scrollController.jumpTo(scrollController.position.maxScrollExtent);
+  await tester.pumpAndSettle();
 }
 
 Widget _app(Widget home, {double textScale = 1}) => ProviderScope(

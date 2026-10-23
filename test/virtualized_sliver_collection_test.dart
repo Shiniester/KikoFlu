@@ -44,6 +44,46 @@ Widget _list({
 }
 
 void main() {
+  testWidgets('pagination preserves the source jump limit in collection copy', (
+    tester,
+  ) async {
+    final pagination = VirtualizedPagination(
+      currentPage: 2,
+      pageSize: 20,
+      totalCount: null,
+      jumpMaxPage: 17,
+      hasMore: true,
+      isLoading: false,
+      onPreviousPage: () {},
+      onNextPage: () {},
+      onGoToPage: (_) {},
+    );
+    await tester.pumpWidget(
+      _app(
+        VirtualizedSliverCollection<int>(
+          items: const [1],
+          itemId: (item) => item,
+          pagination: pagination.copyWith(padding: EdgeInsets.zero),
+          itemBuilder: (context, item, _) => Text('$item'),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final bar = tester.widget<PaginationBar>(find.byType(PaginationBar));
+    expect(bar.jumpMaxPage, 17);
+    await tester.tap(
+      find.text((await S.delegate.load(const Locale('en'))).jumpTo),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.text(
+        S.of(tester.element(find.byType(PaginationBar))).pageNumberRange(17),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('retention stays bounded while scrolling an accumulating feed', (tester) async {
     final controller = ScrollController();
     addTearDown(controller.dispose);

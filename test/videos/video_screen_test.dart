@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -9,12 +10,20 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
+import 'package:kikoeru_flutter/src/providers/works_provider.dart';
+import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
+import 'package:kikoeru_flutter/src/videos/ui/video_downloads_screen.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_screen.dart';
+import 'package:kikoeru_flutter/src/videos/video_browse_preferences.dart';
+import 'package:kikoeru_flutter/src/videos/video_download_task.dart';
 import 'package:kikoeru_flutter/src/videos/video_downloads.dart';
 import 'package:kikoeru_flutter/src/videos/video_library.dart';
 import 'package:kikoeru_flutter/src/videos/video_models.dart';
 import 'package:kikoeru_flutter/src/videos/video_providers.dart';
+import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
+import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
+import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -171,6 +180,422 @@ void main() {
     expect(client.browsedUrls, contains(destination));
     expect(find.text('Genres page'), findsOneWidget);
     expect(observer.pushes, pushesAfterOpeningDrawer);
+  });
+
+  testWidgets('directory links share one content section and layout cycles', (
+    tester,
+  ) async {
+    const exactUrl = 'https://missav.ai/cn/genres';
+    final client = _TestMissavClient(
+      catalog: const VideoCatalogPage(
+        title: 'Home catalog',
+        url: 'https://missav.ai/cn',
+        navigation: [
+          VideoLink(
+            label: 'Navigation directory',
+            url: exactUrl,
+            kind: VideoLinkKind.navigation,
+          ),
+        ],
+        links: [
+          VideoLink(
+            label: 'Duplicate directory',
+            url: exactUrl,
+            kind: VideoLinkKind.category,
+          ),
+          VideoLink(
+            label: 'Other locale directory',
+            url: 'https://missav.ai/en/genres',
+            kind: VideoLinkKind.category,
+          ),
+        ],
+      ),
+    );
+    final library = await _testLibrary();
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString('video_layout_type', 'bigGrid');
+    final downloads = _TestVideoDownloads(client: client, library: library);
+
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    await tester.pumpAndSettle();
+    final l10n = await S.delegate.load(const Locale('en'));
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(VideoScreen)),
+    );
+
+    Future<void> openDrawer() async {
+      await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+      await tester.pumpAndSettle();
+    }
+
+    await openDrawer();
+    expect(find.text(l10n.videoContent), findsOneWidget);
+    expect(find.text('Navigation directory'), findsOneWidget);
+    expect(find.text('Duplicate directory'), findsNothing);
+    expect(find.text('Other locale directory'), findsOneWidget);
+    await tester.tap(find.text(l10n.layout));
+    await tester.pumpAndSettle();
+    expect(container.read(videoBrowseLayoutProvider), LayoutType.smallGrid);
+
+    await openDrawer();
+    expect(find.byIcon(Icons.apps), findsOneWidget);
+    await tester.tap(find.text(l10n.layout));
+    await tester.pumpAndSettle();
+    expect(container.read(videoBrowseLayoutProvider), LayoutType.list);
+
+    await openDrawer();
+    expect(find.byIcon(Icons.view_list), findsOneWidget);
+    await tester.tap(find.text(l10n.layout));
+    await tester.pumpAndSettle();
+    expect(container.read(videoBrowseLayoutProvider), LayoutType.bigGrid);
+    expect(
+      preferences.getString(VideoBrowseLayoutNotifier.preferenceKey),
+      'bigGrid',
+    );
+    await openDrawer();
+    expect(find.byIcon(Icons.grid_view), findsOneWidget);
+  });
+
+  testWidgets('source pagination uses previous, next, and jump URLs', (
+    tester,
+  ) async {
+    const page1Url = 'https://missav.ai/en/catalog?page=1';
+    const page2Url = 'https://missav.ai/en/catalog?page=2';
+    const page3Url = 'https://missav.ai/en/catalog?page=3';
+    const page4Url = 'https://missav.ai/en/catalog?page=4';
+    const page2 = VideoCatalogPage(
+      title: 'Source catalog',
+      url: page2Url,
+      previousUrl: page1Url,
+      nextUrl: page3Url,
+      currentPage: 2,
+      jumpMaxPage: 8,
+      videos: [
+        VideoItem(
+          id: 'source-page-2',
+          title: 'Source page 2',
+          pageUrl: 'https://missav.ai/en/source-page-2',
+        ),
+      ],
+    );
+    final client = _TestMissavClient(
+      catalog: page2,
+      pagesByUrl: {
+        page1Url: const VideoCatalogPage(
+          title: 'Source catalog',
+          url: page1Url,
+          nextUrl: page2Url,
+          currentPage: 1,
+          jumpMaxPage: 8,
+          videos: [
+            VideoItem(
+              id: 'source-page-1',
+              title: 'Source page 1',
+              pageUrl: 'https://missav.ai/en/source-page-1',
+            ),
+          ],
+        ),
+        page3Url: const VideoCatalogPage(
+          title: 'Source catalog',
+          url: page3Url,
+          previousUrl: page2Url,
+          nextUrl: page4Url,
+          currentPage: 3,
+          jumpMaxPage: 8,
+          videos: [
+            VideoItem(
+              id: 'source-page-3',
+              title: 'Source page 3',
+              pageUrl: 'https://missav.ai/en/source-page-3',
+            ),
+          ],
+        ),
+        page4Url: const VideoCatalogPage(
+          title: 'Source catalog',
+          url: page4Url,
+          previousUrl: page3Url,
+          currentPage: 4,
+          jumpMaxPage: 8,
+          videos: [
+            VideoItem(
+              id: 'source-page-4',
+              title: 'Source page 4',
+              pageUrl: 'https://missav.ai/en/source-page-4',
+            ),
+          ],
+        ),
+      },
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        const VideoScreen.catalog(url: page2Url),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final l10n = await S.delegate.load(const Locale('en'));
+
+    await tester.tap(find.text(l10n.nextPage));
+    await tester.pumpAndSettle();
+    expect(client.browsedUrls, contains(page3Url));
+    await tester.tap(find.text(l10n.previousPage));
+    await tester.pumpAndSettle();
+    expect(client.browsedUrls, contains(page2Url));
+    await tester.tap(find.text(l10n.jumpTo));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '4');
+    await tester.tap(find.text(l10n.jumpTo).last);
+    await tester.pumpAndSettle();
+
+    expect(client.browsedUrls, contains(page4Url));
+    expect(
+      tester.widget<PaginationBar>(find.byType(PaginationBar)).jumpMaxPage,
+      8,
+    );
+  });
+
+  testWidgets('catalog locally pages loaded home items above the bottom dock', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(bottom: 34);
+    tester.view.viewPadding = const FakeViewPadding(bottom: 34);
+    addTearDown(tester.view.reset);
+    final client = _TestMissavClient(
+      catalog: VideoCatalogPage(
+        title: 'Home catalog',
+        url: 'https://missav.ai/en',
+        videos: _videos('home', 41),
+      ),
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final home = AppBottomDockTransitionScope(
+      child: Scaffold(
+        extendBody: true,
+        body: Builder(
+          builder: (context) {
+            final mediaQuery = MediaQuery.of(context);
+            return MediaQuery(
+              data: mediaQuery.copyWith(
+                viewPadding: mediaQuery.viewPadding.copyWith(
+                  bottom: mediaQuery.padding.bottom,
+                ),
+              ),
+              child: const SafeArea(
+                top: false,
+                bottom: false,
+                child: VideoScreen(),
+              ),
+            );
+          },
+        ),
+        bottomNavigationBar: AppBottomDock(
+          selectedIndex: 0,
+          onDestinationSelected: (_) {},
+          destinations: const [
+            NavigationDestination(icon: Icon(Icons.movie), label: 'Videos'),
+            NavigationDestination(icon: Icon(Icons.menu_book), label: 'Comics'),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpWidget(_app(client, library, downloads, home));
+    await tester.pumpAndSettle();
+
+    final collection = tester.widget<VideoCollectionView<VideoItem>>(
+      find.byType(VideoCollectionView<VideoItem>),
+    );
+    expect(collection.items, hasLength(40));
+    final scrollController = tester
+        .widget<CustomScrollView>(find.byType(CustomScrollView))
+        .controller!;
+    scrollController.jumpTo(scrollController.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(find.byType(PaginationBar)).bottom,
+      lessThanOrEqualTo(tester.getRect(find.byType(AppBottomDock)).top),
+    );
+
+    final l10n = await S.delegate.load(const Locale('en'));
+    await tester.tap(find.text(l10n.nextPage));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<VideoCollectionView<VideoItem>>(
+            find.byType(VideoCollectionView<VideoItem>),
+          )
+          .items
+          .single
+          .id,
+      'home-40',
+    );
+  });
+
+  testWidgets('favorites and history searches page one full local result', (
+    tester,
+  ) async {
+    final l10n = await S.delegate.load(const Locale('en'));
+    for (final collection in const [
+      (path: 'saved', prefix: 'favorite'),
+      (path: 'history', prefix: 'history'),
+    ]) {
+      final url = 'https://missav.ai/en/${collection.path}';
+      final client = _TestMissavClient(
+        loggedIn: true,
+        catalog: VideoCatalogPage(title: collection.path, url: url),
+        collectionSearchResults: _videos(collection.prefix, 41),
+      );
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      await tester.pumpWidget(
+        _app(client, library, downloads, VideoScreen.catalog(url: url)),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('library-page-search')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('video-search-input')),
+        collection.prefix,
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle();
+      expect(client.collectionSearchCalls, 1);
+
+      await _tapNextPage(tester, l10n);
+      expect(client.collectionSearchCalls, 1);
+      expect(find.text('${collection.prefix} 40'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      client.dispose();
+    }
+  });
+
+  testWidgets(
+    'downloads list paginates, clamps after delete, and search pages',
+    (tester) async {
+      final client = _TestMissavClient();
+      final library = await _testLibrary();
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setInt('page_size_preference', 20);
+      final downloads = _TestVideoDownloads(
+        client: client,
+        library: library,
+        tasks: [
+          for (final video in _videos('download', 41))
+            VideoDownloadTask(
+              id: video.id,
+              video: video,
+              quality: '720p',
+              isHls: false,
+              status: VideoDownloadStatus.queued,
+            ),
+        ],
+      );
+      await tester.pumpWidget(
+        _app(client, library, downloads, const VideoDownloadsScreen()),
+      );
+      await tester.pumpAndSettle();
+      final l10n = await S.delegate.load(const Locale('en'));
+
+      await _tapNextPage(tester, l10n);
+      await _tapNextPage(tester, l10n);
+      expect(
+        tester.widget<PaginationBar>(find.byType(PaginationBar)).currentPage,
+        3,
+      );
+      final lastTask = find.ancestor(
+        of: find.text('download 40'),
+        matching: find.byType(Card),
+      );
+      await tester.tap(
+        find.descendant(of: lastTask, matching: find.byTooltip(l10n.delete)),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l10n.delete).last);
+      await tester.pumpAndSettle();
+      final downloadsScroll = tester
+          .widget<CustomScrollView>(find.byType(CustomScrollView))
+          .controller!;
+      downloadsScroll.jumpTo(downloadsScroll.position.maxScrollExtent);
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<PaginationBar>(find.byType(PaginationBar)).currentPage,
+        2,
+      );
+      expect(downloads.tasks, hasLength(40));
+
+      await tester.tap(find.byTooltip(l10n.search));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('video-search-input')),
+        'download',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle();
+      await _tapNextPage(tester, l10n);
+      expect(find.text('download 20'), findsOneWidget);
+    },
+  );
+
+  testWidgets('finishing a deletion after leaving downloads is safe', (
+    tester,
+  ) async {
+    final client = _TestMissavClient();
+    final library = await _testLibrary();
+    final video = _videos('pending-delete', 1).single;
+    final removeCompleter = Completer<void>();
+    final downloads = _TestVideoDownloads(
+      client: client,
+      library: library,
+      tasks: [
+        VideoDownloadTask(
+          id: video.id,
+          video: video,
+          quality: '720p',
+          isHls: false,
+          status: VideoDownloadStatus.queued,
+        ),
+      ],
+      removeCompleter: removeCompleter,
+    );
+    final home = Builder(
+      builder: (context) => Scaffold(
+        body: Center(
+          child: TextButton(
+            onPressed: () => Navigator.of(context).push<void>(
+              MaterialPageRoute<void>(
+                builder: (_) => const VideoDownloadsScreen(),
+              ),
+            ),
+            child: const Text('Open downloads'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpWidget(_app(client, library, downloads, home));
+    await tester.tap(find.text('Open downloads'));
+    await tester.pumpAndSettle();
+    final l10n = await S.delegate.load(const Locale('en'));
+    await tester.tap(find.byTooltip(l10n.delete));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.delete).last);
+    await tester.pumpAndSettle();
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    removeCompleter.complete();
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('logout clears and reloads an account catalog on return', (
@@ -483,17 +908,20 @@ class _TestMissavClient extends MissavClient {
     this.loggedIn = false,
     this.accountName,
     this.pagesByUrl = const {},
+    this.collectionSearchResults = const [],
   });
 
   final VideoCatalogPage? catalog;
   final Object? browseError;
   final VideoCatalogPage? signedOutCatalog;
   final Map<String, VideoCatalogPage> pagesByUrl;
+  final List<VideoItem> collectionSearchResults;
   bool loggedIn;
   @override
   String? accountName;
   final List<bool> actorFavoriteChanges = [];
   int clearHistoryCalls = 0;
+  int collectionSearchCalls = 0;
   final List<String> browsedUrls = [];
 
   @override
@@ -530,6 +958,20 @@ class _TestMissavClient extends MissavClient {
   Future<void> clearWatchHistory() async {
     clearHistoryCalls++;
   }
+
+  @override
+  Future<List<VideoItem>> searchCollection(
+    String url,
+    String query, {
+    bool Function()? isCurrent,
+  }) async {
+    collectionSearchCalls++;
+    return collectionSearchResults
+        .where(
+          (video) => video.title.toLowerCase().contains(query.toLowerCase()),
+        )
+        .toList(growable: false);
+  }
 }
 
 class _PushObserver extends NavigatorObserver {
@@ -542,9 +984,46 @@ class _PushObserver extends NavigatorObserver {
   }
 }
 
+Future<void> _tapNextPage(WidgetTester tester, S l10n) async {
+  final scrollController = tester
+      .widget<CustomScrollView>(find.byType(CustomScrollView))
+      .controller!;
+  scrollController.jumpTo(scrollController.position.maxScrollExtent);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(l10n.nextPage));
+  await tester.pumpAndSettle();
+}
+
 class _TestVideoDownloads extends VideoDownloads {
-  _TestVideoDownloads({required super.client, required super.library});
+  _TestVideoDownloads({
+    required super.client,
+    required super.library,
+    List<VideoDownloadTask> tasks = const [],
+    this.removeCompleter,
+  }) : _tasks = [...tasks];
+
+  final List<VideoDownloadTask> _tasks;
+  final Completer<void>? removeCompleter;
+
+  @override
+  List<VideoDownloadTask> get tasks => List.unmodifiable(_tasks);
 
   @override
   Future<void> initialize() async {}
+
+  @override
+  Future<void> remove(String videoId) async {
+    await removeCompleter?.future;
+    _tasks.removeWhere((task) => task.id == videoId);
+    notifyListeners();
+  }
 }
+
+List<VideoItem> _videos(String prefix, int count) => [
+  for (var index = 0; index < count; index++)
+    VideoItem(
+      id: '$prefix-$index',
+      title: '$prefix $index',
+      pageUrl: 'https://missav.ai/en/$prefix-$index',
+    ),
+];

@@ -4411,6 +4411,9 @@ class SEn extends S {
   String get videoCatalog => 'Browse videos';
 
   @override
+  String get videoContent => 'Content';
+
+  @override
   String get videoFavorites => 'Video favorites';
 
   @override

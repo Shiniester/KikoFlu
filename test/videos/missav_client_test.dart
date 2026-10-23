@@ -307,6 +307,52 @@ void main() {
     },
   );
 
+  test('source service links stay out of navigation and directories', () async {
+    const serviceLinks = '''
+<a href="/cn/ads">广告查询</a>
+<a href="/dm123/ja/contact?from=footer">お問い合わせ</a>
+<a href="/terms">使用條款</a>
+<a href="/en/upload/">Upload</a>
+''';
+    const contentLinks = '''
+<a href="/cn/new">最近更新</a>
+<a href="/cn/release">新作上市</a>
+<a href="/cn/chinese-subtitle">中文字幕</a>
+<a href="/cn/weekly-hot">本周热门</a>
+<a href="/cn/actresses">演员</a>
+<a href="/cn/genres">分类</a>
+<a href="/cn/makers">厂商</a>
+<a href="/cn/series/sample">专题</a>
+<a href="/cn/genres/contact">Contact category</a>
+''';
+    final adapter = _Adapter(
+      (_) => _response(
+        '<nav>$serviceLinks$contentLinks</nav>$serviceLinks$contentLinks',
+      ),
+    );
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = adapter,
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    final page = await client.browse('https://missav.ai/cn');
+
+    const labels = [
+      '最近更新',
+      '新作上市',
+      '中文字幕',
+      '本周热门',
+      '演员',
+      '分类',
+      '厂商',
+      '专题',
+      'Contact category',
+    ];
+    expect(page.navigation.map((link) => link.label), labels);
+    expect(page.links.map((link) => link.label), labels);
+  });
+
   for (final entry in {
     'zh': 'cn',
     'zh-Hant': '',

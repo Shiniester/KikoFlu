@@ -54,4 +54,30 @@ void main() {
       'smallGrid',
     );
   });
+
+  test('video layout cycle persists grid, small grid, and list', () async {
+    SharedPreferences.setMockInitialValues({'video_layout_type': 'smallGrid'});
+    final preference = VideoBrowseLayoutNotifier();
+    await preference.stream.firstWhere(
+      (layout) => layout == LayoutType.smallGrid,
+    );
+    await preference.setLayout(LayoutType.bigGrid);
+
+    await preference.cycle();
+    expect(preference.state, LayoutType.smallGrid);
+    await preference.cycle();
+    expect(preference.state, LayoutType.list);
+    await preference.cycle();
+    expect(preference.state, LayoutType.bigGrid);
+
+    await preference.setLayout(LayoutType.smallGrid);
+    preference.dispose();
+
+    final restored = VideoBrowseLayoutNotifier();
+    await restored.stream.firstWhere(
+      (layout) => layout == LayoutType.smallGrid,
+    );
+    expect(restored.state, LayoutType.smallGrid);
+    restored.dispose();
+  });
 }

@@ -1845,6 +1845,10 @@
   "videoSearchHint": "Search videos, actors, or studios",
   "videoSourceAccount": "MissAV account",
   "videoCatalog": "Browse videos",
+  "videoContent": "Content",
+  "@videoContent": {
+    "description": "Heading for video feeds and content directory entries in the video drawer."
+  },
   "videoFavorites": "Video favorites",
   "videoActorFavorites": "Actor favorites",
   "videoWatchHistory": "Watch history",

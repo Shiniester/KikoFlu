@@ -4,9 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../providers/settings_provider.dart';
 import '../../providers/works_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
-import '../../widgets/pagination_bar.dart';
+import '../../widgets/virtualized_sliver_collection.dart';
 import '../video_browse_preferences.dart';
 import '../missav_client.dart';
 import '../video_models.dart';
@@ -77,6 +78,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   final TextEditingController _query = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   VideoSearchResults? _results;
+  int _localPage = 1;
   String? _error;
   MissavVerificationRequiredException? _verificationError;
   bool _loading = false;
@@ -129,6 +131,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     if (!mounted) return;
     setState(() {
       _results = null;
+      _localPage = 1;
       _error = null;
       _verificationError = null;
       _loading = false;
@@ -156,6 +159,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
       _error = null;
       _verificationError = null;
       _results = null;
+      _localPage = 1;
     });
     if (_scrollController.hasClients) _scrollController.jumpTo(0);
     try {
@@ -186,6 +190,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     _query.clear();
     setState(() {
       _results = null;
+      _localPage = 1;
       _error = null;
       _verificationError = null;
       _loading = false;
@@ -196,7 +201,12 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   Future<void> _goToPage(int pageNumber) async {
     final page = _results?.page;
     if (page == null) return;
-    _retryAction = () => _goToPage(pageNumber);
+    await _browsePage(page.pageUrl(pageNumber));
+  }
+
+  Future<void> _browsePage(String url) async {
+    if (_results?.page == null) return;
+    _retryAction = () => _browsePage(url);
     final request = ++_request;
     setState(() {
       _loading = true;
@@ -204,10 +214,11 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
       _verificationError = null;
     });
     try {
-      final nextPage = await widget.browsePage(page.pageUrl(pageNumber));
+      final nextPage = await widget.browsePage(url);
       if (!mounted || request != _request) return;
       setState(() {
         _results = VideoSearchResults.catalog(nextPage);
+        _localPage = 1;
         _loading = false;
       });
       if (_scrollController.hasClients) _scrollController.jumpTo(0);
@@ -314,44 +325,76 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   Widget _resultsView(VideoSearchResults results, LayoutType layout) {
     final s = S.of(context);
     final page = results.page;
+    final pageSize = ref.watch(pageSizeProvider);
+    final hasSourcePagination =
+        page != null &&
+        (page.previousUrl != null ||
+            page.nextUrl != null ||
+            page.jumpMaxPage != null);
+    final localPageCount = ((results.videos.length + pageSize - 1) ~/ pageSize)
+        .clamp(1, 1 << 30)
+        .toInt();
+    final hasLocalPagination =
+        !hasSourcePagination && results.videos.length > pageSize;
+    final localPage = _localPage.clamp(1, localPageCount).toInt();
+    final videos = hasLocalPagination
+        ? results.videos
+              .skip((localPage - 1) * pageSize)
+              .take(pageSize)
+              .toList(growable: false)
+        : results.videos;
+    final pagination = hasSourcePagination
+        ? VirtualizedPagination(
+            currentPage: page.currentPage,
+            pageSize: page.videos.length.clamp(1, 1000).toInt(),
+            totalCount: null,
+            jumpMaxPage: page.jumpMaxPage,
+            hasMore: page.nextUrl != null,
+            isLoading: _loading,
+            onPreviousPage: page.previousUrl == null
+                ? null
+                : () => _browsePage(page.previousUrl!),
+            onNextPage: page.nextUrl == null
+                ? null
+                : () => _browsePage(page.nextUrl!),
+            onGoToPage: page.jumpMaxPage == null ? null : _goToPage,
+            showWhenEmpty: true,
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+          )
+        : VirtualizedPagination(
+            currentPage: localPage,
+            pageSize: pageSize,
+            totalCount: results.videos.length,
+            hasMore: localPage < localPageCount,
+            isLoading: _loading,
+            onPreviousPage: hasLocalPagination && localPage > 1
+                ? () => setState(() => _localPage = localPage - 1)
+                : null,
+            onNextPage: hasLocalPagination && localPage < localPageCount
+                ? () => setState(() => _localPage = localPage + 1)
+                : null,
+            onGoToPage: hasLocalPagination
+                ? (targetPage) => setState(() => _localPage = targetPage)
+                : null,
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+          );
     return Column(
       children: [
-        if (results.videos.isEmpty)
-          Expanded(child: Center(child: Text(s.noResults)))
-        else
-          Expanded(
-            child: VideoCollectionView(
-              items: results.videos,
-              layoutType: layout,
-              itemId: (video) => video.id,
-              controller: _scrollController,
-              pageStorageKey: PageStorageKey<String>(
-                'video-search-results-${_query.text}',
-              ),
-              emptyBuilder: (_) => Center(child: Text(s.noResults)),
-              itemBuilder: (context, video, _) =>
-                  _resultItem(context, video, layout),
+        Expanded(
+          child: VideoCollectionView(
+            items: videos,
+            layoutType: layout,
+            itemId: (video) => video.id,
+            controller: _scrollController,
+            pageStorageKey: PageStorageKey<String>(
+              'video-search-results-${_query.text}',
             ),
+            emptyBuilder: (_) => Center(child: Text(s.noResults)),
+            itemBuilder: (context, video, _) =>
+                _resultItem(context, video, layout),
+            pagination: pagination,
           ),
-        if (page != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: PaginationBar(
-              currentPage: page.currentPage,
-              pageSize: page.videos.length.clamp(1, 1000).toInt(),
-              totalCount: null,
-              jumpMaxPage: page.jumpMaxPage,
-              hasMore: page.nextUrl != null,
-              isLoading: _loading,
-              onPreviousPage: page.previousUrl == null
-                  ? null
-                  : () => _goToPage(page.currentPage - 1),
-              onNextPage: page.nextUrl == null
-                  ? null
-                  : () => _goToPage(page.currentPage + 1),
-              onGoToPage: page.jumpMaxPage == null ? null : _goToPage,
-            ),
-          ),
+        ),
       ],
     );
   }

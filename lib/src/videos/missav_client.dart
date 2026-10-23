@@ -1313,7 +1313,16 @@ class MissavClient extends ChangeNotifier {
   static bool _excludeDirectoryAnchor(Element anchor, Uri uri) {
     final label = anchor.text.trim().toLowerCase();
     final relations = (anchor.attributes['rel'] ?? '').split(' ');
+    final route = uri.pathSegments
+        .where((segment) => segment.isNotEmpty)
+        .skipWhile(
+          (segment) =>
+              _sourceLanguages.contains(segment) ||
+              RegExp(r'^dm\d+$').hasMatch(segment),
+        )
+        .join('/');
     return _isLanguageAnchor(anchor) ||
+        const {'ads', 'contact', 'terms', 'upload'}.contains(route) ||
         _pageNumber(uri) != null ||
         relations.any(const {'next', 'prev', 'first', 'last'}.contains) ||
         RegExp(r'\bvip\b').hasMatch(label) ||

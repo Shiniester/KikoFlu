@@ -16,6 +16,7 @@ class VideoCollectionView<T> extends StatelessWidget {
     required this.controller,
     required this.pageStorageKey,
     required this.emptyBuilder,
+    this.pagination,
     this.padding = const EdgeInsets.fromLTRB(12, 8, 12, 12),
   });
 
@@ -26,6 +27,7 @@ class VideoCollectionView<T> extends StatelessWidget {
   final ScrollController controller;
   final PageStorageKey<String> pageStorageKey;
   final WidgetBuilder emptyBuilder;
+  final VirtualizedPagination? pagination;
   final EdgeInsetsGeometry padding;
 
   @override
@@ -88,6 +90,7 @@ class VideoCollectionView<T> extends StatelessWidget {
         padding: metrics.padding,
         showEndIndicator: false,
         emptyBuilder: emptyBuilder,
+        pagination: pagination,
       );
     },
   );

@@ -7852,6 +7852,12 @@ abstract class S {
   /// **'Browse videos'**
   String get videoCatalog;
 
+  /// Heading for video feeds and content directory entries in the video drawer.
+  ///
+  /// In en, this message translates to:
+  /// **'Content'**
+  String get videoContent;
+
   /// No description provided for @videoFavorites.
   ///
   /// In en, this message translates to:
