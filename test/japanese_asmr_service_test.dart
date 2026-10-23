@@ -50,6 +50,13 @@ ResponseBody _page(
   },
 );
 
+Map<String, Object> _browserPage(
+  String url,
+  String body, {
+  int statusCode = 200,
+  Map<String, String> headers = const {},
+}) => {'url': url, 'data': body, 'statusCode': statusCode, 'headers': headers};
+
 String _card(int id) =>
     '''
 <li class="site-archive-post">
@@ -443,18 +450,16 @@ void main() {
   });
 
   test(
-    'verifies the challenged catalog URL including sort parameters',
+    'loads catalog and pagination in the verified browser when HTTP stays challenged',
     () async {
       final adapter = _Adapter(
-        (request) => request.headers['Cookie'] == 'cf_clearance=verified'
-            ? _page('<main class="site-main">${_card(1)}</main>')
-            : _page(
-                '<script>window._cf_chl_opt = {}</script>',
-                statusCode: 403,
-                headers: {
-                  'cf-mitigated': ['challenge'],
-                },
-              ),
+        (_) => _page(
+          '<script>window._cf_chl_opt = {}</script>',
+          statusCode: 403,
+          headers: {
+            'cf-mitigated': ['challenge'],
+          },
+        ),
       );
       final service = JapaneseAsmrService(
         dio: Dio()..httpClientAdapter = adapter,
@@ -467,10 +472,34 @@ void main() {
         ),
         throwsA(isA<JapaneseAsmrVerificationRequiredException>()),
       );
-      MethodCall? verification;
+      final browserCalls = <MethodCall>[];
       messenger.setMockMethodCallHandler(_verificationChannel, (call) async {
-        verification = call;
-        return {'cookie': 'cf_clearance=verified', 'userAgent': 'Browser UA'};
+        browserCalls.add(call);
+        final url = call.arguments['url'] as String;
+        if (call.method == 'verify') {
+          return {
+            'cookie': 'cf_clearance=verified',
+            'userAgent': 'Browser UA',
+            ..._browserPage(
+              url,
+              '<main class="site-main">'
+              '${List.generate(14, (index) => _card(index + 1)).join()}'
+              '<a class="next page-numbers">Next</a>'
+              '<a class="page-numbers">2</a></main>',
+            ),
+          };
+        }
+        expect(call.method, 'read');
+        expect(Uri.parse(url).path, '/page/2/');
+        expect(Uri.parse(url).queryParameters, {
+          'order': 'desc',
+          'orderby': 'date',
+        });
+        return _browserPage(
+          url,
+          '<main class="site-main">'
+          '${List.generate(6, (index) => _card(index + 15)).join()}</main>',
+        );
       });
 
       expect(
@@ -478,7 +507,7 @@ void main() {
         isTrue,
       );
       expect(
-        verification!.arguments['url'],
+        browserCalls.single.arguments['url'],
         adapter.requests.single.uri.toString(),
       );
       final result = await service.getWorks(
@@ -486,7 +515,13 @@ void main() {
         pageSize: 20,
         sort: JapaneseAsmrSortOption.date,
       );
-      expect((result['works'] as List).single['id'], -1);
+      expect(
+        (result['works'] as List).map((work) => work['id']),
+        List.generate(20, (index) => -(index + 1)),
+      );
+      expect(result['pagination']['totalCount'], 20);
+      expect(adapter.requests, hasLength(1));
+      expect(browserCalls.map((call) => call.method), ['verify', 'read']);
     },
   );
 
@@ -532,6 +567,244 @@ void main() {
     },
   );
 
+  group('verified browser requests', () {
+    late JapaneseAsmrService service;
+    late Future<Object?> Function(MethodCall) respond;
+    late List<MethodCall> calls;
+
+    setUp(() async {
+      calls = [];
+      respond = (call) async =>
+          _browserPage(call.arguments['url'] as String, _detail);
+      messenger.setMockMethodCallHandler(_verificationChannel, (call) async {
+        if (call.method == 'verify') {
+          return {
+            'cookie': 'cf_clearance=verified',
+            'userAgent': 'Browser UA',
+            ..._browserPage(call.arguments['url'] as String, _detail),
+          };
+        }
+        calls.add(call);
+        return respond(call);
+      });
+      service = JapaneseAsmrService(
+        dio: Dio()
+          ..httpClientAdapter = _Adapter(
+            (_) => fail('Verified site pages must use the browser session.'),
+          ),
+      );
+      expect(
+        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
+        isTrue,
+      );
+    });
+
+    test(
+      'preserves HTTP errors and recovers the queue after timeout',
+      () async {
+        respond = (_) async => throw PlatformException(code: 'timeout');
+        await expectLater(
+          service.getWork(1),
+          throwsA(
+            isA<DioException>().having(
+              (error) => error.type,
+              'type',
+              DioExceptionType.receiveTimeout,
+            ),
+          ),
+        );
+        respond = (call) async =>
+            _browserPage(call.arguments['url'] as String, _detail);
+        expect((await service.getWork(2))['id'], -2);
+
+        respond = (call) async => _browserPage(
+          call.arguments['url'] as String,
+          '<h1>Forbidden</h1>',
+          statusCode: 403,
+        );
+        await expectLater(
+          service.getWork(3),
+          throwsA(
+            isA<DioException>().having(
+              (error) => error.response?.statusCode,
+              'statusCode',
+              403,
+            ),
+          ),
+        );
+      },
+    );
+
+    test('verifies again only when the browser itself is challenged', () async {
+      respond = (call) async => _browserPage(
+        call.arguments['url'] as String,
+        '<h1>Just a moment</h1>',
+        statusCode: 403,
+        headers: {'cf-mitigated': 'challenge'},
+      );
+      await expectLater(
+        service.getWork(1),
+        throwsA(isA<JapaneseAsmrVerificationRequiredException>()),
+      );
+      expect(
+        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
+        isTrue,
+      );
+      expect((await service.getWork(1))['id'], -1);
+      expect(calls, hasLength(1));
+      expect(calls.single.arguments['url'], 'https://japaneseasmr.com/1/');
+    });
+
+    test(
+      'skips cancelled queued requests without interrupting an active read',
+      () async {
+        final started = Completer<void>();
+        final pending = Completer<Object?>();
+        respond = (call) {
+          started.complete();
+          return pending.future;
+        };
+        final first = service.getWork(1);
+        await started.future;
+        final token = CancelToken();
+        final cancelled = expectLater(
+          service.getWork(2, cancelToken: token),
+          throwsA(
+            isA<DioException>().having(
+              (error) => error.type,
+              'type',
+              DioExceptionType.cancel,
+            ),
+          ),
+        );
+        token.cancel();
+        await cancelled;
+        pending.complete(_browserPage('https://japaneseasmr.com/1/', _detail));
+
+        await first;
+        expect(calls, hasLength(1));
+        expect(calls.single.method, 'read');
+        expect(calls.single.arguments['url'], 'https://japaneseasmr.com/1/');
+      },
+    );
+
+    test(
+      'cancels the active read before starting the next queued request',
+      () async {
+        final started = Completer<void>();
+        final pending = Completer<Object?>();
+        int? activeId;
+        respond = (call) async {
+          if (call.method == 'cancel') {
+            expect(call.arguments['id'], activeId);
+            pending.completeError(PlatformException(code: 'cancelled'));
+            return null;
+          }
+          if (Uri.parse(call.arguments['url'] as String).path == '/1/') {
+            activeId = call.arguments['id'] as int;
+            started.complete();
+            return pending.future;
+          }
+          return _browserPage(call.arguments['url'] as String, _detail);
+        };
+        final token = CancelToken();
+        final cancelled = expectLater(
+          service.getWork(1, cancelToken: token),
+          throwsA(
+            isA<DioException>().having(
+              (error) => error.type,
+              'type',
+              DioExceptionType.cancel,
+            ),
+          ),
+        );
+        await started.future;
+        final next = service.getWork(2);
+        token.cancel();
+
+        await cancelled;
+        expect((await next)['id'], -2);
+        expect(calls.map((call) => call.method), ['read', 'cancel', 'read']);
+      },
+    );
+
+    test(
+      'uses current proxy settings instead of an old verification page',
+      () async {
+        final previousMode = ProxyConfig.mode;
+        final previousAddress = ProxyConfig.address;
+        addTearDown(() {
+          ProxyConfig.mode = previousMode;
+          ProxyConfig.address = previousAddress;
+        });
+        ProxyConfig.mode = previousMode == ProxyMode.direct
+            ? ProxyMode.manual
+            : ProxyMode.direct;
+        ProxyConfig.address = '127.0.0.1:7890';
+        respond = (call) async => _browserPage(
+          call.arguments['url'] as String,
+          '<main class="site-main">${_card(1)}</main>',
+        );
+
+        final result = await service.getWorks(page: 1, pageSize: 1);
+        expect((result['works'] as List).single['id'], -1);
+        expect(calls.single.arguments['proxyMode'], ProxyConfig.mode.name);
+        expect(
+          calls.single.arguments['proxyAddress'],
+          ProxyConfig.httpsProxyUrl,
+        );
+      },
+    );
+
+    test('uses the browser for encoded search URLs', () async {
+      respond = (call) async => _browserPage(
+        call.arguments['url'] as String,
+        '<main class="site-main"></main>',
+      );
+      await service.searchWorks(keyword: '耳かき & voice', page: 1, pageSize: 20);
+      final uri = Uri.parse(calls.single.arguments['url'] as String);
+      expect(uri.pathSegments, ['search', '耳かき & voice', '']);
+      expect(uri.query, isEmpty);
+    });
+  });
+
+  test(
+    'does not cache a navigated verification page as the original URL',
+    () async {
+      final calls = <MethodCall>[];
+      messenger.setMockMethodCallHandler(_verificationChannel, (call) async {
+        calls.add(call);
+        if (call.method == 'verify') {
+          return {
+            'cookie': 'cf_clearance=verified',
+            'userAgent': 'Browser UA',
+            ..._browserPage('https://japaneseasmr.com/42/', _detail),
+          };
+        }
+        expect(call.method, 'read');
+        expect(call.arguments['url'], 'https://japaneseasmr.com/');
+        return _browserPage(
+          'https://japaneseasmr.com/',
+          '<main class="site-main">${_card(1)}</main>',
+        );
+      });
+      final service = JapaneseAsmrService(
+        dio: Dio()
+          ..httpClientAdapter = _Adapter(
+            (_) => fail('Verified pages must stay in the browser.'),
+          ),
+      );
+      expect(
+        await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
+        isTrue,
+      );
+
+      final result = await service.getWorks(page: 1, pageSize: 1);
+      expect((result['works'] as List).single['id'], -1);
+      expect(calls.map((call) => call.method), ['verify', 'read']);
+    },
+  );
+
   test('empty clearance does not replace a verified session', () async {
     var calls = 0;
     messenger.setMockMethodCallHandler(
@@ -539,6 +812,10 @@ void main() {
       (call) async => {
         'cookie': calls++ == 0 ? 'cf_clearance=kept' : '',
         'userAgent': 'Browser UA',
+        ..._browserPage(
+          'https://japaneseasmr.com/',
+          '<main class="site-main">${_card(1)}</main>',
+        ),
       },
     );
     final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
@@ -554,12 +831,13 @@ void main() {
       isFalse,
     );
 
-    await service.getWorks(page: 1, pageSize: 20);
-    expect(adapter.requests.single.headers['Cookie'], 'cf_clearance=kept');
+    final result = await service.getWorks(page: 1, pageSize: 20);
+    expect((result['works'] as List).single['id'], -1);
+    expect(adapter.requests, isEmpty);
   });
 
   test(
-    'uses the verified cookie and user agent only for Japanese ASMR',
+    'uses the verified browser only for Japanese ASMR HTTPS pages',
     () async {
       final previousMode = ProxyConfig.mode;
       final previousAddress = ProxyConfig.address;
@@ -572,7 +850,27 @@ void main() {
       final verificationCalls = <MethodCall>[];
       messenger.setMockMethodCallHandler(_verificationChannel, (call) async {
         verificationCalls.add(call);
-        return {'cookie': 'cf_clearance=verified', 'userAgent': 'Browser UA'};
+        final url = call.arguments['url'] as String;
+        if (call.method == 'verify') {
+          return {
+            'cookie': 'cf_clearance=verified',
+            'userAgent': 'Browser UA',
+            ..._browserPage(url, '<main class="site-main"></main>'),
+          };
+        }
+        expect(call.method, 'read');
+        expect(
+          call.arguments.keys,
+          isNot(contains(anyOf('headers', 'cookie', 'authorization'))),
+        );
+        expect(call.arguments['proxyMode'], 'manual');
+        expect(call.arguments['proxyAddress'], ProxyConfig.httpsProxyUrl);
+        return _browserPage(
+          url,
+          Uri.parse(url).path == '/dlc.php'
+              ? '<a href="https://buzzheavier.com/full">RJ00000001.m4a</a>'
+              : _detail,
+        );
       });
       final adapter = _Adapter((request) {
         if (request.uri.host == 'japaneseasmr.com') {
@@ -615,28 +913,36 @@ void main() {
       });
 
       await service.getWorks(page: 1, pageSize: 20);
+      await service.getWork(1);
       await expectLater(
         service.resolveDownloadUrl(
           'http://japaneseasmr.com/dlc.php?f=RJ00000001',
         ),
         throwsFormatException,
       );
-      await service.resolveDownloadUrl('https://buzzheavier.com/full');
-
-      final japaneseRequest = adapter.requests.first;
-      expect(japaneseRequest.headers['Cookie'], 'cf_clearance=verified');
-      expect(japaneseRequest.headers['User-Agent'], 'Browser UA');
       expect(
-        japaneseRequest.headers.keys.map((key) => key.toLowerCase()),
-        isNot(contains('authorization')),
+        await service.resolveDownloadUrl(
+          'https://japaneseasmr.com/dlc.php?f=RJ00000001',
+        ),
+        'https://media.example/full.m4a',
       );
-      final insecureJapaneseRequest = adapter.requests[1];
+
+      expect(verificationCalls.map((call) => call.method), [
+        'verify',
+        'read',
+        'read',
+      ]);
+      expect(
+        verificationCalls[1].arguments['url'],
+        'https://japaneseasmr.com/1/',
+      );
+      final insecureJapaneseRequest = adapter.requests.first;
       expect(insecureJapaneseRequest.uri.scheme, 'http');
       expect(
         insecureJapaneseRequest.headers.keys.map((key) => key.toLowerCase()),
         isNot(contains(anyOf('cookie', 'user-agent'))),
       );
-      for (final request in adapter.requests.skip(2)) {
+      for (final request in adapter.requests.skip(1)) {
         expect(request.uri.host, isNot('japaneseasmr.com'));
         expect(
           request.headers.keys.map((key) => key.toLowerCase()),
@@ -654,7 +960,14 @@ void main() {
       messenger.setMockMethodCallHandler(_verificationChannel, (call) async {
         callCount++;
         return callCount == 1
-            ? {'cookie': 'cf_clearance=kept', 'userAgent': 'Browser UA'}
+            ? {
+                'cookie': 'cf_clearance=kept',
+                'userAgent': 'Browser UA',
+                ..._browserPage(
+                  'https://japaneseasmr.com/',
+                  '<main class="site-main">${_card(1)}</main>',
+                ),
+              }
             : null;
       });
       final adapter = _Adapter((_) => _page('<main class="site-main"></main>'));
@@ -669,9 +982,9 @@ void main() {
         await service.verifyAccess(title: 'Verify', closeLabel: 'Close'),
         isFalse,
       );
-      await service.getWorks(page: 1, pageSize: 20);
-      expect(adapter.requests.single.headers['Cookie'], 'cf_clearance=kept');
-      expect(adapter.requests.single.headers['User-Agent'], 'Browser UA');
+      final result = await service.getWorks(page: 1, pageSize: 20);
+      expect((result['works'] as List).single['id'], -1);
+      expect(adapter.requests, isEmpty);
     },
   );
 

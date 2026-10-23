@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:dio/dio.dart';
@@ -35,10 +36,13 @@ class JapaneseAsmrService {
     'com.meteor.kikoeruflutter/japanese_asmr',
   );
   static const _sitePageSize = 14;
+  static Future<void>? _browserQueue;
+  static int _nextBrowserRequestId = 0;
   final Dio _dio;
   Uri? _verificationUri;
-  String? _verificationCookie;
-  String? _verificationUserAgent;
+  bool _browserVerified = false;
+  Response<String>? _verifiedPage;
+  (ProxyMode, String?)? _verifiedProxy;
   int? _lastPostId;
   Document? _lastDetail;
   DateTime? _lastRead;
@@ -53,15 +57,6 @@ class JapaneseAsmrService {
             (key, _) =>
                 const ['authorization', 'cookie'].contains(key.toLowerCase()),
           );
-          if (request.uri.scheme == 'https' &&
-              request.uri.host == website.host) {
-            if (_verificationCookie case final cookie?) {
-              request.headers['Cookie'] = cookie;
-            }
-            if (_verificationUserAgent case final userAgent?) {
-              request.headers['User-Agent'] = userAgent;
-            }
-          }
           handler.next(request);
         },
       ),
@@ -74,13 +69,31 @@ class JapaneseAsmrService {
     CancelToken? cancelToken,
   }) async {
     try {
-      final response = await _dio.get<String>(
-        uri.toString(),
-        options: Options(responseType: ResponseType.plain, headers: headers),
-        cancelToken: cancelToken,
-      );
+      final useBrowser = _browserVerified && _isSiteUri(uri);
+      final response = useBrowser
+          ? await Future.any<Response<String>>([
+              _withBrowser(() => _readBrowser(uri, cancelToken)),
+              if (cancelToken != null)
+                cancelToken.whenCancel.then((error) => throw error),
+            ])
+          : await _dio.get<String>(
+              uri.toString(),
+              options: Options(
+                responseType: ResponseType.plain,
+                headers: headers,
+              ),
+              cancelToken: cancelToken,
+            );
       if (_isCloudflareChallenge(response.headers, response.data)) {
         _requireVerification(uri);
+      }
+      if (useBrowser &&
+          (response.statusCode! < 200 || response.statusCode! >= 300)) {
+        throw DioException.badResponse(
+          statusCode: response.statusCode!,
+          requestOptions: response.requestOptions,
+          response: response,
+        );
       }
       return response;
     } on DioException catch (error) {
@@ -93,8 +106,111 @@ class JapaneseAsmrService {
     }
   }
 
+  static bool _isSiteUri(Uri uri) =>
+      uri.scheme == website.scheme &&
+      uri.host == website.host &&
+      uri.port == website.port &&
+      uri.userInfo.isEmpty;
+
+  static Future<T> _withBrowser<T>(Future<T> Function() action) async {
+    final previous = _browserQueue;
+    final done = Completer<void>();
+    _browserQueue = done.future;
+    try {
+      if (previous != null) await previous;
+      return await action();
+    } finally {
+      if (identical(_browserQueue, done.future)) _browserQueue = null;
+      done.complete();
+    }
+  }
+
+  Response<String> _browserResponse(Map<dynamic, dynamic>? result) {
+    final data = result?['data'];
+    final urlValue = result?['url'];
+    final url = urlValue is String ? Uri.tryParse(urlValue) : null;
+    final status = result?['statusCode'];
+    final headers = result?['headers'];
+    if (data is! String ||
+        url == null ||
+        !url.hasScheme ||
+        !_isSiteUri(url) ||
+        status is! int ||
+        status < 200 ||
+        status > 599 ||
+        headers is! Map ||
+        headers.entries.any(
+          (entry) => entry.key is! String || entry.value is! String,
+        )) {
+      throw PlatformException(
+        code: 'invalid_response',
+        message: 'Invalid site browser response.',
+      );
+    }
+    return Response<String>(
+      data: data,
+      statusCode: status,
+      headers: Headers.fromMap(
+        headers.map((key, value) => MapEntry(key as String, [value as String])),
+      ),
+      requestOptions: RequestOptions(path: url.toString()),
+    );
+  }
+
+  Future<Response<String>> _readBrowser(
+    Uri uri,
+    CancelToken? cancelToken,
+  ) async {
+    if (cancelToken?.cancelError case final error?) throw error;
+    final verifiedPage = _verifiedPage;
+    if (_verifiedProxy != (ProxyConfig.mode, ProxyConfig.httpsProxyUrl)) {
+      _verifiedPage = null;
+    } else if (verifiedPage?.requestOptions.uri == uri) {
+      _verifiedPage = null;
+      return verifiedPage!;
+    }
+
+    final id = _nextBrowserRequestId++;
+    var finished = false;
+    unawaited(
+      cancelToken?.whenCancel.then((_) async {
+        if (!finished) {
+          try {
+            await _verificationChannel.invokeMethod<void>('cancel', {'id': id});
+          } on PlatformException {
+            // The read can finish while cancellation is being delivered.
+          }
+        }
+      }),
+    );
+    try {
+      final result = await _verificationChannel
+          .invokeMapMethod<String, dynamic>('read', {
+            'id': id,
+            'url': uri.toString(),
+            'proxyMode': ProxyConfig.mode.name,
+            'proxyAddress': ProxyConfig.httpsProxyUrl,
+          });
+      if (cancelToken?.cancelError case final error?) throw error;
+      return _browserResponse(result);
+    } on PlatformException catch (error) {
+      if (cancelToken?.cancelError case final cancellation?) throw cancellation;
+      if (error.code == 'verification_required') _requireVerification(uri);
+      throw DioException(
+        requestOptions: RequestOptions(path: uri.toString()),
+        type: error.code == 'timeout'
+            ? DioExceptionType.receiveTimeout
+            : DioExceptionType.connectionError,
+        error: error,
+        message: error.message,
+      );
+    } finally {
+      finished = true;
+    }
+  }
+
   Never _requireVerification(Uri uri) {
-    if (uri.origin == website.origin && uri.userInfo.isEmpty) {
+    if (_isSiteUri(uri)) {
       _verificationUri = uri;
     }
     throw const JapaneseAsmrVerificationRequiredException();
@@ -109,29 +225,40 @@ class JapaneseAsmrService {
   Future<bool> verifyAccess({
     required String title,
     required String closeLabel,
-  }) async {
+  }) => _withBrowser(() async {
+    final uri = _verificationUri ?? website;
+    final proxy = (ProxyConfig.mode, ProxyConfig.httpsProxyUrl);
     final result = await _verificationChannel
-        .invokeMapMethod<String, String>('verify', {
-          'url': (_verificationUri ?? website).toString(),
-          'proxyMode': ProxyConfig.mode.name,
-          'proxyAddress': ProxyConfig.httpsProxyUrl,
+        .invokeMapMethod<String, dynamic>('verify', {
+          'url': uri.toString(),
+          'proxyMode': proxy.$1.name,
+          'proxyAddress': proxy.$2,
           'title': title,
           'closeLabel': closeLabel,
         });
     if (result == null) return false;
     final cookie = result['cookie'];
     final userAgent = result['userAgent'];
-    if (cookie == null ||
-        userAgent == null ||
+    if (cookie is! String ||
+        userAgent is! String ||
         userAgent.trim().isEmpty ||
         !RegExp(r'^cf_clearance=[^;\r\n]+$').hasMatch(cookie)) {
       return false;
     }
-    _verificationCookie = cookie;
-    _verificationUserAgent = userAgent;
+    final response = _browserResponse(result);
+    if (response.statusCode != 200 ||
+        _isCloudflareChallenge(response.headers, response.data)) {
+      throw PlatformException(
+        code: 'verification_failed',
+        message: 'Site browser access is still challenged.',
+      );
+    }
+    _browserVerified = true;
+    _verifiedPage = response;
+    _verifiedProxy = proxy;
     _verificationUri = null;
     return true;
-  }
+  });
 
   Future<Map<String, dynamic>> getWorks({
     required int page,
