@@ -272,7 +272,8 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
       builder: (_) => GlobalAudioPlayerWrapper.workDetails(
         child: VideoSearchScreen(
           title: s.videoDownloads,
-          search: (query, _) async {
+          search: (query, filters, _) async {
+            assert(filters.isEmpty);
             final normalized = query.toLowerCase();
             final matches = downloads.tasks
                 .where(

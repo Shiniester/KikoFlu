@@ -4402,7 +4402,7 @@ class SEn extends S {
   String get navVideos => 'Videos';
 
   @override
-  String get videoSearchHint => 'Search videos, actors, or studios';
+  String get videoSearchHint => 'Search videos';
 
   @override
   String get videoSourceAccount => 'MissAV account';
@@ -4412,6 +4412,33 @@ class SEn extends S {
 
   @override
   String get videoContent => 'Content';
+
+  @override
+  String get videoRecentlyUpdated => 'Recently updated';
+
+  @override
+  String get videoNewReleases => 'New releases';
+
+  @override
+  String get videoChineseSubtitles => 'Chinese subtitles';
+
+  @override
+  String get videoWeeklyHot => 'Popular this week';
+
+  @override
+  String get videoUncensoredLeak => 'Uncensored leaks';
+
+  @override
+  String get videoFilterGenre => 'Genre';
+
+  @override
+  String get videoFilterActor => 'Actor';
+
+  @override
+  String get videoFilterStudio => 'Studio';
+
+  @override
+  String get videoFilterSeries => 'Series';
 
   @override
   String get videoFavorites => 'Video favorites';

@@ -24,9 +24,13 @@ The presentation of video cards as a big grid, small grid, or list.
 _Avoid_: Video playback mode
 
 **Video Content Navigation (视频内容导航)**:
-The browsing entries supplied by a Video Source for feeds, rankings, actors,
-categories, studios, and topics.
-_Avoid_: Source website services, Video Collection Layout
+The curated entries for directly browsing a Video Source's video collections.
+Search conditions belong to Video Search Filters.
+_Avoid_: Video Search Filters, Source website services, Video Collection Layout
+
+**Video Search Filters (视频搜索筛选)**:
+Conditions such as category, actor, or studio that narrow a video search.
+_Avoid_: Video Content Navigation, Video Collection Layout
 
 **Video Collection Page (视频集合分页)**:
 A numbered portion of a video feed, search result, or download list.

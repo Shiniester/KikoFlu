@@ -4281,7 +4281,7 @@ class SJa extends S {
   String get navVideos => '動画';
 
   @override
-  String get videoSearchHint => '動画・出演者・メーカーを検索';
+  String get videoSearchHint => '動画を検索';
 
   @override
   String get videoSourceAccount => 'MissAV アカウント';
@@ -4291,6 +4291,33 @@ class SJa extends S {
 
   @override
   String get videoContent => 'コンテンツ';
+
+  @override
+  String get videoRecentlyUpdated => '最近の更新';
+
+  @override
+  String get videoNewReleases => '新作';
+
+  @override
+  String get videoChineseSubtitles => '中国語字幕';
+
+  @override
+  String get videoWeeklyHot => '今週の人気';
+
+  @override
+  String get videoUncensoredLeak => '無修正流出';
+
+  @override
+  String get videoFilterGenre => 'ジャンル';
+
+  @override
+  String get videoFilterActor => '女優';
+
+  @override
+  String get videoFilterStudio => 'メーカー';
+
+  @override
+  String get videoFilterSeries => 'シリーズ';
 
   @override
   String get videoFavorites => '動画のお気に入り';

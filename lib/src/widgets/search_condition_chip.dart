@@ -12,18 +12,25 @@ class SearchConditionChip extends StatelessWidget {
     required this.avatar,
     required this.backgroundColor,
     this.onDeleted,
+    this.maxLines,
   });
 
   final String label;
   final Widget avatar;
   final Color backgroundColor;
   final VoidCallback? onDeleted;
+  final int? maxLines;
 
   @override
   Widget build(BuildContext context) {
     return Chip(
       avatar: avatar,
-      label: Text(label, style: UiTextStyles.filterChipLabel),
+      label: Text(
+        label,
+        style: UiTextStyles.filterChipLabel,
+        maxLines: maxLines,
+        overflow: maxLines == null ? null : TextOverflow.ellipsis,
+      ),
       backgroundColor: backgroundColor,
       onDeleted: onDeleted,
       deleteIcon: onDeleted == null

@@ -28,7 +28,7 @@ import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('catalog uses parsed source links while logged out', (
+  testWidgets('catalog keeps favorites reachable while logged out', (
     tester,
   ) async {
     final client = _TestMissavClient(
@@ -65,92 +65,146 @@ void main() {
     await tester.pumpAndSettle();
     final l10n = await S.delegate.load(const Locale('en'));
     expect(find.text(l10n.videoFavorites), findsOneWidget);
-    await tester.tap(find.text(l10n.videoFavorites));
+    final drawer = find.byKey(const ValueKey('library-drawer'));
+    await tester.scrollUntilVisible(
+      find.descendant(of: drawer, matching: find.text(l10n.videoFavorites)),
+      240,
+      scrollable: find
+          .descendant(of: drawer, matching: find.byType(Scrollable))
+          .first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(of: drawer, matching: find.text(l10n.videoFavorites)),
+    );
     await tester.pumpAndSettle();
 
     expect(client.browsedUrls, contains('https://missav.ai/en/saved'));
   });
 
-  testWidgets('playlist entries stay in drawer and browse in place', (
-    tester,
-  ) async {
-    const playlistUrl = 'https://missav.ai/en/playlists/123';
-    final client = _TestMissavClient(
-      catalog: const VideoCatalogPage(
-        title: 'Playlists',
-        url: 'https://missav.ai/en/playlists',
-        links: [
-          VideoLink(
-            label: 'Playlist one',
-            url: playlistUrl,
-            kind: VideoLinkKind.playlist,
-            sourceKey: '123',
-          ),
-        ],
-      ),
-      pagesByUrl: {
-        playlistUrl: const VideoCatalogPage(
-          title: 'Playlist one videos',
-          url: playlistUrl,
-          videos: [
-            VideoItem(
-              id: 'playlist-video',
-              title: 'Playlist video',
-              pageUrl: 'https://missav.ai/en/playlist-video',
+  testWidgets(
+    'playlist entries stay in their collection page and browse in place',
+    (tester) async {
+      const collectionUrl = 'https://missav.ai/en/playlists';
+      const playlistUrl = 'https://missav.ai/en/playlists/123';
+      final client = _TestMissavClient(
+        catalog: const VideoCatalogPage(
+          title: 'Home catalog',
+          url: 'https://missav.ai/en',
+          links: [
+            VideoLink(
+              label: 'Playlist one',
+              url: playlistUrl,
+              kind: VideoLinkKind.playlist,
+              sourceKey: '123',
             ),
           ],
         ),
-      },
-    );
-    final library = await _testLibrary();
-    final downloads = _TestVideoDownloads(client: client, library: library);
-    final observer = _PushObserver();
+        pagesByUrl: {
+          collectionUrl: const VideoCatalogPage(
+            title: 'Playlists',
+            url: collectionUrl,
+            links: [
+              VideoLink(
+                label: 'Playlist one',
+                url: playlistUrl,
+                kind: VideoLinkKind.playlist,
+                sourceKey: '123',
+              ),
+            ],
+          ),
+          playlistUrl: const VideoCatalogPage(
+            title: 'Playlist one videos',
+            url: playlistUrl,
+            videos: [
+              VideoItem(
+                id: 'playlist-video',
+                title: 'Playlist video',
+                pageUrl: 'https://missav.ai/en/playlist-video',
+              ),
+            ],
+          ),
+        },
+      );
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final observer = _PushObserver();
 
-    await tester.pumpWidget(
-      _app(
-        client,
-        library,
-        downloads,
-        const VideoScreen.catalog(url: 'https://missav.ai/en/playlists'),
-        observer: observer,
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          const VideoScreen(),
+          observer: observer,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+      await tester.pumpAndSettle();
+      final drawer = find.byKey(const ValueKey('library-drawer'));
+      expect(
+        find.descendant(of: drawer, matching: find.text('Playlist one')),
+        findsNothing,
+      );
+      expect(find.text('Playlist one'), findsNothing);
 
-    expect(find.text('Playlist one'), findsOneWidget);
-    await tester.tap(find.byTooltip('Playlist one'));
-    await tester.pumpAndSettle();
-    final l10n = await S.delegate.load(const Locale('en'));
-    expect(find.text(l10n.videoRenamePlaylist), findsOneWidget);
-    expect(find.text(l10n.videoDeletePlaylist), findsOneWidget);
-    await tester.tap(find.text(l10n.videoRenamePlaylist));
-    await tester.pumpAndSettle();
-    expect(find.text(l10n.videoPlaylistName), findsOneWidget);
-    await tester.tap(find.text(l10n.cancel));
-    await tester.pumpAndSettle();
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.scrollUntilVisible(
+        find.descendant(of: drawer, matching: find.text(l10n.playlists)),
+        240,
+        scrollable: find
+            .descendant(of: drawer, matching: find.byType(Scrollable))
+            .first,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(of: drawer, matching: find.text(l10n.playlists)),
+      );
+      await tester.pumpAndSettle();
+      expect(client.browsedUrls, contains(collectionUrl));
+      expect(find.text('Playlist one'), findsOneWidget);
 
-    final pushesBeforeSelection = observer.pushes;
-    await tester.tap(find.text('Playlist one'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(of: drawer, matching: find.text('Playlist one')),
+        findsNothing,
+      );
 
-    expect(find.text('Playlist video'), findsOneWidget);
-    expect(client.browsedUrls, contains(playlistUrl));
-    expect(observer.pushes, pushesBeforeSelection);
-  });
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Playlist one'));
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.videoRenamePlaylist), findsOneWidget);
+      expect(find.text(l10n.videoDeletePlaylist), findsOneWidget);
+      await tester.tap(find.text(l10n.videoRenamePlaylist));
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.videoPlaylistName), findsOneWidget);
+      await tester.tap(find.text(l10n.cancel));
+      await tester.pumpAndSettle();
+
+      final pushesBeforeSelection = observer.pushes;
+      await tester.tap(find.text('Playlist one'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Playlist video'), findsOneWidget);
+      expect(client.browsedUrls, contains(playlistUrl));
+      expect(observer.pushes, pushesBeforeSelection);
+    },
+  );
 
   testWidgets('drawer catalog selection replaces the current page in place', (
     tester,
   ) async {
-    const destination = 'https://missav.ai/cn/genres';
+    const destination = 'https://missav.ai/dm539/cn/new';
     final client = _TestMissavClient(
       catalog: const VideoCatalogPage(
         title: 'Home catalog',
         url: 'https://missav.ai/cn',
         navigation: [
           VideoLink(
-            label: 'Genres',
+            label: 'Source recent feed',
             url: destination,
             kind: VideoLinkKind.navigation,
           ),
@@ -158,7 +212,7 @@ void main() {
       ),
       pagesByUrl: {
         destination: const VideoCatalogPage(
-          title: 'Genres page',
+          title: 'Recently updated page',
           url: destination,
         ),
       },
@@ -174,39 +228,79 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('library-menu-button')));
     await tester.pumpAndSettle();
     final pushesAfterOpeningDrawer = observer.pushes;
-    await tester.tap(find.text('Genres'));
+    final l10n = await S.delegate.load(const Locale('en'));
+    expect(find.text('Source recent feed'), findsNothing);
+    await tester.tap(find.text(l10n.videoRecentlyUpdated));
     await tester.pumpAndSettle();
 
     expect(client.browsedUrls, contains(destination));
-    expect(find.text('Genres page'), findsOneWidget);
+    expect(find.text('Source recent feed'), findsNothing);
+    expect(find.text('Recently updated page'), findsOneWidget);
     expect(observer.pushes, pushesAfterOpeningDrawer);
   });
 
-  testWidgets('directory links share one content section and layout cycles', (
-    tester,
-  ) async {
-    const exactUrl = 'https://missav.ai/cn/genres';
+  testWidgets('video drawer uses the source route allowlist', (tester) async {
     final client = _TestMissavClient(
       catalog: const VideoCatalogPage(
         title: 'Home catalog',
         url: 'https://missav.ai/cn',
         navigation: [
           VideoLink(
-            label: 'Navigation directory',
-            url: exactUrl,
+            label: 'Recently updated',
+            url: 'https://missav.ai/cn/newer',
+            kind: VideoLinkKind.navigation,
+          ),
+          VideoLink(
+            label: 'New releases',
+            url: 'https://missav.ai/cn/release-videos',
+            kind: VideoLinkKind.navigation,
+          ),
+          VideoLink(
+            label: 'Amateur directory',
+            url: 'https://missav.ai/cn/amateur',
+            kind: VideoLinkKind.navigation,
+          ),
+          VideoLink(
+            label: 'Series directory',
+            url: 'https://missav.ai/cn/series',
+            kind: VideoLinkKind.navigation,
+          ),
+          VideoLink(
+            label: 'Uncensored films',
+            url: 'https://missav.ai/cn/uncensored',
             kind: VideoLinkKind.navigation,
           ),
         ],
         links: [
           VideoLink(
-            label: 'Duplicate directory',
-            url: exactUrl,
+            label: 'Actor directory',
+            url: 'https://missav.ai/cn/actresses',
+            kind: VideoLinkKind.actor,
+          ),
+          VideoLink(
+            label: 'Category directory',
+            url: 'https://missav.ai/cn/genres',
             kind: VideoLinkKind.category,
           ),
           VideoLink(
-            label: 'Other locale directory',
-            url: 'https://missav.ai/en/genres',
-            kind: VideoLinkKind.category,
+            label: 'Tag directory',
+            url: 'https://missav.ai/cn/tag/fixture',
+            kind: VideoLinkKind.tag,
+          ),
+          VideoLink(
+            label: 'Studio directory',
+            url: 'https://missav.ai/cn/studio/fixture',
+            kind: VideoLinkKind.studio,
+          ),
+          VideoLink(
+            label: 'Manufacturer directory',
+            url: 'https://missav.ai/cn/studio/maker',
+            kind: VideoLinkKind.studio,
+          ),
+          VideoLink(
+            label: 'Playlist on home page',
+            url: 'https://missav.ai/cn/playlists/123',
+            kind: VideoLinkKind.playlist,
           ),
         ],
       ),
@@ -224,28 +318,80 @@ void main() {
     final container = ProviderScope.containerOf(
       tester.element(find.byType(VideoScreen)),
     );
+    final drawer = find.byKey(const ValueKey('library-drawer'));
 
     Future<void> openDrawer() async {
-      await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+      final menu = find
+          .byKey(const ValueKey('library-menu-button'))
+          .hitTestable();
+      if (menu.evaluate().isNotEmpty) await tester.tap(menu);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> scrollToDrawerLabel(String label) async {
+      await tester.scrollUntilVisible(
+        find.descendant(of: drawer, matching: find.text(label)),
+        240,
+        scrollable: find
+            .descendant(of: drawer, matching: find.byType(Scrollable))
+            .first,
+      );
       await tester.pumpAndSettle();
     }
 
     await openDrawer();
     expect(find.text(l10n.videoContent), findsOneWidget);
-    expect(find.text('Navigation directory'), findsOneWidget);
-    expect(find.text('Duplicate directory'), findsNothing);
-    expect(find.text('Other locale directory'), findsOneWidget);
+    final approvedPaths = {
+      l10n.videoRecentlyUpdated: 'new',
+      l10n.videoNewReleases: 'release',
+      l10n.videoChineseSubtitles: 'chinese-subtitle',
+      l10n.videoWeeklyHot: 'weekly-hot',
+      l10n.videoUncensoredLeak: 'uncensored-leak',
+    };
+    for (final label in approvedPaths.keys) {
+      expect(find.text(label), findsOneWidget);
+    }
+    for (final label in const [
+      'Amateur directory',
+      'Series directory',
+      'Uncensored films',
+      'Actor directory',
+      'Category directory',
+      'Tag directory',
+      'Studio directory',
+      'Manufacturer directory',
+      'Playlist on home page',
+    ]) {
+      expect(find.text(label), findsNothing);
+    }
+    expect(find.text(l10n.videoRecentlyUpdated), findsOneWidget);
+    expect(find.text(l10n.videoNewReleases), findsOneWidget);
+
+    for (final entry in approvedPaths.entries) {
+      await openDrawer();
+      await scrollToDrawerLabel(entry.key);
+      await tester.tap(
+        find.descendant(of: drawer, matching: find.text(entry.key)),
+      );
+      await tester.pumpAndSettle();
+      expect(client.browsedUrls.last, 'https://missav.ai/cn/${entry.value}');
+    }
+
+    await openDrawer();
+    await scrollToDrawerLabel(l10n.layout);
     await tester.tap(find.text(l10n.layout));
     await tester.pumpAndSettle();
     expect(container.read(videoBrowseLayoutProvider), LayoutType.smallGrid);
 
     await openDrawer();
+    await scrollToDrawerLabel(l10n.layout);
     expect(find.byIcon(Icons.apps), findsOneWidget);
     await tester.tap(find.text(l10n.layout));
     await tester.pumpAndSettle();
     expect(container.read(videoBrowseLayoutProvider), LayoutType.list);
 
     await openDrawer();
+    await scrollToDrawerLabel(l10n.layout);
     expect(find.byIcon(Icons.view_list), findsOneWidget);
     await tester.tap(find.text(l10n.layout));
     await tester.pumpAndSettle();
@@ -257,6 +403,105 @@ void main() {
     await openDrawer();
     expect(find.byIcon(Icons.grid_view), findsOneWidget);
   });
+
+  testWidgets('playlist directory pages accept source route prefixes', (
+    tester,
+  ) async {
+    const firstUrl = 'https://missav.ai/en/playlists';
+    const secondUrl = 'https://missav.ai/dm123/en/playlists/?page=2';
+    final client = _TestMissavClient(
+      pagesByUrl: {
+        firstUrl: const VideoCatalogPage(
+          title: 'Playlists',
+          url: firstUrl,
+          nextUrl: secondUrl,
+          links: [
+            VideoLink(
+              label: 'First playlist',
+              url: 'https://missav.ai/en/playlists/first',
+              kind: VideoLinkKind.playlist,
+            ),
+          ],
+        ),
+        secondUrl: const VideoCatalogPage(
+          title: 'Playlists',
+          url: secondUrl,
+          currentPage: 2,
+          previousUrl: firstUrl,
+          links: [
+            VideoLink(
+              label: 'Second playlist',
+              url: 'https://missav.ai/en/playlists/second',
+              kind: VideoLinkKind.playlist,
+            ),
+          ],
+        ),
+      },
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        const VideoScreen.catalog(url: firstUrl),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('First playlist'), findsOneWidget);
+    final l10n = await S.delegate.load(const Locale('en'));
+    await _tapNextPage(tester, l10n);
+    expect(find.text('Second playlist'), findsOneWidget);
+    expect(
+      tester.widget<PaginationBar>(find.byType(PaginationBar)).currentPage,
+      2,
+    );
+    await tester.tap(find.text(l10n.previousPage));
+    await tester.pumpAndSettle();
+    expect(find.text('First playlist'), findsOneWidget);
+  });
+
+  testWidgets(
+    'main video search submits keywords and selected filters together',
+    (tester) async {
+      final client = _TestMissavClient(
+        catalog: const VideoCatalogPage(
+          title: 'Home',
+          url: 'https://missav.ai/en',
+        ),
+      );
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      await tester.pumpWidget(
+        _app(client, library, downloads, const VideoScreen()),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('library-page-search')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('video-filter-genre')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Drama'));
+      await tester.pumpAndSettle();
+      expect(client.filterOptionKinds, [VideoSearchFilterKind.genre]);
+      expect(client.combinedSearchRequests.last.query, isEmpty);
+      expect(
+        client.combinedSearchRequests.last.filters.single.url,
+        'https://missav.ai/en/genres/drama',
+      );
+      expect(client.combinedSearchRequests.last.current, isTrue);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('video-search-input')),
+        'keyword',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle();
+      expect(client.combinedSearchRequests.last.query, 'keyword');
+      expect(client.combinedSearchRequests.last.filters.single.label, 'Drama');
+      expect(client.combinedSearchRequests.last.current, isTrue);
+    },
+  );
 
   testWidgets('source pagination uses previous, next, and jump URLs', (
     tester,
@@ -461,6 +706,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('library-page-search')));
       await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('video-filter-genre')), findsNothing);
       await tester.enterText(
         find.byKey(const ValueKey('video-search-input')),
         collection.prefix,
@@ -660,7 +906,7 @@ void main() {
     );
   });
 
-  testWidgets('actor navigation exposes source favorite actions', (
+  testWidgets('actor favorites remain accessible from their saved collection', (
     tester,
   ) async {
     const actor = VideoLink(
@@ -671,10 +917,17 @@ void main() {
     final client = _TestMissavClient(
       loggedIn: true,
       catalog: const VideoCatalogPage(
-        title: 'Actors',
+        title: 'Source actor directory',
         url: 'https://missav.ai/cn/actresses',
         links: [actor],
       ),
+      pagesByUrl: {
+        'https://missav.ai/en/saved/actresses': const VideoCatalogPage(
+          title: 'Actor favorites',
+          url: 'https://missav.ai/en/saved/actresses',
+          links: [actor],
+        ),
+      },
     );
     final library = await _testLibrary();
     final downloads = _TestVideoDownloads(client: client, library: library);
@@ -690,9 +943,34 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('library-menu-button')));
     await tester.pumpAndSettle();
+    final drawer = find.byKey(const ValueKey('library-drawer'));
+    expect(
+      find.descendant(of: drawer, matching: find.text('Fixture actor')),
+      findsNothing,
+    );
+    expect(find.text('Fixture actor'), findsNothing);
+    final l10n = await S.delegate.load(const Locale('en'));
+    await tester.scrollUntilVisible(
+      find.descendant(
+        of: drawer,
+        matching: find.text(l10n.videoActorFavorites),
+      ),
+      240,
+      scrollable: find
+          .descendant(of: drawer, matching: find.byType(Scrollable))
+          .first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: drawer,
+        matching: find.text(l10n.videoActorFavorites),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Fixture actor'), findsOneWidget);
     await tester.tap(find.byTooltip('Fixture actor'));
     await tester.pumpAndSettle();
-    final l10n = await S.delegate.load(const Locale('en'));
     await tester.tap(find.text(l10n.videoFavoriteActor));
     await tester.pumpAndSettle();
 
@@ -923,6 +1201,9 @@ class _TestMissavClient extends MissavClient {
   int clearHistoryCalls = 0;
   int collectionSearchCalls = 0;
   final List<String> browsedUrls = [];
+  final filterOptionKinds = <VideoSearchFilterKind>[];
+  final combinedSearchRequests =
+      <({String query, List<VideoLink> filters, bool? current})>[];
 
   @override
   String get homeUrl => 'https://missav.ai/cn';
@@ -971,6 +1252,39 @@ class _TestMissavClient extends MissavClient {
           (video) => video.title.toLowerCase().contains(query.toLowerCase()),
         )
         .toList(growable: false);
+  }
+
+  @override
+  Future<VideoCatalogPage> searchFilterOptions(
+    VideoSearchFilterKind kind, {
+    String? pageUrl,
+  }) async {
+    filterOptionKinds.add(kind);
+    return const VideoCatalogPage(
+      title: 'Genres',
+      url: 'https://missav.ai/en/genres',
+      links: [
+        VideoLink(
+          label: 'Drama',
+          url: 'https://missav.ai/en/genres/drama',
+          kind: VideoLinkKind.category,
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<List<VideoItem>> searchWithFilters(
+    String query,
+    List<VideoLink> filters, {
+    bool Function()? isCurrent,
+  }) async {
+    combinedSearchRequests.add((
+      query: query,
+      filters: [...filters],
+      current: isCurrent?.call(),
+    ));
+    return [];
   }
 }
 

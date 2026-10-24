@@ -175,6 +175,109 @@ class MissavClient extends ChangeNotifier {
     return browse('$origin$path');
   }
 
+  Future<VideoCatalogPage> searchFilterOptions(
+    VideoSearchFilterKind kind, {
+    String? pageUrl,
+  }) async {
+    final route = switch (kind) {
+      VideoSearchFilterKind.genre => 'genres',
+      VideoSearchFilterKind.actor => 'actresses',
+      VideoSearchFilterKind.studio => 'makers',
+      VideoSearchFilterKind.series => 'series',
+    };
+    final roots = switch (kind) {
+      VideoSearchFilterKind.genre => const {
+        'genre',
+        'genres',
+        'category',
+        'categories',
+        'tag',
+        'tags',
+      },
+      VideoSearchFilterKind.actor => const {'actresses', 'actors'},
+      VideoSearchFilterKind.studio => const {
+        'maker',
+        'makers',
+        'studio',
+        'studios',
+      },
+      VideoSearchFilterKind.series => const {'series'},
+    };
+    final page = await browse(pageUrl ?? '$origin$_localePrefix/$route');
+    return VideoCatalogPage(
+      title: page.title,
+      url: page.url,
+      links: page.links
+          .where((link) {
+            final segments = Uri.parse(link.url).pathSegments
+                .where((segment) => segment.isNotEmpty)
+                .skipWhile(
+                  (segment) =>
+                      _sourceLanguages.contains(segment) ||
+                      RegExp(r'^dm\d+$').hasMatch(segment),
+                )
+                .toList();
+            return segments.length == 2 &&
+                roots.contains(segments.first) &&
+                segments.last != 'ranking';
+          })
+          .toList(growable: false),
+      nextUrl: page.nextUrl,
+      previousUrl: page.previousUrl,
+      currentPage: page.currentPage,
+      jumpMaxPage: page.jumpMaxPage,
+    );
+  }
+
+  Future<List<VideoItem>> searchWithFilters(
+    String query,
+    List<VideoLink> filters, {
+    bool Function()? isCurrent,
+  }) async {
+    await initialize();
+    final generation = _sessionGeneration;
+    final locale = _locale;
+    final keyword = query.trim();
+    // shortcut: Large catalogs need full pagination until a native combined-search API is verified.
+    final sources = <String>{
+      if (keyword.isNotEmpty)
+        '$origin$_localePrefix/search/${Uri.encodeComponent(keyword)}',
+      for (final filter in filters) _localizedSourceUri(filter.url).toString(),
+    };
+    final candidates = <String, VideoItem>{};
+    var firstSource = true;
+    for (final source in sources) {
+      final first = _localizedSourceUri(source).removeFragment();
+      final parameters = Map<String, String>.of(first.queryParameters)
+        ..remove('page');
+      String? next = first.replace(queryParameters: parameters).toString();
+      final visited = <String>{};
+      final matchingIds = <String>{};
+      while (next != null && visited.add(next)) {
+        if (isCurrent?.call() == false || _locale != locale) return [];
+        _checkGeneration(generation, first);
+        final page = await browse(next);
+        if (isCurrent?.call() == false || _locale != locale) return [];
+        _checkGeneration(generation, first);
+        for (final video in page.videos) {
+          if (firstSource) {
+            candidates.putIfAbsent(video.id, () => video);
+          } else if (candidates.containsKey(video.id)) {
+            matchingIds.add(video.id);
+          }
+        }
+        if (!firstSource && matchingIds.length == candidates.length) break;
+        next = page.nextUrl;
+      }
+      if (!firstSource) {
+        candidates.removeWhere((id, _) => !matchingIds.contains(id));
+      }
+      if (candidates.isEmpty) return [];
+      firstSource = false;
+    }
+    return candidates.values.toList(growable: false);
+  }
+
   Future<List<VideoItem>> searchCollection(
     String url,
     String query, {

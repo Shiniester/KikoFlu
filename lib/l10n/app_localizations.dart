@@ -7837,7 +7837,7 @@ abstract class S {
   /// No description provided for @videoSearchHint.
   ///
   /// In en, this message translates to:
-  /// **'Search videos, actors, or studios'**
+  /// **'Search videos'**
   String get videoSearchHint;
 
   /// No description provided for @videoSourceAccount.
@@ -7857,6 +7857,60 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Content'**
   String get videoContent;
+
+  /// No description provided for @videoRecentlyUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'Recently updated'**
+  String get videoRecentlyUpdated;
+
+  /// No description provided for @videoNewReleases.
+  ///
+  /// In en, this message translates to:
+  /// **'New releases'**
+  String get videoNewReleases;
+
+  /// No description provided for @videoChineseSubtitles.
+  ///
+  /// In en, this message translates to:
+  /// **'Chinese subtitles'**
+  String get videoChineseSubtitles;
+
+  /// No description provided for @videoWeeklyHot.
+  ///
+  /// In en, this message translates to:
+  /// **'Popular this week'**
+  String get videoWeeklyHot;
+
+  /// No description provided for @videoUncensoredLeak.
+  ///
+  /// In en, this message translates to:
+  /// **'Uncensored leaks'**
+  String get videoUncensoredLeak;
+
+  /// No description provided for @videoFilterGenre.
+  ///
+  /// In en, this message translates to:
+  /// **'Genre'**
+  String get videoFilterGenre;
+
+  /// No description provided for @videoFilterActor.
+  ///
+  /// In en, this message translates to:
+  /// **'Actor'**
+  String get videoFilterActor;
+
+  /// No description provided for @videoFilterStudio.
+  ///
+  /// In en, this message translates to:
+  /// **'Studio'**
+  String get videoFilterStudio;
+
+  /// No description provided for @videoFilterSeries.
+  ///
+  /// In en, this message translates to:
+  /// **'Series'**
+  String get videoFilterSeries;
 
   /// No description provided for @videoFavorites.
   ///

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' show min;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +8,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/works_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
+import '../../widgets/search_condition_chip.dart';
 import '../../widgets/virtualized_sliver_collection.dart';
 import '../video_browse_preferences.dart';
 import '../missav_client.dart';
@@ -18,7 +20,14 @@ import 'video_details_screen.dart';
 typedef VideoSearchLoader =
     Future<VideoSearchResults> Function(
       String query,
+      List<VideoLink> filters,
       bool Function() isCurrent,
+    );
+
+typedef VideoSearchFilterLoader =
+    Future<VideoCatalogPage> Function(
+      VideoSearchFilterKind kind,
+      String? pageUrl,
     );
 
 typedef VideoSearchResultItemBuilder =
@@ -56,6 +65,7 @@ class VideoSearchScreen extends ConsumerStatefulWidget {
     this.canOpenVideo,
     this.itemBuilder,
     this.initialQuery,
+    this.loadFilters,
     this.verifyAccess,
     this.accountClient,
   });
@@ -67,6 +77,7 @@ class VideoSearchScreen extends ConsumerStatefulWidget {
   final bool Function(VideoItem video)? canOpenVideo;
   final VideoSearchResultItemBuilder? itemBuilder;
   final String? initialQuery;
+  final VideoSearchFilterLoader? loadFilters;
   final VideoSearchAccessVerifier? verifyAccess;
   final MissavClient? accountClient;
 
@@ -77,6 +88,7 @@ class VideoSearchScreen extends ConsumerStatefulWidget {
 class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   final TextEditingController _query = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final List<VideoLink> _filters = [];
   VideoSearchResults? _results;
   int _localPage = 1;
   String? _error;
@@ -148,12 +160,27 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     super.dispose();
   }
 
-  Future<void> _runSearch(String value) async {
+  Future<void> _runSearch(String value, {List<VideoLink>? filters}) async {
     final query = value.trim();
-    if (query.isEmpty) return;
-    _retryAction = () => _runSearch(query);
+    final filtersSnapshot = List<VideoLink>.unmodifiable(filters ?? _filters);
+    if (query.isEmpty && filtersSnapshot.isEmpty) {
+      _request++;
+      _retryAction = null;
+      setState(() {
+        _results = null;
+        _localPage = 1;
+        _error = null;
+        _verificationError = null;
+        _loading = false;
+      });
+      if (_scrollController.hasClients) _scrollController.jumpTo(0);
+      return;
+    }
+    _retryAction = () => _runSearch(query, filters: filtersSnapshot);
     final request = ++_request;
-    unawaited(ref.read(videoSearchHistoryProvider.notifier).add(query));
+    if (query.isNotEmpty) {
+      unawaited(ref.read(videoSearchHistoryProvider.notifier).add(query));
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -165,6 +192,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     try {
       final results = await widget.search(
         query,
+        filtersSnapshot,
         () => mounted && request == _request,
       );
       if (!mounted || request != _request) return;
@@ -188,6 +216,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     _request++;
     _retryAction = null;
     _query.clear();
+    _filters.clear();
     setState(() {
       _results = null;
       _localPage = 1;
@@ -196,6 +225,128 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
       _loading = false;
     });
     if (_scrollController.hasClients) _scrollController.jumpTo(0);
+  }
+
+  String _filterTitle(VideoSearchFilterKind kind, S s) => switch (kind) {
+    VideoSearchFilterKind.genre => s.videoFilterGenre,
+    VideoSearchFilterKind.actor => s.videoFilterActor,
+    VideoSearchFilterKind.studio => s.videoFilterStudio,
+    VideoSearchFilterKind.series => s.videoFilterSeries,
+  };
+
+  IconData _filterIcon(VideoSearchFilterKind kind) => switch (kind) {
+    VideoSearchFilterKind.genre => Icons.category_outlined,
+    VideoSearchFilterKind.actor => Icons.person_outline,
+    VideoSearchFilterKind.studio => Icons.business_outlined,
+    VideoSearchFilterKind.series => Icons.video_collection_outlined,
+  };
+
+  Future<void> _openFilterPicker(VideoSearchFilterKind kind) async {
+    final loadFilters = widget.loadFilters;
+    if (loadFilters == null) return;
+    final selected = await showDialog<VideoLink>(
+      context: context,
+      builder: (_) => _VideoSearchFilterPicker(
+        title: _filterTitle(kind, S.of(context)),
+        kind: kind,
+        loadFilters: loadFilters,
+        verifyAccess: widget.verifyAccess,
+      ),
+    );
+    if (!mounted ||
+        selected == null ||
+        _filters.any((filter) => filter.url == selected.url)) {
+      return;
+    }
+    setState(() => _filters.add(selected));
+    unawaited(_runSearch(_query.text));
+  }
+
+  void _removeFilter(VideoLink filter) {
+    setState(() => _filters.removeWhere((item) => item.url == filter.url));
+    unawaited(_runSearch(_query.text));
+  }
+
+  Widget _filterControls(S s) {
+    final loadFilters = widget.loadFilters;
+    if (loadFilters == null) return const SizedBox.shrink();
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              for (final kind in VideoSearchFilterKind.values)
+                OutlinedButton.icon(
+                  key: ValueKey('video-filter-${kind.name}'),
+                  onPressed: () => _openFilterPicker(kind),
+                  icon: Icon(_filterIcon(kind), size: 18),
+                  label: Text(
+                    _filterTitle(kind, s),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+          ),
+          if (_filters.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: 0,
+                    children: [
+                      for (final filter in _filters)
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: constraints.maxWidth,
+                          ),
+                          child: Tooltip(
+                            message: filter.label,
+                            child: Semantics(
+                              label: filter.label,
+                              child: SearchConditionChip(
+                                key: ValueKey(
+                                  'selected-video-filter-${filter.url}',
+                                ),
+                                label: filter.label,
+                                maxLines: 1,
+                                avatar: Icon(
+                                  _iconForLink(filter),
+                                  size: 16,
+                                  color: colorScheme.onSecondaryContainer,
+                                ),
+                                backgroundColor: colorScheme.secondaryContainer,
+                                onDeleted: () => _removeFilter(filter),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  IconData _iconForLink(VideoLink filter) {
+    return switch (filter.kind) {
+      VideoLinkKind.actor => Icons.person_outline,
+      VideoLinkKind.studio => Icons.business_outlined,
+      VideoLinkKind.category => Icons.category_outlined,
+      VideoLinkKind.tag => Icons.category_outlined,
+      VideoLinkKind.collection => Icons.video_collection_outlined,
+      _ => Icons.label_outline,
+    };
   }
 
   Future<void> _goToPage(int pageNumber) async {
@@ -443,66 +594,268 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
             ),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-            child: TextField(
-              key: const ValueKey('video-search-input'),
-              controller: _query,
-              autofocus: widget.initialQuery == null,
-              textInputAction: TextInputAction.search,
-              onSubmitted: _runSearch,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                hintText: s.videoSearchHint,
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: IconButton(
-                  tooltip: s.clear,
-                  onPressed: _query.text.isEmpty ? null : _clearInput,
-                  icon: const Icon(Icons.clear),
+      body: LayoutBuilder(
+        builder: (context, constraints) => Column(
+          children: [
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: constraints.maxHeight * .6,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                      child: TextField(
+                        key: const ValueKey('video-search-input'),
+                        controller: _query,
+                        autofocus: widget.initialQuery == null,
+                        textInputAction: TextInputAction.search,
+                        onSubmitted: _runSearch,
+                        onChanged: (_) => setState(() {}),
+                        decoration: InputDecoration(
+                          hintText: s.videoSearchHint,
+                          prefixIcon: const Icon(Icons.search),
+                          suffixIcon: IconButton(
+                            tooltip: s.clear,
+                            onPressed: _query.text.isEmpty && _filters.isEmpty
+                                ? null
+                                : _clearInput,
+                            icon: const Icon(Icons.clear),
+                          ),
+                          border: const OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    _filterControls(s),
+                    if (_error != null)
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _verificationError == null
+                                    ? s.videoLoadFailed
+                                    : s.videoVerificationRequired,
+                              ),
+                            ),
+                            if (_verificationError != null &&
+                                widget.verifyAccess != null)
+                              TextButton.icon(
+                                onPressed: _verifyingAccess
+                                    ? null
+                                    : _verifyAndRetry,
+                                icon: const Icon(Icons.verified_user_outlined),
+                                label: Text(s.videoVerifyAccess),
+                              ),
+                            TextButton(
+                              onPressed: _loading
+                                  ? null
+                                  : () =>
+                                        _retryAction?.call() ??
+                                        _runSearch(_query.text),
+                              child: Text(s.retry),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
-                border: const OutlineInputBorder(),
               ),
             ),
+            if (_loading) const LinearProgressIndicator(minHeight: 2),
+            Expanded(
+              child: _results != null
+                  ? _resultsView(_results!, layout)
+                  : _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _history(history),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _VideoSearchFilterPicker extends StatefulWidget {
+  const _VideoSearchFilterPicker({
+    required this.title,
+    required this.kind,
+    required this.loadFilters,
+    this.verifyAccess,
+  });
+
+  final String title;
+  final VideoSearchFilterKind kind;
+  final VideoSearchFilterLoader loadFilters;
+  final VideoSearchAccessVerifier? verifyAccess;
+
+  @override
+  State<_VideoSearchFilterPicker> createState() =>
+      _VideoSearchFilterPickerState();
+}
+
+class _VideoSearchFilterPickerState extends State<_VideoSearchFilterPicker> {
+  VideoCatalogPage? _page;
+  String? _requestedUrl;
+  String? _error;
+  MissavVerificationRequiredException? _verificationError;
+  bool _loading = true;
+  bool _verifyingAccess = false;
+  int _request = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_load(null));
+    });
+  }
+
+  Future<void> _load(String? pageUrl) async {
+    _requestedUrl = pageUrl;
+    final request = ++_request;
+    setState(() {
+      _loading = true;
+      _error = null;
+      _verificationError = null;
+    });
+    try {
+      final page = await widget.loadFilters(widget.kind, pageUrl);
+      if (!mounted || request != _request) return;
+      setState(() {
+        _page = page;
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted || request != _request) return;
+      setState(() {
+        _error = error.toString();
+        _verificationError = error is MissavVerificationRequiredException
+            ? error
+            : null;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _verifyAndRetry() async {
+    final verification = _verificationError;
+    final verifyAccess = widget.verifyAccess;
+    if (verification == null || verifyAccess == null || _verifyingAccess) {
+      return;
+    }
+    final request = _request;
+    setState(() => _verifyingAccess = true);
+    var verified = false;
+    try {
+      verified = await verifyAccess(context, verification);
+    } catch (_) {
+      verified = false;
+    } finally {
+      if (mounted) setState(() => _verifyingAccess = false);
+    }
+    if (!mounted ||
+        !verified ||
+        request != _request ||
+        verification != _verificationError) {
+      return;
+    }
+    await _load(_requestedUrl);
+  }
+
+  Widget _errorView(S s) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _verificationError == null
+                ? s.videoLoadFailed
+                : s.videoVerificationRequired,
+            textAlign: TextAlign.center,
           ),
-          if (_loading) const LinearProgressIndicator(minHeight: 2),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _verificationError == null
-                          ? s.videoLoadFailed
-                          : s.videoVerificationRequired,
-                    ),
-                  ),
-                  if (_verificationError != null && widget.verifyAccess != null)
-                    TextButton.icon(
-                      onPressed: _verifyingAccess ? null : _verifyAndRetry,
-                      icon: const Icon(Icons.verified_user_outlined),
-                      label: Text(s.videoVerifyAccess),
-                    ),
-                  TextButton(
-                    onPressed: _loading
-                        ? null
-                        : () => _retryAction?.call() ?? _runSearch(_query.text),
-                    child: Text(s.retry),
-                  ),
-                ],
+          Wrap(
+            alignment: WrapAlignment.center,
+            children: [
+              if (_verificationError != null && widget.verifyAccess != null)
+                TextButton.icon(
+                  onPressed: _verifyingAccess ? null : _verifyAndRetry,
+                  icon: const Icon(Icons.verified_user_outlined),
+                  label: Text(s.videoVerifyAccess),
+                ),
+              TextButton(
+                onPressed: _loading ? null : () => _load(_requestedUrl),
+                child: Text(s.retry),
               ),
-            ),
-          Expanded(
-            child: _results != null
-                ? _resultsView(_results!, layout)
-                : _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _history(history),
+            ],
           ),
         ],
       ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    final page = _page;
+    final height = min(
+      400.0,
+      MediaQuery.sizeOf(context).height * .55,
+    ).toDouble();
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: height,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? _errorView(s)
+            : page == null || page.links.isEmpty
+            ? Center(child: Text(s.noResults))
+            : ListView.separated(
+                itemCount: page.links.length,
+                separatorBuilder: (_, _) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final link = page.links[index];
+                  return ListTile(
+                    key: ValueKey('video-filter-option-${link.url}'),
+                    contentPadding: EdgeInsets.zero,
+                    title: Tooltip(
+                      message: link.label,
+                      child: Text(
+                        link.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.of(context).pop(link),
+                  );
+                },
+              ),
+      ),
+      actions: [
+        if (page?.previousUrl != null)
+          TextButton.icon(
+            onPressed: _loading ? null : () => _load(page!.previousUrl),
+            icon: const Icon(Icons.chevron_left),
+            label: Text(s.previousPage),
+          ),
+        if (page?.nextUrl != null)
+          TextButton.icon(
+            onPressed: _loading ? null : () => _load(page!.nextUrl),
+            icon: const Icon(Icons.chevron_right),
+            label: Text(s.nextPage),
+          ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(s.cancel),
+        ),
+      ],
     );
   }
 }

@@ -41,6 +41,30 @@ class VideoScreen extends ConsumerStatefulWidget {
 }
 
 class _VideoScreenState extends ConsumerState<VideoScreen> {
+  static const _approvedCatalogSlugs = {
+    'new',
+    'release',
+    'chinese-subtitle',
+    'weekly-hot',
+    'uncensored-leak',
+  };
+  // Keep path normalization aligned with MissavClient's locale handling.
+  static const _catalogSourceLanguages = {
+    'cn',
+    'zh',
+    'ja',
+    'en',
+    'ko',
+    'ms',
+    'th',
+    'de',
+    'fr',
+    'vi',
+    'id',
+    'fil',
+    'pt',
+  };
+
   late final MissavClient _client;
   late final VideoLibrary _library;
   late final VideoDownloads _downloads;
@@ -249,7 +273,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       builder: (_) => GlobalAudioPlayerWrapper.workDetails(
         child: VideoSearchScreen(
           title: s.search,
-          search: (query, isCurrent) async {
+          search: (query, filters, isCurrent) async {
             if (collectionKey != null &&
                 (collectionKey == 'favorites' || collectionKey == 'history')) {
               final videos = await _client.searchCollection(
@@ -259,8 +283,22 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
               );
               return VideoSearchResults.collection(videos);
             }
+            if (filters.isNotEmpty) {
+              return VideoSearchResults.collection(
+                await _client.searchWithFilters(
+                  query,
+                  filters,
+                  isCurrent: isCurrent,
+                ),
+              );
+            }
             return VideoSearchResults.catalog(await _client.search(query));
           },
+          loadFilters:
+              collectionKey == 'favorites' || collectionKey == 'history'
+              ? null
+              : (kind, pageUrl) =>
+                    _client.searchFilterOptions(kind, pageUrl: pageUrl),
           browsePage: _client.browse,
           accountClient:
               collectionKey == 'favorites' || collectionKey == 'history'
@@ -322,6 +360,57 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
 
   Future<void> _openCatalog(VideoLink link) => _loadUrl(link.url);
 
+  String _catalogUrl(String path) {
+    final home = Uri.parse(_client.homeUrl);
+    final basePath = home.path.replaceFirst(RegExp(r'/+$'), '');
+    return home.replace(path: '$basePath/$path').toString();
+  }
+
+  String? _catalogPath(String url) {
+    final segments = Uri.tryParse(url)?.pathSegments
+        .where((segment) => segment.isNotEmpty)
+        .map((segment) => segment.toLowerCase())
+        .toList();
+    if (segments == null) return null;
+    if (segments.isNotEmpty && RegExp(r'^dm\d+$').hasMatch(segments.first)) {
+      segments.removeAt(0);
+    }
+    if (segments.isNotEmpty &&
+        _catalogSourceLanguages.contains(segments.first)) {
+      segments.removeAt(0);
+    }
+    return segments.join('/');
+  }
+
+  Map<String, String> _sourceCatalogUrls() {
+    final page = _page;
+    if (page == null) return const {};
+    final urls = <String, String>{};
+    for (final link in [...page.navigation, ...page.links]) {
+      final slug = _catalogPath(link.url);
+      if (slug != null && _approvedCatalogSlugs.contains(slug)) {
+        urls.putIfAbsent(slug, () => link.url);
+      }
+    }
+    return urls;
+  }
+
+  List<VideoLink> _approvedCatalogLinks(S s) {
+    final sourceUrls = _sourceCatalogUrls();
+    VideoLink entry(String label, String slug) => VideoLink(
+      label: label,
+      url: sourceUrls[slug] ?? _catalogUrl(slug),
+      kind: VideoLinkKind.navigation,
+    );
+    return [
+      entry(s.videoRecentlyUpdated, 'new'),
+      entry(s.videoNewReleases, 'release'),
+      entry(s.videoChineseSubtitles, 'chinese-subtitle'),
+      entry(s.videoWeeklyHot, 'weekly-hot'),
+      entry(s.videoUncensoredLeak, 'uncensored-leak'),
+    ];
+  }
+
   Future<void> _openAccount() =>
       pushBottomDockRoute(context, builder: (_) => const VideoAccountScreen());
 
@@ -344,7 +433,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       segments.removeAt(0);
     }
     if (segments.isNotEmpty &&
-        const {'cn', 'en', 'ja'}.contains(segments.first)) {
+        _catalogSourceLanguages.contains(segments.first)) {
       segments.removeAt(0);
     }
     if (segments.length == 1) {
@@ -363,7 +452,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   }
 
   String? _collectionKeyForUrl(String url) {
-    final path = Uri.tryParse(url)?.path.toLowerCase();
+    final path = _catalogPath(url);
     if (path == null) return null;
     for (final key in const [
       'favorites',
@@ -371,9 +460,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       'playlists',
       'history',
     ]) {
-      final collectionPath = Uri.tryParse(
-        _client.collectionUrl(key),
-      )?.path.toLowerCase();
+      final collectionPath = _catalogPath(_client.collectionUrl(key));
       if (collectionPath == path) return key;
     }
     return null;
@@ -381,19 +468,6 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
 
   Future<void> _openCollection(String key) =>
       _loadUrl(_client.collectionUrl(key), collectionKey: key);
-
-  bool _isRemovedSourceEntry(VideoLink link) {
-    final path = Uri.tryParse(link.url)?.path.toLowerCase() ?? '';
-    final label = link.label.toLowerCase();
-    return path.contains('/vip') ||
-        label.contains('vip') ||
-        path.contains('/actresses/ranking') ||
-        path.contains('/actors/ranking') ||
-        ((path.contains('actress') || path.contains('actor')) &&
-            (path.contains('ranking') ||
-                label.contains('排行') ||
-                label.contains('ランキング')));
-  }
 
   IconData _directoryIcon(VideoLink link) => switch (link.kind) {
     VideoLinkKind.actor => Icons.person_outline,
@@ -404,7 +478,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _ => Icons.explore_outlined,
   };
 
-  Widget _directoryTile(VideoLink link) {
+  Widget _collectionLinkTile(VideoLink link) {
     Widget? trailing;
     if (link.kind == VideoLinkKind.actor) {
       final s = S.of(context);
@@ -442,9 +516,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         ],
       );
     }
-    return LibraryDrawerTile(
-      icon: _directoryIcon(link),
-      title: link.label,
+    return ListTile(
+      leading: Icon(_directoryIcon(link)),
+      title: Text(link.label),
       trailing: trailing,
       onTap: () => _openCatalog(link),
     );
@@ -664,19 +738,32 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     return s.videoLoadFailed;
   }
 
-  List<Widget> _drawer(LayoutType layoutType) {
-    final s = S.of(context);
-    final navigation = _page?.navigation ?? const <VideoLink>[];
-    final navigationUrls = navigation.map((link) => link.url).toSet();
-    final directoryLinks = (_page?.links ?? const <VideoLink>[])
+  List<VideoLink> _collectionLinksForContent(VideoCatalogPage page) {
+    final collectionKey = _collectionKeyForUrl(page.url);
+    if (collectionKey != _activeCollectionKey) return const [];
+    final kind = switch (collectionKey) {
+      'actorFavorites' => VideoLinkKind.actor,
+      'playlists' => VideoLinkKind.playlist,
+      _ => null,
+    };
+    if (kind == null) return const [];
+
+    final navigationUrls = page.navigation.map((link) => link.url).toSet();
+    final seenUrls = <String>{};
+    return page.links
         .where(
           (link) =>
-              link.kind != VideoLinkKind.video &&
+              link.kind == kind &&
               !_isCollectionLink(link) &&
-              !_isRemovedSourceEntry(link) &&
-              !navigationUrls.contains(link.url),
+              !navigationUrls.contains(link.url) &&
+              seenUrls.add(link.url),
         )
         .toList(growable: false);
+  }
+
+  List<Widget> _drawer(LayoutType layoutType) {
+    final s = S.of(context);
+    final catalogLinks = _approvedCatalogLinks(s);
     return [
       LibraryDrawerSection(
         title: s.videoSourceAccount,
@@ -703,18 +790,12 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                         Uri.tryParse(_client.homeUrl)?.path),
             onTap: () => _loadUrl(_client.homeUrl),
           ),
-          for (final link in navigation.where(
-            (link) =>
-                link.url != _client.homeUrl &&
-                !_isCollectionLink(link) &&
-                !_isRemovedSourceEntry(link),
-          ))
+          for (final link in catalogLinks)
             LibraryDrawerTile(
               icon: Icons.explore_outlined,
               title: link.label,
               onTap: () => _openCatalog(link),
             ),
-          for (final link in directoryLinks) _directoryTile(link),
         ],
       ),
       LibraryDrawerSection(
@@ -813,16 +894,21 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
     final page = _page;
     if (page == null) return const SizedBox.shrink();
+    final collectionLinks = _loading
+        ? const <VideoLink>[]
+        : _collectionLinksForContent(page);
     final pageSize = ref.watch(pageSizeProvider);
     final hasSourcePagination =
         page.previousUrl != null ||
         page.nextUrl != null ||
         page.jumpMaxPage != null;
-    final localPageCount = ((page.videos.length + pageSize - 1) ~/ pageSize)
+    final itemCount = collectionLinks.isEmpty
+        ? page.videos.length
+        : collectionLinks.length;
+    final localPageCount = ((itemCount + pageSize - 1) ~/ pageSize)
         .clamp(1, 1 << 30)
         .toInt();
-    final hasLocalPagination =
-        !hasSourcePagination && page.videos.length > pageSize;
+    final hasLocalPagination = !hasSourcePagination && itemCount > pageSize;
     final localPage = _localPage.clamp(1, localPageCount).toInt();
     final videos = hasLocalPagination
         ? page.videos
@@ -833,9 +919,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     final pagination = VirtualizedPagination(
       currentPage: hasSourcePagination ? page.currentPage : localPage,
       pageSize: hasSourcePagination
-          ? page.videos.length.clamp(1, 1000).toInt()
+          ? itemCount.clamp(1, 1000).toInt()
           : pageSize,
-      totalCount: hasSourcePagination ? null : page.videos.length,
+      totalCount: hasSourcePagination ? null : itemCount,
       jumpMaxPage: hasSourcePagination ? page.jumpMaxPage : null,
       hasMore: hasSourcePagination
           ? page.nextUrl != null
@@ -913,20 +999,39 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                 ),
               ),
             Expanded(
-              child: VideoCollectionView(
-                items: videos,
-                layoutType: layoutType,
-                itemId: (video) => video.id,
-                itemBuilder: (context, video, _) => VideoCard(
-                  video: video,
-                  layoutType: layoutType,
-                  onTap: () => _openDetails(video),
-                ),
-                controller: _scrollController,
-                pageStorageKey: PageStorageKey<String>('video-${page.url}'),
-                emptyBuilder: (_) => Center(child: Text(s.noResults)),
-                pagination: pagination,
-              ),
+              child: collectionLinks.isNotEmpty
+                  ? VirtualizedSliverCollection<VideoLink>(
+                      items: hasLocalPagination
+                          ? collectionLinks
+                                .skip((localPage - 1) * pageSize)
+                                .take(pageSize)
+                                .toList(growable: false)
+                          : collectionLinks,
+                      itemId: (link) => link.url,
+                      itemBuilder: (context, link, _) =>
+                          _collectionLinkTile(link),
+                      controller: _scrollController,
+                      pageStorageKey: PageStorageKey<String>(
+                        'video-links-${page.url}',
+                      ),
+                      pagination: pagination,
+                    )
+                  : VideoCollectionView(
+                      items: videos,
+                      layoutType: layoutType,
+                      itemId: (video) => video.id,
+                      itemBuilder: (context, video, _) => VideoCard(
+                        video: video,
+                        layoutType: layoutType,
+                        onTap: () => _openDetails(video),
+                      ),
+                      controller: _scrollController,
+                      pageStorageKey: PageStorageKey<String>(
+                        'video-${page.url}',
+                      ),
+                      emptyBuilder: (_) => Center(child: Text(s.noResults)),
+                      pagination: pagination,
+                    ),
             ),
           ],
         );

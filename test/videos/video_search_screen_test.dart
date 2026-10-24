@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,7 +30,7 @@ void main() {
       _app(
         VideoSearchScreen(
           title: 'Video search',
-          search: (query, _) async {
+          search: (query, _, _) async {
             submitted.add(query);
             return const VideoSearchResults.collection([result]);
           },
@@ -97,7 +99,7 @@ void main() {
           VideoSearchScreen(
             title: 'Video search',
             initialQuery: 'actor',
-            search: (_, _) async => VideoSearchResults.catalog(
+            search: (_, _, _) async => VideoSearchResults.catalog(
               VideoCatalogPage(
                 title: 'Search results',
                 url: 'https://missav.ai/en/search/actor',
@@ -146,7 +148,9 @@ void main() {
       _app(
         VideoSearchScreen(
           title: 'Video search',
-          search: (_, _) async => const VideoSearchResults.collection([result]),
+          search: (_, _, _) async =>
+              const VideoSearchResults.collection([result]),
+          loadFilters: (kind, _) async => _filterPage(kind),
           browsePage: (url) async =>
               VideoCatalogPage(title: 'Results', url: url),
           onOpenVideo: (context, _) {
@@ -160,6 +164,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _chooseFilter(tester, VideoSearchFilterKind.genre, 'Genre filter');
     await tester.enterText(
       find.byKey(const ValueKey('video-search-input')),
       'persistent',
@@ -173,6 +178,14 @@ void main() {
     Navigator.of(tester.element(find.text('Video details'))).pop();
     await tester.pumpAndSettle();
     expect(find.text('Persistent result'), findsOneWidget);
+    expect(
+      find.byKey(
+        ValueKey(
+          'selected-video-filter-${_filterUrl(VideoSearchFilterKind.genre)}',
+        ),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets(
@@ -193,7 +206,7 @@ void main() {
             title: 'Favorites search',
             initialQuery: 'actor',
             accountClient: client,
-            search: (_, _) async {
+            search: (_, _, _) async {
               searches++;
               return const VideoSearchResults.collection([privateResult]);
             },
@@ -253,7 +266,7 @@ void main() {
       _app(
         VideoSearchScreen(
           title: 'Video search',
-          search: (query, _) async {
+          search: (query, _, _) async {
             attempts++;
             if (attempts == 1) {
               throw const MissavVerificationRequiredException(
@@ -288,6 +301,362 @@ void main() {
     expect(find.text('Verified result'), findsOneWidget);
   });
 
+  testWidgets('global search combines a keyword with selected filters', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final submitted = <({String query, List<String> filterUrls})>[];
+    const result = VideoItem(
+      id: 'filtered-result',
+      title: 'Filtered result',
+      pageUrl: 'https://missav.ai/filtered-result',
+    );
+
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Video search',
+          search: (query, filters, _) async {
+            submitted.add((
+              query: query,
+              filterUrls: filters.map((filter) => filter.url).toList(),
+            ));
+            return const VideoSearchResults.collection([result]);
+          },
+          loadFilters: (kind, _) async => _filterPage(kind),
+          browsePage: (url) async =>
+              VideoCatalogPage(title: 'Results', url: url),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _chooseFilter(tester, VideoSearchFilterKind.genre, 'Genre filter');
+    expect(submitted.last.query, isEmpty);
+    expect(submitted.last.filterUrls, [
+      _filterUrl(VideoSearchFilterKind.genre),
+    ]);
+
+    await _chooseFilter(tester, VideoSearchFilterKind.actor, 'Actor filter');
+    expect(submitted.last.query, isEmpty);
+    expect(submitted.last.filterUrls, [
+      _filterUrl(VideoSearchFilterKind.genre),
+      _filterUrl(VideoSearchFilterKind.actor),
+    ]);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('video-search-input')),
+      'live keyword',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    expect(submitted.last.query, 'live keyword');
+    expect(submitted.last.filterUrls, [
+      _filterUrl(VideoSearchFilterKind.genre),
+      _filterUrl(VideoSearchFilterKind.actor),
+    ]);
+    expect(find.text('Filtered result'), findsOneWidget);
+
+    final l10n = await S.delegate.load(const Locale('en'));
+    await tester.tap(find.byTooltip(l10n.clear));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.history), findsOneWidget);
+    expect(
+      find.byKey(
+        ValueKey(
+          'selected-video-filter-${_filterUrl(VideoSearchFilterKind.genre)}',
+        ),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.byKey(
+        ValueKey(
+          'selected-video-filter-${_filterUrl(VideoSearchFilterKind.actor)}',
+        ),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('filter changes reset paging and ignore stale search results', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final staleSearch = Completer<VideoSearchResults>();
+    final submitted = <({String query, List<String> filterUrls})>[];
+    var searchCount = 0;
+    final freshResults = [
+      for (var index = 0; index < 41; index++)
+        VideoItem(
+          id: 'fresh-$index',
+          title: 'Fresh result $index',
+          pageUrl: 'https://missav.ai/fresh-$index',
+        ),
+    ];
+    final updatedResults = [
+      for (var index = 0; index < 41; index++)
+        VideoItem(
+          id: 'updated-$index',
+          title: 'Updated result $index',
+          pageUrl: 'https://missav.ai/updated-$index',
+        ),
+    ];
+    const staleResult = VideoItem(
+      id: 'stale',
+      title: 'Stale result',
+      pageUrl: 'https://missav.ai/stale',
+    );
+
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Video search',
+          search: (query, filters, _) {
+            submitted.add((
+              query: query,
+              filterUrls: filters.map((filter) => filter.url).toList(),
+            ));
+            searchCount++;
+            if (searchCount == 1) return staleSearch.future;
+            return Future.value(
+              VideoSearchResults.collection(
+                searchCount == 2 ? freshResults : updatedResults,
+              ),
+            );
+          },
+          loadFilters: (kind, _) async => _filterPage(kind),
+          browsePage: (url) async =>
+              VideoCatalogPage(title: 'Results', url: url),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _chooseFilter(
+      tester,
+      VideoSearchFilterKind.genre,
+      'Genre filter',
+      settle: false,
+    );
+    await _chooseFilter(
+      tester,
+      VideoSearchFilterKind.actor,
+      'Actor filter',
+      settle: false,
+    );
+    await tester.pump();
+    expect(find.text('Fresh result 0'), findsOneWidget);
+
+    staleSearch.complete(const VideoSearchResults.collection([staleResult]));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Stale result'), findsNothing);
+    expect(find.text('Fresh result 0'), findsOneWidget);
+
+    final l10n = await S.delegate.load(const Locale('en'));
+    await _scrollToPagination(tester);
+    await tester.tap(find.text(l10n.nextPage));
+    await tester.pumpAndSettle();
+    await _scrollToPagination(tester);
+    expect(
+      tester.widget<PaginationBar>(find.byType(PaginationBar)).currentPage,
+      2,
+    );
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(
+          ValueKey(
+            'selected-video-filter-${_filterUrl(VideoSearchFilterKind.actor)}',
+          ),
+        ),
+        matching: find.byIcon(Icons.close),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _scrollToPagination(tester);
+    expect(
+      tester.widget<PaginationBar>(find.byType(PaginationBar)).currentPage,
+      1,
+    );
+    expect(submitted.last.query, isEmpty);
+    expect(submitted.last.filterUrls, [
+      _filterUrl(VideoSearchFilterKind.genre),
+    ]);
+    tester
+        .widget<CustomScrollView>(find.byType(CustomScrollView))
+        .controller!
+        .jumpTo(0);
+    await tester.pumpAndSettle();
+    expect(find.text('Updated result 0'), findsOneWidget);
+  });
+
+  testWidgets('filter picker retries a failed directory load', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    var loads = 0;
+
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Video search',
+          search: (_, _, _) async => const VideoSearchResults.collection([]),
+          loadFilters: (kind, _) async {
+            loads++;
+            if (loads == 1) throw StateError('directory unavailable');
+            return _filterPage(kind);
+          },
+          browsePage: (url) async =>
+              VideoCatalogPage(title: 'Results', url: url),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('video-filter-genre')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump();
+    final l10n = await S.delegate.load(const Locale('en'));
+    expect(find.text(l10n.videoLoadFailed), findsOneWidget);
+
+    await tester.tap(find.text(l10n.retry));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump();
+    expect(loads, 2);
+    expect(
+      find.byKey(
+        const ValueKey('video-filter-option-https://missav.ai/filter/genre'),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('filter picker follows previous and next catalog pages', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final requestedUrls = <String?>[];
+    const nextUrl = 'https://missav.ai/genres?page=2';
+    const previousUrl = 'https://missav.ai/genres?page=1';
+
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Video search',
+          search: (_, _, _) async => const VideoSearchResults.collection([]),
+          loadFilters: (kind, pageUrl) async {
+            requestedUrls.add(pageUrl);
+            return pageUrl == nextUrl
+                ? const VideoCatalogPage(
+                    title: 'Genres',
+                    url: nextUrl,
+                    links: [
+                      VideoLink(
+                        label: 'Drama',
+                        url: 'https://missav.ai/genre/drama',
+                        kind: VideoLinkKind.category,
+                      ),
+                    ],
+                    previousUrl: previousUrl,
+                  )
+                : const VideoCatalogPage(
+                    title: 'Genres',
+                    url: 'https://missav.ai/genres',
+                    links: [
+                      VideoLink(
+                        label: 'Comedy',
+                        url: 'https://missav.ai/genre/comedy',
+                        kind: VideoLinkKind.category,
+                      ),
+                    ],
+                    nextUrl: nextUrl,
+                  );
+          },
+          browsePage: (url) async =>
+              VideoCatalogPage(title: 'Results', url: url),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('video-filter-genre')));
+    await tester.pumpAndSettle();
+    expect(find.text('Comedy'), findsOneWidget);
+
+    final l10n = await S.delegate.load(const Locale('en'));
+    await tester.tap(find.text(l10n.nextPage));
+    await tester.pumpAndSettle();
+    expect(find.text('Drama'), findsOneWidget);
+    await tester.tap(find.text(l10n.previousPage));
+    await tester.pumpAndSettle();
+    expect(find.text('Comedy'), findsOneWidget);
+    await tester.tap(find.text('Comedy'));
+    await tester.pumpAndSettle();
+
+    expect(requestedUrls, [null, nextUrl, previousUrl]);
+    expect(
+      find.byKey(
+        const ValueKey('selected-video-filter-https://missav.ai/genre/comedy'),
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'filter controls fit a narrow and expanded window at large text',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(320, 720);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
+
+      await tester.pumpWidget(
+        _app(
+          VideoSearchScreen(
+            title: 'Video search',
+            search: (_, _, _) async => const VideoSearchResults.collection([]),
+            loadFilters: (kind, _) async => _filterPage(
+              kind,
+              label: 'A very long filter label that should truncate cleanly',
+            ),
+            browsePage: (url) async =>
+                VideoCatalogPage(title: 'Results', url: url),
+          ),
+          textScale: 1.8,
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (final kind in VideoSearchFilterKind.values) {
+        await _chooseFilter(
+          tester,
+          kind,
+          'A very long filter label that should truncate cleanly',
+        );
+      }
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      tester.view.viewInsets = const FakeViewPadding();
+      tester.view.physicalSize = const Size(900, 900);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(
+          ValueKey(
+            'selected-video-filter-${_filterUrl(VideoSearchFilterKind.genre)}',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('small-grid video titles fit a narrow screen', (tester) async {
     SharedPreferences.setMockInitialValues({'video_layout_type': 'smallGrid'});
     tester.view.physicalSize = const Size(360, 720);
@@ -309,7 +678,7 @@ void main() {
         VideoSearchScreen(
           title: 'Video search',
           initialQuery: 'small grid',
-          search: (_, _) async => VideoSearchResults.collection(items),
+          search: (_, _, _) async => VideoSearchResults.collection(items),
           browsePage: (url) async =>
               VideoCatalogPage(title: 'Results', url: url),
         ),
@@ -336,6 +705,60 @@ Future<void> _scrollToPagination(WidgetTester tester) async {
   scrollController.jumpTo(scrollController.position.maxScrollExtent);
   await tester.pumpAndSettle();
 }
+
+Future<void> _chooseFilter(
+  WidgetTester tester,
+  VideoSearchFilterKind kind,
+  String label, {
+  bool settle = true,
+}) async {
+  await tester.tap(find.byKey(ValueKey('video-filter-${kind.name}')));
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump();
+  }
+  await tester.tap(
+    find.descendant(of: find.byType(AlertDialog), matching: find.text(label)),
+  );
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    await tester.pump();
+  }
+}
+
+VideoCatalogPage _filterPage(VideoSearchFilterKind kind, {String? label}) =>
+    VideoCatalogPage(
+      title: kind.name,
+      url: 'https://missav.ai/filter/${kind.name}',
+      links: [
+        VideoLink(
+          label: label ?? _filterLabel(kind),
+          url: _filterUrl(kind),
+          kind: switch (kind) {
+            VideoSearchFilterKind.genre => VideoLinkKind.category,
+            VideoSearchFilterKind.actor => VideoLinkKind.actor,
+            VideoSearchFilterKind.studio => VideoLinkKind.studio,
+            VideoSearchFilterKind.series => VideoLinkKind.collection,
+          },
+        ),
+      ],
+    );
+
+String _filterLabel(VideoSearchFilterKind kind) => switch (kind) {
+  VideoSearchFilterKind.genre => 'Genre filter',
+  VideoSearchFilterKind.actor => 'Actor filter',
+  VideoSearchFilterKind.studio => 'Studio filter',
+  VideoSearchFilterKind.series => 'Series filter',
+};
+
+String _filterUrl(VideoSearchFilterKind kind) =>
+    'https://missav.ai/filter/${kind.name}';
 
 Widget _app(Widget home, {double textScale = 1}) => ProviderScope(
   child: MaterialApp(

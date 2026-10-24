@@ -10,6 +10,8 @@ enum VideoLinkKind {
   other,
 }
 
+enum VideoSearchFilterKind { genre, actor, studio, series }
+
 class VideoItem {
   const VideoItem({
     required this.id,

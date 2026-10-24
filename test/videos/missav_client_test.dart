@@ -155,6 +155,14 @@ String? _headerValue(RequestOptions options, String name) {
 bool _hasHeader(Iterable<String> names, String name) =>
     names.any((candidate) => candidate.toLowerCase() == name.toLowerCase());
 
+String _searchCatalogHtml(List<String> ids, {String? nextUrl}) =>
+    '''
+<main>
+${ids.map((id) => '<div class="relative aspect-w-16 aspect-h-9"><a href="/cn/$id"><img alt="Video $id" src="https://media.example/$id.jpg"></a></div>').join()}
+${nextUrl == null ? '' : '<a href="$nextUrl" rel="next">Next</a>'}
+</main>
+''';
+
 void main() {
   group('VideoItem', () {
     test('round-trips its stable fields', () {
@@ -402,6 +410,176 @@ void main() {
       },
     );
   }
+
+  for (final entry in {
+    VideoSearchFilterKind.genre: 'genres',
+    VideoSearchFilterKind.actor: 'actresses',
+    VideoSearchFilterKind.studio: 'makers',
+    VideoSearchFilterKind.series: 'series',
+  }.entries) {
+    test('filter picker loads only ${entry.value} choices and pages', () async {
+      final route = entry.value;
+      final adapter = _Adapter(
+        (_) => _response('''
+<nav><a href="/ja/$route/navigation">Navigation</a></nav>
+<main>
+<a href="/dm123/ja/$route/choice">Choice</a>
+<a href="/ja/$route">Directory</a>
+<a href="/ja/$route/ranking">Ranking</a>
+<a href="/ja/history">History</a>
+<a href="/ja/new">New</a>
+<a href="https://elsewhere.example/$route/other">External</a>
+<a href="/ja/$route?page=2" rel="next">Next</a>
+</main>
+'''),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        secureStorage: _MemorySecureStorage(),
+      )..setLocale('ja');
+      addTearDown(client.dispose);
+
+      final page = await client.searchFilterOptions(entry.key);
+      expect(adapter.requests.single.uri.path, '/ja/$route');
+      expect(page.links.map((link) => link.label), ['Choice']);
+      expect(page.nextUrl, 'https://missav.ai/ja/$route?page=2');
+      await client.searchFilterOptions(entry.key, pageUrl: page.nextUrl);
+      expect(adapter.requests.last.uri.queryParameters['page'], '2');
+    });
+  }
+
+  test('combined search intersects every source across later pages', () async {
+    final adapter = _Adapter((request) {
+      final page = request.uri.queryParameters['page'] ?? '1';
+      final path = request.uri.path;
+      if (path.contains('/search/')) {
+        return _response(
+          _searchCatalogHtml(
+            page == '1' ? ['query-only'] : ['shared', 'genre-only', 'shared'],
+            nextUrl: page == '1' ? '/cn/search/needle%20words?page=2' : null,
+          ),
+        );
+      }
+      if (path == '/cn/genres/selected') {
+        return _response(
+          _searchCatalogHtml(
+            page == '1' ? ['genre-only'] : ['shared'],
+            nextUrl: page == '1' ? '/cn/genres/selected?page=2' : null,
+          ),
+        );
+      }
+      if (path == '/cn/actresses/selected') {
+        return _response(
+          _searchCatalogHtml(
+            page == '1' ? ['genre-only'] : ['shared'],
+            nextUrl: '/cn/actresses/selected?page=${int.parse(page) + 1}',
+          ),
+        );
+      }
+      return _response(_searchCatalogHtml(['shared']));
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = adapter,
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    final results = await client.searchWithFilters(' needle words ', const [
+      VideoLink(
+        label: 'Genre',
+        url: 'https://missav.ai/cn/genres/selected?page=9',
+      ),
+      VideoLink(label: 'Actor', url: 'https://missav.ai/cn/actresses/selected'),
+      VideoLink(label: 'Studio', url: 'https://missav.ai/cn/makers/selected'),
+    ]);
+
+    expect(results.map((video) => video.id), ['shared']);
+    expect(adapter.requests.first.uri.pathSegments.last, 'needle words');
+    expect(
+      adapter.requests.map(
+        (request) => request.uri.queryParameters['page'] ?? '1',
+      ),
+      ['1', '2', '1', '2', '1', '2', '1'],
+    );
+    expect(adapter.requests.last.uri.path, '/cn/makers/selected');
+  });
+
+  test(
+    'filter-only search keeps source order and deduplicates filters',
+    () async {
+      final adapter = _Adapter(
+        (_) => _response(_searchCatalogHtml(['second', 'first', 'second'])),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        secureStorage: _MemorySecureStorage(),
+      )..setLocale('ja');
+      addTearDown(client.dispose);
+      const filter = VideoLink(
+        label: 'Actor',
+        url: 'https://missav.ai/cn/actresses/selected',
+      );
+
+      final results = await client.searchWithFilters('', [filter, filter]);
+      expect(results.map((video) => video.id), ['second', 'first']);
+      expect(adapter.requests.single.uri.path, '/ja/actresses/selected');
+    },
+  );
+
+  test(
+    'superseded combined search stops before reading another page',
+    () async {
+      var current = true;
+      final adapter = _Adapter((_) {
+        current = false;
+        return _response(
+          _searchCatalogHtml(['one'], nextUrl: '/cn/genres/selected?page=2'),
+        );
+      });
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+
+      final result = await client.searchWithFilters('', const [
+        VideoLink(label: 'Genre', url: 'https://missav.ai/cn/genres/selected'),
+      ], isCurrent: () => current);
+      expect(result, isEmpty);
+      expect(adapter.requests, hasLength(1));
+    },
+  );
+
+  test(
+    'combined search fails rather than returning a partial intersection',
+    () async {
+      final adapter = _Adapter(
+        (request) => request.uri.path.contains('/genres/')
+            ? _response(_searchCatalogHtml(['one']))
+            : _response('Unavailable', statusCode: 503),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+
+      await expectLater(
+        client.searchWithFilters('', const [
+          VideoLink(
+            label: 'Genre',
+            url: 'https://missav.ai/cn/genres/selected',
+          ),
+          VideoLink(
+            label: 'Actor',
+            url: 'https://missav.ai/cn/actresses/selected',
+          ),
+        ]),
+        throwsA(isA<MissavException>()),
+      );
+      expect(adapter.requests, hasLength(2));
+    },
+  );
 
   test(
     'page jumps preserve collection filters without counting other catalogs',

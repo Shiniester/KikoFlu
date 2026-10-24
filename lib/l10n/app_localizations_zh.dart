@@ -4259,7 +4259,7 @@ class SZh extends S {
   String get navVideos => '视频';
 
   @override
-  String get videoSearchHint => '搜索视频、演员或厂商';
+  String get videoSearchHint => '搜索视频';
 
   @override
   String get videoSourceAccount => 'MissAV 账号';
@@ -4269,6 +4269,33 @@ class SZh extends S {
 
   @override
   String get videoContent => '内容';
+
+  @override
+  String get videoRecentlyUpdated => '最近更新';
+
+  @override
+  String get videoNewReleases => '新作上市';
+
+  @override
+  String get videoChineseSubtitles => '中文字幕';
+
+  @override
+  String get videoWeeklyHot => '本周热门';
+
+  @override
+  String get videoUncensoredLeak => '无码流出';
+
+  @override
+  String get videoFilterGenre => '类型';
+
+  @override
+  String get videoFilterActor => '女优';
+
+  @override
+  String get videoFilterStudio => '发行商';
+
+  @override
+  String get videoFilterSeries => '系列';
 
   @override
   String get videoFavorites => '视频收藏';
@@ -8647,7 +8674,7 @@ class SZhHant extends SZh {
   String get navVideos => '影片';
 
   @override
-  String get videoSearchHint => '搜尋影片、演員或片商';
+  String get videoSearchHint => '搜尋影片';
 
   @override
   String get videoSourceAccount => 'MissAV 帳號';
@@ -8657,6 +8684,33 @@ class SZhHant extends SZh {
 
   @override
   String get videoContent => '內容';
+
+  @override
+  String get videoRecentlyUpdated => '最近更新';
+
+  @override
+  String get videoNewReleases => '新作上市';
+
+  @override
+  String get videoChineseSubtitles => '中文字幕';
+
+  @override
+  String get videoWeeklyHot => '本週熱門';
+
+  @override
+  String get videoUncensoredLeak => '無碼流出';
+
+  @override
+  String get videoFilterGenre => '類型';
+
+  @override
+  String get videoFilterActor => '女優';
+
+  @override
+  String get videoFilterStudio => '發行商';
+
+  @override
+  String get videoFilterSeries => '系列';
 
   @override
   String get videoFavorites => '影片收藏';
