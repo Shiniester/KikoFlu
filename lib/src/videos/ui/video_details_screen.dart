@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../providers/works_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../missav_client.dart';
@@ -15,6 +17,7 @@ import '../video_library.dart';
 import '../video_models.dart';
 import '../video_providers.dart';
 import 'video_account_screen.dart';
+import 'video_collection_view.dart';
 import 'video_playback_panel.dart';
 import 'video_screen.dart';
 
@@ -129,7 +132,15 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
           task?.localPath?.isNotEmpty == true) {
         setState(() {
           _downloadedTask = task;
-          _details = VideoDetails(video: task!.video);
+          _details = VideoDetails(
+            video: task!.video,
+            actors: task.video.actors,
+            tags: task.video.tags,
+            metadata: {
+              if (task.video.releaseDate != null)
+                S.of(context).releaseDateInfo: task.video.releaseDate!,
+            },
+          );
           _loading = false;
         });
         return;
@@ -452,7 +463,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
     final stream = _selectedStream;
     if (stream == null) return;
     try {
-      await _downloads.add(widget.video, stream);
+      await _downloads.add(_details?.video ?? widget.video, stream);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(S.of(context).videoDownloadQueued)),
@@ -643,19 +654,18 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
                     .floor()
                     .clamp(1, 4)
                     .toInt();
-                return GridView.builder(
+                return MasonryGridView.count(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: details.related.length,
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: columns,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    childAspectRatio: .76,
-                  ),
-                  itemBuilder: (context, index) => _RelatedVideoCard(
+                  crossAxisCount: columns,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  itemBuilder: (context, index) => VideoCard(
                     video: details.related[index],
+                    layoutType: LayoutType.bigGrid,
                     onTap: () => _openRelated(details.related[index]),
+                    onOpenLink: _openCatalog,
                   ),
                 );
               },
@@ -775,51 +785,4 @@ class _PlaylistDialogState extends State<_PlaylistDialog> {
       ],
     );
   }
-}
-
-class _RelatedVideoCard extends StatelessWidget {
-  const _RelatedVideoCard({required this.video, required this.onTap});
-
-  final VideoItem video;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => Card(
-    clipBehavior: Clip.antiAlias,
-    child: InkWell(
-      onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            flex: 5,
-            child: video.cover.isEmpty
-                ? const ColoredBox(
-                    color: Colors.black12,
-                    child: Center(child: Icon(Icons.movie_outlined)),
-                  )
-                : Image.network(
-                    video.cover,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => const ColoredBox(
-                      color: Colors.black12,
-                      child: Center(child: Icon(Icons.movie_outlined)),
-                    ),
-                  ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Text(
-                video.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
 }

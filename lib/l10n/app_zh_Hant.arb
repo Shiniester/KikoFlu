@@ -1531,6 +1531,7 @@
   "videoPlay": "播放",
   "videoFullscreen": "切換全螢幕",
   "videoSubtitle": "字幕",
+  "videoUncensored": "無碼",
   "videoFavoriteActor": "收藏演員",
   "videoUnfavoriteActor": "取消演員收藏"
 }

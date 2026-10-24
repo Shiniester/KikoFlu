@@ -8140,6 +8140,12 @@ abstract class S {
   /// **'Subtitles'**
   String get videoSubtitle;
 
+  /// Tooltip for the uncensored video cover badge.
+  ///
+  /// In en, this message translates to:
+  /// **'Uncensored'**
+  String get videoUncensored;
+
   /// No description provided for @videoFavoriteActor.
   ///
   /// In en, this message translates to:

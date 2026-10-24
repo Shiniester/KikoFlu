@@ -1024,6 +1024,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                         video: video,
                         layoutType: layoutType,
                         onTap: () => _openDetails(video),
+                        onOpenLink: _openCatalog,
                       ),
                       controller: _scrollController,
                       pageStorageKey: PageStorageKey<String>(

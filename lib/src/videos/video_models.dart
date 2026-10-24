@@ -19,6 +19,11 @@ class VideoItem {
     required this.pageUrl,
     this.cover = '',
     this.durationSeconds,
+    this.releaseDate,
+    this.actors = const [],
+    this.tags = const [],
+    this.hasSubtitles = false,
+    this.isUncensored = false,
   });
 
   final String id;
@@ -26,6 +31,11 @@ class VideoItem {
   final String pageUrl;
   final String cover;
   final int? durationSeconds;
+  final String? releaseDate;
+  final List<VideoLink> actors;
+  final List<VideoLink> tags;
+  final bool hasSubtitles;
+  final bool isUncensored;
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -33,6 +43,11 @@ class VideoItem {
     'pageUrl': pageUrl,
     'cover': cover,
     'durationSeconds': durationSeconds,
+    'releaseDate': releaseDate,
+    'actors': actors.map((actor) => actor.toJson()).toList(),
+    'tags': tags.map((tag) => tag.toJson()).toList(),
+    'hasSubtitles': hasSubtitles,
+    'isUncensored': isUncensored,
   };
 
   factory VideoItem.fromJson(Map<String, dynamic> json) => VideoItem(
@@ -41,6 +56,18 @@ class VideoItem {
     pageUrl: json['pageUrl'] as String,
     cover: json['cover'] as String? ?? '',
     durationSeconds: (json['durationSeconds'] as num?)?.toInt(),
+    releaseDate: json['releaseDate'] as String?,
+    actors: (json['actors'] as List? ?? const [])
+        .map(
+          (actor) =>
+              VideoLink.fromJson(Map<String, dynamic>.from(actor as Map)),
+        )
+        .toList(),
+    tags: (json['tags'] as List? ?? const [])
+        .map((tag) => VideoLink.fromJson(Map<String, dynamic>.from(tag as Map)))
+        .toList(),
+    hasSubtitles: json['hasSubtitles'] as bool? ?? false,
+    isUncensored: json['isUncensored'] as bool? ?? false,
   );
 }
 

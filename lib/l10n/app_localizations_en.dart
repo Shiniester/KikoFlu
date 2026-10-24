@@ -4566,6 +4566,9 @@ class SEn extends S {
   String get videoSubtitle => 'Subtitles';
 
   @override
+  String get videoUncensored => 'Uncensored';
+
+  @override
   String get videoFavoriteActor => 'Favorite actor';
 
   @override

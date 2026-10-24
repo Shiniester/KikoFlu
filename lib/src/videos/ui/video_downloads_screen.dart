@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../utils/collection_grid_layout.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/works_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
@@ -17,6 +18,7 @@ import '../video_providers.dart';
 import 'video_details_screen.dart';
 import 'video_collection_view.dart';
 import 'video_search_screen.dart';
+import 'video_screen.dart';
 
 class VideoDownloadsScreen extends ConsumerStatefulWidget {
   const VideoDownloadsScreen({super.key});
@@ -133,24 +135,9 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    SizedBox(
-                      width: 104,
-                      child: AspectRatio(
-                        aspectRatio: 16 / 9,
-                        child: task.video.cover.isEmpty
-                            ? const ColoredBox(
-                                color: Colors.black12,
-                                child: Icon(Icons.movie_outlined),
-                              )
-                            : Image.network(
-                                task.video.cover,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, _, _) => const ColoredBox(
-                                  color: Colors.black12,
-                                  child: Icon(Icons.movie_outlined),
-                                ),
-                              ),
-                      ),
+                    SizedBox.fromSize(
+                      size: collectionListCoverSize,
+                      child: VideoCover(video: task.video),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -300,6 +287,12 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
               subtitle: layoutType == LayoutType.list && task != null
                   ? '${_status(task, s)} · ${task.quality}'
                   : null,
+              onOpenLink: (link) => unawaited(
+                pushBottomDockRoute(
+                  context,
+                  builder: (_) => VideoScreen.catalog(url: link.url),
+                ),
+              ),
             );
           },
           onOpenVideo: (searchContext, video) {

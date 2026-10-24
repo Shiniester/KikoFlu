@@ -533,6 +533,23 @@ ${_url(cdnServer, '/segment.m4s')}
         title: 'Private video',
         pageUrl:
             'https://missav.ai/video/auth?access_token=page-secret&lang=en',
+        releaseDate: '2024-03-02',
+        actors: [
+          VideoLink(
+            label: 'Sample actor',
+            url: 'https://missav.ai/cn/actresses/sample',
+            kind: VideoLinkKind.actor,
+          ),
+        ],
+        tags: [
+          VideoLink(
+            label: 'Drama',
+            url: 'https://missav.ai/cn/genres/drama',
+            kind: VideoLinkKind.category,
+          ),
+        ],
+        hasSubtitles: true,
+        isUncensored: true,
       );
       const stream = VideoStream(
         label: '720p',
@@ -560,6 +577,12 @@ ${_url(cdnServer, '/segment.m4s')}
       final restoredClient = _fixtureClient(video, stream);
       final restored = await _downloads(restoredClient);
       expect(restored.forVideo(video.id)!.status, VideoDownloadStatus.paused);
+      final restoredVideo = restored.forVideo(video.id)!.video;
+      expect(restoredVideo.releaseDate, video.releaseDate);
+      expect(restoredVideo.actors.single.label, 'Sample actor');
+      expect(restoredVideo.tags.single.label, 'Drama');
+      expect(restoredVideo.hasSubtitles, isTrue);
+      expect(restoredVideo.isUncensored, isTrue);
     },
   );
 }

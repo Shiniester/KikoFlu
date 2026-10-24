@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -328,14 +329,25 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     with WidgetsBindingObserver {
   late final VideoPlaybackSession _session;
   final ValueNotifier<int> _uiRevision = ValueNotifier(0);
+  final FocusNode _focusNode = FocusNode(debugLabel: 'Video player');
   late double _volume;
   late int _streamIndex;
   late Future<void> _loadTail;
+  Future<void> _rateTail = Future<void>.value();
   Timer? _saveTimer;
+  Timer? _controlsTimer;
   Duration? _pendingLoadPosition;
+  Duration? _seekPreview;
+  Duration? _dragStartPosition;
+  double? _dragStartX;
   Duration _pendingLoadBasePosition = Duration.zero;
   ModalRoute<dynamic>? _route;
   PageRoute<void>? _fullscreenRoute;
+  double? _temporaryRate;
+  bool _controlsVisible = true;
+  bool _controlsInteracting = false;
+  bool _lastPlaying = false;
+  bool _lastBuffering = false;
   bool _loading = true;
   bool _fullscreen = false;
   bool _routeCovered = false;
@@ -377,6 +389,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     if (oldWidget.videoId != widget.videoId ||
         oldWidget.localPath != widget.localPath ||
         !listEquals(oldWidget.streams, widget.streams)) {
+      _stopTemporaryRate();
       if (oldWidget.videoId != widget.videoId) _sourceLoaded = false;
       _streamIndex = 0;
       unawaited(_loadSource(position: widget.initialPosition));
@@ -390,6 +403,9 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
+      _stopTemporaryRate();
+      _controlsTimer?.cancel();
+      _showControls();
       unawaited(_pauseAndSave());
     }
   }
@@ -404,6 +420,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     if (_fullscreen || route.isCurrent || _routeCovered) return;
     if ((route.secondaryAnimation?.value ?? 0) > 0) {
       _routeCovered = true;
+      _stopTemporaryRate();
       unawaited(_pauseAndSave());
     }
   }
@@ -440,13 +457,19 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         await _session.play();
       }
       if (!mounted || generation != _loadGeneration) return;
-      _updatePlayerState(() => _loading = false);
+      _updatePlayerState(() {
+        _loading = false;
+        _controlsVisible = true;
+      });
+      _scheduleControlsHide();
     });
     _loadTail = operation.catchError((Object error, StackTrace stackTrace) {
       if (!mounted || generation != _loadGeneration) return;
+      _controlsTimer?.cancel();
       _updatePlayerState(() {
         _loading = false;
         _error = error.toString();
+        _controlsVisible = true;
       });
     });
     return _loadTail;
@@ -457,16 +480,226 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       await action();
     } catch (error) {
       if (!mounted) return;
-      _updatePlayerState(() => _error = error.toString());
+      _controlsTimer?.cancel();
+      _updatePlayerState(() {
+        _error = error.toString();
+        _controlsVisible = true;
+      });
     }
   }
 
-  Future<void> _setRate(double value) => _invoke(() => _session.setRate(value));
+  Future<void> _setRate(double value) => _queueRate(value);
+
+  Future<void> _queueRate(double rate) {
+    final operation = _rateTail.then((_) => _session.setRate(rate));
+    _rateTail = operation.catchError((Object error, StackTrace stackTrace) {
+      if (!mounted) return;
+      _controlsTimer?.cancel();
+      _updatePlayerState(() {
+        _error = error.toString();
+        _controlsVisible = true;
+      });
+    });
+    return _rateTail;
+  }
+
+  void _startTemporaryRate() {
+    if (_temporaryRate != null || !_session.snapshot.value.playing) return;
+    _temporaryRate = _session.snapshot.value.rate;
+    _showControls();
+    unawaited(_queueRate(2));
+  }
+
+  void _stopTemporaryRate() {
+    final rate = _temporaryRate;
+    if (rate == null) return;
+    _temporaryRate = null;
+    unawaited(_queueRate(rate));
+    _scheduleControlsHide();
+  }
+
+  bool _canHideControls(VideoPlaybackSnapshot snapshot) =>
+      snapshot.playing &&
+      !_loading &&
+      !_controlsInteracting &&
+      !snapshot.buffering &&
+      snapshot.error == null &&
+      _error == null &&
+      _temporaryRate == null &&
+      _seekPreview == null;
+
+  void _scheduleControlsHide() {
+    _controlsTimer?.cancel();
+    if (!_canHideControls(_session.snapshot.value)) return;
+    _controlsTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && _canHideControls(_session.snapshot.value)) {
+        _updatePlayerState(() => _controlsVisible = false);
+      }
+    });
+  }
+
+  void _beginControlsInteraction() {
+    _controlsInteracting = true;
+    _controlsTimer?.cancel();
+    if (!_controlsVisible) _updatePlayerState(() => _controlsVisible = true);
+  }
+
+  void _endControlsInteraction() {
+    if (!_controlsInteracting) return;
+    _controlsInteracting = false;
+    _scheduleControlsHide();
+  }
+
+  void _showControls() {
+    if (!_controlsVisible) _updatePlayerState(() => _controlsVisible = true);
+    _scheduleControlsHide();
+  }
+
+  void _toggleControls() {
+    final snapshot = _session.snapshot.value;
+    if (!_canHideControls(snapshot)) {
+      _showControls();
+      return;
+    }
+    if (_controlsVisible) {
+      _controlsTimer?.cancel();
+      _updatePlayerState(() => _controlsVisible = false);
+    } else {
+      _showControls();
+    }
+  }
+
+  Duration _clampPosition(Duration position, Duration duration) => Duration(
+    milliseconds: position.inMilliseconds
+        .clamp(0, duration.inMilliseconds > 0 ? duration.inMilliseconds : 0)
+        .toInt(),
+  );
+
+  void _startSurfaceSeek() {
+    _previewSeek(_dragStartPosition);
+  }
+
+  void _updateSurfaceSeek(double dx, double width) {
+    final startX = _dragStartX;
+    final startPosition = _dragStartPosition;
+    final duration = _session.snapshot.value.duration;
+    if (startX == null || startPosition == null || width <= 0) return;
+    final dragDuration = duration < const Duration(seconds: 120)
+        ? duration
+        : const Duration(seconds: 120);
+    final delta = Duration(
+      milliseconds: ((dx - startX) / width * dragDuration.inMilliseconds)
+          .round(),
+    );
+    _previewSeek(_clampPosition(startPosition + delta, duration));
+  }
+
+  void _previewSeek(Duration? position) {
+    if (position == null) return;
+    _controlsTimer?.cancel();
+    _updatePlayerState(() {
+      _seekPreview = position;
+      _controlsVisible = true;
+    });
+  }
+
+  void _finishSeek([Duration? position]) {
+    final target = position ?? _seekPreview;
+    if (target == null) return;
+    final clamped = _clampPosition(target, _session.snapshot.value.duration);
+    _updatePlayerState(() {
+      _seekPreview = null;
+      _dragStartX = null;
+      _dragStartPosition = null;
+    });
+    unawaited(_invoke(() => _session.seek(clamped)));
+    _scheduleControlsHide();
+  }
+
+  void _cancelSeekPreview() {
+    if (_seekPreview == null) return;
+    _updatePlayerState(() {
+      _seekPreview = null;
+      _dragStartX = null;
+      _dragStartPosition = null;
+    });
+    _scheduleControlsHide();
+  }
+
+  void _togglePlayback() {
+    final snapshot = _session.snapshot.value;
+    if (_error != null || snapshot.error != null) return;
+    _routeCovered = false;
+    unawaited(_invoke(snapshot.playing ? _session.pause : _session.play));
+    _showControls();
+  }
+
+  KeyEventResult _handlePlayerKey(
+    KeyEvent event, {
+    required bool fullscreen,
+    required VoidCallback onFullscreen,
+  }) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final snapshot = _session.snapshot.value;
+    switch (event.logicalKey) {
+      case LogicalKeyboardKey.space:
+        _togglePlayback();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.arrowLeft:
+      case LogicalKeyboardKey.arrowRight:
+        if (snapshot.duration <= Duration.zero) return KeyEventResult.handled;
+        final base = _seekPreview ?? snapshot.position;
+        final amount = Duration(
+          seconds: event.logicalKey == LogicalKeyboardKey.arrowLeft ? -5 : 5,
+        );
+        _finishSeek(base + amount);
+        _showControls();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.keyF:
+        onFullscreen();
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.escape:
+        if (fullscreen) onFullscreen();
+        return fullscreen ? KeyEventResult.handled : KeyEventResult.ignored;
+      default:
+        return KeyEventResult.ignored;
+    }
+  }
 
   void _onSnapshotChanged() {
+    final snapshot = _session.snapshot.value;
+    if (snapshot.playing != _lastPlaying) {
+      _lastPlaying = snapshot.playing;
+      if (snapshot.playing) {
+        _controlsVisible = true;
+        _scheduleControlsHide();
+      } else {
+        _controlsTimer?.cancel();
+        if (!_controlsVisible && mounted) {
+          _updatePlayerState(() => _controlsVisible = true);
+        }
+      }
+    }
+    if (snapshot.buffering != _lastBuffering) {
+      _lastBuffering = snapshot.buffering;
+      if (snapshot.buffering) {
+        _controlsTimer?.cancel();
+        if (!_controlsVisible && mounted) {
+          _updatePlayerState(() => _controlsVisible = true);
+        }
+      } else if (snapshot.playing) {
+        _controlsVisible = true;
+        _scheduleControlsHide();
+      }
+    }
+    if (snapshot.error != null) {
+      _controlsTimer?.cancel();
+      if (!_controlsVisible && mounted) {
+        _updatePlayerState(() => _controlsVisible = true);
+      }
+    }
     final pending = _pendingLoadPosition;
     if (pending == null) return;
-    final snapshot = _session.snapshot.value;
     if (snapshot.position >= pending &&
         (snapshot.position == pending ||
             snapshot.position != _pendingLoadBasePosition)) {
@@ -500,13 +733,23 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     try {
       await widget.library.setVolume(value);
     } catch (error) {
-      if (mounted) _updatePlayerState(() => _error = error.toString());
+      if (mounted) {
+        _controlsTimer?.cancel();
+        _updatePlayerState(() {
+          _error = error.toString();
+          _controlsVisible = true;
+        });
+      }
     }
   }
 
   Future<void> _pauseAndSave() async {
     _pauseGeneration++;
+    _controlsInteracting = false;
+    _stopTemporaryRate();
+    _controlsTimer?.cancel();
     try {
+      await _rateTail;
       await _session.pause();
     } catch (_) {
       // A player that failed to open still needs its last known position saved.
@@ -530,6 +773,10 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
 
   Future<void> _enterFullscreen() async {
     if (_fullscreen || !mounted) return;
+    _stopTemporaryRate();
+    _endControlsInteraction();
+    _cancelSeekPreview();
+    _controlsTimer?.cancel();
     _updatePlayerState(() => _fullscreen = true);
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted) return;
@@ -554,11 +801,24 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     );
     _fullscreenRoute = route;
     try {
-      await Navigator.of(context).push<void>(route);
+      final popped = Navigator.of(context).push<void>(route);
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted) {
+        _focusNode.requestFocus();
+        _showControls();
+      }
+      await popped;
       await route.completed;
     } finally {
+      _stopTemporaryRate();
+      _endControlsInteraction();
+      _cancelSeekPreview();
       if (identical(_fullscreenRoute, route)) _fullscreenRoute = null;
-      if (mounted) _updatePlayerState(() => _fullscreen = false);
+      if (mounted) {
+        _updatePlayerState(() => _fullscreen = false);
+        _focusNode.requestFocus();
+        _scheduleControlsHide();
+      }
     }
   }
 
@@ -577,290 +837,417 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     BuildContext context, {
     required bool fullscreen,
     required VoidCallback onFullscreen,
-  }) => Center(
-    child: AspectRatio(
-      aspectRatio: 16 / 9,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          ColoredBox(
-            color: Colors.black,
-            child: _session.buildSurface(aspectRatio: 16 / 9),
-          ),
-          ValueListenableBuilder<VideoPlaybackSnapshot>(
-            valueListenable: _session.snapshot,
-            builder: (context, snapshot, _) {
-              if (_error != null || snapshot.error != null) {
-                return Center(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(8, 52, 8, 4),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          S.of(context).videoPlaybackFailed,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                        Wrap(
-                          alignment: WrapAlignment.center,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            IconButton(
-                              tooltip: S.of(context).retry,
-                              color: Colors.white,
-                              icon: const Icon(Icons.refresh),
-                              onPressed: () => unawaited(
-                                _loadSource(
-                                  position: snapshot.position,
-                                  resume: snapshot.playing,
-                                ),
-                              ),
-                            ),
-                            if (widget.onVerifyAccess != null)
-                              TextButton.icon(
-                                onPressed: () => unawaited(_verifyAccess()),
-                                icon: const Icon(Icons.verified_user_outlined),
-                                label: Text(S.of(context).videoVerifyAccess),
-                              ),
-                            if (widget.onOpenSource != null)
-                              TextButton.icon(
-                                onPressed: widget.onOpenSource,
-                                icon: const Icon(Icons.open_in_new),
-                                label: Text(S.of(context).videoOpenSource),
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }
-              if (_loading || snapshot.buffering) {
-                return const Center(
-                  child: CircularProgressIndicator(
-                    key: ValueKey('video-playback-loading'),
-                    color: Colors.white,
-                  ),
-                );
-              }
-              return const SizedBox.shrink();
-            },
-          ),
-          ValueListenableBuilder<VideoPlaybackSnapshot>(
-            valueListenable: _session.snapshot,
-            builder: (context, snapshot, _) {
-              final hasError = _error != null || snapshot.error != null;
-              return Stack(
-                children: [
-                  Positioned(
-                    top: 4,
-                    right: 4,
-                    child: IconButton(
-                      tooltip: S.of(context).videoFullscreen,
-                      color: Colors.white,
-                      icon: Icon(
-                        fullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
-                      ),
-                      onPressed: onFullscreen,
-                    ),
-                  ),
-                  if (!hasError)
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: _buildControls(context, fullscreen: fullscreen),
-                    ),
-                ],
-              );
-            },
-          ),
-        ],
-      ),
+  }) => Focus(
+    key: const ValueKey('video-player-focus'),
+    focusNode: _focusNode,
+    autofocus: fullscreen,
+    onKeyEvent: (node, event) => _handlePlayerKey(
+      event,
+      fullscreen: fullscreen,
+      onFullscreen: onFullscreen,
     ),
-  );
-
-  Widget _buildControls(BuildContext context, {required bool fullscreen}) =>
-      ValueListenableBuilder<VideoPlaybackSnapshot>(
-        valueListenable: _session.snapshot,
-        builder: (context, snapshot, _) {
-          final durationMs = snapshot.duration.inMilliseconds;
-          final positionMs = snapshot.position.inMilliseconds
-              .clamp(0, durationMs > 0 ? durationMs : 0)
-              .toDouble();
-          final s = S.of(context);
-          return Material(
-            color: Colors.black.withValues(alpha: .72),
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: fullscreen ? 18 : 8,
-                vertical: fullscreen ? 8 : 4,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+    child: Listener(
+      onPointerDown: (_) => _focusNode.requestFocus(),
+      onPointerCancel: (_) {
+        _endControlsInteraction();
+        _cancelSeekPreview();
+      },
+      child: MouseRegion(
+        onHover: (_) => _showControls(),
+        child: Center(
+          child: AspectRatio(
+            aspectRatio: 16 / 9,
+            child: LayoutBuilder(
+              builder: (context, constraints) => Stack(
+                fit: StackFit.expand,
                 children: [
-                  Row(
-                    children: [
-                      Text(
-                        _formatTime(snapshot.position),
-                        style: const TextStyle(color: Colors.white),
+                  GestureDetector(
+                    key: const ValueKey('video-gesture-surface'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _toggleControls,
+                    onDoubleTap: _togglePlayback,
+                    onHorizontalDragStart: (_) => _startSurfaceSeek(),
+                    onHorizontalDragUpdate: (details) => _updateSurfaceSeek(
+                      details.localPosition.dx,
+                      constraints.maxWidth,
+                    ),
+                    onHorizontalDragEnd: (_) => _finishSeek(),
+                    onHorizontalDragCancel: _cancelSeekPreview,
+                    onLongPressStart: (_) => _startTemporaryRate(),
+                    onLongPressEnd: (_) => _stopTemporaryRate(),
+                    onLongPressCancel: _stopTemporaryRate,
+                    child: Listener(
+                      behavior: HitTestBehavior.opaque,
+                      onPointerDown: (event) {
+                        final snapshot = _session.snapshot.value;
+                        _dragStartX = event.localPosition.dx;
+                        _dragStartPosition = snapshot.duration > Duration.zero
+                            ? _clampPosition(
+                                snapshot.position,
+                                snapshot.duration,
+                              )
+                            : null;
+                      },
+                      onPointerUp: (_) {
+                        if (_seekPreview == null) {
+                          _dragStartX = null;
+                          _dragStartPosition = null;
+                        }
+                      },
+                      onPointerCancel: (_) {
+                        _cancelSeekPreview();
+                        _dragStartX = null;
+                        _dragStartPosition = null;
+                      },
+                      child: ColoredBox(
+                        color: Colors.black,
+                        child: _session.buildSurface(aspectRatio: 16 / 9),
                       ),
-                      Expanded(
-                        child: Slider(
-                          min: 0,
-                          max: durationMs > 0 ? durationMs.toDouble() : 1,
-                          value: durationMs > 0 ? positionMs : 0,
-                          onChanged: durationMs <= 0
-                              ? null
-                              : (value) => unawaited(
-                                  _invoke(
-                                    () => _session.seek(
-                                      Duration(milliseconds: value.round()),
+                    ),
+                  ),
+                  ValueListenableBuilder<VideoPlaybackSnapshot>(
+                    valueListenable: _session.snapshot,
+                    builder: (context, snapshot, _) {
+                      if (_error != null || snapshot.error != null) {
+                        return Center(
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.fromLTRB(8, 52, 8, 4),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  S.of(context).videoPlaybackFailed,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                                Wrap(
+                                  alignment: WrapAlignment.center,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    IconButton(
+                                      tooltip: S.of(context).retry,
+                                      color: Colors.white,
+                                      icon: const Icon(Icons.refresh),
+                                      onPressed: () => unawaited(
+                                        _loadSource(
+                                          position: snapshot.position,
+                                          resume: snapshot.playing,
+                                        ),
+                                      ),
+                                    ),
+                                    if (widget.onVerifyAccess != null)
+                                      TextButton.icon(
+                                        onPressed: () =>
+                                            unawaited(_verifyAccess()),
+                                        icon: const Icon(
+                                          Icons.verified_user_outlined,
+                                        ),
+                                        label: Text(
+                                          S.of(context).videoVerifyAccess,
+                                        ),
+                                      ),
+                                    if (widget.onOpenSource != null)
+                                      TextButton.icon(
+                                        onPressed: widget.onOpenSource,
+                                        icon: const Icon(Icons.open_in_new),
+                                        label: Text(
+                                          S.of(context).videoOpenSource,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }
+                      if (_loading || snapshot.buffering) {
+                        return const Center(
+                          child: CircularProgressIndicator(
+                            key: ValueKey('video-playback-loading'),
+                            color: Colors.white,
+                          ),
+                        );
+                      }
+                      return const SizedBox.shrink();
+                    },
+                  ),
+                  ValueListenableBuilder<VideoPlaybackSnapshot>(
+                    valueListenable: _session.snapshot,
+                    builder: (context, snapshot, _) {
+                      final hasError = _error != null || snapshot.error != null;
+                      final controlsVisible =
+                          _controlsVisible ||
+                          !snapshot.playing ||
+                          _loading ||
+                          snapshot.buffering ||
+                          hasError;
+                      return Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (controlsVisible)
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Colors.black.withValues(alpha: .42),
+                                        Colors.transparent,
+                                        Colors.transparent,
+                                        Colors.black.withValues(alpha: .78),
+                                      ],
+                                      stops: const [0, .2, .58, 1],
                                     ),
                                   ),
                                 ),
-                        ),
-                      ),
-                      Text(
-                        _formatTime(snapshot.duration),
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                    ],
-                  ),
-                  Wrap(
-                    spacing: 0,
-                    runSpacing: 0,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      IconButton(
-                        tooltip: snapshot.playing ? s.pause : s.videoPlay,
-                        color: Colors.white,
-                        icon: Icon(
-                          snapshot.playing ? Icons.pause : Icons.play_arrow,
-                        ),
-                        onPressed: () {
-                          _routeCovered = false;
-                          unawaited(
-                            _invoke(
-                              snapshot.playing ? _session.pause : _session.play,
+                              ),
                             ),
-                          );
-                        },
-                      ),
-                      if (widget.streams.length > 1)
-                        PopupMenuButton<int>(
-                          tooltip: s.videoQuality,
-                          initialValue: _streamIndex,
-                          icon: const Icon(
-                            Icons.high_quality_outlined,
-                            color: Colors.white,
-                          ),
-                          onSelected: (index) =>
-                              unawaited(_selectStream(index)),
-                          itemBuilder: (context) => [
-                            for (
-                              var index = 0;
-                              index < widget.streams.length;
-                              index++
-                            )
-                              PopupMenuItem(
-                                value: index,
-                                child: Text(widget.streams[index].label),
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: IgnorePointer(
+                              ignoring: !controlsVisible,
+                              child: AnimatedOpacity(
+                                key: const ValueKey('video-fullscreen-control'),
+                                opacity: controlsVisible ? 1 : 0,
+                                duration: const Duration(milliseconds: 180),
+                                child: IconButton(
+                                  tooltip: S.of(context).videoFullscreen,
+                                  color: Colors.white,
+                                  icon: Icon(
+                                    fullscreen
+                                        ? Icons.fullscreen_exit
+                                        : Icons.fullscreen,
+                                  ),
+                                  onPressed: onFullscreen,
+                                ),
                               ),
-                          ],
-                        ),
-                      if (snapshot.audioTracks.length > 1)
-                        PopupMenuButton<String>(
-                          tooltip: s.audioFormatPreference,
-                          icon: const Icon(
-                            Icons.audiotrack_outlined,
-                            color: Colors.white,
+                            ),
                           ),
-                          onSelected: (id) => unawaited(
-                            _invoke(() => _session.selectAudioTrack(id)),
-                          ),
-                          itemBuilder: (context) => [
-                            for (final track in snapshot.audioTracks)
-                              PopupMenuItem(
-                                value: track.id,
-                                child: Text(track.label),
+                          if (!hasError)
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              child: IgnorePointer(
+                                ignoring: !controlsVisible,
+                                child: AnimatedOpacity(
+                                  key: const ValueKey('video-controls'),
+                                  opacity: controlsVisible ? 1 : 0,
+                                  duration: const Duration(milliseconds: 180),
+                                  child: _buildControls(
+                                    context,
+                                    fullscreen: fullscreen,
+                                    snapshot: snapshot,
+                                  ),
+                                ),
                               ),
-                          ],
-                        ),
-                      if (snapshot.subtitleTracks.isNotEmpty)
-                        PopupMenuButton<String>(
-                          tooltip: s.videoSubtitle,
-                          icon: const Icon(
-                            Icons.subtitles_outlined,
-                            color: Colors.white,
-                          ),
-                          onSelected: (id) => unawaited(
-                            _invoke(() => _session.selectSubtitleTrack(id)),
-                          ),
-                          itemBuilder: (context) => [
-                            for (final track in snapshot.subtitleTracks)
-                              PopupMenuItem(
-                                value: track.id,
-                                child: Text(track.label),
-                              ),
-                          ],
-                        ),
-                      PopupMenuButton<double>(
-                        tooltip: s.playbackSpeed,
-                        initialValue: snapshot.rate,
-                        icon: Text(
-                          '${snapshot.rate}×',
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                        onSelected: (rate) => unawaited(_setRate(rate)),
-                        itemBuilder: (context) => [
-                          for (final rate in const [
-                            0.5,
-                            0.75,
-                            1.0,
-                            1.25,
-                            1.5,
-                            2.0,
-                          ])
-                            PopupMenuItem(value: rate, child: Text('$rate×')),
+                            ),
                         ],
-                      ),
-                      SizedBox(
-                        width: 136,
-                        child: Row(
-                          children: [
-                            Tooltip(
-                              message: s.volume,
-                              child: const Icon(
-                                Icons.volume_down,
-                                color: Colors.white,
-                                size: 20,
-                              ),
-                            ),
-                            Expanded(
-                              child: Slider(
-                                key: const ValueKey('video-volume-slider'),
-                                min: 0,
-                                max: 100,
-                                value: _volume,
-                                onChanged: (value) =>
-                                    unawaited(_setVolume(value)),
-                                onChangeEnd: (value) =>
-                                    unawaited(_persistVolume(value)),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
                 ],
               ),
             ),
-          );
-        },
-      );
+          ),
+        ),
+      ),
+    ),
+  );
+
+  Widget _buildControls(
+    BuildContext context, {
+    required bool fullscreen,
+    required VideoPlaybackSnapshot snapshot,
+  }) {
+    final durationMs = snapshot.duration.inMilliseconds;
+    final currentPosition = _seekPreview ?? snapshot.position;
+    final position = _clampPosition(currentPosition, snapshot.duration);
+    final positionMs = position.inMilliseconds.toDouble();
+    final s = S.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: fullscreen ? 18 : 8,
+          vertical: fullscreen ? 8 : 4,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Text(
+                  _formatTime(position),
+                  style: const TextStyle(color: Colors.white),
+                ),
+                Expanded(
+                  child: Slider(
+                    key: const ValueKey('video-position-slider'),
+                    min: 0,
+                    max: durationMs > 0 ? durationMs.toDouble() : 1,
+                    value: durationMs > 0 ? positionMs : 0,
+                    onChangeStart: durationMs <= 0
+                        ? null
+                        : (_) => _beginControlsInteraction(),
+                    onChanged: durationMs <= 0
+                        ? null
+                        : (value) => _previewSeek(
+                            Duration(milliseconds: value.round()),
+                          ),
+                    onChangeEnd: durationMs <= 0
+                        ? null
+                        : (_) {
+                            _finishSeek();
+                            _endControlsInteraction();
+                          },
+                  ),
+                ),
+                Text(
+                  _formatTime(snapshot.duration),
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ],
+            ),
+            Wrap(
+              spacing: 0,
+              runSpacing: 0,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                IconButton(
+                  tooltip: snapshot.playing ? s.pause : s.videoPlay,
+                  color: Colors.white,
+                  icon: Icon(snapshot.playing ? Icons.pause : Icons.play_arrow),
+                  onPressed: _togglePlayback,
+                ),
+                if (widget.streams.length > 1)
+                  PopupMenuButton<int>(
+                    tooltip: s.videoQuality,
+                    initialValue: _streamIndex,
+                    icon: const Icon(
+                      Icons.high_quality_outlined,
+                      color: Colors.white,
+                    ),
+                    onOpened: _beginControlsInteraction,
+                    onCanceled: _endControlsInteraction,
+                    onSelected: (index) {
+                      _endControlsInteraction();
+                      unawaited(_selectStream(index));
+                    },
+                    itemBuilder: (context) => [
+                      for (
+                        var index = 0;
+                        index < widget.streams.length;
+                        index++
+                      )
+                        PopupMenuItem(
+                          value: index,
+                          child: Text(widget.streams[index].label),
+                        ),
+                    ],
+                  ),
+                if (snapshot.audioTracks.length > 1)
+                  PopupMenuButton<String>(
+                    tooltip: s.audioFormatPreference,
+                    icon: const Icon(
+                      Icons.audiotrack_outlined,
+                      color: Colors.white,
+                    ),
+                    onOpened: _beginControlsInteraction,
+                    onCanceled: _endControlsInteraction,
+                    onSelected: (id) {
+                      _endControlsInteraction();
+                      unawaited(_invoke(() => _session.selectAudioTrack(id)));
+                    },
+                    itemBuilder: (context) => [
+                      for (final track in snapshot.audioTracks)
+                        PopupMenuItem(
+                          value: track.id,
+                          child: Text(track.label),
+                        ),
+                    ],
+                  ),
+                if (snapshot.subtitleTracks.isNotEmpty)
+                  PopupMenuButton<String>(
+                    tooltip: s.videoSubtitle,
+                    icon: const Icon(
+                      Icons.subtitles_outlined,
+                      color: Colors.white,
+                    ),
+                    onOpened: _beginControlsInteraction,
+                    onCanceled: _endControlsInteraction,
+                    onSelected: (id) {
+                      _endControlsInteraction();
+                      unawaited(
+                        _invoke(() => _session.selectSubtitleTrack(id)),
+                      );
+                    },
+                    itemBuilder: (context) => [
+                      for (final track in snapshot.subtitleTracks)
+                        PopupMenuItem(
+                          value: track.id,
+                          child: Text(track.label),
+                        ),
+                    ],
+                  ),
+                PopupMenuButton<double>(
+                  tooltip: s.playbackSpeed,
+                  initialValue: snapshot.rate,
+                  icon: Text(
+                    '${snapshot.rate}×',
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                  onOpened: _beginControlsInteraction,
+                  onCanceled: _endControlsInteraction,
+                  onSelected: (rate) {
+                    _endControlsInteraction();
+                    unawaited(_setRate(rate));
+                  },
+                  itemBuilder: (context) => [
+                    for (final rate in const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0])
+                      PopupMenuItem(value: rate, child: Text('$rate×')),
+                  ],
+                ),
+                SizedBox(
+                  width: 136,
+                  child: Row(
+                    children: [
+                      Tooltip(
+                        message: s.volume,
+                        child: const Icon(
+                          Icons.volume_down,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                      Expanded(
+                        child: Slider(
+                          key: const ValueKey('video-volume-slider'),
+                          min: 0,
+                          max: 100,
+                          value: _volume,
+                          onChangeStart: (_) => _beginControlsInteraction(),
+                          onChanged: (value) => unawaited(_setVolume(value)),
+                          onChangeEnd: (value) {
+                            _endControlsInteraction();
+                            unawaited(_persistVolume(value));
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -898,12 +1285,16 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
 
   @override
   void dispose() {
+    _controlsInteracting = false;
+    _stopTemporaryRate();
     _disposed = true;
     _loadGeneration++;
     _saveTimer?.cancel();
+    _controlsTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _route?.secondaryAnimation?.removeListener(_onRouteTransition);
     _session.snapshot.removeListener(_onSnapshotChanged);
+    _focusNode.dispose();
     _uiRevision.dispose();
     unawaited(_disposeSession());
     super.dispose();
@@ -915,6 +1306,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     } catch (_) {}
     try {
       await _loadTail;
+      await _rateTail;
     } finally {
       try {
         await _session.dispose();
