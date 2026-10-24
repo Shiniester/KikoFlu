@@ -16,6 +16,7 @@ import '../video_models.dart';
 import '../video_search_history.dart';
 import 'video_collection_view.dart';
 import 'video_details_screen.dart';
+import 'video_screen.dart';
 
 typedef VideoSearchLoader =
     Future<VideoSearchResults> Function(
@@ -470,7 +471,17 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     if (customBuilder != null) {
       return customBuilder(context, video, layout, onTap);
     }
-    return VideoCard(video: video, layoutType: layout, onTap: onTap);
+    return VideoCard(
+      video: video,
+      layoutType: layout,
+      onTap: onTap,
+      onOpenLink: (link) => unawaited(
+        pushBottomDockRoute(
+          context,
+          builder: (_) => VideoScreen.catalog(url: link.url),
+        ),
+      ),
+    );
   }
 
   Widget _resultsView(VideoSearchResults results, LayoutType layout) {

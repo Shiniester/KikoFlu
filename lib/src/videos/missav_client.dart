@@ -379,6 +379,10 @@ class MissavClient extends ChangeNotifier {
     final poster = document
         .querySelector('video[data-poster]')
         ?.attributes['data-poster'];
+    final metadata = _parseMetadata(document);
+    final actors = _parseDetailLinks(document, uri, VideoLinkKind.actor);
+    final tags = _parseDetailLinks(document, uri, VideoLinkKind.tag);
+    final labels = '${uri.path} ${tags.map((tag) => tag.label).join(' ')}';
     final video = VideoItem(
       id: item.id,
       title: title?.isNotEmpty == true ? title! : item.title,
@@ -387,6 +391,17 @@ class MissavClient extends ChangeNotifier {
           ? uri.resolve(poster!).toString()
           : item.cover,
       durationSeconds: item.durationSeconds,
+      releaseDate:
+          _releaseDate(
+            _detailMetadataRows(
+              document,
+            ).expand((row) => row.querySelectorAll('time')),
+          ) ??
+          item.releaseDate,
+      actors: actors.isEmpty ? item.actors : actors,
+      tags: tags.isEmpty ? item.tags : tags,
+      hasSubtitles: item.hasSubtitles || _hasSubtitleLabel(labels),
+      isUncensored: item.isUncensored || _hasUncensoredLabel(labels),
     );
     final sourceId = _sourceId(document);
     var saved = _savedState(document);
@@ -406,9 +421,9 @@ class MissavClient extends ChangeNotifier {
     return VideoDetails(
       video: video,
       description: _parseDescription(document),
-      metadata: _parseMetadata(document),
-      actors: _parseDetailLinks(document, uri, VideoLinkKind.actor),
-      tags: _parseDetailLinks(document, uri, VideoLinkKind.tag),
+      metadata: metadata,
+      actors: video.actors,
+      tags: video.tags,
       related: _parseVideos(
         document,
         uri,
@@ -1351,6 +1366,27 @@ class MissavClient extends ChangeNotifier {
           : sourceCover.isEmpty
           ? ''
           : pageUri.resolve(sourceCover).toString();
+      final parent = card.parent;
+      final information =
+          parent != null &&
+              parent.localName == 'div' &&
+              parent.querySelector('h1, video') == null &&
+              parent
+                      .querySelectorAll('div.relative.aspect-w-16.aspect-h-9')
+                      .length ==
+                  1
+          ? parent
+          : card;
+      final links = _parseCardLinks(information, pageUri);
+      final badgeLabels = card
+          .querySelectorAll('.bottom-1.left-1, [title], [aria-label]')
+          .map(
+            (element) =>
+                '${element.text} ${element.attributes['title'] ?? ''} ${element.attributes['aria-label'] ?? ''}',
+          )
+          .join(' ');
+      final labels =
+          '${itemUri.path} $badgeLabels ${links.map((link) => link.label).join(' ')}';
 
       videos.add(
         VideoItem(
@@ -1361,11 +1397,59 @@ class MissavClient extends ChangeNotifier {
           durationSeconds: _durationSeconds(
             card.querySelector('span.bottom-1.right-1')?.text.trim(),
           ),
+          releaseDate: _releaseDate(information.querySelectorAll('time')),
+          actors: links
+              .where((link) => link.kind == VideoLinkKind.actor)
+              .toList(),
+          tags: links
+              .where((link) => link.kind != VideoLinkKind.actor)
+              .toList(),
+          hasSubtitles: _hasSubtitleLabel(labels),
+          isUncensored: _hasUncensoredLabel(labels),
         ),
       );
     }
     return videos;
   }
+
+  static List<VideoLink> _parseCardLinks(Element card, Uri pageUri) {
+    final seen = <String>{};
+    final links = <VideoLink>[];
+    for (final anchor in card.querySelectorAll('a[href]')) {
+      final uri = pageUri.resolve(anchor.attributes['href']!).removeFragment();
+      final kind = _browseLinkKind(uri);
+      final label = anchor.text.trim();
+      if (!_isSource(uri) ||
+          label.isEmpty ||
+          !const {
+            VideoLinkKind.actor,
+            VideoLinkKind.category,
+            VideoLinkKind.tag,
+            VideoLinkKind.studio,
+          }.contains(kind) ||
+          !seen.add(uri.toString())) {
+        continue;
+      }
+      links.add(VideoLink(label: label, url: uri.toString(), kind: kind));
+    }
+    return links;
+  }
+
+  static String? _releaseDate(Iterable<Element> times) {
+    for (final time in times) {
+      final value = time.attributes['datetime'] ?? time.text.trim();
+      if (DateTime.tryParse(value) != null && value.length >= 10) {
+        return value.substring(0, 10);
+      }
+    }
+    return null;
+  }
+
+  static bool _hasSubtitleLabel(String value) =>
+      RegExp(r'字幕|subtitles?|subtitled', caseSensitive: false).hasMatch(value);
+
+  static bool _hasUncensoredLabel(String value) =>
+      RegExp(r'无码|無碼|無修正|uncensored', caseSensitive: false).hasMatch(value);
 
   List<VideoLink> _parseNavigation(Document document, Uri pageUri) {
     final seen = <String>{};

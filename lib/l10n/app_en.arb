@@ -1899,6 +1899,8 @@
   "videoPlay": "Play",
   "videoFullscreen": "Fullscreen",
   "videoSubtitle": "Subtitles",
+  "videoUncensored": "Uncensored",
+  "@videoUncensored": {"description": "Tooltip for the uncensored video cover badge."},
   "videoFavoriteActor": "Favorite actor",
   "videoUnfavoriteActor": "Unfavorite actor"
 }

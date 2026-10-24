@@ -4413,6 +4413,9 @@ class SZh extends S {
   String get videoSubtitle => '字幕';
 
   @override
+  String get videoUncensored => '无码';
+
+  @override
   String get videoFavoriteActor => '收藏演员';
 
   @override
@@ -8826,6 +8829,9 @@ class SZhHant extends SZh {
 
   @override
   String get videoSubtitle => '字幕';
+
+  @override
+  String get videoUncensored => '無碼';
 
   @override
   String get videoFavoriteActor => '收藏演員';

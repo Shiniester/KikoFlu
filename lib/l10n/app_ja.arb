@@ -1531,6 +1531,7 @@
   "videoPlay": "再生",
   "videoFullscreen": "全画面表示",
   "videoSubtitle": "字幕",
+  "videoUncensored": "無修正",
   "videoFavoriteActor": "出演者をお気に入りに追加",
   "videoUnfavoriteActor": "出演者のお気に入りを解除"
 }

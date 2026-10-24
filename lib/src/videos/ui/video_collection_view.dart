@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../l10n/app_localizations.dart';
 import '../../providers/work_card_display_provider.dart';
 import '../../providers/works_provider.dart';
 import '../../utils/collection_grid_layout.dart';
@@ -33,7 +34,6 @@ class VideoCollectionView<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final mediaSize = MediaQuery.sizeOf(context);
       final metrics = resolveCollectionGridMetrics(
         context,
         layoutType: layoutType,
@@ -42,33 +42,9 @@ class VideoCollectionView<T> extends StatelessWidget {
         availableWidth: constraints.maxWidth,
         availableHeight: constraints.hasBoundedHeight
             ? constraints.maxHeight
-            : mediaSize.height,
+            : MediaQuery.sizeOf(context).height,
       );
       final isGrid = layoutType != LayoutType.list;
-      final contentWidth =
-          constraints.maxWidth -
-          metrics.padding.horizontal -
-          metrics.spacing * (metrics.crossAxisCount - 1);
-      final cellWidth = contentWidth / metrics.crossAxisCount;
-      var titleHeight = 0.0;
-      if (isGrid) {
-        final titlePainter = TextPainter(
-          text: TextSpan(
-            text: 'M\nM',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          textDirection: Directionality.of(context),
-          textScaler: MediaQuery.textScalerOf(context),
-          maxLines: 2,
-          ellipsis: '\u2026',
-        );
-        titlePainter.layout(
-          maxWidth: (cellWidth - 24).clamp(0, double.infinity).toDouble(),
-        );
-        titleHeight = titlePainter.height;
-        titlePainter.dispose();
-      }
-      final gridMainAxisExtent = (cellWidth - 8) * 9 / 16 + titleHeight + 24;
       return VirtualizedSliverCollection<T>(
         key: pageStorageKey,
         items: items,
@@ -77,16 +53,11 @@ class VideoCollectionView<T> extends StatelessWidget {
         controller: controller,
         pageStorageKey: pageStorageKey,
         layout: isGrid
-            ? VirtualizedCollectionLayout.grid
+            ? VirtualizedCollectionLayout.masonry
             : VirtualizedCollectionLayout.list,
-        gridDelegate: isGrid
-            ? SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: metrics.crossAxisCount,
-                crossAxisSpacing: metrics.spacing,
-                mainAxisSpacing: metrics.spacing,
-                mainAxisExtent: gridMainAxisExtent,
-              )
-            : null,
+        masonryCrossAxisCount: isGrid ? metrics.crossAxisCount : null,
+        masonryCrossAxisSpacing: metrics.spacing,
+        masonryMainAxisSpacing: metrics.spacing,
         padding: metrics.padding,
         showEndIndicator: false,
         emptyBuilder: emptyBuilder,
@@ -103,102 +74,125 @@ class VideoCard extends StatelessWidget {
     required this.layoutType,
     required this.onTap,
     this.subtitle,
+    this.onOpenLink,
   });
 
   final VideoItem video;
   final LayoutType layoutType;
   final VoidCallback? onTap;
   final String? subtitle;
+  final ValueChanged<VideoLink>? onOpenLink;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final cover = _cover();
-    if (layoutType == LayoutType.list) {
-      return Card(
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: SizedBox(
-            height: 104,
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 128,
-                  child: AspectRatio(aspectRatio: 16 / 9, child: cover),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          video.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                        if (subtitle != null) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            subtitle!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall,
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-                if (video.durationSeconds != null)
-                  Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text(
-                      _videoDurationLabel(video.durationSeconds!),
-                      style: theme.textTheme.labelSmall,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
+    final title = Text(
+      video.title,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: Theme.of(
+        context,
+      ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+    );
+    final isList = layoutType == LayoutType.list;
     return Card(
+      margin: isList
+          ? const EdgeInsets.symmetric(vertical: 4)
+          : EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            AspectRatio(
-              aspectRatio: 16 / 9,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  cover,
-                  if (video.durationSeconds != null)
-                    Positioned(
-                      right: 6,
-                      bottom: 6,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: .7),
-                          borderRadius: BorderRadius.circular(4),
+        child: isList
+            ? Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox.fromSize(
+                          size: collectionListCoverSize,
+                          child: VideoCover(video: video),
                         ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 5,
-                            vertical: 2,
-                          ),
-                          child: Text(
-                            _videoDurationLabel(video.durationSeconds!),
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: Colors.white,
+                        const SizedBox(width: 12),
+                        Expanded(child: title),
+                      ],
+                    ),
+                    _information(context),
+                  ],
+                ),
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  AspectRatio(
+                    aspectRatio: collectionCoverAspectRatio,
+                    child: VideoCover(video: video),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [title, _information(context)],
+                    ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Widget _information(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final colors = Theme.of(context).colorScheme;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (subtitle != null) ...[
+            const SizedBox(height: 4),
+            Text(subtitle!, style: Theme.of(context).textTheme.bodySmall),
+          ],
+          for (final links in [video.actors, video.tags])
+            if (links.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 3,
+                runSpacing: 3,
+                children: [
+                  for (final link in links)
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: constraints.maxWidth,
+                      ),
+                      child: Material(
+                        color: link.kind == VideoLinkKind.actor
+                            ? colors.secondaryContainer
+                            : colors.tertiaryContainer,
+                        borderRadius: BorderRadius.circular(6),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(6),
+                          onTap: onOpenLink == null
+                              ? null
+                              : () => onOpenLink!(link),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 2,
+                            ),
+                            child: Text(
+                              link.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: link.kind == VideoLinkKind.actor
+                                    ? colors.onSecondaryContainer
+                                    : colors.onTertiaryContainer,
+                              ),
                             ),
                           ),
                         ),
@@ -206,38 +200,115 @@ class VideoCard extends StatelessWidget {
                     ),
                 ],
               ),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      video.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium,
-                    ),
-                    if (subtitle != null)
-                      Text(
-                        subtitle!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall,
-                      ),
-                  ],
+            ],
+        ],
+      );
+    },
+  );
+}
+
+class VideoCover extends StatelessWidget {
+  const VideoCover({super.key, required this.video});
+
+  final VideoItem video;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final compact = constraints.maxWidth < 120;
+      final inset = compact ? 2.0 : 6.0;
+      final s = S.of(context);
+      Widget badge(Widget child, {Key? key}) => Container(
+        key: key,
+        padding: EdgeInsets.symmetric(horizontal: compact ? 2 : 5, vertical: 2),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: .7),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: child,
+      );
+      final textStyle = TextStyle(
+        color: Colors.white,
+        fontSize: compact ? 7 : 11,
+      );
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(
+          collectionCoverRadius(constraints.maxWidth),
+        ),
+        child: Stack(
+          key: ValueKey('video-cover-${video.id}'),
+          fit: StackFit.expand,
+          children: [
+            _image(),
+            if (video.durationSeconds != null)
+              Positioned(
+                right: inset,
+                top: inset,
+                child: badge(
+                  Text(
+                    _videoDurationLabel(video.durationSeconds!),
+                    style: textStyle,
+                  ),
+                  key: ValueKey('video-duration-${video.id}'),
                 ),
+              ),
+            Positioned(
+              left: inset,
+              right: inset,
+              bottom: inset,
+              child: Row(
+                children: [
+                  if (video.hasSubtitles)
+                    Tooltip(
+                      message: s.videoSubtitle,
+                      child: badge(
+                        Icon(
+                          Icons.closed_caption,
+                          color: Colors.white,
+                          size: compact ? 10 : 16,
+                        ),
+                      ),
+                    ),
+                  if (video.hasSubtitles && video.isUncensored)
+                    const SizedBox(width: 3),
+                  if (video.isUncensored)
+                    Tooltip(
+                      message: s.videoUncensored,
+                      child: badge(
+                        Icon(
+                          Icons.no_encryption_outlined,
+                          color: Colors.white,
+                          size: compact ? 10 : 16,
+                        ),
+                      ),
+                    ),
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: video.releaseDate == null
+                          ? const SizedBox.shrink()
+                          : FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Tooltip(
+                                message: s.releaseDateInfo,
+                                child: badge(
+                                  Text(video.releaseDate!, style: textStyle),
+                                  key: ValueKey('video-release-${video.id}'),
+                                ),
+                              ),
+                            ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
+      );
+    },
+  );
 
-  Widget _cover() => video.cover.isEmpty
+  Widget _image() => video.cover.isEmpty
       ? const ColoredBox(
           color: Colors.black12,
           child: Center(child: Icon(Icons.movie_outlined)),

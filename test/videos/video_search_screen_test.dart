@@ -694,15 +694,20 @@ void main() {
       matching: find.byType(Stack),
     );
     final coverSize = tester.getSize(cover);
-    expect(coverSize.width / coverSize.height, closeTo(16 / 9, .02));
+    expect(coverSize.width / coverSize.height, closeTo(4 / 3, .02));
   });
 }
 
 Future<void> _scrollToPagination(WidgetTester tester) async {
-  final scrollController = tester
-      .widget<CustomScrollView>(find.byType(CustomScrollView))
-      .controller!;
-  scrollController.jumpTo(scrollController.position.maxScrollExtent);
+  await tester.scrollUntilVisible(
+    find.byType(PaginationBar),
+    500,
+    scrollable: find.descendant(
+      of: find.byType(CustomScrollView),
+      matching: find.byType(Scrollable),
+    ),
+  );
+  await tester.ensureVisible(find.byType(PaginationBar));
   await tester.pumpAndSettle();
 }
 

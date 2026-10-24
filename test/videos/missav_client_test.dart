@@ -181,6 +181,23 @@ void main() {
         pageUrl: 'https://missav.ai/sample-001',
         cover: 'https://media.example/cover.jpg',
         durationSeconds: 90,
+        releaseDate: '2024-03-02',
+        actors: [
+          VideoLink(
+            label: 'Sample actor',
+            url: 'https://missav.ai/cn/actresses/sample',
+            kind: VideoLinkKind.actor,
+          ),
+        ],
+        tags: [
+          VideoLink(
+            label: 'Drama',
+            url: 'https://missav.ai/cn/genres/drama',
+            kind: VideoLinkKind.category,
+          ),
+        ],
+        hasSubtitles: true,
+        isUncensored: true,
       );
 
       expect(VideoItem.fromJson(item.toJson()).toJson(), item.toJson());
@@ -195,6 +212,16 @@ void main() {
 
       expect(item.cover, '');
       expect(item.durationSeconds, isNull);
+      final restored = VideoItem.fromJson({
+        'id': item.id,
+        'title': item.title,
+        'pageUrl': item.pageUrl,
+      });
+      expect(restored.releaseDate, isNull);
+      expect(restored.actors, isEmpty);
+      expect(restored.tags, isEmpty);
+      expect(restored.hasSubtitles, isFalse);
+      expect(restored.isUncensored, isFalse);
     });
   });
 
@@ -275,6 +302,53 @@ void main() {
 
     expect(client.homeUrl, 'https://missav.ai/cn');
   });
+
+  test(
+    'reads metadata only from its source card without detail requests',
+    () async {
+      final adapter = _Adapter(
+        (_) => _response('''
+<main>
+  <div class="space-y-2">
+    <div class="relative aspect-w-16 aspect-h-9">
+      <a href="/cn/sample"><img alt="Sample" src="/cover.jpg"></a>
+      <span class="bottom-1 right-1">1:23</span>
+      <span class="bottom-1 left-1"><span title="中文字幕"></span><span aria-label="无码"></span></span>
+    </div>
+    <time datetime="2024-03-02">2024-03-02</time>
+    <a href="/cn/actresses/sample">Sample actor</a>
+    <a href="/cn/genres/drama">Drama</a>
+  </div>
+  <div class="space-y-2">
+    <div class="relative aspect-w-16 aspect-h-9">
+      <a href="/cn/second"><img alt="Second" src="/second.jpg"></a>
+    </div>
+  </div>
+</main>
+'''),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = adapter,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+
+      final page = await client.browse('https://missav.ai/cn');
+      final first = page.videos.first;
+      expect(first.releaseDate, '2024-03-02');
+      expect(first.actors.single.label, 'Sample actor');
+      expect(first.tags.single.label, 'Drama');
+      expect(first.hasSubtitles, isTrue);
+      expect(first.isUncensored, isTrue);
+      final second = page.videos.last;
+      expect(second.releaseDate, isNull);
+      expect(second.actors, isEmpty);
+      expect(second.tags, isEmpty);
+      expect(second.hasSubtitles, isFalse);
+      expect(second.isUncensored, isFalse);
+      expect(adapter.requests, hasLength(1));
+    },
+  );
 
   test(
     'keeps pagination, languages and excluded entries out of directories',
@@ -1583,6 +1657,8 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
           id: 'open-sample-001',
           title: 'Card title',
           pageUrl: 'https://missav.ai/ja/open-sample-001',
+          hasSubtitles: true,
+          isUncensored: true,
         ),
       );
 
@@ -1590,6 +1666,11 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       expect(details.video.cover, 'https://fourhoi.com/sample-001/cover-n.jpg');
       expect(details.description, 'A sanitized sample description');
       expect(details.metadata['配信開始日'], '2024-03-02');
+      expect(details.video.releaseDate, '2024-03-02');
+      expect(details.video.actors, details.actors);
+      expect(details.video.tags, details.tags);
+      expect(details.video.hasSubtitles, isTrue);
+      expect(details.video.isUncensored, isTrue);
       expect(details.metadata['メーカー'], 'Sample maker');
       expect(details.actors.map((actor) => actor.label), ['Sample actor']);
       expect(details.tags.map((tag) => tag.label), [
@@ -1600,6 +1681,9 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       ]);
       expect(details.tags.last.kind, VideoLinkKind.category);
       expect(details.related.map((video) => video.id), ['open-related-002']);
+      expect(details.related.single.releaseDate, isNull);
+      expect(details.related.single.actors, isEmpty);
+      expect(details.related.single.tags, isEmpty);
       expect(details.sourceId, 'source-123');
       expect(details.isFavorite, isTrue);
       expect(details.streams, hasLength(2));

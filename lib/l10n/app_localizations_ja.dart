@@ -4438,6 +4438,9 @@ class SJa extends S {
   String get videoSubtitle => '字幕';
 
   @override
+  String get videoUncensored => '無修正';
+
+  @override
   String get videoFavoriteActor => '出演者をお気に入りに追加';
 
   @override

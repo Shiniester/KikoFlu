@@ -15,6 +15,7 @@ import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_downloads_screen.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_screen.dart';
+import 'package:kikoeru_flutter/src/videos/ui/video_search_screen.dart';
 import 'package:kikoeru_flutter/src/videos/video_browse_preferences.dart';
 import 'package:kikoeru_flutter/src/videos/video_download_task.dart';
 import 'package:kikoeru_flutter/src/videos/video_downloads.dart';
@@ -791,6 +792,80 @@ void main() {
     },
   );
 
+  testWidgets(
+    'tags in online and download collection searches open their catalog',
+    (tester) async {
+      const tag = VideoLink(
+        label: 'Drama',
+        url: 'https://missav.ai/cn/genres/drama',
+        kind: VideoLinkKind.category,
+      );
+      const video = VideoItem(
+        id: 'tagged',
+        title: 'Sample video',
+        pageUrl: 'https://missav.ai/cn/tagged',
+        tags: [tag],
+      );
+      final l10n = await S.delegate.load(const Locale('en'));
+      for (final isDownload in [false, true]) {
+        final client = _TestMissavClient(
+          pagesByUrl: {
+            tag.url: VideoCatalogPage(title: 'Genre catalog', url: tag.url),
+          },
+        );
+        final library = await _testLibrary();
+        final downloads = _TestVideoDownloads(
+          client: client,
+          library: library,
+          tasks: const [
+            VideoDownloadTask(
+              id: 'tagged',
+              video: video,
+              quality: '720p',
+              isHls: false,
+              status: VideoDownloadStatus.completed,
+              localPath: 'unused.mp4',
+            ),
+          ],
+        );
+        await tester.pumpWidget(
+          _app(
+            client,
+            library,
+            downloads,
+            isDownload
+                ? const VideoDownloadsScreen()
+                : VideoSearchScreen(
+                    title: 'Search',
+                    initialQuery: 'Sample',
+                    search: (_, _, _) async =>
+                        const VideoSearchResults.collection([video]),
+                    browsePage: client.browse,
+                  ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        if (isDownload) {
+          await tester.tap(find.byTooltip(l10n.search));
+          await tester.pumpAndSettle();
+          await tester.enterText(
+            find.byKey(const ValueKey('video-search-input')),
+            'Sample',
+          );
+          await tester.testTextInput.receiveAction(TextInputAction.search);
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(find.text('Drama'));
+        await tester.pumpAndSettle();
+        expect(client.browsedUrls, contains(tag.url));
+        expect(find.text('Genre catalog'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      }
+    },
+  );
+
   testWidgets('finishing a deletion after leaving downloads is safe', (
     tester,
   ) async {
@@ -1299,10 +1374,15 @@ class _PushObserver extends NavigatorObserver {
 }
 
 Future<void> _tapNextPage(WidgetTester tester, S l10n) async {
-  final scrollController = tester
-      .widget<CustomScrollView>(find.byType(CustomScrollView))
-      .controller!;
-  scrollController.jumpTo(scrollController.position.maxScrollExtent);
+  await tester.scrollUntilVisible(
+    find.byType(PaginationBar),
+    500,
+    scrollable: find.descendant(
+      of: find.byType(CustomScrollView),
+      matching: find.byType(Scrollable),
+    ),
+  );
+  await tester.ensureVisible(find.byType(PaginationBar));
   await tester.pumpAndSettle();
   await tester.tap(find.text(l10n.nextPage));
   await tester.pumpAndSettle();
