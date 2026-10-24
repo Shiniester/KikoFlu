@@ -27,9 +27,36 @@ MissavBrowserAdapter? _activeBrowser;
 MissavClient? _activeBrowserClient;
 int? _activeBrowserClientGeneration;
 int? _activeBrowserConnectionGeneration;
+int? _activeBrowserAndroidProxyGeneration;
 OverlayEntry? _activeMobileBrowserEntry;
 WebViewController? _activeMobileBrowserController;
 var _browserConnectionGeneration = 0;
+var _androidProxyConfigurationGeneration = 0;
+
+@visibleForTesting
+Future<int> configureMissavAndroidProxy() async {
+  final generation = ++_androidProxyConfigurationGeneration;
+  try {
+    await _androidBrowser.invokeMethod<void>('configureProxy', {
+      'mode': ProxyConfig.mode.name,
+      'proxyUrl': ProxyConfig.httpsProxyUrl,
+    });
+    return generation;
+  } catch (_) {
+    await releaseMissavAndroidProxy(generation);
+    rethrow;
+  }
+}
+
+@visibleForTesting
+Future<void> releaseMissavAndroidProxy(int? generation) async {
+  if (generation == null ||
+      generation != _androidProxyConfigurationGeneration) {
+    return;
+  }
+  _androidProxyConfigurationGeneration++;
+  await _resetAndroidProxy();
+}
 
 String _cookieField(String value) =>
     value.endsWith('\u0000') ? value.substring(0, value.length - 1) : value;
@@ -68,6 +95,7 @@ void _clearBrowserOwner(MissavBrowserAdapter adapter) {
   _activeBrowserClient = null;
   _activeBrowserClientGeneration = null;
   _activeBrowserConnectionGeneration = null;
+  _activeBrowserAndroidProxyGeneration = null;
 }
 
 void _restoreOwnedBrowserTransport(
@@ -205,7 +233,8 @@ Future<void> _waitForDesktopPage(
   }
 }
 
-Future<void> _waitForMobilePage(
+@visibleForTesting
+Future<void> waitForMissavMobilePage(
   WebViewController controller,
   String url, {
   Completer<void>? cancelSignal,
@@ -336,7 +365,10 @@ Future<String> navigateMissavDocument(
     if (document is! Map ||
         document['html'] is! String ||
         !isMissavVerificationUrl('${document['url'] ?? ''}')) {
-      throw MissavVerificationRequiredException(sourceUrl: uri.toString());
+      throw MissavException(
+        'MissAV browser did not return a source document.',
+        sourceUrl: uri.toString(),
+      );
     }
     return document['html'] as String;
   } catch (_) {
@@ -408,7 +440,6 @@ Future<void> _resetAndroidProxy() async {
 Future<void> _disposeMobileBrowser(
   WebViewController controller, {
   required bool preservePage,
-  bool resetAndroidProxy = false,
   String channelName = MissavBrowserAdapter.channelName,
 }) async {
   try {
@@ -448,7 +479,6 @@ window.__kikoMissavRequests?.clear();
       _activeMobileBrowserEntry?.remove();
       _activeMobileBrowserEntry = null;
     }
-    if (Platform.isAndroid && resetAndroidProxy) await _resetAndroidProxy();
   }
 }
 
@@ -540,7 +570,7 @@ _createMissavMediaRelay({
         onMessageReceived: (message) => media.receiveMessage(message.message),
       );
       ensureActive();
-      await _waitForMobilePage(
+      await waitForMissavMobilePage(
         browser,
         startUrl,
         cancelSignal: cancelSignal,
@@ -574,7 +604,14 @@ Future<void> connectMissavBrowserSession(
   MissavClient client, {
   WebViewController? mobile,
   Completer<void>? cancelSignal,
+  int? expectedGeneration,
+  int? androidProxyGeneration,
+  bool preserveMobilePageOnFailure = true,
 }) async {
+  if (expectedGeneration != null &&
+      client.sessionGeneration != expectedGeneration) {
+    throw StateError('MissAV browser connection was cancelled.');
+  }
   final connectionGeneration = ++_browserConnectionGeneration;
   final isDesktop = Platform.isWindows || Platform.isMacOS || Platform.isLinux;
   if (mobile == null && !isDesktop) {
@@ -603,13 +640,22 @@ Future<void> connectMissavBrowserSession(
   }
 
   var preserveMobilePage = false;
+  var connected = false;
+  var proxyGeneration = androidProxyGeneration;
+  late int clientGeneration;
   try {
     await _awaitConnectionPhase(
       client.initialize,
       connectionGeneration,
       cancelSignal,
     );
-    var clientGeneration = client.sessionGeneration;
+    clientGeneration = expectedGeneration ?? client.sessionGeneration;
+    _ensureConnectionCurrent(
+      connectionGeneration,
+      cancelSignal,
+      client: client,
+      clientGeneration: clientGeneration,
+    );
     final previous = _activeBrowser;
     if (previous != null) {
       if (identical(_activeBrowserClient, client) &&
@@ -638,11 +684,11 @@ Future<void> connectMissavBrowserSession(
       clientGeneration: clientGeneration,
     );
     if (Platform.isAndroid) {
-      await _awaitConnectionPhase(
-        () => _androidBrowser.invokeMethod<void>('configureProxy', {
-          'mode': ProxyConfig.mode.name,
-          'proxyUrl': ProxyConfig.httpsProxyUrl,
-        }),
+      proxyGeneration ??= await configureMissavAndroidProxy();
+      if (proxyGeneration != _androidProxyConfigurationGeneration) {
+        throw StateError('MissAV browser proxy was replaced.');
+      }
+      _ensureConnectionCurrent(
         connectionGeneration,
         cancelSignal,
         client: client,
@@ -752,16 +798,6 @@ Future<void> connectMissavBrowserSession(
       );
       userAgent = browserAgent is String ? browserAgent : null;
     } else {
-      final currentUrl = await _awaitConnectionPhase(
-        mobile.currentUrl,
-        connectionGeneration,
-        cancelSignal,
-        client: client,
-        clientGeneration: clientGeneration,
-      );
-      if (!isMissavVerificationUrl(currentUrl ?? '')) {
-        throw StateError('Source browser unavailable');
-      }
       late final MissavBrowserAdapter browserAdapter;
       browserAdapter = MissavBrowserAdapter(
         runJavaScript: mobile.runJavaScript,
@@ -769,7 +805,7 @@ Future<void> connectMissavBrowserSession(
         navigateDocument: (uri, cancelled) => navigateMissavDocument(
           uri,
           cancelled,
-          navigate: (signal) => _waitForMobilePage(
+          navigate: (signal) => waitForMissavMobilePage(
             mobile,
             uri.toString(),
             cancelSignal: signal,
@@ -784,13 +820,14 @@ Future<void> connectMissavBrowserSession(
         ),
         disposeBrowser: () async {
           await closeMedia();
-          final ownsProxy = identical(_activeBrowser, browserAdapter);
-          await _disposeMobileBrowser(
-            mobile,
-            preservePage: preserveMobilePage,
-            resetAndroidProxy: ownsProxy,
-          );
+          await _disposeMobileBrowser(mobile, preservePage: preserveMobilePage);
+          final proxyToRelease = identical(_activeBrowser, browserAdapter)
+              ? _activeBrowserAndroidProxyGeneration
+              : null;
           _clearBrowserOwner(browserAdapter);
+          if (Platform.isAndroid && !preserveMobilePage) {
+            await releaseMissavAndroidProxy(proxyToRelease);
+          }
         },
       );
       adapter = browserAdapter;
@@ -806,7 +843,7 @@ Future<void> connectMissavBrowserSession(
         clientGeneration: clientGeneration,
       );
       await _awaitConnectionPhase(
-        () => _waitForMobilePage(
+        () => waitForMissavMobilePage(
           mobile,
           client.homeUrl,
           cancelSignal: cancelSignal,
@@ -822,6 +859,16 @@ Future<void> connectMissavBrowserSession(
         client: client,
         clientGeneration: clientGeneration,
       );
+      final currentUrl = await _awaitConnectionPhase(
+        mobile.currentUrl,
+        connectionGeneration,
+        cancelSignal,
+        client: client,
+        clientGeneration: clientGeneration,
+      );
+      if (!isMissavVerificationUrl(currentUrl ?? '')) {
+        throw StateError('Source browser unavailable');
+      }
       cookieHeader = await _awaitConnectionPhase(
         _mobileCookieHeader,
         connectionGeneration,
@@ -847,10 +894,11 @@ Future<void> connectMissavBrowserSession(
       client: client,
       clientGeneration: clientGeneration,
     );
-    final generationBeforeImport = client.sessionGeneration;
+    final generationBeforeImport = clientGeneration;
     await client.importVerifiedSession(
       cookieHeader: cookieHeader,
       userAgent: userAgent,
+      expectedGeneration: generationBeforeImport,
     );
     if (client.sessionGeneration != generationBeforeImport + 1) {
       throw StateError('MissAV session changed during browser verification.');
@@ -897,15 +945,17 @@ Future<void> connectMissavBrowserSession(
     clientGeneration = client.sessionGeneration;
     _activeBrowserClientGeneration = clientGeneration;
     _activeBrowserConnectionGeneration = connectionGeneration;
+    _activeBrowserAndroidProxyGeneration = proxyGeneration;
     await _awaitConnectionPhase(
-      () => client.browse(client.homeUrl),
+      client.checkBrowserAccess,
       connectionGeneration,
       cancelSignal,
       client: client,
       clientGeneration: clientGeneration,
     );
+    connected = true;
   } catch (_) {
-    preserveMobilePage = mobile != null;
+    preserveMobilePage = mobile != null && preserveMobilePageOnFailure;
     if (adapter != null) {
       _restoreOwnedBrowserTransport(client, adapter, connectionGeneration);
       adapter.close(force: true);
@@ -916,6 +966,73 @@ Future<void> connectMissavBrowserSession(
       await _disposeDesktopBrowser(desktop);
     }
     rethrow;
+  } finally {
+    if (Platform.isAndroid && !connected && !preserveMobilePageOnFailure) {
+      await releaseMissavAndroidProxy(proxyGeneration);
+    }
+  }
+}
+
+Future<void> restoreMissavBrowserSession(
+  MissavClient client,
+  int expectedGeneration,
+) async {
+  if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+    await connectMissavBrowserSession(
+      client,
+      expectedGeneration: expectedGeneration,
+      preserveMobilePageOnFailure: false,
+    );
+    return;
+  }
+
+  final connectionGeneration = _browserConnectionGeneration;
+  void ensureCurrent() => _ensureConnectionCurrent(
+    connectionGeneration,
+    null,
+    client: client,
+    clientGeneration: expectedGeneration,
+  );
+  ensureCurrent();
+  final overlay = rootNavigatorKey.currentState?.overlay;
+  if (overlay == null) throw StateError('Application overlay unavailable');
+  final mobile = WebViewController();
+  OverlayEntry? entry;
+  var retained = false;
+  try {
+    await mobile.setJavaScriptMode(JavaScriptMode.unrestricted);
+    ensureCurrent();
+    entry = OverlayEntry(
+      builder: (_) => Offstage(
+        child: SizedBox(
+          width: 1,
+          height: 1,
+          child: WebViewWidget(controller: mobile),
+        ),
+      ),
+    );
+    overlay.insert(entry);
+    await WidgetsBinding.instance.endOfFrame;
+    ensureCurrent();
+    await connectMissavBrowserSession(
+      client,
+      mobile: mobile,
+      expectedGeneration: expectedGeneration,
+      preserveMobilePageOnFailure: false,
+    );
+    if (_activeBrowser == null || !identical(_activeBrowserClient, client)) {
+      throw StateError('MissAV browser recovery was replaced.');
+    }
+    _activeMobileBrowserController = mobile;
+    _activeMobileBrowserEntry = entry;
+    entry = null;
+    retained = true;
+  } finally {
+    if (!retained) {
+      await _disposeMobileBrowser(mobile, preservePage: false);
+      entry?.remove();
+      entry?.dispose();
+    }
   }
 }
 
@@ -928,18 +1045,20 @@ Future<bool> verifyMissavAccess(
   final pageUrl = Uri.parse(sourceUrl).pathSegments.contains('api')
       ? client.homeUrl
       : sourceUrl;
+  int? proxyGeneration;
   try {
     if (Platform.isAndroid) {
-      await _androidBrowser.invokeMethod<void>('configureProxy', {
-        'mode': ProxyConfig.mode.name,
-        'proxyUrl': ProxyConfig.httpsProxyUrl,
-      });
+      proxyGeneration = await configureMissavAndroidProxy();
     }
     if (!context.mounted) return false;
     final verified = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => _MissavVerification(client: client, sourceUrl: pageUrl),
+      builder: (_) => _MissavVerification(
+        client: client,
+        sourceUrl: pageUrl,
+        androidProxyGeneration: proxyGeneration,
+      ),
     );
     return verified ?? false;
   } catch (_) {
@@ -950,8 +1069,14 @@ Future<bool> verifyMissavAccess(
     }
     return false;
   } finally {
-    if (Platform.isAndroid && _activeBrowser == null) {
-      await _resetAndroidProxy();
+    if (Platform.isAndroid &&
+        proxyGeneration != null &&
+        proxyGeneration == _androidProxyConfigurationGeneration) {
+      if (_activeBrowser == null) {
+        await releaseMissavAndroidProxy(proxyGeneration);
+      } else {
+        _activeBrowserAndroidProxyGeneration = proxyGeneration;
+      }
     }
   }
 }
@@ -963,6 +1088,7 @@ Future<void> clearMissavBrowserSession() async {
   _activeBrowserClient = null;
   _activeBrowserClientGeneration = null;
   _activeBrowserConnectionGeneration = null;
+  _activeBrowserAndroidProxyGeneration = null;
   active?.close(force: true);
   await active?.whenClosed;
   if (generation != _browserConnectionGeneration || _activeBrowser != null) {
@@ -977,6 +1103,7 @@ Future<void> clearMissavBrowserSession() async {
       windows: WindowsWebviewOptions(userDataFolder: profilePath),
     );
   } else if (Platform.isAndroid) {
+    _androidProxyConfigurationGeneration++;
     await _resetAndroidProxy();
     if (generation != _browserConnectionGeneration || _activeBrowser != null) {
       return;
@@ -1002,10 +1129,15 @@ Future<void> clearMissavBrowserSession() async {
 }
 
 class _MissavVerification extends StatefulWidget {
-  const _MissavVerification({required this.client, required this.sourceUrl});
+  const _MissavVerification({
+    required this.client,
+    required this.sourceUrl,
+    this.androidProxyGeneration,
+  });
 
   final MissavClient client;
   final String sourceUrl;
+  final int? androidProxyGeneration;
 
   @override
   State<_MissavVerification> createState() => _MissavVerificationState();
@@ -1148,6 +1280,7 @@ class _MissavVerificationState extends State<_MissavVerification> {
           widget.client,
           mobile: _isDesktop ? null : _mobile,
           cancelSignal: cancellation,
+          androidProxyGeneration: widget.androidProxyGeneration,
         );
         final connectionGeneration = _browserConnectionGeneration;
         await connection;

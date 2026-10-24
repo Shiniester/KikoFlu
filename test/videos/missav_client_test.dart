@@ -122,6 +122,15 @@ class _MemorySecureStorage implements FlutterSecureStorage {
   }
 }
 
+_MemorySecureStorage _storedBrowserSession() {
+  final storage = _MemorySecureStorage()..cookie = 'session=saved';
+  storage.values['missav_verified_session'] = jsonEncode({
+    'cookie': 'session=saved',
+    'userAgent': 'Saved Browser UA',
+  });
+  return storage;
+}
+
 ResponseBody _response(
   String body, {
   int statusCode = HttpStatus.ok,
@@ -1268,6 +1277,275 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       expect(client.isLoggedIn, isFalse, reason: failure.name);
     }
   });
+
+  test('restores one saved session before concurrent first requests', () async {
+    final fixture = await File(
+      'test/fixtures/missav/catalog.html',
+    ).readAsString();
+    final storage = _storedBrowserSession();
+    final restoreStarted = Completer<void>();
+    final finishRestore = Completer<void>();
+    var restoreCalls = 0;
+    final nativeAdapter = _Adapter((_) => _response('native response'));
+    final browserAdapter = _Adapter((request) {
+      if (request.uri.path == '/api/playlists/open-sample-001') {
+        return _response(
+          '{"data":[]}',
+          headers: {
+            'content-type': ['application/json'],
+          },
+        );
+      }
+      return _response(fixture);
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = nativeAdapter,
+      secureStorage: storage,
+      restoreSavedSession: (client, expectedGeneration) async {
+        restoreCalls++;
+        if (!restoreStarted.isCompleted) restoreStarted.complete();
+        await finishRestore.future;
+        await client.importVerifiedSession(
+          cookieHeader: 'session=browser',
+          userAgent: 'Browser UA',
+          expectedGeneration: expectedGeneration,
+        );
+        client.useVerifiedBrowserTransport(browserAdapter);
+      },
+    );
+    addTearDown(client.dispose);
+
+    final browse = client.browse('https://missav.ai/cn');
+    final playlists = client.playlistsFor(
+      const VideoItem(
+        id: 'open-sample-001',
+        title: 'Sample',
+        pageUrl: 'https://missav.ai/cn/open-sample-001',
+      ),
+    );
+    await restoreStarted.future;
+    expect(restoreCalls, 1);
+    finishRestore.complete();
+
+    await browse;
+    await playlists;
+    await client.browse('https://missav.ai/cn');
+
+    expect(restoreCalls, 1);
+    expect(nativeAdapter.requests, isEmpty);
+    expect(browserAdapter.requests, hasLength(3));
+    for (final request in browserAdapter.requests) {
+      expect(_cookieHeader(request), 'session=browser');
+      expect(_headerValue(request, 'User-Agent'), 'Browser UA');
+    }
+    expect(storage.cookie, 'session=browser');
+  });
+
+  test(
+    'login waits until the restored browser passes its access check',
+    () async {
+      final fixture = await File(
+        'test/fixtures/missav/catalog.html',
+      ).readAsString();
+      final probeStarted = Completer<void>();
+      final finishProbe = Completer<void>();
+      var restoreCalls = 0;
+      final adapter = _Adapter((request) async {
+        if (request.uri.path.endsWith('/api/login')) {
+          return _response(
+            '{"user":{"name":"restored-viewer"}}',
+            headers: {
+              'content-type': ['application/json'],
+            },
+          );
+        }
+        if (!probeStarted.isCompleted) {
+          probeStarted.complete();
+          await finishProbe.future;
+        }
+        return _response(fixture);
+      });
+      final client = MissavClient(
+        secureStorage: _storedBrowserSession(),
+        restoreSavedSession: (client, expectedGeneration) async {
+          restoreCalls++;
+          await client.importVerifiedSession(
+            cookieHeader: 'session=browser',
+            userAgent: 'Browser UA',
+            expectedGeneration: expectedGeneration,
+          );
+          client.useVerifiedBrowserTransport(adapter);
+          await client.checkBrowserAccess();
+        },
+      );
+      addTearDown(client.dispose);
+      final browse = client
+          .browse('https://missav.ai/cn')
+          .then<void>(
+            (_) {},
+            onError: (Object error) => expect(error, isA<MissavException>()),
+          );
+      await probeStarted.future;
+      final generationDuringProbe = client.sessionGeneration;
+      final login = client.login(
+        email: 'viewer@example.invalid',
+        password: 'sample-password',
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(client.sessionGeneration, generationDuringProbe);
+      expect(adapter.requests, hasLength(1));
+      finishProbe.complete();
+      await browse;
+      await login;
+      expect(restoreCalls, 1);
+      expect(client.accountName, 'restored-viewer');
+      expect(adapter.closeCalls, 0);
+      await client.browse('https://missav.ai/cn');
+    },
+  );
+
+  test('does not start browser recovery without a saved session', () async {
+    var restoreCalls = 0;
+    final adapter = _Adapter((_) => _response(''));
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = adapter,
+      secureStorage: _MemorySecureStorage(),
+      restoreSavedSession: (_, _) async {
+        restoreCalls++;
+      },
+    );
+    addTearDown(client.dispose);
+
+    await client.browse('https://missav.ai/cn');
+
+    expect(restoreCalls, 0);
+    expect(adapter.requests, hasLength(1));
+  });
+
+  test(
+    'saved-session recovery preserves challenge and ordinary failures',
+    () async {
+      final challengeStorage = _storedBrowserSession();
+      final challengeAdapter = _Adapter(
+        (_) => _response(
+          '<title>Just a moment...</title>',
+          statusCode: HttpStatus.forbidden,
+        ),
+      );
+      final challengeClient = MissavClient(
+        dio: Dio()..httpClientAdapter = _Adapter((_) => _response('')),
+        secureStorage: challengeStorage,
+        restoreSavedSession: (client, expectedGeneration) async {
+          await client.importVerifiedSession(
+            cookieHeader: 'session=browser',
+            userAgent: 'Browser UA',
+            expectedGeneration: expectedGeneration,
+          );
+          client.useVerifiedBrowserTransport(challengeAdapter);
+        },
+      );
+      addTearDown(challengeClient.dispose);
+
+      await expectLater(
+        challengeClient.browse('https://missav.ai/cn'),
+        throwsA(isA<MissavVerificationRequiredException>()),
+      );
+      expect(challengeStorage.cookie, 'session=browser');
+
+      final runtimeClient = MissavClient(
+        secureStorage: _storedBrowserSession(),
+        restoreSavedSession: (_, _) async {
+          throw StateError('WebView runtime unavailable');
+        },
+      );
+      addTearDown(runtimeClient.dispose);
+      await expectLater(
+        runtimeClient.browse('https://missav.ai/cn'),
+        throwsA(isA<StateError>()),
+      );
+
+      final networkClient = MissavClient(
+        secureStorage: _storedBrowserSession(),
+        restoreSavedSession: (client, expectedGeneration) async {
+          await client.importVerifiedSession(
+            cookieHeader: 'session=browser',
+            userAgent: 'Browser UA',
+            expectedGeneration: expectedGeneration,
+          );
+          client.useVerifiedBrowserTransport(
+            _Adapter(
+              (request) => throw DioException(
+                requestOptions: request,
+                type: DioExceptionType.connectionError,
+              ),
+            ),
+          );
+        },
+      );
+      addTearDown(networkClient.dispose);
+      await expectLater(
+        networkClient.browse('https://missav.ai/cn'),
+        throwsA(isA<MissavException>()),
+      );
+    },
+  );
+
+  test(
+    'late recovery cannot replace logout, a new session, or disposal',
+    () async {
+      for (final action in ['logout', 'replace', 'dispose']) {
+        final storage = _storedBrowserSession();
+        final restoreStarted = Completer<void>();
+        final finishRestore = Completer<void>();
+        final adapter = _Adapter((_) => _response('late response'));
+        late MissavClient client;
+        client = MissavClient(
+          secureStorage: storage,
+          restoreSavedSession: (client, expectedGeneration) async {
+            restoreStarted.complete();
+            await finishRestore.future;
+            await client.importVerifiedSession(
+              cookieHeader: 'session=late',
+              userAgent: 'Late UA',
+              expectedGeneration: expectedGeneration,
+            );
+            client.useVerifiedBrowserTransport(adapter);
+          },
+        );
+        addTearDown(client.dispose);
+
+        final browse = expectLater(
+          client.browse('https://missav.ai/cn'),
+          throwsA(isA<MissavException>()),
+        );
+        await restoreStarted.future;
+        if (action == 'logout') {
+          await client.logout();
+        } else if (action == 'replace') {
+          await client.importVerifiedSession(
+            cookieHeader: 'session=new',
+            userAgent: 'New UA',
+          );
+        } else {
+          client.dispose();
+        }
+        finishRestore.complete();
+        await browse;
+
+        expect(adapter.requests, isEmpty, reason: action);
+        expect(
+          storage.cookie,
+          action == 'logout'
+              ? isNull
+              : action == 'replace'
+              ? 'session=new'
+              : 'session=saved',
+          reason: action,
+        );
+      }
+    },
+  );
 
   test(
     'parses detail state and packed stream URLs without executing scripts',

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_verification.dart';
@@ -14,6 +15,8 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_platform_interface/webview_flutter_platform_interface.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('Android accepts the verified browser document', () async {
     const html = '<html><a href="/logout">退出登录</a></html>';
     final document = jsonEncode({'url': 'https://missav.ai/cn', 'html': html});
@@ -52,7 +55,7 @@ void main() {
   });
 
   test(
-    'rejects a browser document from another origin after decoding',
+    'does not treat an invalid browser document as a verification challenge',
     () async {
       final document = jsonEncode({
         'url': 'https://other.example/cn',
@@ -68,7 +71,12 @@ void main() {
             read: (_) async => result,
             stop: () async => stopped = true,
           ),
-          throwsA(isA<MissavVerificationRequiredException>()),
+          throwsA(
+            allOf(
+              isA<MissavException>(),
+              isNot(isA<MissavVerificationRequiredException>()),
+            ),
+          ),
         );
         expect(stopped, isTrue);
       }
@@ -112,6 +120,66 @@ void main() {
     ]) {
       expect(isMissavVerificationUrl(url), isFalse, reason: url);
     }
+  });
+
+  test(
+    'stale Android proxy cleanup cannot release a newer configuration',
+    () async {
+      const channel = MethodChannel('com.meteor.kikoeruflutter/missav_browser');
+      final calls = <String>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call.method);
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+      final oldOwner = await configureMissavAndroidProxy();
+      final newOwner = await configureMissavAndroidProxy();
+      await releaseMissavAndroidProxy(oldOwner);
+
+      expect(calls, ['configureProxy', 'configureProxy']);
+      await releaseMissavAndroidProxy(newOwner);
+      await releaseMissavAndroidProxy(newOwner);
+      expect(calls, ['configureProxy', 'configureProxy', 'resetProxy']);
+    },
+  );
+
+  test('mobile navigation waits for the WebView to finish loading', () async {
+    final oldPlatform = WebViewPlatform.instance;
+    final loadStarted = Completer<void>();
+    final finishLoad = Completer<void>();
+    final platform = _FakeWebViewPlatform(
+      Completer<List<WebViewCookie>>().future,
+      initialUrl: null,
+      onLoadRequest: (_) async {
+        loadStarted.complete();
+        await finishLoad.future;
+      },
+    );
+    WebViewPlatform.instance = platform;
+    addTearDown(() {
+      if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+    });
+
+    final controller = WebViewController();
+    var finished = false;
+    final navigation = waitForMissavMobilePage(
+      controller,
+      'https://missav.ai/cn',
+      ensureActive: () {},
+    ).then((_) => finished = true);
+    await loadStarted.future;
+    await Future<void>.delayed(Duration.zero);
+
+    expect(await controller.currentUrl(), isNull);
+    expect(finished, isFalse);
+    finishLoad.complete();
+    await navigation;
+
+    expect(await controller.currentUrl(), 'https://missav.ai/cn');
+    expect(finished, isTrue);
   });
 
   test('only live root cookies for the source enter the native session', () {
@@ -217,15 +285,25 @@ class _DesktopBrowser extends Fake implements Webview {
 }
 
 class _FakeWebViewPlatform extends WebViewPlatform {
-  _FakeWebViewPlatform(this.cookies);
+  _FakeWebViewPlatform(
+    this.cookies, {
+    this.initialUrl = 'https://missav.ai/cn',
+    this.onLoadRequest,
+  });
 
   final Future<List<WebViewCookie>> cookies;
+  final String? initialUrl;
+  final Future<void> Function(LoadRequestParams params)? onLoadRequest;
   final cookiesRequested = Completer<void>();
 
   @override
   PlatformWebViewController createPlatformWebViewController(
     PlatformWebViewControllerCreationParams params,
-  ) => _FakeWebViewController(params);
+  ) => _FakeWebViewController(
+    params,
+    initialUrl: initialUrl,
+    onLoadRequest: onLoadRequest,
+  );
 
   @override
   PlatformNavigationDelegate createPlatformNavigationDelegate(
@@ -239,10 +317,16 @@ class _FakeWebViewPlatform extends WebViewPlatform {
 }
 
 class _FakeWebViewController extends PlatformWebViewController {
-  _FakeWebViewController(super.params) : super.implementation();
+  _FakeWebViewController(
+    super.params, {
+    required String? initialUrl,
+    this.onLoadRequest,
+  }) : _url = initialUrl,
+       super.implementation();
 
-  String? _url = 'https://missav.ai/cn';
+  String? _url;
   _FakeNavigationDelegate? _navigationDelegate;
+  final Future<void> Function(LoadRequestParams params)? onLoadRequest;
 
   @override
   Future<String?> currentUrl() async => _url;
@@ -259,12 +343,22 @@ class _FakeWebViewController extends PlatformWebViewController {
 
   @override
   Future<void> loadRequest(LoadRequestParams params) async {
-    _url = params.uri.toString();
+    final url = params.uri.toString();
     final decision = await _navigationDelegate?.navigationRequest?.call(
-      NavigationRequest(url: _url!, isMainFrame: true),
+      NavigationRequest(url: url, isMainFrame: true),
     );
     if (decision != NavigationDecision.prevent) {
-      _navigationDelegate?.pageFinished?.call(_url!);
+      void finishNavigation() {
+        _url = url;
+        _navigationDelegate?.pageFinished?.call(url);
+      }
+
+      final loading = onLoadRequest?.call(params);
+      if (loading == null) {
+        finishNavigation();
+      } else {
+        unawaited(loading.then((_) => finishNavigation()));
+      }
     }
   }
 

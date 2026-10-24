@@ -14,13 +14,16 @@ import 'missav_browser_adapter.dart';
 import 'video_models.dart';
 
 class MissavClient extends ChangeNotifier {
-  MissavClient({Dio? dio, FlutterSecureStorage? secureStorage})
-    : _secureStorage =
-          secureStorage ??
-          const FlutterSecureStorage(
-            mOptions: MacOsOptions(usesDataProtectionKeychain: false),
-          ),
-      _dio = dio ?? Dio(_defaultOptions()) {
+  MissavClient({
+    Dio? dio,
+    FlutterSecureStorage? secureStorage,
+    this.restoreSavedSession,
+  }) : _secureStorage =
+           secureStorage ??
+           const FlutterSecureStorage(
+             mOptions: MacOsOptions(usesDataProtectionKeychain: false),
+           ),
+       _dio = dio ?? Dio(_defaultOptions()) {
     if (dio == null) {
       _dio.httpClientAdapter = IOHttpClientAdapter(
         createHttpClient: () =>
@@ -37,6 +40,8 @@ class MissavClient extends ChangeNotifier {
   static const _pageLimit = 5;
 
   final FlutterSecureStorage _secureStorage;
+  final Future<void> Function(MissavClient client, int expectedGeneration)?
+  restoreSavedSession;
   final Dio _dio;
   late final HttpClientAdapter _nativeAdapter;
   HttpClientAdapter? _browserAdapter;
@@ -45,6 +50,7 @@ class MissavClient extends ChangeNotifier {
   CancelToken _sessionCancelToken = CancelToken();
   Future<void> _pendingSessionWrite = Future.value();
   Future<void>? _initializing;
+  Completer<void>? _sessionRestoration;
   bool _initialized = false;
   String? _cookie;
   String _userAgent = _defaultUserAgent;
@@ -125,6 +131,46 @@ class MissavClient extends ChangeNotifier {
     await (_initializing ??= _loadSession());
   }
 
+  Future<void> _prepareOnlineAccess() async {
+    await initialize();
+    final pending = _sessionRestoration;
+    if (pending != null) {
+      await pending.future;
+      return;
+    }
+    if (_browserAdapter != null || _cookie?.isNotEmpty != true) return;
+    final restorer = restoreSavedSession;
+    if (restorer == null) return;
+
+    final generation = _sessionGeneration;
+    final restoration = Completer<void>();
+    _sessionRestoration = restoration;
+    unawaited(_runSessionRestoration(restorer, generation, restoration));
+    await restoration.future;
+  }
+
+  Future<void> _runSessionRestoration(
+    Future<void> Function(MissavClient client, int expectedGeneration) restorer,
+    int generation,
+    Completer<void> restoration,
+  ) async {
+    try {
+      await restorer(this, generation);
+      if (_disposed || _browserAdapter == null) {
+        throw const MissavException(
+          'MissAV browser session could not be restored.',
+        );
+      }
+      restoration.complete();
+    } catch (error, stackTrace) {
+      restoration.completeError(error, stackTrace);
+    } finally {
+      if (identical(_sessionRestoration, restoration)) {
+        _sessionRestoration = null;
+      }
+    }
+  }
+
   Future<void> _loadSession() async {
     final generation = _sessionGeneration;
     try {
@@ -142,7 +188,16 @@ class MissavClient extends ChangeNotifier {
   }
 
   Future<VideoCatalogPage> browse(String url) async {
+    await _prepareOnlineAccess();
+    return _browse(url);
+  }
+
+  Future<void> checkBrowserAccess() async {
     await initialize();
+    await _browse(homeUrl);
+  }
+
+  Future<VideoCatalogPage> _browse(String url) async {
     final generation = _sessionGeneration;
     final uri = _localizedSourceUri(url);
     final locale = _locale;
@@ -234,7 +289,7 @@ class MissavClient extends ChangeNotifier {
     List<VideoLink> filters, {
     bool Function()? isCurrent,
   }) async {
-    await initialize();
+    await _prepareOnlineAccess();
     final generation = _sessionGeneration;
     final locale = _locale;
     final keyword = query.trim();
@@ -283,7 +338,7 @@ class MissavClient extends ChangeNotifier {
     String query, {
     bool Function()? isCurrent,
   }) async {
-    await initialize();
+    await _prepareOnlineAccess();
     final generation = _sessionGeneration;
     final locale = _locale;
     final first = _localizedSourceUri(url);
@@ -312,7 +367,7 @@ class MissavClient extends ChangeNotifier {
   }
 
   Future<VideoDetails> details(VideoItem item) async {
-    await initialize();
+    await _prepareOnlineAccess();
     final generation = _sessionGeneration;
     final uri = _localizedSourceUri(item.pageUrl);
     final document = await _loadDocument(uri, generation);
@@ -375,7 +430,7 @@ class MissavClient extends ChangeNotifier {
   }
 
   Future<void> login({required String email, required String password}) async {
-    await initialize();
+    await _prepareOnlineAccess();
     final generation = _advanceSessionGeneration();
     final uri = Uri.parse('$origin$_localePrefix/api/login');
 
@@ -427,10 +482,11 @@ class MissavClient extends ChangeNotifier {
   Future<void> importVerifiedSession({
     required String cookieHeader,
     required String userAgent,
+    int? expectedGeneration,
   }) async {
     _validateHeaderValue(cookieHeader, 'cookieHeader');
     _validateHeaderValue(userAgent, 'userAgent');
-    final previousGeneration = _sessionGeneration;
+    final previousGeneration = expectedGeneration ?? _sessionGeneration;
     await initialize();
     _checkGeneration(previousGeneration, Uri.parse(origin));
 
@@ -457,7 +513,7 @@ class MissavClient extends ChangeNotifier {
   }
 
   Future<void> setVideoFavorite(VideoDetails details, bool favorite) async {
-    await initialize();
+    await _prepareOnlineAccess();
     final sourceId = details.sourceId;
     if (sourceId == null || !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(sourceId)) {
       throw MissavUnsupportedException(
@@ -472,7 +528,7 @@ class MissavClient extends ChangeNotifier {
   }
 
   Future<List<VideoLink>> playlistsFor(VideoItem item) async {
-    await initialize();
+    await _prepareOnlineAccess();
     _sourceUri(item.pageUrl);
     final uri = Uri.parse(
       '$origin/api/playlists/${Uri.encodeComponent(item.id)}',
@@ -507,7 +563,7 @@ class MissavClient extends ChangeNotifier {
   }
 
   Future<void> setActorFavorite(VideoLink actor, bool favorite) async {
-    await initialize();
+    await _prepareOnlineAccess();
     final generation = _sessionGeneration;
     final actorUri = _localizedSourceUri(actor.url);
     final document = await _loadDocument(actorUri, generation);
@@ -561,7 +617,7 @@ class MissavClient extends ChangeNotifier {
     VideoItem item, {
     required bool added,
   }) async {
-    await initialize();
+    await _prepareOnlineAccess();
     final key = playlist.sourceKey;
     if (key == null || key.isEmpty) {
       throw MissavUnsupportedException(
@@ -577,7 +633,7 @@ class MissavClient extends ChangeNotifier {
   }
 
   Future<void> clearWatchHistory() async {
-    await initialize();
+    await _prepareOnlineAccess();
     await _request(Uri.parse('$origin/api/history'), method: 'DELETE');
   }
 
@@ -612,6 +668,7 @@ class MissavClient extends ChangeNotifier {
     Object? data,
     int? generation,
   }) async {
+    if (generation == null) await _prepareOnlineAccess();
     final requestGeneration = generation ?? _sessionGeneration;
     final requestCancelToken = _sessionCancelToken;
     var requestUri = _sourceUri(uri.toString());

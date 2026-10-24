@@ -6,7 +6,7 @@ import 'video_downloads.dart';
 import 'video_library.dart';
 
 final videoClientProvider = ChangeNotifierProvider<MissavClient>(
-  (ref) => MissavClient(),
+  (ref) => MissavClient(restoreSavedSession: restoreMissavBrowserSession),
 );
 
 final videoBrowserSessionCleanupProvider = Provider<Future<void> Function()>(
