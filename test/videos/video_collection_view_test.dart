@@ -40,6 +40,32 @@ const _video = VideoItem(
   ],
 );
 
+VideoItem _richVideo() => VideoItem(
+  id: 'rich',
+  title: 'A video with several actresses and a full set of tags',
+  pageUrl: 'https://missav.ai/cn/rich',
+  durationSeconds: 3723,
+  releaseDate: '2024-03-02',
+  hasSubtitles: true,
+  isUncensored: true,
+  actors: [
+    for (final name in ['Actress A', 'Actress B', 'Actress C', 'Actress D'])
+      VideoLink(
+        label: name,
+        url: 'https://missav.ai/cn/actresses/$name',
+        kind: VideoLinkKind.actor,
+      ),
+  ],
+  tags: [
+    for (var index = 1; index <= 8; index++)
+      VideoLink(
+        label: 'Tag $index',
+        url: 'https://missav.ai/cn/genres/tag-$index',
+        kind: VideoLinkKind.category,
+      ),
+  ],
+);
+
 void main() {
   testWidgets(
     'cover badges occupy their requested corners and metadata opens its catalog',
@@ -124,6 +150,59 @@ void main() {
     },
   );
 
+  testWidgets(
+    'dense metadata stays compact and exposes the remaining entries',
+    (tester) async {
+      var opened = false;
+      final video = _richVideo();
+      await tester.pumpWidget(
+        _app(
+          Center(
+            child: SizedBox(
+              width: 180,
+              child: VideoCard(
+                video: video,
+                layoutType: LayoutType.smallGrid,
+                onTap: () => opened = true,
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.text('Actress A'), findsOneWidget);
+      expect(find.text('Actress C'), findsNothing);
+      expect(find.text('Tag 3'), findsOneWidget);
+      expect(find.text('Tag 4'), findsNothing);
+      expect(find.text('+2'), findsOneWidget);
+      expect(find.text('+5'), findsOneWidget);
+      expect(find.byTooltip('Tag 4、Tag 5、Tag 6、Tag 7、Tag 8'), findsOneWidget);
+      await tester.tap(find.text('+5'));
+      expect(opened, isTrue);
+      expect(video.tags, hasLength(8));
+      expect(tester.takeException(), isNull);
+
+      await tester.pumpWidget(
+        _app(
+          Center(
+            child: SizedBox(
+              width: 320,
+              child: VideoCard(
+                video: _video,
+                layoutType: LayoutType.list,
+                onTap: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      final cover = tester.getRect(find.byType(VideoCover));
+      final actress = tester.getRect(find.text('Sample actor'));
+      expect(actress.left, greaterThan(cover.right));
+      expect(actress.top, lessThan(cover.bottom));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('all layouts fit narrow and wide windows with larger text', (
     tester,
   ) async {
@@ -138,7 +217,7 @@ void main() {
         await tester.pumpWidget(
           _app(
             VideoCollectionView<VideoItem>(
-              items: const [_video],
+              items: [_video, _richVideo()],
               layoutType: layout,
               itemId: (video) => video.id,
               itemBuilder: (_, video, _) =>
@@ -152,7 +231,7 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull, reason: '$width $layout');
-        final cover = tester.getSize(find.byType(VideoCover));
+        final cover = tester.getSize(find.byType(VideoCover).first);
         expect(cover.width / cover.height, closeTo(4 / 3, .001));
         if (layout == LayoutType.list) expect(cover, const Size(80, 60));
       }
@@ -201,7 +280,7 @@ void main() {
                       child: Padding(
                         padding: const EdgeInsets.all(8),
                         child: VideoCard(
-                          video: _video,
+                          video: index == 0 ? _video : _richVideo(),
                           layoutType: LayoutType.bigGrid,
                           onTap: () {},
                         ),
@@ -211,7 +290,7 @@ void main() {
               ),
               const SizedBox(height: 16),
               VideoCard(
-                video: _video,
+                video: _richVideo(),
                 layoutType: LayoutType.list,
                 onTap: () {},
               ),

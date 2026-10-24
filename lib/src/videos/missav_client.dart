@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
@@ -16,6 +17,7 @@ import 'video_models.dart';
 class MissavClient extends ChangeNotifier {
   MissavClient({
     Dio? dio,
+    Dio? metadataDio,
     FlutterSecureStorage? secureStorage,
     this.restoreSavedSession,
   }) : _secureStorage =
@@ -23,9 +25,25 @@ class MissavClient extends ChangeNotifier {
            const FlutterSecureStorage(
              mOptions: MacOsOptions(usesDataProtectionKeychain: false),
            ),
-       _dio = dio ?? Dio(_defaultOptions()) {
+       _dio = dio ?? Dio(_defaultOptions()),
+       _metadataDio =
+           metadataDio ??
+           Dio(
+             BaseOptions(
+               connectTimeout: const Duration(seconds: 5),
+               receiveTimeout: const Duration(seconds: 5),
+               sendTimeout: const Duration(seconds: 5),
+               followRedirects: false,
+             ),
+           ) {
     if (dio == null) {
       _dio.httpClientAdapter = IOHttpClientAdapter(
+        createHttpClient: () =>
+            HttpClient()..findProxy = ProxyConfig.findProxyFor,
+      );
+    }
+    if (metadataDio == null) {
+      _metadataDio.httpClientAdapter = IOHttpClientAdapter(
         createHttpClient: () =>
             HttpClient()..findProxy = ProxyConfig.findProxyFor,
       );
@@ -38,11 +56,33 @@ class MissavClient extends ChangeNotifier {
   static const _sessionRecordKey = 'missav_verified_session';
   static const _defaultUserAgent = 'Mozilla/5.0';
   static const _pageLimit = 5;
+  // MissAV publishes this frontend token for Recombee catalog requests.
+  static const _metadataPublicToken =
+      'Ikkg568nlM51RHvldlPvc2GzZPE9R4XGzaH9Qj4zK9npbbbTly1gj9K4mgRn0QlV';
+  // These categories belong to MissAV's uncensored navigation section.
+  static const _uncensoredTypes = {
+    'uncensored',
+    'uncensored-leak',
+    'fc2',
+    'heyzo',
+    'tokyo-hot',
+    '1pondo',
+    'caribbeancom',
+    'caribbeancompr',
+    '10musume',
+    'pacopacomama',
+    'gachinco',
+    'xxx-av',
+    'married-scent',
+    'naughty4610',
+    'naughty0930',
+  };
 
   final FlutterSecureStorage _secureStorage;
   final Future<void> Function(MissavClient client, int expectedGeneration)?
   restoreSavedSession;
   final Dio _dio;
+  final Dio _metadataDio;
   late final HttpClientAdapter _nativeAdapter;
   HttpClientAdapter? _browserAdapter;
   Uri Function(Uri)? _mediaRoute;
@@ -210,7 +250,14 @@ class MissavClient extends ChangeNotifier {
     }
     _updateAccountFromPage(document);
     _updateHomeUrl(document, uri);
-    final videos = _parseVideos(document, uri);
+    final videos = await _enrichVideos(_parseVideos(document, uri));
+    _checkGeneration(generation, uri);
+    if (_locale != locale) {
+      throw MissavException(
+        'MissAV language changed during the request.',
+        sourceUrl: uri.toString(),
+      );
+    }
 
     return VideoCatalogPage(
       title: _pageTitle(document),
@@ -223,6 +270,120 @@ class MissavClient extends ChangeNotifier {
       currentPage: _pageNumber(uri) ?? 1,
       jumpMaxPage: _jumpMaxPage(document, uri),
     );
+  }
+
+  Future<List<VideoItem>> _enrichVideos(List<VideoItem> videos) async {
+    if (videos.isEmpty) return videos;
+    final localePrefix = _localePrefix;
+    final ids = videos
+        .map((video) => video.id.toLowerCase())
+        .where((id) => RegExp(r'^[a-z0-9_:@.\-]+$').hasMatch(id))
+        .toSet();
+    if (ids.isEmpty) return videos;
+    final timestamp = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+    const path = '/missav-default/recomms/users/anonymous/items/';
+    final unsigned = '$path?frontend_timestamp=$timestamp';
+    final signature = Hmac(
+      sha1,
+      utf8.encode(_metadataPublicToken),
+    ).convert(utf8.encode(unsigned));
+    try {
+      final response = await _metadataDio.post<Object?>(
+        'https://client-rapi-missav.recombee.com$unsigned&frontend_sign=$signature',
+        data: {
+          'count': ids.length,
+          'cascadeCreate': true,
+          'returnProperties': true,
+          'filter': "'itemId' in {${ids.map(jsonEncode).join(',')}}",
+        },
+        cancelToken: _sessionCancelToken,
+        options: Options(
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+        ),
+      );
+      final data = response.data;
+      if (data is! Map || data['recomms'] is! List) return videos;
+      final valuesById = <String, Map>{};
+      for (final entry in data['recomms'] as List) {
+        if (entry is! Map ||
+            entry['id'] is! String ||
+            entry['values'] is! Map) {
+          continue;
+        }
+        final id = (entry['id'] as String).toLowerCase();
+        if (ids.contains(id)) valuesById[id] = entry['values'] as Map;
+      }
+      return videos.map((video) {
+        final values = valuesById[video.id.toLowerCase()];
+        if (values == null) return video;
+        List<VideoLink> links(String field, String route, VideoLinkKind kind) {
+          final names = values[field];
+          if (names is! List) return [];
+          return names
+              .whereType<String>()
+              .map((name) => name.trim())
+              .where((name) => name.isNotEmpty)
+              .toSet()
+              .map(
+                (name) => VideoLink(
+                  label: name,
+                  url:
+                      '$origin$localePrefix/$route/${Uri.encodeComponent(name)}',
+                  kind: kind,
+                ),
+              )
+              .toList();
+        }
+
+        final actors = <String, VideoLink>{
+          for (final actor in links(
+            'actresses',
+            'actresses',
+            VideoLinkKind.actor,
+          ))
+            actor.label: actor,
+          for (final actor in video.actors) actor.label: actor,
+        };
+        final tags = <String, VideoLink>{
+          for (final tag in links('genres', 'genres', VideoLinkKind.category))
+            tag.label: tag,
+          for (final tag in video.tags) tag.label: tag,
+        };
+        final duration = values['duration'];
+        final releasedAt = values['released_at'];
+        return VideoItem(
+          id: video.id,
+          title: video.title,
+          pageUrl: video.pageUrl,
+          cover: video.cover,
+          durationSeconds: duration is num && duration > 0
+              ? duration.round()
+              : video.durationSeconds,
+          releaseDate: releasedAt is num && releasedAt > 0
+              ? DateTime.fromMillisecondsSinceEpoch(
+                  (releasedAt * 1000).round(),
+                  isUtc: true,
+                ).toIso8601String().substring(0, 10)
+              : video.releaseDate,
+          actors: actors.values.toList(),
+          tags: tags.values.toList(),
+          hasSubtitles:
+              video.hasSubtitles ||
+              values['has_chinese_subtitle'] == true ||
+              values['has_english_subtitle'] == true,
+          isUncensored:
+              video.isUncensored ||
+              values['is_uncensored_leak'] == true ||
+              _uncensoredTypes.contains(values['type']),
+        );
+      }).toList();
+    } catch (_) {
+      // Catalog browsing stays available when optional metadata cannot be read.
+      return videos;
+    }
   }
 
   Future<VideoCatalogPage> search(String query) async {
@@ -369,8 +530,15 @@ class MissavClient extends ChangeNotifier {
   Future<VideoDetails> details(VideoItem item) async {
     await _prepareOnlineAccess();
     final generation = _sessionGeneration;
+    final locale = _locale;
     final uri = _localizedSourceUri(item.pageUrl);
     final document = await _loadDocument(uri, generation);
+    if (_locale != locale) {
+      throw MissavException(
+        'MissAV language changed during the request.',
+        sourceUrl: uri.toString(),
+      );
+    }
     _updateAccountFromPage(document);
     final title =
         (document.querySelector('main h1') ?? document.querySelector('h1'))
@@ -417,17 +585,26 @@ class MissavClient extends ChangeNotifier {
         _updateAccountFromSource(viewBody['user']);
       }
     }
+    final related = _parseVideos(
+      document,
+      uri,
+    ).where((related) => related.id != item.id).toList();
+    final enriched = await _enrichVideos([video, ...related]);
+    final detailedVideo = enriched.first;
     _checkGeneration(generation, uri);
+    if (_locale != locale) {
+      throw MissavException(
+        'MissAV language changed during the request.',
+        sourceUrl: uri.toString(),
+      );
+    }
     return VideoDetails(
-      video: video,
+      video: detailedVideo,
       description: _parseDescription(document),
       metadata: metadata,
-      actors: video.actors,
-      tags: video.tags,
-      related: _parseVideos(
-        document,
-        uri,
-      ).where((related) => related.id != item.id).toList(),
+      actors: detailedVideo.actors,
+      tags: detailedVideo.tags,
+      related: enriched.skip(1).toList(),
       streams: _parseStreams(document, uri, userAgent: _userAgent).map((
         stream,
       ) {
@@ -1690,6 +1867,7 @@ class MissavClient extends ChangeNotifier {
     _browserAdapter = null;
     _mediaRoute = null;
     _dio.close(force: true);
+    _metadataDio.close(force: true);
     if (!identical(activeAdapter, nativeAdapter)) {
       nativeAdapter.close(force: true);
     }

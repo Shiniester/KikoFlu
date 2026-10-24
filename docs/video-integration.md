@@ -14,8 +14,10 @@
 
 播放器参考 [PiliPlus](https://github.com/bggRGjQaUbCoE/PiliPlus) 的控制交互。
 
-- 播放时，停止操作 3 秒后隐藏控制。单击画面或移动鼠标可显示控制。
-- 暂停、缓冲或播放失败时显示控制。
+- 播放时，停止操作 3 秒后隐藏控制。单击画面可显示或隐藏控制。
+  暂停、加载和缓冲时也可隐藏控制。
+- 主控制在画面内显示为单行。音量、倍速、清晰度、音轨和字幕位于设置弹层。
+  加载指示器不拦截画面手势，播放失败时保留恢复操作。
 - 双击画面可播放或暂停。
 - 横向拖动画面可预览目标时间。松手后跳转，取消手势时保留原进度。
   横拖以当前进度为起点，滑过整个画面最多调整 120 秒。
@@ -28,13 +30,26 @@
 视频卡片沿用音声页的 4:3 封面和 80×60 像素列表封面。
 大网格和小网格使用可变高度，按内容显示女优名和标签。
 女优名和标签可打开对应的源站目录。
+卡片最多显示 2 个女优名和 3 个标签。
+其余条目显示为数量入口，可打开详情查看完整信息。
+列表将女优名和标签排在封面右侧。
 相关推荐和下载封面共用同一封面组件。
 
 封面左下角显示字幕和无码图标，右上角显示时长，右下角显示发布日期。
-视频列表只显示源站列表已提供的信息，缺失项留空。
-浏览列表不会为补充卡片信息而请求视频详情。
+视频列表通过 MissAV 的 Recombee 接口批量补充元数据，缺失项留空。
+接口按当前视频 ID 筛选，一次返回多条属性，保留原列表顺序。
+女优名取 `actresses`，标签取 `genres`，不把 `actors` 当作女优名。
+同名条目保留源站已有的目录链接。
+发布日期、时长、字幕和无码标记也由该批量响应补充。
+当前视频和相关推荐共用一次批量查询。
+批量请求使用独立客户端，不携带源站账号 Cookie。
+接口失败时保留原卡片。浏览列表不会逐个请求视频详情。
 下载保存已有元数据，离线详情可显示这些信息。
 旧下载中没有的元数据继续留空。
+
+接口字段依据[公开调用代码](https://github.com/EchterAlsFake/unofficial-api-for-missav/blob/main/missav_api/api.py)和[字段说明](https://github.com/z291173301/MDCx/blob/5e94c51553e258b70aa196415a4c2626ae3744a8/mdcx/crawlers/missav_api.py)。
+当前接入使用 [Recombee 推荐属性接口](https://docs.recombee.com/api/recommendations)的 ID 筛选。
+2026-10-25 实测一批 3 条视频均返回女优名、标签、日期和时长。
 
 ## 浏览与分页
 
@@ -102,6 +117,18 @@ Windows 和 Android 的验证浏览器使用应用代理设置。Android 与 Jap
 首版不下载实时或低延迟 HLS、字节范围清单、独立音轨和其他 DRM 格式。下载失败会保留任务供重试。系统可在后台暂停任务；首版不保证进程被结束后持续下载，也不提供通用文件导出。
 
 ## 验证
+
+2026-10-25 检查播放控制收起与批量元数据。
+
+- 自动检查：174 项视频测试全部通过，包含真实 Recombee 批量请求。
+  命令：`flutter test --no-pub test/videos --dart-define=KIKOFLU_LIVE_MISSAV_METADATA=true`。
+- 静态检查：`flutter analyze --no-pub --fatal-infos` 未发现问题。
+- 接口检查：一批 3 条视频均返回女优名、标签、发布日期和时长。
+  账号与语言切换会丢弃旧响应；接口失败时保留原卡片。
+- 布局检查：320、840 和 1280 像素宽度、1.3 倍文字缩放下无溢出。
+  暂停的详情播放器通过边界检查和[截图回归](../test/videos/goldens/video_playback_compact_paused.png)，控制条位于画面内。
+  [卡片布局预览](../build/video-card-layout-preview.png)使用占位封面。
+- 本轮未运行平台构建、真机播放或登录会话中的目录点击验收。
 
 2026-10-25 检查视频播放器与卡片布局。
 
@@ -182,23 +209,23 @@ flutter test --no-pub -d windows integration_test/missav_live_test.dart --dart-d
 - `handoff.why`：Windows 的结果不能替代其他平台的浏览器、解码和系统生命周期检查。
 - `handoff.next`：按已确认的 [ADR 0005](adr/0005-native-video-and-source-account.md) 检查其他平台；未验证端点保留源站入口。
 
-### 播放器与卡片布局调整
+### 播放控制与批量元数据
 
-- `task_brief`：补充视频播放手势，统一封面比例、角标和元数据布局。
-- `dispatch.read_only`：`video_layout_map` 核对音声样式、视频模型及调用路径；`video_review` 检查元数据隔离、下载保存和播放器生命周期。
-- `dispatch.write_stages`：同一阶段由 `video_player` 负责 `video_playback_panel.dart` 和 `video_playback_test.dart`，主执行者负责卡片、模型、解析、导航、本地化及对应测试。文件归属独立，播放器公有接口保持不变。Flutter 命令串行执行。
+- `task_brief`：修复播放控制常驻，接入批量女优和标签，收拢卡片信息。
+- `dispatch.read_only`：`actress_api_research` 核对女优字段；`batch_video_review` 检查请求隔离、属性合并和播放器交互。
+- `dispatch.write_stages`：同一阶段由 `player_cleanup` 负责 `video_playback_panel.dart` 和 `video_playback_test.dart`，主执行者负责客户端、卡片、对应测试和文档。文件归属独立，播放器公有接口保持不变。Flutter 命令串行执行。
 - `dispatch.skipped`：构建、依赖、测试和文档专员未单独派发；主执行者和模块实施者已覆盖本轮任务。
 
 | name | focus | result | risks | next_step |
 | --- | --- | --- | --- | --- |
-| video_layout_map | 音声样式、卡片及数据路径 | 复用封面尺寸和网格组件 | 源站列表字段不完整 | 缺失信息留空 |
-| video_player | 手势、控制浮层及回归测试 | 增加定位、临时倍速和键盘控制 | 平台输入差异需设备验收 | 检查真机交互 |
-| video_review | 元数据与播放状态 | 修复元数据串入、下载保存及手势取消问题 | 静态检查不能证明设备表现 | 结合测试和设备验收 |
+| actress_api_research | 公开接口与女优字段 | 确认取 actresses，不取 actors | 条目可缺少字段 | 缺失信息留空 |
+| player_cleanup | 常驻控制区及布局回归 | 改为单行控制和设置弹层 | 平台输入差异需设备验收 | 检查真机交互 |
+| batch_video_review | 批量请求、属性及交互 | 核对数据隔离、同名去重和布局 | 目录真实点击尚未验收 | 结合测试和设备验收 |
 
 - `implementation_plan`：先核对路径，再按文件归属并行修改。主执行者验收集成和独立复核结果。
-- `verification`：本轮自动检查见上节“验证”；覆盖卡片四角、旧下载、元数据隔离、目录跳转和播放状态。
+- `verification`：本轮检查见上节“验证”；覆盖真实批量接口、旧下载、属性隔离、同名去重和控制区隐藏。
 - `dependency_risks`：无新增依赖。旧下载缺少新字段时使用空值，不需要迁移。
 - `conflicts`：`[]`。
-- `handoff.what`：增加播放手势，统一 4:3 封面和元数据角标。
+- `handoff.what`：收起播放控制区，批量显示女优和标签。
 - `handoff.why`：列表不额外请求详情，现有下载与续播数据保持可读。
 - `handoff.next`：在目标设备检查触摸、全屏、后台暂停和音声并发播放。

@@ -33,6 +33,26 @@ class _Adapter implements HttpClientAdapter {
   }
 }
 
+Dio _emptyMetadataDio() => Dio()
+  ..httpClientAdapter = _Adapter(
+    (_) => ResponseBody.fromString(
+      '{"recomms":[]}',
+      200,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    ),
+  );
+
+ResponseBody _metadataResponse(Object body, {int statusCode = 200}) =>
+    ResponseBody.fromString(
+      jsonEncode(body),
+      statusCode,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+
 class _CancelAwareAdapter extends _Adapter {
   _CancelAwareAdapter(super.respond);
 
@@ -247,6 +267,7 @@ void main() {
       final adapter = _Adapter((_) => _response(fixture));
       final storage = _MemorySecureStorage()..cookie = 'session=source-only';
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: storage,
       );
@@ -285,6 +306,292 @@ void main() {
     },
   );
 
+  test(
+    'enriches a catalog in one exact-ID batch without account headers',
+    () async {
+      final source = _Adapter(
+        (_) => _response(
+          _searchCatalogHtml(['alpha', 'beta', 'alpha-uncensored-leak']),
+        ),
+      );
+      final metadata = _Adapter(
+        (_) => _metadataResponse({
+          'recomms': [
+            {
+              'id': 'beta',
+              'values': {
+                'actors': ['Male performer'],
+                'actresses': null,
+                'genres': [],
+                'duration': 120,
+                'type': 'heyzo',
+              },
+            },
+            {
+              'id': 'alpha',
+              'values': {
+                'actresses': [' Actress A ', 'Actress A'],
+                'actors': ['Male performer'],
+                'genres': ['Tag A', 'Tag B', 'Tag A'],
+                'duration': 3723,
+                'released_at': 1709337600,
+                'has_chinese_subtitle': true,
+              },
+            },
+            {
+              'id': 'unrequested',
+              'values': {
+                'actresses': ['Wrong actress'],
+                'genres': ['Wrong tag'],
+              },
+            },
+          ],
+        }),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = source,
+        metadataDio: Dio()..httpClientAdapter = metadata,
+        secureStorage: _MemorySecureStorage()..cookie = 'session=private',
+      );
+      addTearDown(client.dispose);
+      final page = await client.browse('https://missav.ai/cn');
+
+      expect(page.videos.map((video) => video.id), [
+        'alpha',
+        'beta',
+        'alpha-uncensored-leak',
+      ]);
+      expect(page.videos.first.title, 'Video alpha');
+      expect(page.videos.first.cover, 'https://media.example/alpha.jpg');
+      expect(page.videos.first.actors.single.label, 'Actress A');
+      expect(
+        page.videos.first.actors.single.url,
+        'https://missav.ai/cn/actresses/Actress%20A',
+      );
+      expect(page.videos.first.tags.map((tag) => tag.label), [
+        'Tag A',
+        'Tag B',
+      ]);
+      expect(page.videos.first.durationSeconds, 3723);
+      expect(page.videos.first.releaseDate, '2024-03-02');
+      expect(page.videos.first.hasSubtitles, isTrue);
+      expect(page.videos[1].actors, isEmpty);
+      expect(page.videos[1].isUncensored, isTrue);
+      expect(page.videos.last.actors, isEmpty);
+      expect(page.videos.last.tags, isEmpty);
+      expect(source.requests, hasLength(1));
+      expect(metadata.requests, hasLength(1));
+      final request = metadata.requests.single;
+      expect(request.uri.host, 'client-rapi-missav.recombee.com');
+      expect(
+        request.uri.path,
+        '/missav-default/recomms/users/anonymous/items/',
+      );
+      expect(request.data['returnProperties'], isTrue);
+      expect(request.data['count'], 3);
+      expect(
+        request.data['filter'],
+        '\'itemId\' in {"alpha","beta","alpha-uncensored-leak"}',
+      );
+      expect(
+        request.uri.queryParameters['frontend_sign'],
+        matches(RegExp(r'^[a-f0-9]{40}$')),
+      );
+      expect(_cookieHeader(request), isEmpty);
+      expect(_headerValue(request, 'Authorization'), isNull);
+      expect(_cookieHeader(source.requests.single), 'session=private');
+      client.dispose();
+      expect(source.closeCalls, 1);
+      expect(metadata.closeCalls, 1);
+    },
+  );
+
+  test(
+    'metadata failure preserves source cards and empty catalogs make no metadata call',
+    () async {
+      final metadata = _Adapter(
+        (_) => _metadataResponse({'error': 'unavailable'}, statusCode: 503),
+      );
+      final source = _Adapter(
+        (options) => _response(
+          options.uri.path.endsWith('/empty')
+              ? '<main></main>'
+              : _searchCatalogHtml(['alpha']),
+        ),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = source,
+        metadataDio: Dio()..httpClientAdapter = metadata,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+      final page = await client.browse('https://missav.ai/cn');
+      expect(page.videos.single.title, 'Video alpha');
+      expect(page.videos.single.actors, isEmpty);
+      expect(metadata.requests, hasLength(1));
+      final empty = await client.browse('https://missav.ai/cn/empty');
+      expect(empty.videos, isEmpty);
+      expect(metadata.requests, hasLength(1));
+    },
+  );
+
+  test(
+    'account changes cancel pending metadata before publishing a catalog',
+    () async {
+      final started = Completer<void>();
+      final response = Completer<ResponseBody>();
+      final metadata = _Adapter((_) {
+        started.complete();
+        return response.future;
+      });
+      final client = MissavClient(
+        dio: Dio()
+          ..httpClientAdapter = _Adapter(
+            (_) => _response(_searchCatalogHtml(['alpha'])),
+          ),
+        metadataDio: Dio()..httpClientAdapter = metadata,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+      final browsing = client.browse('https://missav.ai/cn');
+      final stale = expectLater(browsing, throwsA(isA<MissavException>()));
+      await started.future;
+      await client.logout();
+      response.complete(_metadataResponse({'recomms': []}));
+      await stale;
+    },
+  );
+
+  test(
+    'language changes discard both catalog and detail metadata responses',
+    () async {
+      for (final details in [false, true]) {
+        final started = Completer<void>();
+        final response = Completer<ResponseBody>();
+        final client = MissavClient(
+          dio: Dio()
+            ..httpClientAdapter = _Adapter(
+              (_) => _response(_searchCatalogHtml(['alpha'])),
+            ),
+          metadataDio: Dio()
+            ..httpClientAdapter = _Adapter((_) {
+              started.complete();
+              return response.future;
+            }),
+          secureStorage: _MemorySecureStorage(),
+        );
+        addTearDown(client.dispose);
+        final request = details
+            ? client.details(
+                const VideoItem(
+                  id: 'alpha',
+                  title: 'Alpha',
+                  pageUrl: 'https://missav.ai/cn/alpha',
+                ),
+              )
+            : client.browse('https://missav.ai/cn');
+        final stale = expectLater(request, throwsA(isA<MissavException>()));
+        await started.future;
+        client.setLocale('en');
+        response.complete(_metadataResponse({'recomms': []}));
+        await stale;
+      }
+    },
+  );
+
+  test(
+    'current video and related metadata share one batch and stay separate',
+    () async {
+      final fixture = await File(
+        'test/fixtures/missav/detail.html',
+      ).readAsString();
+      final metadata = _Adapter(
+        (_) => _metadataResponse({
+          'recomms': [
+            {
+              'id': 'open-sample-001',
+              'values': {
+                'actresses': ['Sample actor'],
+                'genres': ['Sample genre', 'API tag'],
+              },
+            },
+            {
+              'id': 'open-related-002',
+              'values': {
+                'actresses': ['Related actress'],
+                'genres': ['Related tag'],
+              },
+            },
+          ],
+        }),
+      );
+      final client = MissavClient(
+        dio: Dio()
+          ..httpClientAdapter = _Adapter(
+            (options) => options.uri.path.contains('/api/')
+                ? _response('{"saved":false}')
+                : _response(fixture),
+          ),
+        metadataDio: Dio()..httpClientAdapter = metadata,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+      final details = await client.details(
+        const VideoItem(
+          id: 'open-sample-001',
+          title: 'Main',
+          pageUrl: 'https://missav.ai/cn/open-sample-001',
+        ),
+      );
+      expect(details.video.actors.single.label, 'Sample actor');
+      expect(
+        details.video.actors.single.url,
+        'https://missav.ai/dm288/ja/actresses/sample-actor',
+      );
+      expect(
+        details.video.tags.where((tag) => tag.label == 'Sample genre'),
+        hasLength(1),
+      );
+      expect(
+        details.video.tags.firstWhere((tag) => tag.label == 'Sample genre').url,
+        'https://missav.ai/dm349/ja/genres/sample-genre',
+      );
+      expect(details.video.tags.any((tag) => tag.label == 'API tag'), isTrue);
+      expect(details.related.single.actors.single.label, 'Related actress');
+      expect(details.related.single.tags.single.label, 'Related tag');
+      expect(metadata.requests, hasLength(1));
+    },
+  );
+
+  test(
+    'live Recombee catalog batch supplies actresses and genres',
+    () async {
+      final source = _Adapter(
+        (_) =>
+            _response(_searchCatalogHtml(['miab-596', 'waaa-578', 'miab-636'])),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = source,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+      final page = await client.browse('https://missav.ai/cn');
+      expect(page.videos.map((video) => video.id), [
+        'miab-596',
+        'waaa-578',
+        'miab-636',
+      ]);
+      for (final video in page.videos) {
+        expect(video.actors, isNotEmpty, reason: video.id);
+        expect(video.tags, isNotEmpty, reason: video.id);
+        expect(video.durationSeconds, greaterThan(0));
+        expect(video.releaseDate, matches(RegExp(r'^\d{4}-\d{2}-\d{2}$')));
+      }
+      expect(source.requests, hasLength(1));
+    },
+    skip: !const bool.fromEnvironment('KIKOFLU_LIVE_MISSAV_METADATA'),
+  );
+
   test('category navigation does not replace the home route', () async {
     final adapter = _Adapter(
       (_) => _response('''
@@ -293,6 +600,7 @@ void main() {
 '''),
     );
     final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = adapter,
       secureStorage: _MemorySecureStorage(),
     );
@@ -328,6 +636,7 @@ void main() {
 '''),
       );
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: _MemorySecureStorage(),
       );
@@ -378,6 +687,7 @@ void main() {
 '''),
       );
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: _MemorySecureStorage(),
       );
@@ -422,6 +732,7 @@ void main() {
       ),
     );
     final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = adapter,
       secureStorage: _MemorySecureStorage(),
     );
@@ -456,6 +767,7 @@ void main() {
       () async {
         final adapter = _Adapter((_) => _response('<main></main>'));
         final client = MissavClient(
+          metadataDio: _emptyMetadataDio(),
           dio: Dio()..httpClientAdapter = adapter,
           secureStorage: _MemorySecureStorage(),
         );
@@ -517,6 +829,7 @@ void main() {
 '''),
       );
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: _MemorySecureStorage(),
       )..setLocale('ja');
@@ -562,6 +875,7 @@ void main() {
       return _response(_searchCatalogHtml(['shared']));
     });
     final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = adapter,
       secureStorage: _MemorySecureStorage(),
     );
@@ -594,6 +908,7 @@ void main() {
         (_) => _response(_searchCatalogHtml(['second', 'first', 'second'])),
       );
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: _MemorySecureStorage(),
       )..setLocale('ja');
@@ -620,6 +935,7 @@ void main() {
         );
       });
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: _MemorySecureStorage(),
       );
@@ -642,6 +958,7 @@ void main() {
             : _response('Unavailable', statusCode: 503),
       );
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: _MemorySecureStorage(),
       );
@@ -678,6 +995,7 @@ void main() {
 '''),
       );
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: _MemorySecureStorage(),
       );
@@ -714,6 +1032,7 @@ ${page < 3 ? '<a href="/cn/saved?page=${page + 1}" rel="next">Next</a>' : ''}
 ''');
       });
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: _MemorySecureStorage(),
       );
@@ -745,6 +1064,7 @@ ${page < 3 ? '<a href="/cn/saved?page=${page + 1}" rel="next">Next</a>' : ''}
       return _response('<a href="/cn/history?page=2" rel="next">Next</a>');
     });
     final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = adapter,
       secureStorage: _MemorySecureStorage(),
     );
@@ -783,6 +1103,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
 '''),
       );
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: _MemorySecureStorage(),
       );
@@ -804,7 +1125,10 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     'a newer session change prevents an import waiting for initialization',
     () async {
       final storage = _MemorySecureStorage();
-      final client = MissavClient(secureStorage: storage);
+      final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
+        secureStorage: storage,
+      );
       addTearDown(client.dispose);
 
       final imported = client.importVerifiedSession(
@@ -834,6 +1158,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         ),
       );
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = nativeAdapter,
         secureStorage: _MemorySecureStorage(),
       );
@@ -912,6 +1237,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     );
     final adapter = _Adapter((_) => _response(pageWithCloudflareJsd));
     final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = adapter,
       secureStorage: _MemorySecureStorage(),
     );
@@ -936,6 +1262,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       (_) => _response(bodies[bodyIndex++], statusCode: HttpStatus.forbidden),
     );
     final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = adapter,
       secureStorage: _MemorySecureStorage(),
     );
@@ -966,6 +1293,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         return browserResponse.future;
       });
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = nativeAdapter,
         secureStorage: _MemorySecureStorage(),
       );
@@ -1007,6 +1335,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       });
       final browserAdapter = _Adapter((_) => _response(fixture));
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = nativeAdapter,
         secureStorage: _MemorySecureStorage(),
       );
@@ -1039,6 +1368,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         releaseTransform.future,
       );
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: dio,
         secureStorage: _MemorySecureStorage(),
       );
@@ -1063,6 +1393,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       final firstBrowserAdapter = _Adapter((_) => _response('{}'));
       final secondBrowserAdapter = _Adapter((_) => _response('{}'));
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = nativeAdapter,
         secureStorage: _MemorySecureStorage(),
       );
@@ -1087,6 +1418,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
 
       final sameAdapter = _Adapter((_) => _response('{}'));
       final sameAdapterClient = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = sameAdapter,
         secureStorage: _MemorySecureStorage(),
       );
@@ -1103,6 +1435,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       final nativeAdapter = _Adapter((_) => _response('{}'));
       final browserAdapter = _Adapter((_) => _response('{}'));
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = nativeAdapter,
         secureStorage: _MemorySecureStorage()..cookie = 'session=source-only',
       );
@@ -1129,6 +1462,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
           throw DioException(requestOptions: options, error: verificationError),
     );
     final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = _Adapter((_) => _response('{}')),
       secureStorage: _MemorySecureStorage(),
     );
@@ -1154,6 +1488,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       final storage = _MemorySecureStorage()..cookie = 'visitor=source-cookie';
       final adapter = _Adapter((_) => _response(authenticatedFixture));
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: storage,
       );
@@ -1177,6 +1512,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       const userAgent = 'MissAV WebView/1.0';
       final storage = _MemorySecureStorage();
       final importingClient = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = _Adapter((_) => _response('{}')),
         secureStorage: storage,
       );
@@ -1192,6 +1528,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       ).readAsString();
       final adapter = _Adapter((_) => _response(fixture));
       final restoredClient = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: storage,
       );
@@ -1224,6 +1561,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     );
     final storage = _MemorySecureStorage()..cookie = 'session=existing';
     final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = adapter,
       secureStorage: storage,
     );
@@ -1264,6 +1602,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       );
       final storage = _MemorySecureStorage()..cookie = 'session=valid';
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: storage,
       );
@@ -1288,6 +1627,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
   test('rejects empty or line-breaking browser request headers', () async {
     final storage = _MemorySecureStorage();
     final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = _Adapter((_) => _response('{}')),
       secureStorage: storage,
     );
@@ -1337,6 +1677,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     for (final failure in failures) {
       final storage = _MemorySecureStorage()..cookie = 'session=valid';
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = _Adapter(failure.respond),
         secureStorage: storage,
       );
@@ -1373,6 +1714,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       return _response(fixture);
     });
     final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = nativeAdapter,
       secureStorage: storage,
       restoreSavedSession: (client, expectedGeneration) async {
@@ -1440,6 +1782,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         return _response(fixture);
       });
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         secureStorage: _storedBrowserSession(),
         restoreSavedSession: (client, expectedGeneration) async {
           restoreCalls++;
@@ -1483,6 +1826,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     var restoreCalls = 0;
     final adapter = _Adapter((_) => _response(''));
     final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = adapter,
       secureStorage: _MemorySecureStorage(),
       restoreSavedSession: (_, _) async {
@@ -1508,6 +1852,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         ),
       );
       final challengeClient = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = _Adapter((_) => _response('')),
         secureStorage: challengeStorage,
         restoreSavedSession: (client, expectedGeneration) async {
@@ -1528,6 +1873,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       expect(challengeStorage.cookie, 'session=browser');
 
       final runtimeClient = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         secureStorage: _storedBrowserSession(),
         restoreSavedSession: (_, _) async {
           throw StateError('WebView runtime unavailable');
@@ -1540,6 +1886,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       );
 
       final networkClient = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         secureStorage: _storedBrowserSession(),
         restoreSavedSession: (client, expectedGeneration) async {
           await client.importVerifiedSession(
@@ -1575,6 +1922,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         final adapter = _Adapter((_) => _response('late response'));
         late MissavClient client;
         client = MissavClient(
+          metadataDio: _emptyMetadataDio(),
           secureStorage: storage,
           restoreSavedSession: (client, expectedGeneration) async {
             restoreStarted.complete();
@@ -1642,6 +1990,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         return _response(fixture);
       });
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: _MemorySecureStorage(),
       );
@@ -1733,6 +2082,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         return _response(fixture);
       });
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: _MemorySecureStorage(),
       );
@@ -1787,6 +2137,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         );
       });
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: _MemorySecureStorage(),
       );
@@ -1833,6 +2184,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       );
     });
     final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = adapter,
       secureStorage: _MemorySecureStorage(),
     );
@@ -1877,6 +2229,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         );
       });
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: _MemorySecureStorage(),
       );
@@ -1914,6 +2267,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     );
     final storage = _MemorySecureStorage()..cookie = 'session=source-only';
     final client = MissavClient(
+      metadataDio: _emptyMetadataDio(),
       dio: Dio()..httpClientAdapter = adapter,
       secureStorage: storage,
     );
@@ -1945,6 +2299,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         );
       });
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: storage,
       );
@@ -1990,6 +2345,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         return secondResponse.future;
       });
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: storage,
       );
@@ -2065,6 +2421,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         ),
       );
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: storage,
       );
@@ -2114,6 +2471,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
         ),
       );
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: storage,
       );
@@ -2140,6 +2498,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       final storage = _MemorySecureStorage()..cookie = 'session=source-only';
       final adapter = _Adapter((_) => _response('{}'));
       final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
         dio: Dio()..httpClientAdapter = adapter,
         secureStorage: storage,
       );

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -19,8 +20,20 @@ import 'package:kikoeru_flutter/src/videos/video_library.dart';
 import 'package:kikoeru_flutter/src/videos/video_models.dart';
 import 'package:kikoeru_flutter/src/videos/video_providers.dart';
 
+import '../support/linux_golden_file_comparator.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  final defaultGoldenFileComparator = goldenFileComparator;
+  setUpAll(() {
+    if (Platform.isLinux) {
+      goldenFileComparator = LinuxTolerantGoldenFileComparator(
+        Uri.parse('test/videos/video_playback_test.dart'),
+      );
+    }
+  });
+  tearDownAll(() => goldenFileComparator = defaultGoldenFileComparator);
 
   testWidgets('video playback starts paused and keeps its own volume', (
     tester,
@@ -48,6 +61,7 @@ void main() {
     expect(session.lastVolume, 37);
     expect(session.playCount, 0);
     final l10n = await S.delegate.load(const Locale('en'));
+    await _openSettings(tester);
     final volumeSlider = tester.widget<Slider>(
       find.byKey(const ValueKey('video-volume-slider')),
     );
@@ -59,16 +73,12 @@ void main() {
     expect(session.lastVolume, 62);
     expect(library.volume, 62);
 
-    await tester.tap(find.byTooltip(l10n.playbackSpeed));
+    await tester.tapAt(const Offset(4, 4));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('1.5×'));
-    await tester.pumpAndSettle();
+    await _chooseSetting(tester, '${l10n.playbackSpeed}: 1.5×');
     expect(session.lastRate, 1.5);
 
-    await tester.tap(find.byTooltip(l10n.videoQuality));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('720p'));
-    await tester.pumpAndSettle();
+    await _chooseSetting(tester, '${l10n.videoQuality}: 720p');
     expect(session.loadStreamCount, 2);
     expect(session.lastPosition, const Duration(seconds: 12));
 
@@ -86,6 +96,130 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('fake-video-surface')), findsOneWidget);
   });
+
+  testWidgets('paused details player keeps compact controls on its surface', (
+    tester,
+  ) async {
+    await _loadPlayerScreenshotFonts();
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final client = _TestMissavClient(_details());
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final session = _FakePlaybackSession();
+
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        VideoDetailsScreen(video: _video(), sessionFactory: () => session),
+        theme: ThemeData(useMaterial3: true, fontFamily: 'Roboto'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final layout = find.byKey(const ValueKey('video-playback-layout'));
+    final layoutRect = tester.getRect(layout);
+    final controlsRect = tester.getRect(
+      find.byKey(const ValueKey('video-controls')),
+    );
+    expect(session.playCount, 0);
+    expect(layoutRect.size, const Size(376, 211.5));
+    expect(controlsRect.top, greaterThanOrEqualTo(layoutRect.top));
+    expect(controlsRect.left, greaterThanOrEqualTo(layoutRect.left));
+    expect(controlsRect.right, lessThanOrEqualTo(layoutRect.right));
+    expect(controlsRect.bottom, lessThanOrEqualTo(layoutRect.bottom));
+    expect(controlsRect.height, lessThanOrEqualTo(72));
+    expect(find.byKey(const ValueKey('video-volume-slider')), findsNothing);
+
+    await expectLater(
+      layout,
+      matchesGoldenFile('goldens/video_playback_compact_paused.png'),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('video-gesture-surface')));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(
+      tester
+          .widget<AnimatedOpacity>(find.byKey(const ValueKey('video-controls')))
+          .opacity,
+      0,
+    );
+  });
+
+  testWidgets('paused and buffering playback controls can be hidden', (
+    tester,
+  ) async {
+    final session = _FakePlaybackSession();
+    await _pumpStandalonePlayer(tester, session);
+    final surface = find.byKey(const ValueKey('video-gesture-surface'));
+    final controls = find.byKey(const ValueKey('video-controls'));
+    final l10n = await S.delegate.load(const Locale('en'));
+
+    await tester.tap(surface);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(tester.widget<AnimatedOpacity>(controls).opacity, 0);
+    await tester.tap(surface);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(tester.widget<AnimatedOpacity>(controls).opacity, 1);
+
+    await tester.tap(find.byTooltip(l10n.videoPlay));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(tester.widget<AnimatedOpacity>(controls).opacity, 0);
+
+    session.emitSnapshot(buffering: true);
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('video-playback-loading')),
+      findsOneWidget,
+    );
+    expect(tester.widget<AnimatedOpacity>(controls).opacity, 0);
+
+    await tester.tap(surface);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(tester.widget<AnimatedOpacity>(controls).opacity, 1);
+    await tester.tap(surface);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(tester.widget<AnimatedOpacity>(controls).opacity, 0);
+  });
+
+  testWidgets(
+    'playback settings keep quality, audio, subtitle and rate actions',
+    (tester) async {
+      final session = _FakePlaybackSession();
+      await _pumpStandalonePlayer(tester, session);
+      session.emitSnapshot(
+        audioTracks: const [
+          VideoPlaybackTrack(id: 'audio-en', label: 'English'),
+          VideoPlaybackTrack(id: 'audio-ja', label: 'Japanese'),
+        ],
+        subtitleTracks: const [
+          VideoPlaybackTrack(id: 'subtitle-en', label: 'English'),
+        ],
+      );
+      await tester.pump();
+      final l10n = await S.delegate.load(const Locale('en'));
+
+      await _chooseSetting(tester, '${l10n.audioFormatPreference}: Japanese');
+      expect(session.selectedAudioTrack, 'audio-ja');
+      await _chooseSetting(tester, '${l10n.videoSubtitle}: English');
+      expect(session.selectedSubtitleTrack, 'subtitle-en');
+      await _chooseSetting(tester, '${l10n.videoQuality}: 720p');
+      expect(session.loadStreamCount, 2);
+      await _chooseSetting(tester, '${l10n.playbackSpeed}: 1.25×');
+      expect(session.lastRate, 1.25);
+    },
+  );
 
   testWidgets('double tap toggles playback and controls hide and return', (
     tester,
@@ -178,14 +312,18 @@ void main() {
     await tester.tap(find.byTooltip(l10n.videoPlay));
     await tester.pumpAndSettle();
 
+    await _openSettings(tester);
     final volumeSlider = find.byKey(const ValueKey('video-volume-slider'));
     final volumeRect = tester.getRect(volumeSlider);
+    final previousVolume = session.lastVolume;
     final volumeGesture = await tester.startGesture(
       Offset(volumeRect.left + volumeRect.width * .75, volumeRect.center.dy),
       kind: PointerDeviceKind.touch,
     );
     await volumeGesture.moveBy(Offset(-volumeRect.width * .1, 0));
     await tester.pump();
+    expect(session.lastVolume, isNot(previousVolume));
+    expect(tester.widget<Slider>(volumeSlider).value, isNot(previousVolume));
     await tester.pump(const Duration(seconds: 3));
     await tester.pump(const Duration(milliseconds: 200));
     expect(
@@ -203,17 +341,26 @@ void main() {
       tester
           .widget<AnimatedOpacity>(find.byKey(const ValueKey('video-controls')))
           .opacity,
-      0,
+      1,
     );
 
     final surfaceRect = tester.getRect(
       find.byKey(const ValueKey('video-gesture-surface')),
     );
+    await tester.tapAt(const Offset(4, 4));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(
+      tester
+          .widget<AnimatedOpacity>(find.byKey(const ValueKey('video-controls')))
+          .opacity,
+      0,
+    );
     await tester.tapAt(Offset(surfaceRect.center.dx, surfaceRect.top + 10));
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 200));
-    await tester.tap(find.byTooltip(l10n.playbackSpeed));
-    await tester.pumpAndSettle();
+    await _openSettings(tester);
     await tester.pump(const Duration(seconds: 4));
     await tester.pump(const Duration(milliseconds: 200));
     expect(
@@ -321,10 +468,7 @@ void main() {
 
       await tester.tap(find.byTooltip(l10n.videoPlay));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip(l10n.playbackSpeed));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('1.5×'));
-      await tester.pumpAndSettle();
+      await _chooseSetting(tester, '${l10n.playbackSpeed}: 1.5×');
       expect(session.lastRate, 1.5);
 
       final surface = find.byKey(const ValueKey('video-gesture-surface'));
@@ -467,6 +611,7 @@ void main() {
     final l10n = await S.delegate.load(const Locale('en'));
     await tester.tap(find.byTooltip(l10n.videoFullscreen));
     await tester.pumpAndSettle();
+    await _openSettings(tester);
     final volumeSlider = tester.widget<Slider>(
       find.byKey(const ValueKey('video-volume-slider')),
     );
@@ -508,9 +653,15 @@ void main() {
 
     final loading = Completer<void>();
     session.nextLoadCompleter = loading;
-    await tester.tap(find.byTooltip(l10n.videoQuality));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('720p'));
+    await _openSettings(tester);
+    final qualityItem = find.text('${l10n.videoQuality}: 720p');
+    await tester.ensureVisible(qualityItem);
+    await tester.pump();
+    await tester.tapAt(tester.getCenter(qualityItem));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(session.loadStreamCount, 2);
+    expect(session.lastStreamUrl, 'https://cdn.example/video-720.m3u8');
     await tester.pump();
     expect(
       find.byKey(const ValueKey('video-playback-loading')),
@@ -521,10 +672,7 @@ void main() {
     expect(find.byKey(const ValueKey('video-playback-loading')), findsNothing);
 
     session.nextLoadError = StateError('Fixture stream error');
-    await tester.tap(find.byTooltip(l10n.videoQuality));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Auto'));
-    await tester.pumpAndSettle();
+    await _chooseSetting(tester, '${l10n.videoQuality}: Auto');
     expect(find.text(l10n.videoPlaybackFailed), findsOneWidget);
     expect(find.byKey(const ValueKey('video-playback-loading')), findsNothing);
     expect(session.playCount, 0);
@@ -550,9 +698,7 @@ void main() {
     final l10n = await S.delegate.load(const Locale('en'));
     final opening = Completer<void>();
     session.nextLoadCompleter = opening;
-    await tester.tap(find.byTooltip(l10n.videoQuality));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('720p'));
+    await _chooseSetting(tester, '${l10n.videoQuality}: 720p');
     await tester.pump();
     expect(
       find.byKey(const ValueKey('video-playback-loading')),
@@ -613,9 +759,7 @@ void main() {
     await tester.tap(find.byTooltip(l10n.videoFullscreen));
     await tester.pumpAndSettle();
     session.nextLoadError = StateError('Fixture stream error');
-    await tester.tap(find.byTooltip(l10n.videoQuality));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('720p'));
+    await _chooseSetting(tester, '${l10n.videoQuality}: 720p');
     await tester.pumpAndSettle();
 
     expect(find.text(l10n.videoPlaybackFailed), findsOneWidget);
@@ -993,6 +1137,41 @@ Future<void> _pumpStandalonePlayer(
   await tester.pumpAndSettle();
 }
 
+Future<void> _loadPlayerScreenshotFonts() async {
+  final fontsPath =
+      '${File(Platform.resolvedExecutable).parent.parent.parent.path}/material_fonts';
+  final fonts = Directory(fontsPath).listSync().whereType<File>();
+  for (final font in const [
+    (family: 'Roboto', fileName: 'roboto-regular.ttf'),
+    (family: 'MaterialIcons', fileName: 'materialicons-regular.otf'),
+  ]) {
+    final bytes = fonts
+        .singleWhere(
+          (file) => file.uri.pathSegments.last.toLowerCase() == font.fileName,
+        )
+        .readAsBytesSync();
+    await (FontLoader(
+      font.family,
+    )..addFont(Future.value(ByteData.sublistView(bytes)))).load();
+  }
+}
+
+Future<void> _openSettings(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('video-settings-menu')));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 350));
+}
+
+Future<void> _chooseSetting(WidgetTester tester, String label) async {
+  await _openSettings(tester);
+  final setting = find.text(label);
+  await tester.ensureVisible(setting);
+  await tester.pump();
+  await tester.tapAt(tester.getCenter(setting));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 350));
+}
+
 Future<void> _doubleTap(WidgetTester tester, Finder target) async {
   final position = tester.getCenter(target);
   await tester.tapAt(position);
@@ -1006,6 +1185,7 @@ Widget _app(
   VideoDownloads downloads,
   Widget home, {
   double textScale = 1,
+  ThemeData? theme,
 }) => ProviderScope(
   overrides: [
     videoClientProvider.overrideWith((ref) => client),
@@ -1017,7 +1197,7 @@ Widget _app(
     locale: const Locale('en'),
     supportedLocales: S.supportedLocales,
     localizationsDelegates: S.localizationsDelegates,
-    theme: ThemeData(useMaterial3: true),
+    theme: theme ?? ThemeData(useMaterial3: true),
     builder: (context, child) => MediaQuery(
       data: MediaQuery.of(
         context,
@@ -1186,9 +1366,25 @@ class _FakePlaybackSession implements VideoPlaybackSession {
   Completer<void>? nextLoadCompleter;
   Completer<void>? nextRateCompleter;
   Object? nextLoadError;
+  String? selectedAudioTrack;
+  String? selectedSubtitleTrack;
 
   void emitError(String error) {
     _snapshot.value = _snapshot.value.copyWith(error: error, buffering: true);
+  }
+
+  void emitSnapshot({
+    bool? playing,
+    bool? buffering,
+    List<VideoPlaybackTrack>? audioTracks,
+    List<VideoPlaybackTrack>? subtitleTracks,
+  }) {
+    _snapshot.value = _snapshot.value.copyWith(
+      playing: playing,
+      buffering: buffering,
+      audioTracks: audioTracks,
+      subtitleTracks: subtitleTracks,
+    );
   }
 
   @override
@@ -1275,10 +1471,14 @@ class _FakePlaybackSession implements VideoPlaybackSession {
   }
 
   @override
-  Future<void> selectAudioTrack(String id) async {}
+  Future<void> selectAudioTrack(String id) async {
+    selectedAudioTrack = id;
+  }
 
   @override
-  Future<void> selectSubtitleTrack(String id) async {}
+  Future<void> selectSubtitleTrack(String id) async {
+    selectedSubtitleTrack = id;
+  }
 
   @override
   Future<void> dispose() async {

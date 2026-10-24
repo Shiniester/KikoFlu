@@ -519,6 +519,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   }
 
   bool _canHideControls(VideoPlaybackSnapshot snapshot) =>
+      _controlsVisible &&
       snapshot.playing &&
       !_loading &&
       !_controlsInteracting &&
@@ -557,7 +558,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
 
   void _toggleControls() {
     final snapshot = _session.snapshot.value;
-    if (!_canHideControls(snapshot)) {
+    if (_controlsInteracting || snapshot.error != null || _error != null) {
       _showControls();
       return;
     }
@@ -675,20 +676,13 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         _scheduleControlsHide();
       } else {
         _controlsTimer?.cancel();
-        if (!_controlsVisible && mounted) {
-          _updatePlayerState(() => _controlsVisible = true);
-        }
       }
     }
     if (snapshot.buffering != _lastBuffering) {
       _lastBuffering = snapshot.buffering;
       if (snapshot.buffering) {
         _controlsTimer?.cancel();
-        if (!_controlsVisible && mounted) {
-          _updatePlayerState(() => _controlsVisible = true);
-        }
       } else if (snapshot.playing) {
-        _controlsVisible = true;
         _scheduleControlsHide();
       }
     }
@@ -859,6 +853,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
             aspectRatio: 16 / 9,
             child: LayoutBuilder(
               builder: (context, constraints) => Stack(
+                key: const ValueKey('video-playback-layout'),
                 fit: StackFit.expand,
                 children: [
                   GestureDetector(
@@ -962,10 +957,12 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                         );
                       }
                       if (_loading || snapshot.buffering) {
-                        return const Center(
-                          child: CircularProgressIndicator(
-                            key: ValueKey('video-playback-loading'),
-                            color: Colors.white,
+                        return const IgnorePointer(
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              key: ValueKey('video-playback-loading'),
+                              color: Colors.white,
+                            ),
                           ),
                         );
                       }
@@ -976,12 +973,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                     valueListenable: _session.snapshot,
                     builder: (context, snapshot, _) {
                       final hasError = _error != null || snapshot.error != null;
-                      final controlsVisible =
-                          _controlsVisible ||
-                          !snapshot.playing ||
-                          _loading ||
-                          snapshot.buffering ||
-                          hasError;
+                      final controlsVisible = _controlsVisible;
                       return Stack(
                         fit: StackFit.expand,
                         children: [
@@ -1005,28 +997,31 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                                 ),
                               ),
                             ),
-                          Positioned(
-                            top: 4,
-                            right: 4,
-                            child: IgnorePointer(
-                              ignoring: !controlsVisible,
-                              child: AnimatedOpacity(
-                                key: const ValueKey('video-fullscreen-control'),
-                                opacity: controlsVisible ? 1 : 0,
-                                duration: const Duration(milliseconds: 180),
-                                child: IconButton(
-                                  tooltip: S.of(context).videoFullscreen,
-                                  color: Colors.white,
-                                  icon: Icon(
-                                    fullscreen
-                                        ? Icons.fullscreen_exit
-                                        : Icons.fullscreen,
+                          if (hasError)
+                            Positioned(
+                              top: 4,
+                              right: 4,
+                              child: IgnorePointer(
+                                ignoring: !controlsVisible,
+                                child: AnimatedOpacity(
+                                  key: const ValueKey(
+                                    'video-fullscreen-control',
                                   ),
-                                  onPressed: onFullscreen,
+                                  opacity: controlsVisible ? 1 : 0,
+                                  duration: const Duration(milliseconds: 180),
+                                  child: IconButton(
+                                    tooltip: S.of(context).videoFullscreen,
+                                    color: Colors.white,
+                                    icon: Icon(
+                                      fullscreen
+                                          ? Icons.fullscreen_exit
+                                          : Icons.fullscreen,
+                                    ),
+                                    onPressed: onFullscreen,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
                           if (!hasError)
                             Positioned(
                               left: 0,
@@ -1041,6 +1036,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                                   child: _buildControls(
                                     context,
                                     fullscreen: fullscreen,
+                                    onFullscreen: onFullscreen,
                                     snapshot: snapshot,
                                   ),
                                 ),
@@ -1062,6 +1058,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   Widget _buildControls(
     BuildContext context, {
     required bool fullscreen,
+    required VoidCallback onFullscreen,
     required VideoPlaybackSnapshot snapshot,
   }) {
     final durationMs = snapshot.duration.inMilliseconds;
@@ -1069,6 +1066,99 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     final position = _clampPosition(currentPosition, snapshot.duration);
     final positionMs = position.inMilliseconds.toDouble();
     final s = S.of(context);
+    final settingsItems = <PopupMenuEntry<void>>[
+      PopupMenuItem<void>(
+        enabled: false,
+        height: 36,
+        child: Text(s.volume, style: Theme.of(context).textTheme.labelMedium),
+      ),
+      PopupMenuItem<void>(
+        enabled: false,
+        height: 56,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: StatefulBuilder(
+          builder: (context, setMenuState) => SizedBox(
+            width: 224,
+            child: Row(
+              children: [
+                const Icon(Icons.volume_down, size: 20),
+                Expanded(
+                  child: Slider(
+                    key: const ValueKey('video-volume-slider'),
+                    min: 0,
+                    max: 100,
+                    value: _volume,
+                    onChanged: (value) {
+                      setMenuState(() {});
+                      unawaited(_setVolume(value));
+                    },
+                    onChangeEnd: (value) {
+                      unawaited(_persistVolume(value));
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      if (widget.streams.length > 1) ...[
+        const PopupMenuDivider(),
+        for (var index = 0; index < widget.streams.length; index++)
+          CheckedPopupMenuItem<void>(
+            checked: index == _streamIndex,
+            onTap: () {
+              _endControlsInteraction();
+              unawaited(_selectStream(index));
+            },
+            child: Text(
+              '${s.videoQuality}: ${widget.streams[index].label}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+      ],
+      if (snapshot.audioTracks.length > 1) ...[
+        const PopupMenuDivider(),
+        for (final track in snapshot.audioTracks)
+          PopupMenuItem<void>(
+            onTap: () {
+              _endControlsInteraction();
+              unawaited(_invoke(() => _session.selectAudioTrack(track.id)));
+            },
+            child: Text(
+              '${s.audioFormatPreference}: ${track.label}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+      ],
+      if (snapshot.subtitleTracks.isNotEmpty) ...[
+        const PopupMenuDivider(),
+        for (final track in snapshot.subtitleTracks)
+          PopupMenuItem<void>(
+            onTap: () {
+              _endControlsInteraction();
+              unawaited(_invoke(() => _session.selectSubtitleTrack(track.id)));
+            },
+            child: Text(
+              '${s.videoSubtitle}: ${track.label}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+      ],
+      const PopupMenuDivider(),
+      for (final rate in const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0])
+        CheckedPopupMenuItem<void>(
+          checked: rate == snapshot.rate,
+          onTap: () {
+            _endControlsInteraction();
+            unawaited(_setRate(rate));
+          },
+          child: Text('${s.playbackSpeed}: $rate×'),
+        ),
+    ];
     return Material(
       color: Colors.transparent,
       child: Padding(
@@ -1076,172 +1166,57 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
           horizontal: fullscreen ? 18 : 8,
           vertical: fullscreen ? 8 : 4,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: Row(
           children: [
-            Row(
-              children: [
-                Text(
-                  _formatTime(position),
-                  style: const TextStyle(color: Colors.white),
-                ),
-                Expanded(
-                  child: Slider(
-                    key: const ValueKey('video-position-slider'),
-                    min: 0,
-                    max: durationMs > 0 ? durationMs.toDouble() : 1,
-                    value: durationMs > 0 ? positionMs : 0,
-                    onChangeStart: durationMs <= 0
-                        ? null
-                        : (_) => _beginControlsInteraction(),
-                    onChanged: durationMs <= 0
-                        ? null
-                        : (value) => _previewSeek(
-                            Duration(milliseconds: value.round()),
-                          ),
-                    onChangeEnd: durationMs <= 0
-                        ? null
-                        : (_) {
-                            _finishSeek();
-                            _endControlsInteraction();
-                          },
-                  ),
-                ),
-                Text(
-                  _formatTime(snapshot.duration),
-                  style: const TextStyle(color: Colors.white),
-                ),
-              ],
+            IconButton(
+              tooltip: snapshot.playing ? s.pause : s.videoPlay,
+              color: Colors.white,
+              icon: Icon(snapshot.playing ? Icons.pause : Icons.play_arrow),
+              onPressed: _togglePlayback,
             ),
-            Wrap(
-              spacing: 0,
-              runSpacing: 0,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                IconButton(
-                  tooltip: snapshot.playing ? s.pause : s.videoPlay,
-                  color: Colors.white,
-                  icon: Icon(snapshot.playing ? Icons.pause : Icons.play_arrow),
-                  onPressed: _togglePlayback,
-                ),
-                if (widget.streams.length > 1)
-                  PopupMenuButton<int>(
-                    tooltip: s.videoQuality,
-                    initialValue: _streamIndex,
-                    icon: const Icon(
-                      Icons.high_quality_outlined,
-                      color: Colors.white,
-                    ),
-                    onOpened: _beginControlsInteraction,
-                    onCanceled: _endControlsInteraction,
-                    onSelected: (index) {
-                      _endControlsInteraction();
-                      unawaited(_selectStream(index));
-                    },
-                    itemBuilder: (context) => [
-                      for (
-                        var index = 0;
-                        index < widget.streams.length;
-                        index++
-                      )
-                        PopupMenuItem(
-                          value: index,
-                          child: Text(widget.streams[index].label),
-                        ),
-                    ],
-                  ),
-                if (snapshot.audioTracks.length > 1)
-                  PopupMenuButton<String>(
-                    tooltip: s.audioFormatPreference,
-                    icon: const Icon(
-                      Icons.audiotrack_outlined,
-                      color: Colors.white,
-                    ),
-                    onOpened: _beginControlsInteraction,
-                    onCanceled: _endControlsInteraction,
-                    onSelected: (id) {
-                      _endControlsInteraction();
-                      unawaited(_invoke(() => _session.selectAudioTrack(id)));
-                    },
-                    itemBuilder: (context) => [
-                      for (final track in snapshot.audioTracks)
-                        PopupMenuItem(
-                          value: track.id,
-                          child: Text(track.label),
-                        ),
-                    ],
-                  ),
-                if (snapshot.subtitleTracks.isNotEmpty)
-                  PopupMenuButton<String>(
-                    tooltip: s.videoSubtitle,
-                    icon: const Icon(
-                      Icons.subtitles_outlined,
-                      color: Colors.white,
-                    ),
-                    onOpened: _beginControlsInteraction,
-                    onCanceled: _endControlsInteraction,
-                    onSelected: (id) {
-                      _endControlsInteraction();
-                      unawaited(
-                        _invoke(() => _session.selectSubtitleTrack(id)),
-                      );
-                    },
-                    itemBuilder: (context) => [
-                      for (final track in snapshot.subtitleTracks)
-                        PopupMenuItem(
-                          value: track.id,
-                          child: Text(track.label),
-                        ),
-                    ],
-                  ),
-                PopupMenuButton<double>(
-                  tooltip: s.playbackSpeed,
-                  initialValue: snapshot.rate,
-                  icon: Text(
-                    '${snapshot.rate}×',
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                  onOpened: _beginControlsInteraction,
-                  onCanceled: _endControlsInteraction,
-                  onSelected: (rate) {
-                    _endControlsInteraction();
-                    unawaited(_setRate(rate));
-                  },
-                  itemBuilder: (context) => [
-                    for (final rate in const [0.5, 0.75, 1.0, 1.25, 1.5, 2.0])
-                      PopupMenuItem(value: rate, child: Text('$rate×')),
-                  ],
-                ),
-                SizedBox(
-                  width: 136,
-                  child: Row(
-                    children: [
-                      Tooltip(
-                        message: s.volume,
-                        child: const Icon(
-                          Icons.volume_down,
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                      ),
-                      Expanded(
-                        child: Slider(
-                          key: const ValueKey('video-volume-slider'),
-                          min: 0,
-                          max: 100,
-                          value: _volume,
-                          onChangeStart: (_) => _beginControlsInteraction(),
-                          onChanged: (value) => unawaited(_setVolume(value)),
-                          onChangeEnd: (value) {
-                            _endControlsInteraction();
-                            unawaited(_persistVolume(value));
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+            Text(
+              _formatTime(position),
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+            ),
+            Expanded(
+              child: Slider(
+                key: const ValueKey('video-position-slider'),
+                min: 0,
+                max: durationMs > 0 ? durationMs.toDouble() : 1,
+                value: durationMs > 0 ? positionMs : 0,
+                onChangeStart: durationMs <= 0
+                    ? null
+                    : (_) => _beginControlsInteraction(),
+                onChanged: durationMs <= 0
+                    ? null
+                    : (value) =>
+                          _previewSeek(Duration(milliseconds: value.round())),
+                onChangeEnd: durationMs <= 0
+                    ? null
+                    : (_) {
+                        _finishSeek();
+                        _endControlsInteraction();
+                      },
+              ),
+            ),
+            Text(
+              _formatTime(snapshot.duration),
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+            ),
+            PopupMenuButton<void>(
+              key: const ValueKey('video-settings-menu'),
+              tooltip: s.settingsTitle,
+              icon: const Icon(Icons.more_horiz, color: Colors.white),
+              onOpened: _beginControlsInteraction,
+              onCanceled: _endControlsInteraction,
+              itemBuilder: (context) => settingsItems,
+            ),
+            IconButton(
+              key: const ValueKey('video-fullscreen-control'),
+              tooltip: s.videoFullscreen,
+              color: Colors.white,
+              icon: Icon(fullscreen ? Icons.fullscreen_exit : Icons.fullscreen),
+              onPressed: onFullscreen,
             ),
           ],
         ),

@@ -104,22 +104,21 @@ class VideoCard extends StatelessWidget {
         child: isList
             ? Padding(
                 padding: const EdgeInsets.all(12),
-                child: Column(
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox.fromSize(
-                          size: collectionListCoverSize,
-                          child: VideoCover(video: video),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(child: title),
-                      ],
+                    SizedBox.fromSize(
+                      size: collectionListCoverSize,
+                      child: VideoCover(video: video),
                     ),
-                    _information(context),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [title, _information(context)],
+                      ),
+                    ),
                   ],
                 ),
               )
@@ -148,6 +147,35 @@ class VideoCard extends StatelessWidget {
   Widget _information(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final colors = Theme.of(context).colorScheme;
+      Widget chip(
+        String label,
+        bool isActor,
+        VoidCallback? onPressed,
+      ) => ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+        child: Material(
+          color: isActor ? colors.secondaryContainer : colors.tertiaryContainer,
+          borderRadius: BorderRadius.circular(6),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(6),
+            onTap: onPressed,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isActor
+                      ? colors.onSecondaryContainer
+                      : colors.onTertiaryContainer,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -156,46 +184,29 @@ class VideoCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(subtitle!, style: Theme.of(context).textTheme.bodySmall),
           ],
-          for (final links in [video.actors, video.tags])
+          for (final (links, limit) in [(video.actors, 2), (video.tags, 3)])
             if (links.isNotEmpty) ...[
               const SizedBox(height: 4),
               Wrap(
                 spacing: 3,
                 runSpacing: 3,
                 children: [
-                  for (final link in links)
-                    ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: constraints.maxWidth,
-                      ),
-                      child: Material(
-                        color: link.kind == VideoLinkKind.actor
-                            ? colors.secondaryContainer
-                            : colors.tertiaryContainer,
-                        borderRadius: BorderRadius.circular(6),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(6),
-                          onTap: onOpenLink == null
-                              ? null
-                              : () => onOpenLink!(link),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 5,
-                              vertical: 2,
-                            ),
-                            child: Text(
-                              link.label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: link.kind == VideoLinkKind.actor
-                                    ? colors.onSecondaryContainer
-                                    : colors.onTertiaryContainer,
-                              ),
-                            ),
-                          ),
-                        ),
+                  for (final link in links.take(limit))
+                    chip(
+                      link.label,
+                      link.kind == VideoLinkKind.actor,
+                      onOpenLink == null ? null : () => onOpenLink!(link),
+                    ),
+                  if (links.length > limit)
+                    Tooltip(
+                      message: links
+                          .skip(limit)
+                          .map((link) => link.label)
+                          .join('、'),
+                      child: chip(
+                        '+${links.length - limit}',
+                        links.first.kind == VideoLinkKind.actor,
+                        onTap,
                       ),
                     ),
                 ],
