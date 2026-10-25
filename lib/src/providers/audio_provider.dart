@@ -5,6 +5,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../models/audio_track.dart';
+import '../models/audio_slice.dart';
 import '../models/audio_gain_settings.dart';
 import '../models/audio_tap_playlist_mode.dart';
 import '../models/work.dart';
@@ -27,6 +28,11 @@ final audioPlayerServiceProvider = Provider<AudioPlayerService>((ref) {
 final currentTrackProvider = StreamProvider<AudioTrack?>((ref) {
   final service = ref.watch(audioPlayerServiceProvider);
   return _withInitialValue(service.currentTrack, service.currentTrackStream);
+});
+
+final audioSliceStateProvider = StreamProvider<AudioSliceState>((ref) {
+  final service = ref.watch(audioPlayerServiceProvider);
+  return _withInitialValue(service.sliceState, service.sliceStateStream);
 });
 
 /// Presentation metadata paired with the latest published current track.

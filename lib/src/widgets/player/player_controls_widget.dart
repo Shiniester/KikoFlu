@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../../models/audio_slice.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/floating_lyric_provider.dart';
 import '../../providers/lyric_provider.dart';
@@ -16,7 +17,11 @@ import 'sleep_timer_button.dart';
 import 'sleep_timer_dialog.dart';
 import 'playlist_dialog.dart';
 import 'player_seek_preview.dart';
+import 'player_slice_controls.dart';
+import 'player_slice_progress.dart';
 import '../../../l10n/app_localizations.dart';
+
+export 'player_slice_progress.dart' show PlayerUniformSliderTrackShape;
 
 /// 播放器控制组件
 class PlayerControlsWidget extends ConsumerStatefulWidget {
@@ -656,6 +661,7 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
+            const PlayerSliceCutButton(),
             IconButton(
               key: const ValueKey('player-skip-previous-button'),
               onPressed: ref.watch(canSkipPreviousProvider)
@@ -685,6 +691,7 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
               icon: const Icon(Icons.skip_next),
               iconSize: iconSize,
             ),
+            const PlayerSliceManagerButton(),
           ],
         ),
         SizedBox(height: widget.isLandscape ? 16 : 10),
@@ -840,12 +847,17 @@ class PlayerProgressSection extends ConsumerWidget {
     final dur = ref.watch(durationProvider).value ?? Duration.zero;
     final isTrackLoading =
         ref.watch(isTrackLoadingProvider).valueOrNull ?? false;
+    final slices =
+        ref.watch(audioSliceStateProvider).valueOrNull ??
+        const AudioSliceState();
     final seekingPositionListenable = this.seekingPositionListenable;
     if (seekingPositionListenable != null) {
       return ValueListenableBuilder<PlayerSeekPreview?>(
         valueListenable: seekingPositionListenable,
         builder: (context, seekPreview, _) => _buildProgressSection(
           context,
+          ref,
+          slices: slices,
           pos: pos,
           dur: dur,
           isTrackLoading: isTrackLoading,
@@ -860,6 +872,8 @@ class PlayerProgressSection extends ConsumerWidget {
         : pos;
     return _buildProgressSection(
       context,
+      ref,
+      slices: slices,
       pos: pos,
       dur: dur,
       isTrackLoading: isTrackLoading,
@@ -870,7 +884,9 @@ class PlayerProgressSection extends ConsumerWidget {
   }
 
   Widget _buildProgressSection(
-    BuildContext context, {
+    BuildContext context,
+    WidgetRef ref, {
+    required AudioSliceState slices,
     required Duration pos,
     required Duration dur,
     required bool isTrackLoading,
@@ -884,40 +900,77 @@ class PlayerProgressSection extends ConsumerWidget {
       child: RepaintBoundary(
         child: Column(
           children: [
-            Listener(
-              key: const ValueKey('player-progress-gesture-target'),
-              behavior: HitTestBehavior.opaque,
-              onPointerDown: (_) => onInteractionChanged?.call(true),
-              onPointerUp: (_) => onInteractionChanged?.call(false),
-              onPointerCancel: (_) => onInteractionChanged?.call(false),
-              child: SizedBox(
-                height: 32,
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    activeTrackColor: Theme.of(context).colorScheme.primary,
-                    thumbColor: Theme.of(context).colorScheme.primary,
-                    inactiveTrackColor: Theme.of(
-                      context,
-                    ).colorScheme.onSurfaceVariant.withValues(alpha: 0.15),
-                    trackHeight: 2,
-                    trackShape: const PlayerUniformSliderTrackShape(),
-                    thumbShape: const RoundSliderThumbShape(
-                      enabledThumbRadius: 4,
-                      disabledThumbRadius: 4,
+            GestureDetector(
+              onLongPressStart: (details) {
+                if (slices.trackKey == null) return;
+                final box = context.findRenderObject() as RenderBox;
+                final fraction = (details.localPosition.dx / box.size.width)
+                    .clamp(0.0, 1.0);
+                final time =
+                    (Directionality.of(context) == TextDirection.rtl
+                        ? 1 - fraction
+                        : fraction) *
+                    dur.inMilliseconds;
+                AudioSlice? selected;
+                for (final slice in slices.slices) {
+                  if (time >= slice.startMs && time <= slice.endMs) {
+                    selected = slice;
+                    break;
+                  }
+                }
+                showPlayerSliceManager(context, initialSlice: selected);
+              },
+              child: Listener(
+                key: const ValueKey('player-progress-gesture-target'),
+                behavior: HitTestBehavior.opaque,
+                onPointerDown: (_) => onInteractionChanged?.call(true),
+                onPointerUp: (_) => onInteractionChanged?.call(false),
+                onPointerCancel: (_) {
+                  ref.read(audioPlayerServiceProvider).setSliceScrubbing(false);
+                  onInteractionChanged?.call(false);
+                },
+                child: SizedBox(
+                  height: 32,
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      activeTrackColor: Theme.of(context).colorScheme.primary,
+                      thumbColor: Theme.of(context).colorScheme.primary,
+                      inactiveTrackColor: Theme.of(
+                        context,
+                      ).colorScheme.onSurfaceVariant.withValues(alpha: 0.15),
+                      trackHeight: 2,
+                      trackShape: PlayerUniformSliderTrackShape(
+                        slices: slices.slices,
+                        duration: dur,
+                        pendingStartMs: slices.pendingStartMs,
+                        sliceColor: Theme.of(context).colorScheme.tertiary,
+                      ),
+                      thumbShape: const RoundSliderThumbShape(
+                        enabledThumbRadius: 4,
+                        disabledThumbRadius: 4,
+                      ),
+                      padding: EdgeInsets.zero,
                     ),
-                    padding: EdgeInsets.zero,
-                  ),
-                  child: Slider(
-                    key: const ValueKey('player-progress-slider'),
-                    value:
-                        (isSeekingManually
-                                ? seekValue
-                                : dur.inMilliseconds > 0
-                                ? pos.inMilliseconds / dur.inMilliseconds
-                                : 0.0)
-                            .clamp(0.0, 1.0),
-                    onChanged: onSeekChanged,
-                    onChangeEnd: onSeekEnd,
+                    child: Slider(
+                      key: const ValueKey('player-progress-slider'),
+                      value:
+                          (isSeekingManually
+                                  ? seekValue
+                                  : dur.inMilliseconds > 0
+                                  ? pos.inMilliseconds / dur.inMilliseconds
+                                  : 0.0)
+                              .clamp(0.0, 1.0),
+                      onChanged: onSeekChanged,
+                      onChangeStart: (_) => ref
+                          .read(audioPlayerServiceProvider)
+                          .setSliceScrubbing(true),
+                      onChangeEnd: (value) {
+                        onSeekEnd(value);
+                        ref
+                            .read(audioPlayerServiceProvider)
+                            .setSliceScrubbing(false);
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -941,66 +994,6 @@ class PlayerProgressSection extends ConsumerWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// Keeps both slider track segments at [SliderThemeData.trackHeight].
-///
-/// Flutter's stock rounded track adds two logical pixels to the active
-/// segment. Delegating with a zero adjustment preserves the same rounded
-/// geometry while making the active and inactive segments equally thick.
-class PlayerUniformSliderTrackShape extends SliderTrackShape {
-  const PlayerUniformSliderTrackShape();
-
-  static const RoundedRectSliderTrackShape _delegate =
-      RoundedRectSliderTrackShape();
-
-  @override
-  bool get isRounded => true;
-
-  @override
-  Rect getPreferredRect({
-    required RenderBox parentBox,
-    Offset offset = Offset.zero,
-    required SliderThemeData sliderTheme,
-    bool isEnabled = false,
-    bool isDiscrete = false,
-  }) {
-    return _delegate.getPreferredRect(
-      parentBox: parentBox,
-      offset: offset,
-      sliderTheme: sliderTheme,
-      isEnabled: isEnabled,
-      isDiscrete: isDiscrete,
-    );
-  }
-
-  @override
-  void paint(
-    PaintingContext context,
-    Offset offset, {
-    required RenderBox parentBox,
-    required SliderThemeData sliderTheme,
-    required Animation<double> enableAnimation,
-    required Offset thumbCenter,
-    Offset? secondaryOffset,
-    bool isEnabled = false,
-    bool isDiscrete = false,
-    required TextDirection textDirection,
-  }) {
-    _delegate.paint(
-      context,
-      offset,
-      parentBox: parentBox,
-      sliderTheme: sliderTheme,
-      enableAnimation: enableAnimation,
-      thumbCenter: thumbCenter,
-      secondaryOffset: secondaryOffset,
-      isEnabled: isEnabled,
-      isDiscrete: isDiscrete,
-      textDirection: textDirection,
-      additionalActiveTrackHeight: 0,
     );
   }
 }

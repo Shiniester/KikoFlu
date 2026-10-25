@@ -16,6 +16,7 @@ import 'volume_control.dart';
 import 'player/player_cover_widget.dart';
 import 'player/player_launch_region.dart';
 import 'player/player_route.dart';
+import 'player/player_slice_progress.dart';
 import 'player/player_track_layers.dart';
 import 'player/player_visual_palette.dart';
 
@@ -579,13 +580,19 @@ class _MiniPlayerProgressAreaState
   bool _isDragging = false;
   double _dragValue = 0;
 
-  void _seek(double value, Duration duration) {
+  Future<void> _seek(double value, Duration duration) async {
     if (duration <= Duration.zero) return;
-    ref
-        .read(audioPlayerControllerProvider.notifier)
-        .seekAndPersist(
-          Duration(milliseconds: (value * duration.inMilliseconds).round()),
-        );
+    final service = ref.read(audioPlayerServiceProvider);
+    service.setSliceScrubbing(true);
+    try {
+      await ref
+          .read(audioPlayerControllerProvider.notifier)
+          .seekAndPersist(
+            Duration(milliseconds: (value * duration.inMilliseconds).round()),
+          );
+    } finally {
+      service.setSliceScrubbing(false);
+    }
   }
 
   double _valueFromPointer(Offset localPosition, BuildContext context) {
@@ -598,6 +605,7 @@ class _MiniPlayerProgressAreaState
   Widget build(BuildContext context) {
     final position = ref.watch(positionProvider).valueOrNull ?? Duration.zero;
     final duration = ref.watch(durationProvider).valueOrNull ?? Duration.zero;
+    final slices = ref.watch(audioSliceStateProvider).valueOrNull;
     final progress = duration.inMilliseconds > 0
         ? position.inMilliseconds / duration.inMilliseconds
         : 0.0;
@@ -605,18 +613,27 @@ class _MiniPlayerProgressAreaState
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onHorizontalDragStart: (_) => setState(() => _isDragging = true),
+      onHorizontalDragStart: (_) {
+        ref.read(audioPlayerServiceProvider).setSliceScrubbing(true);
+        setState(() => _isDragging = true);
+      },
       onHorizontalDragUpdate: (details) {
         setState(() {
           _dragValue = _valueFromPointer(details.localPosition, context);
         });
       },
       onHorizontalDragEnd: (_) {
-        _seek(_dragValue, duration);
+        unawaited(_seek(_dragValue, duration));
+        setState(() => _isDragging = false);
+      },
+      onHorizontalDragCancel: () {
+        ref.read(audioPlayerServiceProvider).setSliceScrubbing(false);
         setState(() => _isDragging = false);
       },
       onTapUp: (details) {
-        _seek(_valueFromPointer(details.localPosition, context), duration);
+        unawaited(
+          _seek(_valueFromPointer(details.localPosition, context), duration),
+        );
       },
       child: Column(
         children: [
@@ -626,6 +643,12 @@ class _MiniPlayerProgressAreaState
             child: SliderTheme(
               data: SliderTheme.of(context).copyWith(
                 trackHeight: 4,
+                trackShape: PlayerUniformSliderTrackShape(
+                  slices: slices?.slices ?? const [],
+                  duration: duration,
+                  pendingStartMs: slices?.pendingStartMs,
+                  sliceColor: Theme.of(context).colorScheme.tertiary,
+                ),
                 thumbShape: const RoundSliderThumbShape(
                   enabledThumbRadius: 0,
                   disabledThumbRadius: 0,
@@ -637,7 +660,11 @@ class _MiniPlayerProgressAreaState
                 ).colorScheme.outline.withValues(alpha: 0.2),
               ),
               child: Slider(
+                key: const ValueKey('mini-player-progress-slider'),
                 value: displayProgress.clamp(0.0, 1.0),
+                onChangeStart: (_) => ref
+                    .read(audioPlayerServiceProvider)
+                    .setSliceScrubbing(true),
                 onChanged: (value) {
                   setState(() {
                     _isDragging = true;
@@ -645,7 +672,7 @@ class _MiniPlayerProgressAreaState
                   });
                 },
                 onChangeEnd: (value) {
-                  _seek(value, duration);
+                  unawaited(_seek(value, duration));
                   setState(() => _isDragging = false);
                 },
               ),

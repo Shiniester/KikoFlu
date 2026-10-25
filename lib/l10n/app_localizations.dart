@@ -7809,6 +7809,126 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Failed to launch installer'**
   String get installFailed;
+
+  /// Audio player slice control: audioSlices
+  ///
+  /// In en, this message translates to:
+  /// **'Audio slices'**
+  String get audioSlices;
+
+  /// Audio player slice control: markAudioSliceStart
+  ///
+  /// In en, this message translates to:
+  /// **'Mark slice start'**
+  String get markAudioSliceStart;
+
+  /// Audio player slice control: markAudioSliceEnd
+  ///
+  /// In en, this message translates to:
+  /// **'Mark slice end'**
+  String get markAudioSliceEnd;
+
+  /// Audio player slice control: manageAudioSlices
+  ///
+  /// In en, this message translates to:
+  /// **'Manage slices'**
+  String get manageAudioSlices;
+
+  /// Audio player slice control: cancelAudioSliceStart
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel slice start'**
+  String get cancelAudioSliceStart;
+
+  /// Audio player slice control: audioSlicePendingStart
+  ///
+  /// In en, this message translates to:
+  /// **'Start: {time}'**
+  String audioSlicePendingStart(String time);
+
+  /// Audio player slice control: audioSliceRange
+  ///
+  /// In en, this message translates to:
+  /// **'{start} – {end}'**
+  String audioSliceRange(String start, String end);
+
+  /// Audio player slice control: onlyPlayAudioSlices
+  ///
+  /// In en, this message translates to:
+  /// **'Only play slices'**
+  String get onlyPlayAudioSlices;
+
+  /// Audio player slice control: audioSlicesEmpty
+  ///
+  /// In en, this message translates to:
+  /// **'No slices yet. Mark a start and end to create a slice.'**
+  String get audioSlicesEmpty;
+
+  /// Audio player slice control: previewAudioSlice
+  ///
+  /// In en, this message translates to:
+  /// **'Preview slice'**
+  String get previewAudioSlice;
+
+  /// Audio player slice control: stopAudioSlicePreview
+  ///
+  /// In en, this message translates to:
+  /// **'Stop preview'**
+  String get stopAudioSlicePreview;
+
+  /// Audio player slice control: editAudioSlice
+  ///
+  /// In en, this message translates to:
+  /// **'Edit slice'**
+  String get editAudioSlice;
+
+  /// Audio player slice control: audioSliceStartTime
+  ///
+  /// In en, this message translates to:
+  /// **'Start time'**
+  String get audioSliceStartTime;
+
+  /// Audio player slice control: audioSliceEndTime
+  ///
+  /// In en, this message translates to:
+  /// **'End time'**
+  String get audioSliceEndTime;
+
+  /// Audio player slice control: audioSliceInvalidTime
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a valid time, such as 00:30.000.'**
+  String get audioSliceInvalidTime;
+
+  /// Audio player slice control: audioSliceSaveFailed
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the slice. Check the times and overlapping slices, then try again.'**
+  String get audioSliceSaveFailed;
+
+  /// Audio player slice control: audioSliceDeleteFailed
+  ///
+  /// In en, this message translates to:
+  /// **'Could not delete slices. Try again.'**
+  String get audioSliceDeleteFailed;
+
+  /// Audio player slice control: clearAudioSlices
+  ///
+  /// In en, this message translates to:
+  /// **'Clear slices'**
+  String get clearAudioSlices;
+
+  /// Audio player slice control: clearAudioSlicesConfirm
+  ///
+  /// In en, this message translates to:
+  /// **'Clear all slices for this track?'**
+  String get clearAudioSlicesConfirm;
+
+  /// Audio player slice control: audioSlicePreviewFailed
+  ///
+  /// In en, this message translates to:
+  /// **'Could not preview the slice. Try again.'**
+  String get audioSlicePreviewFailed;
 }
 
 class _SDelegate extends LocalizationsDelegate<S> {

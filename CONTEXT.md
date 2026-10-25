@@ -266,6 +266,23 @@ Moving to a selected time within the current track from the player's progress
 control or lyrics. The current track and its queue position remain the same.
 _Avoid_: Track Switch, 曲目切换
 
+**Audio Slice (音频切片)**:
+A saved start and end range within one playable audio track, shared by online,
+cached, and downloaded playback of that same track. Each Work Audio Chapter has
+independent slices on its own timeline starting at zero.
+_Avoid_: Point marker, exported audio clip, Work Audio Chapter
+
+**Slice Preview (切片试听)**:
+Playback of one selected Audio Slice once, followed by a pause at its end.
+_Avoid_: Single-track repeat, Only Slices Mode
+
+**Only Slices Mode (仅播放切片)**:
+The playback rule that skips gaps during playback and plays a track's Audio
+Slices in time order; paused playback keeps the selected position.
+At the final slice, Repeat Mode determines whether playback returns to the first
+slice or advances to the next track.
+_Avoid_: Slice Preview, audio-file trimming
+
 **Automatic Audio Cache (音频自动缓存)**:
 Saving online audio in the background for later playback. A cache entry becomes
 playable only when the entire file is saved. Cache progress, failure, or

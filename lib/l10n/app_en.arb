@@ -1837,5 +1837,101 @@
   "cancelDownload": "Cancel Download",
   "noPlatformPackage": "No suitable installation package was found for the current system.",
   "openReleasePage": "Open GitHub Releases",
-  "installFailed": "Failed to launch installer"
+  "installFailed": "Failed to launch installer",
+  "audioSlices": "Audio slices",
+  "@audioSlices": {
+    "description": "Audio player slice control: audioSlices"
+  },
+  "markAudioSliceStart": "Mark slice start",
+  "@markAudioSliceStart": {
+    "description": "Audio player slice control: markAudioSliceStart"
+  },
+  "markAudioSliceEnd": "Mark slice end",
+  "@markAudioSliceEnd": {
+    "description": "Audio player slice control: markAudioSliceEnd"
+  },
+  "manageAudioSlices": "Manage slices",
+  "@manageAudioSlices": {
+    "description": "Audio player slice control: manageAudioSlices"
+  },
+  "cancelAudioSliceStart": "Cancel slice start",
+  "@cancelAudioSliceStart": {
+    "description": "Audio player slice control: cancelAudioSliceStart"
+  },
+  "audioSlicePendingStart": "Start: {time}",
+  "@audioSlicePendingStart": {
+    "description": "Audio player slice control: audioSlicePendingStart",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "00:30.000"
+      }
+    }
+  },
+  "audioSliceRange": "{start} – {end}",
+  "@audioSliceRange": {
+    "description": "Audio player slice control: audioSliceRange",
+    "placeholders": {
+      "start": {
+        "type": "String",
+        "example": "00:30.000"
+      },
+      "end": {
+        "type": "String",
+        "example": "01:00.000"
+      }
+    }
+  },
+  "onlyPlayAudioSlices": "Only play slices",
+  "@onlyPlayAudioSlices": {
+    "description": "Audio player slice control: onlyPlayAudioSlices"
+  },
+  "audioSlicesEmpty": "No slices yet. Mark a start and end to create a slice.",
+  "@audioSlicesEmpty": {
+    "description": "Audio player slice control: audioSlicesEmpty"
+  },
+  "previewAudioSlice": "Preview slice",
+  "@previewAudioSlice": {
+    "description": "Audio player slice control: previewAudioSlice"
+  },
+  "stopAudioSlicePreview": "Stop preview",
+  "@stopAudioSlicePreview": {
+    "description": "Audio player slice control: stopAudioSlicePreview"
+  },
+  "editAudioSlice": "Edit slice",
+  "@editAudioSlice": {
+    "description": "Audio player slice control: editAudioSlice"
+  },
+  "audioSliceStartTime": "Start time",
+  "@audioSliceStartTime": {
+    "description": "Audio player slice control: audioSliceStartTime"
+  },
+  "audioSliceEndTime": "End time",
+  "@audioSliceEndTime": {
+    "description": "Audio player slice control: audioSliceEndTime"
+  },
+  "audioSliceInvalidTime": "Enter a valid time, such as 00:30.000.",
+  "@audioSliceInvalidTime": {
+    "description": "Audio player slice control: audioSliceInvalidTime"
+  },
+  "audioSliceSaveFailed": "Could not save the slice. Check the times and overlapping slices, then try again.",
+  "@audioSliceSaveFailed": {
+    "description": "Audio player slice control: audioSliceSaveFailed"
+  },
+  "audioSliceDeleteFailed": "Could not delete slices. Try again.",
+  "@audioSliceDeleteFailed": {
+    "description": "Audio player slice control: audioSliceDeleteFailed"
+  },
+  "clearAudioSlices": "Clear slices",
+  "@clearAudioSlices": {
+    "description": "Audio player slice control: clearAudioSlices"
+  },
+  "clearAudioSlicesConfirm": "Clear all slices for this track?",
+  "@clearAudioSlicesConfirm": {
+    "description": "Audio player slice control: clearAudioSlicesConfirm"
+  },
+  "audioSlicePreviewFailed": "Could not preview the slice. Try again.",
+  "@audioSlicePreviewFailed": {
+    "description": "Audio player slice control: audioSlicePreviewFailed"
+  }
 }

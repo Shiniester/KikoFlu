@@ -4267,4 +4267,69 @@ class SJa extends S {
 
   @override
   String get installFailed => 'インストーラーの起動に失敗しました';
+
+  @override
+  String get audioSlices => '音声スライス';
+
+  @override
+  String get markAudioSliceStart => '開始位置を記録';
+
+  @override
+  String get markAudioSliceEnd => '終了位置を記録';
+
+  @override
+  String get manageAudioSlices => 'スライスを管理';
+
+  @override
+  String get cancelAudioSliceStart => '開始位置を取り消す';
+
+  @override
+  String audioSlicePendingStart(String time) {
+    return '開始：$time';
+  }
+
+  @override
+  String audioSliceRange(String start, String end) {
+    return '$start – $end';
+  }
+
+  @override
+  String get onlyPlayAudioSlices => 'スライスのみ再生';
+
+  @override
+  String get audioSlicesEmpty => '開始位置と終了位置を記録すると、ここにスライスが表示されます。';
+
+  @override
+  String get previewAudioSlice => 'スライスを試聴';
+
+  @override
+  String get stopAudioSlicePreview => '試聴を終了';
+
+  @override
+  String get editAudioSlice => 'スライスを編集';
+
+  @override
+  String get audioSliceStartTime => '開始時間';
+
+  @override
+  String get audioSliceEndTime => '終了時間';
+
+  @override
+  String get audioSliceInvalidTime => '00:30.000 のように有効な時間を入力してください。';
+
+  @override
+  String get audioSliceSaveFailed =>
+      'スライスを保存できませんでした。開始・終了時間と重複を確認して、もう一度お試しください。';
+
+  @override
+  String get audioSliceDeleteFailed => 'スライスを削除できませんでした。もう一度お試しください。';
+
+  @override
+  String get clearAudioSlices => 'スライスを消去';
+
+  @override
+  String get clearAudioSlicesConfirm => 'このトラックのスライスをすべて消去しますか？';
+
+  @override
+  String get audioSlicePreviewFailed => 'スライスを試聴できませんでした。もう一度お試しください。';
 }

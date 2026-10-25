@@ -4245,6 +4245,70 @@ class SZh extends S {
 
   @override
   String get installFailed => '打开安装程序失败';
+
+  @override
+  String get audioSlices => '音频切片';
+
+  @override
+  String get markAudioSliceStart => '标记起点';
+
+  @override
+  String get markAudioSliceEnd => '标记终点';
+
+  @override
+  String get manageAudioSlices => '管理切片';
+
+  @override
+  String get cancelAudioSliceStart => '取消起点';
+
+  @override
+  String audioSlicePendingStart(String time) {
+    return '起点：$time';
+  }
+
+  @override
+  String audioSliceRange(String start, String end) {
+    return '$start – $end';
+  }
+
+  @override
+  String get onlyPlayAudioSlices => '仅播放切片';
+
+  @override
+  String get audioSlicesEmpty => '标记起点和终点后，切片会显示在这里。';
+
+  @override
+  String get previewAudioSlice => '试听切片';
+
+  @override
+  String get stopAudioSlicePreview => '结束试听';
+
+  @override
+  String get editAudioSlice => '编辑切片';
+
+  @override
+  String get audioSliceStartTime => '起点时间';
+
+  @override
+  String get audioSliceEndTime => '终点时间';
+
+  @override
+  String get audioSliceInvalidTime => '请输入有效时间，例如 00:30.000。';
+
+  @override
+  String get audioSliceSaveFailed => '保存切片失败。请检查起止时间和重叠区间后重试。';
+
+  @override
+  String get audioSliceDeleteFailed => '删除切片失败，请重试。';
+
+  @override
+  String get clearAudioSlices => '清空切片';
+
+  @override
+  String get clearAudioSlicesConfirm => '清空当前音轨的全部切片？';
+
+  @override
+  String get audioSlicePreviewFailed => '试听切片失败，请重试。';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -8488,4 +8552,68 @@ class SZhHant extends SZh {
 
   @override
   String get installFailed => '開啟安裝程式失敗';
+
+  @override
+  String get audioSlices => '音頻切片';
+
+  @override
+  String get markAudioSliceStart => '標記起點';
+
+  @override
+  String get markAudioSliceEnd => '標記終點';
+
+  @override
+  String get manageAudioSlices => '管理切片';
+
+  @override
+  String get cancelAudioSliceStart => '取消起點';
+
+  @override
+  String audioSlicePendingStart(String time) {
+    return '起點：$time';
+  }
+
+  @override
+  String audioSliceRange(String start, String end) {
+    return '$start – $end';
+  }
+
+  @override
+  String get onlyPlayAudioSlices => '僅播放切片';
+
+  @override
+  String get audioSlicesEmpty => '標記起點和終點後，切片會顯示在這裡。';
+
+  @override
+  String get previewAudioSlice => '試聽切片';
+
+  @override
+  String get stopAudioSlicePreview => '結束試聽';
+
+  @override
+  String get editAudioSlice => '編輯切片';
+
+  @override
+  String get audioSliceStartTime => '起點時間';
+
+  @override
+  String get audioSliceEndTime => '終點時間';
+
+  @override
+  String get audioSliceInvalidTime => '請輸入有效時間，例如 00:30.000。';
+
+  @override
+  String get audioSliceSaveFailed => '儲存切片失敗。請檢查起止時間和重疊區間後重試。';
+
+  @override
+  String get audioSliceDeleteFailed => '刪除切片失敗，請重試。';
+
+  @override
+  String get clearAudioSlices => '清空切片';
+
+  @override
+  String get clearAudioSlicesConfirm => '清空目前音軌的全部切片？';
+
+  @override
+  String get audioSlicePreviewFailed => '試聽切片失敗，請重試。';
 }

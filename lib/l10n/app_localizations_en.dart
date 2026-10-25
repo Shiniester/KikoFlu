@@ -4388,4 +4388,71 @@ class SEn extends S {
 
   @override
   String get installFailed => 'Failed to launch installer';
+
+  @override
+  String get audioSlices => 'Audio slices';
+
+  @override
+  String get markAudioSliceStart => 'Mark slice start';
+
+  @override
+  String get markAudioSliceEnd => 'Mark slice end';
+
+  @override
+  String get manageAudioSlices => 'Manage slices';
+
+  @override
+  String get cancelAudioSliceStart => 'Cancel slice start';
+
+  @override
+  String audioSlicePendingStart(String time) {
+    return 'Start: $time';
+  }
+
+  @override
+  String audioSliceRange(String start, String end) {
+    return '$start – $end';
+  }
+
+  @override
+  String get onlyPlayAudioSlices => 'Only play slices';
+
+  @override
+  String get audioSlicesEmpty =>
+      'No slices yet. Mark a start and end to create a slice.';
+
+  @override
+  String get previewAudioSlice => 'Preview slice';
+
+  @override
+  String get stopAudioSlicePreview => 'Stop preview';
+
+  @override
+  String get editAudioSlice => 'Edit slice';
+
+  @override
+  String get audioSliceStartTime => 'Start time';
+
+  @override
+  String get audioSliceEndTime => 'End time';
+
+  @override
+  String get audioSliceInvalidTime => 'Enter a valid time, such as 00:30.000.';
+
+  @override
+  String get audioSliceSaveFailed =>
+      'Could not save the slice. Check the times and overlapping slices, then try again.';
+
+  @override
+  String get audioSliceDeleteFailed => 'Could not delete slices. Try again.';
+
+  @override
+  String get clearAudioSlices => 'Clear slices';
+
+  @override
+  String get clearAudioSlicesConfirm => 'Clear all slices for this track?';
+
+  @override
+  String get audioSlicePreviewFailed =>
+      'Could not preview the slice. Try again.';
 }

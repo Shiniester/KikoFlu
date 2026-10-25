@@ -5,10 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:kikoeru_flutter/src/models/audio_slice.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/services/audio_cache_downloader.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/cache_service.dart';
+import 'package:kikoeru_flutter/src/services/audio_slice_store.dart';
 import 'package:kikoeru_flutter/src/services/speculative_transfer_coordinator.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -117,6 +119,47 @@ void main() {
     expect(published.map((track) => track?.id), ['a', 'b']);
     expect(service.currentIndex, 1);
     await subscription.cancel();
+  });
+
+  test('preview blocks and rejects a racing native promotion', () async {
+    await warm();
+    final trackKey = service.sliceState.trackKey!;
+    const preview = AudioSlice(startMs: 250000, endMs: 300000);
+    expect(await service.saveSlice(trackKey: trackKey, slice: preview), isTrue);
+    final preparedNext = player.window.children[1];
+
+    await service.previewSlice(trackKey, preview);
+    await until(() => player.window.children.length == 1);
+    expect(service.currentTrack, a);
+
+    player.transitionToPreparedChild(preparedNext);
+    await until(
+      () =>
+          player.currentIndex == 0 &&
+          !player.playing &&
+          service.sliceState.preview == null,
+    );
+    expect(service.currentTrack, a);
+    expect(player.activeUri.toString(), a.url);
+    expect(player.position, const Duration(minutes: 5));
+  });
+
+  test('Only Slices removes and bypasses the native successor', () async {
+    await warm();
+    const firstSlice = AudioSlice(startMs: 10000, endMs: 20000);
+    await const SharedPreferencesAudioSliceStore().write(
+      audioSliceTrackKey(b),
+      const [firstSlice],
+    );
+
+    service.setOnlySlices(true);
+    await until(() => player.window.children.length == 1);
+    await service.skipToNext();
+
+    expect(service.currentTrack, b);
+    expect(player.initialPositions.last, const Duration(milliseconds: 10000));
+    expect(player.position, const Duration(milliseconds: 10000));
+    expect(player.playing, isTrue);
   });
 
   test('automatic transition waits for ready and preserves a pause', () async {
@@ -329,12 +372,14 @@ class _WindowPlayer extends ControlledPlayer {
   final errors = StreamController<PlaybackEvent>.broadcast(sync: true);
   final indexedSeeks = <int>[];
   AudioSource? activeChild;
+  bool reportStaleIndex = false;
   bool failIndexedSeek = false;
   ConcatenatingAudioSource get window =>
       loadedAudioSource! as ConcatenatingAudioSource;
   Uri get activeUri => (window.children[currentIndex] as UriAudioSource).uri;
   @override
   int get currentIndex {
+    if (reportStaleIndex) return 1;
     final source = loadedAudioSource;
     if (source is! ConcatenatingAudioSource) return 0;
     final index = source.children.indexOf(activeChild!);
@@ -358,6 +403,7 @@ class _WindowPlayer extends ControlledPlayer {
         ? source.children[initialIndex ?? 0]
         : source;
     activeChild = child;
+    reportStaleIndex = false;
     final duration = await super.setAudioSource(
       child,
       preload: preload,
@@ -370,10 +416,21 @@ class _WindowPlayer extends ControlledPlayer {
 
   void transition(int index, {ProcessingState state = ProcessingState.ready}) {
     activeChild = window.children[index];
+    reportStaleIndex = false;
     source = activeUri.toString();
     position = Duration.zero;
     processingState = state;
     indices.add(index);
+    emitPlayerState();
+  }
+
+  void transitionToPreparedChild(AudioSource child) {
+    activeChild = child;
+    reportStaleIndex = true;
+    source = (child as UriAudioSource).uri.toString();
+    position = Duration.zero;
+    processingState = ProcessingState.ready;
+    indices.add(1);
     emitPlayerState();
   }
 
@@ -386,6 +443,7 @@ class _WindowPlayer extends ControlledPlayer {
         throw PlayerException(0, 'indexed seek failed');
       }
       activeChild = window.children[index];
+      reportStaleIndex = false;
       source = activeUri.toString();
       indices.add(index);
     }
