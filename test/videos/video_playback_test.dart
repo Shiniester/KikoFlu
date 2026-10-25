@@ -19,6 +19,7 @@ import 'package:kikoeru_flutter/src/videos/video_downloads.dart';
 import 'package:kikoeru_flutter/src/videos/video_library.dart';
 import 'package:kikoeru_flutter/src/videos/video_models.dart';
 import 'package:kikoeru_flutter/src/videos/video_providers.dart';
+import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
 
 import '../support/linux_golden_file_comparator.dart';
 
@@ -34,6 +35,231 @@ void main() {
     }
   });
   tearDownAll(() => goldenFileComparator = defaultGoldenFileComparator);
+
+  testWidgets('detail route waits for entry animation to settle', (
+    tester,
+  ) async {
+    final client = _TestMissavClient(_details());
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final session = _FakePlaybackSession();
+    var sessionCreations = 0;
+
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        _videoDetailsLauncher(
+          sessionFactory: () {
+            sessionCreations++;
+            return session;
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open video'));
+    await tester.pump();
+    expect(client.detailsCalls, 0);
+    expect(sessionCreations, 0);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(client.detailsCalls, 0);
+    expect(sessionCreations, 0);
+
+    await tester.pumpAndSettle();
+    expect(client.detailsCalls, 1);
+    expect(sessionCreations, 1);
+    expect(session.loadStreamCount, 1);
+  });
+
+  testWidgets('detail route ignores a late result during pop', (tester) async {
+    final client = _TestMissavClient(_details())
+      ..detailsCompleter = Completer<VideoDetails>();
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final session = _FakePlaybackSession();
+    var sessionCreations = 0;
+
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        _videoDetailsLauncher(
+          sessionFactory: () {
+            sessionCreations++;
+            return session;
+          },
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open video'));
+    await tester.pump();
+    await tester.pump();
+    final route = ModalRoute.of(
+      tester.element(find.byType(VideoDetailsScreen, skipOffstage: false)),
+    )!;
+    await tester.pump(route.transitionDuration);
+    for (
+      var frame = 0;
+      route.animation!.status != AnimationStatus.completed && frame < 60;
+      frame++
+    ) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(route.animation!.status, AnimationStatus.completed);
+    expect(route.secondaryAnimation?.status, AnimationStatus.dismissed);
+    expect(route.navigator!.userGestureInProgressNotifier.value, isFalse);
+    for (var frame = 0; client.detailsCalls == 0 && frame < 10; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(
+      client.detailsCalls,
+      1,
+      reason:
+          'route=${route.animation?.status}, current=${route.isCurrent}, '
+          'initializeCalls=${client.initializeCalls}',
+    );
+    expect(sessionCreations, 0);
+
+    final navigator = Navigator.of(
+      tester.element(find.byType(VideoDetailsScreen, skipOffstage: false)),
+    );
+    navigator.pop();
+    await tester.pump();
+    client.detailsCompleter!.complete(_details());
+    await tester.pump();
+
+    expect(sessionCreations, 0);
+    expect(find.byType(VideoPlaybackPanel), findsNothing);
+    expect(find.byType(VideoDetailsScreen), findsOneWidget);
+
+    await tester.pumpAndSettle();
+    expect(sessionCreations, 0);
+    expect(find.byType(VideoPlaybackPanel), findsNothing);
+  });
+
+  testWidgets(
+    'detail route pop pauses before completion and retains its surface',
+    (tester) async {
+      final client = _TestMissavClient(_details());
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final session = _FakePlaybackSession();
+
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          _videoDetailsLauncher(sessionFactory: () => session),
+        ),
+      );
+      await tester.tap(find.text('Open video'));
+      await tester.pumpAndSettle();
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byTooltip(l10n.videoPlay));
+      await tester.pump();
+      expect(session.snapshot.value.playing, isTrue);
+
+      final detailContext = tester.element(find.byType(VideoDetailsScreen));
+      final navigator = Navigator.of(detailContext);
+      final route = ModalRoute.of(detailContext)!;
+      var routeCompleted = false;
+      unawaited(route.completed.then((_) => routeCompleted = true));
+
+      navigator.userGestureInProgressNotifier.value = true;
+      await tester.pump();
+      expect(session.pauseCount, 0);
+      expect(session.snapshot.value.playing, isTrue);
+      navigator.userGestureInProgressNotifier.value = false;
+      await tester.pump();
+      expect(session.pauseCount, 0);
+      expect(session.snapshot.value.playing, isTrue);
+
+      await tester.tap(find.byTooltip(l10n.videoFullscreen));
+      await tester.pumpAndSettle();
+      expect(session.pauseCount, 0);
+      expect(session.snapshot.value.playing, isTrue);
+      await tester.tap(find.byTooltip(l10n.videoFullscreen));
+      await tester.pumpAndSettle();
+      expect(session.pauseCount, 0);
+      expect(session.snapshot.value.playing, isTrue);
+
+      navigator.pop();
+      await tester.pump();
+      expect(session.pauseCount, greaterThan(0));
+      expect(session.snapshot.value.playing, isFalse);
+      expect(routeCompleted, isFalse);
+      expect(session.disposeCount, 0);
+      expect(find.byKey(const ValueKey('fake-video-surface')), findsOneWidget);
+
+      await tester.pumpAndSettle();
+      expect(routeCompleted, isTrue);
+    },
+  );
+
+  testWidgets(
+    'detail pop during pending quality load prevents resume and retains surface',
+    (tester) async {
+      final client = _TestMissavClient(_details());
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final session = _FakePlaybackSession();
+
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          _videoDetailsLauncher(sessionFactory: () => session),
+        ),
+      );
+      await tester.tap(find.text('Open video'));
+      await tester.pumpAndSettle();
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byTooltip(l10n.videoPlay));
+      await tester.pump();
+      expect(session.playCount, 1);
+      expect(session.snapshot.value.playing, isTrue);
+
+      final loading = Completer<void>();
+      session.nextLoadCompleter = loading;
+      await _chooseSetting(tester, '${l10n.videoQuality}: 720p');
+      expect(session.loadStreamCount, 2);
+      expect(session.snapshot.value.playing, isTrue);
+
+      final detailContext = tester.element(find.byType(VideoDetailsScreen));
+      final navigator = Navigator.of(detailContext);
+      final route = ModalRoute.of(detailContext)!;
+      var routeCompleted = false;
+      unawaited(route.completed.then((_) => routeCompleted = true));
+
+      navigator.pop();
+      await tester.pump();
+      await tester.pump();
+      expect(session.pauseCount, greaterThan(0));
+      expect(session.snapshot.value.playing, isFalse);
+      expect(routeCompleted, isFalse);
+      expect(session.disposeCount, 0);
+      expect(find.byKey(const ValueKey('fake-video-surface')), findsOneWidget);
+
+      loading.complete();
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(session.playCount, 1);
+      expect(session.snapshot.value.playing, isFalse);
+      expect(routeCompleted, isFalse);
+      expect(session.disposeCount, 0);
+      expect(find.byKey(const ValueKey('fake-video-surface')), findsOneWidget);
+
+      await tester.pumpAndSettle();
+      expect(routeCompleted, isTrue);
+      expect(find.byType(VideoPlaybackPanel), findsNothing);
+      expect(session.disposeCount, 1);
+    },
+  );
 
   testWidgets('video playback starts paused and keeps its own volume', (
     tester,
@@ -1238,6 +1464,25 @@ void main() {
   });
 }
 
+Widget _videoDetailsLauncher({
+  required VideoPlaybackSessionFactory sessionFactory,
+}) => Builder(
+  builder: (context) => Scaffold(
+    body: TextButton(
+      onPressed: () => unawaited(
+        pushWorkDetailRoute(
+          context,
+          builder: (_) => VideoDetailsScreen(
+            video: _video(),
+            sessionFactory: sessionFactory,
+          ),
+        ),
+      ),
+      child: const Text('Open video'),
+    ),
+  ),
+);
+
 Future<void> _pumpStandalonePlayer(
   WidgetTester tester,
   _FakePlaybackSession session, {
@@ -1380,6 +1625,7 @@ class _TestMissavClient extends MissavClient {
   final List<bool> actorFavoriteChanges = [];
   final List<bool> videoFavoriteChanges = [];
   Future<void>? favoriteResponse;
+  Completer<VideoDetails>? detailsCompleter;
   int initializeCalls = 0;
   int detailsCalls = 0;
   int playlistsCalls = 0;
@@ -1426,6 +1672,8 @@ class _TestMissavClient extends MissavClient {
   @override
   Future<VideoDetails> details(VideoItem item) async {
     detailsCalls++;
+    final completer = detailsCompleter;
+    if (completer != null) return completer.future;
     return detailsResult;
   }
 

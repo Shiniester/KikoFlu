@@ -105,11 +105,16 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
     if (_scrollController.hasClients) _scrollController.jumpTo(0);
   }
 
-  Widget _downloadsList(S s, VideoDownloads downloads, int pageSize) {
-    final totalCount = downloads.tasks.length;
+  Widget _downloadsList(
+    S s,
+    VideoDownloads downloads,
+    List<VideoDownloadTask> allTasks,
+    int pageSize,
+  ) {
+    final totalCount = allTasks.length;
     final totalPages = (totalCount / pageSize).ceil().clamp(1, 1 << 30).toInt();
     final currentPage = _currentPage.clamp(1, totalPages).toInt();
-    final tasks = downloads.tasks
+    final tasks = allTasks
         .skip((currentPage - 1) * pageSize)
         .take(pageSize)
         .toList(growable: false);
@@ -337,6 +342,7 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     final downloads = ref.watch(videoDownloadsProvider);
+    final tasks = downloads.tasks;
     final pageSize = ref.watch(pageSizeProvider);
     return GlobalAudioPlayerWrapper(
       child: Scaffold(
@@ -354,9 +360,9 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
             ? const Center(child: CircularProgressIndicator())
             : _initializationFailed
             ? Center(child: Text(s.videoDownloadFailed))
-            : downloads.tasks.isEmpty
+            : tasks.isEmpty
             ? Center(child: Text(s.noDownloadTasks))
-            : _downloadsList(s, downloads, pageSize),
+            : _downloadsList(s, downloads, tasks, pageSize),
       ),
     );
   }

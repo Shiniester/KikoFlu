@@ -9,6 +9,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../providers/works_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
+import '../../widgets/work_detail_route_readiness.dart';
 import '../missav_client.dart';
 import '../missav_verification.dart';
 import '../video_download_task.dart';
@@ -38,6 +39,7 @@ class VideoDetailsScreen extends ConsumerStatefulWidget {
 }
 
 class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
+  final WorkDetailRouteReadiness _routeReadiness = WorkDetailRouteReadiness();
   late final MissavClient _client;
   late final VideoLibrary _library;
   late final VideoDownloads _downloads;
@@ -85,6 +87,15 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
     });
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _routeReadiness.bind(
+      route: ModalRoute.of(context),
+      navigator: Navigator.maybeOf(context),
+    );
+  }
+
   void _onClientChanged() {
     final isLoggedIn = _client.isLoggedIn;
     final accountName = _client.accountName;
@@ -107,6 +118,12 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
     final covered = ModalRoute.of(context)?.isCurrent == false;
     if (_loading && !covered && !sessionChanged) return;
     _loadGeneration++;
+    unawaited(_reloadAfterClientChanged());
+  }
+
+  Future<void> _reloadAfterClientChanged() async {
+    final generation = _loadGeneration;
+    if (!await _waitForRouteIdle(generation)) return;
     setState(() {
       _details = null;
       _favorite = false;
@@ -115,7 +132,13 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
       _verificationError = null;
       _loading = true;
     });
-    unawaited(_initialize());
+    await _initialize();
+  }
+
+  Future<bool> _waitForRouteIdle(int generation) async {
+    if (!mounted || generation != _loadGeneration) return false;
+    final ready = await _routeReadiness.waitForIdle();
+    return ready && mounted && generation == _loadGeneration;
   }
 
   Future<void> _initialize() async {
@@ -125,9 +148,10 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
       _error = null;
       _verificationError = null;
     });
+    if (!await _waitForRouteIdle(generation)) return;
     try {
       await Future.wait([_library.initialize(), _downloads.initialize()]);
-      if (!mounted || generation != _loadGeneration) return;
+      if (!await _waitForRouteIdle(generation)) return;
       final task =
           widget.downloadedTask ?? _downloads.forVideo(widget.video.id);
       if (task?.status == VideoDownloadStatus.completed &&
@@ -148,9 +172,9 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
         return;
       }
       await _client.initialize();
-      if (!mounted || generation != _loadGeneration) return;
+      if (!await _waitForRouteIdle(generation)) return;
       final details = await _client.details(widget.video);
-      if (!mounted || generation != _loadGeneration) return;
+      if (!await _waitForRouteIdle(generation)) return;
       setState(() {
         _downloadedTask = task;
         _details = details;
@@ -161,7 +185,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
         _loading = false;
       });
     } catch (error) {
-      if (!mounted || generation != _loadGeneration) return;
+      if (!await _waitForRouteIdle(generation)) return;
       setState(() {
         _loading = false;
         _error = error.toString();
@@ -185,6 +209,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
   @override
   void dispose() {
     _client.removeListener(_onClientChanged);
+    _routeReadiness.dispose();
     super.dispose();
   }
 
@@ -217,7 +242,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
     } finally {
       _verifyingAccess = false;
     }
-    if (!mounted) return;
+    if (!await _routeReadiness.waitForIdle() || !mounted) return;
     if (_accountChangedDuringVerification) {
       _accountChangedDuringVerification = false;
       if (!verified) {

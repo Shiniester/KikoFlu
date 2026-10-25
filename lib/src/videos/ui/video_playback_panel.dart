@@ -381,6 +381,21 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     _route?.secondaryAnimation?.removeListener(_onRouteTransition);
     _route = route;
     _route?.secondaryAnimation?.addListener(_onRouteTransition);
+    if (route != null) {
+      final panel = WeakReference(this);
+      unawaited(
+        route.popped.then<void>((_) {
+          final state = panel.target;
+          if (state == null ||
+              !state.mounted ||
+              !identical(state._route, route)) {
+            return;
+          }
+          state._stopTemporaryRate();
+          unawaited(state._pauseAndSave());
+        }),
+      );
+    }
   }
 
   @override
