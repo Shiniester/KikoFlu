@@ -2,7 +2,7 @@
 
 视频详情页在路由稳定后才初始化，确认离页时提前暂停播放。
 下载页在一次构建中复用同一份任务列表。
-侧栏切换还存在抽屉动画与页面工作重叠的路径。
+视频侧栏把入口动作延后到抽屉完全收起后的帧末。
 以下结论来自代码核查，尚不能认定为实际卡顿根因。
 
 ## 已确认范围
@@ -11,7 +11,7 @@
 - 场景为视频详情页进出，以及视频侧栏入口切换。
 - 侧栏入口包括目录、视频源收藏、视频观看历史和视频下载。
 - 保留当前外观、动画效果和操作行为。
-- 本轮实施详情初始化、退场处理和下载列表读取调整。
+- 已确认详情初始化、退场处理、下载列表读取和视频侧栏调度范围。
 
 术语沿用 [CONTEXT.md](../../CONTEXT.md)。
 播放规则沿用 [ADR 0005](../adr/0005-native-video-and-source-account.md)。
@@ -69,10 +69,10 @@
 提前释放画面资源可能让退场画面变黑。
 返回手势取消、全屏切换和续播进度保留现有语义。
 
-## 3. 侧栏关闭与后续动作会同时开始
+## 3. 视频侧栏在抽屉完全收起后执行入口动作
 
 [LibraryDrawerTile](../../lib/src/widgets/library_page_scaffold.dart)
-先调用 `Navigator.pop()`，随后立即执行入口回调。
+原来先调用 `Navigator.pop()`，随后立即执行入口回调。
 
 - 在线目录、视频源收藏和视频观看历史调用
   [_loadUrl](../../lib/src/videos/ui/video_screen.dart)。
@@ -83,18 +83,36 @@
   [路由帮助函数](../../lib/src/widgets/app_bottom_dock_transition.dart)
   可能等待一帧，但不等待抽屉关闭动画结束。
 
-因此，抽屉尚在收起时，页面重建或下载页入场可能已经开始。
-这是与反馈场景对应的代码路径，实际耗时仍不确定。
+调整前，抽屉尚在收起时，页面重建或下载页入场可能已经开始。
 
-若延后入口动作，需要先确定可靠的抽屉动画结束信号。
+视频页通过 `deferDrawerActions: widget.active` 延后执行侧栏入口动作。
+共享页框架保存最新选择，Material Drawer 继续管理原有动画。
+当前 Flutter 在关闭动画结束时卸载抽屉内容。
+抽屉内容的生命周期通知到达后，再等待该帧绘制结束。
+此时核对页面仍挂载、抽屉子树已卸载，以及源路由仍为当前路由。
+检查通过后，取出并清空待执行动作，再执行一次。
+
+关闭中重复选择只替换待执行动作。
+关闭使用公开的 `ScaffoldState.closeDrawer()`。
+这可以避免重复 `Navigator.pop()` 意外弹出当前页面。
+重新打开抽屉、关闭延后调度，或销毁页面时，旧选择不再执行。
+视频页失活时也会取消旧选择。
+默认共享页框架和 `closeOnTap: false` 保持原有执行时机。
+
+代价是新请求和导航在抽屉完全收起后才开始。
+抽屉外观、动画和目录原页替换规则保持原样。
+下载仍使用独立路由。
+
+### 关闭时机依据
+
 仓库锁定 Flutter 3.44.7。
 该 SDK 的 `DrawerControllerState.close()` 在启动关闭动画后，
 立即调用 `drawerCallback(false)`。
 源码位置为 SDK 的 `packages/flutter/lib/src/material/drawer.dart:630`。
 `onDrawerChanged(false)` 不能单独作为动画完成信号。
 固定延时也无法反映手势和动画的实际状态。
-本次尚未核验到可直接复用的完成机制。
-这项候选需要先补足设计，再修改共享侧栏组件。
+因此，调度使用抽屉子树卸载后的帧末信号。
+时序回归检查抽屉仍可见时不启动新的加载或导航。
 
 快速连续选择目录时，还存在过期请求继续执行的路径。
 `_request` 只阻止旧结果覆盖新页面。
@@ -134,10 +152,11 @@
 3. 合并下载页单次构建中的任务读取。
    核对分页、删除后的页码和进度更新保持原有结果。
 
-侧栏调度属于后续范围。
-先补充动画中间帧测试，再确定调度方式。
-测试需要覆盖原页替换、下载路由和底部播放条。
-快速切换的乱序结果不能覆盖当前选择。
+4. 检查侧栏动作的中间帧时机。
+   抽屉仍可见时，不启动目标目录请求或下载路由。
+   抽屉消失后，只执行最后一次选择。
+   检查页面销毁、失活和重新打开抽屉后的取消行为。
+   默认共享组件和不关闭抽屉的入口保持即时执行。
 
 详情时机测试复用
 [现有播放页替身](../../test/videos/video_playback_test.dart)
@@ -153,20 +172,19 @@
 
 | 检查 | 结果 |
 | --- | --- |
-| 视频模块、路由就绪与底部播放条组合回归 | 227 项通过，1 项跳过 |
-| 挂起清晰度加载后离页的补充回归 | 1 项通过 |
+| 视频、共享页框架、音声、漫画与导航组合回归 | 526 项通过，1 项跳过 |
 | 全项目静态检查 | 通过，无诊断 |
 | 独立代码复核 | 未发现必修缺陷；建议补充的清晰度竞态回归已通过 |
 
 ```powershell
-flutter test --no-pub test/videos test/work_detail_route_readiness_test.dart test/app_bottom_dock_transition_test.dart --reporter expanded
-flutter test --no-pub test/videos/video_playback_test.dart --plain-name "detail pop during pending quality load" --reporter expanded
+flutter test --no-pub test/videos test/library_page_scaffold_test.dart test/audio_screen_test.dart test/comic_widgets_test.dart test/app_bottom_dock_transition_test.dart test/work_detail_route_readiness_test.dart --reporter expanded
 flutter analyze --no-pub --fatal-infos
 ```
 
 跳过项为真实元数据接口测试。
 该项要求启用 `KIKOFLU_LIVE_MISSAV_METADATA`。
-本轮新增 4 项路由时序回归，验证代码执行顺序。
+路由与侧栏时序回归验证代码执行顺序。
+目录与下载用例在关闭中间帧核对抽屉仍可见，且新请求或导航尚未开始。
 返回手势取消通过 Navigator 手势状态模拟。
 自动回归不代表已经测得设备帧耗时收益。
 
@@ -177,13 +195,13 @@ flutter analyze --no-pub --fatal-infos
 
 ## 实施交接
 
-- `task_brief`：将视频详情初始化移出转场，提前处理离页，并减少下载列表复制。
-- `dispatch.read_only`：`video_playback_map` 核对详情与播放器生命周期；`video_sidebar_map` 核对在线目录和下载入口。
-- `dispatch.write_stages`：`video_route_fix` 负责详情页、播放面板和播放页回归；主智能体负责下载页和本文。文件归属独立，允许并行写入；Flutter 命令串行执行。
+- `task_brief`：将视频详情和侧栏入口工作移出动画，提前处理离页，并减少下载列表复制。
+- `dispatch.read_only`：两名代码顾问核对详情与侧栏路径。`drawer_timing_design` 核对抽屉卸载信号。`video_route_review` 独立复核改动。
+- `dispatch.write_stages`：详情阶段由 `video_route_fix` 负责详情与播放面板。侧栏阶段由 `drawer_timing_design` 负责共享页框架、视频页和对应测试。主智能体负责下载页、本文与集成验收。文件归属独立，Flutter 命令串行执行。
 - `dispatch.skipped`：原生、构建和依赖写入者；本轮不涉及这些模块。
-- `agents`：两名只读顾问提供调用顺序与源码证据；`video_route_fix` 负责详情时机改动；`video_route_review` 独立核对异步和手势边界。
-- `implementation_plan`：先验证旧时机，再修改详情与下载页，最后组合回归并独立评审。
-- `verification`：组合回归 227 项及补充回归 1 项通过；静态检查通过；独立复核未发现必修缺陷。
+- `agents`：源码顾问提供调用顺序。两名 Flutter 写入者分别处理详情和侧栏。独立复核覆盖异步、手势与抽屉生命周期，未发现生产缺陷。
+- `implementation_plan`：先验证旧执行时机，再复用路由与抽屉生命周期，最后组合回归并独立复核。
+- `verification`：组合回归 526 项通过，1 项真实接口测试未启用；独立复核未发现生产缺陷。
 - `dependency_risks`：无新增依赖或数据格式变更。
 - `conflicts`：`[]`。
-- `handoff.what`：本轮范围为详情进出与下载列表读取；`why`：减少转场期间的初始化与重复工作；`next`：侧栏抽屉调度仍需核验可靠的动画结束机制。
+- `handoff.what`：详情进出、下载列表读取与视频侧栏调度已调整；`why`：减少动画期间的初始化与重复工作；`next`：无已确认的后续修改。

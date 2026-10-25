@@ -1050,6 +1050,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       searchHint: s.videoSearchHint,
       onSearch: _search,
       drawerChildren: _drawer(layoutType),
+      deferDrawerActions: widget.active,
       body: _content(s, layoutType),
       floatingActionButton: _page != null && _isPlaylistPage(_page!)
           ? FloatingActionButton.extended(

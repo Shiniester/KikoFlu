@@ -8,10 +8,13 @@ void main() {
   Widget app({
     VoidCallback? onSearch,
     VoidCallback? onSelect,
+    VoidCallback? onAlternate,
     VoidCallback? onSettings,
     double textScale = 1,
     Brightness brightness = Brightness.light,
     bool longDrawer = true,
+    bool deferDrawerActions = false,
+    bool closeOnTap = true,
   }) => MaterialApp(
     theme: ThemeData(brightness: brightness),
     localizationsDelegates: S.localizationsDelegates,
@@ -27,6 +30,7 @@ void main() {
       title: '热门',
       searchHint: '搜索热门',
       onSearch: onSearch ?? () {},
+      deferDrawerActions: deferDrawerActions,
       drawerChildren: [
         LibraryDrawerSection(
           title: '来源',
@@ -47,8 +51,15 @@ void main() {
               icon: Icons.history,
               title: '历史',
               selected: true,
+              closeOnTap: closeOnTap,
               onTap: onSelect ?? () {},
             ),
+            if (onAlternate != null)
+              LibraryDrawerTile(
+                icon: Icons.bookmark_outline,
+                title: '收藏',
+                onTap: onAlternate,
+              ),
             for (var i = 0; i < (longDrawer ? 20 : 0); i++)
               LibraryDrawerTile(
                 icon: Icons.folder,
@@ -312,18 +323,130 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('drawer navigation closes before selecting a page', (
-    tester,
-  ) async {
+  testWidgets('drawer selection stays immediate by default', (tester) async {
     var selected = false;
     await tester.pumpWidget(app(onSelect: () => selected = true));
     await tester.tap(find.byKey(const ValueKey('library-menu-button')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('历史'));
-    await tester.pumpAndSettle();
     expect(selected, isTrue);
+    await tester.pumpAndSettle();
     expect(find.text('历史'), findsNothing);
   });
+
+  testWidgets('closeOnTap false still selects immediately without closing', (
+    tester,
+  ) async {
+    var selected = false;
+    await tester.pumpWidget(
+      app(
+        deferDrawerActions: true,
+        closeOnTap: false,
+        onSelect: () => selected = true,
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('历史'));
+
+    expect(selected, isTrue);
+    expect(find.text('历史'), findsOneWidget);
+  });
+
+  testWidgets(
+    'deferred drawer selection is latest-wins without popping its page',
+    (tester) async {
+      final selections = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => Navigator.of(context).push<void>(
+                  MaterialPageRoute<void>(
+                    builder: (_) => LibraryPageScaffold(
+                      title: 'Library page',
+                      searchHint: 'Search',
+                      onSearch: () {},
+                      deferDrawerActions: true,
+                      drawerChildren: [
+                        LibraryDrawerTile(
+                          icon: Icons.history,
+                          title: 'First',
+                          onTap: () => selections.add('first'),
+                        ),
+                        LibraryDrawerTile(
+                          icon: Icons.bookmark_outline,
+                          title: 'Second',
+                          onTap: () => selections.add('second'),
+                        ),
+                      ],
+                      body: const SizedBox.expand(),
+                    ),
+                  ),
+                ),
+                child: const Text('Parent page'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Parent page'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('First'));
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.tap(find.text('Second'));
+      await tester.pumpAndSettle();
+
+      expect(selections, ['second']);
+      expect(find.text('Library page'), findsOneWidget);
+      expect(find.text('Parent page'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'pending drawer action is canceled by reopening, inactivity, or disposal',
+    (tester) async {
+      var selected = 0;
+      await tester.pumpWidget(
+        app(deferDrawerActions: true, onSelect: () => selected++),
+      );
+      await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('历史'));
+      await tester.pump(const Duration(milliseconds: 60));
+      final scaffold = tester.state<ScaffoldState>(
+        find.ancestor(
+          of: find.byKey(const ValueKey('library-menu-button')),
+          matching: find.byType(Scaffold),
+        ),
+      );
+      scaffold.openDrawer();
+      await tester.pumpAndSettle();
+      expect(selected, 0);
+
+      await tester.tap(find.text('历史'));
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.pumpWidget(
+        app(deferDrawerActions: false, onSelect: () => selected++),
+      );
+      await tester.pumpAndSettle();
+      expect(selected, 0);
+
+      await tester.pumpWidget(
+        app(deferDrawerActions: true, onSelect: () => selected++),
+      );
+      await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('历史'));
+      await tester.pump(const Duration(milliseconds: 60));
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      await tester.pumpAndSettle();
+      expect(selected, 0);
+    },
+  );
 
   testWidgets('narrow header supports large text without overflow', (
     tester,

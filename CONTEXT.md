@@ -49,6 +49,17 @@ _Avoid_: Audio account, comic account
 The app page describing one video's information and related recommendations.
 _Avoid_: Video Screen, source website
 
+**Video Player (视频播放器)**:
+The viewing and playback-control surface for a video, including inline and
+full-screen modes, playback gestures, and playback options. Video metadata and
+related recommendations belong to the Video Details Screen.
+_Avoid_: Video Screen, Video Details Screen
+
+**Video Playback Settings (视频播放设置)**:
+Preferences controlling a Video Player's playback and interactions. They are
+separate from the video card fields shown while browsing.
+_Avoid_: Video card settings
+
 **Video Source Favorite (视频源收藏)**:
 A video saved in a Video Source Account's collection, belonging to that account.
 _Avoid_: Local Favorite, comic Source Favorite

@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../utils/system_ui_style.dart';
 import 'settings_section.dart';
 
-class LibraryPageScaffold extends StatelessWidget {
+class LibraryPageScaffold extends StatefulWidget {
   const LibraryPageScaffold({
     super.key,
     required this.title,
@@ -13,6 +13,7 @@ class LibraryPageScaffold extends StatelessWidget {
     required this.onSearch,
     required this.body,
     required this.drawerChildren,
+    this.deferDrawerActions = false,
     this.drawerFooter,
     this.floatingActionButton,
   });
@@ -22,8 +23,48 @@ class LibraryPageScaffold extends StatelessWidget {
   final VoidCallback onSearch;
   final Widget body;
   final List<Widget> drawerChildren;
+  final bool deferDrawerActions;
   final Widget? drawerFooter;
   final Widget? floatingActionButton;
+
+  @override
+  State<LibraryPageScaffold> createState() => _LibraryPageScaffoldState();
+}
+
+class _LibraryPageScaffoldState extends State<LibraryPageScaffold> {
+  final GlobalKey<_LibraryDrawerLifecycleState> _drawerLifecycleKey =
+      GlobalKey<_LibraryDrawerLifecycleState>();
+  VoidCallback? _pendingDrawerAction;
+
+  @override
+  void didUpdateWidget(LibraryPageScaffold oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.deferDrawerActions) _pendingDrawerAction = null;
+  }
+
+  void _onDrawerChanged(bool isOpened) {
+    if (isOpened) _pendingDrawerAction = null;
+  }
+
+  void _deferDrawerAction(BuildContext context, VoidCallback action) {
+    _pendingDrawerAction = action;
+    Scaffold.of(context).closeDrawer();
+  }
+
+  void _onDrawerChildDisposed() {
+    // Material unmounts Drawer.child when the close animation is dismissed.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _drawerLifecycleKey.currentState != null) return;
+      final action = _pendingDrawerAction;
+      _pendingDrawerAction = null;
+      if (action == null ||
+          !widget.deferDrawerActions ||
+          ModalRoute.of(context)?.isCurrent != true) {
+        return;
+      }
+      action();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,25 +73,20 @@ class LibraryPageScaffold extends StatelessWidget {
     return AnnotatedRegion(
       value: transparentSystemBarsForBrightness(theme.brightness),
       child: Scaffold(
+        onDrawerChanged: _onDrawerChanged,
         drawer: Drawer(
           key: const ValueKey('library-drawer'),
           backgroundColor: theme.scaffoldBackgroundColor,
           width: math.min(224, width - 48),
-          child: SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-              children: [
-                ...drawerChildren,
-                if (drawerFooter != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: drawerFooter!,
-                  ),
-              ],
-            ),
-          ),
+          child: widget.deferDrawerActions
+              ? _LibraryDrawerLifecycle(
+                  key: _drawerLifecycleKey,
+                  onDisposed: _onDrawerChildDisposed,
+                  child: _drawerContent(),
+                )
+              : _drawerContent(),
         ),
-        floatingActionButton: floatingActionButton,
+        floatingActionButton: widget.floatingActionButton,
         body: Column(
           children: [
             SafeArea(
@@ -86,7 +122,7 @@ class LibraryPageScaffold extends StatelessWidget {
                               maxWidth: math.min(110, width * .25),
                             ),
                             child: Text(
-                              title,
+                              widget.title,
                               key: const ValueKey('library-page-title'),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -105,7 +141,7 @@ class LibraryPageScaffold extends StatelessWidget {
                           borderRadius: BorderRadius.circular(28),
                           child: InkWell(
                             key: const ValueKey('library-page-search'),
-                            onTap: onSearch,
+                            onTap: widget.onSearch,
                             borderRadius: BorderRadius.circular(28),
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
@@ -118,7 +154,7 @@ class LibraryPageScaffold extends StatelessWidget {
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
-                                      searchHint,
+                                      widget.searchHint,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: theme.textTheme.bodyMedium
@@ -144,7 +180,7 @@ class LibraryPageScaffold extends StatelessWidget {
               child: MediaQuery.removePadding(
                 context: context,
                 removeTop: true,
-                child: body,
+                child: widget.body,
               ),
             ),
           ],
@@ -152,6 +188,46 @@ class LibraryPageScaffold extends StatelessWidget {
       ),
     );
   }
+
+  Widget _drawerContent() => SafeArea(
+    child: ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      children: [
+        ...widget.drawerChildren,
+        if (widget.drawerFooter != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: widget.drawerFooter!,
+          ),
+      ],
+    ),
+  );
+}
+
+class _LibraryDrawerLifecycle extends StatefulWidget {
+  const _LibraryDrawerLifecycle({
+    super.key,
+    required this.onDisposed,
+    required this.child,
+  });
+
+  final VoidCallback onDisposed;
+  final Widget child;
+
+  @override
+  State<_LibraryDrawerLifecycle> createState() =>
+      _LibraryDrawerLifecycleState();
+}
+
+class _LibraryDrawerLifecycleState extends State<_LibraryDrawerLifecycle> {
+  @override
+  void dispose() {
+    widget.onDisposed();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class LibraryDrawerSection extends StatelessWidget {
@@ -236,8 +312,16 @@ class LibraryDrawerTile extends StatelessWidget {
     onTap: onTap == null
         ? null
         : () {
-            if (closeOnTap) Navigator.of(context).pop();
-            onTap!();
+            final scaffold = context
+                .findAncestorStateOfType<_LibraryPageScaffoldState>();
+            if (closeOnTap &&
+                scaffold != null &&
+                scaffold.widget.deferDrawerActions) {
+              scaffold._deferDrawerAction(context, onTap!);
+            } else {
+              if (closeOnTap) Navigator.of(context).pop();
+              onTap!();
+            }
           },
   );
 }

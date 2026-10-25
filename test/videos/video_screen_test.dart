@@ -229,15 +229,69 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('library-menu-button')));
     await tester.pumpAndSettle();
     final pushesAfterOpeningDrawer = observer.pushes;
+    final browsesBeforeSelection = client.browsedUrls.length;
     final l10n = await S.delegate.load(const Locale('en'));
     expect(find.text('Source recent feed'), findsNothing);
     await tester.tap(find.text(l10n.videoRecentlyUpdated));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+
+    expect(find.text(l10n.videoRecentlyUpdated), findsOneWidget);
+    expect(client.browsedUrls, hasLength(browsesBeforeSelection));
     await tester.pumpAndSettle();
 
-    expect(client.browsedUrls, contains(destination));
+    expect(client.browsedUrls, hasLength(browsesBeforeSelection + 1));
+    expect(client.browsedUrls.last, destination);
     expect(find.text('Source recent feed'), findsNothing);
     expect(find.text('Recently updated page'), findsOneWidget);
     expect(observer.pushes, pushesAfterOpeningDrawer);
+  });
+
+  testWidgets('downloads route waits for the drawer to finish closing', (
+    tester,
+  ) async {
+    final client = _TestMissavClient(
+      catalog: const VideoCatalogPage(
+        title: 'Home catalog',
+        url: 'https://missav.ai/cn',
+      ),
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final observer = _PushObserver();
+
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen(), observer: observer),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+    final pushesBeforeSelection = observer.pushes;
+    final l10n = await S.delegate.load(const Locale('en'));
+    final drawer = find.byKey(const ValueKey('library-drawer'));
+    final downloadTile = find.descendant(
+      of: drawer,
+      matching: find.widgetWithText(ListTile, l10n.videoDownloads),
+    );
+    await tester.scrollUntilVisible(
+      downloadTile,
+      240,
+      scrollable: find
+          .descendant(of: drawer, matching: find.byType(Scrollable))
+          .first,
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(downloadTile);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+
+    expect(downloadTile, findsOneWidget);
+    expect(observer.pushes, pushesBeforeSelection);
+    expect(find.byType(VideoDownloadsScreen), findsNothing);
+    await tester.pumpAndSettle();
+    expect(observer.pushes, pushesBeforeSelection + 1);
+    expect(find.byType(VideoDownloadsScreen), findsOneWidget);
   });
 
   testWidgets('video drawer uses the source route allowlist', (tester) async {
