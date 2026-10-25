@@ -725,6 +725,46 @@ void main() {
     }
   });
 
+  testWidgets('download queue shows duration below the title', (tester) async {
+    const video = VideoItem(
+      id: 'download-duration',
+      title: 'Queued video with duration',
+      pageUrl: 'https://missav.ai/en/download-duration',
+      durationSeconds: 3723,
+    );
+    final client = _TestMissavClient();
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(
+      client: client,
+      library: library,
+      tasks: const [
+        VideoDownloadTask(
+          id: 'download-duration',
+          video: video,
+          quality: '720p',
+          isHls: false,
+          status: VideoDownloadStatus.queued,
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoDownloadsScreen()),
+    );
+    await tester.pumpAndSettle();
+
+    final title = tester.getRect(find.text(video.title));
+    final duration = tester.getRect(
+      find.byKey(const ValueKey('video-duration-download-duration')),
+    );
+    final cover = tester.getRect(
+      find.byKey(const ValueKey('video-cover-download-duration')),
+    );
+    expect(find.text('01:02:03'), findsOneWidget);
+    expect(duration.top, greaterThan(title.bottom));
+    expect(cover.contains(duration.center), isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'downloads list paginates, clamps after delete, and search pages',
     (tester) async {

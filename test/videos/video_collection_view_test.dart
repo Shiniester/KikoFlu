@@ -4,7 +4,9 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart';
@@ -67,9 +69,19 @@ VideoItem _richVideo() => VideoItem(
 );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets(
     'cover badges occupy their requested corners and metadata opens its catalog',
     (tester) async {
+      tester.view.physicalSize = const Size(400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
       var openedVideo = false;
       VideoLink? openedLink;
       await tester.pumpWidget(
@@ -96,13 +108,30 @@ void main() {
       final duration = tester.getRect(
         find.byKey(const ValueKey('video-duration-sample')),
       );
+      final title = tester.getRect(find.text(_video.title));
+      final titleText = tester.widget<Text>(find.text(_video.title));
+      expect(titleText.style?.fontSize, 12);
+      expect(titleText.style?.height, 1.1);
       final release = tester.getRect(
         find.byKey(const ValueKey('video-release-sample')),
       );
-      expect(duration.center.dx, greaterThan(cover.center.dx));
-      expect(duration.center.dy, lessThan(cover.center.dy));
+      expect(duration.top, greaterThan(title.bottom));
+      expect(duration.top, greaterThan(cover.bottom));
+      expect(cover.contains(duration.center), isFalse);
+      final durationText = tester.widget<Text>(find.text('01:02:03'));
+      expect(durationText.style?.fontSize, 10);
+      expect(durationText.style?.color, Colors.blue[700]);
+      expect(durationText.style?.fontWeight, FontWeight.w500);
       expect(release.center.dx, greaterThan(cover.center.dx));
       expect(release.center.dy, greaterThan(cover.center.dy));
+      final releaseText = tester.widget<Text>(
+        find.descendant(
+          of: find.byKey(const ValueKey('video-release-sample')),
+          matching: find.byType(Text),
+        ),
+      );
+      expect(releaseText.style?.fontSize, 10);
+      expect(releaseText.style?.fontWeight, FontWeight.bold);
       for (final icon in [Icons.closed_caption, Icons.no_encryption_outlined]) {
         final bounds = tester.getRect(find.byIcon(icon));
         expect(bounds.center.dx, lessThan(cover.center.dx));
@@ -112,6 +141,30 @@ void main() {
         tester.getRect(find.text('Sample actor')).top,
         greaterThan(cover.bottom),
       );
+      final colors = Theme.of(
+        tester.element(find.text('Sample actor')),
+      ).colorScheme;
+      final actorChipColors = tester
+          .widgetList<Material>(
+            find.ancestor(
+              of: find.text('Sample actor'),
+              matching: find.byType(Material),
+            ),
+          )
+          .map((material) => material.color)
+          .toSet();
+      final tagChipColors = tester
+          .widgetList<Material>(
+            find.ancestor(
+              of: find.text('Drama'),
+              matching: find.byType(Material),
+            ),
+          )
+          .map((material) => material.color)
+          .toSet();
+      expect(actorChipColors, contains(colors.tertiaryContainer));
+      expect(tagChipColors, contains(colors.primaryContainer));
+      expect(tester.widget<Text>(find.text('Drama')).style?.fontSize, 10);
       await tester.tap(find.text('Drama'));
       expect(openedLink?.url, _video.tags.first.url);
       expect(openedVideo, isFalse);
@@ -153,7 +206,12 @@ void main() {
   testWidgets(
     'dense metadata stays compact and exposes the remaining entries',
     (tester) async {
+      tester.view.physicalSize = const Size(400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
       var opened = false;
+      VideoLink? openedLink;
       final video = _richVideo();
       await tester.pumpWidget(
         _app(
@@ -164,6 +222,7 @@ void main() {
                 video: video,
                 layoutType: LayoutType.smallGrid,
                 onTap: () => opened = true,
+                onOpenLink: (link) => openedLink = link,
               ),
             ),
           ),
@@ -172,11 +231,13 @@ void main() {
       expect(find.text('Actress A'), findsOneWidget);
       expect(find.text('Actress C'), findsNothing);
       expect(find.text('Tag 3'), findsOneWidget);
-      expect(find.text('Tag 4'), findsNothing);
+      expect(find.text('Tag 4'), findsOneWidget);
+      expect(find.text('Tag 8'), findsOneWidget);
       expect(find.text('+2'), findsOneWidget);
-      expect(find.text('+5'), findsOneWidget);
-      expect(find.byTooltip('Tag 4、Tag 5、Tag 6、Tag 7、Tag 8'), findsOneWidget);
-      await tester.tap(find.text('+5'));
+      expect(find.text('+5'), findsNothing);
+      await tester.tap(find.text('Tag 8'));
+      expect(openedLink?.url, video.cardTags.last.url);
+      await tester.tap(find.text('+2'));
       expect(opened, isTrue);
       expect(video.tags, hasLength(8));
       expect(tester.takeException(), isNull);
@@ -197,8 +258,23 @@ void main() {
       );
       final cover = tester.getRect(find.byType(VideoCover));
       final actress = tester.getRect(find.text('Sample actor'));
+      final title = tester.widget<Text>(find.text(_video.title));
+      expect(title.style?.fontSize, 14);
+      expect(title.style?.height, 1.3);
       expect(actress.left, greaterThan(cover.right));
-      expect(actress.top, lessThan(cover.bottom));
+      expect(
+        actress.top,
+        greaterThan(
+          tester
+              .getRect(find.byKey(const ValueKey('video-duration-sample')))
+              .bottom,
+        ),
+      );
+      expect(
+        tester.widget<Text>(find.text('Sample actor')).style?.fontSize,
+        11,
+      );
+      expect(tester.widget<Text>(find.text('Drama')).style?.fontSize, 11);
       expect(tester.takeException(), isNull);
     },
   );
@@ -316,17 +392,19 @@ void main() {
   });
 }
 
-Widget _app(Widget child, {double textScale = 1}) => MaterialApp(
-  debugShowCheckedModeBanner: false,
-  locale: const Locale('en'),
-  supportedLocales: S.supportedLocales,
-  localizationsDelegates: S.localizationsDelegates,
-  theme: ThemeData(useMaterial3: true, fontFamily: 'Roboto'),
-  builder: (context, child) => MediaQuery(
-    data: MediaQuery.of(
-      context,
-    ).copyWith(textScaler: TextScaler.linear(textScale)),
-    child: child!,
+Widget _app(Widget child, {double textScale = 1}) => ProviderScope(
+  child: MaterialApp(
+    debugShowCheckedModeBanner: false,
+    locale: const Locale('en'),
+    supportedLocales: S.supportedLocales,
+    localizationsDelegates: S.localizationsDelegates,
+    theme: ThemeData(useMaterial3: true, fontFamily: 'Roboto'),
+    builder: (context, child) => MediaQuery(
+      data: MediaQuery.of(
+        context,
+      ).copyWith(textScaler: TextScaler.linear(textScale)),
+      child: child!,
+    ),
+    home: Scaffold(body: child),
   ),
-  home: Scaffold(body: child),
 );

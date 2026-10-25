@@ -4259,6 +4259,18 @@ class SZh extends S {
   String get navVideos => '视频';
 
   @override
+  String get videoSettings => '视频设置';
+
+  @override
+  String get videoCardMakers => '发行商';
+
+  @override
+  String get videoCardLabels => '厂牌';
+
+  @override
+  String get videoCardDirectors => '导演';
+
+  @override
   String get videoSearchHint => '搜索视频';
 
   @override
@@ -8675,6 +8687,18 @@ class SZhHant extends SZh {
 
   @override
   String get navVideos => '影片';
+
+  @override
+  String get videoSettings => '影片設定';
+
+  @override
+  String get videoCardMakers => '發行商';
+
+  @override
+  String get videoCardLabels => '廠牌';
+
+  @override
+  String get videoCardDirectors => '導演';
 
   @override
   String get videoSearchHint => '搜尋影片';

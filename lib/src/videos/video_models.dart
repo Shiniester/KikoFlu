@@ -22,6 +22,10 @@ class VideoItem {
     this.releaseDate,
     this.actors = const [],
     this.tags = const [],
+    this.makers = const [],
+    this.labels = const [],
+    this.series = const [],
+    this.directors = const [],
     this.hasSubtitles = false,
     this.isUncensored = false,
   });
@@ -34,8 +38,32 @@ class VideoItem {
   final String? releaseDate;
   final List<VideoLink> actors;
   final List<VideoLink> tags;
+  final List<String> makers;
+  final List<String> labels;
+  final List<String> series;
+  final List<String> directors;
   final bool hasSubtitles;
   final bool isUncensored;
+
+  List<VideoLink> get cardTags =>
+      tags.where((tag) => tag.cardMetadataRoute == null).toList();
+
+  List<String> get cardMakers => _cardNames(makers, 'makers');
+  List<String> get cardLabels => _cardNames(labels, 'labels');
+  List<String> get cardSeries => _cardNames(series, 'series');
+  List<String> get cardDirectors => _cardNames(directors, 'directors');
+
+  // Older downloads store these directories together with genre tags.
+  List<String> _cardNames(List<String> values, String route) =>
+      [
+            ...values,
+            for (final tag in tags)
+              if (tag.cardMetadataRoute == route) tag.label,
+          ]
+          .map((name) => name.trim())
+          .where((name) => name.isNotEmpty)
+          .toSet()
+          .toList();
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -46,6 +74,10 @@ class VideoItem {
     'releaseDate': releaseDate,
     'actors': actors.map((actor) => actor.toJson()).toList(),
     'tags': tags.map((tag) => tag.toJson()).toList(),
+    'makers': makers,
+    'labels': labels,
+    'series': series,
+    'directors': directors,
     'hasSubtitles': hasSubtitles,
     'isUncensored': isUncensored,
   };
@@ -65,6 +97,12 @@ class VideoItem {
         .toList(),
     tags: (json['tags'] as List? ?? const [])
         .map((tag) => VideoLink.fromJson(Map<String, dynamic>.from(tag as Map)))
+        .toList(),
+    makers: (json['makers'] as List? ?? const []).whereType<String>().toList(),
+    labels: (json['labels'] as List? ?? const []).whereType<String>().toList(),
+    series: (json['series'] as List? ?? const []).whereType<String>().toList(),
+    directors: (json['directors'] as List? ?? const [])
+        .whereType<String>()
         .toList(),
     hasSubtitles: json['hasSubtitles'] as bool? ?? false,
     isUncensored: json['isUncensored'] as bool? ?? false,
@@ -87,6 +125,21 @@ class VideoLink {
   final VideoLinkKind kind;
   final String? sourceKey;
   final bool? isAdded;
+
+  String? get cardMetadataRoute {
+    final segments = Uri.tryParse(url)?.pathSegments ?? const <String>[];
+    for (var index = 0; index + 1 < segments.length; index++) {
+      final route = switch (segments[index].toLowerCase()) {
+        'maker' || 'makers' || 'studio' || 'studios' => 'makers',
+        'label' || 'labels' => 'labels',
+        'series' => 'series',
+        'director' || 'directors' => 'directors',
+        _ => null,
+      };
+      if (route != null) return route;
+    }
+    return null;
+  }
 
   Map<String, dynamic> toJson() => {
     'label': label,

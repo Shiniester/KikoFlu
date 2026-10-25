@@ -7834,6 +7834,30 @@ abstract class S {
   /// **'Videos'**
   String get navVideos;
 
+  /// No description provided for @videoSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Video settings'**
+  String get videoSettings;
+
+  /// No description provided for @videoCardMakers.
+  ///
+  /// In en, this message translates to:
+  /// **'Studio'**
+  String get videoCardMakers;
+
+  /// No description provided for @videoCardLabels.
+  ///
+  /// In en, this message translates to:
+  /// **'Label'**
+  String get videoCardLabels;
+
+  /// No description provided for @videoCardDirectors.
+  ///
+  /// In en, this message translates to:
+  /// **'Directors'**
+  String get videoCardDirectors;
+
   /// No description provided for @videoSearchHint.
   ///
   /// In en, this message translates to:

@@ -4281,6 +4281,18 @@ class SJa extends S {
   String get navVideos => '動画';
 
   @override
+  String get videoSettings => '動画設定';
+
+  @override
+  String get videoCardMakers => 'メーカー';
+
+  @override
+  String get videoCardLabels => 'レーベル';
+
+  @override
+  String get videoCardDirectors => '監督';
+
+  @override
   String get videoSearchHint => '動画を検索';
 
   @override

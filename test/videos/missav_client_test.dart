@@ -218,6 +218,10 @@ void main() {
         ],
         hasSubtitles: true,
         isUncensored: true,
+        makers: ['Studio A'],
+        labels: ['Label A'],
+        series: ['Series A'],
+        directors: ['Director A'],
       );
 
       expect(VideoItem.fromJson(item.toJson()).toJson(), item.toJson());
@@ -240,9 +244,55 @@ void main() {
       expect(restored.releaseDate, isNull);
       expect(restored.actors, isEmpty);
       expect(restored.tags, isEmpty);
+      expect(restored.makers, isEmpty);
+      expect(restored.labels, isEmpty);
+      expect(restored.series, isEmpty);
+      expect(restored.directors, isEmpty);
       expect(restored.hasSubtitles, isFalse);
       expect(restored.isUncensored, isFalse);
     });
+
+    test(
+      'separates optional directories in legacy tags without losing links',
+      () {
+        final item = VideoItem.fromJson({
+          'id': 'legacy',
+          'title': 'Legacy video',
+          'pageUrl': 'https://missav.ai/cn/legacy',
+          'makers': ['Studio A'],
+          'tags': [
+            for (final (route, label) in [
+              ('genres/drama', 'Drama'),
+              ('genres/labels', 'Labels genre'),
+              ('dm691/cn/makers/studio-a', 'Studio A'),
+              ('cn/studios/studio-b', 'Studio B'),
+              ('labels/label-a', 'Label A'),
+              ('series/series-a', 'Series A'),
+              ('directors/director-a', 'Director A'),
+            ])
+              VideoLink(
+                label: label,
+                url: 'https://missav.ai/$route',
+                kind: VideoLinkKind.category,
+              ).toJson(),
+          ],
+        });
+
+        expect(item.cardTags.map((tag) => tag.label), [
+          'Drama',
+          'Labels genre',
+        ]);
+        expect(item.cardMakers, ['Studio A', 'Studio B']);
+        expect(item.cardLabels, ['Label A']);
+        expect(item.cardSeries, ['Series A']);
+        expect(item.cardDirectors, ['Director A']);
+        expect(item.tags, hasLength(7));
+        expect(
+          item.toJson()['tags'][2]['url'],
+          'https://missav.ai/dm691/cn/makers/studio-a',
+        );
+      },
+    );
   });
 
   test('unknown video link kinds remain readable as other', () {
@@ -336,6 +386,10 @@ void main() {
                 'duration': 3723,
                 'released_at': 1709337600,
                 'has_chinese_subtitle': true,
+                'markers': ['Studio A', ' Studio A ', null, 12],
+                'labels': ['Label A'],
+                'series': ['Series A'],
+                'directors': ['Director A'],
               },
             },
             {
@@ -375,6 +429,10 @@ void main() {
       expect(page.videos.first.durationSeconds, 3723);
       expect(page.videos.first.releaseDate, '2024-03-02');
       expect(page.videos.first.hasSubtitles, isTrue);
+      expect(page.videos.first.makers, ['Studio A']);
+      expect(page.videos.first.labels, ['Label A']);
+      expect(page.videos.first.series, ['Series A']);
+      expect(page.videos.first.directors, ['Director A']);
       expect(page.videos[1].actors, isEmpty);
       expect(page.videos[1].isUncensored, isTrue);
       expect(page.videos.last.actors, isEmpty);
@@ -513,6 +571,7 @@ void main() {
               'values': {
                 'actresses': ['Sample actor'],
                 'genres': ['Sample genre', 'API tag'],
+                'markers': ['API studio'],
               },
             },
             {
@@ -520,6 +579,7 @@ void main() {
               'values': {
                 'actresses': ['Related actress'],
                 'genres': ['Related tag'],
+                'markers': ['Related studio'],
               },
             },
           ],
@@ -541,6 +601,7 @@ void main() {
           id: 'open-sample-001',
           title: 'Main',
           pageUrl: 'https://missav.ai/cn/open-sample-001',
+          series: ['Cached series'],
         ),
       );
       expect(details.video.actors.single.label, 'Sample actor');
@@ -559,6 +620,11 @@ void main() {
       expect(details.video.tags.any((tag) => tag.label == 'API tag'), isTrue);
       expect(details.related.single.actors.single.label, 'Related actress');
       expect(details.related.single.tags.single.label, 'Related tag');
+      expect(details.video.cardMakers, ['API studio', 'Sample maker']);
+      expect(details.video.cardLabels, ['Sample label']);
+      expect(details.video.cardDirectors, ['Sample director']);
+      expect(details.video.series, ['Cached series']);
+      expect(details.related.single.makers, ['Related studio']);
       expect(metadata.requests, hasLength(1));
     },
   );
@@ -586,7 +652,11 @@ void main() {
         expect(video.tags, isNotEmpty, reason: video.id);
         expect(video.durationSeconds, greaterThan(0));
         expect(video.releaseDate, matches(RegExp(r'^\d{4}-\d{2}-\d{2}$')));
+        expect(video.makers, isNotEmpty, reason: video.id);
+        expect(video.labels, isNotEmpty, reason: video.id);
+        expect(video.directors, isNotEmpty, reason: video.id);
       }
+      expect(page.videos[1].series, isNotEmpty);
       expect(source.requests, hasLength(1));
     },
     skip: !const bool.fromEnvironment('KIKOFLU_LIVE_MISSAV_METADATA'),

@@ -4402,6 +4402,18 @@ class SEn extends S {
   String get navVideos => 'Videos';
 
   @override
+  String get videoSettings => 'Video settings';
+
+  @override
+  String get videoCardMakers => 'Studio';
+
+  @override
+  String get videoCardLabels => 'Label';
+
+  @override
+  String get videoCardDirectors => 'Directors';
+
+  @override
   String get videoSearchHint => 'Search videos';
 
   @override

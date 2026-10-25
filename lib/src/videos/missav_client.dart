@@ -319,24 +319,30 @@ class MissavClient extends ChangeNotifier {
       return videos.map((video) {
         final values = valuesById[video.id.toLowerCase()];
         if (values == null) return video;
-        List<VideoLink> links(String field, String route, VideoLinkKind kind) {
-          final names = values[field];
-          if (names is! List) return [];
-          return names
+        List<String> names(String field) {
+          final value = values[field];
+          if (value is! List) return [];
+          return value
               .whereType<String>()
               .map((name) => name.trim())
               .where((name) => name.isNotEmpty)
               .toSet()
-              .map(
-                (name) => VideoLink(
-                  label: name,
-                  url:
-                      '$origin$localePrefix/$route/${Uri.encodeComponent(name)}',
-                  kind: kind,
-                ),
-              )
               .toList();
         }
+
+        List<VideoLink> links(
+          String field,
+          String route,
+          VideoLinkKind kind,
+        ) => names(field)
+            .map(
+              (name) => VideoLink(
+                label: name,
+                url: '$origin$localePrefix/$route/${Uri.encodeComponent(name)}',
+                kind: kind,
+              ),
+            )
+            .toList();
 
         final actors = <String, VideoLink>{
           for (final actor in links(
@@ -370,6 +376,10 @@ class MissavClient extends ChangeNotifier {
               : video.releaseDate,
           actors: actors.values.toList(),
           tags: tags.values.toList(),
+          makers: {...video.makers, ...names('markers')}.toList(),
+          labels: {...video.labels, ...names('labels')}.toList(),
+          series: {...video.series, ...names('series')}.toList(),
+          directors: {...video.directors, ...names('directors')}.toList(),
           hasSubtitles:
               video.hasSubtitles ||
               values['has_chinese_subtitle'] == true ||
@@ -568,6 +578,10 @@ class MissavClient extends ChangeNotifier {
           item.releaseDate,
       actors: actors.isEmpty ? item.actors : actors,
       tags: tags.isEmpty ? item.tags : tags,
+      makers: item.makers,
+      labels: item.labels,
+      series: item.series,
+      directors: item.directors,
       hasSubtitles: item.hasSubtitles || _hasSubtitleLabel(labels),
       isUncensored: item.isUncensored || _hasUncensoredLabel(labels),
     );
