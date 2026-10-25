@@ -1933,5 +1933,69 @@
   "audioSlicePreviewFailed": "Could not preview the slice. Try again.",
   "@audioSlicePreviewFailed": {
     "description": "Audio player slice control: audioSlicePreviewFailed"
+  },
+  "audioSliceEarlier": "−{seconds} s",
+  "@audioSliceEarlier": {
+    "description": "Label for moving the edited slice endpoint earlier by a positive number of seconds.",
+    "placeholders": {
+      "seconds": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "0.2"
+      }
+    }
+  },
+  "audioSliceLater": "+{seconds} s",
+  "@audioSliceLater": {
+    "description": "Label for moving the edited slice endpoint later by a positive number of seconds.",
+    "placeholders": {
+      "seconds": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "0.2"
+      }
+    }
+  },
+  "audioSliceSetCurrent": "Set current",
+  "@audioSliceSetCurrent": {
+    "description": "Shortcut that sets the edited endpoint to the live playhead position."
+  },
+  "audioSliceSetZero": "Set to 0",
+  "@audioSliceSetZero": {
+    "description": "Shortcut that sets the edited endpoint to the beginning of this track or chapter."
+  },
+  "audioSliceSetEnd": "Set to end",
+  "@audioSliceSetEnd": {
+    "description": "Shortcut that sets the edited endpoint to the track duration."
+  },
+  "audioSliceTimeline": "Slice timeline",
+  "audioSlicePosition": "Position",
+  "@audioSlicePosition": {
+    "description": "Label for the playhead time on the slice timeline, including gaps outside saved slices."
+  },
+  "@audioSliceTimeline": {
+    "description": "Accessible name for the management timeline containing all saved slices."
+  },
+  "audioSliceCurrent": "Current slice",
+  "@audioSliceCurrent": {
+    "description": "State label for the slice containing the playhead, including paused playback."
+  },
+  "audioSliceSelected": "Selected slice",
+  "@audioSliceSelected": {
+    "description": "State label for the slice explicitly chosen during this manager visit."
+  },
+  "audioSliceEndpointAction": "{endpoint}: {action}",
+  "@audioSliceEndpointAction": {
+    "description": "Endpoint-aware tooltip for a time adjustment shortcut.",
+    "placeholders": {
+      "endpoint": {
+        "type": "String",
+        "example": "Start time"
+      },
+      "action": {
+        "type": "String",
+        "example": "+0.2 s"
+      }
+    }
   }
 }

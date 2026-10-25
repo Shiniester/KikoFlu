@@ -1495,5 +1495,15 @@
   "audioSliceDeleteFailed": "スライスを削除できませんでした。もう一度お試しください。",
   "clearAudioSlices": "スライスを消去",
   "clearAudioSlicesConfirm": "このトラックのスライスをすべて消去しますか？",
-  "audioSlicePreviewFailed": "スライスを試聴できませんでした。もう一度お試しください。"
+  "audioSlicePreviewFailed": "スライスを試聴できませんでした。もう一度お試しください。",
+  "audioSliceEarlier": "−{seconds} 秒",
+  "audioSliceLater": "+{seconds} 秒",
+  "audioSliceSetCurrent": "現在位置に設定",
+  "audioSliceSetZero": "0 に設定",
+  "audioSliceSetEnd": "末尾に設定",
+  "audioSliceTimeline": "スライスタイムライン",
+  "audioSlicePosition": "再生位置",
+  "audioSliceCurrent": "現在のスライス",
+  "audioSliceSelected": "選択中のスライス",
+  "audioSliceEndpointAction": "{endpoint}：{action}"
 }

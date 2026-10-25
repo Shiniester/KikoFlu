@@ -4332,4 +4332,48 @@ class SJa extends S {
 
   @override
   String get audioSlicePreviewFailed => 'スライスを試聴できませんでした。もう一度お試しください。';
+
+  @override
+  String audioSliceEarlier(double seconds) {
+    final intl.NumberFormat secondsNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String secondsString = secondsNumberFormat.format(seconds);
+
+    return '−$secondsString 秒';
+  }
+
+  @override
+  String audioSliceLater(double seconds) {
+    final intl.NumberFormat secondsNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String secondsString = secondsNumberFormat.format(seconds);
+
+    return '+$secondsString 秒';
+  }
+
+  @override
+  String get audioSliceSetCurrent => '現在位置に設定';
+
+  @override
+  String get audioSliceSetZero => '0 に設定';
+
+  @override
+  String get audioSliceSetEnd => '末尾に設定';
+
+  @override
+  String get audioSliceTimeline => 'スライスタイムライン';
+
+  @override
+  String get audioSlicePosition => '再生位置';
+
+  @override
+  String get audioSliceCurrent => '現在のスライス';
+
+  @override
+  String get audioSliceSelected => '選択中のスライス';
+
+  @override
+  String audioSliceEndpointAction(String endpoint, String action) {
+    return '$endpoint：$action';
+  }
 }

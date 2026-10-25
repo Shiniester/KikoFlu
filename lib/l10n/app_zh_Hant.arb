@@ -1495,5 +1495,15 @@
   "audioSliceDeleteFailed": "刪除切片失敗，請重試。",
   "clearAudioSlices": "清空切片",
   "clearAudioSlicesConfirm": "清空目前音軌的全部切片？",
-  "audioSlicePreviewFailed": "試聽切片失敗，請重試。"
+  "audioSlicePreviewFailed": "試聽切片失敗，請重試。",
+  "audioSliceEarlier": "−{seconds} 秒",
+  "audioSliceLater": "+{seconds} 秒",
+  "audioSliceSetCurrent": "設為目前",
+  "audioSliceSetZero": "設為 0",
+  "audioSliceSetEnd": "設為結尾",
+  "audioSliceTimeline": "切片時間軸",
+  "audioSlicePosition": "播放位置",
+  "audioSliceCurrent": "目前切片",
+  "audioSliceSelected": "選取的切片",
+  "audioSliceEndpointAction": "{endpoint}：{action}"
 }

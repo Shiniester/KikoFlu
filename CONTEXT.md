@@ -272,6 +272,14 @@ cached, and downloaded playback of that same track. Each Work Audio Chapter has
 independent slices on its own timeline starting at zero.
 _Avoid_: Point marker, exported audio clip, Work Audio Chapter
 
+**Current Audio Slice (当前切片)**:
+The saved Audio Slice containing the current playback position, including while
+playback is paused. It is independent of the Selected Audio Slice and Slice Preview.
+
+**Selected Audio Slice (选中切片)**:
+The Audio Slice explicitly chosen for inspection or editing during the current
+slice manager visit. Selection ends when the manager closes or the track changes.
+
 **Slice Preview (切片试听)**:
 Playback of one selected Audio Slice once, followed by a pause at its end.
 _Avoid_: Single-track repeat, Only Slices Mode

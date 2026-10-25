@@ -7929,6 +7929,66 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Could not preview the slice. Try again.'**
   String get audioSlicePreviewFailed;
+
+  /// Label for moving the edited slice endpoint earlier by a positive number of seconds.
+  ///
+  /// In en, this message translates to:
+  /// **'−{seconds} s'**
+  String audioSliceEarlier(double seconds);
+
+  /// Label for moving the edited slice endpoint later by a positive number of seconds.
+  ///
+  /// In en, this message translates to:
+  /// **'+{seconds} s'**
+  String audioSliceLater(double seconds);
+
+  /// Shortcut that sets the edited endpoint to the live playhead position.
+  ///
+  /// In en, this message translates to:
+  /// **'Set current'**
+  String get audioSliceSetCurrent;
+
+  /// Shortcut that sets the edited endpoint to the beginning of this track or chapter.
+  ///
+  /// In en, this message translates to:
+  /// **'Set to 0'**
+  String get audioSliceSetZero;
+
+  /// Shortcut that sets the edited endpoint to the track duration.
+  ///
+  /// In en, this message translates to:
+  /// **'Set to end'**
+  String get audioSliceSetEnd;
+
+  /// Accessible name for the management timeline containing all saved slices.
+  ///
+  /// In en, this message translates to:
+  /// **'Slice timeline'**
+  String get audioSliceTimeline;
+
+  /// Label for the playhead time on the slice timeline, including gaps outside saved slices.
+  ///
+  /// In en, this message translates to:
+  /// **'Position'**
+  String get audioSlicePosition;
+
+  /// State label for the slice containing the playhead, including paused playback.
+  ///
+  /// In en, this message translates to:
+  /// **'Current slice'**
+  String get audioSliceCurrent;
+
+  /// State label for the slice explicitly chosen during this manager visit.
+  ///
+  /// In en, this message translates to:
+  /// **'Selected slice'**
+  String get audioSliceSelected;
+
+  /// Endpoint-aware tooltip for a time adjustment shortcut.
+  ///
+  /// In en, this message translates to:
+  /// **'{endpoint}: {action}'**
+  String audioSliceEndpointAction(String endpoint, String action);
 }
 
 class _SDelegate extends LocalizationsDelegate<S> {

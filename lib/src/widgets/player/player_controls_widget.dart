@@ -6,6 +6,7 @@ import 'package:just_audio/just_audio.dart';
 
 import '../../models/audio_slice.dart';
 import '../../providers/audio_provider.dart';
+import '../../providers/audio_slice_presentation_provider.dart';
 import '../../providers/floating_lyric_provider.dart';
 import '../../providers/lyric_provider.dart';
 import '../../providers/player_buttons_provider.dart';
@@ -850,6 +851,8 @@ class PlayerProgressSection extends ConsumerWidget {
     final slices =
         ref.watch(audioSliceStateProvider).valueOrNull ??
         const AudioSliceState();
+    final activeSlice = ref.watch(activeAudioSliceProvider);
+    final selectedSlice = ref.watch(selectedAudioSliceProvider);
     final seekingPositionListenable = this.seekingPositionListenable;
     if (seekingPositionListenable != null) {
       return ValueListenableBuilder<PlayerSeekPreview?>(
@@ -858,6 +861,8 @@ class PlayerProgressSection extends ConsumerWidget {
           context,
           ref,
           slices: slices,
+          activeSlice: activeSlice,
+          selectedSlice: selectedSlice,
           pos: pos,
           dur: dur,
           isTrackLoading: isTrackLoading,
@@ -874,6 +879,8 @@ class PlayerProgressSection extends ConsumerWidget {
       context,
       ref,
       slices: slices,
+      activeSlice: activeSlice,
+      selectedSlice: selectedSlice,
       pos: pos,
       dur: dur,
       isTrackLoading: isTrackLoading,
@@ -887,6 +894,8 @@ class PlayerProgressSection extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref, {
     required AudioSliceState slices,
+    required AudioSlice? activeSlice,
+    required AudioSlice? selectedSlice,
     required Duration pos,
     required Duration dur,
     required bool isTrackLoading,
@@ -913,12 +922,16 @@ class PlayerProgressSection extends ConsumerWidget {
                     dur.inMilliseconds;
                 AudioSlice? selected;
                 for (final slice in slices.slices) {
-                  if (time >= slice.startMs && time <= slice.endMs) {
+                  if (time >= slice.startMs && time < slice.endMs) {
                     selected = slice;
                     break;
                   }
                 }
-                showPlayerSliceManager(context, initialSlice: selected);
+                showPlayerSliceManager(
+                  context,
+                  initialSlice: selected,
+                  trackKey: slices.trackKey,
+                );
               },
               child: Listener(
                 key: const ValueKey('player-progress-gesture-target'),
@@ -944,6 +957,11 @@ class PlayerProgressSection extends ConsumerWidget {
                         duration: dur,
                         pendingStartMs: slices.pendingStartMs,
                         sliceColor: Theme.of(context).colorScheme.tertiary,
+                        activeSlice: activeSlice,
+                        selectedSlice: selectedSlice,
+                        selectedSliceColor: Theme.of(
+                          context,
+                        ).colorScheme.secondary,
                       ),
                       thumbShape: const RoundSliderThumbShape(
                         enabledThumbRadius: 4,

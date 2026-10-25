@@ -5,6 +5,7 @@ import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/audio_slice.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
+import 'package:kikoeru_flutter/src/providers/audio_slice_presentation_provider.dart';
 import 'package:kikoeru_flutter/src/providers/artwork_theme_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_cache_downloader.dart';
@@ -96,6 +97,425 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('manager timeline seeks gaps and links slice selection to rows', (
+    tester,
+  ) async {
+    await tester.runAsync(createService);
+    final trackKey = service.sliceState.trackKey!;
+    final slices = [
+      for (var index = 0; index < 12; index++)
+        AudioSlice(
+          startMs: 10000 + index * 20000,
+          endMs: 20000 + index * 20000,
+        ),
+    ];
+    await tester.runAsync(() async {
+      for (final slice in slices) {
+        await service.saveSlice(trackKey: trackKey, slice: slice);
+      }
+    });
+    await _pumpControls(tester, service, const Size(390, 844));
+    await tester.tap(find.byKey(const ValueKey('player-slice-manager-button')));
+    await tester.pumpAndSettle();
+
+    final timeline = find.byKey(
+      const ValueKey('audio-slice-manager-timeline-slider'),
+    );
+    final container = ProviderScope.containerOf(
+      tester.element(timeline),
+      listen: false,
+    );
+    final firstRow = find.byKey(const ValueKey('audio-slice-10000-20000'));
+    await tester.fling(
+      find.byType(SingleChildScrollView).first,
+      const Offset(0, -1600),
+      3000,
+    );
+    await tester.pumpAndSettle();
+    expect(firstRow.hitTestable(), findsNothing);
+
+    await tester.runAsync(
+      () => tester.tapAt(_timelinePosition(tester, timeline, 15000 / 300000)),
+    );
+    await tester.runAsync(
+      () => until(() => player.position == const Duration(seconds: 15)),
+    );
+    await tester.pumpAndSettle();
+    expect(container.read(audioSliceSelectionProvider)?.slice, slices.first);
+    expect(firstRow.hitTestable(), findsOneWidget);
+
+    await tester.runAsync(
+      () => tester.tapAt(_timelinePosition(tester, timeline, 25000 / 300000)),
+    );
+    await tester.runAsync(
+      () => until(() => player.position == const Duration(seconds: 25)),
+    );
+    player.positions.add(player.position);
+    await tester.pumpAndSettle();
+    expect(container.read(audioSliceSelectionProvider), isNull);
+    expect(find.text('Position'), findsOneWidget);
+    expect(find.text('Current slice'), findsNothing);
+
+    final secondRow = find.byKey(const ValueKey('audio-slice-30000-40000'));
+    await tester.pump();
+    final drag = await tester.startGesture(
+      _timelinePosition(tester, timeline, 5000 / 300000),
+    );
+    await drag.moveTo(_timelinePosition(tester, timeline, 35000 / 300000));
+    await tester.pump();
+    await tester.runAsync(drag.up);
+    await tester.runAsync(
+      () => until(() => player.position == const Duration(seconds: 35)),
+    );
+    await tester.pumpAndSettle();
+    expect(container.read(audioSliceSelectionProvider)?.slice, slices[1]);
+
+    await tester.ensureVisible(secondRow);
+    await tester.runAsync(() => tester.tap(secondRow));
+    await tester.runAsync(
+      () => until(() => player.position == const Duration(seconds: 30)),
+    );
+    expect(container.read(audioSliceSelectionProvider)?.slice, slices[1]);
+
+    player.position = const Duration(seconds: 15);
+    player.positions.add(player.position);
+    await tester.pump();
+    final progress = find.byKey(const ValueKey('player-progress-slider'));
+    final progressTheme = tester.widget<SliderTheme>(
+      find.ancestor(of: progress, matching: find.byType(SliderTheme)).first,
+    );
+    final progressShape =
+        progressTheme.data.trackShape! as PlayerUniformSliderTrackShape;
+    expect(progressShape.activeSlice, slices.first);
+    expect(progressShape.selectedSlice, slices[1]);
+    expect(player.playing, isFalse);
+    expect(tester.widget<ListTile>(firstRow).selected, isFalse);
+    expect(tester.widget<ListTile>(secondRow).selected, isTrue);
+    expect(
+      find.descendant(of: firstRow, matching: find.text('Current slice')),
+      findsOneWidget,
+    );
+    await tester.runAsync(service.play);
+    await tester.pumpAndSettle();
+    expect(progressShape.activeSlice, slices.first);
+    await tester.runAsync(service.pause);
+    await tester.pumpAndSettle();
+    expect(progressShape.activeSlice, slices.first);
+
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pumpAndSettle();
+    expect(container.read(audioSliceSelectionProvider), isNull);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'manager selection does not return after switching away and back',
+    (tester) async {
+      await tester.runAsync(createService);
+      final trackKey = service.sliceState.trackKey!;
+      const slice = AudioSlice(startMs: 10000, endMs: 20000);
+      await tester.runAsync(
+        () => service.saveSlice(trackKey: trackKey, slice: slice),
+      );
+      await _pumpControls(tester, service, const Size(390, 844));
+      await tester.tap(
+        find.byKey(const ValueKey('player-slice-manager-button')),
+      );
+      await tester.pumpAndSettle();
+
+      final row = find.byKey(const ValueKey('audio-slice-10000-20000'));
+      final container = ProviderScope.containerOf(
+        tester.element(row),
+        listen: false,
+      );
+      await tester.runAsync(() => tester.tap(row));
+      await tester.pumpAndSettle();
+      expect(container.read(audioSliceSelectionProvider)?.slice, slice);
+
+      final nextTrack = _track.copyWith(
+        id: 'slice-ui-next-track',
+        hash: 'slice-ui-next-hash',
+        url: 'https://example.invalid/slice-ui-next.mp3',
+      );
+      await tester.runAsync(
+        () => service.updateQueue([_track, nextTrack], autoplay: false),
+      );
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await service.skipToNext();
+        await until(() => service.currentTrack?.id == nextTrack.id);
+      });
+      await tester.pumpAndSettle();
+      expect(container.read(audioSliceSelectionProvider), isNull);
+      await tester.runAsync(() async {
+        await service.skipToPrevious();
+        await until(() => service.currentTrack?.id == _track.id);
+      });
+      await tester.pumpAndSettle();
+      expect(service.sliceState.trackKey, trackKey);
+      expect(container.read(audioSliceSelectionProvider), isNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'editing does not restore selection after switching away and back',
+    (tester) async {
+      await tester.runAsync(createService);
+      final trackKey = service.sliceState.trackKey!;
+      const original = AudioSlice(startMs: 10000, endMs: 20000);
+      await tester.runAsync(
+        () => service.saveSlice(trackKey: trackKey, slice: original),
+      );
+      await _pumpControls(tester, service, const Size(390, 844));
+      await tester.tap(
+        find.byKey(const ValueKey('player-slice-manager-button')),
+      );
+      await tester.pumpAndSettle();
+
+      final row = find.byKey(const ValueKey('audio-slice-10000-20000'));
+      final container = ProviderScope.containerOf(
+        tester.element(row),
+        listen: false,
+      );
+      await tester.runAsync(() => tester.tap(row));
+      await tester.pumpAndSettle();
+      expect(container.read(audioSliceSelectionProvider)?.slice, original);
+      final menu = find.byType(PopupMenuButton<String>).first;
+      await tester.ensureVisible(menu);
+      await tester.tap(menu);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Edit'));
+      await tester.pumpAndSettle();
+      expect(container.read(audioSliceSelectionProvider)?.slice, original);
+
+      final start = find.byKey(const ValueKey('audio-slice-start-time'));
+      final end = find.byKey(const ValueKey('audio-slice-end-time'));
+      await tester.ensureVisible(start);
+      await tester.enterText(start, '00:12.345');
+      await tester.ensureVisible(end);
+      await tester.enterText(end, '00:25.000');
+
+      final nextTrack = _track.copyWith(
+        id: 'slice-ui-edit-next-track',
+        hash: 'slice-ui-edit-next-hash',
+        url: 'https://example.invalid/slice-ui-edit-next.mp3',
+      );
+      await tester.runAsync(
+        () => service.updateQueue([_track, nextTrack], autoplay: false),
+      );
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await service.skipToNext();
+        await until(() => service.currentTrack?.id == nextTrack.id);
+      });
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        await service.skipToPrevious();
+        await until(() => service.currentTrack?.id == _track.id);
+      });
+      await tester.pumpAndSettle();
+
+      await tester.runAsync(() => tester.tap(find.text('Save')));
+      await tester.pumpAndSettle();
+      expect(service.sliceState.slices, const [
+        AudioSlice(startMs: 12345, endMs: 25000),
+      ]);
+      expect(container.read(audioSliceSelectionProvider), isNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('timeline drag from another track cannot seek the new track', (
+    tester,
+  ) async {
+    await tester.runAsync(createService);
+    final trackKey = service.sliceState.trackKey!;
+    await tester.runAsync(
+      () => service.saveSlice(
+        trackKey: trackKey,
+        slice: const AudioSlice(startMs: 10000, endMs: 20000),
+      ),
+    );
+    final nextTrack = _track.copyWith(
+      id: 'slice-ui-drag-next-track',
+      hash: 'slice-ui-drag-next-hash',
+      url: 'https://example.invalid/slice-ui-drag-next.mp3',
+    );
+    await tester.runAsync(
+      () => service.updateQueue([_track, nextTrack], autoplay: false),
+    );
+    await _pumpControls(tester, service, const Size(390, 844));
+    await tester.tap(find.byKey(const ValueKey('player-slice-manager-button')));
+    await tester.pumpAndSettle();
+    final timeline = find.byKey(
+      const ValueKey('audio-slice-manager-timeline-slider'),
+    );
+
+    final gesture = await tester.startGesture(
+      _timelinePosition(tester, timeline, 15000 / 300000),
+    );
+    await gesture.moveTo(_timelinePosition(tester, timeline, 25000 / 300000));
+    await tester.pump();
+    await tester.runAsync(() async {
+      await service.skipToNext();
+      await until(() => service.currentTrack?.id == nextTrack.id);
+    });
+    await tester.pumpAndSettle();
+    final seekCount = player.seeks.length;
+    await tester.runAsync(gesture.up);
+    await tester.pumpAndSettle();
+
+    expect(service.currentTrack?.id, nextTrack.id);
+    expect(player.seeks, hasLength(seekCount));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('closing manager during a seek clears timeline scrubbing', (
+    tester,
+  ) async {
+    await tester.runAsync(createService);
+    final trackKey = service.sliceState.trackKey!;
+    await tester.runAsync(
+      () => service.saveSlice(
+        trackKey: trackKey,
+        slice: const AudioSlice(startMs: 10000, endMs: 20000),
+      ),
+    );
+    await _pumpControls(tester, service, const Size(390, 844));
+    await tester.tap(find.byKey(const ValueKey('player-slice-manager-button')));
+    await tester.pumpAndSettle();
+    final timeline = find.byKey(
+      const ValueKey('audio-slice-manager-timeline-slider'),
+    );
+    player.holdNextSeek = true;
+    final gesture = await tester.startGesture(
+      _timelinePosition(tester, timeline, 15000 / 300000),
+    );
+    await gesture.moveTo(_timelinePosition(tester, timeline, 25000 / 300000));
+    await tester.pump();
+    await tester.runAsync(gesture.up);
+    await tester.runAsync(() => until(() => player.pendingSeek != null));
+
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pumpAndSettle();
+    player.finishSeek();
+    await tester.runAsync(() => until(() => player.pendingSeek == null));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('editor shortcuts step, clamp, and keep edits as a draft', (
+    tester,
+  ) async {
+    await tester.runAsync(createService);
+    final trackKey = service.sliceState.trackKey!;
+    const original = AudioSlice(startMs: 20000, endMs: 120000);
+    await tester.runAsync(
+      () => service.saveSlice(trackKey: trackKey, slice: original),
+    );
+    await _pumpControls(tester, service, const Size(390, 844));
+    await _openSliceEditor(tester);
+
+    final start = find.byKey(const ValueKey('audio-slice-start-time'));
+    final end = find.byKey(const ValueKey('audio-slice-end-time'));
+    await tester.ensureVisible(start);
+    await tester.enterText(start, '00:00.100');
+    await _tapEndpointAction(tester, 'Start time', 0);
+    expect(tester.widget<TextField>(start).controller!.text, '00:00.000');
+    await _tapEndpointAction(tester, 'Start time', 3);
+    expect(tester.widget<TextField>(start).controller!.text, '00:00.200');
+    await _tapEndpointAction(tester, 'Start time', 4);
+    expect(tester.widget<TextField>(start).controller!.text, '00:01.200');
+    await _tapEndpointAction(tester, 'Start time', 5);
+    expect(tester.widget<TextField>(start).controller!.text, '00:06.200');
+    await _tapEndpointAction(tester, 'Start time', 1);
+    await _tapEndpointAction(tester, 'Start time', 2);
+    expect(tester.widget<TextField>(start).controller!.text, '00:00.200');
+
+    await tester.ensureVisible(end);
+    await tester.enterText(end, '00:10.000');
+    await _tapEndpointAction(tester, 'End time', 3);
+    expect(tester.widget<TextField>(end).controller!.text, '00:10.200');
+    await _tapEndpointAction(tester, 'End time', 0);
+    expect(tester.widget<TextField>(end).controller!.text, '00:10.000');
+    await tester.ensureVisible(end);
+    await tester.enterText(end, '04:59.900');
+    await _tapEndpointAction(tester, 'End time', 3);
+    expect(tester.widget<TextField>(end).controller!.text, '05:00.000');
+
+    player.position = const Duration(milliseconds: 12345);
+    await _tapEndpointAction(tester, 'Start time', 6);
+    await _tapEndpointAction(tester, 'End time', 6);
+    expect(tester.widget<TextField>(start).controller!.text, '00:12.345');
+    expect(tester.widget<TextField>(end).controller!.text, '00:12.345');
+    await _tapEndpointAction(tester, 'Start time', 7);
+    await _tapEndpointAction(tester, 'End time', 7);
+    expect(tester.widget<TextField>(start).controller!.text, '00:00.000');
+    expect(tester.widget<TextField>(end).controller!.text, '00:00.000');
+    await _tapEndpointAction(tester, 'Start time', 8);
+    await _tapEndpointAction(tester, 'End time', 8);
+    expect(tester.widget<TextField>(start).controller!.text, '05:00.000');
+    expect(tester.widget<TextField>(end).controller!.text, '05:00.000');
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(service.sliceState.slices, [original]);
+
+    await _openSliceEditor(tester, managerAlreadyOpen: true);
+    await _tapEndpointAction(tester, 'Start time', 6);
+    await _tapEndpointAction(tester, 'End time', 8);
+    await tester.runAsync(() => tester.tap(find.text('Save')));
+    await tester.pumpAndSettle();
+    expect(service.sliceState.slices, const [
+      AudioSlice(startMs: 12345, endMs: 300000),
+    ]);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('editor reports invalid steps and preserves overlap validation', (
+    tester,
+  ) async {
+    await tester.runAsync(createService);
+    final trackKey = service.sliceState.trackKey!;
+    const first = AudioSlice(startMs: 10000, endMs: 20000);
+    const second = AudioSlice(startMs: 30000, endMs: 40000);
+    await tester.runAsync(() async {
+      await service.saveSlice(trackKey: trackKey, slice: first);
+      await service.saveSlice(trackKey: trackKey, slice: second);
+    });
+    await _pumpControls(tester, service, const Size(390, 844));
+    await _openSliceEditor(tester);
+
+    final start = find.byKey(const ValueKey('audio-slice-start-time'));
+    final end = find.byKey(const ValueKey('audio-slice-end-time'));
+    await tester.ensureVisible(start);
+    await tester.enterText(start, 'invalid');
+    await _tapEndpointAction(tester, 'Start time', 0);
+    expect(find.text('Enter a valid time, such as 00:30.000.'), findsOneWidget);
+
+    await tester.ensureVisible(start);
+    await tester.enterText(start, '00:35.000');
+    await tester.ensureVisible(end);
+    await tester.enterText(end, '00:37.000');
+    await tester.runAsync(() => tester.tap(find.text('Save')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text(
+        'Could not save the slice. Check the times and overlapping slices, then try again.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('audio-slice-range-editor')),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(service.sliceState.slices, const [first, second]);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final size in [
     const Size(390, 844),
     const Size(1100, 700),
@@ -117,8 +537,26 @@ void main() {
         find.byKey(const ValueKey('player-slice-manager-button')),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(PopupMenuButton<String>));
+      final manager = find.byType(PopupMenuButton<String>);
+      await tester.ensureVisible(manager);
+      final container = ProviderScope.containerOf(
+        tester.element(manager),
+        listen: false,
+      );
+      final sliceRow = find.byKey(const ValueKey('audio-slice-20000-120000'));
+      await tester.ensureVisible(sliceRow);
+      await tester.runAsync(() => tester.tap(sliceRow));
       await tester.pumpAndSettle();
+      expect(
+        container.read(audioSliceSelectionProvider)?.slice,
+        const AudioSlice(startMs: 20000, endMs: 120000),
+      );
+      await tester.tap(manager);
+      await tester.pumpAndSettle();
+      expect(
+        container.read(audioSliceSelectionProvider)?.slice,
+        const AudioSlice(startMs: 20000, endMs: 120000),
+      );
       await tester.tap(find.text('Edit'));
       await tester.pumpAndSettle();
 
@@ -147,11 +585,21 @@ void main() {
       expect(service.sliceState.slices, const [
         AudioSlice(startMs: 25250, endMs: 150500),
       ]);
+      expect(
+        container.read(audioSliceSelectionProvider)?.slice,
+        const AudioSlice(startMs: 25250, endMs: 150500),
+      );
       expect(find.text('00:25.250 – 02:30.500'), findsOneWidget);
 
-      await tester.tap(find.byKey(const ValueKey('player-only-slices-switch')));
+      final onlySlicesSwitch = find.byKey(
+        const ValueKey('player-only-slices-switch'),
+      );
+      await tester.ensureVisible(onlySlicesSwitch);
+      await tester.pumpAndSettle();
+      await tester.tap(onlySlicesSwitch);
       await tester.pumpAndSettle();
       expect(service.sliceState.onlySlices, isTrue);
+      await tester.ensureVisible(find.byTooltip('Preview slice'));
       await tester.runAsync(() => tester.tap(find.byTooltip('Preview slice')));
       await tester.pumpAndSettle();
       expect(service.sliceState.preview, service.sliceState.slices.single);
@@ -160,6 +608,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(service.sliceState.preview, isNull);
       expect(player.playing, isFalse);
+      await tester.ensureVisible(find.byType(PopupMenuButton<String>));
       await tester.tap(find.byType(PopupMenuButton<String>));
       await tester.pumpAndSettle();
       await tester.runAsync(() => tester.tap(find.text('Delete')));
@@ -168,6 +617,7 @@ void main() {
       await tester.runAsync(() async {});
       await tester.pumpAndSettle();
       expect(service.sliceState.slices, isEmpty);
+      expect(container.read(audioSliceSelectionProvider), isNull);
       expect(
         find.text('No slices yet. Mark a start and end to create a slice.'),
         findsOneWidget,
@@ -192,6 +642,14 @@ void main() {
     await _pumpControls(tester, service, const Size(390, 844));
     await tester.tap(find.byKey(const ValueKey('player-slice-manager-button')));
     await tester.pumpAndSettle();
+    final row = find.byKey(const ValueKey('audio-slice-10000-20000'));
+    final container = ProviderScope.containerOf(
+      tester.element(row),
+      listen: false,
+    );
+    await tester.runAsync(() => tester.tap(row));
+    await tester.pumpAndSettle();
+    expect(container.read(audioSliceSelectionProvider)?.slice, isNotNull);
     await tester.tap(find.text('Clear slices'));
     await tester.pumpAndSettle();
     expect(service.sliceState.slices, hasLength(2));
@@ -200,6 +658,7 @@ void main() {
     await tester.runAsync(() async {});
     await tester.pumpAndSettle();
     expect(service.sliceState.slices, isEmpty);
+    expect(container.read(audioSliceSelectionProvider), isNull);
     expect(tester.takeException(), isNull);
   });
 
@@ -267,6 +726,27 @@ void main() {
       (theme.data.trackShape! as PlayerUniformSliderTrackShape).slices,
       service.sliceState.slices,
     );
+    final container = ProviderScope.containerOf(
+      tester.element(slider),
+      listen: false,
+    );
+    container
+        .read(audioSliceSelectionProvider.notifier)
+        .state = AudioSliceSelection(
+      trackKey: service.sliceState.trackKey!,
+      slice: service.sliceState.slices.single,
+    );
+    player.position = const Duration(seconds: 30);
+    player.positions.add(player.position);
+    await tester.pump();
+    final updatedTheme = tester.widget<SliderTheme>(
+      find.ancestor(of: slider, matching: find.byType(SliderTheme)).first,
+    );
+    final shape =
+        updatedTheme.data.trackShape! as PlayerUniformSliderTrackShape;
+    expect(shape.activeSlice, service.sliceState.slices.single);
+    expect(shape.selectedSlice, service.sliceState.slices.single);
+    expect(player.playing, isFalse);
     expect(find.byKey(const ValueKey('player-slice-cut-button')), findsNothing);
     await tester.runAsync(() => tester.tapAt(tester.getCenter(slider)));
     await tester.pumpAndSettle();
@@ -311,6 +791,38 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+}
+
+Offset _timelinePosition(WidgetTester tester, Finder slider, double fraction) {
+  final rect = tester.getRect(slider);
+  return Offset(rect.left + 24 + (rect.width - 48) * fraction, rect.center.dy);
+}
+
+Future<void> _openSliceEditor(
+  WidgetTester tester, {
+  bool managerAlreadyOpen = false,
+}) async {
+  if (!managerAlreadyOpen) {
+    await tester.tap(find.byKey(const ValueKey('player-slice-manager-button')));
+    await tester.pumpAndSettle();
+  }
+  final menu = find.byType(PopupMenuButton<String>).first;
+  await tester.ensureVisible(menu);
+  await tester.tap(menu);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Edit').first);
+  await tester.pumpAndSettle();
+}
+
+Future<void> _tapEndpointAction(
+  WidgetTester tester,
+  String endpoint,
+  int index,
+) async {
+  final action = find.byKey(ValueKey('audio-slice-action-$endpoint-$index'));
+  await tester.ensureVisible(action);
+  await tester.tap(action);
+  await tester.pumpAndSettle();
 }
 
 Future<void> _pumpControls(

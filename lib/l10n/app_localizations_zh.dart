@@ -4309,6 +4309,50 @@ class SZh extends S {
 
   @override
   String get audioSlicePreviewFailed => '试听切片失败，请重试。';
+
+  @override
+  String audioSliceEarlier(double seconds) {
+    final intl.NumberFormat secondsNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String secondsString = secondsNumberFormat.format(seconds);
+
+    return '−$secondsString 秒';
+  }
+
+  @override
+  String audioSliceLater(double seconds) {
+    final intl.NumberFormat secondsNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String secondsString = secondsNumberFormat.format(seconds);
+
+    return '+$secondsString 秒';
+  }
+
+  @override
+  String get audioSliceSetCurrent => '设为当前';
+
+  @override
+  String get audioSliceSetZero => '设为 0';
+
+  @override
+  String get audioSliceSetEnd => '设为末尾';
+
+  @override
+  String get audioSliceTimeline => '切片时间轴';
+
+  @override
+  String get audioSlicePosition => '播放位置';
+
+  @override
+  String get audioSliceCurrent => '当前切片';
+
+  @override
+  String get audioSliceSelected => '选中切片';
+
+  @override
+  String audioSliceEndpointAction(String endpoint, String action) {
+    return '$endpoint：$action';
+  }
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -8616,4 +8660,48 @@ class SZhHant extends SZh {
 
   @override
   String get audioSlicePreviewFailed => '試聽切片失敗，請重試。';
+
+  @override
+  String audioSliceEarlier(double seconds) {
+    final intl.NumberFormat secondsNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String secondsString = secondsNumberFormat.format(seconds);
+
+    return '−$secondsString 秒';
+  }
+
+  @override
+  String audioSliceLater(double seconds) {
+    final intl.NumberFormat secondsNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String secondsString = secondsNumberFormat.format(seconds);
+
+    return '+$secondsString 秒';
+  }
+
+  @override
+  String get audioSliceSetCurrent => '設為目前';
+
+  @override
+  String get audioSliceSetZero => '設為 0';
+
+  @override
+  String get audioSliceSetEnd => '設為結尾';
+
+  @override
+  String get audioSliceTimeline => '切片時間軸';
+
+  @override
+  String get audioSlicePosition => '播放位置';
+
+  @override
+  String get audioSliceCurrent => '目前切片';
+
+  @override
+  String get audioSliceSelected => '選取的切片';
+
+  @override
+  String audioSliceEndpointAction(String endpoint, String action) {
+    return '$endpoint：$action';
+  }
 }

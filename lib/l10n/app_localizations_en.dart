@@ -4455,4 +4455,48 @@ class SEn extends S {
   @override
   String get audioSlicePreviewFailed =>
       'Could not preview the slice. Try again.';
+
+  @override
+  String audioSliceEarlier(double seconds) {
+    final intl.NumberFormat secondsNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String secondsString = secondsNumberFormat.format(seconds);
+
+    return '−$secondsString s';
+  }
+
+  @override
+  String audioSliceLater(double seconds) {
+    final intl.NumberFormat secondsNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String secondsString = secondsNumberFormat.format(seconds);
+
+    return '+$secondsString s';
+  }
+
+  @override
+  String get audioSliceSetCurrent => 'Set current';
+
+  @override
+  String get audioSliceSetZero => 'Set to 0';
+
+  @override
+  String get audioSliceSetEnd => 'Set to end';
+
+  @override
+  String get audioSliceTimeline => 'Slice timeline';
+
+  @override
+  String get audioSlicePosition => 'Position';
+
+  @override
+  String get audioSliceCurrent => 'Current slice';
+
+  @override
+  String get audioSliceSelected => 'Selected slice';
+
+  @override
+  String audioSliceEndpointAction(String endpoint, String action) {
+    return '$endpoint: $action';
+  }
 }

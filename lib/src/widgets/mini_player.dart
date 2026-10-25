@@ -8,6 +8,7 @@ import '../../l10n/app_localizations.dart';
 import '../models/audio_track.dart';
 import '../providers/artwork_theme_provider.dart';
 import '../providers/audio_provider.dart';
+import '../providers/audio_slice_presentation_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/player_lyric_style_provider.dart';
 import '../services/audio_player_service.dart';
@@ -606,6 +607,8 @@ class _MiniPlayerProgressAreaState
     final position = ref.watch(positionProvider).valueOrNull ?? Duration.zero;
     final duration = ref.watch(durationProvider).valueOrNull ?? Duration.zero;
     final slices = ref.watch(audioSliceStateProvider).valueOrNull;
+    final activeSlice = ref.watch(activeAudioSliceProvider);
+    final selectedSlice = ref.watch(selectedAudioSliceProvider);
     final progress = duration.inMilliseconds > 0
         ? position.inMilliseconds / duration.inMilliseconds
         : 0.0;
@@ -648,6 +651,9 @@ class _MiniPlayerProgressAreaState
                   duration: duration,
                   pendingStartMs: slices?.pendingStartMs,
                   sliceColor: Theme.of(context).colorScheme.tertiary,
+                  activeSlice: activeSlice,
+                  selectedSlice: selectedSlice,
+                  selectedSliceColor: Theme.of(context).colorScheme.secondary,
                 ),
                 thumbShape: const RoundSliderThumbShape(
                   enabledThumbRadius: 0,

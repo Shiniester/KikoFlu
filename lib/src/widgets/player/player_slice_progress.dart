@@ -9,12 +9,18 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
     this.duration = Duration.zero,
     this.pendingStartMs,
     this.sliceColor,
+    this.activeSlice,
+    this.selectedSlice,
+    this.selectedSliceColor,
   });
 
   final List<AudioSlice> slices;
   final Duration duration;
   final int? pendingStartMs;
   final Color? sliceColor;
+  final AudioSlice? activeSlice;
+  final AudioSlice? selectedSlice;
+  final Color? selectedSliceColor;
 
   static const _delegate = RoundedRectSliderTrackShape();
 
@@ -71,6 +77,11 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
       isDiscrete: isDiscrete,
     );
     final color = sliceColor ?? sliderTheme.activeTrackColor!;
+    final activeColor = sliderTheme.activeTrackColor ?? color;
+    final selectedColor = selectedSliceColor ?? activeColor;
+    final pendingEdge = Paint()
+      ..color = color
+      ..strokeWidth = 2;
     double x(int milliseconds) {
       final fraction = (milliseconds / duration.inMilliseconds).clamp(0.0, 1.0);
       return textDirection == TextDirection.rtl
@@ -78,10 +89,6 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
           : rect.left + rect.width * fraction;
     }
 
-    final fill = Paint()..color = color.withValues(alpha: 0.4);
-    final edge = Paint()
-      ..color = color
-      ..strokeWidth = 2;
     final halfHeight = (sliderTheme.trackHeight ?? 2) / 2 + 2;
     for (final slice in slices) {
       if (slice.startMs >= duration.inMilliseconds) continue;
@@ -89,6 +96,21 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
         Offset(x(slice.startMs), rect.center.dy - halfHeight),
         Offset(x(slice.endMs), rect.center.dy + halfHeight),
       );
+      final active = slice == activeSlice;
+      final selected = slice == selectedSlice;
+      final fill = Paint()
+        ..color = (active ? activeColor : color).withValues(alpha: 0.4);
+      final edge = Paint()
+        ..color = selected
+            ? selectedColor
+            : active
+            ? activeColor
+            : color
+        ..strokeWidth = selected
+            ? 3
+            : active
+            ? 2.5
+            : 2;
       context.canvas.drawRRect(
         RRect.fromRectAndRadius(span, const Radius.circular(2)),
         fill,
@@ -100,12 +122,21 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
           edge,
         );
       }
+      if (selected) {
+        context.canvas.drawRRect(
+          RRect.fromRectAndRadius(span.inflate(2), const Radius.circular(3)),
+          Paint()
+            ..color = selectedColor
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5,
+        );
+      }
     }
     if (pendingStartMs case final start?) {
       context.canvas.drawLine(
         Offset(x(start), rect.center.dy - 7),
         Offset(x(start), rect.center.dy + 7),
-        edge,
+        pendingEdge,
       );
     }
   }
