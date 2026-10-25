@@ -173,6 +173,10 @@ class MissavClient extends ChangeNotifier {
 
   Future<void> _prepareOnlineAccess() async {
     await initialize();
+    final browser = _browserAdapter;
+    if (browser is MissavBrowserAdapter && browser.isClosed) {
+      restoreNativeTransport();
+    }
     final pending = _sessionRestoration;
     if (pending != null) {
       await pending.future;

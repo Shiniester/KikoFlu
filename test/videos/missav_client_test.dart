@@ -1398,6 +1398,63 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     expect(adapter.requests, hasLength(bodies.length));
   });
 
+  test('rebuilds a closed browser session after login', () async {
+    final native = _Adapter((_) => _response('<h1>Native catalog</h1>'));
+    final replacement = _Adapter((_) => _response('<h1>Restored catalog</h1>'));
+    var restorations = 0;
+    var browserDisposals = 0;
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = native,
+      metadataDio: _emptyMetadataDio(),
+      secureStorage: _MemorySecureStorage(),
+      restoreSavedSession: (client, expectedGeneration) async {
+        restorations++;
+        expect(client.sessionGeneration, expectedGeneration);
+        client.useVerifiedBrowserTransport(replacement);
+      },
+    );
+    addTearDown(client.dispose);
+    late final MissavBrowserAdapter browser;
+    browser = MissavBrowserAdapter(
+      currentUrl: () async => MissavClient.origin,
+      navigateDocument: (_, _) async => '<h1>Original catalog</h1>',
+      disposeBrowser: () async => browserDisposals++,
+      runJavaScript: (script) async {
+        final match = RegExp(r'const request = (.*);').firstMatch(script)!;
+        final request = jsonDecode(match.group(1)!) as Map;
+        browser.receiveMessage({
+          'id': request['id'],
+          'nonce': request['nonce'],
+          'origin': MissavClient.origin,
+          'status': 200,
+          'url': request['url'],
+          'headers': {'content-type': 'application/json'},
+          'body': '{"user":{"name":"viewer"}}',
+        });
+      },
+    );
+    await client.importVerifiedSession(
+      cookieHeader: 'session=verified',
+      userAgent: 'Test browser',
+    );
+    client.useVerifiedBrowserTransport(browser);
+    final verifiedGeneration = client.sessionGeneration;
+    await client.login(email: 'viewer@example.test', password: 'sample');
+    expect(client.sessionGeneration, greaterThan(verifiedGeneration));
+
+    browser.close(force: true);
+    await browser.whenClosed;
+    final page = await client.browse(client.homeUrl);
+
+    expect(page.title, 'Restored catalog');
+    expect(restorations, 1);
+    expect(browserDisposals, 1);
+    expect(native.requests, isEmpty);
+    expect(replacement.requests, hasLength(1));
+    await client.browse(client.homeUrl);
+    expect(restorations, 1);
+  });
+
   test(
     'restores native transport and invalidates an in-flight browser request',
     () async {

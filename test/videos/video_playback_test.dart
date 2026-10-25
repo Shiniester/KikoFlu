@@ -782,6 +782,68 @@ void main() {
     expect(find.text(l10n.videoVerifyAccess), findsOneWidget);
   });
 
+  for (final failFirstRequest in [false, true]) {
+    testWidgets(
+      'favorite blocks overlapping submissions and allows retry (failure=$failFirstRequest)',
+      (tester) async {
+        final response = Completer<void>();
+        final client = _TestMissavClient(_details(), loggedIn: true)
+          ..favoriteResponse = response.future;
+        final library = await _testLibrary();
+        final downloads = _TestVideoDownloads(client: client, library: library);
+        final session = _FakePlaybackSession();
+        await tester.pumpWidget(
+          _app(
+            client,
+            library,
+            downloads,
+            VideoDetailsScreen(video: _video(), sessionFactory: () => session),
+          ),
+        );
+        await tester.pumpAndSettle();
+        try {
+          final favorite = find.byIcon(Icons.bookmark_outline);
+          await tester.tap(favorite);
+          await tester.pump();
+          final button = tester.widget<IconButton>(
+            find.ancestor(of: favorite, matching: find.byType(IconButton)),
+          );
+          expect(button.onPressed, isNull);
+          await tester.tap(favorite);
+          await tester.pump();
+          expect(client.videoFavoriteChanges, [true]);
+
+          if (failFirstRequest) {
+            response.completeError(StateError('Source unavailable'));
+            await tester.pumpAndSettle();
+            final l10n = await S.delegate.load(const Locale('en'));
+            await tester.tap(find.text(l10n.cancel));
+          } else {
+            response.complete();
+          }
+          await tester.pumpAndSettle();
+          final icon = failFirstRequest
+              ? Icons.bookmark_outline
+              : Icons.bookmark;
+          expect(find.byIcon(icon), findsOneWidget);
+          client.favoriteResponse = null;
+          await tester.tap(find.byIcon(icon));
+          await tester.pumpAndSettle();
+          expect(client.videoFavoriteChanges, [true, failFirstRequest]);
+          expect(
+            find.byIcon(
+              failFirstRequest ? Icons.bookmark : Icons.bookmark_outline,
+            ),
+            findsOneWidget,
+          );
+        } finally {
+          if (!response.isCompleted) response.complete();
+          await tester.pumpAndSettle();
+        }
+      },
+    );
+  }
+
   testWidgets('account change clears and reloads detail favorite state', (
     tester,
   ) async {
@@ -909,6 +971,74 @@ void main() {
     await tester.pump();
     expect(session.pauseCount, greaterThan(1));
     expect(session.playCount, 0);
+  });
+
+  testWidgets('finishing a download keeps playback until details reopen', (
+    tester,
+  ) async {
+    final client = _TestMissavClient(_details());
+    final library = await _testLibrary(position: const Duration(seconds: 12));
+    final downloads = _TestVideoDownloads(
+      client: client,
+      library: library,
+      task: VideoDownloadTask(
+        id: 'dvd-1',
+        video: _video(),
+        quality: 'Auto',
+        isHls: true,
+        status: VideoDownloadStatus.downloading,
+        localPath: '/offline/video/index.m3u8',
+      ),
+    );
+    var session = _FakePlaybackSession();
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => Navigator.of(context).push<void>(
+                MaterialPageRoute(
+                  builder: (_) => VideoDetailsScreen(
+                    video: _video(),
+                    sessionFactory: () => session,
+                  ),
+                ),
+              ),
+              child: const Text('Open video'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open video'));
+    await tester.pumpAndSettle();
+    final l10n = await S.delegate.load(const Locale('en'));
+    await tester.tap(find.byTooltip(l10n.videoPlay));
+    await tester.pump();
+    await session.seek(const Duration(seconds: 44));
+
+    downloads.completeDownload();
+    await tester.pumpAndSettle();
+
+    expect(session.loadStreamCount, 1);
+    expect(session.loadFileCount, 0);
+    expect(session.snapshot.value.position, const Duration(seconds: 44));
+    expect(session.snapshot.value.playing, isTrue);
+    expect(client.detailsCalls, 1);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    session = _FakePlaybackSession();
+    await tester.tap(find.text('Open video'));
+    await tester.pumpAndSettle();
+    expect(session.loadFileCount, 1);
+    expect(session.localPath, downloads.task!.localPath);
+    expect(session.loadStreamCount, 0);
+    expect(session.lastPosition, const Duration(seconds: 44));
+    expect(client.detailsCalls, 1);
   });
 
   testWidgets('downloaded details skip online detail loading', (tester) async {
@@ -1248,6 +1378,8 @@ class _TestMissavClient extends MissavClient {
   final Object? initializeError;
   String? _accountName;
   final List<bool> actorFavoriteChanges = [];
+  final List<bool> videoFavoriteChanges = [];
+  Future<void>? favoriteResponse;
   int initializeCalls = 0;
   int detailsCalls = 0;
   int playlistsCalls = 0;
@@ -1312,6 +1444,12 @@ class _TestMissavClient extends MissavClient {
   Future<void> setActorFavorite(VideoLink actor, bool favorite) async {
     actorFavoriteChanges.add(favorite);
   }
+
+  @override
+  Future<void> setVideoFavorite(VideoDetails details, bool favorite) async {
+    videoFavoriteChanges.add(favorite);
+    await favoriteResponse;
+  }
 }
 
 class _TestVideoDownloads extends VideoDownloads {
@@ -1321,8 +1459,13 @@ class _TestVideoDownloads extends VideoDownloads {
     this.task,
   });
 
-  final VideoDownloadTask? task;
+  VideoDownloadTask? task;
   VideoItem? lastAddedVideo;
+
+  void completeDownload() {
+    task = task!.copyWith(status: VideoDownloadStatus.completed, progress: 1);
+    notifyListeners();
+  }
 
   @override
   Future<void> initialize() async {}

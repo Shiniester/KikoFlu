@@ -46,6 +46,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
   VideoStream? _selectedStream;
   bool _loading = true;
   bool _favorite = false;
+  bool _savingFavorite = false;
   String? _error;
   MissavVerificationRequiredException? _verificationError;
   bool _verifyingAccess = false;
@@ -60,9 +61,10 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
       _downloads.forVideo(widget.video.id) ??
       _downloadedTask;
 
+  // Keep the source chosen at load time when a background download completes.
   bool get _isOffline =>
-      _availableTask?.status == VideoDownloadStatus.completed &&
-      _availableTask?.localPath?.isNotEmpty == true;
+      _downloadedTask?.status == VideoDownloadStatus.completed &&
+      _downloadedTask?.localPath?.isNotEmpty == true;
 
   @override
   void initState() {
@@ -307,20 +309,26 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
 
   Future<void> _toggleFavorite() async {
     final details = _details;
-    if (details == null || _isOffline) return;
+    if (details == null || _isOffline || _savingFavorite) return;
     if (!_client.isLoggedIn) {
       await _loginRequired();
       return;
     }
+    final favorite = !_favorite;
+    setState(() => _savingFavorite = true);
     try {
-      await _client.setVideoFavorite(details, !_favorite);
-      if (mounted) setState(() => _favorite = !_favorite);
+      await _client.setVideoFavorite(details, favorite);
+      if (mounted && identical(_details, details)) {
+        setState(() => _favorite = favorite);
+      }
     } on MissavAuthenticationException {
       await _loginRequired();
     } on MissavException catch (error) {
       await _sourceFallback(error.sourceUrl ?? widget.video.pageUrl);
     } catch (_) {
       await _sourceFallback(widget.video.pageUrl);
+    } finally {
+      if (mounted) setState(() => _savingFavorite = false);
     }
   }
 
@@ -503,7 +511,9 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
             if (!_isOffline)
               IconButton(
                 tooltip: _favorite ? s.videoFavorites : s.videoFavorites,
-                onPressed: details == null ? null : _toggleFavorite,
+                onPressed: details == null || _savingFavorite
+                    ? null
+                    : _toggleFavorite,
                 icon: Icon(_favorite ? Icons.bookmark : Icons.bookmark_outline),
               ),
             if (!_isOffline)
