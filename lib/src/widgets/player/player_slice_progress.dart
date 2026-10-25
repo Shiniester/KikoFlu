@@ -1,5 +1,3 @@
-import 'dart:ui' show ClipOp, PathOperation;
-
 import 'package:flutter/material.dart';
 
 import '../../models/audio_slice.dart';
@@ -58,31 +56,57 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
     required TextDirection textDirection,
   }) {
     void paintTrack(SliderThemeData theme) {
-      context.canvas.save();
-      context.canvas.clipRRect(
-        RRect.fromRectAndRadius(
-          getPreferredRect(
-            parentBox: parentBox,
-            offset: offset,
-            sliderTheme: theme,
-            isEnabled: isEnabled,
-            isDiscrete: isDiscrete,
-          ),
-          Radius.circular((theme.trackHeight ?? 2) / 2),
-        ),
-      );
-      _delegate.paint(
-        context,
-        offset,
+      final bounds = getPreferredRect(
         parentBox: parentBox,
         sliderTheme: theme,
-        enableAnimation: enableAnimation,
-        thumbCenter: thumbCenter,
-        secondaryOffset: secondaryOffset,
+        offset: offset,
         isEnabled: isEnabled,
         isDiscrete: isDiscrete,
-        textDirection: textDirection,
       );
+      final radius = Radius.circular(bounds.height / 2);
+      final track = RRect.fromRectAndRadius(bounds, radius);
+      final activeColor = ColorTween(
+        begin: theme.disabledActiveTrackColor,
+        end: theme.activeTrackColor,
+      ).evaluate(enableAnimation)!;
+      final inactiveColor = ColorTween(
+        begin: theme.disabledInactiveTrackColor,
+        end: theme.inactiveTrackColor,
+      ).evaluate(enableAnimation)!;
+      if (activeColor == inactiveColor) {
+        context.canvas.drawRRect(track, Paint()..color = inactiveColor);
+        return;
+      }
+      final progress = Path()
+        ..addRRect(
+          RRect.fromRectAndRadius(
+            textDirection == TextDirection.ltr
+                ? Rect.fromLTRB(
+                    bounds.left,
+                    bounds.top,
+                    thumbCenter.dx,
+                    bounds.bottom,
+                  )
+                : Rect.fromLTRB(
+                    thumbCenter.dx,
+                    bounds.top,
+                    bounds.right,
+                    bounds.bottom,
+                  ),
+            radius,
+          ),
+        );
+      context.canvas.save();
+      context.canvas.clipRRect(track);
+      context.canvas.drawPath(
+        Path.combine(
+          PathOperation.difference,
+          Path()..addRRect(track),
+          progress,
+        ),
+        Paint()..color = inactiveColor,
+      );
+      context.canvas.drawPath(progress, Paint()..color = activeColor);
       context.canvas.restore();
     }
 
@@ -126,15 +150,36 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
     final visibleSlices = slices.where(
       (slice) => slice.startMs < duration.inMilliseconds,
     );
-    context.canvas.save();
-    // Avoid blending the translucent track twice inside a slice.
-    for (final slice in visibleSlices) {
-      context.canvas.clipRect(
-        sliceRect(slice),
-        clipOp: ClipOp.difference,
-        doAntiAlias: false,
+    RRect sliceShape(AudioSlice slice) {
+      final halfHeight =
+          (sliderTheme.trackHeight ?? 2) / 2 +
+          2 +
+          (slice == activeSlice ? 1 : 0);
+      final range = sliceRect(slice);
+      return RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: range.center,
+          width: range.width,
+          height: halfHeight * 2,
+        ),
+        Radius.circular(halfHeight),
       );
     }
+
+    context.canvas.save();
+    // Avoid blending the translucent track twice inside a slice.
+    final sliceShapes = Path();
+    for (final slice in visibleSlices) {
+      sliceShapes.addRRect(sliceShape(slice));
+    }
+    context.canvas.clipPath(
+      Path.combine(
+        PathOperation.difference,
+        Path()..addRect(rect),
+        sliceShapes,
+      ),
+      doAntiAlias: false,
+    );
     paintTrack(
       onlySlices && visibleSlices.isNotEmpty
           ? sliderTheme.copyWith(
@@ -148,20 +193,9 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
     // Minimum-width slices can overlap; paint their shared area only once.
     final paintedSlices = Path();
     for (final slice in visibleSlices) {
-      final active = slice == activeSlice;
-      final halfHeight =
-          (sliderTheme.trackHeight ?? 2) / 2 + 2 + (active ? 1 : 0);
-      final range = sliceRect(slice);
-      final span = Rect.fromCenter(
-        center: range.center,
-        width: range.width,
-        height: halfHeight * 2,
-      );
+      final roundedSpan = sliceShape(slice);
+      final span = roundedSpan.outerRect;
       final selected = slice == selectedSlice;
-      final roundedSpan = RRect.fromRectAndRadius(
-        span,
-        const Radius.circular(2),
-      );
       context.canvas.save();
       context.canvas.clipPath(
         Path.combine(
@@ -170,12 +204,15 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
           paintedSlices,
         ),
       );
-      paintTrack(sliderTheme.copyWith(trackHeight: halfHeight * 2));
+      paintTrack(sliderTheme.copyWith(trackHeight: span.height));
       context.canvas.restore();
       paintedSlices.addRRect(roundedSpan);
       if (selected) {
         context.canvas.drawRRect(
-          RRect.fromRectAndRadius(span.inflate(2), const Radius.circular(3)),
+          RRect.fromRectAndRadius(
+            span.inflate(2),
+            Radius.circular(span.height / 2 + 2),
+          ),
           Paint()
             ..color = selectedColor
             ..style = PaintingStyle.stroke

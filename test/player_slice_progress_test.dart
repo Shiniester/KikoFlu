@@ -24,6 +24,7 @@ Future<void> _pumpProgress(
   List<AudioSlice> slices = _slices,
   Duration duration = const Duration(seconds: 100),
   double value = 0.7,
+  double trackHeight = 2,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -39,7 +40,7 @@ Future<void> _pumpProgress(
                 height: 32,
                 child: SliderTheme(
                   data: SliderThemeData(
-                    trackHeight: 2,
+                    trackHeight: trackHeight,
                     padding: EdgeInsets.zero,
                     thumbShape: SliderComponentShape.noThumb,
                     overlayShape: SliderComponentShape.noOverlay,
@@ -182,6 +183,32 @@ void main() {
         );
       }
     });
+
+    for (final onlySlices in [false, true]) {
+      testWidgets(
+        'progress and slice ends share rounded caps with $direction, onlySlices=$onlySlices',
+        (tester) async {
+          await _pumpProgress(
+            tester,
+            direction: direction,
+            onlySlices: onlySlices,
+            trackHeight: 4,
+          );
+          Offset point(double x, double y) =>
+              Offset(direction == TextDirection.ltr ? x : 299 - x, y);
+          final inactive = Color.alphaBlend(_inactiveColor, Colors.white);
+          expect(
+            await _paintedColors(tester, [
+              point(209, 11),
+              point(207, 14),
+              point(239, 11),
+              point(237, 14),
+            ]),
+            [inactive, _activeColor, Colors.white, inactive],
+          );
+        },
+      );
+    }
   }
 
   testWidgets('paused position in a gap does not paint slice progress', (

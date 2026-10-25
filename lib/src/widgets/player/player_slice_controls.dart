@@ -711,6 +711,7 @@ class _AudioSliceTimelineState extends ConsumerState<_AudioSliceTimeline> {
                   context,
                 ).colorScheme.onSurfaceVariant.withValues(alpha: 0.15),
                 thumbColor: Theme.of(context).colorScheme.primary,
+                thumbShape: SliderComponentShape.noThumb,
                 trackShape: PlayerUniformSliderTrackShape(
                   slices: widget.slices,
                   duration: widget.duration,

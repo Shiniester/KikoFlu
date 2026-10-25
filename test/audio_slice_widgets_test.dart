@@ -121,6 +121,10 @@ void main() {
     final timeline = find.byKey(
       const ValueKey('audio-slice-manager-timeline-slider'),
     );
+    final timelineTheme = tester.widget<SliderTheme>(
+      find.ancestor(of: timeline, matching: find.byType(SliderTheme)).first,
+    );
+    expect(timelineTheme.data.thumbShape, same(SliderComponentShape.noThumb));
     final container = ProviderScope.containerOf(
       tester.element(timeline),
       listen: false,
