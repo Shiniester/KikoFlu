@@ -218,6 +218,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
           SettingsNavigationTile(
+            icon: Icons.movie_outlined,
+            title: S.of(context).videoSettings,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const VideoSettingsScreen()),
+            ),
+          ),
+          SettingsNavigationTile(
             icon: Icons.public,
             title: S.of(context).proxySettingsOptional,
             onTap: () => showDialog(
@@ -535,18 +542,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 title: S.of(context).settingsLanguage,
                 subtitle: localeLabel,
                 onTap: () => _showLanguagePicker(context, ref),
-              );
-            },
-          ),
-        if (!widget.audioOnly)
-          SettingsNavigationTile(
-            icon: Icons.movie_outlined,
-            title: S.of(context).videoSettings,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => const VideoSettingsScreen(),
-                ),
               );
             },
           ),

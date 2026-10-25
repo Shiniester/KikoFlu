@@ -142,11 +142,6 @@ class VideoCard extends ConsumerWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               title,
-                              VideoDurationInfo(
-                                videoId: video.id,
-                                seconds: video.durationSeconds,
-                                isList: isList,
-                              ),
                               _information(
                                 context,
                                 visibleFields,
@@ -175,11 +170,6 @@ class VideoCard extends ConsumerWidget {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             title,
-                            VideoDurationInfo(
-                              videoId: video.id,
-                              seconds: video.durationSeconds,
-                              isList: isList,
-                            ),
                             _information(
                               context,
                               visibleFields,
@@ -278,6 +268,11 @@ class VideoCard extends ConsumerWidget {
           if (visibleFields.contains(VideoCardField.directors) &&
               video.cardDirectors.isNotEmpty)
             metadataLine(S.of(context).videoCardDirectors, video.cardDirectors),
+          VideoDurationInfo(
+            videoId: video.id,
+            seconds: video.durationSeconds,
+            isList: isList,
+          ),
           if (actors.isNotEmpty) ...[
             const SizedBox(height: 4),
             Wrap(

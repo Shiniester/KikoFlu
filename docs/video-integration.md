@@ -36,9 +36,11 @@
 列表将女优名和标签排在封面右侧。
 相关推荐和下载封面共用同一封面组件。
 
-时长位于标题下方，沿用音声卡片的蓝色时长文字和时钟图标。
+卡片信息按标题、其他信息、时长、女优名和视频标签排列。
+时长沿用音声卡片的蓝色文字和时钟图标。
 封面左下角显示字幕和无码图标，右下角显示发布日期。
 打开“设置 → 视频设置 → 界面设置 → 作品卡片显示设置”，可选择显示的信息。
+设置首页按音声设置、漫画设置和视频设置排列。
 默认开启时长、发布日期、字幕标签和无码标签。
 发行商、厂牌、系列和导演默认关闭。
 女优和视频标签始终显示，不提供开关。
@@ -57,6 +59,10 @@
 旧下载中没有的元数据继续留空。
 旧下载中混在标签里的发行商、厂牌、系列和导演，按对应开关显示。
 详情页保留这些条目的原始目录链接。
+
+视频标签直接显示接口或源站返回的原始名称，并保留原始分类链接。
+切换应用语言不翻译已有标签，也不合并不同语言的标签。
+卡片、详情、分类目录和搜索筛选均使用此规则，旧下载也适用。
 
 接口字段依据[公开调用代码](https://github.com/EchterAlsFake/unofficial-api-for-missav/blob/main/missav_api/api.py)和[字段说明](https://github.com/z291173301/MDCx/blob/5e94c51553e258b70aa196415a4c2626ae3744a8/mdcx/crawlers/missav_api.py)。
 当前接入使用 [Recombee 推荐属性接口](https://docs.recombee.com/api/recommendations)的 ID 筛选。
@@ -128,6 +134,17 @@ Windows 和 Android 的验证浏览器使用应用代理设置。Android 与 Jap
 首版不下载实时或低延迟 HLS、字节范围清单、独立音轨和其他 DRM 格式。下载失败会保留任务供重试。系统可在后台暂停任务；首版不保证进程被结束后持续下载，也不提供通用文件导出。
 
 ## 验证
+
+2026-10-25 检查原始标签、卡片顺序和设置入口。
+
+- 自动检查：205 项视频、音声卡片和设置页测试通过，1 项真实接口检查未启用。
+  命令：`flutter test --no-pub test/videos test/work_card_display_provider_test.dart test/work_card_size_settings_test.dart test/settings_subpage_test.dart`。
+- 标签检查：简体、繁体、英文和日文界面均显示保存的原始标签。
+  不同语言的标签保持独立，原始分类链接和元数据保持不变。
+- 布局检查：三种布局均按其他信息、时长、女优和标签排列。
+  视频设置紧接漫画设置，下载队列的状态和画质位于时长之前。
+- 静态检查：`flutter analyze --no-pub --fatal-infos` 未发现问题。
+- 本轮未运行平台构建、真机验收或真实源站接口检查。
 
 2026-10-25 检查视频卡片显示设置。
 
@@ -275,3 +292,22 @@ flutter test --no-pub -d windows integration_test/missav_live_test.dart --dart-d
 - `handoff.what`：卡片显示时长和完整标签，信息开关独立保存。
 - `handoff.why`：视频样式与音声默认样式一致，视频偏好不改变音声设置。
 - `handoff.next`：在目标设备核对字体、标签换行和设置返回行为。
+
+### 视频卡片与设置顺序
+
+- `task_brief`：调整时长和设置入口位置，视频标签显示源站原始名称。
+- `dispatch.read_only`：`batch_video_review` 核对目录链接和显示顺序。
+- `dispatch.write_stages`：主执行者修改卡片、下载队列和设置入口，并完成测试与文档。撤销标签译名后，显示组件直接读取原始标签。
+- `dispatch.skipped`：未另派写入者；目标文件和显示契约已确定，由主执行者集中修改。
+
+| name | focus | result | risks | next_step |
+| --- | --- | --- | --- | --- |
+| batch_video_review | 显示层与源站分类关系 | 确认原链接和筛选条件保留，顺序符合要求 | 未做设备验收 | 结合自动检查验收 |
+
+- `implementation_plan`：确认显示顺序后修改界面。标签恢复直接显示原文，并检查语言切换后原始名称与链接保持不变。
+- `verification`：见上节“验证”；覆盖旧下载、原始标签、三种卡片布局及设置路径。
+- `dependency_risks`：无新增依赖，不迁移下载文件。
+- `conflicts`：`[]`。
+- `handoff.what`：标签显示接口原文，时长位于其他信息之后、女优之前。
+- `handoff.why`：按用户要求保留接口提供的标签，不维护译名词典。
+- `handoff.next`：在目标设备核对卡片字体、信息顺序和标签换行。

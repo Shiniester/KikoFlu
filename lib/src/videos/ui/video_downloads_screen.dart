@@ -150,13 +150,13 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
                             overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.titleSmall,
                           ),
+                          const SizedBox(height: 4),
+                          Text('$status · ${task.quality}'),
                           VideoDurationInfo(
                             videoId: task.video.id,
                             seconds: task.video.durationSeconds,
                             isList: true,
                           ),
-                          const SizedBox(height: 4),
-                          Text('$status · ${task.quality}'),
                           const SizedBox(height: 6),
                           LinearProgressIndicator(
                             value: task.status == VideoDownloadStatus.completed

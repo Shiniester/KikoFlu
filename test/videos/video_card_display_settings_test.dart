@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart';
 import 'package:kikoeru_flutter/src/screens/settings_screen.dart';
+import 'package:kikoeru_flutter/src/widgets/settings_section.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_settings_screen.dart';
 import 'package:kikoeru_flutter/src/videos/video_card_display_provider.dart';
@@ -24,6 +25,13 @@ void main() {
     await tester.pumpAndSettle();
 
     final rootStrings = S.of(tester.element(find.byType(SettingsScreen)));
+    final navigationTitles = tester
+        .widgetList<SettingsNavigationTile>(find.byType(SettingsNavigationTile))
+        .map((tile) => tile.title)
+        .toList();
+    final comicIndex = navigationTitles.indexOf(rootStrings.comicSettings);
+    expect(navigationTitles[comicIndex - 1], rootStrings.audioSettings);
+    expect(navigationTitles[comicIndex + 1], rootStrings.videoSettings);
     final videoSettings = find.text(rootStrings.videoSettings);
     await tester.ensureVisible(videoSettings);
     await tester.tap(videoSettings);

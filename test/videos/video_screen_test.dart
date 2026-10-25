@@ -725,7 +725,9 @@ void main() {
     }
   });
 
-  testWidgets('download queue shows duration below the title', (tester) async {
+  testWidgets('download queue shows duration after task information', (
+    tester,
+  ) async {
     const video = VideoItem(
       id: 'download-duration',
       title: 'Queued video with duration',
@@ -761,6 +763,10 @@ void main() {
     );
     expect(find.text('01:02:03'), findsOneWidget);
     expect(duration.top, greaterThan(title.bottom));
+    expect(
+      duration.top,
+      greaterThan(tester.getRect(find.text('Queued · 720p')).bottom),
+    );
     expect(cover.contains(duration.center), isFalse);
     expect(tester.takeException(), isNull);
   });

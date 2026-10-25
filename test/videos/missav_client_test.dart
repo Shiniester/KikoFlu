@@ -426,6 +426,10 @@ void main() {
         'Tag A',
         'Tag B',
       ]);
+      expect(page.videos.first.tags.map((tag) => Uri.parse(tag.url).path), [
+        '/ja/genres/Tag%20A',
+        '/ja/genres/Tag%20B',
+      ]);
       expect(page.videos.first.durationSeconds, 3723);
       expect(page.videos.first.releaseDate, '2024-03-02');
       expect(page.videos.first.hasSubtitles, isTrue);
@@ -650,6 +654,9 @@ void main() {
       for (final video in page.videos) {
         expect(video.actors, isNotEmpty, reason: video.id);
         expect(video.tags, isNotEmpty, reason: video.id);
+        for (final tag in video.tags) {
+          expect(Uri.parse(tag.url).pathSegments, ['ja', 'genres', tag.label]);
+        }
         expect(video.durationSeconds, greaterThan(0));
         expect(video.releaseDate, matches(RegExp(r'^\d{4}-\d{2}-\d{2}$')));
         expect(video.makers, isNotEmpty, reason: video.id);
@@ -856,6 +863,9 @@ void main() {
         await client.search('sample query');
         expect(adapter.requests.last.uri.path, '$prefix/search/sample%20query');
         expect(adapter.requests.last.uri.pathSegments.last, 'sample query');
+        await client.browse('https://missav.ai/dm123/ja/genres?page=2');
+        expect(adapter.requests.last.uri.path, '/dm123$prefix/genres');
+        expect(adapter.requests.last.uri.queryParameters['page'], '2');
         expect(
           client.collectionUrl('favorites'),
           'https://missav.ai$prefix/saved',
@@ -874,6 +884,43 @@ void main() {
         );
       },
     );
+  }
+
+  for (final language in ['zh', 'zh-Hant', 'en', 'ja']) {
+    test('genre routes keep their source language under $language', () async {
+      final adapter = _Adapter(
+        (_) => _response('''
+<main><a href="?page=2&amp;sort=published_at" rel="next">Next</a></main>
+'''),
+      );
+      final client = MissavClient(
+        metadataDio: _emptyMetadataDio(),
+        dio: Dio()..httpClientAdapter = adapter,
+        secureStorage: _MemorySecureStorage(),
+      )..setLocale(language);
+      addTearDown(client.dispose);
+
+      for (final path in [
+        '/ja/genres/フェラ',
+        '/dm1303/ja/genres/フェラ',
+        '/dm1303/cn/genres/口交',
+        '/genres/口交',
+        '/en/genres/Oral Sex',
+      ]) {
+        final uri = Uri.https('missav.ai', path, {
+          'page': '1',
+          'sort': 'published_at',
+        });
+        final page = await client.browse(uri.toString());
+        expect(adapter.requests.last.uri, uri);
+        expect(page.url, uri.toString());
+        await client.browse(page.nextUrl!);
+        expect(
+          adapter.requests.last.uri,
+          uri.replace(queryParameters: {'page': '2', 'sort': 'published_at'}),
+        );
+      }
+    });
   }
 
   for (final entry in {
@@ -926,11 +973,11 @@ void main() {
           ),
         );
       }
-      if (path == '/cn/genres/selected') {
+      if (path == '/ja/genres/selected') {
         return _response(
           _searchCatalogHtml(
             page == '1' ? ['genre-only'] : ['shared'],
-            nextUrl: page == '1' ? '/cn/genres/selected?page=2' : null,
+            nextUrl: page == '1' ? '/ja/genres/selected?page=2' : null,
           ),
         );
       }
@@ -954,7 +1001,7 @@ void main() {
     final results = await client.searchWithFilters(' needle words ', const [
       VideoLink(
         label: 'Genre',
-        url: 'https://missav.ai/cn/genres/selected?page=9',
+        url: 'https://missav.ai/ja/genres/selected?page=9',
       ),
       VideoLink(label: 'Actor', url: 'https://missav.ai/cn/actresses/selected'),
       VideoLink(label: 'Studio', url: 'https://missav.ai/cn/makers/selected'),
@@ -962,6 +1009,8 @@ void main() {
 
     expect(results.map((video) => video.id), ['shared']);
     expect(adapter.requests.first.uri.pathSegments.last, 'needle words');
+    expect(adapter.requests[2].uri.path, '/ja/genres/selected');
+    expect(adapter.requests[3].uri.path, '/ja/genres/selected');
     expect(
       adapter.requests.map(
         (request) => request.uri.queryParameters['page'] ?? '1',

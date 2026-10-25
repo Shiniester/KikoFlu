@@ -12,6 +12,7 @@ import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
 import 'package:kikoeru_flutter/src/videos/video_models.dart';
+import 'package:kikoeru_flutter/src/videos/video_card_display_provider.dart';
 
 const _video = VideoItem(
   id: 'sample',
@@ -50,6 +51,10 @@ VideoItem _richVideo() => VideoItem(
   releaseDate: '2024-03-02',
   hasSubtitles: true,
   isUncensored: true,
+  makers: ['Studio A'],
+  labels: ['Label A'],
+  series: ['Series A'],
+  directors: ['Director A'],
   actors: [
     for (final name in ['Actress A', 'Actress B', 'Actress C', 'Actress D'])
       VideoLink(
@@ -279,6 +284,120 @@ void main() {
     },
   );
 
+  testWidgets(
+    'duration follows other information and precedes actors in every layout',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        for (final field in [
+          VideoCardField.makers,
+          VideoCardField.labels,
+          VideoCardField.series,
+          VideoCardField.directors,
+        ])
+          'video_card_display_${field.name}': true,
+      });
+      tester.view.physicalSize = const Size(400, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final video = _richVideo();
+      for (final layout in LayoutType.values) {
+        await tester.pumpWidget(
+          _app(
+            Center(
+              child: SizedBox(
+                width: 280,
+                child: VideoCard(
+                  video: video,
+                  layoutType: layout,
+                  subtitle: 'Source note',
+                  onTap: () {},
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final strings = S.of(tester.element(find.byType(VideoCard)));
+        final rows = [
+          find.text(video.title),
+          find.text('Source note'),
+          find.text('${strings.videoCardMakers}: Studio A'),
+          find.text('${strings.videoCardLabels}: Label A'),
+          find.text('${strings.series}: Series A'),
+          find.text('${strings.videoCardDirectors}: Director A'),
+          find.byKey(const ValueKey('video-duration-rich')),
+          find.text('Actress A'),
+          find.text('Tag 1'),
+        ];
+        for (var index = 1; index < rows.length; index++) {
+          expect(
+            tester.getRect(rows[index]).top,
+            greaterThanOrEqualTo(tester.getRect(rows[index - 1]).bottom),
+            reason: '$layout row $index',
+          );
+        }
+        expect(tester.takeException(), isNull);
+      }
+    },
+  );
+
+  testWidgets('saved tags keep source labels and links across app languages', (
+    tester,
+  ) async {
+    final video = VideoItem.fromJson({
+      'id': 'localized',
+      'title': 'Saved video',
+      'pageUrl': 'https://missav.ai/ja/localized',
+      'tags': [
+        for (final (label, url) in [
+          ('ハイビジョン', 'https://missav.ai/ja/genres/ハイビジョン'),
+          ('高清', 'https://missav.ai/cn/genres/高清'),
+          ('独占配信', 'https://missav.ai/ja/genres/独占配信'),
+          ('Unknown genre', 'https://missav.ai/ja/genres/unknown'),
+        ])
+          VideoLink(
+            label: label,
+            url: url,
+            kind: VideoLinkKind.category,
+          ).toJson(),
+      ],
+    });
+    final storedJson = video.toJson();
+    VideoLink? opened;
+    for (final locale in [
+      const Locale('en'),
+      const Locale('zh'),
+      const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+      const Locale('ja'),
+    ]) {
+      await tester.pumpWidget(
+        _app(
+          Center(
+            child: SizedBox(
+              width: 280,
+              child: VideoCard(
+                video: video,
+                layoutType: LayoutType.bigGrid,
+                onTap: () {},
+                onOpenLink: (link) => opened = link,
+              ),
+            ),
+          ),
+          locale: locale,
+        ),
+      );
+      await tester.pumpAndSettle();
+      for (final tag in video.tags) {
+        expect(find.text(tag.label), findsOneWidget);
+        await tester.tap(find.text(tag.label));
+        expect(opened, same(tag));
+        expect(opened?.url, tag.url);
+      }
+      expect(video.toJson(), storedJson);
+    }
+  });
+
   testWidgets('all layouts fit narrow and wide windows with larger text', (
     tester,
   ) async {
@@ -379,23 +498,50 @@ void main() {
     final boundary = tester.renderObject<RenderRepaintBoundary>(
       find.byKey(const ValueKey('video-card-preview')),
     );
-    await tester.runAsync(() async {
-      final image = await boundary.toImage(pixelRatio: 1);
-      final data = await image.toByteData(format: ui.ImageByteFormat.png);
-      image.dispose();
-      await Directory('build').create(recursive: true);
-      await File('build/video-card-layout-preview.png').writeAsBytes(
-        data!.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
-      );
-    });
+    await _savePreview(tester, boundary, 'build/video-card-layout-preview.png');
+    final notifier = ProviderScope.containerOf(
+      tester.element(find.byType(VideoCard).first),
+    ).read(videoCardDisplayProvider.notifier);
+    for (final field in [
+      VideoCardField.makers,
+      VideoCardField.labels,
+      VideoCardField.series,
+      VideoCardField.directors,
+    ]) {
+      await notifier.setVisible(field, true);
+    }
+    await tester.pumpAndSettle();
+    await _savePreview(
+      tester,
+      boundary,
+      'build/video-card-information-order-preview.png',
+    );
     expect(tester.takeException(), isNull);
   });
 }
 
-Widget _app(Widget child, {double textScale = 1}) => ProviderScope(
+Future<void> _savePreview(
+  WidgetTester tester,
+  RenderRepaintBoundary boundary,
+  String path,
+) => tester.runAsync(() async {
+  final image = await boundary.toImage(pixelRatio: 1);
+  final data = await image.toByteData(format: ui.ImageByteFormat.png);
+  image.dispose();
+  await Directory('build').create(recursive: true);
+  await File(path).writeAsBytes(
+    data!.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+  );
+});
+
+Widget _app(
+  Widget child, {
+  double textScale = 1,
+  Locale locale = const Locale('en'),
+}) => ProviderScope(
   child: MaterialApp(
     debugShowCheckedModeBanner: false,
-    locale: const Locale('en'),
+    locale: locale,
     supportedLocales: S.supportedLocales,
     localizationsDelegates: S.localizationsDelegates,
     theme: ThemeData(useMaterial3: true, fontFamily: 'Roboto'),

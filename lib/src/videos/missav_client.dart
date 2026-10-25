@@ -330,19 +330,19 @@ class MissavClient extends ChangeNotifier {
               .toList();
         }
 
-        List<VideoLink> links(
-          String field,
-          String route,
-          VideoLinkKind kind,
-        ) => names(field)
-            .map(
-              (name) => VideoLink(
-                label: name,
-                url: '$origin$localePrefix/$route/${Uri.encodeComponent(name)}',
-                kind: kind,
-              ),
-            )
-            .toList();
+        List<VideoLink> links(String field, String route, VideoLinkKind kind) {
+          // Recombee genre names use MissAV's Japanese slugs.
+          final prefix = field == 'genres' ? '/ja' : localePrefix;
+          return names(field)
+              .map(
+                (name) => VideoLink(
+                  label: name,
+                  url: '$origin$prefix/$route/${Uri.encodeComponent(name)}',
+                  kind: kind,
+                ),
+              )
+              .toList();
+        }
 
         final actors = <String, VideoLink>{
           for (final actor in links(
@@ -1177,7 +1177,14 @@ class MissavClient extends ChangeNotifier {
         segments.isNotEmpty && RegExp(r'^dm\d+$').hasMatch(segments.first)
         ? 1
         : 0;
-    if (segments.length > index && _sourceLanguages.contains(segments[index])) {
+    final hasLocale =
+        segments.length > index && _sourceLanguages.contains(segments[index]);
+    final routeIndex = index + (hasLocale ? 1 : 0);
+    // Genre slugs only select the right category in their source language.
+    if (segments.length == routeIndex + 2 && segments[routeIndex] == 'genres') {
+      return uri;
+    }
+    if (hasLocale) {
       segments.removeAt(index);
     }
     if (_locale != 'zh') segments.insert(index, _locale);
