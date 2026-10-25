@@ -7,7 +7,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dynamic_color/dynamic_color.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'package:media_kit/media_kit.dart';
@@ -224,15 +223,6 @@ sub-auto=no
   }
 }
 
-Future<void> _initializeHiveBackend() async {
-  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-    final appDocDir = await getApplicationDocumentsDirectory();
-    await Hive.initFlutter(p.join(appDocDir.path, 'KikoFlu'));
-  } else {
-    await Hive.initFlutter();
-  }
-}
-
 Future<T> _runBootstrapTask<T>(String name, Future<T> Function() task) async {
   final stopwatch = Stopwatch()..start();
   final timeline = developer.TimelineTask()..start('app.bootstrap.$name');
@@ -269,7 +259,6 @@ Future<void> _initializeCriticalServices({
     'preferences',
     SharedPreferences.getInstance,
   );
-  final hiveFuture = _runBootstrapTask('hive-backend', _initializeHiveBackend);
   final proxyFuture = proxyInitialized
       ? Future<void>.value()
       : _runBootstrapTask('proxy-settings', () async {
@@ -283,7 +272,7 @@ Future<void> _initializeCriticalServices({
     await StorageService.initCritical(preferences: await preferencesFuture);
   });
 
-  await Future.wait<dynamic>([hiveFuture, proxyFuture, storageFuture]);
+  await Future.wait<dynamic>([proxyFuture, storageFuture]);
   HttpOverrides.global = KikoFluHttpOverrides();
   CacheService.installImageCacheManager();
 
@@ -616,7 +605,7 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
   Widget build(BuildContext context) {
     final themeSettings = ref.watch(themeSettingsProvider);
     final artworkThemeSeed = themeSettings.dynamicColorEnabled
-        ? ref.watch(artworkThemeSeedProvider).seed
+        ? ref.watch(artworkThemeSeedProvider.select((state) => state.seed))
         : null;
     if (Platform.isMacOS) {
       ref.listen<AppThemeMode>(
