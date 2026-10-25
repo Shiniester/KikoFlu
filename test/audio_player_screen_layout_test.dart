@@ -2828,8 +2828,7 @@ void main() {
       progressTheme.data.thumbColor,
       Theme.of(progressContext).colorScheme.primary,
     );
-    final thumbShape = progressTheme.data.thumbShape as RoundSliderThumbShape;
-    expect(thumbShape.enabledThumbRadius, 4);
+    expect(progressTheme.data.thumbShape, same(SliderComponentShape.noThumb));
 
     await tester.drag(
       find.byKey(const ValueKey('compact-player-pages')),

@@ -685,6 +685,8 @@ class _AudioSliceTimelineState extends ConsumerState<_AudioSliceTimeline> {
     final l10n = S.of(context);
     final durationMs = widget.duration.inMilliseconds;
     final position = ref.watch(positionProvider).valueOrNull ?? Duration.zero;
+    final onlySlices =
+        ref.watch(audioSliceStateProvider).valueOrNull?.onlySlices ?? false;
     final currentMs = position.inMilliseconds.clamp(0, durationMs).toInt();
     final displayMs = (_dragValue?.round() ?? currentMs)
         .clamp(0, durationMs)
@@ -712,7 +714,7 @@ class _AudioSliceTimelineState extends ConsumerState<_AudioSliceTimeline> {
                 trackShape: PlayerUniformSliderTrackShape(
                   slices: widget.slices,
                   duration: widget.duration,
-                  sliceColor: Theme.of(context).colorScheme.tertiary,
+                  onlySlices: onlySlices,
                   activeSlice: activeSlice,
                   selectedSlice: widget.selectedSlice,
                   selectedSliceColor: Theme.of(context).colorScheme.secondary,

@@ -650,7 +650,7 @@ class _MiniPlayerProgressAreaState
                   slices: slices?.slices ?? const [],
                   duration: duration,
                   pendingStartMs: slices?.pendingStartMs,
-                  sliceColor: Theme.of(context).colorScheme.tertiary,
+                  onlySlices: slices?.onlySlices ?? false,
                   activeSlice: activeSlice,
                   selectedSlice: selectedSlice,
                   selectedSliceColor: Theme.of(context).colorScheme.secondary,

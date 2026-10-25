@@ -599,6 +599,23 @@ void main() {
       await tester.tap(onlySlicesSwitch);
       await tester.pumpAndSettle();
       expect(service.sliceState.onlySlices, isTrue);
+      for (final key in [
+        'player-progress-slider',
+        'audio-slice-manager-timeline-slider',
+      ]) {
+        final theme = tester.widget<SliderTheme>(
+          find
+              .ancestor(
+                of: find.byKey(ValueKey(key)),
+                matching: find.byType(SliderTheme),
+              )
+              .first,
+        );
+        expect(
+          (theme.data.trackShape! as PlayerUniformSliderTrackShape).onlySlices,
+          isTrue,
+        );
+      }
       await tester.ensureVisible(find.byTooltip('Preview slice'));
       await tester.runAsync(() => tester.tap(find.byTooltip('Preview slice')));
       await tester.pumpAndSettle();
@@ -725,6 +742,10 @@ void main() {
     expect(
       (theme.data.trackShape! as PlayerUniformSliderTrackShape).slices,
       service.sliceState.slices,
+    );
+    expect(
+      (theme.data.trackShape! as PlayerUniformSliderTrackShape).onlySlices,
+      isTrue,
     );
     final container = ProviderScope.containerOf(
       tester.element(slider),

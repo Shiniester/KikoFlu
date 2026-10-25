@@ -956,17 +956,14 @@ class PlayerProgressSection extends ConsumerWidget {
                         slices: slices.slices,
                         duration: dur,
                         pendingStartMs: slices.pendingStartMs,
-                        sliceColor: Theme.of(context).colorScheme.tertiary,
+                        onlySlices: slices.onlySlices,
                         activeSlice: activeSlice,
                         selectedSlice: selectedSlice,
                         selectedSliceColor: Theme.of(
                           context,
                         ).colorScheme.secondary,
                       ),
-                      thumbShape: const RoundSliderThumbShape(
-                        enabledThumbRadius: 4,
-                        disabledThumbRadius: 4,
-                      ),
+                      thumbShape: SliderComponentShape.noThumb,
                       padding: EdgeInsets.zero,
                     ),
                     child: Slider(
