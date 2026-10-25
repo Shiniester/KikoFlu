@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
+import 'package:kikoeru_flutter/src/videos/missav_browser_adapter.dart';
 import 'package:kikoeru_flutter/src/videos/missav_verification.dart';
 import 'package:kikoeru_flutter/src/videos/video_models.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -16,6 +17,331 @@ import 'package:webview_flutter_platform_interface/webview_flutter_platform_inte
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  for (final loginStatus in [200, 401]) {
+    test(
+      'verified browser stays usable after login (status=$loginStatus)',
+      () async {
+        final oldPlatform = WebViewPlatform.instance;
+        WebViewPlatform.instance = _FakeWebViewPlatform(Future.value(const []));
+        addTearDown(() {
+          if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+        });
+        final controller = WebViewController();
+        final client = MissavClient(secureStorage: _MemorySecureStorage());
+        addTearDown(client.dispose);
+        late final MissavBrowserAdapter adapter;
+        late final int verifiedGeneration;
+        void ensureCurrent() => ensureMissavBrowserConnectionCurrent(
+          0,
+          null,
+          client: client,
+          clientGeneration: verifiedGeneration,
+          browserAdapter: adapter,
+        );
+        adapter = MissavBrowserAdapter(
+          runJavaScript: (script) async {
+            final match = RegExp(r'const request = (.*);').firstMatch(script)!;
+            final request = jsonDecode(match.group(1)!) as Map;
+            adapter.receiveMessage({
+              'id': request['id'],
+              'nonce': request['nonce'],
+              'origin': MissavClient.origin,
+              'status': loginStatus,
+              'url': request['url'],
+              'headers': {'content-type': 'application/json'},
+              'body': loginStatus == 200 ? '{"user":{"name":"viewer"}}' : '{}',
+            });
+          },
+          currentUrl: () => missavMobileSourceUrl(controller),
+          navigateDocument: (uri, cancelled) => navigateMissavDocument(
+            uri,
+            cancelled,
+            navigate: (signal) => waitForMissavMobilePage(
+              controller,
+              uri.toString(),
+              cancelSignal: signal,
+              ensureActive: () {},
+            ),
+            read: (_) async => {
+              'url': uri.toString(),
+              'html':
+                  '<html><head><title>Catalog</title></head><body></body></html>',
+            },
+            stop: () => controller.runJavaScript('window.stop();'),
+            releaseDocument: (_) => parkMissavMobileBrowser(
+              controller,
+              ensureActive: ensureCurrent,
+            ),
+          ),
+          disposeBrowser: () async {},
+        );
+        await client.importVerifiedSession(
+          cookieHeader: 'session=verified',
+          userAgent: 'Test browser',
+        );
+        client.useVerifiedBrowserTransport(adapter);
+        verifiedGeneration = client.sessionGeneration;
+        expect((await client.browse(client.homeUrl)).url, client.homeUrl);
+
+        final login = client.login(
+          email: 'viewer@example.test',
+          password: 'sample',
+        );
+        if (loginStatus == 200) {
+          await login;
+        } else {
+          await expectLater(
+            login,
+            throwsA(isA<MissavAuthenticationException>()),
+          );
+        }
+        expect(client.sessionGeneration, greaterThan(verifiedGeneration));
+        expect(adapter.isClosed, isFalse);
+        expect((await client.browse(client.homeUrl)).url, client.homeUrl);
+        expect(await controller.currentUrl(), 'about:blank');
+
+        expect(
+          () => ensureMissavBrowserConnectionCurrent(
+            0,
+            null,
+            client: client,
+            clientGeneration: verifiedGeneration,
+          ),
+          throwsA(isA<StateError>()),
+        );
+        expect(
+          () => ensureMissavBrowserConnectionCurrent(
+            -1,
+            null,
+            browserAdapter: adapter,
+          ),
+          throwsA(isA<StateError>()),
+        );
+        expect(
+          () => ensureMissavBrowserConnectionCurrent(
+            0,
+            Completer<void>()..complete(),
+            browserAdapter: adapter,
+          ),
+          throwsA(isA<StateError>()),
+        );
+        client.restoreNativeTransport();
+        expect(ensureCurrent, throwsA(isA<StateError>()));
+      },
+    );
+  }
+
+  test(
+    'idle mobile bridge unloads the website without another network navigation',
+    () async {
+      final oldPlatform = WebViewPlatform.instance;
+      final navigationFinished = Completer<void>();
+      final platform = _FakeWebViewPlatform(
+        Future.value(const []),
+        onLoadHtml: () => navigationFinished.future,
+      );
+      WebViewPlatform.instance = platform;
+      addTearDown(() {
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+      final controller = WebViewController();
+      final browser = controller.platform as _FakeWebViewController;
+      var parked = false;
+      final parking = parkMissavMobileBrowser(
+        controller,
+      ).then((_) => parked = true);
+      addTearDown(() async {
+        if (!navigationFinished.isCompleted) navigationFinished.complete();
+        await parking;
+      });
+      await browser.htmlLoadStarted.future;
+      expect(parked, isFalse);
+      // A late finish event from the old website cannot release the bridge load.
+      browser._navigationDelegate!.pageFinished!('https://missav.ai/cn');
+      await Future<void>.delayed(Duration.zero);
+      expect(parked, isFalse);
+      navigationFinished.complete();
+      await parking;
+      expect(browser.networkNavigations, 0);
+      expect(await controller.currentUrl(), 'about:blank');
+      expect(await missavMobileSourceUrl(controller), 'https://missav.ai/');
+      expect(browser.htmlDocument, isNot(contains('<script')));
+    },
+  );
+
+  test(
+    'mobile source gate rejects a foreign or opaque document origin',
+    () async {
+      final oldPlatform = WebViewPlatform.instance;
+      WebViewPlatform.instance = _FakeWebViewPlatform(Future.value(const []));
+      addTearDown(() {
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+      final controller = WebViewController();
+      final browser = controller.platform as _FakeWebViewController;
+      for (final url in [
+        'https://other.example/',
+        'about:blank',
+        'http://missav.ai/',
+      ]) {
+        browser.documentUrl = url;
+        expect(await missavMobileSourceUrl(controller), isNull, reason: url);
+      }
+    },
+  );
+
+  test(
+    'document requests release the source page before the next request',
+    () async {
+      final released = Completer<void>();
+      final releaseStarted = Completer<void>();
+      var sourcePageRetained = true;
+      var secondNavigationStarted = false;
+      late final MissavBrowserAdapter adapter;
+      adapter = MissavBrowserAdapter(
+        runJavaScript: (_) async {},
+        currentUrl: () async => 'https://missav.ai/cn',
+        navigateDocument: (uri, cancelled) => navigateMissavDocument(
+          uri,
+          cancelled,
+          navigate: (_) async {
+            if (releaseStarted.isCompleted) secondNavigationStarted = true;
+          },
+          read: (_) async => {
+            'url': uri.toString(),
+            'html': '<html>catalog</html>',
+          },
+          stop: () async {},
+          releaseDocument: (_) async {
+            if (!releaseStarted.isCompleted) releaseStarted.complete();
+            await released.future;
+            sourcePageRetained = false;
+          },
+        ),
+        disposeBrowser: () async {},
+      );
+      addTearDown(() async {
+        if (!released.isCompleted) released.complete();
+        adapter.close();
+        await adapter.whenClosed;
+      });
+
+      final first = adapter.loadDocument(Uri.parse('https://missav.ai/cn'));
+      await Future<void>.delayed(Duration.zero);
+      expect(releaseStarted.isCompleted, isTrue);
+      var firstFinished = false;
+      unawaited(first.then((_) => firstFinished = true));
+      final second = adapter.loadDocument(
+        Uri.parse('https://missav.ai/cn/new'),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(firstFinished, isFalse);
+      expect(secondNavigationStarted, isFalse);
+      released.complete();
+      expect(await first, '<html>catalog</html>');
+      expect(await second, '<html>catalog</html>');
+      expect(sourcePageRetained, isFalse);
+      expect(secondNavigationStarted, isTrue);
+    },
+  );
+
+  for (final cancel in [false, true]) {
+    test(
+      'failed hidden navigation stops before unloading (cancel=$cancel)',
+      () async {
+        final cancelled = Completer<void>();
+        final started = Completer<void>();
+        final stopStarted = Completer<void>();
+        final stopFinished = Completer<void>();
+        var stopped = false;
+        var released = false;
+        final document = navigateMissavDocument(
+          Uri.parse('https://missav.ai/cn'),
+          cancelled.future,
+          navigate: (signal) async {
+            started.complete();
+            if (cancel) {
+              await signal.future;
+              throw StateError('cancelled');
+            }
+          },
+          read: (_) async => throw const FormatException('invalid document'),
+          stop: () async {
+            stopStarted.complete();
+            await stopFinished.future;
+            stopped = true;
+          },
+          releaseDocument: (documentRead) async {
+            expect(documentRead, isFalse);
+            expect(stopped, isTrue);
+            released = true;
+          },
+        );
+        final outcome = expectLater(
+          document,
+          throwsA(cancel ? isA<StateError>() : isA<FormatException>()),
+        );
+        await started.future;
+        if (cancel) cancelled.complete();
+        await stopStarted.future;
+        expect(released, isFalse);
+        stopFinished.complete();
+        await outcome;
+        expect(released, isTrue);
+      },
+    );
+  }
+
+  test('late parking errors never stop a replacement page', () async {
+    final cancelled = Completer<void>();
+    final releaseStarted = Completer<void>();
+    final releaseFinished = Completer<void>();
+    var stops = 0;
+    final document = navigateMissavDocument(
+      Uri.parse('https://missav.ai/cn'),
+      cancelled.future,
+      navigate: (_) async {},
+      read: (_) async => {
+        'url': 'https://missav.ai/cn',
+        'html': '<html></html>',
+      },
+      stop: () async => stops++,
+      releaseDocument: (_) async {
+        releaseStarted.complete();
+        await releaseFinished.future;
+        throw StateError('old browser closed');
+      },
+    );
+    final outcome = expectLater(document, throwsA(isA<StateError>()));
+    await releaseStarted.future;
+    cancelled.complete();
+    releaseFinished.complete();
+    await outcome;
+    expect(stops, 0);
+  });
+
+  test('replaced mobile sessions cannot load a late bridge document', () async {
+    final oldPlatform = WebViewPlatform.instance;
+    WebViewPlatform.instance = _FakeWebViewPlatform(Future.value(const []));
+    addTearDown(() {
+      if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+    });
+    final controller = WebViewController();
+    final browser = controller.platform as _FakeWebViewController;
+    var checks = 0;
+    await expectLater(
+      parkMissavMobileBrowser(
+        controller,
+        ensureActive: () {
+          if (++checks == 2) throw StateError('session replaced');
+        },
+      ),
+      throwsA(isA<StateError>()),
+    );
+    expect(browser.htmlLoadStarted.isCompleted, isFalse);
+    expect(browser.networkNavigations, 0);
+  });
 
   test('Android accepts the verified browser document', () async {
     const html = '<html><a href="/logout">退出登录</a></html>';
@@ -289,11 +615,13 @@ class _FakeWebViewPlatform extends WebViewPlatform {
     this.cookies, {
     this.initialUrl = 'https://missav.ai/cn',
     this.onLoadRequest,
+    this.onLoadHtml,
   });
 
   final Future<List<WebViewCookie>> cookies;
   final String? initialUrl;
   final Future<void> Function(LoadRequestParams params)? onLoadRequest;
+  final Future<void> Function()? onLoadHtml;
   final cookiesRequested = Completer<void>();
 
   @override
@@ -303,6 +631,7 @@ class _FakeWebViewPlatform extends WebViewPlatform {
     params,
     initialUrl: initialUrl,
     onLoadRequest: onLoadRequest,
+    onLoadHtml: onLoadHtml,
   );
 
   @override
@@ -321,12 +650,19 @@ class _FakeWebViewController extends PlatformWebViewController {
     super.params, {
     required String? initialUrl,
     this.onLoadRequest,
+    this.onLoadHtml,
   }) : _url = initialUrl,
+       documentUrl = initialUrl,
        super.implementation();
 
   String? _url;
+  String? documentUrl;
+  String htmlDocument = '';
+  int networkNavigations = 0;
+  final htmlLoadStarted = Completer<void>();
   _FakeNavigationDelegate? _navigationDelegate;
   final Future<void> Function(LoadRequestParams params)? onLoadRequest;
+  final Future<void> Function()? onLoadHtml;
 
   @override
   Future<String?> currentUrl() async => _url;
@@ -343,6 +679,7 @@ class _FakeWebViewController extends PlatformWebViewController {
 
   @override
   Future<void> loadRequest(LoadRequestParams params) async {
+    networkNavigations++;
     final url = params.uri.toString();
     final decision = await _navigationDelegate?.navigationRequest?.call(
       NavigationRequest(url: url, isMainFrame: true),
@@ -350,6 +687,7 @@ class _FakeWebViewController extends PlatformWebViewController {
     if (decision != NavigationDecision.prevent) {
       void finishNavigation() {
         _url = url;
+        documentUrl = url;
         _navigationDelegate?.pageFinished?.call(url);
       }
 
@@ -360,6 +698,18 @@ class _FakeWebViewController extends PlatformWebViewController {
         unawaited(loading.then((_) => finishNavigation()));
       }
     }
+  }
+
+  @override
+  Future<void> loadHtmlString(String html, {String? baseUrl}) async {
+    if (!htmlLoadStarted.isCompleted) htmlLoadStarted.complete();
+    unawaited(() async {
+      await onLoadHtml?.call();
+      _url = 'about:blank';
+      documentUrl = baseUrl;
+      htmlDocument = html;
+      _navigationDelegate?.pageFinished?.call('about:blank');
+    }());
   }
 
   @override
@@ -374,7 +724,15 @@ class _FakeWebViewController extends PlatformWebViewController {
   Future<void> runJavaScript(String javaScript) async {}
 
   @override
-  Future<Object> runJavaScriptReturningResult(String javaScript) async => true;
+  Future<Object> runJavaScriptReturningResult(String javaScript) async {
+    if (javaScript.contains('location.origin')) {
+      final source = isMissavVerificationUrl(documentUrl ?? '');
+      return source &&
+          (!javaScript.contains('kikoflu-browser-bridge') ||
+              htmlDocument.contains('kikoflu-browser-bridge'));
+    }
+    return true;
+  }
 
   @override
   Future<String?> getUserAgent() async => 'test-browser';

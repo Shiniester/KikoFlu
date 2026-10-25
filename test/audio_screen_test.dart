@@ -3,6 +3,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:kikoeru_flutter/src/comics/ui/comic_screen.dart';
+import 'package:kikoeru_flutter/src/videos/ui/video_screen.dart';
+import 'package:kikoeru_flutter/src/videos/video_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -2077,6 +2079,12 @@ void main() {
       final reduced = ValueNotifier(false);
       addTearDown(reduced.dispose);
       await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(MainScreen)),
+      );
+      expect(container.exists(videoClientProvider), isFalse);
+      expect(container.exists(videoLibraryProvider), isFalse);
+      expect(container.exists(videoDownloadsProvider), isFalse);
       final pagesFinder = find.byKey(const ValueKey('main-tab-pages'));
       final pages = tester.widget<PageView>(pagesFinder).controller!;
       final navigation = size.width > size.height
@@ -2100,6 +2108,7 @@ void main() {
       expect(pages.page, lessThan(3));
       expect(find.byType(SettingsSectionList), findsNothing);
       expect(find.byType(ComicScreen, skipOffstage: false), findsNothing);
+      expect(find.byType(VideoScreen, skipOffstage: false), findsNothing);
       await tester.pumpAndSettle();
       expect(pages.page, 3);
       expect(find.byType(SettingsSectionList), findsWidgets);
@@ -2112,6 +2121,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(pages.page, 0);
       expect(tester.state(find.byType(AudioScreen)), same(audioState));
+      expect(container.exists(videoClientProvider), isFalse);
+      expect(container.exists(videoLibraryProvider), isFalse);
+      expect(container.exists(videoDownloadsProvider), isFalse);
       expect(tester.takeException(), isNull);
     });
   }

@@ -390,6 +390,13 @@ class VideoCover extends ConsumerWidget {
         ),
       );
       final compact = constraints.maxWidth < 120;
+      int? cacheWidth;
+      if (constraints.hasBoundedWidth) {
+        final displayWidth =
+            (constraints.maxWidth * MediaQuery.devicePixelRatioOf(context))
+                .ceil();
+        cacheWidth = displayWidth < 1 ? 1 : displayWidth;
+      }
       final isLandscape =
           MediaQuery.orientationOf(context) == Orientation.landscape;
       final inset = compact ? 2.0 : 6.0;
@@ -416,7 +423,7 @@ class VideoCover extends ConsumerWidget {
           key: ValueKey('video-cover-${video.id}'),
           fit: StackFit.expand,
           children: [
-            _image(),
+            _image(cacheWidth),
             Positioned(
               left: inset,
               right: inset,
@@ -476,13 +483,14 @@ class VideoCover extends ConsumerWidget {
     },
   );
 
-  Widget _image() => video.cover.isEmpty
+  Widget _image(int? cacheWidth) => video.cover.isEmpty
       ? const ColoredBox(
           color: Colors.black12,
           child: Center(child: Icon(Icons.movie_outlined)),
         )
       : Image.network(
           video.cover,
+          cacheWidth: cacheWidth,
           fit: BoxFit.cover,
           errorBuilder: (_, _, _) => const ColoredBox(
             color: Colors.black12,

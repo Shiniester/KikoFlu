@@ -30,6 +30,7 @@ class MissavBrowserAdapter implements HttpClientAdapter {
   Future<void>? _cleanup;
   Future<void> _queue = Future<void>.value();
 
+  bool get isClosed => _closed;
   Future<void> get whenClosed => _cleanup ?? Future.value();
 
   static const channelName = 'KikoMissavHttp';

@@ -51,7 +51,26 @@ void main() {
 
         expect(document, contains('Verified account fixture'));
         expect(document, contains('退出登录'));
+        await browser.runJavaScript('''
+window.kikofluSourceFixture = true;
+document.cookie = 'kikoflu_bridge_fixture=retained; Path=/; Secure; SameSite=Lax';
+localStorage.setItem('kikoflu_bridge_fixture', 'retained');
+''');
+        await parkMissavMobileBrowser(browser);
+        expect(await missavMobileSourceUrl(browser), 'https://missav.ai/');
+        expect(
+          await browser.runJavaScriptReturningResult('''
+typeof window.kikofluSourceFixture === 'undefined' &&
+document.cookie.includes('kikoflu_bridge_fixture=retained') &&
+localStorage.getItem('kikoflu_bridge_fixture') === 'retained'
+'''),
+          isTrue,
+        );
       } finally {
+        await browser.runJavaScript('''
+document.cookie = 'kikoflu_bridge_fixture=; Path=/; Secure; Max-Age=0';
+localStorage.removeItem('kikoflu_bridge_fixture');
+''');
         await browser.runJavaScript('window.stop();');
         await tester.pumpWidget(const SizedBox.shrink());
       }

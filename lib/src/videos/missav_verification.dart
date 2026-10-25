@@ -74,17 +74,23 @@ Future<T> _cancelable<T>(Future<T> operation, Completer<void>? cancelSignal) {
   return Future.any<T>([operation, cancelled]);
 }
 
-void _ensureConnectionCurrent(
+@visibleForTesting
+void ensureMissavBrowserConnectionCurrent(
   int generation,
   Completer<void>? cancelSignal, {
   MissavClient? client,
   int? clientGeneration,
+  MissavBrowserAdapter? browserAdapter,
 }) {
+  // Login changes account generations without replacing a retained browser.
+  final invalidSession = browserAdapter != null
+      ? browserAdapter.isClosed
+      : client != null &&
+            clientGeneration != null &&
+            client.sessionGeneration != clientGeneration;
   if (generation != _browserConnectionGeneration ||
       (cancelSignal?.isCompleted ?? false) ||
-      (client != null &&
-          clientGeneration != null &&
-          client.sessionGeneration != clientGeneration)) {
+      invalidSession) {
     throw StateError('MissAV browser connection was cancelled.');
   }
 }
@@ -118,14 +124,14 @@ Future<T> _awaitConnectionPhase<T>(
   MissavClient? client,
   int? clientGeneration,
 }) async {
-  _ensureConnectionCurrent(
+  ensureMissavBrowserConnectionCurrent(
     generation,
     cancelSignal,
     client: client,
     clientGeneration: clientGeneration,
   );
   final result = await _cancelable(operation(), cancelSignal);
-  _ensureConnectionCurrent(
+  ensureMissavBrowserConnectionCurrent(
     generation,
     cancelSignal,
     client: client,
@@ -278,6 +284,59 @@ Future<void> waitForMissavMobilePage(
   );
 }
 
+@visibleForTesting
+Future<String?> missavMobileSourceUrl(WebViewController controller) async {
+  // Android exposes about:blank as the visible URL for loadHtmlString.
+  final source = await controller.runJavaScriptReturningResult(
+    "location.origin === '${MissavClient.origin}'",
+  );
+  return source == true || source == 'true' ? '${MissavClient.origin}/' : null;
+}
+
+@visibleForTesting
+Future<void> parkMissavMobileBrowser(
+  WebViewController controller, {
+  void Function()? ensureActive,
+}) async {
+  final loaded = Completer<void>();
+  ensureActive?.call();
+  await controller.setNavigationDelegate(
+    NavigationDelegate(
+      onNavigationRequest: (request) =>
+          !request.isMainFrame ||
+              isMissavVerificationUrl(request.url) ||
+              request.url == 'about:blank'
+          ? NavigationDecision.navigate
+          : NavigationDecision.prevent,
+      onPageFinished: (_) async {
+        if (loaded.isCompleted) return;
+        try {
+          final ready = await controller.runJavaScriptReturningResult('''
+location.origin === '${MissavClient.origin}' &&
+document.readyState === 'complete' &&
+document.documentElement.id === 'kikoflu-browser-bridge'
+''');
+          if ((ready == true || ready == 'true') && !loaded.isCompleted) {
+            loaded.complete();
+          }
+        } catch (error, trace) {
+          if (!loaded.isCompleted) loaded.completeError(error, trace);
+        }
+      },
+    ),
+  );
+  ensureActive?.call();
+  // A new document drops source scripts and timers while keeping its origin.
+  await Future.wait<void>([
+    controller.loadHtmlString(
+      '<!doctype html><html id="kikoflu-browser-bridge"><head>'
+      '<meta charset="utf-8"></head><body></body></html>',
+      baseUrl: '${MissavClient.origin}/',
+    ),
+    loaded.future.timeout(const Duration(seconds: 30)),
+  ], eagerError: true);
+}
+
 const _verificationReadyScript = '''
 document.readyState === 'complete' && typeof window._cf_chl_opt === 'undefined' &&
 !/^Just a moment|Attention Required.*Cloudflare/i.test(document.title)
@@ -344,9 +403,11 @@ Future<String> navigateMissavDocument(
   required Future<void> Function(Completer<void> signal) navigate,
   required Future<Object?> Function(String script) read,
   required Future<void> Function() stop,
+  Future<void> Function(bool documentRead)? releaseDocument,
 }) async {
   final cancellation = Completer<void>();
   var finished = false;
+  var documentRead = false;
   Future<void> stopping = Future.value();
   unawaited(
     cancelled.then((_) {
@@ -370,6 +431,7 @@ Future<String> navigateMissavDocument(
         sourceUrl: uri.toString(),
       );
     }
+    documentRead = true;
     return document['html'] as String;
   } catch (_) {
     if (!cancellation.isCompleted) {
@@ -380,6 +442,8 @@ Future<String> navigateMissavDocument(
   } finally {
     finished = true;
     await stopping;
+    // Stop failed navigation before parking, keeping both in the adapter queue.
+    await releaseDocument?.call(documentRead);
   }
 }
 
@@ -561,7 +625,9 @@ _createMissavMediaRelay({
       ensureActive();
       final media = MissavBrowserMediaTransport(
         runJavaScript: browser.runJavaScript,
-        currentUrl: browser.currentUrl,
+        currentUrl: Platform.isAndroid
+            ? () => missavMobileSourceUrl(browser)
+            : browser.currentUrl,
         disposeBrowser: disposeMobile,
       );
       transport = media;
@@ -570,12 +636,19 @@ _createMissavMediaRelay({
         onMessageReceived: (message) => media.receiveMessage(message.message),
       );
       ensureActive();
-      await waitForMissavMobilePage(
-        browser,
-        startUrl,
-        cancelSignal: cancelSignal,
-        ensureActive: ensureActive,
-      );
+      if (Platform.isAndroid) {
+        await _cancelable(
+          parkMissavMobileBrowser(browser, ensureActive: ensureActive),
+          cancelSignal,
+        );
+      } else {
+        await waitForMissavMobilePage(
+          browser,
+          startUrl,
+          cancelSignal: cancelSignal,
+          ensureActive: ensureActive,
+        );
+      }
       ensureActive();
     }
     final media = transport;
@@ -650,7 +723,7 @@ Future<void> connectMissavBrowserSession(
       cancelSignal,
     );
     clientGeneration = expectedGeneration ?? client.sessionGeneration;
-    _ensureConnectionCurrent(
+    ensureMissavBrowserConnectionCurrent(
       connectionGeneration,
       cancelSignal,
       client: client,
@@ -669,7 +742,7 @@ Future<void> connectMissavBrowserSession(
       } finally {
         _clearBrowserOwner(previous);
       }
-      _ensureConnectionCurrent(
+      ensureMissavBrowserConnectionCurrent(
         connectionGeneration,
         cancelSignal,
         client: client,
@@ -677,7 +750,7 @@ Future<void> connectMissavBrowserSession(
       );
     }
 
-    _ensureConnectionCurrent(
+    ensureMissavBrowserConnectionCurrent(
       connectionGeneration,
       cancelSignal,
       client: client,
@@ -688,7 +761,7 @@ Future<void> connectMissavBrowserSession(
       if (proxyGeneration != _androidProxyConfigurationGeneration) {
         throw StateError('MissAV browser proxy was replaced.');
       }
-      _ensureConnectionCurrent(
+      ensureMissavBrowserConnectionCurrent(
         connectionGeneration,
         cancelSignal,
         client: client,
@@ -720,7 +793,7 @@ Future<void> connectMissavBrowserSession(
       }
       final browser = await _createMissavDesktopBrowser(hidden: true);
       desktop = browser;
-      _ensureConnectionCurrent(
+      ensureMissavBrowserConnectionCurrent(
         connectionGeneration,
         cancelSignal,
         client: client,
@@ -801,7 +874,9 @@ Future<void> connectMissavBrowserSession(
       late final MissavBrowserAdapter browserAdapter;
       browserAdapter = MissavBrowserAdapter(
         runJavaScript: mobile.runJavaScript,
-        currentUrl: mobile.currentUrl,
+        currentUrl: Platform.isAndroid
+            ? () => missavMobileSourceUrl(mobile)
+            : mobile.currentUrl,
         navigateDocument: (uri, cancelled) => navigateMissavDocument(
           uri,
           cancelled,
@@ -817,6 +892,24 @@ Future<void> connectMissavBrowserSession(
           ),
           read: mobile.runJavaScriptReturningResult,
           stop: () => mobile.runJavaScript('window.stop();'),
+          releaseDocument: Platform.isAndroid
+              ? (documentRead) async {
+                  if (documentRead ||
+                      connected ||
+                      !preserveMobilePageOnFailure) {
+                    await parkMissavMobileBrowser(
+                      mobile,
+                      ensureActive: () => ensureMissavBrowserConnectionCurrent(
+                        connectionGeneration,
+                        cancelSignal,
+                        client: client,
+                        clientGeneration: clientGeneration,
+                        browserAdapter: browserAdapter,
+                      ),
+                    );
+                  }
+                }
+              : null,
         ),
         disposeBrowser: () async {
           await closeMedia();
@@ -847,7 +940,7 @@ Future<void> connectMissavBrowserSession(
           mobile,
           client.homeUrl,
           cancelSignal: cancelSignal,
-          ensureActive: () => _ensureConnectionCurrent(
+          ensureActive: () => ensureMissavBrowserConnectionCurrent(
             connectionGeneration,
             cancelSignal,
             client: client,
@@ -888,7 +981,7 @@ Future<void> connectMissavBrowserSession(
     if (cookieHeader.isEmpty || userAgent == null || userAgent.isEmpty) {
       throw StateError('Source browser session unavailable');
     }
-    _ensureConnectionCurrent(
+    ensureMissavBrowserConnectionCurrent(
       connectionGeneration,
       cancelSignal,
       client: client,
@@ -903,7 +996,7 @@ Future<void> connectMissavBrowserSession(
     if (client.sessionGeneration != generationBeforeImport + 1) {
       throw StateError('MissAV session changed during browser verification.');
     }
-    _ensureConnectionCurrent(
+    ensureMissavBrowserConnectionCurrent(
       connectionGeneration,
       cancelSignal,
       client: client,
@@ -915,7 +1008,7 @@ Future<void> connectMissavBrowserSession(
       mobile: mobile != null,
       homeUrl: client.homeUrl,
       cancelSignal: cancelSignal,
-      ensureActive: () => _ensureConnectionCurrent(
+      ensureActive: () => ensureMissavBrowserConnectionCurrent(
         connectionGeneration,
         cancelSignal,
         client: client,
@@ -925,7 +1018,7 @@ Future<void> connectMissavBrowserSession(
     mediaRelay = relay;
 
     final connectedAdapter = adapter;
-    _ensureConnectionCurrent(
+    ensureMissavBrowserConnectionCurrent(
       connectionGeneration,
       cancelSignal,
       client: client,
@@ -987,7 +1080,7 @@ Future<void> restoreMissavBrowserSession(
   }
 
   final connectionGeneration = _browserConnectionGeneration;
-  void ensureCurrent() => _ensureConnectionCurrent(
+  void ensureCurrent() => ensureMissavBrowserConnectionCurrent(
     connectionGeneration,
     null,
     client: client,

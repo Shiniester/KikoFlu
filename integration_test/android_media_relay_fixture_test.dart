@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -15,6 +14,7 @@ import 'package:kikoeru_flutter/src/utils/global_keys.dart';
 import 'package:kikoeru_flutter/src/videos/missav_browser_media.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
 import 'package:kikoeru_flutter/src/videos/missav_media_server.dart';
+import 'package:kikoeru_flutter/src/videos/missav_verification.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_playback_panel.dart';
 import 'package:kikoeru_flutter/src/videos/video_models.dart';
 
@@ -62,24 +62,9 @@ void main() {
 
         browser = WebViewController();
         await browser.setJavaScriptMode(JavaScriptMode.unrestricted);
-        final pageLoaded = Completer<void>();
-        await browser.setNavigationDelegate(
-          NavigationDelegate(
-            onPageFinished: (url) {
-              if (!pageLoaded.isCompleted) pageLoaded.complete();
-            },
-          ),
-        );
         transport = MissavBrowserMediaTransport(
           runJavaScript: browser.runJavaScript,
-          currentUrl: () async {
-            final current = await browser!.currentUrl();
-            if (Uri.tryParse(current ?? '')?.scheme == 'about') {
-              // Android reports about:blank for loadHtmlString despite its base URL.
-              return '${MissavClient.origin}/';
-            }
-            return current;
-          },
+          currentUrl: () => missavMobileSourceUrl(browser!),
           disposeBrowser: () => browser!.removeJavaScriptChannel(
             MissavBrowserMediaTransport.channelName,
           ),
@@ -111,12 +96,7 @@ void main() {
         );
         overlay.insert(entry);
         await WidgetsBinding.instance.endOfFrame;
-        await browser.loadHtmlString(
-          '<!doctype html><html><head><title>Media relay fixture</title></head>'
-          '<body>Android media relay fixture</body></html>',
-          baseUrl: '${MissavClient.origin}/',
-        );
-        await pageLoaded.future.timeout(const Duration(seconds: 20));
+        await parkMissavMobileBrowser(browser);
         final currentUrl = Uri.tryParse(await browser.currentUrl() ?? '');
         final browserOrigin = currentUrl?.scheme == 'about'
             ? 'about:blank'

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -6,6 +7,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
@@ -78,6 +80,74 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+  });
+
+  testWidgets('video cover decode stays within its physical display width', (
+    tester,
+  ) async {
+    const displayWidth = 80.0;
+    const devicePixelRatio = 3.0;
+    const sourceWidth = 1600;
+    const sourceHeight = 1200;
+    final sourceBytes = Uint8List.fromList(
+      img.encodePng(img.Image(width: sourceWidth, height: sourceHeight)),
+    );
+    final previousHttpClientProvider = debugNetworkImageHttpClientProvider;
+    debugNetworkImageHttpClientProvider = () =>
+        _VideoCoverHttpClient(sourceBytes);
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+    });
+
+    try {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = devicePixelRatio;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        _app(
+          const Center(
+            child: SizedBox(
+              width: displayWidth,
+              height: displayWidth * 3 / 4,
+              child: VideoCover(
+                video: VideoItem(
+                  id: 'decode-size',
+                  title: 'Decode size',
+                  pageUrl: 'https://missav.ai/cn/decode-size',
+                  cover: 'https://missav.ai/images/decode-size.png',
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final cover = find.byKey(const ValueKey('video-cover-decode-size'));
+      expect(
+        tester.getSize(cover),
+        const Size(displayWidth, displayWidth * 3 / 4),
+      );
+      final image = find.descendant(of: cover, matching: find.byType(RawImage));
+      ui.Image? decodedImage;
+      for (var frame = 0; frame < 10 && decodedImage == null; frame++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+        decodedImage = tester.widget<RawImage>(image).image;
+      }
+      expect(decodedImage, isNotNull);
+      final targetWidth = (displayWidth * devicePixelRatio).round();
+      final decodedBytes = decodedImage!.width * decodedImage.height * 4;
+      expect(decodedImage.width, targetWidth);
+      expect(decodedImage.height, targetWidth * sourceHeight ~/ sourceWidth);
+      expect(decodedBytes, lessThan(sourceWidth * sourceHeight * 4 ~/ 40));
+    } finally {
+      debugNetworkImageHttpClientProvider = previousHttpClientProvider;
+    }
   });
 
   testWidgets(
@@ -554,3 +624,117 @@ Widget _app(
     home: Scaffold(body: child),
   ),
 );
+
+class _VideoCoverHttpClient implements HttpClient {
+  _VideoCoverHttpClient(this._body);
+
+  final Uint8List _body;
+
+  @override
+  bool autoUncompress = false;
+
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) async =>
+      _VideoCoverHttpRequest(_body);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _VideoCoverHttpRequest implements HttpClientRequest {
+  _VideoCoverHttpRequest(this._body);
+
+  final Uint8List _body;
+
+  @override
+  final HttpHeaders headers = _VideoCoverHttpHeaders();
+
+  @override
+  Future<HttpClientResponse> close() async => _VideoCoverHttpResponse(_body);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _VideoCoverHttpResponse extends Stream<List<int>>
+    implements HttpClientResponse {
+  _VideoCoverHttpResponse(this._body)
+    : headers = _VideoCoverHttpHeaders({
+        HttpHeaders.contentTypeHeader: 'image/png',
+        HttpHeaders.contentLengthHeader: _body.length.toString(),
+      });
+
+  final Uint8List _body;
+
+  @override
+  final HttpHeaders headers;
+
+  @override
+  int get contentLength => _body.length;
+
+  @override
+  bool get isRedirect => false;
+
+  @override
+  bool get persistentConnection => false;
+
+  @override
+  String get reasonPhrase => 'OK';
+
+  @override
+  List<RedirectInfo> get redirects => const [];
+
+  @override
+  HttpClientResponseCompressionState get compressionState =>
+      HttpClientResponseCompressionState.notCompressed;
+
+  @override
+  int get statusCode => HttpStatus.ok;
+
+  @override
+  StreamSubscription<List<int>> listen(
+    void Function(List<int>)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) => Stream<List<int>>.value(_body).listen(
+    onData,
+    onError: onError,
+    onDone: onDone,
+    cancelOnError: cancelOnError,
+  );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _VideoCoverHttpHeaders implements HttpHeaders {
+  _VideoCoverHttpHeaders([Map<String, String> values = const {}])
+    : _values = {
+        for (final entry in values.entries)
+          entry.key.toLowerCase(): <String>[entry.value],
+      };
+
+  final Map<String, List<String>> _values;
+
+  @override
+  String? value(String name) => _values[name.toLowerCase()]?.join(', ');
+
+  @override
+  void forEach(void Function(String name, List<String> values) action) {
+    _values.forEach(action);
+  }
+
+  @override
+  void add(String name, Object value, {bool preserveHeaderCase = false}) {
+    _values.putIfAbsent(name.toLowerCase(), () => []).add(value.toString());
+  }
+
+  @override
+  void set(String name, Object value, {bool preserveHeaderCase = false}) {
+    _values[name.toLowerCase()] = [value.toString()];
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
