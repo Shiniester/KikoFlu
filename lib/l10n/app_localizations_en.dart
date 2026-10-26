@@ -571,6 +571,28 @@ class SEn extends S {
   String get checkUpdate => 'Check for Updates';
 
   @override
+  String get updateChannel => 'Update Channel';
+
+  @override
+  String get stableUpdateChannel => 'Stable';
+
+  @override
+  String get betaUpdateChannel => 'Beta';
+
+  @override
+  String get betaOnlyAndroid => 'Beta is available only on Android.';
+
+  @override
+  String get noBetaRelease => 'No beta release is available yet.';
+
+  @override
+  String get updateChannelVersionAvailable => 'Selected channel version';
+
+  @override
+  String get crossChannelUpdateNotice =>
+      'Android stable and beta releases install as separate apps and keep separate data. Installing this release will not replace the current app.';
+
+  @override
   String get author => 'Author';
 
   @override

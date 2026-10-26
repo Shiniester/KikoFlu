@@ -558,6 +558,28 @@ class SZh extends S {
   String get checkUpdate => '检查更新';
 
   @override
+  String get updateChannel => '更新渠道';
+
+  @override
+  String get stableUpdateChannel => '正式版';
+
+  @override
+  String get betaUpdateChannel => '测试版';
+
+  @override
+  String get betaOnlyAndroid => '测试版仅支持 Android';
+
+  @override
+  String get noBetaRelease => '暂无测试版';
+
+  @override
+  String get updateChannelVersionAvailable => '所选渠道版本';
+
+  @override
+  String get crossChannelUpdateNotice =>
+      'Android 正式版与测试版是独立应用，数据分别保存。安装后不会替换当前应用。';
+
+  @override
   String get author => '作者';
 
   @override
@@ -4907,6 +4929,28 @@ class SZhHant extends SZh {
 
   @override
   String get checkUpdate => '檢查更新';
+
+  @override
+  String get updateChannel => 'Update Channel';
+
+  @override
+  String get stableUpdateChannel => 'Stable';
+
+  @override
+  String get betaUpdateChannel => 'Beta';
+
+  @override
+  String get betaOnlyAndroid => 'Beta is available only on Android.';
+
+  @override
+  String get noBetaRelease => 'No beta release is available yet.';
+
+  @override
+  String get updateChannelVersionAvailable => 'Selected channel version';
+
+  @override
+  String get crossChannelUpdateNotice =>
+      'Android stable and beta releases install as separate apps and keep separate data. Installing this release will not replace the current app.';
 
   @override
   String get author => '作者';

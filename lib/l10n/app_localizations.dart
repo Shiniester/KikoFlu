@@ -1156,6 +1156,48 @@ abstract class S {
   /// **'Check for Updates'**
   String get checkUpdate;
 
+  /// Setting that selects the release channel used for update checks.
+  ///
+  /// In en, this message translates to:
+  /// **'Update Channel'**
+  String get updateChannel;
+
+  /// The stable release channel.
+  ///
+  /// In en, this message translates to:
+  /// **'Stable'**
+  String get stableUpdateChannel;
+
+  /// The Android beta prerelease channel.
+  ///
+  /// In en, this message translates to:
+  /// **'Beta'**
+  String get betaUpdateChannel;
+
+  /// Explains why beta updates are disabled on non-Android platforms.
+  ///
+  /// In en, this message translates to:
+  /// **'Beta is available only on Android.'**
+  String get betaOnlyAndroid;
+
+  /// Shown after a successful check finds no published beta release.
+  ///
+  /// In en, this message translates to:
+  /// **'No beta release is available yet.'**
+  String get noBetaRelease;
+
+  /// Dialog title for a release from a different channel.
+  ///
+  /// In en, this message translates to:
+  /// **'Selected channel version'**
+  String get updateChannelVersionAvailable;
+
+  /// Explains separate Android installations and app data when selecting another release channel.
+  ///
+  /// In en, this message translates to:
+  /// **'Android stable and beta releases install as separate apps and keep separate data. Installing this release will not replace the current app.'**
+  String get crossChannelUpdateNotice;
+
   /// No description provided for @author.
   ///
   /// In en, this message translates to:
