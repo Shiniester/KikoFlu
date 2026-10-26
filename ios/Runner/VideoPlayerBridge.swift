@@ -15,7 +15,7 @@ final class VideoPlayerBridge {
   init(controller: FlutterViewController, screenAwake: ScreenAwakeRequests) {
     channel = FlutterMethodChannel(name: "com.meteor.kikoeruflutter/video_player",
       binaryMessenger: controller.binaryMessenger)
-    channel.setMethodCallHandler { [weak self] call, result in
+    channel.setMethodCallHandler { [weak self, weak controller] call, result in
       guard let self = self else { result(nil); return }
       switch call.method {
       case "initialize":
@@ -51,6 +51,24 @@ final class VideoPlayerBridge {
         let args = call.arguments as? [String: Any]
         screenAwake.video = args?["enabled"] as? Bool ?? false
         result(nil)
+      case "waitForWindowLayout":
+        DispatchQueue.main.async { [weak controller] in
+          guard let controller = controller,
+                controller.isViewLoaded, controller.view.window != nil else {
+            result(nil)
+            return
+          }
+          let complete = {
+            controller.view.layoutIfNeeded()
+            let size = controller.view.bounds.size
+            result(size.height >= size.width)
+          }
+          if let transition = controller.transitionCoordinator {
+            transition.animate(alongsideTransition: nil, completion: { _ in complete() })
+          } else {
+            complete()
+          }
+        }
       case "dispose":
         self.resetBrightness()
         if let original = self.originalBatteryMonitoring {

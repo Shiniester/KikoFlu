@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show Orientation;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/videos/video_player_platform.dart';
 import 'package:media_kit/media_kit.dart';
@@ -210,6 +211,40 @@ void main() {
     binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, null);
     binding.defaultBinaryMessenger.setMockMethodCallHandler(pipChannel, null);
   });
+
+  for (final target in [TargetPlatform.android, TargetPlatform.iOS]) {
+    test('window layout waits for the native reply on $target', () async {
+      var portrait = Completer<bool?>();
+      binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+        call,
+      ) async {
+        if (call.method == 'initialize') return <String, dynamic>{};
+        if (call.method == 'waitForWindowLayout') return portrait.future;
+        return null;
+      });
+      final platform = VideoPlayerPlatform(
+        channel: channel,
+        pictureInPictureChannel: pipChannel,
+        platform: target,
+      );
+      await platform.initialize();
+      var finished = false;
+      final layout = platform.waitForWindowLayout().then((value) {
+        finished = true;
+        return value;
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(finished, isFalse);
+      portrait.complete(true);
+      expect(await layout, Orientation.portrait);
+      portrait = Completer<bool?>()..complete(false);
+      expect(await platform.waitForWindowLayout(), Orientation.landscape);
+      portrait = Completer<bool?>()..complete(null);
+      expect(await platform.waitForWindowLayout(), isNull);
+      await platform.dispose();
+      expect(await platform.waitForWindowLayout(), isNull);
+    });
+  }
 
   test(
     'battery status preserves native values and returns null when unknown',

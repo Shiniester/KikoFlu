@@ -100,6 +100,8 @@ class MissavClient extends ChangeNotifier {
   String _homeUrl = '$origin/cn';
   bool _isLoggedIn = false;
   bool _disposed = false;
+  String? _recommendationUserId;
+  String? _recommendationScenario;
 
   bool get isLoggedIn => _isLoggedIn;
   int get sessionGeneration => _sessionGeneration;
@@ -333,6 +335,152 @@ class MissavClient extends ChangeNotifier {
     );
   }
 
+  Future<VideoRecommendationPage> loadRecommendations({
+    String? cursor,
+    required int count,
+    CancelToken? cancelToken,
+  }) async {
+    if (cancelToken?.cancelError case final error?) throw error;
+    await _prepareOnlineAccess();
+    final generation = _sessionGeneration;
+    final locale = _locale;
+    final uri = _localizedSourceUri(homeUrl);
+    final requestCancelToken = cancelToken ?? CancelToken();
+    void cancelRequest() {
+      if (!requestCancelToken.isCancelled) {
+        requestCancelToken.cancel('MissAV account changed.');
+      }
+    }
+
+    _cancelBrowseRequests.add(cancelRequest);
+    try {
+      if (requestCancelToken.cancelError case final error?) throw error;
+      if (cursor == null) {
+        _recommendationUserId = null;
+        _recommendationScenario = null;
+        final document = await _loadDocument(
+          uri,
+          generation,
+          cancelToken: requestCancelToken,
+        );
+        _updateAccountFromPage(document);
+        _updateHomeUrl(document, uri);
+      }
+      final userId = _recommendationUserId;
+      final scenario = _recommendationScenario;
+      if (userId == null || scenario == null) {
+        throw MissavVerificationRequiredException(sourceUrl: uri.toString());
+      }
+      final path = cursor == null
+          ? '/missav-default/recomms/users/${Uri.encodeComponent(userId)}/items/'
+          : '/missav-default/recomms/next/items/${Uri.encodeComponent(cursor)}';
+      final data = await _requestRecommendations(path, {
+        'count': count,
+        'cascadeCreate': true,
+        if (cursor == null) ...{
+          'scenario': scenario,
+          'returnProperties': true,
+          'filter': null,
+          'logic': {
+            'name': 'missav:personal',
+            'settings': {'spotlightVideoIds': <String>[]},
+          },
+        },
+      }, cancelToken: requestCancelToken);
+      _checkGeneration(generation, uri);
+      if (_locale != locale) {
+        throw MissavException(
+          'MissAV language changed during the request.',
+          sourceUrl: uri.toString(),
+        );
+      }
+      if (data is! Map ||
+          data['recomms'] is! List ||
+          data['recommId'] is! String) {
+        throw MissavException(
+          'MissAV returned invalid recommendations.',
+          sourceUrl: uri.toString(),
+        );
+      }
+      final recommId = data['recommId'] as String;
+      final videos = <VideoItem>[];
+      for (final entry in data['recomms'] as List) {
+        if (entry is! Map ||
+            entry['id'] is! String ||
+            entry['values'] is! Map) {
+          throw MissavException(
+            'MissAV returned an invalid recommendation.',
+            sourceUrl: uri.toString(),
+          );
+        }
+        final id = entry['id'] as String;
+        final values = entry['values'] as Map;
+        final title = values[locale == 'ja' ? 'title' : 'title_$locale'];
+        final dm = values['dm'];
+        final prefix = dm is num && dm > 0 ? '/dm${dm.toInt()}' : '';
+        final duration = values['duration'];
+        videos.add(
+          _withVideoMetadata(
+            VideoItem(
+              id: id,
+              title: title is String && title.isNotEmpty
+                  ? '${id.toUpperCase().replaceAll(RegExp(r'-(UNCENSORED-LEAK|CHINESE-SUBTITLE|ENGLISH-SUBTITLE)'), '')} $title'
+                  : id.toUpperCase(),
+              pageUrl: Uri.parse(
+                '$origin$prefix$_localePrefix/${Uri.encodeComponent(id)}',
+              ).replace(fragment: '${recommId}_$scenario').toString(),
+              cover:
+                  'https://fourhoi.com/${Uri.encodeComponent(id)}/cover-t.jpg',
+              durationSeconds: duration is num ? duration.round() : null,
+              hasSubtitles:
+                  values['has_chinese_subtitle'] == true ||
+                  values['has_english_subtitle'] == true,
+              isUncensored: values['is_uncensored_leak'] == true,
+            ),
+            values,
+            _localePrefix,
+          ),
+        );
+      }
+      if (requestCancelToken.cancelError case final error?) throw error;
+      return VideoRecommendationPage(videos: videos, cursor: recommId);
+    } on DioException catch (error) {
+      if (error.type == DioExceptionType.cancel) rethrow;
+      throw MissavException(
+        'MissAV recommendations could not be loaded.',
+        sourceUrl: uri.toString(),
+        cause: error,
+      );
+    } finally {
+      _cancelBrowseRequests.remove(cancelRequest);
+    }
+  }
+
+  Future<Object?> _requestRecommendations(
+    String path,
+    Map<String, Object?> data, {
+    CancelToken? cancelToken,
+  }) async {
+    final timestamp = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+    final unsigned = '$path?frontend_timestamp=$timestamp';
+    final signature = Hmac(
+      sha1,
+      utf8.encode(_metadataPublicToken),
+    ).convert(utf8.encode(unsigned));
+    final response = await _metadataDio.post<Object?>(
+      'https://client-rapi-missav.recombee.com$unsigned&frontend_sign=$signature',
+      data: data,
+      cancelToken: cancelToken ?? _sessionCancelToken,
+      options: Options(
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      ),
+    );
+    return response.data;
+  }
+
   Future<List<VideoItem>> _enrichVideos(
     List<VideoItem> videos, {
     CancelToken? cancelToken,
@@ -344,31 +492,17 @@ class MissavClient extends ChangeNotifier {
         .where((id) => RegExp(r'^[a-z0-9_:@.\-]+$').hasMatch(id))
         .toSet();
     if (ids.isEmpty) return videos;
-    final timestamp = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
-    const path = '/missav-default/recomms/users/anonymous/items/';
-    final unsigned = '$path?frontend_timestamp=$timestamp';
-    final signature = Hmac(
-      sha1,
-      utf8.encode(_metadataPublicToken),
-    ).convert(utf8.encode(unsigned));
     try {
-      final response = await _metadataDio.post<Object?>(
-        'https://client-rapi-missav.recombee.com$unsigned&frontend_sign=$signature',
-        data: {
+      final data = await _requestRecommendations(
+        '/missav-default/recomms/users/anonymous/items/',
+        {
           'count': ids.length,
           'cascadeCreate': true,
           'returnProperties': true,
           'filter': "'itemId' in {${ids.map(jsonEncode).join(',')}}",
         },
         cancelToken: cancelToken ?? _sessionCancelToken,
-        options: Options(
-          headers: {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          },
-        ),
       );
-      final data = response.data;
       if (data is! Map || data['recomms'] is! List) return videos;
       final valuesById = <String, Map>{};
       for (final entry in data['recomms'] as List) {
@@ -383,81 +517,85 @@ class MissavClient extends ChangeNotifier {
       return videos.map((video) {
         final values = valuesById[video.id.toLowerCase()];
         if (values == null) return video;
-        List<String> names(String field) {
-          final value = values[field];
-          if (value is! List) return [];
-          return value
-              .whereType<String>()
-              .map((name) => name.trim())
-              .where((name) => name.isNotEmpty)
-              .toSet()
-              .toList();
-        }
-
-        List<VideoLink> links(String field, String route, VideoLinkKind kind) {
-          // Recombee genre names use MissAV's Japanese slugs.
-          final prefix = field == 'genres' ? '/ja' : localePrefix;
-          return names(field)
-              .map(
-                (name) => VideoLink(
-                  label: name,
-                  url: '$origin$prefix/$route/${Uri.encodeComponent(name)}',
-                  kind: kind,
-                ),
-              )
-              .toList();
-        }
-
-        final actors = <String, VideoLink>{
-          for (final actor in links(
-            'actresses',
-            'actresses',
-            VideoLinkKind.actor,
-          ))
-            actor.label: actor,
-          for (final actor in video.actors) actor.label: actor,
-        };
-        final tags = <String, VideoLink>{
-          for (final tag in links('genres', 'genres', VideoLinkKind.category))
-            tag.label: tag,
-          for (final tag in video.tags) tag.label: tag,
-        };
-        final duration = values['duration'];
-        final releasedAt = values['released_at'];
-        return VideoItem(
-          id: video.id,
-          title: video.title,
-          pageUrl: video.pageUrl,
-          cover: video.cover,
-          durationSeconds: duration is num && duration > 0
-              ? duration.round()
-              : video.durationSeconds,
-          releaseDate: releasedAt is num && releasedAt > 0
-              ? DateTime.fromMillisecondsSinceEpoch(
-                  (releasedAt * 1000).round(),
-                  isUtc: true,
-                ).toIso8601String().substring(0, 10)
-              : video.releaseDate,
-          actors: actors.values.toList(),
-          tags: tags.values.toList(),
-          makers: {...video.makers, ...names('markers')}.toList(),
-          labels: {...video.labels, ...names('labels')}.toList(),
-          series: {...video.series, ...names('series')}.toList(),
-          directors: {...video.directors, ...names('directors')}.toList(),
-          hasSubtitles:
-              video.hasSubtitles ||
-              values['has_chinese_subtitle'] == true ||
-              values['has_english_subtitle'] == true,
-          isUncensored:
-              video.isUncensored ||
-              values['is_uncensored_leak'] == true ||
-              _uncensoredTypes.contains(values['type']),
-        );
+        return _withVideoMetadata(video, values, localePrefix);
       }).toList();
     } catch (_) {
       // Catalog browsing stays available when optional metadata cannot be read.
       return videos;
     }
+  }
+
+  static VideoItem _withVideoMetadata(
+    VideoItem video,
+    Map values,
+    String localePrefix,
+  ) {
+    List<String> names(String field) {
+      final value = values[field];
+      if (value is! List) return [];
+      return value
+          .whereType<String>()
+          .map((name) => name.trim())
+          .where((name) => name.isNotEmpty)
+          .toSet()
+          .toList();
+    }
+
+    List<VideoLink> links(String field, String route, VideoLinkKind kind) {
+      // Recombee genre names use MissAV's Japanese slugs.
+      final prefix = field == 'genres' ? '/ja' : localePrefix;
+      return names(field)
+          .map(
+            (name) => VideoLink(
+              label: name,
+              url: '$origin$prefix/$route/${Uri.encodeComponent(name)}',
+              kind: kind,
+            ),
+          )
+          .toList();
+    }
+
+    final actors = <String, VideoLink>{
+      for (final actor in links('actresses', 'actresses', VideoLinkKind.actor))
+        actor.label: actor,
+      for (final actor in video.actors) actor.label: actor,
+    };
+    final tags = <String, VideoLink>{
+      for (final tag in links('genres', 'genres', VideoLinkKind.category))
+        tag.label: tag,
+      for (final tag in video.tags) tag.label: tag,
+    };
+    final duration = values['duration'];
+    final releasedAt = values['released_at'];
+    return VideoItem(
+      id: video.id,
+      title: video.title,
+      pageUrl: video.pageUrl,
+      cover: video.cover,
+      durationSeconds: duration is num && duration > 0
+          ? duration.round()
+          : video.durationSeconds,
+      releaseDate: releasedAt is num && releasedAt > 0
+          ? DateTime.fromMillisecondsSinceEpoch(
+              (releasedAt * 1000).round(),
+              isUtc: true,
+            ).toIso8601String().substring(0, 10)
+          : video.releaseDate,
+      actors: actors.values.toList(),
+      tags: tags.values.toList(),
+      makers: {...video.makers, ...names('markers')}.toList(),
+      labels: {...video.labels, ...names('labels')}.toList(),
+      series: {...video.series, ...names('series')}.toList(),
+      directors: {...video.directors, ...names('directors')}.toList(),
+      hasSubtitles:
+          video.hasSubtitles ||
+          values['has_chinese_subtitle'] == true ||
+          values['has_english_subtitle'] == true,
+      isUncensored:
+          video.isUncensored ||
+          values['is_uncensored_leak'] == true ||
+          _uncensoredTypes.contains(values['type']),
+    );
   }
 
   Future<VideoCatalogPage> search(String query) async {
@@ -1005,7 +1143,25 @@ class MissavClient extends ChangeNotifier {
               as String;
     }
     _checkGeneration(generation, uri);
-    return _parsePage(body, uri);
+    final document = _parsePage(body, uri);
+    final context = document.querySelector(
+      '#kiko-missav-recommendation-context',
+    );
+    if (context != null) {
+      context.remove();
+      final data = jsonDecode(context.text);
+      if (data is Map &&
+          data['userId'] is String &&
+          (data['userId'] as String).isNotEmpty &&
+          const {
+            'desktop-home-recommended',
+            'mobile-home-recommended',
+          }.contains(data['scenario'])) {
+        _recommendationUserId = data['userId'] as String;
+        _recommendationScenario = data['scenario'] as String;
+      }
+    }
+    return document;
   }
 
   Future<Response<dynamic>> _request(
@@ -1263,6 +1419,8 @@ class MissavClient extends ChangeNotifier {
   }
 
   int _advanceSessionGeneration() {
+    _recommendationUserId = null;
+    _recommendationScenario = null;
     _sessionCancelToken.cancel('MissAV account changed.');
     for (final cancelRequest in _cancelBrowseRequests.toList()) {
       cancelRequest();

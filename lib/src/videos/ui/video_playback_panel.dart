@@ -665,6 +665,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   Timer? _gestureOverlayTimer;
   Timer? _fullscreenStatusTimer;
   Future<void>? _platformInitialization;
+  Completer<void>? _fullscreenMetricsChanged;
   bool _disposed = false;
   bool _sourceLoaded = false;
   int _pauseGeneration = 0;
@@ -932,6 +933,12 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       _streamIndex = 0;
       unawaited(_loadSource(position: widget.initialPosition));
     }
+  }
+
+  @override
+  void didChangeMetrics() {
+    _fullscreenMetricsChanged?.complete();
+    _fullscreenMetricsChanged = null;
   }
 
   @override
@@ -2027,6 +2034,25 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     _lastAppliedFullscreenOrientation = null;
   }
 
+  Future<void> _waitForFullscreenWindowLayout() async {
+    await _initializePlatform();
+    if (_disposed || !mounted) return;
+    final view = View.of(context);
+    while (!_disposed && mounted) {
+      final expected = await _platform.waitForWindowLayout();
+      if (_disposed || !mounted) return;
+      final size = view.physicalSize;
+      final orientation = size.width > size.height
+          ? Orientation.landscape
+          : Orientation.portrait;
+      if (expected == null || size.isEmpty || orientation == expected) break;
+      final changed = Completer<void>();
+      _fullscreenMetricsChanged = changed;
+      await changed.future;
+    }
+    if (!_disposed && mounted) await WidgetsBinding.instance.endOfFrame;
+  }
+
   Future<void> _savePosition() {
     if (!_sourceLoaded && _pendingLoadPosition == null) return Future.value();
     return widget.library.savePosition(
@@ -2090,8 +2116,13 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       if (enterNativeFullscreen) await _platform.setNativeFullscreen(false);
       return;
     }
-    final route = PageRouteBuilder<void>(
-      opaque: true,
+    final route = _VideoFullscreenRoute(
+      beforePop: _isDesktop || kIsWeb
+          ? null
+          : () async {
+              await _restoreFullscreenOrientation();
+              await _waitForFullscreenWindowLayout();
+            },
       pageBuilder: (fullScreenContext, animation, secondaryAnimation) =>
           Scaffold(
             backgroundColor: Colors.black,
@@ -2219,10 +2250,13 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       },
       child: MouseRegion(
         onHover: (_) => _showControls(),
-        child: Center(
-          child: AspectRatio(
-            aspectRatio: _viewportAspectRatio(context, fullscreen: fullscreen),
-            child: LayoutBuilder(
+        child: LayoutBuilder(
+          builder: (context, viewportConstraints) {
+            final aspectRatio = _viewportAspectRatio(
+              context,
+              fullscreen: fullscreen,
+            );
+            final playerLayout = LayoutBuilder(
               builder: (context, constraints) {
                 if (!fullscreen && !pipMode) {
                   WidgetsBinding.instance.addPostFrameCallback(
@@ -2660,8 +2694,15 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                   ],
                 );
               },
-            ),
-          ),
+            );
+            if (viewportConstraints.hasBoundedWidth &&
+                viewportConstraints.hasBoundedHeight) {
+              return playerLayout;
+            }
+            return Center(
+              child: AspectRatio(aspectRatio: aspectRatio, child: playerLayout),
+            );
+          },
         ),
       ),
     ),
@@ -2715,8 +2756,20 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
               maximumSize: const Size(42, 34),
               padding: EdgeInsets.zero,
             ),
-            onPressed: () =>
-                Navigator.of(context).popUntil((route) => route.isFirst),
+            onPressed: () async {
+              final navigator = Navigator.of(context);
+              final fullscreenRoute = _fullscreenRoute;
+              if (fullscreenRoute?.isActive == true) {
+                navigator.popUntil(
+                  (route) => identical(route, fullscreenRoute),
+                );
+                navigator.pop();
+                await fullscreenRoute!.completed;
+              }
+              if (navigator.mounted) {
+                navigator.popUntil((route) => route.isFirst);
+              }
+            },
           ),
           if (showTitle)
             Expanded(
@@ -3584,6 +3637,8 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     _controlsInteracting = false;
     _stopTemporaryRate();
     _disposed = true;
+    _fullscreenMetricsChanged?.complete();
+    _fullscreenMetricsChanged = null;
     _loadGeneration++;
     _saveTimer?.cancel();
     _controlsTimer?.cancel();
@@ -3619,6 +3674,41 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       try {
         await _session.dispose();
       } catch (_) {}
+    }
+  }
+}
+
+class _VideoFullscreenRoute extends PageRouteBuilder<void> {
+  _VideoFullscreenRoute({
+    required super.pageBuilder,
+    required super.transitionsBuilder,
+    this.beforePop,
+  });
+
+  final AsyncCallback? beforePop;
+  bool _restoring = false;
+  bool _restored = false;
+
+  @override
+  bool didPop(Object? result) {
+    if (beforePop == null || _restored) return super.didPop(null);
+    if (!_restoring) {
+      _restoring = true;
+      unawaited(_restoreAndPop());
+    }
+    return false;
+  }
+
+  Future<void> _restoreAndPop() async {
+    try {
+      await beforePop!();
+    } finally {
+      _restored = true;
+      if (isCurrent) {
+        navigator?.pop();
+      } else if (isActive) {
+        navigator?.removeRoute(this);
+      }
     }
   }
 }

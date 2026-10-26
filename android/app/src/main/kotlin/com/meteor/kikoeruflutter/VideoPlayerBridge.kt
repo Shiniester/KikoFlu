@@ -16,6 +16,8 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.util.Rational
+import android.view.View
+import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -24,6 +26,7 @@ import androidx.annotation.ChecksSdkIntAtLeast
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.OneShotPreDrawListener
 
 class VideoPlayerBridge(private val activity: Activity, messenger: BinaryMessenger,
     private val updateKeepScreenOn: (Boolean) -> Unit) :
@@ -33,6 +36,8 @@ class VideoPlayerBridge(private val activity: Activity, messenger: BinaryMesseng
     private var originalBrightness: Float? = null
     private var pendingEnter: MethodChannel.Result? = null
     private var pendingBrightnessPermission: MethodChannel.Result? = null
+    private var pendingWindowLayout: MethodChannel.Result? = null
+    private var windowLayoutListener: OneShotPreDrawListener? = null
     private var systemBrightnessMode = false
     private var originalOrientation: Int? = null
     private var fullscreenStatusBarHidden = false
@@ -139,6 +144,7 @@ class VideoPlayerBridge(private val activity: Activity, messenger: BinaryMesseng
                 } else resetOrientation()
                 result.success(null)
             }
+            "waitForWindowLayout" -> waitForWindowLayout(result)
             "setBackgroundPlayback" -> {
                 backgroundPlayback = call.argument<Boolean>("enabled") == true
                 updateBackgroundService()
@@ -260,6 +266,30 @@ class VideoPlayerBridge(private val activity: Activity, messenger: BinaryMesseng
         } else activity.stopService(intent)
     }
 
+    private fun waitForWindowLayout(result: MethodChannel.Result) {
+        clearWindowLayout()
+        val view = activity.findViewById<View>(FlutterActivity.FLUTTER_VIEW_ID)
+        if (view == null || !view.isAttachedToWindow) { result.success(null); return }
+        pendingWindowLayout = result
+        view.post {
+            if (pendingWindowLayout !== result) return@post
+            windowLayoutListener = OneShotPreDrawListener.add(view) {
+                windowLayoutListener = null
+                pendingWindowLayout = null
+                result.success(if (view.width > 0 && view.height > 0) view.height >= view.width else null)
+            }
+            view.requestLayout()
+            view.invalidate()
+        }
+    }
+
+    private fun clearWindowLayout() {
+        windowLayoutListener?.removeListener()
+        windowLayoutListener = null
+        pendingWindowLayout?.success(null)
+        pendingWindowLayout = null
+    }
+
     private fun resetOrientation() {
         originalOrientation?.let { activity.requestedOrientation = it }
         originalOrientation = null
@@ -298,6 +328,7 @@ class VideoPlayerBridge(private val activity: Activity, messenger: BinaryMesseng
     }
 
     private fun reset() {
+        clearWindowLayout()
         pendingBrightnessPermission?.success(null)
         pendingBrightnessPermission = null
         completeEnter(false)

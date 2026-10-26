@@ -230,6 +230,15 @@ class VideoPlayerPlatform {
     }
   }
 
+  Future<Orientation?> waitForWindowLayout() async {
+    if (kIsWeb || _desktop || !_ownsPlatform || _disposed || _releasing) {
+      return null;
+    }
+    final portrait = await _channel.invokeMethod<bool>('waitForWindowLayout');
+    if (portrait == null) return null;
+    return portrait ? Orientation.portrait : Orientation.landscape;
+  }
+
   Future<void> setFullscreenStatusBarHidden(bool hidden) {
     if (kIsWeb ||
         _platform != TargetPlatform.android ||

@@ -33,6 +33,25 @@ typedef _VideoPageCacheKey = ({
   String? accountName,
 });
 
+class _VideoRecommendationSnapshot {
+  const _VideoRecommendationSnapshot({
+    required this.videos,
+    required this.hasMore,
+  });
+
+  final List<VideoItem> videos;
+  final bool hasMore;
+}
+
+class _VideoRecommendationState {
+  int currentPage = 1;
+  bool hasRequestedSource = false;
+  bool exhausted = false;
+  String? cursor;
+  List<VideoItem> bufferedVideos = const [];
+  final Map<int, _VideoRecommendationSnapshot> pages = {};
+}
+
 class VideoScreen extends ConsumerStatefulWidget {
   const VideoScreen({super.key, this.active = true}) : initialUrl = null;
 
@@ -94,6 +113,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   final ScrollController _scrollController = ScrollController();
   final ScrollController _stagingScrollController = ScrollController();
   final Map<_VideoPageCacheKey, VideoCatalogPage> _pageCache = {};
+  _VideoRecommendationState? _recommendationState;
   final Set<String> _stagingVisibleVideoIds = {};
   final Set<VideoCoverImageKey> _stagingReadyCovers = {};
   final Set<VideoCoverImageKey> _stagingFailedCovers = {};
@@ -111,6 +131,10 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   String? _sourceLocaleTag;
   int _localPage = 1;
   int _observedSessionGeneration = 0;
+  int? _activeRecommendationPageSize;
+  int? _recommendationStatePageSize;
+  bool _recommendationsActive = false;
+  bool _pendingRecommendationReload = false;
 
   @override
   void initState() {
@@ -141,6 +165,12 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     });
   }
 
+  void _scheduleRecommendationLoad() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.active) _openRecommendations();
+    });
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -156,14 +186,15 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     final languageTag = Localizations.localeOf(context).toLanguageTag();
     if (_sourceLocaleTag == languageTag) return;
     _sourceLocaleTag = languageTag;
-    final changed = _client.setLocale(languageTag);
-    if (!changed || !_dependenciesReady) return;
+    _client.setLocale(languageTag);
+    if (!_dependenciesReady) return;
+    final recommendationsActive = _recommendationsActive;
     final url =
         _loadingUrl ??
         _page?.url ??
         _pendingAccountReloadUrl ??
         widget.initialUrl ??
-        _client.homeUrl;
+        _defaultCatalogUrl;
     _request++;
     final activeBrowseCancelToken = _activeBrowseCancelToken;
     if (activeBrowseCancelToken != null &&
@@ -171,6 +202,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       activeBrowseCancelToken.cancel('Video source language changed.');
     }
     _page = null;
+    _clearRecommendationStates();
     _loadingUrl = null;
     _publishedFailedPageUrl = null;
     _publishedFailedCovers.clear();
@@ -179,20 +211,45 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _error = null;
     _verificationError = null;
     if (!widget.active) {
-      _pendingAccountReloadUrl = url;
+      if (recommendationsActive) {
+        _pendingRecommendationReload = true;
+      } else {
+        _pendingAccountReloadUrl = url;
+      }
       return;
     }
     if (ModalRoute.of(context)?.isCurrent == false) {
-      _pendingAccountReloadUrl = url;
+      if (recommendationsActive) {
+        _pendingRecommendationReload = true;
+      } else {
+        _pendingAccountReloadUrl = url;
+      }
       return;
     }
-    _scheduleLoadUrl(url, collectionKey: _activeCollectionKey);
+    if (recommendationsActive) {
+      _pendingRecommendationReload = false;
+      _scheduleRecommendationLoad();
+    } else {
+      _scheduleLoadUrl(url, collectionKey: _activeCollectionKey);
+    }
   }
 
   @override
   void didUpdateWidget(VideoScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!oldWidget.active && widget.active && _page == null) {
+      if (_recommendationsActive) {
+        if (_pendingRecommendationReload) {
+          _pendingRecommendationReload = false;
+          _scheduleRecommendationLoad();
+        }
+        return;
+      }
+      if (_pendingRecommendationReload) {
+        _pendingRecommendationReload = false;
+        _scheduleRecommendationLoad();
+        return;
+      }
       final url = _pendingAccountReloadUrl;
       _pendingAccountReloadUrl = null;
       if (_dependenciesReady && url != null) {
@@ -217,7 +274,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       if (!mounted) return;
       _dependenciesReady = true;
       final url =
-          _pendingAccountReloadUrl ?? widget.initialUrl ?? _client.homeUrl;
+          _pendingAccountReloadUrl ?? widget.initialUrl ?? _defaultCatalogUrl;
       _pendingAccountReloadUrl = null;
       await _loadUrl(url);
     } catch (error) {
@@ -234,11 +291,12 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     final accountName = _client.accountName;
     final sessionGeneration = _client.sessionGeneration;
     final sessionChanged = sessionGeneration != _observedSessionGeneration;
-    if (isLoggedIn == _accountWasLoggedIn &&
-        accountName == _accountName &&
-        !sessionChanged) {
+    final accountChanged =
+        isLoggedIn != _accountWasLoggedIn || accountName != _accountName;
+    if (!accountChanged && !sessionChanged) {
       return;
     }
+    final recommendationsActive = _recommendationsActive;
     _accountWasLoggedIn = isLoggedIn;
     _accountName = accountName;
     _observedSessionGeneration = sessionGeneration;
@@ -249,15 +307,19 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
         _pendingAccountReloadUrl ??
         _page?.url ??
         widget.initialUrl ??
-        _client.homeUrl;
+        _defaultCatalogUrl;
+    _clearRecommendationStates();
     if (_activeCollectionKey == null &&
         _collectionKeyForUrl(url) == null &&
-        !sessionChanged) {
+        !sessionChanged &&
+        !recommendationsActive) {
       setState(() {});
       return;
     }
     final covered = ModalRoute.of(context)?.isCurrent == false;
-    if (_loading && !covered && !sessionChanged) return;
+    if (_loading && !covered && !sessionChanged && !recommendationsActive) {
+      return;
+    }
     _request++;
     _loadingUrl = null;
     final activeBrowseCancelToken = _activeBrowseCancelToken;
@@ -276,6 +338,17 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       _loading = false;
     });
     if (!_dependenciesReady) return;
+    if (recommendationsActive) {
+      if (widget.active && !covered) {
+        _pendingRecommendationReload = false;
+        unawaited(
+          _loadRecommendationPage(pageSize: ref.read(pageSizeProvider)),
+        );
+      } else {
+        _pendingRecommendationReload = true;
+      }
+      return;
+    }
     if (widget.active && !covered) {
       unawaited(_loadUrl(url));
     } else {
@@ -285,6 +358,13 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
 
   void _onRouteStatusChanged(AnimationStatus _) {
     if (!mounted || _verifyingAccess) return;
+    if (_pendingRecommendationReload &&
+        _route?.isCurrent == true &&
+        widget.active) {
+      _pendingRecommendationReload = false;
+      _openRecommendations();
+      return;
+    }
     final url = _pendingAccountReloadUrl;
     if (url == null || _route?.isCurrent != true || !widget.active) return;
     _pendingAccountReloadUrl = null;
@@ -313,6 +393,12 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     if (_pageCache.length > _maxCachedPages) {
       _pageCache.remove(_pageCache.keys.first);
     }
+  }
+
+  void _clearRecommendationStates() {
+    _recommendationState = null;
+    _activeRecommendationPageSize = null;
+    _recommendationStatePageSize = null;
   }
 
   List<VideoItem> _stagingVideos(VideoCatalogPage page) {
@@ -507,6 +593,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     String? collectionKey,
     bool preserveCollection = false,
   }) async {
+    _recommendationsActive = false;
+    _activeRecommendationPageSize = null;
+    _pendingRecommendationReload = false;
     if (collectionKey != null) {
       _activeCollectionKey = collectionKey;
     } else if (!preserveCollection) {
@@ -712,7 +801,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     if (retry != null) {
       await retry();
     } else {
-      await _loadUrl(widget.initialUrl ?? _client.homeUrl);
+      await _loadUrl(widget.initialUrl ?? _defaultCatalogUrl);
     }
   }
 
@@ -720,7 +809,8 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     final verification = _verificationError;
     if (verification == null) return;
     final retry =
-        _retryRequest ?? () => _loadUrl(widget.initialUrl ?? _client.homeUrl);
+        _retryRequest ??
+        () => _loadUrl(widget.initialUrl ?? _defaultCatalogUrl);
     _verifyingAccess = true;
     var verified = false;
     try {
@@ -739,6 +829,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _pendingAccountReloadUrl = null;
     if (verified) {
       await retry();
+    } else if (_pendingRecommendationReload) {
+      _pendingRecommendationReload = false;
+      _openRecommendations();
     } else if (pendingAccountReloadUrl != null) {
       await _loadUrl(pendingAccountReloadUrl);
     }
@@ -750,6 +843,297 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     final home = Uri.parse(_client.homeUrl);
     final basePath = home.path.replaceFirst(RegExp(r'/+$'), '');
     return home.replace(path: '$basePath/$path').toString();
+  }
+
+  String get _defaultCatalogUrl => _catalogUrl('release');
+
+  void _selectRecommendations() {
+    _openRecommendations(refresh: _recommendationsActive);
+  }
+
+  void _openRecommendations({int? pageSize, bool refresh = false}) {
+    final int size = pageSize ?? ref.read<int>(pageSizeProvider);
+    final clearPage =
+        refresh ||
+        !_recommendationsActive ||
+        _activeRecommendationPageSize != size;
+    _recommendationsActive = true;
+    _activeCollectionKey = null;
+    _activeRecommendationPageSize = size;
+    if (refresh ||
+        _recommendationState == null ||
+        _recommendationStatePageSize != size) {
+      _recommendationState = _VideoRecommendationState();
+      _recommendationStatePageSize = size;
+    }
+    final state = _recommendationState!;
+    final pageNumber = refresh ? 1 : state.currentPage;
+    if (state.pages.containsKey(pageNumber)) {
+      unawaited(
+        _showRecommendationPage(
+          pageSize: size,
+          pageNumber: pageNumber,
+          clearPage: clearPage,
+        ),
+      );
+    } else {
+      unawaited(
+        _loadRecommendationPage(
+          pageSize: size,
+          pageNumber: pageNumber,
+          clearPage: clearPage,
+        ),
+      );
+    }
+  }
+
+  void _openRecommendationPage(int pageSize, int pageNumber) {
+    final state = _recommendationState;
+    if (_recommendationStatePageSize != pageSize ||
+        state == null ||
+        pageNumber < 1) {
+      return;
+    }
+    if (state.pages.containsKey(pageNumber)) {
+      unawaited(
+        _showRecommendationPage(pageSize: pageSize, pageNumber: pageNumber),
+      );
+    } else if (pageNumber == state.currentPage + 1 &&
+        state.pages[state.currentPage]?.hasMore == true) {
+      unawaited(
+        _loadRecommendationPage(pageSize: pageSize, pageNumber: pageNumber),
+      );
+    }
+  }
+
+  VideoCatalogPage _recommendationCatalogPage(
+    _VideoRecommendationSnapshot snapshot,
+  ) => VideoCatalogPage(
+    title: S.of(context).videoRecommendedForYou,
+    url: _client.homeUrl,
+    videos: snapshot.videos,
+  );
+
+  bool _isCurrentRecommendationRequest(int request, int pageSize) =>
+      mounted &&
+      request == _request &&
+      _recommendationsActive &&
+      _activeRecommendationPageSize == pageSize;
+
+  Future<void> _showRecommendationPage({
+    required int pageSize,
+    required int pageNumber,
+    bool clearPage = false,
+  }) async {
+    final state = _recommendationState;
+    if (_recommendationStatePageSize != pageSize || state == null) return;
+    final snapshot = state.pages[pageNumber];
+    if (snapshot == null) return;
+
+    final request = ++_request;
+    _loadingUrl = null;
+    final activeBrowseCancelToken = _activeBrowseCancelToken;
+    if (activeBrowseCancelToken != null &&
+        !activeBrowseCancelToken.isCancelled) {
+      activeBrowseCancelToken.cancel('Showing a cached recommendation page.');
+    }
+    _activeBrowseCancelToken = null;
+    final page = _recommendationCatalogPage(snapshot);
+    setState(() {
+      _loading = true;
+      _error = null;
+      _verificationError = null;
+      _retryRequest = null;
+      _discardStaging();
+      if (clearPage) _page = null;
+      _resetStaging(request, page, metadataReady: true);
+    });
+    _checkStagingReady();
+
+    try {
+      await _waitForStaging(request);
+      if (!_isCurrentRecommendationRequest(request, pageSize)) return;
+      setState(() {
+        _publishStagingFailures(page);
+        state.currentPage = pageNumber;
+        _page = page;
+        _localPage = 1;
+        _loading = false;
+        _error = null;
+        _verificationError = null;
+        _discardStaging();
+      });
+      if (_scrollController.hasClients) _scrollController.jumpTo(0);
+    } catch (error) {
+      if (!_isCurrentRecommendationRequest(request, pageSize)) return;
+      setState(() {
+        _loading = false;
+        _recordError(error);
+        _discardStaging();
+      });
+    }
+  }
+
+  Future<void> _loadRecommendationPage({
+    required int pageSize,
+    int pageNumber = 1,
+    bool clearPage = false,
+  }) async {
+    if (_recommendationState == null ||
+        _recommendationStatePageSize != pageSize) {
+      _recommendationState = _VideoRecommendationState();
+      _recommendationStatePageSize = pageSize;
+    }
+    final state = _recommendationState!;
+    final cachedPage = state.pages[pageNumber];
+    if (cachedPage != null) {
+      await _showRecommendationPage(
+        pageSize: pageSize,
+        pageNumber: pageNumber,
+        clearPage: clearPage,
+      );
+      return;
+    }
+    final previousSnapshot = pageNumber > 1
+        ? state.pages[pageNumber - 1]
+        : null;
+    if (pageNumber > 1 &&
+        (previousSnapshot == null || !previousSnapshot.hasMore)) {
+      return;
+    }
+
+    final request = ++_request;
+    _activeRecommendationPageSize = pageSize;
+    _loadingUrl = null;
+    final previousCancelToken = _activeBrowseCancelToken;
+    if (previousCancelToken != null && !previousCancelToken.isCancelled) {
+      previousCancelToken.cancel('Superseded by a recommendation request.');
+    }
+    final cancelToken = CancelToken();
+    _activeBrowseCancelToken = cancelToken;
+    _retryRequest = () => _loadRecommendationPage(
+      pageSize: pageSize,
+      pageNumber: pageNumber,
+      clearPage: clearPage,
+    );
+    setState(() {
+      _loading = true;
+      _error = null;
+      _verificationError = null;
+      _discardStaging();
+      if (clearPage) _page = null;
+    });
+
+    try {
+      final videos = <VideoItem>[];
+      var cursor = state.cursor;
+      var hasRequestedSource = state.hasRequestedSource;
+      var exhausted = state.exhausted;
+      var bufferedVideos = [...state.bufferedVideos];
+      var consumedBufferedCount = 0;
+      while (videos.length < pageSize) {
+        if (consumedBufferedCount < bufferedVideos.length) {
+          final remaining = pageSize - videos.length;
+          final available = bufferedVideos.length - consumedBufferedCount;
+          final takeCount = remaining < available ? remaining : available;
+          videos.addAll(
+            bufferedVideos.skip(consumedBufferedCount).take(takeCount),
+          );
+          consumedBufferedCount += takeCount;
+          continue;
+        }
+        if (exhausted) break;
+        final requestCursor = hasRequestedSource ? cursor : null;
+        final result = await _client.loadRecommendations(
+          cursor: requestCursor,
+          count: pageSize,
+          cancelToken: cancelToken,
+        );
+        if (!_isCurrentRecommendationRequest(request, pageSize)) return;
+        hasRequestedSource = true;
+        if (result.videos.isEmpty) {
+          cursor = null;
+          exhausted = true;
+          state
+            ..hasRequestedSource = hasRequestedSource
+            ..cursor = cursor
+            ..exhausted = exhausted;
+          break;
+        }
+        bufferedVideos.addAll(result.videos);
+        final nextCursor = result.cursor;
+        cursor = nextCursor;
+        exhausted = cursor == null;
+        state
+          ..hasRequestedSource = hasRequestedSource
+          ..cursor = cursor
+          ..bufferedVideos = List.unmodifiable(bufferedVideos)
+          ..exhausted = exhausted;
+      }
+
+      if (!_isCurrentRecommendationRequest(request, pageSize)) return;
+      if (pageNumber > 1 && videos.isEmpty) {
+        final previous = state.pages[pageNumber - 1];
+        if (previous != null) {
+          state.pages[pageNumber - 1] = _VideoRecommendationSnapshot(
+            videos: previous.videos,
+            hasMore: false,
+          );
+        }
+        state
+          ..hasRequestedSource = hasRequestedSource
+          ..cursor = null
+          ..bufferedVideos = const []
+          ..exhausted = true;
+        setState(() {
+          _loading = false;
+          _error = null;
+          _verificationError = null;
+        });
+        return;
+      }
+
+      final snapshot = _VideoRecommendationSnapshot(
+        videos: List.unmodifiable(videos),
+        hasMore:
+            bufferedVideos.length > consumedBufferedCount ||
+            (!exhausted && cursor != null),
+      );
+      final page = _recommendationCatalogPage(snapshot);
+      _setStagingPage(request, page, metadataReady: true);
+      await _waitForStaging(request);
+      if (!_isCurrentRecommendationRequest(request, pageSize)) return;
+      setState(() {
+        _publishStagingFailures(page);
+        state
+          ..hasRequestedSource = hasRequestedSource
+          ..cursor = cursor
+          ..bufferedVideos = List.unmodifiable(
+            bufferedVideos.skip(consumedBufferedCount),
+          )
+          ..exhausted = exhausted;
+        state.pages[pageNumber] = snapshot;
+        state.currentPage = pageNumber;
+        _page = page;
+        _localPage = 1;
+        _loading = false;
+        _error = null;
+        _verificationError = null;
+        _discardStaging();
+      });
+      if (_scrollController.hasClients) _scrollController.jumpTo(0);
+    } catch (error) {
+      if (!_isCurrentRecommendationRequest(request, pageSize)) return;
+      setState(() {
+        _loading = false;
+        _recordError(error);
+        _discardStaging();
+      });
+    } finally {
+      if (identical(_activeBrowseCancelToken, cancelToken)) {
+        _activeBrowseCancelToken = null;
+      }
+    }
   }
 
   String? _catalogPath(String url) {
@@ -789,8 +1173,8 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       kind: VideoLinkKind.navigation,
     );
     return [
-      entry(s.videoRecentlyUpdated, 'new'),
       entry(s.videoNewReleases, 'release'),
+      entry(s.videoRecentlyUpdated, 'new'),
       entry(s.videoChineseSubtitles, 'chinese-subtitle'),
       entry(s.videoWeeklyHot, 'weekly-hot'),
       entry(s.videoUncensoredLeak, 'uncensored-leak'),
@@ -1180,22 +1564,17 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       LibraryDrawerSection(
         title: s.videoContent,
         children: [
-          LibraryDrawerTile(
-            icon: Icons.home_outlined,
-            title: s.navHome,
-            selected:
-                _collectionKeyForUrl(_page?.url ?? '') == null &&
-                (_page?.url == null ||
-                    Uri.tryParse(_page!.url)?.path ==
-                        Uri.tryParse(_client.homeUrl)?.path),
-            onTap: () => _loadUrl(_client.homeUrl),
-          ),
           for (final link in catalogLinks)
             LibraryDrawerTile(
               icon: Icons.explore_outlined,
               title: link.label,
               onTap: () => _openCatalog(link),
             ),
+          LibraryDrawerTile(
+            icon: Icons.thumb_up_alt_outlined,
+            title: s.videoRecommendedForYou,
+            onTap: _selectRecommendations,
+          ),
         ],
       ),
       LibraryDrawerSection(
@@ -1306,10 +1685,26 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     }
     final collectionLinks = _collectionLinksForContent(page);
     final pageSize = ref.watch(pageSizeProvider);
+    final recommendationPageSize = _activeRecommendationPageSize ?? pageSize;
+    final recommendationState =
+        _recommendationsActive &&
+            _recommendationStatePageSize == recommendationPageSize
+        ? _recommendationState
+        : null;
+    final recommendationPageNumber = recommendationState?.currentPage ?? 1;
+    final recommendationSnapshot =
+        recommendationState?.pages[recommendationPageNumber];
+    final highestVisitedRecommendationPage =
+        recommendationState?.pages.keys.fold<int>(
+          1,
+          (highest, pageNumber) => pageNumber > highest ? pageNumber : highest,
+        ) ??
+        1;
     final hasSourcePagination =
-        page.previousUrl != null ||
-        page.nextUrl != null ||
-        page.jumpMaxPage != null;
+        !_recommendationsActive &&
+        (page.previousUrl != null ||
+            page.nextUrl != null ||
+            page.jumpMaxPage != null);
     final itemCount = collectionLinks.isEmpty
         ? page.videos.length
         : collectionLinks.length;
@@ -1325,31 +1720,63 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
               .toList(growable: false)
         : page.videos;
     final pagination = VirtualizedPagination(
-      currentPage: hasSourcePagination ? page.currentPage : localPage,
+      currentPage: _recommendationsActive
+          ? recommendationPageNumber
+          : hasSourcePagination
+          ? page.currentPage
+          : localPage,
       pageSize: hasSourcePagination
           ? itemCount.clamp(1, 1000).toInt()
+          : _recommendationsActive
+          ? recommendationPageSize
           : pageSize,
-      totalCount: hasSourcePagination ? null : itemCount,
-      jumpMaxPage: hasSourcePagination ? page.jumpMaxPage : null,
-      hasMore: hasSourcePagination
+      totalCount: hasSourcePagination || _recommendationsActive
+          ? null
+          : itemCount,
+      jumpMaxPage: _recommendationsActive
+          ? highestVisitedRecommendationPage
+          : hasSourcePagination
+          ? page.jumpMaxPage
+          : null,
+      hasMore: _recommendationsActive
+          ? recommendationSnapshot?.hasMore ?? false
+          : hasSourcePagination
           ? page.nextUrl != null
           : hasLocalPagination && localPage < localPageCount,
       isLoading: _loading,
-      onPreviousPage: hasSourcePagination
+      onPreviousPage: _recommendationsActive
+          ? recommendationPageNumber > 1
+                ? () => _openRecommendationPage(
+                    recommendationPageSize,
+                    recommendationPageNumber - 1,
+                  )
+                : null
+          : hasSourcePagination
           ? page.previousUrl == null
                 ? null
                 : () => _loadUrl(page.previousUrl!, preserveCollection: true)
           : hasLocalPagination && localPage > 1
           ? () => setState(() => _localPage = localPage - 1)
           : null,
-      onNextPage: hasSourcePagination
+      onNextPage: _recommendationsActive
+          ? recommendationSnapshot?.hasMore == true
+                ? () => _openRecommendationPage(
+                    recommendationPageSize,
+                    recommendationPageNumber + 1,
+                  )
+                : null
+          : hasSourcePagination
           ? page.nextUrl == null
                 ? null
                 : () => _loadUrl(page.nextUrl!, preserveCollection: true)
           : hasLocalPagination && localPage < localPageCount
           ? () => setState(() => _localPage = localPage + 1)
           : null,
-      onGoToPage: hasSourcePagination
+      onGoToPage: _recommendationsActive
+          ? (targetPage) => targetPage <= highestVisitedRecommendationPage
+                ? _openRecommendationPage(recommendationPageSize, targetPage)
+                : null
+          : hasSourcePagination
           ? page.jumpMaxPage == null
                 ? null
                 : (targetPage) => _loadUrl(
@@ -1448,7 +1875,9 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
                         ),
                         controller: _scrollController,
                         pageStorageKey: PageStorageKey<String>(
-                          'video-${page.url}',
+                          _recommendationsActive
+                              ? 'video-recommendations-$recommendationPageSize-$recommendationPageNumber'
+                              : 'video-${page.url}',
                         ),
                         emptyBuilder: (_) => Center(child: Text(s.noResults)),
                         pagination: pagination,
@@ -1518,6 +1947,11 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
+    ref.listen<int>(pageSizeProvider, (previous, next) {
+      if (_recommendationsActive && previous != next) {
+        _openRecommendations(pageSize: next);
+      }
+    });
     final layoutType = ref.watch(videoBrowseLayoutProvider);
     final title = _page?.title.isNotEmpty == true ? _page!.title : s.navVideos;
     final page = LibraryPageScaffold(

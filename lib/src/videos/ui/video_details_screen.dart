@@ -11,6 +11,8 @@ import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../../widgets/responsive_dialog.dart';
 import '../../widgets/work_detail_route_readiness.dart';
+import '../../widgets/work_detail/work_detail_section_title.dart';
+import '../../widgets/work_detail/work_title_header.dart';
 import '../missav_client.dart';
 import '../missav_verification.dart';
 import '../video_download_task.dart';
@@ -400,6 +402,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
 
   Widget _actorChip(VideoLink actor) {
     final s = S.of(context);
+    final colors = Theme.of(context).colorScheme;
     return PopupMenuButton<String>(
       tooltip: actor.label,
       onSelected: (action) {
@@ -432,7 +435,17 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
         ),
         PopupMenuItem(value: 'source', child: Text(s.videoOpenSource)),
       ],
-      child: Chip(label: Text(actor.label)),
+      child: Chip(
+        label: Text(actor.label),
+        labelStyle: TextStyle(
+          color: colors.onTertiaryContainer,
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
+        backgroundColor: colors.tertiaryContainer,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        side: BorderSide.none,
+      ),
     );
   }
 
@@ -666,54 +679,81 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
 
   Widget _buildDetails(S s, VideoDetails details, VideoDownloadTask? task) {
     final nextRelated = _firstRelated(details);
+    final colors = Theme.of(context).colorScheme;
     final detailsContent = <Widget>[
       if (!_loading && _error != null) _buildLoadFailure(s),
       const SizedBox(height: 16),
+      WorkTitleHeader(title: details.video.title, showTranslateButton: false),
       if (details.metadata.isNotEmpty)
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final entry in details.metadata.entries)
-              Chip(label: Text('${entry.key}: ${entry.value}')),
-          ],
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              for (final entry in details.metadata.entries)
+                Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: '${entry.key}: ',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      TextSpan(text: entry.value),
+                    ],
+                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(fontSize: 12),
+                ),
+            ],
+          ),
         ),
       if (details.description.isNotEmpty) ...[
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
+        WorkDetailSectionTitle(s.description),
+        const SizedBox(height: 8),
         SelectableText(details.description),
       ],
       if (details.actors.isNotEmpty) ...[
         const SizedBox(height: 16),
-        Text(
-          s.videoActorFavorites,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
+        WorkDetailSectionTitle(s.videoActorFavorites),
         const SizedBox(height: 8),
         Wrap(
-          spacing: 8,
-          runSpacing: 8,
+          spacing: 4,
+          runSpacing: 4,
           children: [for (final actor in details.actors) _actorChip(actor)],
         ),
       ],
       if (details.tags.isNotEmpty) ...[
         const SizedBox(height: 16),
-        Text(s.videoCatalog, style: Theme.of(context).textTheme.titleMedium),
+        WorkDetailSectionTitle(s.videoCatalog),
         const SizedBox(height: 8),
         Wrap(
-          spacing: 8,
-          runSpacing: 8,
+          spacing: 4,
+          runSpacing: 4,
           children: [
             for (final tag in details.tags)
               ActionChip(
                 label: Text(tag.label),
                 onPressed: () => _openCatalog(tag),
+                labelStyle: TextStyle(
+                  color: colors.onPrimaryContainer,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+                backgroundColor: colors.primaryContainer,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                side: BorderSide.none,
               ),
           ],
         ),
       ],
       if (details.related.isNotEmpty) ...[
-        const SizedBox(height: 20),
-        Text(s.videoRelated, style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 16),
+        WorkDetailSectionTitle(s.videoRelated),
         const SizedBox(height: 8),
         LayoutBuilder(
           builder: (context, constraints) {
@@ -763,7 +803,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
         ),
         for (final child in detailsContent)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             child: child,
           ),
       ],

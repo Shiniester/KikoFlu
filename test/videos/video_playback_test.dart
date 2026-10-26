@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show SemanticsAction;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -858,12 +859,12 @@ void main() {
       await _closeSettings(tester);
       await tester.tap(find.byTooltip(l10n.videoFullscreen));
       await tester.pumpAndSettle();
+      expect(tester.getRect(layout).height, 800);
       await _openSettings(tester);
-      expect(
-        tester.getRect(sheet).height,
-        greaterThan(tester.getSize(layout).height),
-      );
-      expect(tester.getRect(sheet).height, lessThanOrEqualTo(800));
+      final fullscreenSheetRect = tester.getRect(sheet);
+      expect(fullscreenSheetRect.top, greaterThanOrEqualTo(0));
+      expect(fullscreenSheetRect.bottom, closeTo(800, .1));
+      expect(fullscreenSheetRect.height, lessThanOrEqualTo(800));
     },
   );
 
@@ -959,6 +960,95 @@ void main() {
         find.byKey(const ValueKey('video-position-slider')),
       );
       expect(slider.secondaryTrackValue, 60000);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  _testPlayerWidget(
+    'fullscreen controls and progress span 20:9 video side bars',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(1200, 540);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final session = _FakeAdvancedPlaybackSession();
+      final platform = _TestVideoPlayerPlatform();
+      await _pumpStandalonePlayer(
+        tester,
+        session,
+        width: 1200,
+        height: 540,
+        platform: platform,
+        bounded: true,
+      );
+      final inlineFrame = find.byKey(const ValueKey('video-playback-layout'));
+      expect(tester.getRect(inlineFrame).width, 1200);
+      expect(tester.getRect(inlineFrame).height, 540);
+      await tester.tap(find.byKey(const ValueKey('video-fullscreen-control')));
+      await tester.pumpAndSettle();
+
+      final frame = find.byKey(const ValueKey('video-playback-layout'));
+      final frameRect = tester.getRect(frame);
+      final videoRect = tester.getRect(
+        find.byKey(const ValueKey('fake-video-surface')),
+      );
+      final backRect = tester.getRect(
+        find.byKey(const ValueKey('video-player-back')),
+      );
+      final moreRect = tester.getRect(
+        find.byKey(const ValueKey('video-player-more-menu')),
+      );
+      final sliderRect = tester.getRect(
+        find.byKey(const ValueKey('video-position-slider')),
+      );
+      expect(frameRect.left, 0);
+      expect(frameRect.width, 1200);
+      expect(frameRect.height, 540);
+      expect(videoRect.width / videoRect.height, closeTo(16 / 9, .001));
+      expect(videoRect.left, greaterThan(frameRect.left));
+      expect(videoRect.right, lessThan(frameRect.right));
+      expect(backRect.left, lessThan(videoRect.left));
+      expect(moreRect.right, greaterThan(videoRect.right));
+      expect(sliderRect.left, lessThan(videoRect.left));
+      expect(sliderRect.right, greaterThan(videoRect.right));
+
+      final gradient = find.byWidgetPredicate(
+        (widget) =>
+            widget is DecoratedBox &&
+            widget.decoration is BoxDecoration &&
+            (widget.decoration as BoxDecoration).gradient is LinearGradient,
+      );
+      expect(gradient, findsOneWidget);
+      expect(tester.getRect(gradient), frameRect);
+
+      final s = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byTooltip(s.videoPlayerAspectRatio));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(s.videoPlayerFitFourThree));
+      await tester.pumpAndSettle();
+      final forcedVideoRect = tester.getRect(
+        find.byKey(const ValueKey('fake-video-surface')),
+      );
+      expect(
+        forcedVideoRect.width / forcedVideoRect.height,
+        closeTo(4 / 3, .001),
+      );
+      expect(tester.getRect(frame).width, 1200);
+      expect(tester.getRect(frame).height, 540);
+
+      await _tapGestureSurface(
+        tester,
+        find.byKey(const ValueKey('video-gesture-surface')),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 200));
+      final progress = tester.getRect(find.byType(LinearProgressIndicator));
+      expect(progress.left, frameRect.left);
+      expect(progress.right, frameRect.right);
+      expect(progress.bottom, frameRect.bottom);
+      expect(platform.fullscreenStatusBarChanges, [true]);
       expect(tester.takeException(), isNull);
     },
   );
@@ -1072,6 +1162,197 @@ void main() {
         find.byKey(const ValueKey('video-fullscreen-placeholder')),
         findsNothing,
       );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final exit in [
+    'keyboard',
+    'button',
+    'system back',
+    'completion',
+    'home',
+  ]) {
+    _testPlayerWidget(
+      'mobile fullscreen stays covered until orientation restore completes: $exit',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        final restored = Completer<void>();
+        var restoreRequested = false;
+        messenger.setMockMethodCallHandler(SystemChannels.platform, (call) {
+          if (call.method == 'SystemChrome.setPreferredOrientations' &&
+              (call.arguments as List).isEmpty) {
+            restoreRequested = true;
+            return restored.future.then<Object?>((_) => null);
+          }
+          return SynchronousFuture<Object?>(null);
+        });
+        addTearDown(() {
+          messenger.setMockMethodCallHandler(
+            SystemChannels.platform,
+            (_) => SynchronousFuture<Object?>(null),
+          );
+        });
+        final session = _FakePlaybackSession();
+        if (exit == 'home') {
+          final library = await _testLibrary();
+          await tester.pumpWidget(
+            const MaterialApp(
+              locale: Locale('en'),
+              supportedLocales: S.supportedLocales,
+              localizationsDelegates: S.localizationsDelegates,
+              home: Scaffold(body: Text('Player test root')),
+            ),
+          );
+          unawaited(
+            tester
+                .state<NavigatorState>(find.byType(Navigator))
+                .push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => Scaffold(
+                      body: VideoPlaybackPanel(
+                        videoId: 'dvd-1',
+                        library: library,
+                        streams: _details().streams,
+                        sessionFactory: () => session,
+                        platform: _TestVideoPlayerPlatform(),
+                      ),
+                    ),
+                  ),
+                ),
+          );
+          await tester.pumpAndSettle();
+        } else {
+          await _pumpStandalonePlayer(tester, session);
+        }
+        await tester.tap(
+          find.byKey(const ValueKey('video-fullscreen-control')),
+        );
+        await tester.pumpAndSettle();
+        switch (exit) {
+          case 'keyboard':
+            await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+          case 'button':
+            await tester.tap(
+              find.byKey(const ValueKey('video-fullscreen-control')),
+            );
+          case 'system back':
+            await tester.binding.handlePopRoute();
+          case 'completion':
+            session.complete();
+          case 'home':
+            await tester.tap(find.byKey(const ValueKey('video-player-home')));
+        }
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        try {
+          expect(restoreRequested, isTrue);
+          final inlineContext = tester.element(
+            find.byKey(
+              const ValueKey('video-fullscreen-placeholder'),
+              skipOffstage: false,
+            ),
+          );
+          expect(ModalRoute.of(inlineContext)?.isCurrent, isFalse);
+        } finally {
+          restored.complete();
+          await tester.pumpAndSettle();
+        }
+        expect(
+          find.byKey(const ValueKey('video-fullscreen-placeholder')),
+          findsNothing,
+        );
+        if (exit == 'home') {
+          expect(find.text('Player test root'), findsOneWidget);
+          expect(find.byType(VideoPlaybackPanel), findsNothing);
+        }
+      },
+    );
+  }
+
+  for (final rotates in [true, false]) {
+    _testPlayerWidget(
+      'fullscreen exit waits for window metrics after platform acknowledgement: rotates=$rotates',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        final session = _FakePlaybackSession();
+        final platform = _TestVideoPlayerPlatform()
+          ..windowOrientation = rotates
+              ? Orientation.portrait
+              : Orientation.landscape;
+        await _pumpStandalonePlayer(
+          tester,
+          session,
+          platform: platform,
+          bounded: true,
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('video-fullscreen-control')),
+        );
+        await tester.pumpAndSettle();
+        tester.view.physicalSize = const Size(800, 400);
+        await tester.pump();
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+        if (rotates) {
+          expect(
+            find.byKey(
+              const ValueKey('video-fullscreen-placeholder'),
+              skipOffstage: false,
+            ),
+            findsOneWidget,
+          );
+          final inlineContext = tester.element(
+            find.byKey(
+              const ValueKey('video-fullscreen-placeholder'),
+              skipOffstage: false,
+            ),
+          );
+          expect(ModalRoute.of(inlineContext)?.isCurrent, isFalse);
+          await tester.pump(const Duration(seconds: 1));
+          expect(ModalRoute.of(inlineContext)?.isCurrent, isFalse);
+          tester.view.physicalSize = const Size(400, 800);
+          await tester.pumpAndSettle();
+        }
+        expect(
+          find.byKey(const ValueKey('video-fullscreen-placeholder')),
+          findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  _testPlayerWidget(
+    'disposing while waiting for orientation releases the exit',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final session = _FakePlaybackSession();
+      final platform = _TestVideoPlayerPlatform()
+        ..windowOrientation = Orientation.portrait;
+      await _pumpStandalonePlayer(
+        tester,
+        session,
+        platform: platform,
+        bounded: true,
+      );
+      await tester.tap(find.byKey(const ValueKey('video-fullscreen-control')));
+      await tester.pumpAndSettle();
+      tester.view.physicalSize = const Size(800, 400);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(
+          const ValueKey('video-fullscreen-placeholder'),
+          skipOffstage: false,
+        ),
+        findsOneWidget,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      expect(session.disposed.isCompleted, isTrue);
       expect(tester.takeException(), isNull);
     },
   );
@@ -1529,12 +1810,16 @@ void main() {
         supportedLocales: S.supportedLocales,
         localizationsDelegates: S.localizationsDelegates,
         home: Scaffold(
-          body: VideoPlaybackPanel(
-            videoId: 'dvd-1',
-            library: await _testLibrary(),
-            streams: _details().streams,
-            sessionFactory: () => session,
-            platform: platform,
+          body: ListView(
+            children: [
+              VideoPlaybackPanel(
+                videoId: 'dvd-1',
+                library: await _testLibrary(),
+                streams: _details().streams,
+                sessionFactory: () => session,
+                platform: platform,
+              ),
+            ],
           ),
         ),
       ),
@@ -2674,6 +2959,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     final s = await S.delegate.load(const Locale('en'));
+    await tester.ensureVisible(find.byTooltip(actor.label));
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip(actor.label));
     await tester.pumpAndSettle();
     for (final label in [s.videoFavoriteActor, s.videoUnfavoriteActor]) {
@@ -2689,6 +2976,8 @@ void main() {
     await tester.pumpAndSettle();
     client.switchAccount(isFavorite: false);
     client.detailsCompleter!.complete(details);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byTooltip(actor.label));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip(actor.label));
     await tester.pumpAndSettle();
@@ -2731,6 +3020,8 @@ void main() {
       );
       await tester.pumpAndSettle();
       final l10n = await S.delegate.load(const Locale('en'));
+      await tester.ensureVisible(find.byTooltip('Fixture actor'));
+      await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Fixture actor'));
       await tester.pumpAndSettle();
       await tester.tap(find.text(l10n.videoFavoriteActor));
@@ -2739,6 +3030,202 @@ void main() {
       expect(client.actorFavoriteChanges, [true]);
     },
   );
+
+  for (final size in const [Size(320, 800), Size(1200, 800)]) {
+    _testPlayerWidget(
+      'video details keep their layout and metadata accessible at ${size.width.toInt()} px',
+      (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+
+        const video = VideoItem(
+          id: 'layout-video',
+          title:
+              'A complete video title that wraps across several lines on a narrow screen',
+          pageUrl: 'https://missav.ai/cn/layout-video',
+        );
+        const actor = VideoLink(
+          label: 'Fixture actor',
+          url: 'https://missav.ai/cn/actress/fixture',
+          kind: VideoLinkKind.actor,
+        );
+        const tag = VideoLink(
+          label: 'Fixture tag',
+          url: 'https://missav.ai/cn/genre/fixture',
+          kind: VideoLinkKind.tag,
+        );
+        const related = VideoItem(
+          id: 'layout-related',
+          title: 'Related fixture video',
+          pageUrl: 'https://missav.ai/cn/layout-related',
+        );
+        const description = 'Selectable video description.';
+        final details = VideoDetails(
+          video: video,
+          metadata: const {
+            'Studio':
+                'A studio name long enough to wrap while preserving the complete metadata value',
+            'Duration': '128 minutes',
+          },
+          description: description,
+          actors: const [actor],
+          tags: const [tag],
+          related: const [related],
+          streams: _details().streams,
+        );
+        final client = _TestMissavClient(details);
+        final library = await _testLibrary();
+        final downloads = _TestVideoDownloads(client: client, library: library);
+        final session = _FakePlaybackSession();
+
+        await tester.pumpWidget(
+          _app(
+            client,
+            library,
+            downloads,
+            _testVideoDetailsScreen(
+              video: video,
+              sessionFactory: () => session,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final player = find.byType(VideoPlaybackPanel);
+        final detailsList = find
+            .descendant(
+              of: find.byType(VideoDetailsScreen),
+              matching: find.byType(ListView),
+            )
+            .first;
+        final detailsScrollable = find
+            .descendant(of: detailsList, matching: find.byType(Scrollable))
+            .first;
+        final listRect = tester.getRect(detailsList);
+        final playerRect = tester.getRect(player);
+        expect(playerRect.left, closeTo(listRect.left, .1));
+        expect(playerRect.width, closeTo(listRect.width, .1));
+        expect(playerRect.height, closeTo(playerRect.width * 9 / 16, .1));
+        expect(playerRect.top, closeTo(listRect.top + 4, .1));
+
+        final bodyTitle = find
+            .descendant(
+              of: detailsList,
+              matching: find.text(video.title, findRichText: true),
+            )
+            .last;
+        expect(bodyTitle, findsOneWidget);
+        final titleRect = tester.getRect(bodyTitle);
+        expect(titleRect.top, greaterThanOrEqualTo(playerRect.bottom + 16));
+        expect(titleRect.left, closeTo(listRect.left + 16, .1));
+        expect(titleRect.right, closeTo(listRect.right - 16, .1));
+        expect(
+          find.descendant(
+            of: detailsList,
+            matching: find.text(
+              'Studio: A studio name long enough to wrap while preserving the complete metadata value',
+              findRichText: true,
+            ),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: detailsList,
+            matching: find.text('Duration: 128 minutes', findRichText: true),
+          ),
+          findsOneWidget,
+        );
+        // Start below the player so its fullscreen gesture does not consume the drag.
+        await tester.dragFrom(
+          Offset(listRect.center.dx, listRect.bottom - 24),
+          const Offset(0, -400),
+        );
+        await tester.pumpAndSettle();
+        final descriptionText = find.byType(SelectableText);
+        await tester.scrollUntilVisible(
+          descriptionText,
+          200,
+          scrollable: detailsScrollable,
+        );
+        await tester.pumpAndSettle();
+        expect(descriptionText, findsOneWidget);
+        expect(
+          tester.widget<SelectableText>(descriptionText).data,
+          description,
+        );
+
+        final semantics = tester.ensureSemantics();
+        try {
+          final actorButton = find.byTooltip(actor.label);
+          await tester.scrollUntilVisible(
+            actorButton,
+            200,
+            scrollable: detailsScrollable,
+          );
+          await tester.pumpAndSettle();
+          final actorSemantics = tester
+              .getSemantics(actorButton)
+              .getSemanticsData();
+          expect(actorSemantics.hasAction(SemanticsAction.tap), isTrue);
+          await tester.tap(actorButton);
+          await tester.pumpAndSettle();
+          final l10n = await S.delegate.load(const Locale('en'));
+          for (final label in [
+            l10n.videoCatalog,
+            l10n.videoFavoriteActor,
+            l10n.videoUnfavoriteActor,
+            l10n.videoOpenSource,
+          ]) {
+            expect(
+              find.ancestor(
+                of: find.text(label),
+                matching: find.byType(PopupMenuItem<String>),
+              ),
+              findsOneWidget,
+            );
+          }
+          await tester.binding.handlePopRoute();
+          await tester.pumpAndSettle();
+
+          final tagChip = find.ancestor(
+            of: find.text(tag.label),
+            matching: find.byType(ActionChip),
+          );
+          await tester.scrollUntilVisible(
+            tagChip,
+            200,
+            scrollable: detailsScrollable,
+          );
+          await tester.pumpAndSettle();
+          final tagSemantics = tester.getSemantics(tagChip).getSemanticsData();
+          expect(tagSemantics.hasAction(SemanticsAction.tap), isTrue);
+          final chip = tester.widget<ActionChip>(tagChip);
+          final colors = Theme.of(tester.element(tagChip)).colorScheme;
+          expect(chip.backgroundColor, colors.primaryContainer);
+          expect(chip.labelStyle?.color, colors.onPrimaryContainer);
+          expect(chip.onPressed, isNotNull);
+          await tester.scrollUntilVisible(
+            find.text(related.title),
+            200,
+            scrollable: detailsScrollable,
+          );
+          await tester.pumpAndSettle();
+          expect(
+            find.descendant(
+              of: detailsList,
+              matching: find.text(related.title),
+            ),
+            findsOneWidget,
+          );
+        } finally {
+          semantics.dispose();
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   _testPlayerWidget(
     'a new media session reloads the stream for the same account',
@@ -3455,12 +3942,21 @@ Future<void> _pumpStandalonePlayer(
   double width = 400,
   double height = 800,
   VideoPlayerPlatform? platform,
+  bool bounded = false,
 }) async {
   tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   final library = await _testLibrary();
+  final player = VideoPlaybackPanel(
+    videoId: 'dvd-1',
+    library: library,
+    title: 'Fixture video',
+    streams: _details().streams,
+    sessionFactory: () => session,
+    platform: platform ?? _TestVideoPlayerPlatform(),
+  );
   await tester.pumpWidget(
     MaterialApp(
       locale: const Locale('en'),
@@ -3468,14 +3964,14 @@ Future<void> _pumpStandalonePlayer(
       localizationsDelegates: S.localizationsDelegates,
       theme: ThemeData(useMaterial3: true),
       home: Scaffold(
-        body: VideoPlaybackPanel(
-          videoId: 'dvd-1',
-          library: library,
-          title: 'Fixture video',
-          streams: _details().streams,
-          sessionFactory: () => session,
-          platform: platform ?? _TestVideoPlayerPlatform(),
-        ),
+        body: bounded
+            ? player
+            : Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [player],
+                ),
+              ),
       ),
     ),
   );
@@ -4089,6 +4585,10 @@ class _TestVideoPlayerPlatform extends VideoPlayerPlatform {
   final List<bool> fullscreenStatusBarChanges = [];
   double brightness = 0.5;
   bool alwaysOnTop = false;
+  Orientation? windowOrientation;
+
+  @override
+  Future<Orientation?> waitForWindowLayout() async => windowOrientation;
 
   @override
   ValueListenable<bool> get pictureInPicture => _pictureInPicture;

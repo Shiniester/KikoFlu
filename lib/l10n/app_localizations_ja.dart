@@ -4320,6 +4320,9 @@ class SJa extends S {
   String get videoUncensoredLeak => '無修正流出';
 
   @override
+  String get videoRecommendedForYou => 'あなたにおすすめ';
+
+  @override
   String get videoFilterGenre => 'ジャンル';
 
   @override

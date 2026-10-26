@@ -7912,6 +7912,12 @@ abstract class S {
   /// **'Uncensored leaks'**
   String get videoUncensoredLeak;
 
+  /// Entry for the personalized recommendation feed in the video drawer.
+  ///
+  /// In en, this message translates to:
+  /// **'Recommended for you'**
+  String get videoRecommendedForYou;
+
   /// No description provided for @videoFilterGenre.
   ///
   /// In en, this message translates to:

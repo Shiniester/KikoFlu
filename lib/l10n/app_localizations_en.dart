@@ -4441,6 +4441,9 @@ class SEn extends S {
   String get videoUncensoredLeak => 'Uncensored leaks';
 
   @override
+  String get videoRecommendedForYou => 'Recommended for you';
+
+  @override
   String get videoFilterGenre => 'Genre';
 
   @override

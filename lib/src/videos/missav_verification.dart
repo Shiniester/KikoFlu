@@ -371,7 +371,16 @@ const _documentMarkupScript = '''
   document.addEventListener('play', event => {
     if (event.target instanceof HTMLMediaElement) pause(event.target);
   }, true);
-  return JSON.stringify({url:location.href, html:root.outerHTML});
+  const visitorCookie = document.cookie.split(';').map(value => value.trim())
+    .find(value => value.startsWith('user_uuid='));
+  return JSON.stringify({
+    url:location.href,
+    html:root.outerHTML,
+    recommendationContext: {
+      userId: window.user_uuid || (visitorCookie ? decodeURIComponent(visitorCookie.substring('user_uuid='.length)) : null),
+      scenario: root.clientWidth >= 1024 ? 'desktop-home-recommended' : 'mobile-home-recommended',
+    },
+  });
 })()
 ''';
 
@@ -437,7 +446,18 @@ Future<String> navigateMissavDocument(
       );
     }
     documentRead = true;
-    return document['html'] as String;
+    final html = document['html'] as String;
+    final recommendationContext = document['recommendationContext'];
+    if (recommendationContext is! Map ||
+        recommendationContext['userId'] is! String) {
+      return html;
+    }
+    // Carry source-generated recommendation identity across browser parking.
+    final contextJson = jsonEncode(
+      recommendationContext,
+    ).replaceAll('<', r'\u003c');
+    return '$html<script id="kiko-missav-recommendation-context" '
+        'type="application/json">$contextJson</script>';
   } catch (_) {
     if (!cancellation.isCompleted) {
       stopping = Future<void>.sync(stop);

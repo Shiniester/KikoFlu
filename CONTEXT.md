@@ -33,6 +33,15 @@ The curated entries for directly browsing a Video Source's video collections.
 Search conditions belong to Video Search Filters.
 _Avoid_: Video Search Filters, Source website services, Video Collection Layout
 
+**Recommended for You (推荐给你)**:
+The recommendation collection presented on a Video Source's home page.
+_Avoid_: Related Recommendations, Video Details Screen recommendations
+
+**New Releases (新作上市)**:
+The Video Source's collection of newly released videos, distinct from recently
+updated videos.
+_Avoid_: Latest updates
+
 **Video Search Filters (视频搜索筛选)**:
 Conditions such as category, actor, or studio that narrow a video search.
 _Avoid_: Video Content Navigation, Video Collection Layout
@@ -69,6 +78,16 @@ _Avoid_: Video Screen, Video Details Screen
 Preferences controlling a Video Player's playback and interactions. They are
 separate from the video card fields shown while browsing.
 _Avoid_: Video card settings
+
+**Video Controls (视频控制层)**:
+The Video Player's title bar, progress control, and playback actions shown over
+the viewing surface.
+_Avoid_: Video picture, Video Playback Settings
+
+**Video Side Bars (视频左右黑边)**:
+The areas to the left and right of the video picture inside the Video Player
+when the picture is narrower than the viewing surface.
+_Avoid_: System safe area, page margin
 
 **Video Source Favorite (视频源收藏)**:
 A video saved in a Video Source Account's collection, belonging to that account.

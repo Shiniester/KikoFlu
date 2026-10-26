@@ -1855,12 +1855,16 @@
   "videoChineseSubtitles": "Chinese subtitles",
   "videoWeeklyHot": "Popular this week",
   "videoUncensoredLeak": "Uncensored leaks",
+  "videoRecommendedForYou": "Recommended for you",
   "videoFilterGenre": "Genre",
   "videoFilterActor": "Actor",
   "videoFilterStudio": "Studio",
   "videoFilterSeries": "Series",
   "@videoContent": {
     "description": "Heading for video feeds and content directory entries in the video drawer."
+  },
+  "@videoRecommendedForYou": {
+    "description": "Entry for the personalized recommendation feed in the video drawer."
   },
   "videoFavorites": "Video favorites",
   "videoActorFavorites": "Actor favorites",

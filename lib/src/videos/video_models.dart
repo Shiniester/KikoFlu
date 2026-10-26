@@ -206,6 +206,13 @@ class VideoCatalogPage {
   }
 }
 
+class VideoRecommendationPage {
+  const VideoRecommendationPage({required this.videos, required this.cursor});
+
+  final List<VideoItem> videos;
+  final String? cursor;
+}
+
 class VideoStream {
   const VideoStream({
     required this.label,

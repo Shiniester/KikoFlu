@@ -28,6 +28,13 @@ import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 
+typedef _RecommendationHandler =
+    Future<VideoRecommendationPage> Function(
+      String? cursor,
+      int count,
+      CancelToken? cancelToken,
+    );
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -148,6 +155,24 @@ void main() {
     },
   );
 
+  testWidgets('opens the localized new releases route by default', (
+    tester,
+  ) async {
+    const releaseUrl = 'https://missav.ai/dm539/cn/release';
+    final client = _TestMissavClient(
+      sourceHomeUrl: 'https://missav.ai/dm539/cn',
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    await tester.pumpAndSettle();
+
+    expect(client.browsedUrls, [releaseUrl]);
+  });
+
   testWidgets('failed cover retries only after tapping retry', (tester) async {
     final client = _TestMissavClient(
       catalog: const VideoCatalogPage(
@@ -192,6 +217,57 @@ void main() {
       debugNetworkImageHttpClientProvider = previousHttpClientProvider;
     }
   });
+
+  testWidgets(
+    'recommendation failed covers publish retry state without another request',
+    (tester) async {
+      final client = _TestMissavClient(
+        recommendationHandler: (_, _, _) async => const VideoRecommendationPage(
+          videos: [
+            VideoItem(
+              id: 'recommended-failed-cover',
+              title: 'Recommended cover video',
+              pageUrl: 'https://missav.ai/cn/recommended-failed-cover',
+              cover: 'https://missav.ai/images/recommended-failed-cover.png',
+            ),
+          ],
+          cursor: null,
+        ),
+      );
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final imageClient = _DeferredVideoCoverHttpClient(
+        Future.value(const <int>[]),
+        contentLength: 0,
+        statusCode: HttpStatus.notFound,
+      );
+      final previousHttpClientProvider = debugNetworkImageHttpClientProvider;
+      debugNetworkImageHttpClientProvider = () => imageClient;
+      final l10n = await S.delegate.load(const Locale('en'));
+      try {
+        await tester.pumpWidget(
+          _app(client, library, downloads, const VideoScreen()),
+        );
+        await tester.pumpAndSettle();
+        await _selectVideoDrawerLabel(
+          tester,
+          l10n,
+          l10n.videoRecommendedForYou,
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Recommended cover video'), findsOneWidget);
+        expect(imageClient.requestCount, 1);
+        expect(find.byTooltip('Retry'), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 12));
+        await tester.pumpAndSettle();
+        expect(imageClient.requestCount, 1);
+      } finally {
+        debugNetworkImageHttpClientProvider = previousHttpClientProvider;
+      }
+    },
+  );
 
   testWidgets(
     'stalled cover times out without bypassing metadata and retries',
@@ -292,22 +368,22 @@ void main() {
   testWidgets('cached catalog refresh retains the current scroll position', (
     tester,
   ) async {
-    const homeUrl = 'https://missav.ai/cn';
+    const releaseUrl = 'https://missav.ai/cn/release';
     const nextUrl = 'https://missav.ai/cn/weekly-hot';
     final videos = _videos('scroll-cache', 40);
     final cachedPage = VideoCatalogPage(
       title: 'Cached scroll catalog',
-      url: homeUrl,
+      url: releaseUrl,
       videos: videos,
     );
     final refreshedPage = VideoCatalogPage(
       title: 'Refreshed scroll catalog',
-      url: homeUrl,
+      url: releaseUrl,
       videos: videos,
     );
     final refresh = Completer<VideoCatalogPage>();
     final refreshStarted = Completer<void>();
-    var homeBrowseCount = 0;
+    var releaseBrowseCount = 0;
     final client = _TestMissavClient(
       catalog: cachedPage,
       pagesByUrl: {
@@ -318,7 +394,7 @@ void main() {
         ),
       },
       browseHandler: (url, parsedPage) {
-        if (url == homeUrl && ++homeBrowseCount == 2) {
+        if (url == releaseUrl && ++releaseBrowseCount == 2) {
           refreshStarted.complete();
           return refresh.future;
         }
@@ -337,7 +413,7 @@ void main() {
     final l10n = await S.delegate.load(const Locale('en'));
     await tester.tap(find.byKey(const ValueKey('library-menu-button')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text(l10n.navHome));
+    await tester.tap(find.text(l10n.videoNewReleases));
     for (
       var attempt = 0;
       attempt < 10 && !refreshStarted.isCompleted;
@@ -354,7 +430,7 @@ void main() {
           find.byWidgetPredicate(
             (widget) =>
                 widget is CustomScrollView &&
-                widget.key == const PageStorageKey<String>('video-$homeUrl'),
+                widget.key == const PageStorageKey<String>('video-$releaseUrl'),
           ),
         )
         .controller!;
@@ -378,7 +454,7 @@ void main() {
   testWidgets('cached cover retry does not bypass the pending refresh gate', (
     tester,
   ) async {
-    const homeUrl = 'https://missav.ai/cn';
+    const releaseUrl = 'https://missav.ai/cn/release';
     const coverUrl = 'https://missav.ai/images/cached-retry.png';
     const video = VideoItem(
       id: 'cached-retry',
@@ -388,31 +464,31 @@ void main() {
     );
     const cachedPage = VideoCatalogPage(
       title: 'Cached retry catalog',
-      url: homeUrl,
+      url: releaseUrl,
       videos: [video],
     );
     const refreshedPage = VideoCatalogPage(
       title: 'Refreshed retry catalog',
-      url: homeUrl,
+      url: releaseUrl,
       videos: [video],
     );
     final refreshResult = Completer<VideoCatalogPage>();
     final refreshStarted = Completer<void>();
     final refreshBrowseFinished = Completer<void>();
     final retryRequestStarted = Completer<void>();
-    var homeBrowseCount = 0;
+    var releaseBrowseCount = 0;
     final client = _TestMissavClient(
       catalog: cachedPage,
       browseHandler: (url, parsedPage) {
-        if (url == homeUrl && ++homeBrowseCount == 2) {
+        if (url == releaseUrl && ++releaseBrowseCount == 2) {
           refreshStarted.complete();
           return refreshResult.future;
         }
         return Future.value(parsedPage);
       },
       onBrowseCompleted: (url) {
-        if (url == homeUrl &&
-            homeBrowseCount == 2 &&
+        if (url == releaseUrl &&
+            releaseBrowseCount == 2 &&
             !refreshBrowseFinished.isCompleted) {
           refreshBrowseFinished.complete();
         }
@@ -463,7 +539,7 @@ void main() {
       final l10n = await S.delegate.load(const Locale('en'));
       await tester.tap(find.byKey(const ValueKey('library-menu-button')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text(l10n.navHome));
+      await tester.tap(find.text(l10n.videoNewReleases));
       for (
         var attempt = 0;
         attempt < 10 && !refreshStarted.isCompleted;
@@ -558,7 +634,6 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('library-menu-button')));
     await tester.pumpAndSettle();
     final l10n = await S.delegate.load(const Locale('en'));
-    expect(find.text(l10n.videoFavorites), findsOneWidget);
     final drawer = find.byKey(const ValueKey('library-drawer'));
     await tester.scrollUntilVisible(
       find.descendant(of: drawer, matching: find.text(l10n.videoFavorites)),
@@ -568,6 +643,10 @@ void main() {
           .first,
     );
     await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: drawer, matching: find.text(l10n.videoFavorites)),
+      findsOneWidget,
+    );
     await tester.tap(
       find.descendant(of: drawer, matching: find.text(l10n.videoFavorites)),
     );
@@ -779,7 +858,7 @@ void main() {
 
     expect(changedSession, isTrue);
     expect(client.browsedUrls, [
-      'https://missav.ai/cn',
+      'https://missav.ai/cn/release',
       destination,
       destination,
     ]);
@@ -935,15 +1014,39 @@ void main() {
 
     await openDrawer();
     expect(find.text(l10n.videoContent), findsOneWidget);
+    expect(
+      find.descendant(of: drawer, matching: find.text(l10n.navHome)),
+      findsNothing,
+    );
     final approvedPaths = {
-      l10n.videoRecentlyUpdated: 'new',
       l10n.videoNewReleases: 'release',
+      l10n.videoRecentlyUpdated: 'new',
       l10n.videoChineseSubtitles: 'chinese-subtitle',
       l10n.videoWeeklyHot: 'weekly-hot',
       l10n.videoUncensoredLeak: 'uncensored-leak',
     };
     for (final label in approvedPaths.keys) {
       expect(find.text(label), findsOneWidget);
+    }
+    final contentLabels = [...approvedPaths.keys, l10n.videoRecommendedForYou];
+    for (var index = 1; index < contentLabels.length; index++) {
+      final previousTop = tester
+          .getTopLeft(
+            find.descendant(
+              of: drawer,
+              matching: find.text(contentLabels[index - 1]),
+            ),
+          )
+          .dy;
+      final currentTop = tester
+          .getTopLeft(
+            find.descendant(
+              of: drawer,
+              matching: find.text(contentLabels[index]),
+            ),
+          )
+          .dy;
+      expect(currentTop, greaterThan(previousTop));
     }
     for (final label in const [
       'Amateur directory',
@@ -972,6 +1075,18 @@ void main() {
     }
 
     await openDrawer();
+    await scrollToDrawerLabel(l10n.videoRecommendedForYou);
+    await tester.tap(
+      find.descendant(
+        of: drawer,
+        matching: find.text(l10n.videoRecommendedForYou),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(client.recommendationRequests, [(cursor: null, count: 40)]);
+    expect(find.text(l10n.noResults), findsOneWidget);
+
+    await openDrawer();
     await scrollToDrawerLabel(l10n.layout);
     await tester.tap(find.text(l10n.layout));
     await tester.pumpAndSettle();
@@ -996,6 +1111,384 @@ void main() {
     );
     await openDrawer();
     expect(find.byIcon(Icons.grid_view), findsOneWidget);
+  });
+
+  testWidgets(
+    'recommendation pages keep source order and cached pages across catalogs',
+    (tester) async {
+      const releaseUrl = 'https://missav.ai/cn/release';
+      var partialBatchCalls = 0;
+      final client = _TestMissavClient(
+        catalog: const VideoCatalogPage(
+          title: 'Release directory',
+          url: releaseUrl,
+        ),
+        recommendationHandler: (cursor, _, _) async {
+          if (cursor == null) {
+            return VideoRecommendationPage(
+              videos: _videos('recommendation-page-1', 40),
+              cursor: 'recomm-id',
+            );
+          }
+          if (cursor == 'recomm-id') {
+            partialBatchCalls++;
+            if (partialBatchCalls == 1) {
+              return VideoRecommendationPage(
+                videos: _videos('recommendation-page-2-first', 10),
+                cursor: 'recomm-id',
+              );
+            }
+            if (partialBatchCalls == 2) {
+              return VideoRecommendationPage(
+                videos: _videos('recommendation-page-2-last', 30),
+                cursor: 'recomm-id',
+              );
+            }
+            return VideoRecommendationPage(
+              videos: _videos('recommendation-page-3', 40),
+              cursor: 'recomm-id',
+            );
+          }
+          return const VideoRecommendationPage(videos: [], cursor: null);
+        },
+      );
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final l10n = await S.delegate.load(const Locale('en'));
+
+      await tester.pumpWidget(
+        _app(client, library, downloads, const VideoScreen()),
+      );
+      await tester.pumpAndSettle();
+      await _selectVideoDrawerLabel(tester, l10n, l10n.videoRecommendedForYou);
+      expect(find.text('recommendation-page-1 0'), findsOneWidget);
+      expect(client.recommendationRequests, [(cursor: null, count: 40)]);
+
+      await _tapNextPage(tester, l10n);
+      expect(find.text('recommendation-page-2-first 0'), findsOneWidget);
+      final pageTwoPagination = await _visiblePaginationBar(tester);
+      expect(pageTwoPagination.currentPage, 2);
+      expect(pageTwoPagination.jumpMaxPage, 2);
+      expect(client.recommendationRequests, [
+        (cursor: null, count: 40),
+        (cursor: 'recomm-id', count: 40),
+        (cursor: 'recomm-id', count: 40),
+      ]);
+
+      await _tapPreviousPage(tester, l10n);
+      expect(find.text('recommendation-page-1 0'), findsOneWidget);
+      await _tapNextPage(tester, l10n);
+      expect(find.text('recommendation-page-2-first 0'), findsOneWidget);
+      expect(client.recommendationRequests, hasLength(3));
+
+      await _tapNextPage(tester, l10n);
+      expect(find.text('recommendation-page-3 0'), findsOneWidget);
+      expect(client.recommendationRequests, [
+        (cursor: null, count: 40),
+        (cursor: 'recomm-id', count: 40),
+        (cursor: 'recomm-id', count: 40),
+        (cursor: 'recomm-id', count: 40),
+      ]);
+
+      await _selectVideoDrawerLabel(tester, l10n, l10n.videoNewReleases);
+      expect(find.text('Release directory'), findsOneWidget);
+      await _selectVideoDrawerLabel(tester, l10n, l10n.videoRecommendedForYou);
+      expect(find.text('recommendation-page-3 0'), findsOneWidget);
+      expect(client.recommendationRequests, hasLength(4));
+    },
+  );
+
+  testWidgets(
+    'partial recommendation batches survive a later failure and retry',
+    (tester) async {
+      var cursorAttempts = 0;
+      final client = _TestMissavClient(
+        recommendationHandler: (cursor, _, _) async {
+          if (cursor == null) {
+            return VideoRecommendationPage(
+              videos: _videos('recommendation-page-1', 40),
+              cursor: 'recomm-id',
+            );
+          }
+          cursorAttempts++;
+          if (cursorAttempts == 1) {
+            return VideoRecommendationPage(
+              videos: _videos('recommendation-page-2-first', 10),
+              cursor: 'recomm-id',
+            );
+          }
+          if (cursorAttempts == 2) {
+            throw StateError('Temporary recommendation failure.');
+          }
+          return VideoRecommendationPage(
+            videos: _videos('recommendation-page-2-last', 30),
+            cursor: 'recomm-id',
+          );
+        },
+      );
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final l10n = await S.delegate.load(const Locale('en'));
+
+      await tester.pumpWidget(
+        _app(client, library, downloads, const VideoScreen()),
+      );
+      await tester.pumpAndSettle();
+      await _selectVideoDrawerLabel(tester, l10n, l10n.videoRecommendedForYou);
+      await _tapNextPage(tester, l10n);
+      expect(find.text('recommendation-page-1 0'), findsOneWidget);
+      expect(find.text(l10n.retry), findsOneWidget);
+
+      await tester.tap(find.text(l10n.retry));
+      await tester.pumpAndSettle();
+      expect(find.text('recommendation-page-2-first 0'), findsOneWidget);
+      final pagination = await _visiblePaginationBar(tester);
+      expect(pagination.currentPage, 2);
+      expect(client.recommendationRequests, [
+        (cursor: null, count: 40),
+        (cursor: 'recomm-id', count: 40),
+        (cursor: 'recomm-id', count: 40),
+        (cursor: 'recomm-id', count: 40),
+      ]);
+    },
+  );
+
+  testWidgets('initial recommendations offer browser verification', (
+    tester,
+  ) async {
+    final client = _TestMissavClient(
+      recommendationHandler: (_, _, _) async =>
+          throw const MissavVerificationRequiredException(
+            sourceUrl: 'https://missav.ai/cn',
+          ),
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final l10n = await S.delegate.load(const Locale('en'));
+
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    await tester.pumpAndSettle();
+    await _selectVideoDrawerLabel(tester, l10n, l10n.videoRecommendedForYou);
+
+    expect(find.text(l10n.videoVerificationRequired), findsOneWidget);
+    expect(find.text(l10n.videoVerifyAccess), findsOneWidget);
+    expect(find.text(l10n.retry), findsOneWidget);
+    expect(find.text(l10n.videoOpenSource), findsOneWidget);
+  });
+
+  testWidgets(
+    'recommendation retry preserves the current page and empty next batches end paging',
+    (tester) async {
+      var pageTwoAttempts = 0;
+      final client = _TestMissavClient(
+        recommendationHandler: (cursor, _, _) async {
+          if (cursor == null) {
+            return VideoRecommendationPage(
+              videos: _videos('recommendation-page-1', 40),
+              cursor: 'page-2',
+            );
+          }
+          if (cursor == 'page-2') {
+            if (pageTwoAttempts++ == 0) {
+              throw const MissavVerificationRequiredException(
+                sourceUrl: 'https://missav.ai/cn',
+              );
+            }
+            return VideoRecommendationPage(
+              videos: _videos('recommendation-page-2', 40),
+              cursor: 'page-3',
+            );
+          }
+          return const VideoRecommendationPage(
+            videos: [],
+            cursor: 'expired-page-4',
+          );
+        },
+      );
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final l10n = await S.delegate.load(const Locale('en'));
+
+      await tester.pumpWidget(
+        _app(client, library, downloads, const VideoScreen()),
+      );
+      await tester.pumpAndSettle();
+      await _selectVideoDrawerLabel(tester, l10n, l10n.videoRecommendedForYou);
+      await _tapNextPage(tester, l10n);
+      expect(find.text('recommendation-page-1 0'), findsOneWidget);
+      expect(find.text(l10n.videoVerificationRequired), findsOneWidget);
+      expect(find.text(l10n.retry), findsOneWidget);
+      expect(find.text(l10n.videoVerifyAccess), findsOneWidget);
+
+      await tester.tap(find.text(l10n.retry));
+      await tester.pumpAndSettle();
+      expect(find.text('recommendation-page-2 0'), findsOneWidget);
+      final pageTwoPagination = await _visiblePaginationBar(tester);
+      expect(pageTwoPagination.currentPage, 2);
+
+      await _tapNextPage(tester, l10n);
+      expect(find.text('recommendation-page-2 0'), findsOneWidget);
+      final pagination = await _visiblePaginationBar(tester);
+      expect(pagination.currentPage, 2);
+      expect(pagination.hasMore, isFalse);
+
+      await _selectVideoDrawerLabel(tester, l10n, l10n.videoRecommendedForYou);
+      expect(find.text('recommendation-page-1 0'), findsOneWidget);
+      expect(client.recommendationRequests.last, (cursor: null, count: 40));
+    },
+  );
+
+  testWidgets('recommendation cache resets when locale or session changes', (
+    tester,
+  ) async {
+    late _TestMissavClient client;
+    var pageNumber = 0;
+    client = _TestMissavClient(
+      recommendationHandler: (cursor, _, _) async {
+        expect(cursor, isNull);
+        pageNumber++;
+        return VideoRecommendationPage(
+          videos: _videos(
+            'recommendation-${client.testLocale}-$pageNumber',
+            40,
+          ),
+          cursor: null,
+        );
+      },
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final en = await S.delegate.load(const Locale('en'));
+
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    await tester.pumpAndSettle();
+    await _selectVideoDrawerLabel(tester, en, en.videoRecommendedForYou);
+    expect(find.text('recommendation-en-1 0'), findsOneWidget);
+
+    expect(client.setLocale('ja'), isTrue);
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        const VideoScreen(),
+        locale: const Locale('ja'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final ja = await S.delegate.load(const Locale('ja'));
+    expect(find.text(ja.videoRecommendedForYou), findsOneWidget);
+    expect(find.text('recommendation-ja-2 0'), findsOneWidget);
+    expect(client.recommendationRequests, [
+      (cursor: null, count: 40),
+      (cursor: null, count: 40),
+    ]);
+
+    client.advanceSessionGeneration();
+    await tester.pumpAndSettle();
+    expect(find.text('recommendation-ja-3 0'), findsOneWidget);
+    expect(client.recommendationRequests, hasLength(3));
+  });
+
+  testWidgets('stale recommendation responses cannot replace a catalog page', (
+    tester,
+  ) async {
+    const releaseUrl = 'https://missav.ai/cn/release';
+    final pageTwo = Completer<VideoRecommendationPage>();
+    final requestStarted = Completer<void>();
+    final client = _TestMissavClient(
+      catalog: const VideoCatalogPage(
+        title: 'Release directory',
+        url: releaseUrl,
+      ),
+      recommendationHandler: (cursor, _, _) {
+        if (cursor == null) {
+          return Future.value(
+            VideoRecommendationPage(
+              videos: _videos('recommendation-page-1', 40),
+              cursor: 'page-2',
+            ),
+          );
+        }
+        requestStarted.complete();
+        return pageTwo.future;
+      },
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final l10n = await S.delegate.load(const Locale('en'));
+    addTearDown(() {
+      if (!pageTwo.isCompleted) {
+        pageTwo.complete(
+          const VideoRecommendationPage(videos: [], cursor: null),
+        );
+      }
+    });
+
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    await tester.pumpAndSettle();
+    await _selectVideoDrawerLabel(tester, l10n, l10n.videoRecommendedForYou);
+    await tester.scrollUntilVisible(
+      find.byType(PaginationBar),
+      500,
+      scrollable: find.descendant(
+        of: find.byType(CustomScrollView),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.ensureVisible(find.byType(PaginationBar));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.nextPage));
+    await tester.pump();
+    expect(requestStarted.isCompleted, isTrue);
+
+    final drawer = find.byKey(const ValueKey('library-drawer'));
+    final scaffold = find.byWidgetPredicate(
+      (widget) =>
+          widget is Scaffold &&
+          widget.drawer?.key == const ValueKey('library-drawer'),
+    );
+    final scaffoldState = tester.state<ScaffoldState>(scaffold);
+    scaffoldState.openDrawer();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(scaffoldState.isDrawerOpen, isTrue);
+    await tester.scrollUntilVisible(
+      find.descendant(of: drawer, matching: find.text(l10n.videoNewReleases)),
+      240,
+      scrollable: find
+          .descendant(of: drawer, matching: find.byType(Scrollable))
+          .first,
+    );
+    final releaseTile = find.descendant(
+      of: drawer,
+      matching: find.text(l10n.videoNewReleases),
+    );
+    await tester.ensureVisible(releaseTile);
+    await tester.pump();
+    expect(tester.getCenter(releaseTile).dx, greaterThanOrEqualTo(0));
+    await tester.tap(releaseTile);
+    await tester.pumpAndSettle();
+    expect(find.text('Release directory'), findsOneWidget);
+
+    pageTwo.complete(
+      VideoRecommendationPage(
+        videos: _videos('stale-recommendation-page-2', 40),
+        cursor: null,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Release directory'), findsOneWidget);
+
+    await _selectVideoDrawerLabel(tester, l10n, l10n.videoRecommendedForYou);
+    expect(find.text('recommendation-page-1 0'), findsOneWidget);
+    expect(client.recommendationRequests, hasLength(2));
   });
 
   testWidgets('playlist directory pages accept source route prefixes', (
@@ -1934,6 +2427,7 @@ Widget _app(
   VideoDownloads downloads,
   Widget home, {
   double textScale = 1,
+  Locale locale = const Locale('en'),
   Future<void> Function()? clearBrowserSession,
   NavigatorObserver? observer,
 }) => ProviderScope(
@@ -1947,7 +2441,7 @@ Widget _app(
     currentTrackProvider.overrideWith((ref) => Stream.value(null)),
   ],
   child: MaterialApp(
-    locale: const Locale('en'),
+    locale: locale,
     supportedLocales: S.supportedLocales,
     localizationsDelegates: S.localizationsDelegates,
     navigatorObservers: [if (observer != null) observer],
@@ -1970,6 +2464,7 @@ Future<VideoLibrary> _testLibrary() async {
 class _TestMissavClient extends MissavClient {
   _TestMissavClient({
     this.catalog,
+    this.sourceHomeUrl = 'https://missav.ai/cn',
     this.parsedCatalog,
     this.browseError,
     this.browseStarted,
@@ -1983,9 +2478,11 @@ class _TestMissavClient extends MissavClient {
     this.onBrowseCompleted,
     this.onBrowse,
     this.collectionSearchResults = const [],
+    this.recommendationHandler,
   });
 
   final VideoCatalogPage? catalog;
+  final String sourceHomeUrl;
   final VideoCatalogPage? parsedCatalog;
   final Object? browseError;
   final Completer<void>? browseStarted;
@@ -2001,6 +2498,7 @@ class _TestMissavClient extends MissavClient {
   final void Function(String url)? onBrowseCompleted;
   final void Function(String url)? onBrowse;
   final List<VideoItem> collectionSearchResults;
+  final _RecommendationHandler? recommendationHandler;
   bool loggedIn;
   int _testSessionGeneration = 0;
   @override
@@ -2009,13 +2507,21 @@ class _TestMissavClient extends MissavClient {
   int clearHistoryCalls = 0;
   int collectionSearchCalls = 0;
   final List<String> browsedUrls = [];
+  final recommendationRequests = <({String? cursor, int count})>[];
   bool browseFinished = false;
+  String testLocale = 'cn';
   final filterOptionKinds = <VideoSearchFilterKind>[];
   final combinedSearchRequests =
       <({String query, List<VideoLink> filters, bool? current})>[];
 
   @override
-  String get homeUrl => 'https://missav.ai/cn';
+  String get homeUrl => sourceHomeUrl;
+
+  @override
+  bool setLocale(String languageTag) {
+    testLocale = languageTag.split('-').first;
+    return super.setLocale(languageTag);
+  }
 
   @override
   bool get isLoggedIn => loggedIn;
@@ -2084,6 +2590,18 @@ class _TestMissavClient extends MissavClient {
       completed.complete();
     }
     return page;
+  }
+
+  @override
+  Future<VideoRecommendationPage> loadRecommendations({
+    String? cursor,
+    required int count,
+    CancelToken? cancelToken,
+  }) async {
+    recommendationRequests.add((cursor: cursor, count: count));
+    final handler = recommendationHandler;
+    if (handler != null) return handler(cursor, count, cancelToken);
+    return const VideoRecommendationPage(videos: [], cursor: null);
   }
 
   @override
@@ -2173,6 +2691,56 @@ Future<void> _tapNextPage(WidgetTester tester, S l10n) async {
   await tester.ensureVisible(find.byType(PaginationBar));
   await tester.pumpAndSettle();
   await tester.tap(find.text(l10n.nextPage));
+  await tester.pumpAndSettle();
+}
+
+Future<PaginationBar> _visiblePaginationBar(WidgetTester tester) async {
+  final finder = find.byType(PaginationBar);
+  await tester.scrollUntilVisible(
+    finder,
+    500,
+    scrollable: find.descendant(
+      of: find.byType(CustomScrollView),
+      matching: find.byType(Scrollable),
+    ),
+  );
+  await tester.ensureVisible(finder);
+  await tester.pumpAndSettle();
+  return tester.widget<PaginationBar>(finder);
+}
+
+Future<void> _tapPreviousPage(WidgetTester tester, S l10n) async {
+  await tester.scrollUntilVisible(
+    find.byType(PaginationBar),
+    500,
+    scrollable: find.descendant(
+      of: find.byType(CustomScrollView),
+      matching: find.byType(Scrollable),
+    ),
+  );
+  await tester.ensureVisible(find.byType(PaginationBar));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(l10n.previousPage));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _selectVideoDrawerLabel(
+  WidgetTester tester,
+  S l10n,
+  String label,
+) async {
+  await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+  await tester.pumpAndSettle();
+  final drawer = find.byKey(const ValueKey('library-drawer'));
+  await tester.scrollUntilVisible(
+    find.descendant(of: drawer, matching: find.text(label)),
+    240,
+    scrollable: find
+        .descendant(of: drawer, matching: find.byType(Scrollable))
+        .first,
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(find.descendant(of: drawer, matching: find.text(label)));
   await tester.pumpAndSettle();
 }
 

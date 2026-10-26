@@ -4298,6 +4298,9 @@ class SZh extends S {
   String get videoUncensoredLeak => '无码流出';
 
   @override
+  String get videoRecommendedForYou => '推荐给你';
+
+  @override
   String get videoFilterGenre => '类型';
 
   @override
@@ -8989,6 +8992,9 @@ class SZhHant extends SZh {
 
   @override
   String get videoUncensoredLeak => '無碼流出';
+
+  @override
+  String get videoRecommendedForYou => '推薦給你';
 
   @override
   String get videoFilterGenre => '類型';

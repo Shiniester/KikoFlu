@@ -361,6 +361,32 @@ void main() {
     expect(stopped, isFalse);
   });
 
+  test('captures source recommendation context before parking', () async {
+    const context = {
+      'userId': 'source-visitor',
+      'scenario': 'mobile-home-recommended',
+    };
+    var parked = false;
+    final result = await navigateMissavDocument(
+      Uri.parse('https://missav.ai/cn'),
+      Completer<void>().future,
+      navigate: (_) async {},
+      read: (_) async {
+        expect(parked, isFalse);
+        return {
+          'url': 'https://missav.ai/cn',
+          'html': '<html><body>Source homepage</body></html>',
+          'recommendationContext': context,
+        };
+      },
+      stop: () async {},
+      releaseDocument: (_) async => parked = true,
+    );
+    expect(parked, isTrue);
+    expect(result, contains('id="kiko-missav-recommendation-context"'));
+    expect(result, contains(jsonEncode(context)));
+  });
+
   test('accepts a document returned as JSON or a platform map', () async {
     const document = {
       'url': 'https://missav.ai/en',

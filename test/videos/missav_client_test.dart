@@ -357,6 +357,203 @@ void main() {
   );
 
   test(
+    'homepage recommendations preserve source order and continue by cursor',
+    () async {
+      final fixture = await File(
+        'test/fixtures/missav/home_recommendations.html',
+      ).readAsString();
+      final source = _Adapter((_) => _response(fixture));
+      var nextRequests = 0;
+      final metadata = _Adapter((request) {
+        if (request.uri.path.contains('/users/anonymous/')) {
+          return _metadataResponse({'recomms': []});
+        }
+        if (request.uri.path.contains('/next/')) {
+          nextRequests++;
+          return _metadataResponse({
+            'recommId': 'first-cursor',
+            'recomms': nextRequests == 1
+                ? [
+                    {
+                      'id': 'sample-003',
+                      'values': {'title_cn': 'Next item'},
+                    },
+                  ]
+                : [],
+          });
+        }
+        return _metadataResponse({
+          'recommId': 'first-cursor',
+          'recomms': [
+            {
+              'id': 'sample-002-chinese-subtitle',
+              'values': {
+                'title_cn': 'First item',
+                'duration': 83,
+                'has_chinese_subtitle': true,
+                'dm': 691,
+                'actresses': ['Actor A'],
+                'genres': ['Tag A'],
+              },
+            },
+            {
+              'id': 'sample-001',
+              'values': {'title_cn': 'Second item'},
+            },
+          ],
+        });
+      });
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = source,
+        metadataDio: Dio()..httpClientAdapter = metadata,
+        secureStorage: _MemorySecureStorage()..cookie = 'session=source-only',
+      );
+      addTearDown(client.dispose);
+      final first = await client.loadRecommendations(count: 40);
+      expect(first.videos.map((video) => video.id), [
+        'sample-002-chinese-subtitle',
+        'sample-001',
+      ]);
+      expect(first.videos.first.title, 'SAMPLE-002 First item');
+      expect(first.videos.first.durationSeconds, 83);
+      expect(first.videos.first.hasSubtitles, isTrue);
+      expect(first.videos.first.actors.single.label, 'Actor A');
+      expect(first.videos.first.tags.single.label, 'Tag A');
+      expect(metadata.requests, hasLength(1));
+      expect(
+        first.videos.first.pageUrl,
+        contains(
+          '/dm691/cn/sample-002-chinese-subtitle#first-cursor_desktop-home-recommended',
+        ),
+      );
+      expect(
+        first.videos.first.cover,
+        'https://fourhoi.com/sample-002-chinese-subtitle/cover-t.jpg',
+      );
+      expect(first.cursor, 'first-cursor');
+      final request = metadata.requests.first;
+      expect(
+        request.uri.path,
+        '/missav-default/recomms/users/source-visitor/items/',
+      );
+      expect(request.uri.queryParameters['frontend_sign'], isNotEmpty);
+      expect(request.data, containsPair('count', 40));
+      expect(
+        request.data,
+        containsPair('scenario', 'desktop-home-recommended'),
+      );
+      expect(
+        request.data,
+        containsPair('logic', {
+          'name': 'missav:personal',
+          'settings': {'spotlightVideoIds': <String>[]},
+        }),
+      );
+      expect(
+        metadata.requests.every((request) => _cookieHeader(request).isEmpty),
+        isTrue,
+      );
+      final next = await client.loadRecommendations(
+        cursor: first.cursor,
+        count: 40,
+      );
+      expect(next.videos.single.id, 'sample-003');
+      expect(next.cursor, 'first-cursor');
+      final nextRequest = metadata.requests.firstWhere(
+        (request) => request.uri.path.contains('/next/'),
+      );
+      expect(
+        nextRequest.uri.path,
+        '/missav-default/recomms/next/items/first-cursor',
+      );
+      expect(nextRequest.data, {'count': 40, 'cascadeCreate': true});
+      final end = await client.loadRecommendations(
+        cursor: next.cursor,
+        count: 40,
+      );
+      expect(end.videos, isEmpty);
+      expect(source.requests, hasLength(1));
+    },
+  );
+
+  test(
+    'recommendations request verification without source identity and reject invalid responses',
+    () async {
+      final fixture = await File(
+        'test/fixtures/missav/home_recommendations.html',
+      ).readAsString();
+      for (final withContext in [false, true]) {
+        final source = _Adapter(
+          (_) => _response(withContext ? fixture : '<h1>Home</h1>'),
+        );
+        final metadata = _Adapter(
+          (_) => _metadataResponse({'notRecommendations': []}),
+        );
+        final client = MissavClient(
+          dio: Dio()..httpClientAdapter = source,
+          metadataDio: Dio()..httpClientAdapter = metadata,
+          secureStorage: _MemorySecureStorage(),
+        );
+        addTearDown(client.dispose);
+        await expectLater(
+          client.loadRecommendations(count: 40),
+          throwsA(
+            withContext
+                ? allOf(
+                    isA<MissavException>(),
+                    isNot(isA<MissavVerificationRequiredException>()),
+                  )
+                : isA<MissavVerificationRequiredException>().having(
+                    (error) => error.sourceUrl,
+                    'sourceUrl',
+                    'https://missav.ai/cn',
+                  ),
+          ),
+        );
+        expect(metadata.requests.length, withContext ? 1 : 0);
+      }
+    },
+  );
+
+  for (final changeSession in [true, false]) {
+    test(
+      'stale recommendations are discarded after ${changeSession ? 'session' : 'language'} changes',
+      () async {
+        final fixture = await File(
+          'test/fixtures/missav/home_recommendations.html',
+        ).readAsString();
+        final started = Completer<void>();
+        final response = Completer<ResponseBody>();
+        final metadata = _Adapter((_) {
+          started.complete();
+          return response.future;
+        });
+        final client = MissavClient(
+          dio: Dio()..httpClientAdapter = _Adapter((_) => _response(fixture)),
+          metadataDio: Dio()..httpClientAdapter = metadata,
+          secureStorage: _MemorySecureStorage(),
+        );
+        addTearDown(client.dispose);
+        final pending = client.loadRecommendations(count: 40);
+        final rejected = expectLater(
+          pending,
+          throwsA(anyOf(isA<MissavException>(), isA<DioException>())),
+        );
+        await started.future;
+        if (changeSession) {
+          client.restoreNativeTransport();
+        } else {
+          client.setLocale('ja');
+        }
+        response.complete(
+          _metadataResponse({'recommId': 'old-cursor', 'recomms': []}),
+        );
+        await rejected;
+      },
+    );
+  }
+
+  test(
     'enriches a catalog in one exact-ID batch without account headers',
     () async {
       final source = _Adapter(
