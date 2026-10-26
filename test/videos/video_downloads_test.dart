@@ -739,7 +739,10 @@ class _FixtureMissavClient extends MissavClient {
   int detailsCalls = 0;
 
   @override
-  Future<VideoDetails> details(VideoItem item) {
+  Future<VideoDetails> details(
+    VideoItem item, {
+    FutureOr<void> Function(VideoDetails)? onReady,
+  }) {
     detailsCalls++;
     return resolve(item);
   }

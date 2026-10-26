@@ -1019,6 +1019,81 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final covered in [false, true]) {
+    testWidgets(
+      'account confirmation retains public catalog and scroll (covered=$covered)',
+      (tester) async {
+        final client = _TestMissavClient(
+          catalog: VideoCatalogPage(
+            title: 'Public catalog',
+            url: 'https://missav.ai/en',
+            videos: _videos('public', 40),
+          ),
+        );
+        final library = await _testLibrary();
+        final downloads = _TestVideoDownloads(client: client, library: library);
+        await tester.pumpWidget(
+          _app(client, library, downloads, const VideoScreen()),
+        );
+        await tester.pumpAndSettle();
+        final scroll = tester
+            .widget<CustomScrollView>(find.byType(CustomScrollView))
+            .controller!;
+        scroll.jumpTo(180);
+        await tester.pumpAndSettle();
+        final navigator = Navigator.of(
+          tester.element(find.byType(VideoScreen)),
+        );
+        if (covered) {
+          unawaited(
+            navigator.push(
+              MaterialPageRoute<void>(
+                builder: (_) => const Scaffold(body: Text('Details')),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+        }
+        client.confirmAccount('Saved account');
+        await tester.pumpAndSettle();
+        if (covered) {
+          navigator.pop();
+          await tester.pumpAndSettle();
+        }
+        expect(client.browsedUrls, hasLength(1));
+        expect(scroll.offset, 180);
+        expect(find.text('Public catalog'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  for (final path in [
+    'saved',
+    'saved/actresses',
+    'playlists',
+    'playlists/123',
+    'history',
+  ]) {
+    testWidgets('account changes refresh the $path collection', (tester) async {
+      final url = 'https://missav.ai/en/$path';
+      final client = _TestMissavClient(
+        loggedIn: true,
+        accountName: 'Account A',
+        catalog: VideoCatalogPage(title: 'Account collection', url: url),
+      );
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      await tester.pumpWidget(
+        _app(client, library, downloads, VideoScreen.catalog(url: url)),
+      );
+      await tester.pumpAndSettle();
+      client.confirmAccount('Account B');
+      await tester.pumpAndSettle();
+      expect(client.browsedUrls, [url, url]);
+    });
+  }
+
   testWidgets('logout clears and reloads an account catalog on return', (
     tester,
   ) async {
@@ -1385,6 +1460,12 @@ class _TestMissavClient extends MissavClient {
 
   @override
   bool get isLoggedIn => loggedIn;
+
+  void confirmAccount(String name) {
+    loggedIn = true;
+    accountName = name;
+    notifyListeners();
+  }
 
   @override
   Future<void> initialize() async {}

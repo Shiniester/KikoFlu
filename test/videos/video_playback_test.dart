@@ -148,6 +148,186 @@ void main() {
     expect(session.loadStreamCount, 1);
   });
 
+  for (final supplementFails in [false, true]) {
+    for (final covered in [false, true]) {
+      _testPlayerWidget(
+        'detail preview keeps one player across supplemental result (failure=$supplementFails, covered=$covered)',
+        (tester) async {
+          final completed = _details(isFavorite: true);
+          final preview = VideoDetails(
+            video: completed.video,
+            sourceId: completed.sourceId,
+            streams: completed.streams,
+          );
+          final client = _TestMissavClient(completed)
+            ..readyDetails = preview
+            ..detailsCompleter = Completer<VideoDetails>();
+          final library = await _testLibrary();
+          final downloads = _TestVideoDownloads(
+            client: client,
+            library: library,
+          );
+          final session = _FakePlaybackSession();
+          var creations = 0;
+          await tester.pumpWidget(
+            _app(
+              client,
+              library,
+              downloads,
+              _testVideoDetailsScreen(
+                video: _video(),
+                sessionFactory: () {
+                  creations++;
+                  return session;
+                },
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(find.byType(VideoPlaybackPanel), findsOneWidget);
+          expect(session.loadStreamCount, 1);
+          expect(creations, 1);
+          expect(client.detailsCalls, 1);
+          final pendingFavorite = tester.widget<IconButton>(
+            find.ancestor(
+              of: find.byIcon(Icons.bookmark_outline),
+              matching: find.byType(IconButton),
+            ),
+          );
+          expect(pendingFavorite.onPressed, isNull);
+
+          final navigator = Navigator.of(
+            tester.element(find.byType(VideoDetailsScreen)),
+          );
+          if (covered) {
+            unawaited(
+              navigator.push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const Scaffold(body: Text('Source catalog')),
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+          }
+          client.switchAccount(isFavorite: true);
+          if (supplementFails) {
+            client.detailsCompleter!.completeError(
+              const MissavException('Account request failed.'),
+            );
+          } else {
+            client.detailsCompleter!.complete(completed);
+          }
+          await tester.pumpAndSettle();
+          if (covered) {
+            navigator.pop();
+            await tester.pumpAndSettle();
+          }
+          expect(find.byType(VideoPlaybackPanel), findsOneWidget);
+          expect(session.loadStreamCount, 1);
+          expect(creations, 1);
+          expect(client.detailsCalls, 1);
+          expect(
+            find.byIcon(
+              supplementFails ? Icons.bookmark_outline : Icons.bookmark,
+            ),
+            findsOneWidget,
+          );
+          expect(tester.takeException(), isNull);
+          if (supplementFails) {
+            final s = await S.delegate.load(const Locale('en'));
+            expect(find.text(s.loadFailed), findsOneWidget);
+            expect(find.text(s.retry), findsOneWidget);
+          }
+        },
+      );
+    }
+  }
+
+  for (final supplementFails in [false, true]) {
+    _testPlayerWidget(
+      'supplement retry preserves playback and quality (failure=$supplementFails)',
+      (tester) async {
+        final preview = _details();
+        final client = _TestMissavClient(preview)
+          ..readyDetails = preview
+          ..detailsCompleter = Completer<VideoDetails>()
+          ..supplementCompleter = Completer<VideoDetails>();
+        final library = await _testLibrary();
+        final downloads = _TestVideoDownloads(client: client, library: library);
+        final session = _FakePlaybackSession();
+        await tester.pumpWidget(
+          _app(
+            client,
+            library,
+            downloads,
+            _testVideoDetailsScreen(
+              video: _video(),
+              sessionFactory: () => session,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final s = await S.delegate.load(const Locale('en'));
+        await _chooseSetting(tester, '${s.videoQuality}: 720p');
+        await _closeSettings(tester);
+        await tester.tap(find.byTooltip(s.videoPlay));
+        await tester.pump();
+        await session.seek(const Duration(seconds: 44));
+        final loads = session.loadStreamCount;
+        client.detailsCompleter!.completeError(
+          const MissavException('Account request failed.'),
+        );
+        await tester.pumpAndSettle();
+        client.detailsCompleter = null;
+        client.readyDetails = null;
+        client.detailsResult = VideoDetails(
+          video: preview.video,
+          streams: preview.streams
+              .map(
+                (stream) => VideoStream(label: stream.label, url: stream.url),
+              )
+              .toList(),
+        );
+        await tester.ensureVisible(find.text(s.retry));
+        await tester.tap(find.text(s.retry));
+        await tester.pumpAndSettle();
+        expect(client.detailsCalls, 1);
+        expect(client.supplementCalls, 1);
+        expect(session.loadStreamCount, loads);
+        expect(session.lastStreamUrl, 'https://cdn.example/video-720.m3u8');
+        expect(session.snapshot.value.position, const Duration(seconds: 44));
+        expect(session.snapshot.value.playing, isTrue);
+
+        if (supplementFails) {
+          client.supplementCompleter!.completeError(
+            const MissavException('Account request still failed.'),
+          );
+        } else {
+          client.switchAccount(isFavorite: true);
+          client.supplementCompleter!.complete(
+            VideoDetails(
+              video: preview.video,
+              sourceId: preview.sourceId,
+              streams: preview.streams,
+              isFavorite: true,
+            ),
+          );
+        }
+        await tester.pumpAndSettle();
+        expect(session.loadStreamCount, loads);
+        expect(session.lastStreamUrl, 'https://cdn.example/video-720.m3u8');
+        expect(session.snapshot.value.position, const Duration(seconds: 44));
+        expect(session.snapshot.value.playing, isTrue);
+        expect(client.detailsCalls, 1);
+        expect(
+          find.text(s.loadFailed),
+          supplementFails ? findsOneWidget : findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   _testPlayerWidget('detail route ignores a late result during pop', (
     tester,
   ) async {
@@ -1919,6 +2099,59 @@ void main() {
     expect(find.byIcon(Icons.bookmark), findsOneWidget);
   });
 
+  _testPlayerWidget('actor favorites wait for account confirmation', (
+    tester,
+  ) async {
+    const actor = VideoLink(
+      label: 'Fixture actor',
+      url: 'https://missav.ai/cn/actress/fixture',
+      kind: VideoLinkKind.actor,
+    );
+    final details = VideoDetails(
+      video: _video(),
+      actors: [actor],
+      streams: _details().streams,
+    );
+    final client = _TestMissavClient(details)
+      ..readyDetails = details
+      ..detailsCompleter = Completer<VideoDetails>();
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final session = _FakePlaybackSession();
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        _testVideoDetailsScreen(video: _video(), sessionFactory: () => session),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final s = await S.delegate.load(const Locale('en'));
+    await tester.tap(find.byTooltip(actor.label));
+    await tester.pumpAndSettle();
+    for (final label in [s.videoFavoriteActor, s.videoUnfavoriteActor]) {
+      final item = tester.widget<PopupMenuItem<String>>(
+        find.ancestor(
+          of: find.text(label),
+          matching: find.byType(PopupMenuItem<String>),
+        ),
+      );
+      expect(item.enabled, isFalse);
+    }
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    client.switchAccount(isFavorite: false);
+    client.detailsCompleter!.complete(details);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip(actor.label));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(s.videoFavoriteActor));
+    await tester.pumpAndSettle();
+    expect(client.actorFavoriteChanges, [true]);
+    expect(find.text(s.videoLoginRequired), findsNothing);
+  });
+
   _testPlayerWidget(
     'actor menu sends the selected favorite state to the source',
     (tester) async {
@@ -2151,7 +2384,7 @@ void main() {
   });
 
   _testPlayerWidget(
-    'downloads keep metadata returned with the parsed details',
+    'downloads wait for metadata returned with the parsed details',
     (tester) async {
       final parsedVideo = VideoItem(
         id: _video().id,
@@ -2175,9 +2408,12 @@ void main() {
         hasSubtitles: true,
         isUncensored: true,
       );
-      final client = _TestMissavClient(
-        VideoDetails(video: parsedVideo, streams: _details().streams),
-      );
+      final client =
+          _TestMissavClient(
+              VideoDetails(video: parsedVideo, streams: _details().streams),
+            )
+            ..readyDetails = _details()
+            ..detailsCompleter = Completer<VideoDetails>();
       final library = await _testLibrary();
       final downloads = _TestVideoDownloads(client: client, library: library);
       final session = _FakePlaybackSession();
@@ -2195,6 +2431,15 @@ void main() {
       );
       await tester.pumpAndSettle();
       final l10n = await S.delegate.load(const Locale('en'));
+      final downloadButton = tester.widget<IconButton>(
+        find.byWidgetPredicate(
+          (widget) => widget is IconButton && widget.tooltip == l10n.download,
+        ),
+      );
+      expect(downloadButton.onPressed, isNull);
+      expect(downloads.lastAddedVideo, isNull);
+      client.detailsCompleter!.complete(client.detailsResult);
+      await tester.pumpAndSettle();
       await tester.tap(find.byTooltip(l10n.download));
       await tester.pumpAndSettle();
 
@@ -2859,6 +3104,7 @@ class _TestMissavClient extends MissavClient {
   });
 
   VideoDetails detailsResult;
+  VideoDetails? readyDetails;
   bool loggedIn;
   final Object? initializeError;
   String? _accountName;
@@ -2866,9 +3112,11 @@ class _TestMissavClient extends MissavClient {
   final List<bool> videoFavoriteChanges = [];
   Future<void>? favoriteResponse;
   Completer<VideoDetails>? detailsCompleter;
+  Completer<VideoDetails>? supplementCompleter;
   VideoDetails Function(VideoItem video)? detailsForVideo;
   int initializeCalls = 0;
   int detailsCalls = 0;
+  int supplementCalls = 0;
   int playlistsCalls = 0;
   List<VideoLink> playlists = [];
   final List<String> addedPlaylists = [];
@@ -2911,11 +3159,24 @@ class _TestMissavClient extends MissavClient {
   }
 
   @override
-  Future<VideoDetails> details(VideoItem item) async {
+  Future<VideoDetails> details(
+    VideoItem item, {
+    FutureOr<void> Function(VideoDetails)? onReady,
+  }) async {
     detailsCalls++;
+    if (readyDetails case final preview?) await onReady?.call(preview);
     final completer = detailsCompleter;
     if (completer != null) return completer.future;
     return detailsForVideo?.call(item) ?? detailsResult;
+  }
+
+  @override
+  Future<VideoDetails> supplementDetails(
+    VideoDetails details, {
+    FutureOr<void> Function(VideoDetails)? onReady,
+  }) async {
+    supplementCalls++;
+    return supplementCompleter?.future ?? Future.value(detailsResult);
   }
 
   @override

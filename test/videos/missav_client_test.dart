@@ -562,6 +562,260 @@ void main() {
   );
 
   test(
+    'publishes playable details before account and metadata requests finish',
+    () async {
+      final fixture = await File(
+        'test/fixtures/missav/detail.html',
+      ).readAsString();
+      final account = Completer<ResponseBody>();
+      final metadata = Completer<ResponseBody>();
+      final accountStarted = Completer<void>();
+      final metadataStarted = Completer<void>();
+      final ready = Completer<VideoDetails>();
+      final client = MissavClient(
+        dio: Dio()
+          ..httpClientAdapter = _Adapter((request) {
+            if (request.uri.path.contains('/api/')) {
+              accountStarted.complete();
+              return account.future;
+            }
+            return _response(fixture);
+          }),
+        metadataDio: Dio()
+          ..httpClientAdapter = _Adapter((_) {
+            metadataStarted.complete();
+            return metadata.future;
+          }),
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+      var finished = false;
+      final loading = client
+          .details(
+            const VideoItem(
+              id: 'open-sample-001',
+              title: 'Sample',
+              pageUrl: 'https://missav.ai/cn/open-sample-001',
+            ),
+            onReady: ready.complete,
+          )
+          .then((value) {
+            finished = true;
+            return value;
+          });
+      final initial = await ready.future;
+      expect(initial.streams, hasLength(2));
+      expect(initial.isFavorite, isNull);
+      await Future.wait([accountStarted.future, metadataStarted.future]);
+      expect(finished, isFalse);
+      account.complete(
+        _metadataResponse({
+          'saved': true,
+          'user': {'name': 'Saved account'},
+        }),
+      );
+      metadata.complete(
+        _metadataResponse({
+          'recomms': [
+            {
+              'id': 'open-sample-001',
+              'values': {
+                'genres': ['API tag'],
+              },
+            },
+          ],
+        }),
+      );
+      final completed = await loading;
+      expect(client.isLoggedIn, isTrue);
+      expect(completed.isFavorite, isTrue);
+      expect(completed.video.tags.any((tag) => tag.label == 'API tag'), isTrue);
+      expect(identical(completed.streams, initial.streams), isTrue);
+    },
+  );
+
+  test(
+    'access checks validate the document without catalog metadata',
+    () async {
+      final fixture = await File(
+        'test/fixtures/missav/catalog.html',
+      ).readAsString();
+      final source = _Adapter((_) => _response(fixture));
+      final metadata = _Adapter(
+        (_) => throw StateError('Unexpected metadata request'),
+      );
+      final client = MissavClient(
+        dio: Dio()..httpClientAdapter = source,
+        metadataDio: Dio()..httpClientAdapter = metadata,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+      await client.checkBrowserAccess();
+      expect(source.requests, hasLength(1));
+      expect(metadata.requests, isEmpty);
+    },
+  );
+
+  test(
+    'account request failure still publishes enriched playable details',
+    () async {
+      final fixture = await File(
+        'test/fixtures/missav/detail.html',
+      ).readAsString();
+      final updates = <VideoDetails>[];
+      final client = MissavClient(
+        dio: Dio()
+          ..httpClientAdapter = _Adapter(
+            (request) => request.uri.path.contains('/api/')
+                ? _metadataResponse({}, statusCode: 503)
+                : _response(fixture),
+          ),
+        metadataDio: Dio()
+          ..httpClientAdapter = _Adapter(
+            (_) => _metadataResponse({
+              'recomms': [
+                {
+                  'id': 'open-sample-001',
+                  'values': {
+                    'genres': ['API tag'],
+                  },
+                },
+              ],
+            }),
+          ),
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+      await expectLater(
+        client.details(
+          const VideoItem(
+            id: 'open-sample-001',
+            title: 'Sample',
+            pageUrl: 'https://missav.ai/cn/open-sample-001',
+          ),
+          onReady: updates.add,
+        ),
+        throwsA(isA<MissavException>()),
+      );
+      expect(updates, hasLength(2));
+      expect(
+        updates.last.video.tags.any((tag) => tag.label == 'API tag'),
+        isTrue,
+      );
+      expect(updates.last.isFavorite, isNull);
+      expect(identical(updates.first.streams, updates.last.streams), isTrue);
+    },
+  );
+
+  test('supplement retry reuses the document and playback streams', () async {
+    final fixture = await File(
+      'test/fixtures/missav/detail.html',
+    ).readAsString();
+    var accountReads = 0;
+    var metadataReads = 0;
+    final source = _Adapter((request) {
+      if (!request.uri.path.contains('/api/')) return _response(fixture);
+      accountReads++;
+      return _metadataResponse({
+        'saved': true,
+        'user': {'name': 'Saved account'},
+      }, statusCode: accountReads == 1 ? 503 : 200);
+    });
+    final client = MissavClient(
+      dio: Dio()..httpClientAdapter = source,
+      metadataDio: Dio()
+        ..httpClientAdapter = _Adapter((_) {
+          metadataReads++;
+          return _metadataResponse({
+            'recomms': [
+              {
+                'id': 'open-sample-001',
+                'values': {
+                  'genres': ['API tag $metadataReads'],
+                },
+              },
+            ],
+          });
+        }),
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+    final updates = <VideoDetails>[];
+    await expectLater(
+      client.details(
+        const VideoItem(
+          id: 'open-sample-001',
+          title: 'Sample',
+          pageUrl: 'https://missav.ai/cn/open-sample-001',
+        ),
+        onReady: updates.add,
+      ),
+      throwsA(isA<MissavException>()),
+    );
+    final initial = updates.last;
+    final updated = await client.supplementDetails(initial);
+    expect(
+      source.requests.where((request) => !request.uri.path.contains('/api/')),
+      hasLength(1),
+    );
+    expect(accountReads, 2);
+    expect(metadataReads, 2);
+    expect(identical(updated.streams, initial.streams), isTrue);
+    expect(updated.description, initial.description);
+    expect(updated.metadata, initial.metadata);
+    expect(updated.video.tags.any((tag) => tag.label == 'API tag 2'), isTrue);
+    expect(updated.isFavorite, isTrue);
+    expect(client.isLoggedIn, isTrue);
+  });
+
+  test('account changes discard an in-flight supplement retry', () async {
+    final accountStarted = Completer<void>();
+    final metadataStarted = Completer<void>();
+    final account = Completer<ResponseBody>();
+    final metadata = Completer<ResponseBody>();
+    final client = MissavClient(
+      dio: Dio()
+        ..httpClientAdapter = _Adapter((_) {
+          accountStarted.complete();
+          return account.future;
+        }),
+      metadataDio: Dio()
+        ..httpClientAdapter = _Adapter((_) {
+          metadataStarted.complete();
+          return metadata.future;
+        }),
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+    final updates = <VideoDetails>[];
+    final loading = client.supplementDetails(
+      const VideoDetails(
+        video: VideoItem(
+          id: 'sample',
+          title: 'Sample',
+          pageUrl: 'https://missav.ai/cn/sample',
+        ),
+        sourceId: 'source-id',
+      ),
+      onReady: updates.add,
+    );
+    final stale = expectLater(loading, throwsA(isA<MissavException>()));
+    await Future.wait([accountStarted.future, metadataStarted.future]);
+    await client.logout();
+    account.complete(
+      _metadataResponse({
+        'saved': true,
+        'user': {'name': 'Stale account'},
+      }),
+    );
+    metadata.complete(_metadataResponse({'recomms': []}));
+    await stale;
+    expect(updates, isEmpty);
+    expect(client.isLoggedIn, isFalse);
+    expect(client.accountName, isNull);
+  });
+
+  test(
     'current video and related metadata share one batch and stay separate',
     () async {
       final fixture = await File(

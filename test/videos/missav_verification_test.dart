@@ -472,41 +472,84 @@ void main() {
     },
   );
 
-  test('mobile navigation waits for the WebView to finish loading', () async {
-    final oldPlatform = WebViewPlatform.instance;
-    final loadStarted = Completer<void>();
-    final finishLoad = Completer<void>();
-    final platform = _FakeWebViewPlatform(
-      Completer<List<WebViewCookie>>().future,
-      initialUrl: null,
-      onLoadRequest: (_) async {
-        loadStarted.complete();
-        await finishLoad.future;
-      },
-    );
-    WebViewPlatform.instance = platform;
-    addTearDown(() {
-      if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
-    });
+  test(
+    'mobile navigation ignores old bridge and empty-document finishes',
+    () async {
+      for (final (hasRoot, rootId) in [
+        (true, 'kikoflu-browser-bridge'),
+        (false, null),
+      ]) {
+        final oldPlatform = WebViewPlatform.instance;
+        final loadStarted = Completer<void>();
+        final finishLoad = Completer<void>();
+        final platform = _FakeWebViewPlatform(
+          Completer<List<WebViewCookie>>().future,
+          initialUrl: null,
+          onLoadRequest: (_) async {
+            loadStarted.complete();
+            await finishLoad.future;
+          },
+        );
+        WebViewPlatform.instance = platform;
+        addTearDown(() {
+          if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+        });
 
-    final controller = WebViewController();
-    var finished = false;
-    final navigation = waitForMissavMobilePage(
-      controller,
-      'https://missav.ai/cn',
-      ensureActive: () {},
-    ).then((_) => finished = true);
-    await loadStarted.future;
-    await Future<void>.delayed(Duration.zero);
+        final controller = WebViewController();
+        final browser = controller.platform as _FakeWebViewController;
+        browser.documentUrl = 'https://missav.ai/';
+        browser.hasDocumentElement = hasRoot;
+        browser.documentElementId = rootId;
+        var finished = false;
+        final navigation = waitForMissavMobilePage(
+          controller,
+          'https://missav.ai/cn',
+          ensureActive: () {},
+        ).then((_) => finished = true);
+        await loadStarted.future;
 
-    expect(await controller.currentUrl(), isNull);
-    expect(finished, isFalse);
-    finishLoad.complete();
-    await navigation;
+        browser._navigationDelegate!.pageFinished!('https://missav.ai/');
+        await browser.verificationReadyCheckStarted.future;
+        await Future<void>.delayed(Duration.zero);
+        expect(await controller.currentUrl(), isNull);
+        expect(finished, isFalse);
 
-    expect(await controller.currentUrl(), 'https://missav.ai/cn');
-    expect(finished, isTrue);
-  });
+        finishLoad.complete();
+        await navigation;
+        expect(await controller.currentUrl(), 'https://missav.ai/cn');
+        expect(finished, isTrue);
+      }
+    },
+  );
+
+  test(
+    'a missing document root fails the document read without markup access',
+    () async {
+      var stopped = false;
+      var released = false;
+
+      await expectLater(
+        navigateMissavDocument(
+          Uri.parse('https://missav.ai/cn'),
+          Completer<void>().future,
+          navigate: (_) async {},
+          read: (script) async {
+            expect(script, contains('if (!root) return null;'));
+            return null;
+          },
+          stop: () async => stopped = true,
+          releaseDocument: (documentRead) async {
+            expect(documentRead, isFalse);
+            released = true;
+          },
+        ),
+        throwsA(isA<MissavException>()),
+      );
+
+      expect(stopped, isTrue);
+      expect(released, isTrue);
+    },
+  );
 
   test('only live root cookies for the source enter the native session', () {
     final now = DateTime.now();
@@ -658,8 +701,11 @@ class _FakeWebViewController extends PlatformWebViewController {
   String? _url;
   String? documentUrl;
   String htmlDocument = '';
+  bool hasDocumentElement = true;
+  String? documentElementId;
   int networkNavigations = 0;
   final htmlLoadStarted = Completer<void>();
+  final verificationReadyCheckStarted = Completer<void>();
   _FakeNavigationDelegate? _navigationDelegate;
   final Future<void> Function(LoadRequestParams params)? onLoadRequest;
   final Future<void> Function()? onLoadHtml;
@@ -688,6 +734,8 @@ class _FakeWebViewController extends PlatformWebViewController {
       void finishNavigation() {
         _url = url;
         documentUrl = url;
+        hasDocumentElement = true;
+        documentElementId = null;
         _navigationDelegate?.pageFinished?.call(url);
       }
 
@@ -708,6 +756,10 @@ class _FakeWebViewController extends PlatformWebViewController {
       _url = 'about:blank';
       documentUrl = baseUrl;
       htmlDocument = html;
+      hasDocumentElement = true;
+      documentElementId = html.contains('kikoflu-browser-bridge')
+          ? 'kikoflu-browser-bridge'
+          : null;
       _navigationDelegate?.pageFinished?.call('about:blank');
     }());
   }
@@ -729,7 +781,19 @@ class _FakeWebViewController extends PlatformWebViewController {
       final source = isMissavVerificationUrl(documentUrl ?? '');
       return source &&
           (!javaScript.contains('kikoflu-browser-bridge') ||
-              htmlDocument.contains('kikoflu-browser-bridge'));
+              (hasDocumentElement &&
+                  documentElementId == 'kikoflu-browser-bridge'));
+    }
+    if (javaScript.contains('document.readyState')) {
+      if (!verificationReadyCheckStarted.isCompleted) {
+        verificationReadyCheckStarted.complete();
+      }
+      return (!javaScript.contains('!!document.documentElement') ||
+              hasDocumentElement) &&
+          (!javaScript.contains(
+                "document.documentElement.id !== 'kikoflu-browser-bridge'",
+              ) ||
+              documentElementId != 'kikoflu-browser-bridge');
     }
     return true;
   }

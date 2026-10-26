@@ -197,13 +197,17 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _accountName = accountName;
     if (!mounted) return;
 
-    final covered = ModalRoute.of(context)?.isCurrent == false;
-    if (_loading && !covered) return;
     final url =
         _pendingAccountReloadUrl ??
         _page?.url ??
         widget.initialUrl ??
         _client.homeUrl;
+    if (_activeCollectionKey == null && _collectionKeyForUrl(url) == null) {
+      setState(() {});
+      return;
+    }
+    final covered = ModalRoute.of(context)?.isCurrent == false;
+    if (_loading && !covered) return;
     _request++;
     setState(() {
       _page = null;
@@ -454,6 +458,17 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   String? _collectionKeyForUrl(String url) {
     final path = _catalogPath(url);
     if (path == null) return null;
+    final segments = path.split('/');
+    if (const {
+      'favorites',
+      'favourites',
+      'bookmarks',
+    }.contains(segments.first)) {
+      return segments.length > 1 &&
+              const {'actresses', 'actors'}.contains(segments[1])
+          ? 'actorFavorites'
+          : 'favorites';
+    }
     for (final key in const [
       'favorites',
       'actorFavorites',
@@ -461,7 +476,10 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       'history',
     ]) {
       final collectionPath = _catalogPath(_client.collectionUrl(key));
-      if (collectionPath == path) return key;
+      if (collectionPath == path ||
+          (key == 'playlists' && path.startsWith('$collectionPath/'))) {
+        return key;
+      }
     }
     return null;
   }

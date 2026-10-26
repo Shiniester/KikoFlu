@@ -121,8 +121,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
       return;
     }
 
-    final covered = ModalRoute.of(context)?.isCurrent == false;
-    if (_loading && !covered && !sessionChanged) return;
+    if (_loading && !sessionChanged) return;
     _loadGeneration++;
     unawaited(_reloadAfterClientChanged());
   }
@@ -147,7 +146,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
     return ready && mounted && generation == _loadGeneration;
   }
 
-  Future<void> _initialize() async {
+  Future<void> _initialize({VideoDetails? supplement}) async {
     final generation = ++_loadGeneration;
     setState(() {
       _loading = true;
@@ -158,9 +157,11 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
     try {
       await Future.wait([_library.initialize(), _downloads.initialize()]);
       if (!await _waitForRouteIdle(generation)) return;
-      final task =
-          widget.downloadedTask ?? _downloads.forVideo(widget.video.id);
-      if (task?.status == VideoDownloadStatus.completed &&
+      final task = supplement != null
+          ? _downloadedTask
+          : widget.downloadedTask ?? _downloads.forVideo(widget.video.id);
+      if (supplement == null &&
+          task?.status == VideoDownloadStatus.completed &&
           task?.localPath?.isNotEmpty == true) {
         setState(() {
           _downloadedTask = task;
@@ -179,15 +180,33 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
       }
       await _client.initialize();
       if (!await _waitForRouteIdle(generation)) return;
-      final details = await _client.details(widget.video);
+      Future<void> onReady(VideoDetails details) async {
+        if (!await _waitForRouteIdle(generation)) return;
+        setState(() {
+          _downloadedTask = task;
+          _details = details;
+          _favorite = details.isFavorite ?? false;
+          if (!details.streams.contains(_selectedStream)) {
+            _selectedStream = details.streams.isEmpty
+                ? null
+                : details.streams.first;
+          }
+        });
+      }
+
+      final details = supplement == null
+          ? await _client.details(widget.video, onReady: onReady)
+          : await _client.supplementDetails(supplement, onReady: onReady);
       if (!await _waitForRouteIdle(generation)) return;
       setState(() {
         _downloadedTask = task;
         _details = details;
         _favorite = details.isFavorite ?? false;
-        _selectedStream = details.streams.isEmpty
-            ? null
-            : details.streams.first;
+        if (!details.streams.contains(_selectedStream)) {
+          _selectedStream = details.streams.isEmpty
+              ? null
+              : details.streams.first;
+        }
         _loading = false;
       });
     } catch (error) {
@@ -401,8 +420,16 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
       },
       itemBuilder: (context) => [
         PopupMenuItem(value: 'open', child: Text(s.videoCatalog)),
-        PopupMenuItem(value: 'favorite', child: Text(s.videoFavoriteActor)),
-        PopupMenuItem(value: 'unfavorite', child: Text(s.videoUnfavoriteActor)),
+        PopupMenuItem(
+          value: 'favorite',
+          enabled: !_loading,
+          child: Text(s.videoFavoriteActor),
+        ),
+        PopupMenuItem(
+          value: 'unfavorite',
+          enabled: !_loading,
+          child: Text(s.videoUnfavoriteActor),
+        ),
         PopupMenuItem(value: 'source', child: Text(s.videoOpenSource)),
       ],
       child: Chip(label: Text(actor.label)),
@@ -550,7 +577,11 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
             if (!_isOffline)
               IconButton(
                 tooltip: _favorite ? s.videoFavorites : s.videoFavorites,
-                onPressed: details == null || _savingFavorite
+                onPressed:
+                    details == null ||
+                        _loading ||
+                        _savingFavorite ||
+                        (_client.isLoggedIn && details.isFavorite == null)
                     ? null
                     : _toggleFavorite,
                 icon: Icon(_favorite ? Icons.bookmark : Icons.bookmark_outline),
@@ -558,13 +589,15 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
             if (!_isOffline)
               IconButton(
                 tooltip: s.videoAddToPlaylist,
-                onPressed: details == null ? null : _showPlaylists,
+                onPressed: details == null || _loading ? null : _showPlaylists,
                 icon: const Icon(Icons.playlist_add),
               ),
             if (!_isOffline)
               IconButton(
                 tooltip: s.download,
-                onPressed: _selectedStream == null ? null : _download,
+                onPressed: _loading || _selectedStream == null
+                    ? null
+                    : _download,
                 icon: Icon(
                   currentTask?.status == VideoDownloadStatus.completed
                       ? Icons.download_done
@@ -578,7 +611,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
             ),
           ],
         ),
-        body: _loading
+        body: _loading && details == null
             ? const Center(child: CircularProgressIndicator())
             : _error != null && details == null
             ? _buildLoadFailure(s)
@@ -592,6 +625,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
   Widget _buildLoadFailure(S s) {
     final label = _verificationError != null
         ? s.videoVerificationRequired
+        : _details != null
+        ? s.loadFailed
         : s.videoLoadFailed;
     return Center(
       child: Padding(
@@ -606,7 +641,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
               spacing: 8,
               children: [
                 FilledButton.icon(
-                  onPressed: () => unawaited(_initialize()),
+                  onPressed: () => unawaited(_initialize(supplement: _details)),
                   icon: const Icon(Icons.refresh),
                   label: Text(s.retry),
                 ),
@@ -653,6 +688,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
           onOpenSource: () => unawaited(_openSource()),
           onVerifyAccess: _isOffline ? null : _verifyAndRetry,
         ),
+        if (!_loading && _error != null) _buildLoadFailure(s),
         const SizedBox(height: 16),
         if (details.metadata.isNotEmpty)
           Wrap(

@@ -45,6 +45,11 @@ A user's account with a Video Source and the source-owned collections belonging
 to that account.
 _Avoid_: Audio account, comic account
 
+**Video Source Verification (视频源验证)**:
+The website check required before a Video Source permits access from the current
+network. It is separate from signing in to a Video Source Account.
+_Avoid_: Video account login
+
 **Video Details Screen (视频详情页)**:
 The app page describing one video's information and related recommendations.
 _Avoid_: Video Screen, source website

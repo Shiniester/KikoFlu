@@ -314,6 +314,7 @@ Future<void> parkMissavMobileBrowser(
           final ready = await controller.runJavaScriptReturningResult('''
 location.origin === '${MissavClient.origin}' &&
 document.readyState === 'complete' &&
+document.documentElement !== null &&
 document.documentElement.id === 'kikoflu-browser-bridge'
 ''');
           if ((ready == true || ready == 'true') && !loaded.isCompleted) {
@@ -338,7 +339,9 @@ document.documentElement.id === 'kikoflu-browser-bridge'
 }
 
 const _verificationReadyScript = '''
-document.readyState === 'complete' && typeof window._cf_chl_opt === 'undefined' &&
+document.readyState === 'complete' && !!document.documentElement &&
+document.documentElement.id !== 'kikoflu-browser-bridge' &&
+typeof window._cf_chl_opt === 'undefined' &&
 !/^Just a moment|Attention Required.*Cloudflare/i.test(document.title)
 ''';
 
@@ -361,12 +364,14 @@ Future<void> _waitForBrowserVerification(
 
 const _documentMarkupScript = '''
 (() => {
+  const root = document.documentElement;
+  if (!root) return null;
   const pause = media => { media.muted = true; media.pause(); };
   document.querySelectorAll('video, audio').forEach(pause);
   document.addEventListener('play', event => {
     if (event.target instanceof HTMLMediaElement) pause(event.target);
   }, true);
-  return JSON.stringify({url:location.href, html:document.documentElement.outerHTML});
+  return JSON.stringify({url:location.href, html:root.outerHTML});
 })()
 ''';
 
@@ -680,6 +685,7 @@ Future<void> connectMissavBrowserSession(
   int? expectedGeneration,
   int? androidProxyGeneration,
   bool preserveMobilePageOnFailure = true,
+  bool checkAccess = true,
 }) async {
   if (expectedGeneration != null &&
       client.sessionGeneration != expectedGeneration) {
@@ -1039,13 +1045,22 @@ Future<void> connectMissavBrowserSession(
     _activeBrowserClientGeneration = clientGeneration;
     _activeBrowserConnectionGeneration = connectionGeneration;
     _activeBrowserAndroidProxyGeneration = proxyGeneration;
-    await _awaitConnectionPhase(
-      client.checkBrowserAccess,
-      connectionGeneration,
-      cancelSignal,
-      client: client,
-      clientGeneration: clientGeneration,
-    );
+    if (checkAccess) {
+      await _awaitConnectionPhase(
+        client.checkBrowserAccess,
+        connectionGeneration,
+        cancelSignal,
+        client: client,
+        clientGeneration: clientGeneration,
+      );
+    } else {
+      ensureMissavBrowserConnectionCurrent(
+        connectionGeneration,
+        cancelSignal,
+        client: client,
+        clientGeneration: clientGeneration,
+      );
+    }
     connected = true;
   } catch (_) {
     preserveMobilePage = mobile != null && preserveMobilePageOnFailure;
@@ -1075,6 +1090,7 @@ Future<void> restoreMissavBrowserSession(
       client,
       expectedGeneration: expectedGeneration,
       preserveMobilePageOnFailure: false,
+      checkAccess: false,
     );
     return;
   }
@@ -1112,6 +1128,7 @@ Future<void> restoreMissavBrowserSession(
       mobile: mobile,
       expectedGeneration: expectedGeneration,
       preserveMobilePageOnFailure: false,
+      checkAccess: false,
     );
     if (_activeBrowser == null || !identical(_activeBrowserClient, client)) {
       throw StateError('MissAV browser recovery was replaced.');

@@ -238,7 +238,18 @@ class MissavClient extends ChangeNotifier {
 
   Future<void> checkBrowserAccess() async {
     await initialize();
-    await _browse(homeUrl);
+    final generation = _sessionGeneration;
+    final locale = _locale;
+    final uri = _localizedSourceUri(homeUrl);
+    final document = await _loadDocument(uri, generation);
+    if (_locale != locale) {
+      throw MissavException(
+        'MissAV language changed during the request.',
+        sourceUrl: uri.toString(),
+      );
+    }
+    _updateAccountFromPage(document);
+    _updateHomeUrl(document, uri);
   }
 
   Future<VideoCatalogPage> _browse(String url) async {
@@ -541,7 +552,10 @@ class MissavClient extends ChangeNotifier {
     return matches;
   }
 
-  Future<VideoDetails> details(VideoItem item) async {
+  Future<VideoDetails> details(
+    VideoItem item, {
+    FutureOr<void> Function(VideoDetails)? onReady,
+  }) async {
     await _prepareOnlineAccess();
     final generation = _sessionGeneration;
     final locale = _locale;
@@ -590,39 +604,18 @@ class MissavClient extends ChangeNotifier {
       isUncensored: item.isUncensored || _hasUncensoredLabel(labels),
     );
     final sourceId = _sourceId(document);
-    var saved = _savedState(document);
-    if (sourceId != null) {
-      final viewUri = Uri.parse(
-        '$origin/api/items/${Uri.encodeComponent(sourceId)}/view',
-      );
-      final viewResponse = await _request(viewUri, generation: generation);
-      _checkGeneration(generation, viewUri);
-      final viewBody = _decodeObject(viewResponse.data, viewUri);
-      if (viewBody['saved'] is bool) saved = viewBody['saved'] as bool;
-      if (viewBody.containsKey('user')) {
-        _updateAccountFromSource(viewBody['user']);
-      }
-    }
+    final saved = _savedState(document);
     final related = _parseVideos(
       document,
       uri,
     ).where((related) => related.id != item.id).toList();
-    final enriched = await _enrichVideos([video, ...related]);
-    final detailedVideo = enriched.first;
-    _checkGeneration(generation, uri);
-    if (_locale != locale) {
-      throw MissavException(
-        'MissAV language changed during the request.',
-        sourceUrl: uri.toString(),
-      );
-    }
-    return VideoDetails(
-      video: detailedVideo,
+    final initialDetails = VideoDetails(
+      video: video,
       description: _parseDescription(document),
       metadata: metadata,
-      actors: detailedVideo.actors,
-      tags: detailedVideo.tags,
-      related: enriched.skip(1).toList(),
+      actors: video.actors,
+      tags: video.tags,
+      related: related,
       streams: _parseStreams(document, uri, userAgent: _userAgent).map((
         stream,
       ) {
@@ -635,8 +628,91 @@ class MissavClient extends ChangeNotifier {
         );
       }).toList(),
       sourceId: sourceId,
+      isFavorite: sourceId == null ? saved : null,
+    );
+    await onReady?.call(initialDetails);
+    return _supplementDetails(
+      initialDetails,
+      generation: generation,
+      locale: locale,
+      saved: saved,
+      onReady: onReady,
+    );
+  }
+
+  Future<VideoDetails> supplementDetails(
+    VideoDetails details, {
+    FutureOr<void> Function(VideoDetails)? onReady,
+  }) async {
+    await _prepareOnlineAccess();
+    return _supplementDetails(
+      details,
+      generation: _sessionGeneration,
+      locale: _locale,
+      saved: details.isFavorite,
+      onReady: onReady,
+    );
+  }
+
+  Future<VideoDetails> _supplementDetails(
+    VideoDetails initialDetails, {
+    required int generation,
+    required String locale,
+    bool? saved,
+    FutureOr<void> Function(VideoDetails)? onReady,
+  }) async {
+    final uri = _sourceUri(initialDetails.video.pageUrl);
+    _checkGeneration(generation, uri);
+    final enrichment = _enrichVideos([
+      initialDetails.video,
+      ...initialDetails.related,
+    ]);
+    final sourceId = initialDetails.sourceId;
+    Object? accountError;
+    StackTrace? accountTrace;
+    if (sourceId != null) {
+      final viewUri = Uri.parse(
+        '$origin/api/items/${Uri.encodeComponent(sourceId)}/view',
+      );
+      try {
+        final viewResponse = await _request(viewUri, generation: generation);
+        _checkGeneration(generation, viewUri);
+        final viewBody = _decodeObject(viewResponse.data, viewUri);
+        if (viewBody['saved'] is bool) saved = viewBody['saved'] as bool;
+        if (viewBody.containsKey('user')) {
+          _updateAccountFromSource(viewBody['user']);
+        }
+      } catch (error, trace) {
+        accountError = error;
+        accountTrace = trace;
+        saved = null;
+      }
+    }
+    final enriched = await enrichment;
+    final detailedVideo = enriched.first;
+    _checkGeneration(generation, uri);
+    if (_locale != locale) {
+      throw MissavException(
+        'MissAV language changed during the request.',
+        sourceUrl: uri.toString(),
+      );
+    }
+    final details = VideoDetails(
+      video: detailedVideo,
+      description: initialDetails.description,
+      metadata: initialDetails.metadata,
+      actors: detailedVideo.actors,
+      tags: detailedVideo.tags,
+      related: enriched.skip(1).toList(),
+      streams: initialDetails.streams,
+      sourceId: sourceId,
       isFavorite: saved,
     );
+    if (accountError != null) {
+      await onReady?.call(details);
+      Error.throwWithStackTrace(accountError, accountTrace!);
+    }
+    return details;
   }
 
   Future<void> login({required String email, required String password}) async {
