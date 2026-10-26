@@ -190,7 +190,7 @@ void main() {
     );
     final progressShape =
         progressTheme.data.trackShape! as PlayerUniformSliderTrackShape;
-    expect(progressShape.activeSlice, slices.first);
+    expect(container.read(activeAudioSliceProvider), slices.first);
     expect(progressShape.selectedSlice, slices[1]);
     expect(player.playing, isFalse);
     expect(tester.widget<ListTile>(firstRow).selected, isFalse);
@@ -201,10 +201,10 @@ void main() {
     );
     await tester.runAsync(service.play);
     await tester.pumpAndSettle();
-    expect(progressShape.activeSlice, slices.first);
+    expect(container.read(activeAudioSliceProvider), slices.first);
     await tester.runAsync(service.pause);
     await tester.pumpAndSettle();
-    expect(progressShape.activeSlice, slices.first);
+    expect(container.read(activeAudioSliceProvider), slices.first);
 
     await tester.tap(find.byTooltip('Close'));
     await tester.pumpAndSettle();
@@ -743,6 +743,11 @@ void main() {
     final theme = tester.widget<SliderTheme>(
       find.ancestor(of: slider, matching: find.byType(SliderTheme)).first,
     );
+    expect(theme.data.trackHeight, 4);
+    expect(
+      (theme.data.trackShape! as PlayerUniformSliderTrackShape).sliceColor,
+      Theme.of(tester.element(slider)).colorScheme.secondary,
+    );
     expect(
       (theme.data.trackShape! as PlayerUniformSliderTrackShape).slices,
       service.sliceState.slices,
@@ -769,7 +774,10 @@ void main() {
     );
     final shape =
         updatedTheme.data.trackShape! as PlayerUniformSliderTrackShape;
-    expect(shape.activeSlice, service.sliceState.slices.single);
+    expect(
+      container.read(activeAudioSliceProvider),
+      service.sliceState.slices.single,
+    );
     expect(shape.selectedSlice, service.sliceState.slices.single);
     expect(player.playing, isFalse);
     expect(find.byKey(const ValueKey('player-slice-cut-button')), findsNothing);

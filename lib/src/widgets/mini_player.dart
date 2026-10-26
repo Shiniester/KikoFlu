@@ -607,7 +607,6 @@ class _MiniPlayerProgressAreaState
     final position = ref.watch(positionProvider).valueOrNull ?? Duration.zero;
     final duration = ref.watch(durationProvider).valueOrNull ?? Duration.zero;
     final slices = ref.watch(audioSliceStateProvider).valueOrNull;
-    final activeSlice = ref.watch(activeAudioSliceProvider);
     final selectedSlice = ref.watch(selectedAudioSliceProvider);
     final progress = duration.inMilliseconds > 0
         ? position.inMilliseconds / duration.inMilliseconds
@@ -651,9 +650,8 @@ class _MiniPlayerProgressAreaState
                   duration: duration,
                   pendingStartMs: slices?.pendingStartMs,
                   onlySlices: slices?.onlySlices ?? false,
-                  activeSlice: activeSlice,
                   selectedSlice: selectedSlice,
-                  selectedSliceColor: Theme.of(context).colorScheme.secondary,
+                  sliceColor: Theme.of(context).colorScheme.secondary,
                 ),
                 thumbShape: const RoundSliderThumbShape(
                   enabledThumbRadius: 0,

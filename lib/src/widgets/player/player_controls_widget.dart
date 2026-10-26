@@ -851,7 +851,6 @@ class PlayerProgressSection extends ConsumerWidget {
     final slices =
         ref.watch(audioSliceStateProvider).valueOrNull ??
         const AudioSliceState();
-    final activeSlice = ref.watch(activeAudioSliceProvider);
     final selectedSlice = ref.watch(selectedAudioSliceProvider);
     final seekingPositionListenable = this.seekingPositionListenable;
     if (seekingPositionListenable != null) {
@@ -861,7 +860,6 @@ class PlayerProgressSection extends ConsumerWidget {
           context,
           ref,
           slices: slices,
-          activeSlice: activeSlice,
           selectedSlice: selectedSlice,
           pos: pos,
           dur: dur,
@@ -879,7 +877,6 @@ class PlayerProgressSection extends ConsumerWidget {
       context,
       ref,
       slices: slices,
-      activeSlice: activeSlice,
       selectedSlice: selectedSlice,
       pos: pos,
       dur: dur,
@@ -894,7 +891,6 @@ class PlayerProgressSection extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref, {
     required AudioSliceState slices,
-    required AudioSlice? activeSlice,
     required AudioSlice? selectedSlice,
     required Duration pos,
     required Duration dur,
@@ -951,17 +947,14 @@ class PlayerProgressSection extends ConsumerWidget {
                       inactiveTrackColor: Theme.of(
                         context,
                       ).colorScheme.onSurfaceVariant.withValues(alpha: 0.15),
-                      trackHeight: 2,
+                      trackHeight: 4,
                       trackShape: PlayerUniformSliderTrackShape(
                         slices: slices.slices,
                         duration: dur,
                         pendingStartMs: slices.pendingStartMs,
                         onlySlices: slices.onlySlices,
-                        activeSlice: activeSlice,
                         selectedSlice: selectedSlice,
-                        selectedSliceColor: Theme.of(
-                          context,
-                        ).colorScheme.secondary,
+                        sliceColor: Theme.of(context).colorScheme.secondary,
                       ),
                       thumbShape: SliderComponentShape.noThumb,
                       padding: EdgeInsets.zero,

@@ -2817,10 +2817,15 @@ void main() {
       ),
     );
     expect(progressTheme.data.padding, EdgeInsets.zero);
-    expect(progressTheme.data.trackHeight, 2);
+    expect(progressTheme.data.trackHeight, 4);
     expect(progressTheme.data.trackShape, isA<PlayerUniformSliderTrackShape>());
     final progressContext = tester.element(
       find.byKey(const ValueKey('player-progress-slider')),
+    );
+    expect(
+      (progressTheme.data.trackShape! as PlayerUniformSliderTrackShape)
+          .sliceColor,
+      Theme.of(progressContext).colorScheme.secondary,
     );
     expect(
       progressTheme.data.activeTrackColor,

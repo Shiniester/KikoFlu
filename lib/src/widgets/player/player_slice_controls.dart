@@ -260,7 +260,6 @@ class _PlayerSliceManagerState extends ConsumerState<_PlayerSliceManager> {
                   duration: duration,
                   slices: state.slices,
                   enabled: trackAvailable,
-                  activeSlice: activeSlice,
                   selectedSlice: selectedSlice,
                   onSelectionChanged: (slice) => _select(slice, trackKey),
                 ),
@@ -592,7 +591,6 @@ class _AudioSliceTimeline extends ConsumerStatefulWidget {
     required this.duration,
     required this.slices,
     required this.enabled,
-    required this.activeSlice,
     required this.selectedSlice,
     required this.onSelectionChanged,
   });
@@ -601,7 +599,6 @@ class _AudioSliceTimeline extends ConsumerStatefulWidget {
   final Duration duration;
   final List<AudioSlice> slices;
   final bool enabled;
-  final AudioSlice? activeSlice;
   final AudioSlice? selectedSlice;
   final ValueChanged<AudioSlice?> onSelectionChanged;
 
@@ -691,7 +688,6 @@ class _AudioSliceTimelineState extends ConsumerState<_AudioSliceTimeline> {
     final displayMs = (_dragValue?.round() ?? currentMs)
         .clamp(0, durationMs)
         .toInt();
-    final activeSlice = _scrubbing ? _sliceAt(displayMs) : widget.activeSlice;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -716,9 +712,8 @@ class _AudioSliceTimelineState extends ConsumerState<_AudioSliceTimeline> {
                   slices: widget.slices,
                   duration: widget.duration,
                   onlySlices: onlySlices,
-                  activeSlice: activeSlice,
                   selectedSlice: widget.selectedSlice,
-                  selectedSliceColor: Theme.of(context).colorScheme.secondary,
+                  sliceColor: Theme.of(context).colorScheme.secondary,
                 ),
               ),
               child: Slider(

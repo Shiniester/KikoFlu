@@ -5,22 +5,20 @@ import '../../models/audio_slice.dart';
 /// Keeps the playback track uniform while showing saved slice ranges.
 class PlayerUniformSliderTrackShape extends SliderTrackShape {
   const PlayerUniformSliderTrackShape({
+    required this.sliceColor,
     this.slices = const [],
     this.duration = Duration.zero,
     this.pendingStartMs,
     this.onlySlices = false,
-    this.activeSlice,
     this.selectedSlice,
-    this.selectedSliceColor,
   });
 
+  final Color sliceColor;
   final List<AudioSlice> slices;
   final Duration duration;
   final int? pendingStartMs;
   final bool onlySlices;
-  final AudioSlice? activeSlice;
   final AudioSlice? selectedSlice;
-  final Color? selectedSliceColor;
 
   static const _delegate = RectangularSliderTrackShape();
 
@@ -122,7 +120,6 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
       isDiscrete: isDiscrete,
     );
     final activeColor = sliderTheme.activeTrackColor!;
-    final selectedColor = selectedSliceColor ?? activeColor;
     final pendingEdge = Paint()
       ..color = activeColor
       ..strokeWidth = 2;
@@ -150,21 +147,16 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
     final visibleSlices = slices.where(
       (slice) => slice.startMs < duration.inMilliseconds,
     );
-    RRect sliceShape(AudioSlice slice) {
-      final halfHeight =
-          (sliderTheme.trackHeight ?? 2) / 2 +
-          2 +
-          (slice == activeSlice ? 1 : 0);
-      final range = sliceRect(slice);
-      return RRect.fromRectAndRadius(
-        Rect.fromCenter(
-          center: range.center,
-          width: range.width,
-          height: halfHeight * 2,
-        ),
-        Radius.circular(halfHeight),
-      );
-    }
+    RRect sliceShape(AudioSlice slice) => RRect.fromRectAndRadius(
+      sliceRect(slice),
+      Radius.circular(rect.height / 2),
+    );
+    final sliceTheme = sliderTheme.copyWith(
+      activeTrackColor: sliceColor,
+      inactiveTrackColor: sliceColor.withValues(alpha: 0.3),
+      disabledActiveTrackColor: sliceColor.withValues(alpha: 0.38),
+      disabledInactiveTrackColor: sliceColor.withValues(alpha: 0.12),
+    );
 
     context.canvas.save();
     // Avoid blending the translucent track twice inside a slice.
@@ -204,7 +196,7 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
           paintedSlices,
         ),
       );
-      paintTrack(sliderTheme.copyWith(trackHeight: span.height));
+      paintTrack(sliceTheme);
       context.canvas.restore();
       paintedSlices.addRRect(roundedSpan);
       if (selected) {
@@ -214,7 +206,7 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
             Radius.circular(span.height / 2 + 2),
           ),
           Paint()
-            ..color = selectedColor
+            ..color = sliceColor
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1.5,
         );

@@ -8,6 +8,7 @@ import 'package:kikoeru_flutter/src/widgets/player/player_slice_progress.dart';
 
 const _boundaryKey = ValueKey('slice-progress-boundary');
 const _activeColor = Color(0xff334499);
+const _sliceColor = Color(0xffb85b25);
 const _inactiveColor = Color(0x40000000);
 const _disabledActiveColor = Color(0xff666666);
 const _disabledInactiveColor = Color(0x20000000);
@@ -15,6 +16,9 @@ const _slices = [
   AudioSlice(startMs: 20000, endMs: 40000),
   AudioSlice(startMs: 60000, endMs: 80000),
 ];
+
+Color _onWhite(Color color) =>
+    Color(Color.alphaBlend(color, Colors.white).toARGB32());
 
 Future<void> _pumpProgress(
   WidgetTester tester, {
@@ -24,7 +28,7 @@ Future<void> _pumpProgress(
   List<AudioSlice> slices = _slices,
   Duration duration = const Duration(seconds: 100),
   double value = 0.7,
-  double trackHeight = 2,
+  double trackHeight = 4,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -49,10 +53,10 @@ Future<void> _pumpProgress(
                     disabledActiveTrackColor: _disabledActiveColor,
                     disabledInactiveTrackColor: _disabledInactiveColor,
                     trackShape: PlayerUniformSliderTrackShape(
+                      sliceColor: _sliceColor,
                       slices: slices,
                       duration: duration,
                       onlySlices: onlySlices,
-                      activeSlice: slices.isNotEmpty ? slices.last : null,
                     ),
                   ),
                   child: Slider(
@@ -101,7 +105,7 @@ void main() {
     for (final onlySlices in [false, true]) {
       for (final enabled in [true, false]) {
         testWidgets(
-          'slice colors match progress with $direction, onlySlices=$onlySlices, enabled=$enabled',
+          'slices use distinct colors at the same height with $direction, onlySlices=$onlySlices, enabled=$enabled',
           (tester) async {
             await _pumpProgress(
               tester,
@@ -115,9 +119,14 @@ void main() {
             );
 
             final active = enabled ? _activeColor : _disabledActiveColor;
-            final inactive = Color.alphaBlend(
+            final inactive = _onWhite(
               enabled ? _inactiveColor : _disabledInactiveColor,
-              Colors.white,
+            );
+            final sliceActive = _onWhite(
+              enabled ? _sliceColor : _sliceColor.withValues(alpha: 0.38),
+            );
+            final sliceInactive = _onWhite(
+              _sliceColor.withValues(alpha: enabled ? 0.3 : 0.12),
             );
             expect(
               await _paintedColors(tester, [
@@ -132,21 +141,24 @@ void main() {
                 point(0.75),
                 point(0.75, 14),
                 point(0.9),
-                point(0.1, 14),
+                for (final fraction in [0.1, 0.3, 0.65, 0.75]) ...[
+                  point(fraction, 13),
+                  point(fraction, 18),
+                ],
               ]),
               [
                 onlySlices ? inactive : active,
-                active,
-                active,
+                sliceActive,
+                sliceActive,
                 onlySlices ? inactive : active,
-                active,
-                active,
-                active,
+                sliceActive,
+                sliceActive,
+                sliceActive,
+                sliceInactive,
+                sliceInactive,
+                sliceInactive,
                 inactive,
-                inactive,
-                inactive,
-                inactive,
-                Colors.white,
+                ...List.filled(8, Colors.white),
               ],
             );
           },
@@ -157,7 +169,7 @@ void main() {
     testWidgets('short slices stay visible on a long track with $direction', (
       tester,
     ) async {
-      final inactive = Color.alphaBlend(_inactiveColor, Colors.white);
+      final inactive = _onWhite(_sliceColor.withValues(alpha: 0.3));
       for (final value in [0.25, 0.75]) {
         await _pumpProgress(
           tester,
@@ -172,14 +184,14 @@ void main() {
           ],
           value: value,
         );
-        final middle = value < 0.5 ? inactive : _activeColor;
+        final middle = value < 0.5 ? inactive : _sliceColor;
         expect(
           await _paintedColors(tester, [
             for (final x in [1.0, 150.0, 298.0])
-              for (final y in [14.0, 16.0])
+              for (final y in [15.0, 16.0])
                 Offset(direction == TextDirection.ltr ? x : 299 - x, y),
           ]),
-          [_activeColor, _activeColor, middle, middle, inactive, inactive],
+          [_sliceColor, _sliceColor, middle, middle, inactive, inactive],
         );
       }
     });
@@ -192,19 +204,20 @@ void main() {
             tester,
             direction: direction,
             onlySlices: onlySlices,
-            trackHeight: 4,
+            trackHeight: 8,
           );
           Offset point(double x, double y) =>
               Offset(direction == TextDirection.ltr ? x : 299 - x, y);
-          final inactive = Color.alphaBlend(_inactiveColor, Colors.white);
+          final inactive = _onWhite(_inactiveColor);
+          final sliceInactive = _onWhite(_sliceColor.withValues(alpha: 0.3));
           expect(
             await _paintedColors(tester, [
-              point(209, 11),
+              point(209, 12),
               point(207, 14),
-              point(239, 11),
+              point(239, 12),
               point(237, 14),
             ]),
-            [inactive, _activeColor, Colors.white, inactive],
+            [sliceInactive, _sliceColor, inactive, sliceInactive],
           );
         },
       );
