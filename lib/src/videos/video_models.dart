@@ -45,6 +45,18 @@ class VideoItem {
   final bool hasSubtitles;
   final bool isUncensored;
 
+  static final _catalogNumberPattern = RegExp(
+    r'^(?:[a-z0-9]+(?:-ppv)?[-_]\d+(?:[-_]\d+)?|[a-z]+\d{3,})(?=$|[-_\s])',
+    caseSensitive: false,
+  );
+
+  String? get catalogNumber {
+    final match =
+        _catalogNumberPattern.firstMatch(title.trim()) ??
+        _catalogNumberPattern.firstMatch(id.trim());
+    return match?.group(0)?.toUpperCase();
+  }
+
   List<VideoLink> get cardTags =>
       tags.where((tag) => tag.cardMetadataRoute == null).toList();
 

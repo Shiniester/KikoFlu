@@ -23,6 +23,11 @@ _Avoid_: Video player, source website
 The presentation of video cards as a big grid, small grid, or list.
 _Avoid_: Video playback mode
 
+**Video Catalog Number (作品番号)**:
+The identifier assigned to a video work, independent of a Video Source's page
+identifier and version labels such as subtitle or uncensored variants.
+_Avoid_: Video ID, page identifier
+
 **Video Content Navigation (视频内容导航)**:
 The curated entries for directly browsing a Video Source's video collections.
 Search conditions belong to Video Search Filters.

@@ -18,7 +18,7 @@ import 'package:kikoeru_flutter/src/videos/video_card_display_provider.dart';
 
 const _video = VideoItem(
   id: 'sample',
-  title: 'Sample video with a title that wraps across two lines',
+  title: 'ABC-123 Sample video with a title that wraps across two lines',
   pageUrl: 'https://missav.ai/cn/sample',
   durationSeconds: 3723,
   releaseDate: '2024-03-02',
@@ -47,7 +47,8 @@ const _video = VideoItem(
 
 VideoItem _richVideo() => VideoItem(
   id: 'rich',
-  title: 'A video with several actresses and a full set of tags',
+  title:
+      'FC2-PPV-1234567 A video with several actresses and a full set of tags',
   pageUrl: 'https://missav.ai/cn/rich',
   durationSeconds: 3723,
   releaseDate: '2024-03-02',
@@ -80,6 +81,66 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+  });
+
+  test('catalog numbers omit source variants and survive saved video data', () {
+    for (final (id, title, number) in [
+      ('abc-123', 'Sample video', 'ABC-123'),
+      ('abc-123-uncensored-leak', 'Sample video', 'ABC-123'),
+      ('abc-123-chinese-subtitle', 'Sample video', 'ABC-123'),
+      ('fc2-ppv-1234567-uncensored', 'Sample video', 'FC2-PPV-1234567'),
+      ('010123_001-uncensored', 'Sample video', '010123_001'),
+      ('n1234', 'Sample video', 'N1234'),
+      ('source-entry', 'abc-123 Sample video', 'ABC-123'),
+      ('abc-123', 'FC2-PPV-1234567 Sample video', 'FC2-PPV-1234567'),
+      ('source-entry', 'Sample video', null),
+      ('', '', null),
+    ]) {
+      final video = VideoItem(id: id, title: title, pageUrl: '');
+      expect(video.catalogNumber, number, reason: id);
+      expect(VideoItem.fromJson(video.toJson()).catalogNumber, number);
+    }
+  });
+
+  testWidgets('catalog number stays at the cover top left in every layout', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      for (final field in VideoCardField.values)
+        'video_card_display_${field.name}': false,
+    });
+    tester.view.physicalSize = const Size(400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    for (final layout in LayoutType.values) {
+      await tester.pumpWidget(
+        _app(
+          Center(
+            child: SizedBox(
+              width: layout == LayoutType.list ? 320 : 180,
+              child: VideoCard(video: _video, layoutType: layout, onTap: null),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final cover = tester.getRect(
+        find.byKey(const ValueKey('video-cover-sample')),
+      );
+      final number = tester.getRect(
+        find.byKey(const ValueKey('video-number-sample')),
+      );
+      expect(find.text('ABC-123'), findsOneWidget);
+      expect(number.left, greaterThan(cover.left));
+      expect(number.top, greaterThan(cover.top));
+      expect(number.center.dy, lessThan(cover.center.dy));
+      expect(cover.contains(number.bottomRight), isTrue);
+      final text = tester.widget<Text>(find.text('ABC-123'));
+      expect(text.style?.color, Colors.white);
+      expect(text.style?.fontWeight, FontWeight.bold);
+      expect(tester.takeException(), isNull, reason: '$layout');
+    }
   });
 
   testWidgets('video cover decode stays within its physical display width', (
@@ -273,6 +334,7 @@ void main() {
       expect(find.byIcon(Icons.closed_caption), findsNothing);
       expect(find.byIcon(Icons.no_encryption_outlined), findsNothing);
       expect(find.byType(Tooltip), findsNothing);
+      expect(find.byKey(const ValueKey('video-number-empty')), findsNothing);
       expect(find.text('Title only'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },

@@ -480,6 +480,7 @@ class _VideoCoverState extends ConsumerState<VideoCover> {
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final video = widget.video;
+      final catalogNumber = video.catalogNumber;
       final showReleaseDate = ref.watch(
         videoCardDisplayProvider.select(
           (fields) => fields.contains(VideoCardField.releaseDate),
@@ -526,6 +527,29 @@ class _VideoCoverState extends ConsumerState<VideoCover> {
           fit: StackFit.expand,
           children: [
             _image(video, cacheWidth, s),
+            if (catalogNumber != null)
+              Positioned(
+                top: inset,
+                left: inset,
+                right: inset,
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: badge(
+                      Text(
+                        catalogNumber,
+                        style: textStyle.copyWith(
+                          fontSize: compact
+                              ? (isLandscape ? 11 : 10)
+                              : (isLandscape ? 13 : 11),
+                        ),
+                      ),
+                      key: ValueKey('video-number-${video.id}'),
+                    ),
+                  ),
+                ),
+              ),
             Positioned(
               left: inset,
               right: inset,
