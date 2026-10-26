@@ -601,7 +601,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   late final VideoPlayerPlatform _platform;
   final ValueNotifier<int> _uiRevision = ValueNotifier(0);
   final FocusNode _focusNode = FocusNode(debugLabel: 'Video player');
-  final ValueNotifier<double> _inlineViewportHeight = ValueNotifier(0);
+  final ValueNotifier<double> _inlineMenuMaxHeight = ValueNotifier(0);
   final Map<int, Offset> _transformPointers = {};
   late double _volume;
   late int _streamIndex;
@@ -2153,12 +2153,39 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     if (mounted) await _invoke(onVerifyAccess);
   }
 
-  void _publishInlineViewportHeight(double height) {
-    if (_inlineViewportHeight.value == height) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _inlineViewportHeight.value == height) return;
-      _inlineViewportHeight.value = height;
-    });
+  void _updateInlineMenuMaxHeight(BuildContext viewportContext) {
+    if (!mounted || !viewportContext.mounted) return;
+    final viewport = viewportContext.findRenderObject()! as RenderBox;
+    final navigator =
+        Navigator.of(viewportContext).context.findRenderObject()! as RenderBox;
+    final media = MediaQuery.of(viewportContext);
+    final availableHeight = (navigator.size.height - media.viewInsets.bottom)
+        .clamp(0.0, navigator.size.height);
+    var maxHeight = availableHeight;
+    if (media.orientation == Orientation.portrait) {
+      final videoBottom = viewport
+          .localToGlobal(Offset(0, viewport.size.height), ancestor: navigator)
+          .dy;
+      final belowVideoHeight = (availableHeight - videoBottom).clamp(
+        0.0,
+        availableHeight,
+      );
+      final titleStyle = Theme.of(viewportContext).textTheme.titleLarge!;
+      final titleHeight =
+          media.textScaler.scale(titleStyle.fontSize!) *
+          (titleStyle.height ?? 1);
+      final minimumMenuHeight =
+          titleHeight +
+          28 +
+          kMinInteractiveDimension +
+          20 +
+          media.padding.bottom;
+      // 保留标题、音量行及安全区；过窄时使用窗口可用高度。
+      if (belowVideoHeight >= minimumMenuHeight) maxHeight = belowVideoHeight;
+    }
+    if (_inlineMenuMaxHeight.value != maxHeight) {
+      _inlineMenuMaxHeight.value = maxHeight;
+    }
   }
 
   Widget _buildPlayerLayout(
@@ -2198,7 +2225,9 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
             child: LayoutBuilder(
               builder: (context, constraints) {
                 if (!fullscreen && !pipMode) {
-                  _publishInlineViewportHeight(constraints.maxHeight);
+                  WidgetsBinding.instance.addPostFrameCallback(
+                    (_) => _updateInlineMenuMaxHeight(context),
+                  );
                 }
                 return Stack(
                   key: const ValueKey('video-playback-layout'),
@@ -2509,7 +2538,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                                         maxHeightListenable:
                                             fullscreen || pipMode
                                             ? null
-                                            : _inlineViewportHeight,
+                                            : _inlineMenuMaxHeight,
                                       ),
                                     ),
                                   ),
@@ -2762,7 +2791,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
             ),
           IconButton(
             key: const ValueKey('video-player-more-menu'),
-            tooltip: s.videoPlayerMoreOptions,
+            tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
             icon: const Icon(Icons.more_vert, color: Colors.white, size: 19),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints.tightFor(width: 42, height: 34),
@@ -2772,12 +2801,17 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
               maximumSize: const Size(42, 34),
               padding: EdgeInsets.zero,
             ),
-            onPressed: () => unawaited(
-              _showMoreOptions(
-                canPip: canPip,
-                maxHeightListenable: maxHeightListenable,
-              ),
-            ),
+            onPressed: () {
+              if (maxHeightListenable != null) {
+                _updateInlineMenuMaxHeight(context);
+              }
+              unawaited(
+                _showMoreOptions(
+                  canPip: canPip,
+                  maxHeightListenable: maxHeightListenable,
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -2892,6 +2926,10 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         maxHeightListenable: maxHeightListenable,
         builder: (sheetContext) {
           final s = S.of(sheetContext);
+          final reduceMotion = MediaQuery.disableAnimationsOf(sheetContext);
+          final expandDuration = reduceMotion
+              ? Duration.zero
+              : const Duration(milliseconds: 200);
           return StatefulBuilder(
             builder: (context, setSheetState) =>
                 ValueListenableBuilder<VideoPlaybackSnapshot>(
@@ -2905,12 +2943,41 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                         break;
                       }
                     }
+                    final audioTrackOptions = audioTracksExpanded
+                        ? RadioGroup<String>(
+                            groupValue: snapshot.selectedAudioTrackId,
+                            onChanged: (id) {
+                              if (id == null) return;
+                              setSheetState(() => audioTracksExpanded = false);
+                              unawaited(
+                                _invoke(() => _session.selectAudioTrack(id)),
+                              );
+                            },
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                for (final track in audioTracks)
+                                  RadioListTile<String>(
+                                    value: track.id,
+                                    title: Text(
+                                      track.label,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          )
+                        : const SizedBox(width: double.infinity, height: 0);
                     return AnimatedBuilder(
                       animation: _settings,
-                      builder: (context, _) => ListView(
-                        shrinkWrap: true,
+                      builder: (context, _) => BottomSheetMenu(
+                        header: BottomSheetHeader(
+                          title: MaterialLocalizations.of(
+                            context,
+                          ).moreButtonTooltip,
+                        ),
                         children: [
-                          BottomSheetHeader(title: s.videoPlayerMoreOptions),
                           Padding(
                             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                             child: Row(
@@ -2950,44 +3017,25 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                     ),
-                              trailing: Icon(
-                                audioTracksExpanded
-                                    ? Icons.expand_less
-                                    : Icons.expand_more,
+                              trailing: AnimatedRotation(
+                                turns: audioTracksExpanded ? .5 : 0,
+                                duration: expandDuration,
+                                curve: Curves.easeOutCubic,
+                                child: const Icon(Icons.expand_more),
                               ),
                               onTap: () => setSheetState(
                                 () =>
                                     audioTracksExpanded = !audioTracksExpanded,
                               ),
                             ),
-                            if (audioTracksExpanded)
-                              RadioGroup<String>(
-                                groupValue: snapshot.selectedAudioTrackId,
-                                onChanged: (id) {
-                                  if (id == null) return;
-                                  setSheetState(
-                                    () => audioTracksExpanded = false,
-                                  );
-                                  unawaited(
-                                    _invoke(
-                                      () => _session.selectAudioTrack(id),
-                                    ),
-                                  );
-                                },
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    for (final track in audioTracks)
-                                      RadioListTile<String>(
-                                        value: track.id,
-                                        title: Text(
-                                          track.label,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                  ],
-                                ),
+                            if (reduceMotion)
+                              audioTrackOptions
+                            else
+                              AnimatedSize(
+                                duration: expandDuration,
+                                curve: Curves.easeOutCubic,
+                                alignment: Alignment.topCenter,
+                                child: audioTrackOptions,
                               ),
                           ],
                           const Divider(height: 1),
@@ -3551,7 +3599,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     _gestureOverlayTimer?.cancel();
     _focusNode.dispose();
     _uiRevision.dispose();
-    _inlineViewportHeight.dispose();
+    _inlineMenuMaxHeight.dispose();
     unawaited(_disposeSession());
     super.dispose();
   }

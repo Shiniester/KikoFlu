@@ -26,6 +26,7 @@ import 'package:kikoeru_flutter/src/videos/video_super_resolution.dart';
 import 'package:kikoeru_flutter/src/videos/video_sleep_timer.dart';
 import 'package:kikoeru_flutter/src/videos/video_providers.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
+import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
 
 import '../support/linux_golden_file_comparator.dart';
 
@@ -705,8 +706,123 @@ void main() {
     },
   );
 
+  _testPlayerWidget('detail more menu uses the space below the inline video', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.padding = const FakeViewPadding(top: 24, bottom: 16);
+    addTearDown(tester.view.reset);
+    final client = _TestMissavClient(
+      _details(description: List.filled(30, 'Video description').join('\n')),
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final session = _FakeAdvancedPlaybackSession();
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        _testVideoDetailsScreen(video: _video(), sessionFactory: () => session),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final layout = find.byKey(const ValueKey('video-playback-layout'));
+    await _openSettings(tester);
+    final sheet = _responsiveSheet();
+    expect(
+      tester.getRect(sheet).top,
+      closeTo(tester.getRect(layout).bottom, .1),
+    );
+    expect(
+      tester.getSize(sheet).height,
+      greaterThan(tester.getSize(layout).height),
+    );
+    expect(tester.getRect(sheet).bottom, closeTo(800, .1));
+
+    tester.view.physicalSize = const Size(500, 900);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(sheet).top,
+      closeTo(tester.getRect(layout).bottom, .1),
+    );
+    expect(tester.getRect(sheet).bottom, closeTo(900, .1));
+    await _closeSettings(tester);
+    final detailsList = find
+        .ancestor(
+          of: find.byType(VideoPlaybackPanel),
+          matching: find.byType(ListView),
+        )
+        .first;
+    final detailsScrollable = find
+        .descendant(of: detailsList, matching: find.byType(Scrollable))
+        .first;
+    tester.state<ScrollableState>(detailsScrollable).position.jumpTo(20);
+    await tester.pumpAndSettle();
+    await _openSettings(tester);
+    expect(
+      tester.getRect(sheet).top,
+      closeTo(tester.getRect(layout).bottom, .1),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final textScale in [0.8, 2.0]) {
+    _testPlayerWidget(
+      'more menu fits with tall video at text scale $textScale',
+      (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(700, 800);
+        tester.view.padding = const FakeViewPadding(top: 24, bottom: 16);
+        addTearDown(tester.view.reset);
+        final client = _TestMissavClient(_details());
+        final library = await _testLibrary();
+        await (await SharedPreferences.getInstance()).setBool(
+          'video_player_v1_vertical_expand',
+          true,
+        );
+        final downloads = _TestVideoDownloads(client: client, library: library);
+        final session = _FakeAdvancedPlaybackSession(sourceAspectRatio: 9 / 16);
+        await tester.pumpWidget(
+          _app(
+            client,
+            library,
+            downloads,
+            _testVideoDetailsScreen(
+              video: _video(),
+              sessionFactory: () => session,
+            ),
+            textScale: textScale,
+          ),
+        );
+        await tester.pumpAndSettle();
+        final layout = find.byKey(const ValueKey('video-playback-layout'));
+        expect(tester.getRect(layout).bottom, greaterThan(780));
+        await _openSettings(tester);
+        final sheet = _responsiveSheet();
+        expect(tester.getRect(sheet).height, greaterThan(400));
+        expect(
+          find.descendant(of: sheet, matching: find.text('More')).hitTestable(),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('video-volume-slider')).hitTestable(),
+          findsOneWidget,
+        );
+        final s = await S.delegate.load(const Locale('en'));
+        await _ensureMoreMenuItemVisible(
+          tester,
+          find.text(s.videoPlayerSettings),
+        );
+        expect(find.text(s.videoPlayerSettings).hitTestable(), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   _testPlayerWidget(
-    'more menu tracks the inline viewport across resize and keeps fullscreen height',
+    'more menu stays below inline video and adapts to landscape and fullscreen',
     (tester) async {
       final session = _FakePlaybackSession();
       await _pumpStandalonePlayer(tester, session);
@@ -717,9 +833,10 @@ void main() {
       final sheet = _responsiveSheet();
       final portraitViewportHeight = tester.getSize(layout).height;
       expect(
-        tester.getRect(sheet).height,
-        lessThanOrEqualTo(portraitViewportHeight),
+        tester.getRect(sheet).top,
+        closeTo(tester.getRect(layout).bottom, .1),
       );
+      expect(tester.getRect(sheet).height, greaterThan(portraitViewportHeight));
       expect(tester.getRect(sheet).bottom, closeTo(800, .1));
 
       tester.view.physicalSize = const Size(1200, 800);
@@ -727,17 +844,14 @@ void main() {
       final landscapeViewportHeight = tester.getSize(layout).height;
       expect(landscapeViewportHeight, greaterThan(portraitViewportHeight));
       expect(tester.getRect(sheet).height, greaterThan(portraitViewportHeight));
-      expect(
-        tester.getRect(sheet).height,
-        lessThanOrEqualTo(landscapeViewportHeight),
-      );
+      expect(tester.getRect(sheet).height, lessThanOrEqualTo(800));
       expect(tester.getRect(sheet).right, closeTo(1200, .1));
 
       tester.view.physicalSize = const Size(400, 800);
       await tester.pumpAndSettle();
       expect(
-        tester.getRect(sheet).height,
-        lessThanOrEqualTo(tester.getSize(layout).height),
+        tester.getRect(sheet).top,
+        closeTo(tester.getRect(layout).bottom, .1),
       );
       expect(tester.getRect(sheet).bottom, closeTo(800, .1));
 
@@ -752,6 +866,43 @@ void main() {
       expect(tester.getRect(sheet).height, lessThanOrEqualTo(800));
     },
   );
+
+  for (final size in [const Size(400, 800), const Size(1200, 800)]) {
+    _testPlayerWidget('more menu keeps its compact header fixed at $size', (
+      tester,
+    ) async {
+      tester.view.padding = const FakeViewPadding(top: 24);
+      addTearDown(tester.view.resetPadding);
+      await _pumpStandalonePlayer(
+        tester,
+        _FakePlaybackSession(),
+        width: size.width,
+        height: size.height,
+      );
+      await _openSettings(tester);
+      final sheet = _responsiveSheet();
+      final header = find.descendant(
+        of: sheet,
+        matching: find.byType(BottomSheetHeader),
+      );
+      final initialHeaderRect = tester.getRect(header);
+      expect(
+        initialHeaderRect.top - tester.getRect(sheet).top,
+        closeTo(size.width > size.height ? 24 : 0, .1),
+      );
+      expect(
+        find.descendant(of: header, matching: find.text('More')),
+        findsOneWidget,
+      );
+      final s = await S.delegate.load(const Locale('en'));
+      await _ensureMoreMenuItemVisible(
+        tester,
+        find.text(s.videoPlayerSettings),
+      );
+      expect(tester.getRect(header), initialHeaderRect);
+      expect(find.text(s.videoPlayerSettings).hitTestable(), findsOneWidget);
+    });
+  }
 
   _testPlayerWidget('paused and buffering playback controls can be hidden', (
     tester,
@@ -924,6 +1075,79 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  for (final reduceMotion in [false, true]) {
+    _testPlayerWidget(
+      'audio track expansion animates with reduced motion=$reduceMotion',
+      (tester) async {
+        tester.platformDispatcher.accessibilityFeaturesTestValue =
+            FakeAccessibilityFeatures(disableAnimations: reduceMotion);
+        addTearDown(
+          tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+        );
+        final session = _FakePlaybackSession();
+        await _pumpStandalonePlayer(tester, session);
+        session.emitSnapshot(
+          audioTracks: const [
+            VideoPlaybackTrack(id: 'audio-en', label: 'English'),
+            VideoPlaybackTrack(id: 'audio-ja', label: 'Japanese'),
+          ],
+          selectedAudioTrackId: 'audio-en',
+        );
+        await tester.pump();
+        await _openSettings(tester);
+        final s = await S.delegate.load(const Locale('en'));
+        final entry = find.widgetWithText(ListTile, s.videoPlayerAudioTrack);
+        final followingOption = find.widgetWithText(
+          SwitchListTile,
+          s.videoPlayerRepeatSingle,
+        );
+        double optionTop() => tester.getTopLeft(followingOption).dy;
+        final collapsedTop = optionTop();
+
+        await tester.tap(entry);
+        await tester.pump();
+        await tester.pump(
+          reduceMotion ? Duration.zero : const Duration(milliseconds: 80),
+        );
+        final expandingTop = optionTop();
+        await tester.pumpAndSettle();
+        final expandedTop = optionTop();
+        expect(expandedTop, greaterThan(collapsedTop));
+        if (reduceMotion) {
+          expect(expandingTop, closeTo(expandedTop, .1));
+        } else {
+          expect(expandingTop, greaterThan(collapsedTop));
+          expect(expandingTop, lessThan(expandedTop));
+        }
+
+        await tester.tap(entry);
+        await tester.pump();
+        await tester.pump(
+          reduceMotion ? Duration.zero : const Duration(milliseconds: 80),
+        );
+        final collapsingTop = optionTop();
+        await tester.pumpAndSettle();
+        expect(optionTop(), closeTo(collapsedTop, .1));
+        if (reduceMotion) {
+          expect(collapsingTop, closeTo(collapsedTop, .1));
+        } else {
+          expect(collapsingTop, greaterThan(collapsedTop));
+          expect(collapsingTop, lessThan(expandedTop));
+        }
+
+        await tester.tap(entry);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 60));
+        await tester.tap(entry);
+        await tester.pumpAndSettle();
+        expect(optionTop(), closeTo(collapsedTop, .1));
+        expect(find.byType(RadioGroup<String>), findsNothing);
+        expect(_responsiveSheet(), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   _testPlayerWidget(
     'playback settings keep quality, audio, subtitle and rate actions',
@@ -1322,8 +1546,8 @@ void main() {
     final sheet = _responsiveSheet();
     final portraitViewportHeight = tester.getSize(layout).height;
     expect(
-      tester.getRect(sheet).height,
-      lessThanOrEqualTo(portraitViewportHeight),
+      tester.getRect(sheet).top,
+      closeTo(tester.getRect(layout).bottom, .1),
     );
 
     platform.startPictureInPicture();
@@ -1339,10 +1563,8 @@ void main() {
       find.byKey(const ValueKey('responsive-sheet-surface')),
       findsOneWidget,
     );
-    expect(
-      tester.getRect(sheet).height,
-      lessThanOrEqualTo(landscapeViewportHeight),
-    );
+    expect(tester.getRect(sheet).height, lessThanOrEqualTo(800));
+    expect(tester.getRect(sheet).right, closeTo(1200, .1));
     expect(tester.getRect(sheet).height, greaterThan(portraitViewportHeight));
     expect(tester.takeException(), isNull);
   });
@@ -3301,11 +3523,8 @@ Future<void> _ensureMoreMenuItemVisible(
   Finder target,
 ) async {
   final sheet = _responsiveSheet();
-  final list = find
-      .descendant(of: sheet, matching: find.byType(ListView))
-      .first;
   final scrollable = find
-      .descendant(of: list, matching: find.byType(Scrollable))
+      .descendant(of: sheet, matching: find.byType(Scrollable))
       .first;
   final sheetTarget = find.descendant(of: sheet, matching: target);
   tester.state<ScrollableState>(scrollable).position.jumpTo(0);
@@ -3426,15 +3645,17 @@ VideoItem _video() => const VideoItem(
   pageUrl: 'https://missav.ai/cn/dvd-1',
 );
 
-VideoDetails _details({bool isFavorite = false}) => VideoDetails(
-  video: _video(),
-  streams: const [
-    VideoStream(label: 'Auto', url: 'https://cdn.example/video.m3u8'),
-    VideoStream(label: '720p', url: 'https://cdn.example/video-720.m3u8'),
-  ],
-  sourceId: 'source-id',
-  isFavorite: isFavorite,
-);
+VideoDetails _details({bool isFavorite = false, String description = ''}) =>
+    VideoDetails(
+      video: _video(),
+      description: description,
+      streams: const [
+        VideoStream(label: 'Auto', url: 'https://cdn.example/video.m3u8'),
+        VideoStream(label: '720p', url: 'https://cdn.example/video-720.m3u8'),
+      ],
+      sourceId: 'source-id',
+      isFavorite: isFavorite,
+    );
 
 class _TestMissavClient extends MissavClient {
   _TestMissavClient(

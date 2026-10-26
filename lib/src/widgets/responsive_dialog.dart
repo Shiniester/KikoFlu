@@ -405,10 +405,12 @@ class BottomSheetActionBar extends StatelessWidget {
 class BottomSheetMenu extends StatelessWidget {
   const BottomSheetMenu({
     super.key,
+    this.header,
     required this.children,
     this.bottomSpacing = 8,
   });
 
+  final Widget? header;
   final List<Widget> children;
   final double bottomSpacing;
 
@@ -416,14 +418,23 @@ class BottomSheetMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return SafeArea(
       top: false,
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ...children,
-            SizedBox(height: bottomSpacing),
-          ],
-        ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (header != null) header!,
+          Flexible(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ...children,
+                  SizedBox(height: bottomSpacing),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

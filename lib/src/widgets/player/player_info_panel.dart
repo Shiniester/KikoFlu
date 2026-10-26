@@ -56,10 +56,10 @@ class PlayerInfoPanel extends ConsumerWidget {
     return RepaintBoundary(
       child: BottomSheetMenu(
         key: const PageStorageKey('player-info-panel'),
+        header: BottomSheetHeader(
+          title: MaterialLocalizations.of(context).moreButtonTooltip,
+        ),
         children: [
-          BottomSheetHeader(
-            title: MaterialLocalizations.of(context).moreButtonTooltip,
-          ),
           SwitchListTile(
             key: const ValueKey('player-more-keep-awake-card'),
             secondary: Icon(

@@ -4038,6 +4038,32 @@ void main() {
     },
   );
 
+  testWidgets('more keeps its header fixed while scrolling the audio actions', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(390, 844), textScale: 1.6);
+    await tester.tap(find.byKey(const ValueKey('player-more-button')));
+    await tester.pumpAndSettle();
+    final sheet = find.byKey(const ValueKey('responsive-sheet-surface'));
+    final header = find.descendant(
+      of: sheet,
+      matching: find.byType(BottomSheetHeader),
+    );
+    final initialHeaderRect = tester.getRect(header);
+    final scrollable = find
+        .descendant(of: sheet, matching: find.byType(Scrollable))
+        .first;
+    final scrollPosition = tester.state<ScrollableState>(scrollable).position;
+    expect(scrollPosition.maxScrollExtent, greaterThan(0));
+    scrollPosition.jumpTo(scrollPosition.maxScrollExtent);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(header), initialHeaderRect);
+    expect(
+      find.descendant(of: header, matching: find.text('More')).hitTestable(),
+      findsOneWidget,
+    );
+  });
+
   testWidgets(
     'keyboard lifts only lyric controls and clips the lyric viewport',
     (tester) async {
