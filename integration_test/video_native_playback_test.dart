@@ -159,6 +159,10 @@ void main() {
         library.dispose();
         client.dispose();
         await server.close(force: true);
+        expect(
+          await root.parent.resolveSymbolicLinks(),
+          await Directory.systemTemp.resolveSymbolicLinks(),
+        );
         await root.delete(recursive: true);
       }
     },

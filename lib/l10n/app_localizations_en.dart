@@ -4585,4 +4585,273 @@ class SEn extends S {
 
   @override
   String get videoUnfavoriteActor => 'Unfavorite actor';
+
+  @override
+  String get videoPlayerSettings => 'Player settings';
+
+  @override
+  String get videoPlayerMoreOptions => 'More options';
+
+  @override
+  String get videoPlayerLockControls => 'Lock controls';
+
+  @override
+  String get videoPlayerUnlockControls => 'Unlock controls';
+
+  @override
+  String get videoPlayerTakeScreenshot => 'Take screenshot';
+
+  @override
+  String get videoPlayerBrightness => 'Brightness';
+
+  @override
+  String get videoPlayerAspectRatio => 'Aspect ratio';
+
+  @override
+  String get videoPlayerFitContain => 'Auto fit';
+
+  @override
+  String get videoPlayerFitFill => 'Stretch';
+
+  @override
+  String get videoPlayerFitCover => 'Crop';
+
+  @override
+  String get videoPlayerFitWidth => 'Fit width';
+
+  @override
+  String get videoPlayerFitHeight => 'Fit height';
+
+  @override
+  String get videoPlayerFitOriginal => 'Original size';
+
+  @override
+  String get videoPlayerFitScaleDown => 'Limit size';
+
+  @override
+  String get videoPlayerFitFourThree => '4:3';
+
+  @override
+  String get videoPlayerFitSixteenNine => '16:9';
+
+  @override
+  String get videoPlayerAudioTrack => 'Audio track';
+
+  @override
+  String get videoPlayerSubtitleTrack => 'Subtitle track';
+
+  @override
+  String get videoPlayerSubtitleOffset => 'Subtitle offset';
+
+  @override
+  String get videoPlayerSubtitleStyle => 'Subtitle style';
+
+  @override
+  String get videoPlayerSubtitleFontSize => 'Subtitle size';
+
+  @override
+  String get videoPlayerSubtitleBackground => 'Subtitle background';
+
+  @override
+  String get videoPlayerDoubleTapSeek => 'Double tap to seek';
+
+  @override
+  String get videoPlayerDoubleTapSeekDuration => 'Double-tap seek duration';
+
+  @override
+  String get videoPlayerLongPressSpeed => 'Long-press speed';
+
+  @override
+  String get videoPlayerDynamicLongPressSpeed => 'Dynamic long-press speed';
+
+  @override
+  String get videoPlayerBackgroundPlayback => 'Background playback';
+
+  @override
+  String get videoPlayerPictureInPicture => 'Picture-in-picture';
+
+  @override
+  String get videoPlayerExtendedControlTime => 'Extend control display time';
+
+  @override
+  String get videoPlayerRepeatOnce => 'Play once';
+
+  @override
+  String get videoPlayerRepeatSingle => 'Repeat one';
+
+  @override
+  String get videoPlayerRepeatRelated => 'Play related videos';
+
+  @override
+  String get videoPlayerAutoPlay => 'Auto play';
+
+  @override
+  String get videoPlayerAutoFullscreen => 'Enter fullscreen automatically';
+
+  @override
+  String get videoPlayerAutoExitFullscreen => 'Exit fullscreen automatically';
+
+  @override
+  String get videoPlayerAutoPip => 'Enter picture-in-picture automatically';
+
+  @override
+  String get videoPlayerSideSwipeAdjust =>
+      'Swipe to adjust brightness and volume';
+
+  @override
+  String get videoPlayerFullscreenGesture => 'Swipe to toggle fullscreen';
+
+  @override
+  String get videoPlayerRelativeSwipeSeek => 'Seek relative to video length';
+
+  @override
+  String get videoPlayerSwipeSeekDuration => 'Full-width swipe seek duration';
+
+  @override
+  String get videoPlayerExpandVertical => 'Expand vertical videos';
+
+  @override
+  String get videoPlayerKeyboardControl => 'Keyboard controls';
+
+  @override
+  String get videoPlayerReverseFullscreenGesture =>
+      'Reverse fullscreen gesture';
+
+  @override
+  String get videoPlayerFullscreenOrientation => 'Fullscreen orientation';
+
+  @override
+  String get videoPlayerOrientationAuto => 'Auto';
+
+  @override
+  String get videoPlayerOrientationNone => 'Keep orientation';
+
+  @override
+  String get videoPlayerOrientationPortrait => 'Portrait';
+
+  @override
+  String get videoPlayerOrientationLandscape => 'Landscape';
+
+  @override
+  String get videoPlayerOrientationRatio => 'Match video aspect ratio';
+
+  @override
+  String get videoPlayerOrientationGravity => 'Follow device rotation';
+
+  @override
+  String get videoPlayerBottomProgressMode => 'Bottom progress bar';
+
+  @override
+  String get videoPlayerBottomProgressAlways => 'Always show';
+
+  @override
+  String get videoPlayerBottomProgressNever => 'Never show';
+
+  @override
+  String get videoPlayerBottomProgressFullscreenOnly => 'Fullscreen only';
+
+  @override
+  String get videoPlayerBottomProgressInlineOnly => 'Inline only';
+
+  @override
+  String get videoPlayerShowFullscreenLockButton =>
+      'Show fullscreen lock button';
+
+  @override
+  String get videoPlayerShowFullscreenScreenshotButton =>
+      'Show fullscreen screenshot button';
+
+  @override
+  String get videoPlayerSystemBrightness => 'Adjust system brightness';
+
+  @override
+  String get videoPlayerSystemBrightnessPermission =>
+      'Allow changing system settings to adjust system brightness.';
+
+  @override
+  String get videoPlayerSpeedList => 'Speed list';
+
+  @override
+  String get videoPlayerAddSpeed => 'Add speed';
+
+  @override
+  String get videoPlayerDefaultSpeed => 'Default speed';
+
+  @override
+  String get videoPlayerInvalidSpeed => 'Enter a valid speed greater than 0.';
+
+  @override
+  String get videoPlayerShowFullscreenBattery =>
+      'Show battery level in fullscreen';
+
+  @override
+  String get videoPlayerAlwaysOnTop => 'Always on top';
+
+  @override
+  String get videoPlayerCancelAlwaysOnTop => 'Stop keeping on top';
+
+  @override
+  String get videoPlayerRestoreScreen => 'Reset view';
+
+  @override
+  String get videoPlayerFlipHorizontal => 'Flip horizontally';
+
+  @override
+  String get videoPlayerFlipVertical => 'Flip vertically';
+
+  @override
+  String get videoPlayerReload => 'Reload video';
+
+  @override
+  String get videoPlayerPlaybackInfo => 'Playback information';
+
+  @override
+  String get videoPlayerSuperResolution => 'Super resolution';
+
+  @override
+  String get videoPlayerSuperResolutionOff => 'Disabled';
+
+  @override
+  String get videoPlayerSuperResolutionEfficiency => 'Efficiency';
+
+  @override
+  String get videoPlayerSuperResolutionQuality => 'Quality';
+
+  @override
+  String get videoPlayerSleepTimer => 'Sleep timer';
+
+  @override
+  String videoPlayerTimerMinutes(int minutes) {
+    return '$minutes min';
+  }
+
+  @override
+  String get videoPlayerTimerCustom => 'Custom duration';
+
+  @override
+  String get videoPlayerTimerHourUnit => 'h';
+
+  @override
+  String get videoPlayerTimerMinuteUnit => 'min';
+
+  @override
+  String get videoPlayerExitApp => 'Exit app';
+
+  @override
+  String get videoPlayerInfoResolution => 'Resolution';
+
+  @override
+  String get videoPlayerInfoVideoCodec => 'Video codec';
+
+  @override
+  String get videoPlayerInfoFrameRate => 'Frame rate';
+
+  @override
+  String get videoPlayerInfoVideoBitrate => 'Video bitrate';
+
+  @override
+  String get videoPlayerInfoAudioCodec => 'Audio codec';
+
+  @override
+  String get videoPlayerInfoAudioFormat => 'Audio format';
 }

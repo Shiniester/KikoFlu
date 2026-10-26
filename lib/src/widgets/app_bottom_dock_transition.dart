@@ -137,6 +137,34 @@ Future<void> pushWorkDetailRoute(
   required WidgetBuilder builder,
 }) => pushBottomDockRoute(context, builder: builder);
 
+/// Replaces an automatically completed detail while retaining its return Dock.
+Future<void> replaceWorkDetailRoute(
+  BuildContext context, {
+  required WidgetBuilder builder,
+}) async {
+  if (!context.mounted || ModalRoute.of(context)?.isCurrent == false) return;
+  final session = _DockMetrics.maybeOf(context)?.incoming;
+  final bottomInset =
+      session?.bottomInset ??
+      AppBottomDockTransitionScope.bottomInsetOf(context);
+  final route = _DockPageRoute(
+    session: session,
+    replaceCurrent: true,
+    builder: (_) => _DockMetrics(
+      bottomInset: bottomInset,
+      frozen: true,
+      incoming: session,
+      child: Builder(builder: builder),
+    ),
+  );
+  if (session != null) {
+    session.route = route;
+    session._ready = false;
+  }
+  await Navigator.of(context).pushReplacement<void, void>(route);
+  await route.completed;
+}
+
 /// Retains the source scope until the destination has completely returned.
 Future<void> pushBottomDockRoute(
   BuildContext context, {
@@ -177,6 +205,14 @@ Future<void> pushBottomDockRoute(
     if (!context.mounted || sourceRoute?.isCurrent == false) return;
     await Navigator.of(context).push<void>(route);
     await route.completed;
+    if (session != null) {
+      PageRoute<void> returnedRoute = route;
+      while (!identical(session.route, returnedRoute)) {
+        returnedRoute = session.route;
+        await returnedRoute.popped;
+        await returnedRoute.completed;
+      }
+    }
   } finally {
     if (session != null) sourceScope!.release(session);
   }
@@ -195,7 +231,7 @@ class _DockSession extends ChangeNotifier with WidgetsBindingObserver {
   final FlutterView view;
   _DockEndpointState? get sourceMini => source._endpoints[_DockPart.miniPlayer];
   _DockEndpointState? get sourceTab => source._endpoints[_DockPart.tabBar];
-  late final _DockPageRoute route;
+  late _DockPageRoute route;
   _DockEndpointState? targetMini;
   Animation<double>? _animation;
   ValueNotifier<bool>? _gesture;
@@ -208,12 +244,18 @@ class _DockSession extends ChangeNotifier with WidgetsBindingObserver {
       sourceTab == null ? 0 : appBottomDockNavigationBarHeight + bottomInset;
   void attach(Animation<double> animation, ValueNotifier<bool> gesture) {
     if (identical(_animation, animation)) return;
+    final firstAttachment = _animation == null;
+    _animation?.removeListener(_sync);
+    _animation?.removeStatusListener(_onStatus);
+    _gesture?.removeListener(_sync);
     _animation = animation;
     _gesture = gesture;
     animation.addListener(_sync);
     animation.addStatusListener(_onStatus);
     gesture.addListener(_sync);
-    WidgetsBinding.instance.addObserver(this);
+    if (firstAttachment) {
+      WidgetsBinding.instance.addObserver(this);
+    }
   }
 
   void prepareAfterLayout() {
@@ -273,9 +315,19 @@ class _DockSession extends ChangeNotifier with WidgetsBindingObserver {
 }
 
 class _DockPageRoute extends MaterialPageRoute<void> {
-  _DockPageRoute({required super.builder, required this.session});
+  _DockPageRoute({
+    required super.builder,
+    required this.session,
+    this.replaceCurrent = false,
+  });
   final _DockSession? session;
+  final bool replaceCurrent;
   Widget? _dockTransitionLayer;
+  @override
+  Duration get transitionDuration =>
+      replaceCurrent ? Duration.zero : super.transitionDuration;
+  @override
+  Duration get reverseTransitionDuration => super.transitionDuration;
   @override
   Widget buildTransitions(
     BuildContext context,
@@ -290,7 +342,11 @@ class _DockPageRoute extends MaterialPageRoute<void> {
       child,
     );
     final handoff = session;
-    if (handoff == null || !handoff.enabled) return page;
+    if (handoff == null ||
+        !handoff.enabled ||
+        !identical(handoff.route, this)) {
+      return page;
+    }
     handoff.attach(animation, navigator!.userGestureInProgressNotifier);
     return Stack(
       fit: StackFit.expand,

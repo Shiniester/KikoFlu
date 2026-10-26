@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../widgets/settings_section.dart';
 import '../video_card_display_provider.dart';
+import 'video_playback_settings_screen.dart';
 
 class VideoSettingsScreen extends StatelessWidget {
   const VideoSettingsScreen({super.key});
@@ -16,6 +17,15 @@ class VideoSettingsScreen extends StatelessWidget {
       children: [
         SettingsSectionList(
           children: [
+            SettingsNavigationTile(
+              icon: Icons.play_circle_outline,
+              title: S.of(context).videoPlayerSettings,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const VideoPlaybackSettingsRoute(),
+                ),
+              ),
+            ),
             SettingsNavigationTile(
               icon: Icons.dashboard_customize,
               title: S.of(context).uiSettings,

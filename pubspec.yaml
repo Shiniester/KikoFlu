@@ -33,7 +33,9 @@ dependencies:
   just_audio_media_kit:
     path: third_party/just_audio_media_kit
   media_kit: ^1.2.0
-  media_kit_video: ^2.0.1
+  # Retain 2.0.1 with the iOS output needed for same-session picture-in-picture.
+  media_kit_video:
+    path: third_party/media_kit_video
   media_kit_libs_video: ^1.0.7
   # Includes the upstream Darwin Now Playing fixes queued for audio_service
   # 0.18.20, without pulling the unrelated AGP 9 migration.
@@ -116,6 +118,7 @@ flutter:
 
   assets:
     - assets/icons/
+    - assets/shaders/
     - LICENSE
     - third_party/picacomic/LICENSE
     - third_party/opencc/STPhrases.txt

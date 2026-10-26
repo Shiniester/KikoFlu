@@ -4432,6 +4432,269 @@ class SZh extends S {
 
   @override
   String get videoUnfavoriteActor => '取消演员收藏';
+
+  @override
+  String get videoPlayerSettings => '播放器设置';
+
+  @override
+  String get videoPlayerMoreOptions => '更多选项';
+
+  @override
+  String get videoPlayerLockControls => '锁定控件';
+
+  @override
+  String get videoPlayerUnlockControls => '解锁控件';
+
+  @override
+  String get videoPlayerTakeScreenshot => '截图';
+
+  @override
+  String get videoPlayerBrightness => '亮度';
+
+  @override
+  String get videoPlayerAspectRatio => '画面比例';
+
+  @override
+  String get videoPlayerFitContain => '自动适配';
+
+  @override
+  String get videoPlayerFitFill => '拉伸';
+
+  @override
+  String get videoPlayerFitCover => '裁切';
+
+  @override
+  String get videoPlayerFitWidth => '等宽';
+
+  @override
+  String get videoPlayerFitHeight => '等高';
+
+  @override
+  String get videoPlayerFitOriginal => '原始大小';
+
+  @override
+  String get videoPlayerFitScaleDown => '限制尺寸';
+
+  @override
+  String get videoPlayerFitFourThree => '4:3';
+
+  @override
+  String get videoPlayerFitSixteenNine => '16:9';
+
+  @override
+  String get videoPlayerAudioTrack => '音轨';
+
+  @override
+  String get videoPlayerSubtitleTrack => '字幕轨';
+
+  @override
+  String get videoPlayerSubtitleOffset => '字幕偏移';
+
+  @override
+  String get videoPlayerSubtitleStyle => '字幕样式';
+
+  @override
+  String get videoPlayerSubtitleFontSize => '字幕大小';
+
+  @override
+  String get videoPlayerSubtitleBackground => '字幕背景';
+
+  @override
+  String get videoPlayerDoubleTapSeek => '双击快进或快退';
+
+  @override
+  String get videoPlayerDoubleTapSeekDuration => '双击跳转时长';
+
+  @override
+  String get videoPlayerLongPressSpeed => '长按倍速';
+
+  @override
+  String get videoPlayerDynamicLongPressSpeed => '动态长按倍速';
+
+  @override
+  String get videoPlayerBackgroundPlayback => '后台播放';
+
+  @override
+  String get videoPlayerPictureInPicture => '画中画';
+
+  @override
+  String get videoPlayerExtendedControlTime => '延长控件显示时间';
+
+  @override
+  String get videoPlayerRepeatOnce => '播完暂停';
+
+  @override
+  String get videoPlayerRepeatSingle => '单个循环';
+
+  @override
+  String get videoPlayerRepeatRelated => '自动连播';
+
+  @override
+  String get videoPlayerAutoPlay => '自动播放';
+
+  @override
+  String get videoPlayerAutoFullscreen => '自动进入全屏';
+
+  @override
+  String get videoPlayerAutoExitFullscreen => '自动退出全屏';
+
+  @override
+  String get videoPlayerAutoPip => '自动进入画中画';
+
+  @override
+  String get videoPlayerSideSwipeAdjust => '滑动调节亮度和音量';
+
+  @override
+  String get videoPlayerFullscreenGesture => '滑动切换全屏';
+
+  @override
+  String get videoPlayerRelativeSwipeSeek => '按视频时长滑动跳转';
+
+  @override
+  String get videoPlayerSwipeSeekDuration => '全宽滑动跳转时长';
+
+  @override
+  String get videoPlayerExpandVertical => '扩展竖屏视频';
+
+  @override
+  String get videoPlayerKeyboardControl => '键盘控制';
+
+  @override
+  String get videoPlayerReverseFullscreenGesture => '反转全屏手势';
+
+  @override
+  String get videoPlayerFullscreenOrientation => '全屏方向';
+
+  @override
+  String get videoPlayerOrientationAuto => '自动';
+
+  @override
+  String get videoPlayerOrientationNone => '保持方向';
+
+  @override
+  String get videoPlayerOrientationPortrait => '竖屏';
+
+  @override
+  String get videoPlayerOrientationLandscape => '横屏';
+
+  @override
+  String get videoPlayerOrientationRatio => '按视频比例';
+
+  @override
+  String get videoPlayerOrientationGravity => '跟随重力旋转';
+
+  @override
+  String get videoPlayerBottomProgressMode => '底部进度条';
+
+  @override
+  String get videoPlayerBottomProgressAlways => '始终显示';
+
+  @override
+  String get videoPlayerBottomProgressNever => '不显示';
+
+  @override
+  String get videoPlayerBottomProgressFullscreenOnly => '仅全屏显示';
+
+  @override
+  String get videoPlayerBottomProgressInlineOnly => '仅内嵌播放显示';
+
+  @override
+  String get videoPlayerShowFullscreenLockButton => '显示全屏锁定按钮';
+
+  @override
+  String get videoPlayerShowFullscreenScreenshotButton => '显示全屏截图按钮';
+
+  @override
+  String get videoPlayerSystemBrightness => '调节系统亮度';
+
+  @override
+  String get videoPlayerSystemBrightnessPermission => '允许修改系统设置后，再调节系统亮度。';
+
+  @override
+  String get videoPlayerSpeedList => '倍速列表';
+
+  @override
+  String get videoPlayerAddSpeed => '添加倍速';
+
+  @override
+  String get videoPlayerDefaultSpeed => '默认倍速';
+
+  @override
+  String get videoPlayerInvalidSpeed => '请输入大于 0 的有效倍速。';
+
+  @override
+  String get videoPlayerShowFullscreenBattery => '全屏显示电池电量';
+
+  @override
+  String get videoPlayerAlwaysOnTop => '置顶';
+
+  @override
+  String get videoPlayerCancelAlwaysOnTop => '取消置顶';
+
+  @override
+  String get videoPlayerRestoreScreen => '还原屏幕';
+
+  @override
+  String get videoPlayerFlipHorizontal => '左右翻转';
+
+  @override
+  String get videoPlayerFlipVertical => '上下翻转';
+
+  @override
+  String get videoPlayerReload => '重载视频';
+
+  @override
+  String get videoPlayerPlaybackInfo => '播放信息';
+
+  @override
+  String get videoPlayerSuperResolution => '超分辨率';
+
+  @override
+  String get videoPlayerSuperResolutionOff => '禁用';
+
+  @override
+  String get videoPlayerSuperResolutionEfficiency => '效率';
+
+  @override
+  String get videoPlayerSuperResolutionQuality => '画质';
+
+  @override
+  String get videoPlayerSleepTimer => '定时关闭';
+
+  @override
+  String videoPlayerTimerMinutes(int minutes) {
+    return '$minutes 分钟';
+  }
+
+  @override
+  String get videoPlayerTimerCustom => '自定义时长';
+
+  @override
+  String get videoPlayerTimerHourUnit => '时';
+
+  @override
+  String get videoPlayerTimerMinuteUnit => '分';
+
+  @override
+  String get videoPlayerExitApp => '退出应用';
+
+  @override
+  String get videoPlayerInfoResolution => '分辨率';
+
+  @override
+  String get videoPlayerInfoVideoCodec => '视频编码';
+
+  @override
+  String get videoPlayerInfoFrameRate => '帧率';
+
+  @override
+  String get videoPlayerInfoVideoBitrate => '视频码率';
+
+  @override
+  String get videoPlayerInfoAudioCodec => '音频编码';
+
+  @override
+  String get videoPlayerInfoAudioFormat => '音频格式';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -8862,4 +9125,267 @@ class SZhHant extends SZh {
 
   @override
   String get videoUnfavoriteActor => '取消演員收藏';
+
+  @override
+  String get videoPlayerSettings => '播放器設定';
+
+  @override
+  String get videoPlayerMoreOptions => '更多選項';
+
+  @override
+  String get videoPlayerLockControls => '鎖定控制項';
+
+  @override
+  String get videoPlayerUnlockControls => '解鎖控制項';
+
+  @override
+  String get videoPlayerTakeScreenshot => '擷取畫面';
+
+  @override
+  String get videoPlayerBrightness => '亮度';
+
+  @override
+  String get videoPlayerAspectRatio => '畫面比例';
+
+  @override
+  String get videoPlayerFitContain => '自動調整';
+
+  @override
+  String get videoPlayerFitFill => '拉伸';
+
+  @override
+  String get videoPlayerFitCover => '裁切';
+
+  @override
+  String get videoPlayerFitWidth => '符合寬度';
+
+  @override
+  String get videoPlayerFitHeight => '符合高度';
+
+  @override
+  String get videoPlayerFitOriginal => '原始大小';
+
+  @override
+  String get videoPlayerFitScaleDown => '限制尺寸';
+
+  @override
+  String get videoPlayerFitFourThree => '4:3';
+
+  @override
+  String get videoPlayerFitSixteenNine => '16:9';
+
+  @override
+  String get videoPlayerAudioTrack => '音軌';
+
+  @override
+  String get videoPlayerSubtitleTrack => '字幕軌';
+
+  @override
+  String get videoPlayerSubtitleOffset => '字幕偏移';
+
+  @override
+  String get videoPlayerSubtitleStyle => '字幕樣式';
+
+  @override
+  String get videoPlayerSubtitleFontSize => '字幕大小';
+
+  @override
+  String get videoPlayerSubtitleBackground => '字幕背景';
+
+  @override
+  String get videoPlayerDoubleTapSeek => '點兩下快轉或倒轉';
+
+  @override
+  String get videoPlayerDoubleTapSeekDuration => '點兩下跳轉時長';
+
+  @override
+  String get videoPlayerLongPressSpeed => '長按倍速';
+
+  @override
+  String get videoPlayerDynamicLongPressSpeed => '動態長按倍速';
+
+  @override
+  String get videoPlayerBackgroundPlayback => '背景播放';
+
+  @override
+  String get videoPlayerPictureInPicture => '子母畫面';
+
+  @override
+  String get videoPlayerExtendedControlTime => '延長控制項顯示時間';
+
+  @override
+  String get videoPlayerRepeatOnce => '播完暫停';
+
+  @override
+  String get videoPlayerRepeatSingle => '單項循環';
+
+  @override
+  String get videoPlayerRepeatRelated => '自動連播';
+
+  @override
+  String get videoPlayerAutoPlay => '自動播放';
+
+  @override
+  String get videoPlayerAutoFullscreen => '自動進入全螢幕';
+
+  @override
+  String get videoPlayerAutoExitFullscreen => '自動退出全螢幕';
+
+  @override
+  String get videoPlayerAutoPip => '自動進入子母畫面';
+
+  @override
+  String get videoPlayerSideSwipeAdjust => '滑動調整亮度和音量';
+
+  @override
+  String get videoPlayerFullscreenGesture => '滑動切換全螢幕';
+
+  @override
+  String get videoPlayerRelativeSwipeSeek => '依影片長度滑動跳轉';
+
+  @override
+  String get videoPlayerSwipeSeekDuration => '全寬滑動跳轉時長';
+
+  @override
+  String get videoPlayerExpandVertical => '擴展直向影片';
+
+  @override
+  String get videoPlayerKeyboardControl => '鍵盤控制';
+
+  @override
+  String get videoPlayerReverseFullscreenGesture => '反轉全螢幕手勢';
+
+  @override
+  String get videoPlayerFullscreenOrientation => '全螢幕方向';
+
+  @override
+  String get videoPlayerOrientationAuto => '自動';
+
+  @override
+  String get videoPlayerOrientationNone => '保持方向';
+
+  @override
+  String get videoPlayerOrientationPortrait => '直向';
+
+  @override
+  String get videoPlayerOrientationLandscape => '橫向';
+
+  @override
+  String get videoPlayerOrientationRatio => '依影片比例';
+
+  @override
+  String get videoPlayerOrientationGravity => '跟隨重力旋轉';
+
+  @override
+  String get videoPlayerBottomProgressMode => '底部進度列';
+
+  @override
+  String get videoPlayerBottomProgressAlways => '一律顯示';
+
+  @override
+  String get videoPlayerBottomProgressNever => '不顯示';
+
+  @override
+  String get videoPlayerBottomProgressFullscreenOnly => '僅全螢幕顯示';
+
+  @override
+  String get videoPlayerBottomProgressInlineOnly => '僅內嵌播放時顯示';
+
+  @override
+  String get videoPlayerShowFullscreenLockButton => '顯示全螢幕鎖定按鈕';
+
+  @override
+  String get videoPlayerShowFullscreenScreenshotButton => '顯示全螢幕截圖按鈕';
+
+  @override
+  String get videoPlayerSystemBrightness => '調整系統亮度';
+
+  @override
+  String get videoPlayerSystemBrightnessPermission => '允許修改系統設定後，再調整系統亮度。';
+
+  @override
+  String get videoPlayerSpeedList => '倍速清單';
+
+  @override
+  String get videoPlayerAddSpeed => '新增倍速';
+
+  @override
+  String get videoPlayerDefaultSpeed => '預設倍速';
+
+  @override
+  String get videoPlayerInvalidSpeed => '請輸入大於 0 的有效倍速。';
+
+  @override
+  String get videoPlayerShowFullscreenBattery => '全螢幕顯示電池電量';
+
+  @override
+  String get videoPlayerAlwaysOnTop => '置頂';
+
+  @override
+  String get videoPlayerCancelAlwaysOnTop => '取消置頂';
+
+  @override
+  String get videoPlayerRestoreScreen => '還原螢幕';
+
+  @override
+  String get videoPlayerFlipHorizontal => '左右翻轉';
+
+  @override
+  String get videoPlayerFlipVertical => '上下翻轉';
+
+  @override
+  String get videoPlayerReload => '重新載入影片';
+
+  @override
+  String get videoPlayerPlaybackInfo => '播放資訊';
+
+  @override
+  String get videoPlayerSuperResolution => '超解析度';
+
+  @override
+  String get videoPlayerSuperResolutionOff => '停用';
+
+  @override
+  String get videoPlayerSuperResolutionEfficiency => '效率';
+
+  @override
+  String get videoPlayerSuperResolutionQuality => '畫質';
+
+  @override
+  String get videoPlayerSleepTimer => '定時關閉';
+
+  @override
+  String videoPlayerTimerMinutes(int minutes) {
+    return '$minutes 分鐘';
+  }
+
+  @override
+  String get videoPlayerTimerCustom => '自訂時長';
+
+  @override
+  String get videoPlayerTimerHourUnit => '時';
+
+  @override
+  String get videoPlayerTimerMinuteUnit => '分';
+
+  @override
+  String get videoPlayerExitApp => '結束應用程式';
+
+  @override
+  String get videoPlayerInfoResolution => '解析度';
+
+  @override
+  String get videoPlayerInfoVideoCodec => '影片編碼';
+
+  @override
+  String get videoPlayerInfoFrameRate => '影格率';
+
+  @override
+  String get videoPlayerInfoVideoBitrate => '影片位元率';
+
+  @override
+  String get videoPlayerInfoAudioCodec => '音訊編碼';
+
+  @override
+  String get videoPlayerInfoAudioFormat => '音訊格式';
 }

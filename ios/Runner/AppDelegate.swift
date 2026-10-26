@@ -10,6 +10,8 @@ import CoreHaptics
 @objc class AppDelegate: FlutterAppDelegate {
   private var floatingLyricManager: FloatingLyricManager?
   private var audioHapticsBridge: AudioHapticsBridge?
+  private var videoPlayerBridge: VideoPlayerBridge?
+  private let screenAwakeRequests = ScreenAwakeRequests()
 
   override func application(
     _ application: UIApplication,
@@ -18,17 +20,18 @@ import CoreHaptics
     let controller : FlutterViewController = window?.rootViewController as! FlutterViewController
     floatingLyricManager = FloatingLyricManager(controller: controller)
     audioHapticsBridge = AudioHapticsBridge(controller: controller)
+    videoPlayerBridge = VideoPlayerBridge(controller: controller, screenAwake: screenAwakeRequests)
 
     let screenAwakeChannel = FlutterMethodChannel(
       name: "com.meteor.kikoeruflutter/screen_awake",
       binaryMessenger: controller.binaryMessenger
     )
-    screenAwakeChannel.setMethodCallHandler { call, result in
+    screenAwakeChannel.setMethodCallHandler { [screenAwakeRequests] call, result in
       switch call.method {
       case "setKeepScreenOn":
         let args = call.arguments as? [String: Any]
         let enabled = args?["enabled"] as? Bool ?? false
-        UIApplication.shared.isIdleTimerDisabled = enabled
+        screenAwakeRequests.app = enabled
         result(true)
       default:
         result(FlutterMethodNotImplemented)

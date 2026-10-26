@@ -17,6 +17,7 @@ import '../video_downloads.dart';
 import '../video_library.dart';
 import '../video_models.dart';
 import '../video_providers.dart';
+import '../video_player_platform.dart';
 import 'video_account_screen.dart';
 import 'video_collection_view.dart';
 import 'video_playback_panel.dart';
@@ -28,11 +29,15 @@ class VideoDetailsScreen extends ConsumerStatefulWidget {
     required this.video,
     this.downloadedTask,
     this.sessionFactory,
+    this.platformFactory,
+    this.autoPlayVideo = false,
   });
 
   final VideoItem video;
   final VideoDownloadTask? downloadedTask;
   final VideoPlaybackSessionFactory? sessionFactory;
+  final VideoPlayerPlatform Function()? platformFactory;
+  final bool autoPlayVideo;
 
   @override
   ConsumerState<VideoDetailsScreen> createState() => _VideoDetailsScreenState();
@@ -513,10 +518,18 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
     builder: (_) => VideoScreen.catalog(url: link.url),
   );
 
-  Future<void> _openRelated(VideoItem video) => pushWorkDetailRoute(
-    context,
-    builder: (_) => VideoDetailsScreen(video: video),
-  );
+  Future<void> _openRelated(VideoItem video, {bool autoPlay = false}) {
+    Widget builder(BuildContext _) => VideoDetailsScreen(
+      video: video,
+      sessionFactory: widget.sessionFactory,
+      platformFactory: widget.platformFactory,
+      autoPlayVideo: autoPlay,
+    );
+    if (autoPlay) {
+      return replaceWorkDetailRoute(context, builder: builder);
+    }
+    return pushWorkDetailRoute(context, builder: builder);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -615,99 +628,110 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
     );
   }
 
-  Widget _buildDetails(S s, VideoDetails details, VideoDownloadTask? task) =>
-      ListView(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-        children: [
-          VideoPlaybackPanel(
-            key: ValueKey('video-player-${details.video.id}'),
-            videoId: details.video.id,
-            library: _library,
-            streams: _isOffline ? const [] : details.streams,
-            localPath: _isOffline ? task?.localPath : null,
-            initialPosition: _library.positionFor(details.video.id),
-            initialVolume: _library.volume,
-            sessionFactory: widget.sessionFactory,
-            onStreamChanged: (stream) =>
-                setState(() => _selectedStream = stream),
-            onOpenSource: () => unawaited(_openSource()),
-            onVerifyAccess: _isOffline ? null : _verifyAndRetry,
+  Widget _buildDetails(S s, VideoDetails details, VideoDownloadTask? task) {
+    final nextRelated = _firstRelated(details);
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+      children: [
+        VideoPlaybackPanel(
+          key: ValueKey('video-player-${details.video.id}'),
+          videoId: details.video.id,
+          title: details.video.title,
+          autoPlayOnStart: widget.autoPlayVideo,
+          onPlayNextRelated: nextRelated == null
+              ? null
+              : () => _openRelated(nextRelated, autoPlay: true),
+          platform: widget.platformFactory?.call(),
+          library: _library,
+          streams: _isOffline ? const [] : details.streams,
+          localPath: _isOffline ? task?.localPath : null,
+          initialPosition: _library.positionFor(details.video.id),
+          initialVolume: _library.volume,
+          sessionFactory: widget.sessionFactory,
+          onStreamChanged: (stream) => setState(() => _selectedStream = stream),
+          onOpenSource: () => unawaited(_openSource()),
+          onVerifyAccess: _isOffline ? null : _verifyAndRetry,
+        ),
+        const SizedBox(height: 16),
+        if (details.metadata.isNotEmpty)
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final entry in details.metadata.entries)
+                Chip(label: Text('${entry.key}: ${entry.value}')),
+            ],
           ),
-          const SizedBox(height: 16),
-          if (details.metadata.isNotEmpty)
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final entry in details.metadata.entries)
-                  Chip(label: Text('${entry.key}: ${entry.value}')),
-              ],
-            ),
-          if (details.description.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            SelectableText(details.description),
-          ],
-          if (details.actors.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Text(
-              s.videoActorFavorites,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [for (final actor in details.actors) _actorChip(actor)],
-            ),
-          ],
-          if (details.tags.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Text(
-              s.videoCatalog,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final tag in details.tags)
-                  ActionChip(
-                    label: Text(tag.label),
-                    onPressed: () => _openCatalog(tag),
-                  ),
-              ],
-            ),
-          ],
-          if (details.related.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            Text(s.videoRelated, style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final columns = (constraints.maxWidth / 180)
-                    .floor()
-                    .clamp(1, 4)
-                    .toInt();
-                return MasonryGridView.count(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: details.related.length,
-                  crossAxisCount: columns,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10,
-                  itemBuilder: (context, index) => VideoCard(
-                    video: details.related[index],
-                    layoutType: LayoutType.bigGrid,
-                    onTap: () => _openRelated(details.related[index]),
-                    onOpenLink: _openCatalog,
-                  ),
-                );
-              },
-            ),
-          ],
+        if (details.description.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          SelectableText(details.description),
         ],
-      );
+        if (details.actors.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Text(
+            s.videoActorFavorites,
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [for (final actor in details.actors) _actorChip(actor)],
+          ),
+        ],
+        if (details.tags.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Text(s.videoCatalog, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final tag in details.tags)
+                ActionChip(
+                  label: Text(tag.label),
+                  onPressed: () => _openCatalog(tag),
+                ),
+            ],
+          ),
+        ],
+        if (details.related.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          Text(s.videoRelated, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final columns = (constraints.maxWidth / 180)
+                  .floor()
+                  .clamp(1, 4)
+                  .toInt();
+              return MasonryGridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: details.related.length,
+                crossAxisCount: columns,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+                itemBuilder: (context, index) => VideoCard(
+                  video: details.related[index],
+                  layoutType: LayoutType.bigGrid,
+                  onTap: () => _openRelated(details.related[index]),
+                  onOpenLink: _openCatalog,
+                ),
+              );
+            },
+          ),
+        ],
+      ],
+    );
+  }
+
+  VideoItem? _firstRelated(VideoDetails details) {
+    for (final related in details.related) {
+      if (related.id != details.video.id) return related;
+    }
+    return null;
+  }
 }
 
 class _PlaylistDialog extends StatefulWidget {

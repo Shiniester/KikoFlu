@@ -1,0 +1,8 @@
+<resources>
+    <string name="video_playback">影片播放</string>
+    <string name="video_play">播放影片</string>
+    <string name="video_pause">暫停影片</string>
+    <string name="video_rewind">倒轉 10 秒</string>
+    <string name="video_forward">快轉 10 秒</string>
+    <string name="video_return">返回影片</string>
+</resources>

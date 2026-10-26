@@ -1,0 +1,8 @@
+<resources>
+    <string name="video_playback">動画の再生</string>
+    <string name="video_play">動画を再生</string>
+    <string name="video_pause">動画を一時停止</string>
+    <string name="video_rewind">10 秒戻る</string>
+    <string name="video_forward">10 秒進む</string>
+    <string name="video_return">動画に戻る</string>
+</resources>

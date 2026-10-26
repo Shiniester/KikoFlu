@@ -1,6 +1,7 @@
 package com.meteor.kikoeruflutter
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.view.WindowManager
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -17,12 +18,19 @@ class MainActivity : AudioServiceActivity() {
     private var subtitleDirectoryPicker: SubtitleDirectoryPicker? = null
     private var japaneseAsmrVerification: JapaneseAsmrVerification? = null
     private var missavBrowserBridge: MissavBrowserBridge? = null
+    private var videoPlayerBridge: VideoPlayerBridge? = null
+    private var appKeepScreenOn = false
+    private var videoKeepScreenOn = false
     private val webViewProxyCoordinator = WebViewProxyCoordinator
     private val screenAwakeChannelName = "com.meteor.kikoeruflutter/screen_awake"
     private val systemProxyChannelName = "com.meteor.kikoeruflutter/system_proxy"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        videoPlayerBridge = VideoPlayerBridge(this, flutterEngine.dartExecutor.binaryMessenger) { enabled ->
+            videoKeepScreenOn = enabled
+            applyKeepScreenOn()
+        }
         
         // 注册悬浮字幕插件
         floatingLyricPlugin = FloatingLyricPlugin.getInstance(this)
@@ -70,11 +78,8 @@ class MainActivity : AudioServiceActivity() {
                 "setKeepScreenOn" -> {
                     val enabled = call.argument<Boolean>("enabled") ?: false
                     runOnUiThread {
-                        if (enabled) {
-                            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                        } else {
-                            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                        }
+                        appKeepScreenOn = enabled
+                        applyKeepScreenOn()
                     }
                     result.success(true)
                 }
@@ -92,6 +97,14 @@ class MainActivity : AudioServiceActivity() {
                 )
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    private fun applyKeepScreenOn() {
+        if (appKeepScreenOn || videoKeepScreenOn) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
 
@@ -142,13 +155,26 @@ class MainActivity : AudioServiceActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (videoPlayerBridge?.handleActivityResult(requestCode) == true) return
         if (subtitleDirectoryPicker?.handleActivityResult(requestCode, resultCode, data) == true) {
             return
         }
         super.onActivityResult(requestCode, resultCode, data)
     }
 
+    override fun onUserLeaveHint() {
+        videoPlayerBridge?.onUserLeaveHint()
+        super.onUserLeaveHint()
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        videoPlayerBridge?.onPictureInPictureModeChanged(isInPictureInPictureMode)
+    }
+
     override fun onDestroy() {
+        videoPlayerBridge?.dispose()
+        videoPlayerBridge = null
         // 不在 Activity 销毁时清理悬浮窗，以便在后台（如侧滑返回桌面）时保持显示
         // floatingLyricPlugin?.cleanup()
         audioHapticsBridge?.dispose()

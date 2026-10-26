@@ -1,0 +1,8 @@
+<resources>
+    <string name="video_playback">Video playback</string>
+    <string name="video_play">Play video</string>
+    <string name="video_pause">Pause video</string>
+    <string name="video_rewind">Rewind video 10 seconds</string>
+    <string name="video_forward">Forward video 10 seconds</string>
+    <string name="video_return">Return to video</string>
+</resources>

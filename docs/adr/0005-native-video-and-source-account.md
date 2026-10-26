@@ -6,6 +6,8 @@
 视频页复用现有页头、抽屉和主题。
 源站功能变化需要由 KikoFlu 跟进适配。
 
+视频播放器的界面、功能与后台播放规则以 [ADR 0006](0006-piliplus-video-player-parity.md) 为准。
+
 ## 功能范围
 
 [MissAV](https://missav.ai/) 是首个视频源。

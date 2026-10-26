@@ -4457,4 +4457,268 @@ class SJa extends S {
 
   @override
   String get videoUnfavoriteActor => '出演者のお気に入りを解除';
+
+  @override
+  String get videoPlayerSettings => 'プレーヤー設定';
+
+  @override
+  String get videoPlayerMoreOptions => 'その他のオプション';
+
+  @override
+  String get videoPlayerLockControls => '操作をロック';
+
+  @override
+  String get videoPlayerUnlockControls => '操作ロックを解除';
+
+  @override
+  String get videoPlayerTakeScreenshot => 'スクリーンショット';
+
+  @override
+  String get videoPlayerBrightness => '明るさ';
+
+  @override
+  String get videoPlayerAspectRatio => 'アスペクト比';
+
+  @override
+  String get videoPlayerFitContain => '自動調整';
+
+  @override
+  String get videoPlayerFitFill => '引き伸ばす';
+
+  @override
+  String get videoPlayerFitCover => '切り抜き';
+
+  @override
+  String get videoPlayerFitWidth => '幅に合わせる';
+
+  @override
+  String get videoPlayerFitHeight => '高さに合わせる';
+
+  @override
+  String get videoPlayerFitOriginal => '元のサイズ';
+
+  @override
+  String get videoPlayerFitScaleDown => 'サイズを制限';
+
+  @override
+  String get videoPlayerFitFourThree => '4:3';
+
+  @override
+  String get videoPlayerFitSixteenNine => '16:9';
+
+  @override
+  String get videoPlayerAudioTrack => '音声トラック';
+
+  @override
+  String get videoPlayerSubtitleTrack => '字幕トラック';
+
+  @override
+  String get videoPlayerSubtitleOffset => '字幕のタイミング';
+
+  @override
+  String get videoPlayerSubtitleStyle => '字幕スタイル';
+
+  @override
+  String get videoPlayerSubtitleFontSize => '字幕サイズ';
+
+  @override
+  String get videoPlayerSubtitleBackground => '字幕の背景';
+
+  @override
+  String get videoPlayerDoubleTapSeek => 'ダブルタップで早送り・巻き戻し';
+
+  @override
+  String get videoPlayerDoubleTapSeekDuration => 'ダブルタップの移動秒数';
+
+  @override
+  String get videoPlayerLongPressSpeed => '長押し再生速度';
+
+  @override
+  String get videoPlayerDynamicLongPressSpeed => '長押しで現在の速度の2倍';
+
+  @override
+  String get videoPlayerBackgroundPlayback => 'バックグラウンド再生';
+
+  @override
+  String get videoPlayerPictureInPicture => 'ピクチャーインピクチャー';
+
+  @override
+  String get videoPlayerExtendedControlTime => '操作ボタンの表示時間を延長';
+
+  @override
+  String get videoPlayerRepeatOnce => '1回再生';
+
+  @override
+  String get videoPlayerRepeatSingle => '1本リピート';
+
+  @override
+  String get videoPlayerRepeatRelated => '関連動画を連続再生';
+
+  @override
+  String get videoPlayerAutoPlay => '自動再生';
+
+  @override
+  String get videoPlayerAutoFullscreen => '自動で全画面表示';
+
+  @override
+  String get videoPlayerAutoExitFullscreen => '自動で全画面表示を終了';
+
+  @override
+  String get videoPlayerAutoPip => '自動でピクチャーインピクチャーに移行';
+
+  @override
+  String get videoPlayerSideSwipeAdjust => 'スワイプで明るさと音量を調整';
+
+  @override
+  String get videoPlayerFullscreenGesture => 'スワイプで全画面表示を切り替え';
+
+  @override
+  String get videoPlayerRelativeSwipeSeek => '動画の長さに応じてシーク';
+
+  @override
+  String get videoPlayerSwipeSeekDuration => '画面幅いっぱいのスワイプ移動秒数';
+
+  @override
+  String get videoPlayerExpandVertical => '縦向き動画を拡大';
+
+  @override
+  String get videoPlayerKeyboardControl => 'キーボード操作';
+
+  @override
+  String get videoPlayerReverseFullscreenGesture => '全画面切り替えジェスチャーを反転';
+
+  @override
+  String get videoPlayerFullscreenOrientation => '全画面の向き';
+
+  @override
+  String get videoPlayerOrientationAuto => '自動';
+
+  @override
+  String get videoPlayerOrientationNone => '向きを維持';
+
+  @override
+  String get videoPlayerOrientationPortrait => '縦向き';
+
+  @override
+  String get videoPlayerOrientationLandscape => '横向き';
+
+  @override
+  String get videoPlayerOrientationRatio => '動画の比率に合わせる';
+
+  @override
+  String get videoPlayerOrientationGravity => '端末の回転に合わせる';
+
+  @override
+  String get videoPlayerBottomProgressMode => '下部のシークバー';
+
+  @override
+  String get videoPlayerBottomProgressAlways => '常に表示';
+
+  @override
+  String get videoPlayerBottomProgressNever => '表示しない';
+
+  @override
+  String get videoPlayerBottomProgressFullscreenOnly => '全画面時のみ表示';
+
+  @override
+  String get videoPlayerBottomProgressInlineOnly => '通常表示時のみ表示';
+
+  @override
+  String get videoPlayerShowFullscreenLockButton => '全画面ロックボタンを表示';
+
+  @override
+  String get videoPlayerShowFullscreenScreenshotButton => '全画面スクリーンショットボタンを表示';
+
+  @override
+  String get videoPlayerSystemBrightness => 'システムの明るさを調整';
+
+  @override
+  String get videoPlayerSystemBrightnessPermission =>
+      'システムの明るさを調整するには、システム設定の変更を許可してください。';
+
+  @override
+  String get videoPlayerSpeedList => '再生速度の一覧';
+
+  @override
+  String get videoPlayerAddSpeed => '再生速度を追加';
+
+  @override
+  String get videoPlayerDefaultSpeed => '既定の再生速度';
+
+  @override
+  String get videoPlayerInvalidSpeed => '0 より大きい有効な再生速度を入力してください。';
+
+  @override
+  String get videoPlayerShowFullscreenBattery => '全画面でバッテリー残量を表示';
+
+  @override
+  String get videoPlayerAlwaysOnTop => '最前面に固定';
+
+  @override
+  String get videoPlayerCancelAlwaysOnTop => '最前面の固定を解除';
+
+  @override
+  String get videoPlayerRestoreScreen => '画面を元に戻す';
+
+  @override
+  String get videoPlayerFlipHorizontal => '左右反転';
+
+  @override
+  String get videoPlayerFlipVertical => '上下反転';
+
+  @override
+  String get videoPlayerReload => '動画を再読み込み';
+
+  @override
+  String get videoPlayerPlaybackInfo => '再生情報';
+
+  @override
+  String get videoPlayerSuperResolution => '超解像';
+
+  @override
+  String get videoPlayerSuperResolutionOff => '無効';
+
+  @override
+  String get videoPlayerSuperResolutionEfficiency => '効率';
+
+  @override
+  String get videoPlayerSuperResolutionQuality => '画質';
+
+  @override
+  String get videoPlayerSleepTimer => 'スリープタイマー';
+
+  @override
+  String videoPlayerTimerMinutes(int minutes) {
+    return '$minutes 分';
+  }
+
+  @override
+  String get videoPlayerTimerCustom => '時間を指定';
+
+  @override
+  String get videoPlayerTimerHourUnit => '時間';
+
+  @override
+  String get videoPlayerTimerMinuteUnit => '分';
+
+  @override
+  String get videoPlayerExitApp => 'アプリを終了';
+
+  @override
+  String get videoPlayerInfoResolution => '解像度';
+
+  @override
+  String get videoPlayerInfoVideoCodec => '動画コーデック';
+
+  @override
+  String get videoPlayerInfoFrameRate => 'フレームレート';
+
+  @override
+  String get videoPlayerInfoVideoBitrate => '動画ビットレート';
+
+  @override
+  String get videoPlayerInfoAudioCodec => '音声コーデック';
+
+  @override
+  String get videoPlayerInfoAudioFormat => '音声形式';
 }
