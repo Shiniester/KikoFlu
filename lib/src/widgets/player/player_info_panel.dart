@@ -13,7 +13,6 @@ import '../../providers/player_buttons_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../responsive_dialog.dart';
 import '../subtitle_adjustment_dialog.dart';
-import 'player_glass_surface.dart';
 import 'sleep_timer_dialog.dart';
 
 class PlayerInfoPanel extends ConsumerWidget {
@@ -49,91 +48,35 @@ class PlayerInfoPanel extends ConsumerWidget {
         .where((action) => action != PlayerButtonType.detail)
         .toList(growable: false);
     final keepAwake = ref.watch(keepScreenAwakeProvider);
-    return RepaintBoundary(
-      child: ListView(
-        key: const PageStorageKey('player-info-panel'),
-        padding: const EdgeInsets.all(12),
-        children: [
-          PlayerOverflowActionsGrid(
-            actions: overflow,
-            leadingCards: [
-              _InfoToggleCard(
-                key: const ValueKey('player-more-keep-awake-card'),
-                icon: keepAwake ? Icons.light_mode : Icons.light_mode_outlined,
-                label: S.of(context).keepScreenAwake,
-                value: keepAwake,
-                onChanged: (value) => ref
-                    .read(keepScreenAwakeProvider.notifier)
-                    .setEnabled(value),
-              ),
-              _InfoActionCard(
-                key: const ValueKey('player-more-fullscreen-card'),
-                icon: Icons.fullscreen,
-                label: S.of(context).fullscreenLyrics,
-                onTap: onImmersiveLyrics,
-              ),
-            ],
-            trailingCards: [
-              _InfoActionCard(
-                key: const ValueKey('player-more-lyric-settings-card'),
-                icon: Icons.text_fields,
-                label: S.of(context).playerLyricViewSettings,
-                onTap: onLyricSettings,
-              ),
-              _InfoActionCard(
-                key: const ValueKey('player-more-action-detail'),
-                icon: Icons.info_outline,
-                label: S.of(context).viewDetail,
-                onTap: onDetailPressed,
-              ),
-            ],
-            currentProgress: currentProgress,
-            onMarkPressed: onMarkPressed,
-            onDetailPressed: onDetailPressed,
-            onQueuePressed: onQueuePressed,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class PlayerOverflowActionsGrid extends ConsumerWidget {
-  const PlayerOverflowActionsGrid({
-    super.key,
-    required this.actions,
-    this.leadingCards = const [],
-    this.trailingCards = const [],
-    required this.currentProgress,
-    required this.onMarkPressed,
-    required this.onDetailPressed,
-    required this.onQueuePressed,
-  });
-
-  final List<PlayerButtonType> actions;
-  final List<Widget> leadingCards;
-  final List<Widget> trailingCards;
-  final String? currentProgress;
-  final VoidCallback? onMarkPressed;
-  final VoidCallback? onDetailPressed;
-  final VoidCallback onQueuePressed;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
     final audioState = ref.watch(audioPlayerControllerProvider);
     final lyricState = ref.watch(lyricControllerProvider);
     final timerState = ref.watch(sleepTimerProvider);
     final floatingLyric = ref.watch(floatingLyricEnabledProvider);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const columns = 2;
-        const spacing = 8.0;
-        final width =
-            (constraints.maxWidth - (columns - 1) * spacing) / columns;
-        final cardsBeforePinned = <Widget>[
-          ...leadingCards,
-          for (final action in actions)
+    return RepaintBoundary(
+      child: BottomSheetMenu(
+        key: const PageStorageKey('player-info-panel'),
+        children: [
+          BottomSheetHeader(
+            title: MaterialLocalizations.of(context).moreButtonTooltip,
+          ),
+          SwitchListTile(
+            key: const ValueKey('player-more-keep-awake-card'),
+            secondary: Icon(
+              keepAwake ? Icons.light_mode : Icons.light_mode_outlined,
+            ),
+            title: Text(S.of(context).keepScreenAwake),
+            value: keepAwake,
+            onChanged: (value) =>
+                ref.read(keepScreenAwakeProvider.notifier).setEnabled(value),
+          ),
+          ListTile(
+            key: const ValueKey('player-more-fullscreen-card'),
+            leading: const Icon(Icons.fullscreen),
+            title: Text(S.of(context).fullscreenLyrics),
+            onTap: onImmersiveLyrics,
+          ),
+          for (final action in overflow)
             _PlayerOverflowAction(
               action: action,
               audioState: audioState,
@@ -146,26 +89,21 @@ class PlayerOverflowActionsGrid extends ConsumerWidget {
               onDetailPressed: onDetailPressed,
               onQueuePressed: onQueuePressed,
             ),
-        ];
-        final spanningCardIndex = cardsBeforePinned.length.isOdd
-            ? cardsBeforePinned.length - 1
-            : -1;
-        return Wrap(
-          spacing: spacing,
-          runSpacing: spacing,
-          children: [
-            for (var index = 0; index < cardsBeforePinned.length; index++)
-              SizedBox(
-                width: index == spanningCardIndex
-                    ? constraints.maxWidth
-                    : width,
-                child: cardsBeforePinned[index],
-              ),
-            for (final card in trailingCards)
-              SizedBox(width: width, child: card),
-          ],
-        );
-      },
+          ListTile(
+            key: const ValueKey('player-more-lyric-settings-card'),
+            leading: const Icon(Icons.text_fields),
+            title: Text(S.of(context).playerLyricViewSettings),
+            onTap: onLyricSettings,
+          ),
+          ListTile(
+            key: const ValueKey('player-more-action-detail'),
+            leading: const Icon(Icons.info_outline),
+            title: Text(S.of(context).viewDetail),
+            enabled: onDetailPressed != null,
+            onTap: onDetailPressed,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -249,50 +187,14 @@ class _PlayerOverflowAction extends ConsumerWidget {
       _ => null,
     };
 
-    return SizedBox(
+    return ListTile(
       key: ValueKey('player-more-action-${action.name}'),
-      height: 72,
-      child: PlayerGlassMaterial(
-        borderRadius: BorderRadius.circular(12),
-        tint: active
-            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.20)
-            : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.07),
-        onTap: () => _invoke(context, ref),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              icon,
-              size: 22,
-              color: active ? Theme.of(context).colorScheme.primary : null,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                fontSize: 13,
-                height: 1.08,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            if (value != null)
-              Text(
-                value,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  fontSize: 11,
-                  height: 1.08,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-          ],
-        ),
-      ),
+      leading: Icon(icon),
+      title: Text(label),
+      trailing: value != null ? Text(value) : null,
+      selected: active,
+      enabled: action != PlayerButtonType.mark || onMarkPressed != null,
+      onTap: () => _invoke(context, ref),
     );
   }
 
@@ -394,107 +296,6 @@ class _PlayerOverflowAction extends ConsumerWidget {
             ],
           );
         },
-      ),
-    );
-  }
-}
-
-class _InfoToggleCard extends StatelessWidget {
-  const _InfoToggleCard({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 72,
-      child: Semantics(
-        button: true,
-        toggled: value,
-        child: PlayerGlassMaterial(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () => onChanged(!value),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          child: Row(
-            children: [
-              Icon(icon, size: 22),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    fontSize: 13,
-                    height: 1.08,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _InfoActionCard extends StatelessWidget {
-  const _InfoActionCard({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = onTap != null;
-    final disabledColor = Theme.of(
-      context,
-    ).colorScheme.onSurface.withValues(alpha: 0.38);
-    return SizedBox(
-      height: 72,
-      child: Semantics(
-        button: true,
-        enabled: enabled,
-        child: PlayerGlassMaterial(
-          borderRadius: BorderRadius.circular(12),
-          onTap: onTap,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          child: Row(
-            children: [
-              Icon(icon, size: 22, color: enabled ? null : disabledColor),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    fontSize: 13,
-                    height: 1.08,
-                    fontWeight: FontWeight.w600,
-                    color: enabled ? null : disabledColor,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

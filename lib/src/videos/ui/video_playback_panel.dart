@@ -11,6 +11,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../services/proxy_config.dart';
 import '../../widgets/image_save_service.dart';
+import '../../widgets/responsive_dialog.dart';
 import '../video_library.dart';
 import '../video_models.dart';
 import '../video_playback_settings.dart';
@@ -2776,257 +2777,217 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     var openPlayerSettings = false;
     var openSleepTimer = false;
     try {
-      await showModalBottomSheet<void>(
+      await showResponsiveBottomSheet<void>(
         context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        backgroundColor: Colors.transparent,
         builder: (sheetContext) {
           final s = S.of(sheetContext);
           final audioTracks = _session.snapshot.value.audioTracks;
-          return Padding(
-            padding: const EdgeInsets.all(12),
-            child: Material(
-              color: Theme.of(sheetContext).colorScheme.surface,
-              borderRadius: BorderRadius.circular(12),
-              clipBehavior: Clip.antiAlias,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.sizeOf(sheetContext).height * .7,
-                ),
-                child: AnimatedBuilder(
-                  animation: _settings,
-                  builder: (context, _) => ListView(
-                    shrinkWrap: true,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
+          return AnimatedBuilder(
+            animation: _settings,
+            builder: (context, _) => ListView(
+              shrinkWrap: true,
+              children: [
+                BottomSheetHeader(title: s.videoPlayerMoreOptions),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  child: Row(
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.volume_down),
-                            const SizedBox(width: 12),
-                            Text(s.volume),
-                            Expanded(
-                              child: StatefulBuilder(
-                                builder: (context, setSheetState) => Slider(
-                                  key: const ValueKey('video-volume-slider'),
-                                  min: 0,
-                                  max: 100,
-                                  value: _volume,
-                                  onChanged: (value) {
-                                    setSheetState(() {});
-                                    unawaited(_setVolume(value));
-                                  },
-                                  onChangeEnd: _persistVolume,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (audioTracks.length > 1) ...[
-                        const Divider(height: 1),
-                        for (final track in audioTracks)
-                          ListTile(
-                            dense: true,
-                            leading: const Icon(Icons.audiotrack),
-                            title: Text(
-                              '${s.videoPlayerAudioTrack}: ${track.label}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            onTap: () {
-                              Navigator.pop(sheetContext);
-                              unawaited(
-                                _invoke(
-                                  () => _session.selectAudioTrack(track.id),
-                                ),
-                              );
+                      const Icon(Icons.volume_down),
+                      const SizedBox(width: 12),
+                      Text(s.volume),
+                      Expanded(
+                        child: StatefulBuilder(
+                          builder: (context, setSheetState) => Slider(
+                            key: const ValueKey('video-volume-slider'),
+                            min: 0,
+                            max: 100,
+                            value: _volume,
+                            onChanged: (value) {
+                              setSheetState(() {});
+                              unawaited(_setVolume(value));
                             },
-                          ),
-                      ],
-                      const Divider(height: 1),
-                      SwitchListTile(
-                        dense: true,
-                        title: Text(s.videoPlayerRepeatSingle),
-                        value: _settings.loopSingle,
-                        onChanged: _settings.setLoopSingle,
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: [
-                              FilterChip(
-                                showCheckmark: false,
-                                selected: _settings.flipHorizontal,
-                                label: Text(s.videoPlayerFlipHorizontal),
-                                onSelected: _settings.setFlipHorizontal,
-                              ),
-                              const SizedBox(width: 10),
-                              FilterChip(
-                                showCheckmark: false,
-                                selected: _settings.flipVertical,
-                                label: Text(s.videoPlayerFlipVertical),
-                                onSelected: _settings.setFlipVertical,
-                              ),
-                              if (!kIsWeb &&
-                                  (defaultTargetPlatform ==
-                                          TargetPlatform.android ||
-                                      defaultTargetPlatform ==
-                                          TargetPlatform.iOS)) ...[
-                                const SizedBox(width: 10),
-                                FilterChip(
-                                  showCheckmark: false,
-                                  selected: _settings.backgroundPlayback,
-                                  label: Text(s.videoPlayerBackgroundPlayback),
-                                  onSelected: _settings.setBackgroundPlayback,
-                                ),
-                              ],
-                            ],
+                            onChangeEnd: _persistVolume,
                           ),
                         ),
-                      ),
-                      if (widget.streams.length > 1)
-                        PopupMenuButton<int>(
-                          tooltip: s.videoQuality,
-                          initialValue: _streamIndex,
-                          color: Colors.black.withValues(alpha: .8),
-                          onSelected: (index) {
-                            Navigator.pop(sheetContext);
-                            unawaited(_selectStream(index));
-                          },
-                          itemBuilder: (_) => [
-                            for (
-                              var index = 0;
-                              index < widget.streams.length;
-                              index++
-                            )
-                              PopupMenuItem(
-                                height: 35,
-                                value: index,
-                                child: Text(
-                                  widget.streams[index].label,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ),
-                          ],
-                          child: ListTile(
-                            dense: true,
-                            leading: const Icon(Icons.play_circle_outline),
-                            title: Text(s.videoQuality),
-                            subtitle: Text(widget.streams[_streamIndex].label),
-                          ),
-                        ),
-                      if (_session is VideoPlaybackAdvancedSession)
-                        ListTile(
-                          dense: true,
-                          leading: const Icon(Icons.subtitles_outlined),
-                          title: Text(s.loadSubtitle),
-                          onTap: () {
-                            Navigator.pop(sheetContext);
-                            unawaited(_loadExternalSubtitle());
-                          },
-                        ),
-                      if (_session is VideoPlaybackAdvancedSession &&
-                          supportsVideoSuperResolution)
-                        ListTile(
-                          dense: true,
-                          title: Text(s.videoPlayerSuperResolution),
-                          subtitle: Text(
-                            _superResolutionLabel(s, _settings.superResolution),
-                          ),
-                          trailing: PopupMenuButton<VideoSuperResolution>(
-                            tooltip: s.videoPlayerSuperResolution,
-                            onSelected: _settings.setSuperResolution,
-                            itemBuilder: (context) => [
-                              for (final mode in VideoSuperResolution.values)
-                                CheckedPopupMenuItem(
-                                  value: mode,
-                                  checked: mode == _settings.superResolution,
-                                  child: Text(_superResolutionLabel(s, mode)),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ListTile(
-                        dense: true,
-                        leading: const Icon(Icons.refresh),
-                        title: Text(s.videoPlayerReload),
-                        onTap: () {
-                          Navigator.pop(sheetContext);
-                          unawaited(_reloadSource());
-                        },
-                      ),
-                      if (_hasPlaybackInfo)
-                        ListTile(
-                          dense: true,
-                          leading: const Icon(Icons.info_outline),
-                          title: Text(s.videoPlayerPlaybackInfo),
-                          onTap: () {
-                            Navigator.pop(sheetContext);
-                            unawaited(_showPlaybackInfo());
-                          },
-                        ),
-                      ListTile(
-                        dense: true,
-                        leading: const Icon(Icons.timer_outlined),
-                        title: Text(s.videoPlayerSleepTimer),
-                        onTap: () {
-                          openSleepTimer = true;
-                          Navigator.pop(sheetContext);
-                        },
-                      ),
-                      if (_session is VideoPlaybackAdvancedSession &&
-                          (!_fullscreen ||
-                              _settings.showFullscreenScreenshotButton))
-                        ListTile(
-                          dense: true,
-                          leading: const Icon(Icons.screenshot_monitor),
-                          title: Text(s.videoPlayerTakeScreenshot),
-                          onTap: () {
-                            Navigator.pop(sheetContext);
-                            unawaited(_takeScreenshot());
-                          },
-                        ),
-                      if (!_fullscreen || _settings.showFullscreenLockButton)
-                        ListTile(
-                          dense: true,
-                          leading: const Icon(Icons.lock_outline),
-                          title: Text(s.videoPlayerLockControls),
-                          onTap: () {
-                            Navigator.pop(sheetContext);
-                            _toggleControlsLock();
-                          },
-                        ),
-                      if (canPip)
-                        ListTile(
-                          dense: true,
-                          leading: const Icon(Icons.picture_in_picture_alt),
-                          title: Text(s.videoPlayerPictureInPicture),
-                          onTap: () {
-                            Navigator.pop(sheetContext);
-                            unawaited(_enterPictureInPicture());
-                          },
-                        ),
-                      ListTile(
-                        dense: true,
-                        leading: const Icon(Icons.settings_outlined),
-                        title: Text(s.videoPlayerSettings),
-                        onTap: () {
-                          openPlayerSettings = true;
-                          Navigator.pop(sheetContext);
-                        },
                       ),
                     ],
                   ),
                 ),
-              ),
+                if (audioTracks.length > 1) ...[
+                  const Divider(height: 1),
+                  for (final track in audioTracks)
+                    ListTile(
+                      leading: const Icon(Icons.audiotrack),
+                      title: Text(
+                        '${s.videoPlayerAudioTrack}: ${track.label}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onTap: () {
+                        Navigator.pop(sheetContext);
+                        unawaited(
+                          _invoke(() => _session.selectAudioTrack(track.id)),
+                        );
+                      },
+                    ),
+                ],
+                const Divider(height: 1),
+                SwitchListTile(
+                  title: Text(s.videoPlayerRepeatSingle),
+                  value: _settings.loopSingle,
+                  onChanged: _settings.setLoopSingle,
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        FilterChip(
+                          showCheckmark: false,
+                          selected: _settings.flipHorizontal,
+                          label: Text(s.videoPlayerFlipHorizontal),
+                          onSelected: _settings.setFlipHorizontal,
+                        ),
+                        const SizedBox(width: 10),
+                        FilterChip(
+                          showCheckmark: false,
+                          selected: _settings.flipVertical,
+                          label: Text(s.videoPlayerFlipVertical),
+                          onSelected: _settings.setFlipVertical,
+                        ),
+                        if (!kIsWeb &&
+                            (defaultTargetPlatform == TargetPlatform.android ||
+                                defaultTargetPlatform ==
+                                    TargetPlatform.iOS)) ...[
+                          const SizedBox(width: 10),
+                          FilterChip(
+                            showCheckmark: false,
+                            selected: _settings.backgroundPlayback,
+                            label: Text(s.videoPlayerBackgroundPlayback),
+                            onSelected: _settings.setBackgroundPlayback,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                if (widget.streams.length > 1)
+                  PopupMenuButton<int>(
+                    tooltip: s.videoQuality,
+                    initialValue: _streamIndex,
+                    onSelected: (index) {
+                      Navigator.pop(sheetContext);
+                      unawaited(_selectStream(index));
+                    },
+                    itemBuilder: (_) => [
+                      for (
+                        var index = 0;
+                        index < widget.streams.length;
+                        index++
+                      )
+                        PopupMenuItem(
+                          value: index,
+                          child: Text(widget.streams[index].label),
+                        ),
+                    ],
+                    child: ListTile(
+                      leading: const Icon(Icons.play_circle_outline),
+                      title: Text(s.videoQuality),
+                      subtitle: Text(widget.streams[_streamIndex].label),
+                    ),
+                  ),
+                if (_session is VideoPlaybackAdvancedSession)
+                  ListTile(
+                    leading: const Icon(Icons.subtitles_outlined),
+                    title: Text(s.loadSubtitle),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      unawaited(_loadExternalSubtitle());
+                    },
+                  ),
+                if (_session is VideoPlaybackAdvancedSession &&
+                    supportsVideoSuperResolution)
+                  ListTile(
+                    title: Text(s.videoPlayerSuperResolution),
+                    subtitle: Text(
+                      _superResolutionLabel(s, _settings.superResolution),
+                    ),
+                    trailing: PopupMenuButton<VideoSuperResolution>(
+                      tooltip: s.videoPlayerSuperResolution,
+                      onSelected: _settings.setSuperResolution,
+                      itemBuilder: (context) => [
+                        for (final mode in VideoSuperResolution.values)
+                          CheckedPopupMenuItem(
+                            value: mode,
+                            checked: mode == _settings.superResolution,
+                            child: Text(_superResolutionLabel(s, mode)),
+                          ),
+                      ],
+                    ),
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.refresh),
+                  title: Text(s.videoPlayerReload),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    unawaited(_reloadSource());
+                  },
+                ),
+                if (_hasPlaybackInfo)
+                  ListTile(
+                    leading: const Icon(Icons.info_outline),
+                    title: Text(s.videoPlayerPlaybackInfo),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      unawaited(_showPlaybackInfo());
+                    },
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.timer_outlined),
+                  title: Text(s.videoPlayerSleepTimer),
+                  onTap: () {
+                    openSleepTimer = true;
+                    Navigator.pop(sheetContext);
+                  },
+                ),
+                if (_session is VideoPlaybackAdvancedSession &&
+                    (!_fullscreen || _settings.showFullscreenScreenshotButton))
+                  ListTile(
+                    leading: const Icon(Icons.screenshot_monitor),
+                    title: Text(s.videoPlayerTakeScreenshot),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      unawaited(_takeScreenshot());
+                    },
+                  ),
+                if (!_fullscreen || _settings.showFullscreenLockButton)
+                  ListTile(
+                    leading: const Icon(Icons.lock_outline),
+                    title: Text(s.videoPlayerLockControls),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _toggleControlsLock();
+                    },
+                  ),
+                if (canPip)
+                  ListTile(
+                    leading: const Icon(Icons.picture_in_picture_alt),
+                    title: Text(s.videoPlayerPictureInPicture),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      unawaited(_enterPictureInPicture());
+                    },
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.settings_outlined),
+                  title: Text(s.videoPlayerSettings),
+                  onTap: () {
+                    openPlayerSettings = true;
+                    Navigator.pop(sheetContext);
+                  },
+                ),
+              ],
             ),
           );
         },
@@ -3163,7 +3124,6 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                 PopupMenuButton<VideoPlayerFit>(
                   tooltip: s.videoPlayerAspectRatio,
                   padding: EdgeInsets.zero,
-                  color: const Color(0xCC000000),
                   initialValue: _settings.fit,
                   onOpened: _beginControlsInteraction,
                   onCanceled: _endControlsInteraction,
@@ -3173,20 +3133,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                   },
                   itemBuilder: (context) => [
                     for (final fit in VideoPlayerFit.values)
-                      PopupMenuItem(
-                        value: fit,
-                        height: 35,
-                        child: Padding(
-                          padding: const EdgeInsets.only(left: 30),
-                          child: Text(
-                            _fitLabel(s, fit),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                      ),
+                      PopupMenuItem(value: fit, child: Text(_fitLabel(s, fit))),
                   ],
                   child: SizedBox(
                     width: buttonWidth,
@@ -3203,7 +3150,6 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                   key: const ValueKey('video-subtitle-menu'),
                   tooltip: s.videoPlayerSubtitleTrack,
                   padding: EdgeInsets.zero,
-                  color: const Color(0xCC000000),
                   initialValue: _selectedSubtitleTrackId,
                   onOpened: _beginControlsInteraction,
                   onCanceled: _endControlsInteraction,
@@ -3214,25 +3160,15 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                   itemBuilder: (context) => [
                     PopupMenuItem(
                       value: 'no',
-                      height: 35,
                       child: Text(
                         '${s.videoPlayerSubtitleTrack}: ${s.noSubtitle}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                        ),
                       ),
                     ),
                     for (final track in snapshot.subtitleTracks)
                       PopupMenuItem(
                         value: track.id,
-                        height: 35,
                         child: Text(
                           '${s.videoPlayerSubtitleTrack}: ${track.label}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                          ),
                         ),
                       ),
                   ],
@@ -3249,7 +3185,6 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
               PopupMenuButton<double>(
                 tooltip: s.playbackSpeed,
                 padding: EdgeInsets.zero,
-                color: const Color(0xCC000000),
                 initialValue: snapshot.rate,
                 onOpened: _beginControlsInteraction,
                 onCanceled: _endControlsInteraction,
@@ -3259,20 +3194,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                 },
                 itemBuilder: (context) => [
                   for (final rate in _settings.speedList)
-                    PopupMenuItem(
-                      value: rate,
-                      height: 35,
-                      child: Padding(
-                        padding: const EdgeInsets.only(left: 30),
-                        child: Text(
-                          '${rate}X',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    ),
+                    PopupMenuItem(value: rate, child: Text('${rate}X')),
                 ],
                 child: SizedBox(
                   width: buttonWidth,
@@ -3289,7 +3211,6 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                 PopupMenuButton<int>(
                   tooltip: s.videoQuality,
                   padding: EdgeInsets.zero,
-                  color: const Color(0xCC000000),
                   initialValue: _streamIndex,
                   onOpened: _beginControlsInteraction,
                   onCanceled: _endControlsInteraction,
@@ -3301,14 +3222,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                     for (var index = 0; index < widget.streams.length; index++)
                       PopupMenuItem(
                         value: index,
-                        height: 35,
-                        child: Text(
-                          widget.streams[index].label,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                          ),
-                        ),
+                        child: Text(widget.streams[index].label),
                       ),
                   ],
                   child: SizedBox(

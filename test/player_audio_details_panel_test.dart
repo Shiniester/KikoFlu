@@ -402,7 +402,12 @@ void main() {
       isTrue,
     );
     final filterTitle = tester.widget<Text>(find.text('Filter audio'));
-    expect(filterTitle.style?.fontSize, 18);
+    expect(
+      filterTitle.style?.fontSize,
+      Theme.of(
+        tester.element(find.text('Filter audio')),
+      ).textTheme.titleLarge?.fontSize,
+    );
     final keywordField = tester.widget<TextField>(find.byType(TextField));
     expect(keywordField.decoration?.isDense, isTrue);
 

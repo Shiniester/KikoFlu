@@ -40,6 +40,7 @@ import 'manual_subtitle_load_flow.dart';
 import 'text_preview_screen.dart';
 import 'pdf_preview_screen.dart';
 import 'video_open_failure_dialog.dart';
+import 'responsive_dialog.dart';
 import '../../l10n/app_localizations.dart';
 
 final _log = LogService.instance;
@@ -330,6 +331,7 @@ class _OfflineFileExplorerWidgetState
     String parentPath, {
     List<dynamic>? audioFiles,
   }) async {
+    if (!mounted) return;
     final l10n = S.of(context);
     final title = FileTreeUtils.titleOf(audioFile, defaultValue: l10n.unknown);
     try {
@@ -439,6 +441,7 @@ class _OfflineFileExplorerWidgetState
   }
 
   Future<void> _generateSubtitles(List<PlayerAudioVariant> variants) async {
+    if (!mounted) return;
     try {
       if (!await confirmLyricTranslationIfNeeded(
         context,
@@ -474,11 +477,11 @@ class _OfflineFileExplorerWidgetState
       (variant) =>
           identical(variant.source, file) && variant.parentPath == parentPath,
     );
-    await showModalBottomSheet<void>(
+    await showBottomSheetMenu<void>(
       context: context,
-      builder: (sheetContext) => SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
+      children: [
+        Builder(
+          builder: (sheetContext) => Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
@@ -505,6 +508,7 @@ class _OfflineFileExplorerWidgetState
                 title: Text(S.of(context).copyName),
                 onTap: () {
                   Navigator.of(sheetContext).pop();
+                  if (!mounted) return;
                   Clipboard.setData(ClipboardData(text: title));
                   SnackBarUtil.showSuccess(
                     context,
@@ -515,7 +519,7 @@ class _OfflineFileExplorerWidgetState
             ],
           ),
         ),
-      ),
+      ],
     );
   }
 

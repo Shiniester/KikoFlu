@@ -586,59 +586,58 @@ class _LyricSettingsSheet extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(playerLyricSettingsProvider);
     final controller = ref.read(playerLyricSettingsProvider.notifier);
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
+    return BottomSheetMenu(
+      children: [
+        BottomSheetHeader(
+          title:
               Localizations.of<S>(context, S)?.playerLyricViewSettings ??
-                  _label(context, 'lyricViewSettings'),
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 12),
-            _SettingSlider(
-              label: _label(context, 'fontSize'),
-              valueLabel: settings.fullActiveFontSize.toStringAsFixed(0),
-              value: settings.fullActiveFontSize,
-              min: 12,
-              max: 32,
-              divisions: 20,
-              onChanged: controller.updateFullFontSize,
-            ),
-            _SettingSlider(
-              label: _label(context, 'fontWeight'),
-              valueLabel: settings.fullFontWeight.toString(),
-              value: settings.fullFontWeight.toDouble(),
-              min: 100,
-              max: 900,
-              divisions: 8,
-              onChanged: (value) =>
-                  controller.updateFullFontWeight(value.round()),
-            ),
-            _SettingSlider(
-              label: _label(context, 'lineHeight'),
-              valueLabel: settings.fullLineHeight.toStringAsFixed(1),
-              value: settings.fullLineHeight,
-              min: 1,
-              max: 2.2,
-              divisions: 12,
-              onChanged: controller.updateFullLineHeight,
-            ),
-            Align(
-              alignment: AlignmentDirectional.centerEnd,
-              child: TextButton(
-                onPressed: controller.reset,
-                child: Text(_label(context, 'reset')),
-              ),
-            ),
-          ],
+              _label(context, 'lyricViewSettings'),
         ),
-      ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SettingSlider(
+                label: _label(context, 'fontSize'),
+                valueLabel: settings.fullActiveFontSize.toStringAsFixed(0),
+                value: settings.fullActiveFontSize,
+                min: 12,
+                max: 32,
+                divisions: 20,
+                onChanged: controller.updateFullFontSize,
+              ),
+              _SettingSlider(
+                label: _label(context, 'fontWeight'),
+                valueLabel: settings.fullFontWeight.toString(),
+                value: settings.fullFontWeight.toDouble(),
+                min: 100,
+                max: 900,
+                divisions: 8,
+                onChanged: (value) =>
+                    controller.updateFullFontWeight(value.round()),
+              ),
+              _SettingSlider(
+                label: _label(context, 'lineHeight'),
+                valueLabel: settings.fullLineHeight.toStringAsFixed(1),
+                value: settings.fullLineHeight,
+                min: 1,
+                max: 2.2,
+                divisions: 12,
+                onChanged: controller.updateFullLineHeight,
+              ),
+              Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: TextButton(
+                  onPressed: controller.reset,
+                  child: Text(_label(context, 'reset')),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

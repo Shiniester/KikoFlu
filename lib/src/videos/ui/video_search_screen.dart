@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' show min;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +7,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/works_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
+import '../../widgets/responsive_dialog.dart';
 import '../../widgets/search_condition_chip.dart';
 import '../../widgets/virtualized_sliver_collection.dart';
 import '../video_browse_preferences.dart';
@@ -245,7 +245,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   Future<void> _openFilterPicker(VideoSearchFilterKind kind) async {
     final loadFilters = widget.loadFilters;
     if (loadFilters == null) return;
-    final selected = await showDialog<VideoLink>(
+    final selected = await showResponsiveBottomSheet<VideoLink>(
       context: context,
       builder: (_) => _VideoSearchFilterPicker(
         title: _filterTitle(kind, S.of(context)),
@@ -812,59 +812,62 @@ class _VideoSearchFilterPickerState extends State<_VideoSearchFilterPicker> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     final page = _page;
-    final height = min(
-      400.0,
-      MediaQuery.sizeOf(context).height * .55,
-    ).toDouble();
-    return AlertDialog(
-      title: Text(widget.title),
-      content: SizedBox(
-        width: double.maxFinite,
-        height: height,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-            ? _errorView(s)
-            : page == null || page.links.isEmpty
-            ? Center(child: Text(s.noResults))
-            : ListView.separated(
-                itemCount: page.links.length,
-                separatorBuilder: (_, _) => const Divider(height: 1),
-                itemBuilder: (context, index) {
-                  final link = page.links[index];
-                  return ListTile(
-                    key: ValueKey('video-filter-option-${link.url}'),
-                    contentPadding: EdgeInsets.zero,
-                    title: Tooltip(
-                      message: link.label,
-                      child: Text(
-                        link.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        BottomSheetHeader(title: widget.title),
+        Flexible(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? _errorView(s)
+              : page == null || page.links.isEmpty
+              ? Center(child: Text(s.noResults))
+              : ListView.separated(
+                  itemCount: page.links.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final link = page.links[index];
+                    return ListTile(
+                      key: ValueKey('video-filter-option-${link.url}'),
+                      title: Tooltip(
+                        message: link.label,
+                        child: Text(
+                          link.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.of(context).pop(link),
-                  );
-                },
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.of(context).pop(link),
+                    );
+                  },
+                ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+          child: OverflowBar(
+            alignment: MainAxisAlignment.end,
+            spacing: 8,
+            children: [
+              if (page?.previousUrl != null)
+                TextButton.icon(
+                  onPressed: _loading ? null : () => _load(page!.previousUrl),
+                  icon: const Icon(Icons.chevron_left),
+                  label: Text(s.previousPage),
+                ),
+              if (page?.nextUrl != null)
+                TextButton.icon(
+                  onPressed: _loading ? null : () => _load(page!.nextUrl),
+                  icon: const Icon(Icons.chevron_right),
+                  label: Text(s.nextPage),
+                ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(s.cancel),
               ),
-      ),
-      actions: [
-        if (page?.previousUrl != null)
-          TextButton.icon(
-            onPressed: _loading ? null : () => _load(page!.previousUrl),
-            icon: const Icon(Icons.chevron_left),
-            label: Text(s.previousPage),
+            ],
           ),
-        if (page?.nextUrl != null)
-          TextButton.icon(
-            onPressed: _loading ? null : () => _load(page!.nextUrl),
-            icon: const Icon(Icons.chevron_right),
-            label: Text(s.nextPage),
-          ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(s.cancel),
         ),
       ],
     );

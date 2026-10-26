@@ -402,11 +402,7 @@ void main() {
     expect(session.lastVolume, 62);
     expect(library.volume, 62);
 
-    final surfaceRect = tester.getRect(
-      find.byKey(const ValueKey('video-gesture-surface')),
-    );
-    await tester.tapAt(Offset(surfaceRect.center.dx, surfaceRect.top + 60));
-    await tester.pumpAndSettle();
+    await _closeSettings(tester);
     await _chooseSetting(tester, '${l10n.playbackSpeed}: 1.5×');
     expect(session.lastRate, 1.5);
 
@@ -730,6 +726,37 @@ void main() {
       expect(tester.widget<SwitchListTile>(backgroundSwitch).value, isTrue);
       expect(session.pauseCount, 0);
       expect(tester.takeException(), isNull);
+    },
+  );
+
+  _testPlayerWidget(
+    'playback more menu opens the sleep timer after it closes',
+    (tester) async {
+      final timer = VideoSleepTimer.shared;
+      timer.cancel();
+      addTearDown(timer.cancel);
+      final session = _FakePlaybackSession();
+      await _pumpStandalonePlayer(tester, session);
+      final l10n = await S.delegate.load(const Locale('en'));
+
+      await _openSettings(tester);
+      final sleepTimerOption = find.text(l10n.videoPlayerSleepTimer);
+      await tester.ensureVisible(sleepTimerOption);
+      await tester.tap(sleepTimerOption);
+      await tester.pumpAndSettle();
+
+      final fifteenMinutes = find.text(l10n.videoPlayerTimerMinutes(15));
+      expect(fifteenMinutes, findsOneWidget);
+      await tester.tap(fifteenMinutes);
+      await tester.pumpAndSettle();
+      expect(timer.isActive, isTrue);
+      expect(session.pauseCount, 0);
+
+      await tester.tap(find.byTooltip(l10n.close));
+      await tester.pumpAndSettle();
+      expect(timer.isActive, isTrue);
+      expect(tester.takeException(), isNull);
+      timer.cancel();
     },
   );
 
@@ -2683,9 +2710,21 @@ Future<void> _loadPlayerScreenshotFonts() async {
 }
 
 Future<void> _openSettings(WidgetTester tester) async {
+  if (_responsiveSheet().evaluate().isNotEmpty) return;
   await tester.tap(find.byKey(const ValueKey('video-player-more-menu')));
   await tester.pumpAndSettle();
 }
+
+Future<void> _closeSettings(WidgetTester tester) async {
+  final sheet = _responsiveSheet();
+  if (sheet.evaluate().isEmpty) return;
+  await tester.binding.handlePopRoute();
+  await tester.pumpAndSettle();
+  expect(sheet, findsNothing);
+}
+
+Finder _responsiveSheet() =>
+    find.byKey(const ValueKey('responsive-sheet-surface'));
 
 Future<void> _chooseSetting(WidgetTester tester, String label) async {
   final s = await S.delegate.load(const Locale('en'));
@@ -2704,6 +2743,7 @@ Future<void> _chooseSetting(WidgetTester tester, String label) async {
       ),
     );
   } else if (label.startsWith('${s.playbackSpeed}: ')) {
+    await _closeSettings(tester);
     await tester.tap(find.byTooltip(s.playbackSpeed));
     await tester.pumpAndSettle();
     await tester.tap(
@@ -2713,6 +2753,7 @@ Future<void> _chooseSetting(WidgetTester tester, String label) async {
       ),
     );
   } else if (label.startsWith('${s.videoPlayerSubtitleTrack}: ')) {
+    await _closeSettings(tester);
     await tester.tap(find.byTooltip(s.videoPlayerSubtitleTrack));
     await tester.pumpAndSettle();
     await tester.tap(
@@ -2728,7 +2769,12 @@ Future<void> _chooseSetting(WidgetTester tester, String label) async {
       await tester.scrollUntilVisible(
         setting,
         240,
-        scrollable: find.byType(Scrollable).first,
+        scrollable: find
+            .descendant(
+              of: _responsiveSheet(),
+              matching: find.byType(Scrollable),
+            )
+            .first,
       );
     }
     await tester.tap(setting);

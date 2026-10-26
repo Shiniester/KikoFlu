@@ -865,10 +865,6 @@ void main() {
       await tester.tap(find.byIcon(Icons.more_vert));
       await tester.pumpAndSettle();
       expect(find.byType(ResponsiveBottomSheet), findsOneWidget);
-      expect(
-        find.byType(BottomSheet),
-        size.width > size.height ? findsNothing : findsOneWidget,
-      );
 
       for (final action in ['sleepTimer', 'speed', 'subtitleAdjustment']) {
         final button = find.byKey(ValueKey('player-more-action-$action'));
@@ -2424,9 +2420,9 @@ void main() {
       final details = await _pumpLongDetailsAtBottom(tester);
       final detailsPanel = details.panel;
       final detailsScroll = details.scroll;
-    final visibleCard = find.byKey(
-      const ValueKey('player-audio-variant-Long detail track 19.mp3'),
-    );
+      final visibleCard = find.byKey(
+        const ValueKey('player-audio-variant-Long detail track 19.mp3'),
+      );
       double relativeCardTop() {
         final panelRect = tester.getRect(detailsPanel);
         return tester.getRect(visibleCard).top - panelRect.top;
@@ -3962,7 +3958,7 @@ void main() {
   });
 
   testWidgets(
-    'more cards match and closing more does not restore search input',
+    'more uses full-width rows and closing it does not restore search input',
     (tester) async {
       final lyrics = List.generate(
         4,
@@ -3996,18 +3992,23 @@ void main() {
       final overflowSize = tester.getSize(
         find.byKey(const ValueKey('player-more-action-floatingLyric')),
       );
-      expect(fullscreenSize, keepAwakeSize);
-      expect(lyricSettingsSize, keepAwakeSize);
-      expect(overflowSize, keepAwakeSize);
-      expect(keepAwakeSize.height, 72);
+      for (final size in [
+        keepAwakeSize,
+        fullscreenSize,
+        lyricSettingsSize,
+        overflowSize,
+      ]) {
+        expect(size.width, keepAwakeSize.width);
+        expect(size.height, greaterThanOrEqualTo(48));
+      }
       final lyricSettingsRect = tester.getRect(
         find.byKey(const ValueKey('player-more-lyric-settings-card')),
       );
       final detailsRect = tester.getRect(
         find.byKey(const ValueKey('player-more-action-detail')),
       );
-      expect(lyricSettingsRect.top, closeTo(detailsRect.top, 0.01));
-      expect(lyricSettingsRect.left, lessThan(detailsRect.left));
+      expect(lyricSettingsRect.bottom, closeTo(detailsRect.top, 0.01));
+      expect(lyricSettingsRect.left, closeTo(detailsRect.left, 0.01));
       for (final key in const [
         'player-more-action-floatingLyric',
         'player-more-action-sleepTimer',
@@ -4016,7 +4017,7 @@ void main() {
       ]) {
         expect(
           tester.getRect(find.byKey(ValueKey(key))).bottom,
-          lessThan(lyricSettingsRect.top),
+          lessThanOrEqualTo(lyricSettingsRect.top),
         );
       }
       final moreMenu = find

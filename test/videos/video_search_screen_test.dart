@@ -725,9 +725,15 @@ Future<void> _chooseFilter(
     await tester.pump(const Duration(milliseconds: 250));
     await tester.pump();
   }
-  await tester.tap(
-    find.descendant(of: find.byType(AlertDialog), matching: find.text(label)),
+  final filterOption = find.descendant(
+    of: find.byKey(const ValueKey('responsive-sheet-surface')),
+    matching: find.byKey(ValueKey('video-filter-option-${_filterUrl(kind)}')),
   );
+  expect(
+    find.descendant(of: filterOption, matching: find.text(label)),
+    findsOneWidget,
+  );
+  await tester.tap(filterOption);
   if (settle) {
     await tester.pumpAndSettle();
   } else {

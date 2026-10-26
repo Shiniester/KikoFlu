@@ -71,6 +71,57 @@ void main() {
     timer.cancel();
   });
 
+  testWidgets('video timer sheet remains usable in dark landscape', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(800, 400);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final timer = VideoSleepTimer();
+    addTearDown(timer.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        supportedLocales: S.supportedLocales,
+        localizationsDelegates: S.localizationsDelegates,
+        theme: ThemeData(
+          useMaterial3: true,
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: Colors.teal,
+            brightness: Brightness.dark,
+          ),
+        ),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showVideoSleepTimerSheet(context, timer: timer),
+              child: const Text('Open timer'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open timer'));
+    await tester.pumpAndSettle();
+
+    final l10n = await S.delegate.load(const Locale('en'));
+    final title = find.text(l10n.videoPlayerSleepTimer);
+    expect(title, findsOneWidget);
+    expect(Theme.of(tester.element(title)).brightness, Brightness.dark);
+    final fifteenMinutes = find.text(l10n.videoPlayerTimerMinutes(15));
+    await tester.ensureVisible(fifteenMinutes);
+    await tester.tap(fifteenMinutes);
+    await tester.pumpAndSettle();
+    expect(timer.isActive, isTrue);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byTooltip(l10n.close));
+    await tester.pumpAndSettle();
+    expect(timer.isActive, isTrue);
+    timer.cancel();
+  });
+
   testWidgets('video timer pauses the active video at the deadline', (
     tester,
   ) async {

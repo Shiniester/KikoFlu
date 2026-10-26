@@ -106,13 +106,12 @@ void main() {
     await tester.pumpAndSettle();
     final landscapeSheet = find.byType(ResponsiveBottomSheet);
     expect(landscapeSheet, findsOneWidget);
-    expect(find.byType(BottomSheet), findsNothing);
-    final panel = find
-        .descendant(of: landscapeSheet, matching: find.byType(Material))
-        .first;
+    final panel = find.byKey(const ValueKey('responsive-sheet-surface'));
     final panelRect = tester.getRect(panel);
-    expect(panelRect.center.dx, closeTo(400, 1));
-    expect(panelRect.center.dy, closeTo(200, 1));
+    expect(panelRect.right, closeTo(800, 1));
+    expect(panelRect.width, lessThanOrEqualTo(420));
+    expect(panelRect.top, closeTo(0, 1));
+    expect(panelRect.bottom, closeTo(400, 1));
     expect(
       find.descendant(
         of: landscapeSheet,

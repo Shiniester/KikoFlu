@@ -46,6 +46,7 @@ import 'manual_subtitle_load_flow.dart';
 import 'text_preview_screen.dart';
 import 'pdf_preview_screen.dart';
 import 'video_open_failure_dialog.dart';
+import 'responsive_dialog.dart';
 
 final _log = LogService.instance;
 
@@ -420,6 +421,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     AudioTapPlaylistMode? modeOverride,
     List<dynamic>? audioFiles,
   }) async {
+    if (!mounted) return;
     final l10n = S.of(context);
     final authState = ref.read(authProvider);
     final host = authState.host ?? '';
@@ -518,6 +520,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   }
 
   Future<void> _generateSubtitles(List<PlayerAudioVariant> variants) async {
+    if (!mounted) return;
     try {
       if (!await confirmLyricTranslationIfNeeded(
         context,
@@ -550,6 +553,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   }
 
   Future<void> _downloadSingleFile(dynamic file, String parentPath) async {
+    if (!mounted) return;
     final l10n = S.of(context);
     final title = FileTreeUtils.titleOf(file, defaultValue: l10n.unknown);
     final hash = FileTreeUtils.property(file, 'hash')?.toString();
@@ -654,12 +658,11 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
               variant.parentPath == parentPath,
         )
         .firstOrNull;
-    await showModalBottomSheet<void>(
+    await showBottomSheetMenu<void>(
       context: context,
-      showDragHandle: false,
-      builder: (sheetContext) => SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
+      children: [
+        Builder(
+          builder: (sheetContext) => Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (isAudio) ...[
@@ -753,7 +756,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
             ],
           ),
         ),
-      ),
+      ],
     );
   }
 

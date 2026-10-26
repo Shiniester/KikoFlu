@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../widgets/responsive_dialog.dart';
 import '../video_playback_settings.dart';
 import '../video_player_platform.dart';
 
@@ -483,25 +484,20 @@ class VideoPlaybackSettingsScreen extends StatelessWidget {
     ValueChangedAsync<T> onSelected,
     String Function(T) label,
   ) async {
-    final value = await showDialog<T>(
+    final value = await showResponsiveBottomSheet<T>(
       context: context,
-      builder: (context) => SimpleDialog(
-        title: Text(title),
+      builder: (context) => BottomSheetMenu(
         children: [
+          BottomSheetHeader(title: title),
           for (final item in values)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, item),
-              child: Row(
-                children: [
-                  Icon(
-                    item == selected
-                        ? Icons.radio_button_checked
-                        : Icons.radio_button_off,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(child: Text(label(item))),
-                ],
+            ListTile(
+              leading: Icon(
+                item == selected
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_off,
               ),
+              title: Text(label(item)),
+              onTap: () => Navigator.of(context).pop(item),
             ),
         ],
       ),

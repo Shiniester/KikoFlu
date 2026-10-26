@@ -129,6 +129,9 @@ class _PlayerControlsWidgetState extends ConsumerState<PlayerControlsWidget> {
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => BottomSheetMenu(
           children: [
+            BottomSheetHeader(
+              title: MaterialLocalizations.of(context).moreButtonTooltip,
+            ),
             ...moreButtons.map((buttonType) {
               return _buildMenuItemForButton(
                 context,

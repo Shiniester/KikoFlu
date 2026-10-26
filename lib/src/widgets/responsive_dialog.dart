@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 /// 响应式对话框封装
@@ -30,9 +32,11 @@ class ResponsiveDialog extends StatelessWidget {
 
     // 横屏时限制对话框最大宽度
     // 使用 ConstrainedBox 而不是直接设置 AlertDialog 的宽度，避免布局问题
-    final dialogMaxWidth = maxWidth ??
+    final dialogMaxWidth =
+        maxWidth ??
         (isLandscape
-            ? screenWidth * 0.6 // 横屏时最多占60%宽度
+            ? screenWidth *
+                  0.6 // 横屏时最多占60%宽度
             : screenWidth * 0.85); // 竖屏时最多占85%宽度
 
     return Dialog(
@@ -47,7 +51,8 @@ class ResponsiveDialog extends StatelessWidget {
           children: [
             if (title != null)
               Padding(
-                padding: titlePadding ??
+                padding:
+                    titlePadding ??
                     const EdgeInsets.fromLTRB(24.0, 24.0, 24.0, 0.0),
                 child: DefaultTextStyle(
                   style: Theme.of(context).textTheme.titleLarge!,
@@ -57,7 +62,8 @@ class ResponsiveDialog extends StatelessWidget {
             if (content != null)
               Flexible(
                 child: SingleChildScrollView(
-                  padding: contentPadding ??
+                  padding:
+                      contentPadding ??
                       const EdgeInsets.fromLTRB(24.0, 20.0, 24.0, 24.0),
                   child: DefaultTextStyle(
                     style: Theme.of(context).textTheme.bodyMedium!,
@@ -67,7 +73,8 @@ class ResponsiveDialog extends StatelessWidget {
               ),
             if (actions != null && actions!.isNotEmpty)
               Padding(
-                padding: actionsPadding ??
+                padding:
+                    actionsPadding ??
                     const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 8.0),
                 child: OverflowBar(
                   alignment: MainAxisAlignment.end,
@@ -111,9 +118,11 @@ class ResponsiveAlertDialog extends StatelessWidget {
     final screenWidth = MediaQuery.of(context).size.width;
 
     // 横屏时限制对话框最大宽度
-    final dialogMaxWidth = maxWidth ??
+    final dialogMaxWidth =
+        maxWidth ??
         (isLandscape
-            ? screenWidth * 0.6 // 横屏时最多占60%宽度
+            ? screenWidth *
+                  0.6 // 横屏时最多占60%宽度
             : screenWidth * 0.85); // 竖屏时最多占85%宽度
 
     return AlertDialog(
@@ -136,56 +145,128 @@ class ResponsiveAlertDialog extends StatelessWidget {
 }
 
 /// 响应式 BottomSheet 封装
-/// 横屏时使用居中对话框样式，竖屏时使用底部弹窗
+/// 横屏时使用右侧模态面板，竖屏时使用底部弹窗
 class ResponsiveBottomSheet extends StatelessWidget {
   final Widget child;
   final double? maxWidth;
   final double? maxHeight;
+  final bool _isScrollControlled;
+  final bool _enableDrag;
+  final bool _disableAnimations;
+  final AnimationController? _animationController;
+  final Animation<double>? _slideAnimation;
+  final VoidCallback? _onClosing;
+  final BottomSheetDragStartHandler? _onDragStart;
+  final BottomSheetDragEndHandler? _onDragEnd;
 
   const ResponsiveBottomSheet({
     super.key,
     required this.child,
     this.maxWidth,
     this.maxHeight,
+  }) : _isScrollControlled = true,
+       _enableDrag = false,
+       _disableAnimations = false,
+       _animationController = null,
+       _slideAnimation = null,
+       _onClosing = null,
+       _onDragStart = null,
+       _onDragEnd = null;
+
+  const ResponsiveBottomSheet._modal({
+    required this.child,
+    this.maxWidth,
+    this.maxHeight,
+    required this._isScrollControlled,
+    required this._enableDrag,
+    required this._disableAnimations,
+    required this._animationController,
+    required this._slideAnimation,
+    required this._onClosing,
+    required this._onDragStart,
+    required this._onDragEnd,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isLandscape =
-        MediaQuery.of(context).orientation == Orientation.landscape;
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
+    final size = MediaQuery.sizeOf(context);
+    final isLandscape = size.width > size.height;
+    final disableAnimations =
+        _disableAnimations || MediaQuery.disableAnimationsOf(context);
 
-    if (isLandscape) {
-      // 横屏时使用居中对话框样式
-      return Center(
-        child: Material(
-          elevation: 4,
-          borderRadius: BorderRadius.circular(16),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: maxWidth ?? screenWidth * 0.6,
-              maxHeight: maxHeight ?? screenHeight * 0.8,
+    return AnimatedPadding(
+      padding: MediaQuery.viewInsetsOf(context),
+      duration: disableAnimations
+          ? Duration.zero
+          : const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final availableHeight = constraints.maxHeight;
+          final sheetMaxHeight = math.min(
+            maxHeight ??
+                (isLandscape
+                    ? availableHeight
+                    : availableHeight * (_isScrollControlled ? 0.9 : 9 / 16)),
+            availableHeight,
+          );
+          final sheetMaxWidth = isLandscape
+              ? math.min(
+                  maxWidth ?? math.min(constraints.maxWidth * 0.6, 420),
+                  constraints.maxWidth,
+                )
+              : math.min(maxWidth ?? 640, constraints.maxWidth);
+          final sheetTheme = Theme.of(context).bottomSheetTheme;
+          final shape = isLandscape
+              ? sheetTheme.shape ??
+                    RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    )
+              : null;
+
+          final panel = SizedBox(
+            width: sheetMaxWidth,
+            child: BottomSheet(
+              key: const ValueKey('responsive-sheet-surface'),
+              animationController: _animationController,
+              onClosing: _onClosing ?? () {},
+              onDragStart: _onDragStart,
+              onDragEnd: _onDragEnd,
+              enableDrag: !isLandscape && _enableDrag,
+              shape: shape,
+              clipBehavior: Clip.antiAlias,
+              constraints: BoxConstraints(
+                minHeight: isLandscape && maxHeight == null
+                    ? sheetMaxHeight
+                    : 0,
+                maxWidth: sheetMaxWidth,
+                maxHeight: sheetMaxHeight,
+              ),
+              builder: (context) => SafeArea(top: isLandscape, child: child),
             ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: child,
-            ),
-          ),
-        ),
-      );
-    } else {
-      // 竖屏时使用底部弹窗
-      return SafeArea(
-        top: false,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: maxHeight ?? screenHeight * 0.9,
-          ),
-          child: child,
-        ),
-      );
-    }
+          );
+
+          return Align(
+            alignment: isLandscape
+                ? Alignment.centerRight
+                : Alignment.bottomCenter,
+            child: _slideAnimation == null
+                ? panel
+                : SlideTransition(
+                    position: _slideAnimation.drive(
+                      Tween<Offset>(
+                        begin: isLandscape
+                            ? const Offset(1, 0)
+                            : const Offset(0, 1),
+                        end: Offset.zero,
+                      ),
+                    ),
+                    child: panel,
+                  ),
+          );
+        },
+      ),
+    );
   }
 }
 
@@ -227,9 +308,9 @@ class BottomSheetHeader extends StatelessWidget {
                   title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                 ),
                 if (subtitle != null) ...[
                   const SizedBox(height: 2),
@@ -238,8 +319,8 @@ class BottomSheetHeader extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ],
@@ -317,12 +398,14 @@ class BottomSheetMenu extends StatelessWidget {
   Widget build(BuildContext context) {
     return SafeArea(
       top: false,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ...children,
-          SizedBox(height: bottomSpacing),
-        ],
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ...children,
+            SizedBox(height: bottomSpacing),
+          ],
+        ),
       ),
     );
   }
@@ -338,33 +421,167 @@ Future<T?> showResponsiveBottomSheet<T>({
   bool isDismissible = true,
   bool enableDrag = true,
 }) {
-  final isLandscape =
-      MediaQuery.of(context).orientation == Orientation.landscape;
+  final navigator = Navigator.of(context);
+  final capturedThemes = InheritedTheme.capture(
+    from: context,
+    to: navigator.context,
+  );
 
-  if (isLandscape) {
-    // 横屏时使用对话框样式
-    return showDialog<T>(
-      context: context,
-      barrierDismissible: isDismissible,
-      builder: (context) => ResponsiveBottomSheet(
-        maxWidth: maxWidth,
-        maxHeight: maxHeight,
-        child: builder(context),
-      ),
-    );
-  } else {
-    // 竖屏时使用底部弹窗
-    return showModalBottomSheet<T>(
-      context: context,
+  return navigator.push<T>(
+    _ResponsiveBottomSheetRoute<T>(
+      builder: builder,
+      capturedThemes: capturedThemes,
+      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      maxWidth: maxWidth,
+      maxHeight: maxHeight,
       isScrollControlled: isScrollControlled,
       isDismissible: isDismissible,
       enableDrag: enableDrag,
-      builder: (context) => ResponsiveBottomSheet(
-        maxWidth: maxWidth,
-        maxHeight: maxHeight,
-        child: builder(context),
+      disableAnimations: MediaQuery.disableAnimationsOf(context),
+    ),
+  );
+}
+
+class _ResponsiveBottomSheetRoute<T> extends PopupRoute<T> {
+  _ResponsiveBottomSheetRoute({
+    required this.builder,
+    required this.capturedThemes,
+    required this.barrierLabel,
+    required this.maxWidth,
+    required this.maxHeight,
+    required this.isScrollControlled,
+    required this.isDismissible,
+    required this.enableDrag,
+    required this.disableAnimations,
+  });
+
+  final WidgetBuilder builder;
+  final CapturedThemes capturedThemes;
+  final double? maxWidth;
+  final double? maxHeight;
+  final bool isScrollControlled;
+  final bool isDismissible;
+  final bool enableDrag;
+  final bool disableAnimations;
+  Animation<double>? _routeAnimation;
+  CurvedAnimation? _curvedAnimation;
+  CurvedAnimation? _dragCurvedAnimation;
+  ProxyAnimation? _sheetAnimation;
+
+  @override
+  final String barrierLabel;
+
+  @override
+  Color get barrierColor => Colors.black54;
+
+  @override
+  bool get barrierDismissible => isDismissible;
+
+  @override
+  Duration get transitionDuration =>
+      disableAnimations ? Duration.zero : const Duration(milliseconds: 250);
+
+  @override
+  Duration get reverseTransitionDuration =>
+      disableAnimations ? Duration.zero : const Duration(milliseconds: 200);
+
+  @override
+  AnimationController createAnimationController() {
+    final controller = BottomSheet.createAnimationController(navigator!);
+    if (disableAnimations) {
+      controller
+        ..duration = Duration.zero
+        ..reverseDuration = Duration.zero;
+    }
+    return controller;
+  }
+
+  @override
+  Widget buildPage(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+  ) {
+    final sheetAnimation = _getSheetAnimation(animation);
+    return capturedThemes.wrap(
+      Semantics(
+        scopesRoute: true,
+        namesRoute: true,
+        label: MaterialLocalizations.of(context).dialogLabel,
+        explicitChildNodes: true,
+        child: ResponsiveBottomSheet._modal(
+          animationController: controller!,
+          slideAnimation: sheetAnimation,
+          onClosing: () {
+            if (isCurrent) {
+              navigator?.pop<T>();
+            }
+          },
+          onDragStart: _handleDragStart,
+          onDragEnd: _handleDragEnd,
+          isScrollControlled: isScrollControlled,
+          enableDrag: enableDrag,
+          disableAnimations: disableAnimations,
+          maxWidth: maxWidth,
+          maxHeight: maxHeight,
+          child: Builder(builder: builder),
+        ),
       ),
     );
+  }
+
+  @override
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    return child;
+  }
+
+  Animation<double> _getSheetAnimation(Animation<double> animation) {
+    if (_routeAnimation != animation) {
+      _sheetAnimation?.parent = null;
+      _dragCurvedAnimation?.dispose();
+      _curvedAnimation?.dispose();
+      _routeAnimation = animation;
+      _curvedAnimation = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeOutCubic,
+      );
+      _sheetAnimation = ProxyAnimation(_curvedAnimation);
+    }
+    return _sheetAnimation!;
+  }
+
+  void _handleDragStart(DragStartDetails details) {
+    _dragCurvedAnimation?.dispose();
+    _dragCurvedAnimation = null;
+    _sheetAnimation?.parent = _routeAnimation;
+  }
+
+  void _handleDragEnd(DragEndDetails details, {required bool isClosing}) {
+    final animation = _routeAnimation;
+    if (animation == null) return;
+
+    _dragCurvedAnimation?.dispose();
+    final progress = animation.value;
+    _dragCurvedAnimation = CurvedAnimation(
+      parent: animation,
+      curve: Split(progress, endCurve: Curves.easeOutCubic),
+      reverseCurve: Split(progress, endCurve: Curves.easeOutCubic),
+    );
+    _sheetAnimation?.parent = _dragCurvedAnimation;
+  }
+
+  @override
+  void dispose() {
+    _sheetAnimation?.parent = null;
+    _dragCurvedAnimation?.dispose();
+    _curvedAnimation?.dispose();
+    super.dispose();
   }
 }
 

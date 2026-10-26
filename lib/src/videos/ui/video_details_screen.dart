@@ -9,6 +9,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../providers/works_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
+import '../../widgets/responsive_dialog.dart';
 import '../../widgets/work_detail_route_readiness.dart';
 import '../missav_client.dart';
 import '../missav_verification.dart';
@@ -427,9 +428,9 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
       return;
     }
     if (!mounted) return;
-    await showDialog<void>(
+    await showResponsiveBottomSheet<void>(
       context: context,
-      builder: (_) => _PlaylistDialog(
+      builder: (_) => _PlaylistMenu(
         playlists: playlists,
         onMembershipChanged: (playlist, added) =>
             _setPlaylistMembership(playlist, added),
@@ -734,8 +735,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
   }
 }
 
-class _PlaylistDialog extends StatefulWidget {
-  const _PlaylistDialog({
+class _PlaylistMenu extends StatefulWidget {
+  const _PlaylistMenu({
     required this.playlists,
     required this.onMembershipChanged,
     required this.onCreate,
@@ -749,10 +750,10 @@ class _PlaylistDialog extends StatefulWidget {
   final VoidCallback onOpenSource;
 
   @override
-  State<_PlaylistDialog> createState() => _PlaylistDialogState();
+  State<_PlaylistMenu> createState() => _PlaylistMenuState();
 }
 
-class _PlaylistDialogState extends State<_PlaylistDialog> {
+class _PlaylistMenuState extends State<_PlaylistMenu> {
   late final List<VideoLink> _playlists = List.of(widget.playlists);
   final Set<String> _busy = {};
 
@@ -786,60 +787,68 @@ class _PlaylistDialogState extends State<_PlaylistDialog> {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    return AlertDialog(
-      title: Text(s.videoAddToPlaylist),
-      content: SizedBox(
-        width: 420,
-        child: _playlists.isEmpty
-            ? Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                child: Text(s.noResults),
-              )
-            : ListView(
-                shrinkWrap: true,
-                children: [
-                  for (final playlist in _playlists)
-                    if (playlist.isAdded != null && playlist.sourceKey != null)
-                      CheckboxListTile(
-                        value: playlist.isAdded,
-                        onChanged: _busy.contains(playlist.sourceKey)
-                            ? null
-                            : (value) => unawaited(
-                                _setMembership(playlist, value ?? false),
-                              ),
-                        title: Text(playlist.label),
-                        controlAffinity: ListTileControlAffinity.leading,
-                        secondary: _busy.contains(playlist.sourceKey)
-                            ? const SizedBox.square(
-                                dimension: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : null,
-                      )
-                    else
-                      ListTile(
-                        title: Text(playlist.label),
-                        subtitle: Text(s.videoSourceUnavailable),
-                        trailing: IconButton(
-                          tooltip: s.videoOpenSource,
-                          onPressed: widget.onOpenSource,
-                          icon: const Icon(Icons.open_in_new),
-                        ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        BottomSheetHeader(title: s.videoAddToPlaylist),
+        if (_playlists.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            child: Text(s.noResults),
+          )
+        else
+          Flexible(
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                for (final playlist in _playlists)
+                  if (playlist.isAdded != null && playlist.sourceKey != null)
+                    CheckboxListTile(
+                      value: playlist.isAdded,
+                      onChanged: _busy.contains(playlist.sourceKey)
+                          ? null
+                          : (value) => unawaited(
+                              _setMembership(playlist, value ?? false),
+                            ),
+                      title: Text(playlist.label),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      secondary: _busy.contains(playlist.sourceKey)
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : null,
+                    )
+                  else
+                    ListTile(
+                      title: Text(playlist.label),
+                      subtitle: Text(s.videoSourceUnavailable),
+                      trailing: IconButton(
+                        tooltip: s.videoOpenSource,
+                        onPressed: widget.onOpenSource,
+                        icon: const Icon(Icons.open_in_new),
                       ),
-                ],
+                    ),
+              ],
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+          child: OverflowBar(
+            alignment: MainAxisAlignment.end,
+            spacing: 8,
+            children: [
+              TextButton.icon(
+                onPressed: () => unawaited(_create()),
+                icon: const Icon(Icons.add),
+                label: Text(s.videoCreatePlaylist),
               ),
-      ),
-      actions: [
-        TextButton.icon(
-          onPressed: () => unawaited(_create()),
-          icon: const Icon(Icons.add),
-          label: Text(s.videoCreatePlaylist),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(s.confirm),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(s.confirm),
+              ),
+            ],
+          ),
         ),
       ],
     );

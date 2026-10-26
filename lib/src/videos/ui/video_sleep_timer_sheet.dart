@@ -4,16 +4,14 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../widgets/responsive_dialog.dart';
 import '../video_sleep_timer.dart';
 
 Future<void> showVideoSleepTimerSheet(
   BuildContext context, {
   VideoSleepTimer? timer,
-}) => showModalBottomSheet<void>(
+}) => showResponsiveBottomSheet<void>(
   context: context,
-  isScrollControlled: true,
-  useSafeArea: true,
-  backgroundColor: Colors.transparent,
   builder: (_) => _VideoSleepTimerSheet(timer: timer ?? VideoSleepTimer.shared),
 );
 
@@ -41,88 +39,72 @@ class _VideoSleepTimerSheetState extends State<_VideoSleepTimerSheet> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     final timer = widget.timer;
-    return Padding(
-      padding: const EdgeInsets.all(12),
-      child: Material(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.hardEdge,
-        child: SafeArea(
-          top: false,
-          child: ListenableBuilder(
-            listenable: timer,
-            builder: (context, _) => ListView(
-              shrinkWrap: true,
-              padding: const EdgeInsets.symmetric(vertical: 14),
+    return ListenableBuilder(
+      listenable: timer,
+      builder: (context, _) => BottomSheetMenu(
+        children: [
+          BottomSheetHeader(
+            title: s.videoPlayerSleepTimer,
+            subtitle: timer.isActive
+                ? timer.waitingForCompletion
+                      ? s.finishCurrentTrack
+                      : '${s.remainingTime} ${_format(timer.remaining)}'
+                : null,
+            trailing: [
+              IconButton(
+                tooltip: s.close,
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
               children: [
-                ListTile(
-                  title: Text(s.videoPlayerSleepTimer),
-                  trailing: IconButton(
-                    tooltip: s.close,
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.pop(context),
+                for (final minutes in [0, 15, 30, 45, 60])
+                  ActionChip(
+                    label: Text(
+                      minutes == 0
+                          ? s.cancelTimer
+                          : s.videoPlayerTimerMinutes(minutes),
+                    ),
+                    onPressed: () => timer.start(Duration(minutes: minutes)),
                   ),
-                  subtitle: timer.isActive
-                      ? Text(
-                          timer.waitingForCompletion
-                              ? s.finishCurrentTrack
-                              : '${s.remainingTime} ${_format(timer.remaining)}',
-                        )
-                      : null,
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final minutes in [0, 15, 30, 45, 60])
-                        ActionChip(
-                          label: Text(
-                            minutes == 0
-                                ? s.cancelTimer
-                                : s.videoPlayerTimerMinutes(minutes),
-                          ),
-                          onPressed: () =>
-                              timer.start(Duration(minutes: minutes)),
-                        ),
-                      ActionChip(
-                        label: Text(s.videoPlayerTimerCustom),
-                        onPressed: () => _showCustomDuration(context),
-                      ),
-                    ],
-                  ),
-                ),
-                RadioGroup<VideoSleepTimerAction>(
-                  groupValue: timer.action,
-                  onChanged: (value) {
-                    if (value != null) timer.setAction(value);
-                  },
-                  child: Column(
-                    children: [
-                      for (final action in VideoSleepTimerAction.values)
-                        RadioListTile<VideoSleepTimerAction>(
-                          dense: true,
-                          title: Text(
-                            action == VideoSleepTimerAction.pause
-                                ? s.pause
-                                : s.videoPlayerExitApp,
-                          ),
-                          value: action,
-                        ),
-                    ],
-                  ),
-                ),
-                SwitchListTile(
-                  dense: true,
-                  title: Text(s.finishCurrentTrack),
-                  value: timer.finishCurrentVideo,
-                  onChanged: timer.setFinishCurrentVideo,
+                ActionChip(
+                  label: Text(s.videoPlayerTimerCustom),
+                  onPressed: () => _showCustomDuration(context),
                 ),
               ],
             ),
           ),
-        ),
+          RadioGroup<VideoSleepTimerAction>(
+            groupValue: timer.action,
+            onChanged: (value) {
+              if (value != null) timer.setAction(value);
+            },
+            child: Column(
+              children: [
+                for (final action in VideoSleepTimerAction.values)
+                  RadioListTile<VideoSleepTimerAction>(
+                    title: Text(
+                      action == VideoSleepTimerAction.pause
+                          ? s.pause
+                          : s.videoPlayerExitApp,
+                    ),
+                    value: action,
+                  ),
+              ],
+            ),
+          ),
+          SwitchListTile(
+            title: Text(s.finishCurrentTrack),
+            value: timer.finishCurrentVideo,
+            onChanged: timer.setFinishCurrentVideo,
+          ),
+        ],
       ),
     );
   }

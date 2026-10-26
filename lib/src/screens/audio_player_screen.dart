@@ -2314,45 +2314,35 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       await showResponsiveBottomSheet<void>(
         context: context,
         isScrollControlled: true,
-        builder: (sheetContext) => SafeArea(
-          top: false,
-          child: SizedBox(
-            height: math.min(
-              MediaQuery.sizeOf(sheetContext).height * 0.62,
-              520,
-            ),
-            child: ValueListenableBuilder<String?>(
-              valueListenable: _workProgress,
-              builder: (_, progress, _) => PlayerInfoPanel(
-                track: track,
-                currentProgress: progress,
-                onMarkPressed: track.workId == null
-                    ? null
-                    : () =>
-                          _showMarkDialog(context, track.workId!, track.title),
-                onDetailPressed: track.workId == null
-                    ? null
-                    : () {
-                        Navigator.of(sheetContext).pop();
-                        _navigateToWorkDetail(context, track.workId!);
-                      },
-                onQueuePressed: () {
-                  Navigator.of(sheetContext).pop();
-                  _showQueue();
-                },
-                onImmersiveLyrics: () {
-                  Navigator.of(sheetContext).pop();
-                  _enterLyricFullscreen();
-                },
-                onLyricSettings: () {
-                  Navigator.of(sheetContext).pop();
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) showPlayerLyricSettingsSheet(context);
-                  });
-                },
-                visibleActionCount: 5,
-              ),
-            ),
+        builder: (sheetContext) => ValueListenableBuilder<String?>(
+          valueListenable: _workProgress,
+          builder: (_, progress, _) => PlayerInfoPanel(
+            track: track,
+            currentProgress: progress,
+            onMarkPressed: track.workId == null
+                ? null
+                : () => _showMarkDialog(context, track.workId!, track.title),
+            onDetailPressed: track.workId == null
+                ? null
+                : () {
+                    Navigator.of(sheetContext).pop();
+                    _navigateToWorkDetail(context, track.workId!);
+                  },
+            onQueuePressed: () {
+              Navigator.of(sheetContext).pop();
+              _showQueue();
+            },
+            onImmersiveLyrics: () {
+              Navigator.of(sheetContext).pop();
+              _enterLyricFullscreen();
+            },
+            onLyricSettings: () {
+              Navigator.of(sheetContext).pop();
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) showPlayerLyricSettingsSheet(context);
+              });
+            },
+            visibleActionCount: 5,
           ),
         ),
       );
