@@ -88,6 +88,7 @@ class MissavClient extends ChangeNotifier {
   Uri Function(Uri)? _mediaRoute;
   int _sessionGeneration = 0;
   CancelToken _sessionCancelToken = CancelToken();
+  final Set<VoidCallback> _cancelBrowseRequests = {};
   Future<void> _pendingSessionWrite = Future.value();
   Future<void>? _initializing;
   Completer<void>? _sessionRestoration;
@@ -231,9 +232,31 @@ class MissavClient extends ChangeNotifier {
     }
   }
 
-  Future<VideoCatalogPage> browse(String url) async {
+  Future<VideoCatalogPage> browse(
+    String url, {
+    CancelToken? cancelToken,
+    void Function(VideoCatalogPage page)? onParsed,
+  }) async {
+    if (cancelToken?.cancelError case final error?) throw error;
     await _prepareOnlineAccess();
-    return _browse(url);
+    final requestCancelToken = cancelToken ?? CancelToken();
+    void cancelRequest() {
+      if (!requestCancelToken.isCancelled) {
+        requestCancelToken.cancel('MissAV account changed.');
+      }
+    }
+
+    _cancelBrowseRequests.add(cancelRequest);
+    try {
+      if (requestCancelToken.cancelError case final error?) throw error;
+      return await _browse(
+        url,
+        cancelToken: requestCancelToken,
+        onParsed: onParsed,
+      );
+    } finally {
+      _cancelBrowseRequests.remove(cancelRequest);
+    }
   }
 
   Future<void> checkBrowserAccess() async {
@@ -252,11 +275,19 @@ class MissavClient extends ChangeNotifier {
     _updateHomeUrl(document, uri);
   }
 
-  Future<VideoCatalogPage> _browse(String url) async {
+  Future<VideoCatalogPage> _browse(
+    String url, {
+    required CancelToken cancelToken,
+    void Function(VideoCatalogPage page)? onParsed,
+  }) async {
     final generation = _sessionGeneration;
     final uri = _localizedSourceUri(url);
     final locale = _locale;
-    final document = await _loadDocument(uri, generation);
+    final document = await _loadDocument(
+      uri,
+      generation,
+      cancelToken: cancelToken,
+    );
     if (_locale != locale) {
       throw MissavException(
         'MissAV language changed during the request.',
@@ -265,8 +296,23 @@ class MissavClient extends ChangeNotifier {
     }
     _updateAccountFromPage(document);
     _updateHomeUrl(document, uri);
-    final videos = await _enrichVideos(_parseVideos(document, uri));
+    final parsedVideos = _parseVideos(document, uri);
+    final parsedPage = VideoCatalogPage(
+      title: _pageTitle(document),
+      url: uri.toString(),
+      videos: parsedVideos,
+      links: _parseLinks(document, uri),
+      navigation: _parseNavigation(document, uri),
+      nextUrl: _paginationUrl(document, uri, 'next'),
+      previousUrl: _paginationUrl(document, uri, 'prev'),
+      currentPage: _pageNumber(uri) ?? 1,
+      jumpMaxPage: _jumpMaxPage(document, uri),
+    );
+    if (cancelToken.cancelError case final error?) throw error;
+    onParsed?.call(parsedPage);
+    final videos = await _enrichVideos(parsedVideos, cancelToken: cancelToken);
     _checkGeneration(generation, uri);
+    if (cancelToken.cancelError case final error?) throw error;
     if (_locale != locale) {
       throw MissavException(
         'MissAV language changed during the request.',
@@ -275,19 +321,22 @@ class MissavClient extends ChangeNotifier {
     }
 
     return VideoCatalogPage(
-      title: _pageTitle(document),
-      url: uri.toString(),
+      title: parsedPage.title,
+      url: parsedPage.url,
       videos: videos,
-      links: _parseLinks(document, uri),
-      navigation: _parseNavigation(document, uri),
-      nextUrl: _paginationUrl(document, uri, 'next'),
-      previousUrl: _paginationUrl(document, uri, 'prev'),
-      currentPage: _pageNumber(uri) ?? 1,
-      jumpMaxPage: _jumpMaxPage(document, uri),
+      links: parsedPage.links,
+      navigation: parsedPage.navigation,
+      nextUrl: parsedPage.nextUrl,
+      previousUrl: parsedPage.previousUrl,
+      currentPage: parsedPage.currentPage,
+      jumpMaxPage: parsedPage.jumpMaxPage,
     );
   }
 
-  Future<List<VideoItem>> _enrichVideos(List<VideoItem> videos) async {
+  Future<List<VideoItem>> _enrichVideos(
+    List<VideoItem> videos, {
+    CancelToken? cancelToken,
+  }) async {
     if (videos.isEmpty) return videos;
     final localePrefix = _localePrefix;
     final ids = videos
@@ -311,7 +360,7 @@ class MissavClient extends ChangeNotifier {
           'returnProperties': true,
           'filter': "'itemId' in {${ids.map(jsonEncode).join(',')}}",
         },
-        cancelToken: _sessionCancelToken,
+        cancelToken: cancelToken ?? _sessionCancelToken,
         options: Options(
           headers: {
             'Accept': 'application/json',
@@ -923,7 +972,11 @@ class MissavClient extends ChangeNotifier {
     await _request(Uri.parse('$origin/api/history'), method: 'DELETE');
   }
 
-  Future<Document> _loadDocument(Uri uri, int generation) async {
+  Future<Document> _loadDocument(
+    Uri uri,
+    int generation, {
+    CancelToken? cancelToken,
+  }) async {
     _checkGeneration(generation, uri);
     final adapter = _browserAdapter;
     final String body;
@@ -931,18 +984,25 @@ class MissavClient extends ChangeNotifier {
       try {
         body = await adapter.loadDocument(
           uri,
-          cancelToken: _sessionCancelToken,
+          cancelToken: cancelToken ?? _sessionCancelToken,
         );
       } on DioException catch (error) {
         _checkGeneration(generation, uri);
         if (error.error is MissavException) throw error.error!;
+        if (error.type == DioExceptionType.cancel) rethrow;
         throw MissavException(
           'MissAV browser navigation failed (${error.type.name}).',
           sourceUrl: uri.toString(),
         );
       }
     } else {
-      body = (await _request(uri, generation: generation)).data as String;
+      body =
+          (await _request(
+                uri,
+                generation: generation,
+                cancelToken: cancelToken,
+              )).data
+              as String;
     }
     _checkGeneration(generation, uri);
     return _parsePage(body, uri);
@@ -953,10 +1013,11 @@ class MissavClient extends ChangeNotifier {
     String method = 'GET',
     Object? data,
     int? generation,
+    CancelToken? cancelToken,
   }) async {
     if (generation == null) await _prepareOnlineAccess();
     final requestGeneration = generation ?? _sessionGeneration;
-    final requestCancelToken = _sessionCancelToken;
+    final requestCancelToken = cancelToken ?? _sessionCancelToken;
     var requestUri = _sourceUri(uri.toString());
     var requestMethod = method;
     var requestData = data;
@@ -999,6 +1060,7 @@ class MissavClient extends ChangeNotifier {
         );
       } on DioException catch (error) {
         _checkGeneration(requestGeneration, requestUri);
+        if (error.type == DioExceptionType.cancel) rethrow;
         final wrappedError = error.error;
         if (wrappedError is MissavVerificationRequiredException) {
           throw wrappedError;
@@ -1202,6 +1264,9 @@ class MissavClient extends ChangeNotifier {
 
   int _advanceSessionGeneration() {
     _sessionCancelToken.cancel('MissAV account changed.');
+    for (final cancelRequest in _cancelBrowseRequests.toList()) {
+      cancelRequest();
+    }
     _sessionCancelToken = CancelToken();
     return ++_sessionGeneration;
   }

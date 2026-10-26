@@ -503,6 +503,67 @@ void main() {
     }
   });
 
+  testWidgets('visible cover reports follow layout and resized viewport', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    final videos = [
+      for (var index = 0; index < 24; index++)
+        VideoItem(
+          id: 'visible-$index',
+          title: 'Visible video $index',
+          pageUrl: 'https://missav.ai/en/visible-$index',
+        ),
+    ];
+
+    for (final layout in LayoutType.values) {
+      tester.view.physicalSize = const Size(360, 800);
+      final reports = <({List<String> ids, int? cacheWidth})>[];
+      Widget collection() => _app(
+        SizedBox.expand(
+          child: VideoCollectionView<VideoItem>(
+            items: videos,
+            layoutType: layout,
+            itemId: (video) => video.id,
+            itemBuilder: (_, video, _) =>
+                VideoCard(video: video, layoutType: layout, onTap: null),
+            controller: controller,
+            pageStorageKey: PageStorageKey<String>('visible-$layout'),
+            emptyBuilder: (_) => const SizedBox.shrink(),
+            onVisibleItemsChanged: (items, cacheWidth) => reports.add((
+              ids: items.map((video) => video.id).toList(),
+              cacheWidth: cacheWidth,
+            )),
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(collection());
+      await tester.pump();
+      expect(reports, isNotEmpty, reason: '$layout initial viewport');
+      final initial = reports.last;
+      expect(initial.ids, isNotEmpty);
+      expect(initial.ids.length, lessThan(videos.length));
+      expect(initial.cacheWidth, greaterThan(0));
+
+      tester.view.physicalSize = const Size(840, 360);
+      await tester.pumpWidget(collection());
+      await tester.pump();
+      expect(reports.length, greaterThan(1), reason: '$layout resize');
+      final resized = reports.last;
+      expect(resized.ids, isNotEmpty);
+      expect(resized.ids.length, lessThan(videos.length));
+      if (layout != LayoutType.list) {
+        expect(resized.cacheWidth, isNot(initial.cacheWidth));
+      }
+    }
+  });
+
   testWidgets('writes the video card layout preview', (tester) async {
     final fonts =
         '${File(Platform.resolvedExecutable).parent.parent.parent.path}/material_fonts';

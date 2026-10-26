@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -23,6 +24,14 @@ import 'video_collection_view.dart';
 import 'video_details_screen.dart';
 import 'video_downloads_screen.dart';
 import 'video_search_screen.dart';
+
+typedef _VideoPageCacheKey = ({
+  String url,
+  String locale,
+  int sessionGeneration,
+  bool isLoggedIn,
+  String? accountName,
+});
 
 class VideoScreen extends ConsumerStatefulWidget {
   const VideoScreen({super.key, this.active = true}) : initialUrl = null;
@@ -64,6 +73,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     'fil',
     'pt',
   };
+  static const _maxCachedPages = 4;
 
   late final MissavClient _client;
   late final VideoLibrary _library;
@@ -78,12 +88,29 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   bool _dependenciesReady = false;
   bool _accountWasLoggedIn = false;
   String? _accountName;
+  String? _loadingUrl;
   String? _pendingAccountReloadUrl;
   ModalRoute<dynamic>? _route;
   final ScrollController _scrollController = ScrollController();
+  final ScrollController _stagingScrollController = ScrollController();
+  final Map<_VideoPageCacheKey, VideoCatalogPage> _pageCache = {};
+  final Set<String> _stagingVisibleVideoIds = {};
+  final Set<VideoCoverImageKey> _stagingReadyCovers = {};
+  final Set<VideoCoverImageKey> _stagingFailedCovers = {};
+  final Set<VideoCoverImageKey> _publishedFailedCovers = {};
+  CancelToken? _activeBrowseCancelToken;
+  VideoCatalogPage? _stagingPage;
+  Completer<void>? _stagingReadyCompleter;
+  int? _stagingRequest;
+  int? _stagingCacheWidth;
+  int _stagingRevision = 0;
+  bool _stagingMetadataReady = false;
+  bool _stagingVisibilityReported = false;
+  String? _publishedFailedPageUrl;
   String? _activeCollectionKey;
   String? _sourceLocaleTag;
   int _localPage = 1;
+  int _observedSessionGeneration = 0;
 
   @override
   void initState() {
@@ -93,6 +120,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _downloads = ref.read(videoDownloadsProvider);
     _accountWasLoggedIn = _client.isLoggedIn;
     _accountName = _client.accountName;
+    _observedSessionGeneration = _client.sessionGeneration;
     _client.addListener(_onClientChanged);
     if (widget.active) _scheduleInitialize();
   }
@@ -131,13 +159,27 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     final changed = _client.setLocale(languageTag);
     if (!changed || !_dependenciesReady) return;
     final url =
+        _loadingUrl ??
         _page?.url ??
         _pendingAccountReloadUrl ??
         widget.initialUrl ??
         _client.homeUrl;
+    _request++;
+    final activeBrowseCancelToken = _activeBrowseCancelToken;
+    if (activeBrowseCancelToken != null &&
+        !activeBrowseCancelToken.isCancelled) {
+      activeBrowseCancelToken.cancel('Video source language changed.');
+    }
+    _page = null;
+    _loadingUrl = null;
+    _publishedFailedPageUrl = null;
+    _publishedFailedCovers.clear();
+    _discardStaging();
+    _loading = false;
+    _error = null;
+    _verificationError = null;
     if (!widget.active) {
       _pendingAccountReloadUrl = url;
-      _page = null;
       return;
     }
     if (ModalRoute.of(context)?.isCurrent == false) {
@@ -190,27 +232,44 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
   void _onClientChanged() {
     final isLoggedIn = _client.isLoggedIn;
     final accountName = _client.accountName;
-    if (isLoggedIn == _accountWasLoggedIn && accountName == _accountName) {
+    final sessionGeneration = _client.sessionGeneration;
+    final sessionChanged = sessionGeneration != _observedSessionGeneration;
+    if (isLoggedIn == _accountWasLoggedIn &&
+        accountName == _accountName &&
+        !sessionChanged) {
       return;
     }
     _accountWasLoggedIn = isLoggedIn;
     _accountName = accountName;
+    _observedSessionGeneration = sessionGeneration;
     if (!mounted) return;
 
     final url =
+        _loadingUrl ??
         _pendingAccountReloadUrl ??
         _page?.url ??
         widget.initialUrl ??
         _client.homeUrl;
-    if (_activeCollectionKey == null && _collectionKeyForUrl(url) == null) {
+    if (_activeCollectionKey == null &&
+        _collectionKeyForUrl(url) == null &&
+        !sessionChanged) {
       setState(() {});
       return;
     }
     final covered = ModalRoute.of(context)?.isCurrent == false;
-    if (_loading && !covered) return;
+    if (_loading && !covered && !sessionChanged) return;
     _request++;
+    _loadingUrl = null;
+    final activeBrowseCancelToken = _activeBrowseCancelToken;
+    if (activeBrowseCancelToken != null &&
+        !activeBrowseCancelToken.isCancelled) {
+      activeBrowseCancelToken.cancel('Video source account changed.');
+    }
     setState(() {
       _page = null;
+      _publishedFailedPageUrl = null;
+      _publishedFailedCovers.clear();
+      _discardStaging();
       _error = null;
       _verificationError = null;
       _retryRequest = null;
@@ -232,6 +291,217 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     unawaited(_loadUrl(url));
   }
 
+  _VideoPageCacheKey _pageCacheKey(String url) => (
+    url: url,
+    locale: _sourceLocaleTag ?? Localizations.localeOf(context).toLanguageTag(),
+    sessionGeneration: _client.sessionGeneration,
+    isLoggedIn: _client.isLoggedIn,
+    accountName: _client.accountName,
+  );
+
+  VideoCatalogPage? _takeCachedPage(String url) {
+    final key = _pageCacheKey(url);
+    final page = _pageCache.remove(key);
+    if (page != null) _pageCache[key] = page;
+    return page;
+  }
+
+  void _rememberPage(String url, VideoCatalogPage page) {
+    final key = _pageCacheKey(url);
+    _pageCache.remove(key);
+    _pageCache[key] = page;
+    if (_pageCache.length > _maxCachedPages) {
+      _pageCache.remove(_pageCache.keys.first);
+    }
+  }
+
+  List<VideoItem> _stagingVideos(VideoCatalogPage page) {
+    if (_collectionLinksForContent(page).isNotEmpty) return const [];
+    final pageSize = ref.read(pageSizeProvider);
+    final hasSourcePagination =
+        page.previousUrl != null ||
+        page.nextUrl != null ||
+        page.jumpMaxPage != null;
+    if (!hasSourcePagination && page.videos.length > pageSize) {
+      return page.videos.take(pageSize).toList(growable: false);
+    }
+    return page.videos;
+  }
+
+  void _resetStaging(
+    int request,
+    VideoCatalogPage page, {
+    required bool metadataReady,
+    Set<VideoCoverImageKey> failedCovers = const {},
+  }) {
+    final previous = _stagingReadyCompleter;
+    if (previous != null && !previous.isCompleted) previous.complete();
+    if (_stagingScrollController.hasClients) {
+      _stagingScrollController.jumpTo(0);
+    }
+    _stagingRequest = request;
+    _stagingRevision++;
+    _stagingPage = page;
+    _stagingMetadataReady = metadataReady;
+    _stagingCacheWidth = null;
+    _stagingVisibleVideoIds.clear();
+    _stagingReadyCovers.clear();
+    _stagingFailedCovers
+      ..clear()
+      ..addAll(failedCovers);
+    _stagingVisibilityReported = _stagingVideos(page).isEmpty;
+    _stagingReadyCompleter = Completer<void>();
+  }
+
+  void _setStagingPage(
+    int request,
+    VideoCatalogPage page, {
+    required bool metadataReady,
+  }) {
+    if (!mounted || request != _request) return;
+    setState(() {
+      _resetStaging(request, page, metadataReady: metadataReady);
+    });
+    _checkStagingReady();
+  }
+
+  void _discardStaging() {
+    final previous = _stagingReadyCompleter;
+    if (previous != null && !previous.isCompleted) previous.complete();
+    _stagingRequest = null;
+    _stagingPage = null;
+    _stagingMetadataReady = false;
+    _stagingCacheWidth = null;
+    _stagingVisibleVideoIds.clear();
+    _stagingReadyCovers.clear();
+    _stagingFailedCovers.clear();
+    _stagingVisibilityReported = false;
+    _stagingReadyCompleter = null;
+  }
+
+  void _updateStagingPage(
+    int request,
+    VideoCatalogPage page, {
+    required bool metadataReady,
+  }) {
+    if (!mounted || request != _request || _stagingRequest != request) return;
+    final hasVideos = _stagingVideos(page).isNotEmpty;
+    setState(() {
+      _stagingRevision++;
+      _stagingPage = page;
+      _stagingMetadataReady = metadataReady;
+      _stagingVisibleVideoIds.clear();
+      _stagingVisibilityReported = !hasVideos;
+    });
+    _checkStagingReady();
+  }
+
+  void _onStagingCacheWidthChanged(int request, int? cacheWidth) {
+    if (request != _stagingRequest || _stagingCacheWidth == cacheWidth) return;
+    _stagingCacheWidth = cacheWidth;
+    _stagingVisibleVideoIds.clear();
+    _stagingReadyCovers.clear();
+    _stagingVisibilityReported = false;
+  }
+
+  void _onStagingVisibleItemsChanged(
+    int request,
+    List<VideoItem> items,
+    int? cacheWidth,
+  ) {
+    if (request != _stagingRequest) return;
+    _onStagingCacheWidthChanged(request, cacheWidth);
+    _stagingVisibleVideoIds
+      ..clear()
+      ..addAll(items.map((item) => item.id));
+    _stagingVisibilityReported = true;
+    _checkStagingReady();
+  }
+
+  void _onStagingCoverTerminal(
+    int request,
+    VideoCoverImageKey key, {
+    required bool failed,
+  }) {
+    if (request != _stagingRequest) return;
+    _stagingReadyCovers.add(key);
+    if (failed) {
+      _stagingFailedCovers.add(key);
+    } else {
+      _stagingFailedCovers.remove(key);
+    }
+    _checkStagingReady();
+  }
+
+  void _onPublishedCoverTerminal(
+    String pageUrl,
+    VideoCoverImageKey key, {
+    required bool failed,
+  }) {
+    if (_publishedFailedPageUrl != pageUrl) return;
+    if (failed) {
+      _publishedFailedCovers.add(key);
+    } else {
+      _publishedFailedCovers.remove(key);
+    }
+    if (_stagingPage?.url == pageUrl) {
+      _stagingReadyCovers.add(key);
+      if (failed) {
+        _stagingFailedCovers.add(key);
+      } else {
+        _stagingFailedCovers.remove(key);
+      }
+      _checkStagingReady();
+    }
+  }
+
+  void _onPublishedCoverRetry(String pageUrl, VideoCoverImageKey key) {
+    if (_publishedFailedPageUrl == pageUrl) _publishedFailedCovers.remove(key);
+    if (_stagingPage?.url == pageUrl) {
+      _stagingFailedCovers.remove(key);
+      _stagingReadyCovers.remove(key);
+    }
+  }
+
+  void _publishStagingFailures(VideoCatalogPage page) {
+    _publishedFailedPageUrl = page.url;
+    _publishedFailedCovers
+      ..clear()
+      ..addAll(_stagingFailedCovers);
+  }
+
+  void _checkStagingReady() {
+    final page = _stagingPage;
+    final completer = _stagingReadyCompleter;
+    if (page == null ||
+        completer == null ||
+        completer.isCompleted ||
+        !_stagingMetadataReady ||
+        !_stagingVisibilityReported) {
+      return;
+    }
+    final videosById = {
+      for (final video in _stagingVideos(page)) video.id: video,
+    };
+    for (final id in _stagingVisibleVideoIds) {
+      final video = videosById[id];
+      if (video == null || video.cover.isEmpty) continue;
+      if (!_stagingReadyCovers.contains((
+        videoId: video.id,
+        url: video.cover,
+        cacheWidth: _stagingCacheWidth,
+      ))) {
+        return;
+      }
+    }
+    completer.complete();
+  }
+
+  Future<void> _waitForStaging(int request) async {
+    if (_stagingRequest != request) return;
+    await _stagingReadyCompleter?.future;
+  }
+
   Future<void> _loadUrl(
     String url, {
     String? collectionKey,
@@ -243,29 +513,141 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       _activeCollectionKey = _collectionKeyForUrl(url);
     }
     final request = ++_request;
+    _loadingUrl = url;
+    final previousBrowseCancelToken = _activeBrowseCancelToken;
+    if (previousBrowseCancelToken != null &&
+        !previousBrowseCancelToken.isCancelled) {
+      previousBrowseCancelToken.cancel('Superseded by a newer directory.');
+    }
+    final cancelToken = CancelToken();
+    _activeBrowseCancelToken = cancelToken;
+    final cachedPage = _takeCachedPage(url);
+    final cachedFailures =
+        cachedPage != null && _publishedFailedPageUrl == cachedPage.url
+        ? Set<VideoCoverImageKey>.of(_publishedFailedCovers)
+        : const <VideoCoverImageKey>{};
     _retryRequest = () => _loadUrl(url);
     setState(() {
       _loading = true;
       _error = null;
       _verificationError = null;
+      _discardStaging();
+      if (cachedPage != null) {
+        _resetStaging(
+          request,
+          cachedPage,
+          metadataReady: true,
+          failedCovers: cachedFailures,
+        );
+      }
     });
-    try {
-      final page = await _client.browse(url);
+    if (cachedPage != null) _checkStagingReady();
+
+    var cacheDisplayed = false;
+    VideoCatalogPage? parsedPage;
+    void onParsed(VideoCatalogPage page) {
       if (!mounted || request != _request) return;
+      parsedPage = page;
+      if (cachedPage == null || cacheDisplayed) {
+        _setStagingPage(request, page, metadataReady: false);
+      }
+    }
+
+    VideoCatalogPage? refreshedPage;
+    Object? refreshError;
+    StackTrace? refreshTrace;
+    final browseFuture = _client
+        .browse(url, cancelToken: cancelToken, onParsed: onParsed)
+        .then<void>(
+          (page) {
+            refreshedPage = page;
+          },
+          onError: (Object error, StackTrace trace) {
+            refreshError = error;
+            refreshTrace = trace;
+          },
+        );
+
+    try {
+      if (cachedPage != null) {
+        await _waitForStaging(request);
+        if (!mounted || request != _request) return;
+        cacheDisplayed = true;
+        setState(() {
+          _publishStagingFailures(cachedPage);
+          _page = cachedPage;
+          _localPage = 1;
+          _loading = refreshError == null;
+          if (refreshError != null) _recordError(refreshError!);
+          _discardStaging();
+          if (refreshError == null) {
+            final stagingPage = refreshedPage ?? parsedPage;
+            if (stagingPage != null) {
+              _resetStaging(
+                request,
+                stagingPage,
+                metadataReady: refreshedPage != null,
+                failedCovers: Set<VideoCoverImageKey>.of(
+                  _publishedFailedCovers,
+                ),
+              );
+            }
+          }
+        });
+        if (_scrollController.hasClients) _scrollController.jumpTo(0);
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted || request != _request) return;
+        if (refreshError != null) return;
+      }
+
+      await browseFuture;
+      if (!mounted || request != _request) return;
+      if (refreshError != null) {
+        if (cachedPage != null) {
+          setState(() {
+            _loading = false;
+            _recordError(refreshError!);
+            _discardStaging();
+          });
+          return;
+        }
+        Error.throwWithStackTrace(refreshError!, refreshTrace!);
+      }
+      final page = refreshedPage;
+      if (page == null) return;
+      if (_stagingRequest == request) {
+        _updateStagingPage(request, page, metadataReady: true);
+      } else {
+        _setStagingPage(request, page, metadataReady: true);
+      }
+      await _waitForStaging(request);
+      if (!mounted || request != _request) return;
+      final preserveScroll = cacheDisplayed && _page?.url == page.url;
       setState(() {
+        _publishStagingFailures(page);
         _page = page;
-        _localPage = 1;
+        if (!preserveScroll) _localPage = 1;
         _loading = false;
         _error = null;
         _verificationError = null;
+        _discardStaging();
       });
-      if (_scrollController.hasClients) _scrollController.jumpTo(0);
+      _rememberPage(url, page);
+      if (!preserveScroll && _scrollController.hasClients) {
+        _scrollController.jumpTo(0);
+      }
     } catch (error) {
       if (!mounted || request != _request) return;
       setState(() {
         _loading = false;
         _recordError(error);
+        _discardStaging();
       });
+    } finally {
+      if (identical(_activeBrowseCancelToken, cancelToken)) {
+        _activeBrowseCancelToken = null;
+      }
+      if (request == _request && _loadingUrl == url) _loadingUrl = null;
     }
   }
 
@@ -870,51 +1252,59 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
 
   Widget _content(S s, LayoutType layoutType) {
     if (_loading && _page == null) {
-      return const Center(child: CircularProgressIndicator());
+      return _withStaging(
+        const Center(child: CircularProgressIndicator()),
+        s,
+        layoutType,
+      );
     }
     if (_error != null && _page == null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(_errorMessage(s), textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 8,
-                children: [
-                  FilledButton.icon(
-                    onPressed: _retryCurrentPage,
-                    icon: const Icon(Icons.refresh),
-                    label: Text(s.retry),
-                  ),
-                  if (_verificationError != null)
+      return _withStaging(
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(_errorMessage(s), textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 8,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: _retryCurrentPage,
+                      icon: const Icon(Icons.refresh),
+                      label: Text(s.retry),
+                    ),
+                    if (_verificationError != null)
+                      OutlinedButton.icon(
+                        onPressed: _verifyAndRetry,
+                        icon: const Icon(Icons.verified_user_outlined),
+                        label: Text(s.videoVerifyAccess),
+                      ),
                     OutlinedButton.icon(
-                      onPressed: _verifyAndRetry,
-                      icon: const Icon(Icons.verified_user_outlined),
-                      label: Text(s.videoVerifyAccess),
+                      onPressed: () => unawaited(
+                        _openSource(widget.initialUrl ?? _client.homeUrl),
+                      ),
+                      icon: const Icon(Icons.open_in_new),
+                      label: Text(s.videoOpenSource),
                     ),
-                  OutlinedButton.icon(
-                    onPressed: () => unawaited(
-                      _openSource(widget.initialUrl ?? _client.homeUrl),
-                    ),
-                    icon: const Icon(Icons.open_in_new),
-                    label: Text(s.videoOpenSource),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
+        s,
+        layoutType,
       );
     }
     final page = _page;
-    if (page == null) return const SizedBox.shrink();
-    final collectionLinks = _loading
-        ? const <VideoLink>[]
-        : _collectionLinksForContent(page);
+    if (page == null) {
+      return _withStaging(const SizedBox.shrink(), s, layoutType);
+    }
+    final collectionLinks = _collectionLinksForContent(page);
     final pageSize = ref.watch(pageSizeProvider);
     final hasSourcePagination =
         page.previousUrl != null ||
@@ -972,89 +1362,156 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
       showWhenEmpty: true,
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
     );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return Column(
-          children: [
-            if (_loading) const LinearProgressIndicator(minHeight: 2),
-            if (_error != null)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                child: Material(
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Padding(
-                    padding: const EdgeInsets.all(10),
-                    child: Wrap(
-                      alignment: WrapAlignment.spaceBetween,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 8,
-                      runSpacing: 4,
-                      children: [
-                        ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: constraints.maxWidth - 120,
+    return _withStaging(
+      LayoutBuilder(
+        builder: (context, constraints) {
+          return Column(
+            children: [
+              if (_loading) const LinearProgressIndicator(minHeight: 2),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: Material(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: constraints.maxWidth - 120,
+                            ),
+                            child: Text(_errorMessage(s)),
                           ),
-                          child: Text(_errorMessage(s)),
-                        ),
-                        TextButton(
-                          onPressed: _retryCurrentPage,
-                          child: Text(s.retry),
-                        ),
-                        if (_verificationError != null)
-                          TextButton.icon(
-                            onPressed: _verifyAndRetry,
-                            icon: const Icon(Icons.verified_user_outlined),
-                            label: Text(s.videoVerifyAccess),
+                          TextButton(
+                            onPressed: _retryCurrentPage,
+                            child: Text(s.retry),
                           ),
-                        TextButton(
-                          onPressed: () => unawaited(_openSource(page.url)),
-                          child: Text(s.videoOpenSource),
-                        ),
-                      ],
+                          if (_verificationError != null)
+                            TextButton.icon(
+                              onPressed: _verifyAndRetry,
+                              icon: const Icon(Icons.verified_user_outlined),
+                              label: Text(s.videoVerifyAccess),
+                            ),
+                          TextButton(
+                            onPressed: () => unawaited(_openSource(page.url)),
+                            child: Text(s.videoOpenSource),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-            Expanded(
-              child: collectionLinks.isNotEmpty
-                  ? VirtualizedSliverCollection<VideoLink>(
-                      items: hasLocalPagination
-                          ? collectionLinks
-                                .skip((localPage - 1) * pageSize)
-                                .take(pageSize)
-                                .toList(growable: false)
-                          : collectionLinks,
-                      itemId: (link) => link.url,
-                      itemBuilder: (context, link, _) =>
-                          _collectionLinkTile(link),
-                      controller: _scrollController,
-                      pageStorageKey: PageStorageKey<String>(
-                        'video-links-${page.url}',
-                      ),
-                      pagination: pagination,
-                    )
-                  : VideoCollectionView(
-                      items: videos,
-                      layoutType: layoutType,
-                      itemId: (video) => video.id,
-                      itemBuilder: (context, video, _) => VideoCard(
-                        video: video,
+              Expanded(
+                child: collectionLinks.isNotEmpty
+                    ? VirtualizedSliverCollection<VideoLink>(
+                        items: hasLocalPagination
+                            ? collectionLinks
+                                  .skip((localPage - 1) * pageSize)
+                                  .take(pageSize)
+                                  .toList(growable: false)
+                            : collectionLinks,
+                        itemId: (link) => link.url,
+                        itemBuilder: (context, link, _) =>
+                            _collectionLinkTile(link),
+                        controller: _scrollController,
+                        pageStorageKey: PageStorageKey<String>(
+                          'video-links-${page.url}',
+                        ),
+                        pagination: pagination,
+                      )
+                    : VideoCollectionView(
+                        items: videos,
                         layoutType: layoutType,
-                        onTap: () => _openDetails(video),
-                        onOpenLink: _openCatalog,
+                        itemId: (video) => video.id,
+                        itemBuilder: (context, video, _) => VideoCard(
+                          video: video,
+                          layoutType: layoutType,
+                          onTap: () => _openDetails(video),
+                          onOpenLink: _openCatalog,
+                          failedCoverKeys: _publishedFailedPageUrl == page.url
+                              ? _publishedFailedCovers
+                              : const {},
+                          onCoverTerminal: (key, {required failed}) =>
+                              _onPublishedCoverTerminal(
+                                page.url,
+                                key,
+                                failed: failed,
+                              ),
+                          onCoverRetry: (key) =>
+                              _onPublishedCoverRetry(page.url, key),
+                        ),
+                        controller: _scrollController,
+                        pageStorageKey: PageStorageKey<String>(
+                          'video-${page.url}',
+                        ),
+                        emptyBuilder: (_) => Center(child: Text(s.noResults)),
+                        pagination: pagination,
                       ),
-                      controller: _scrollController,
-                      pageStorageKey: PageStorageKey<String>(
-                        'video-${page.url}',
-                      ),
-                      emptyBuilder: (_) => Center(child: Text(s.noResults)),
-                      pagination: pagination,
-                    ),
+              ),
+            ],
+          );
+        },
+      ),
+      s,
+      layoutType,
+    );
+  }
+
+  Widget _withStaging(Widget content, S s, LayoutType layoutType) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        content,
+        if (_stagingPage != null)
+          Visibility(
+            visible: false,
+            maintainState: true,
+            maintainAnimation: true,
+            maintainSize: true,
+            child: _stagingContent(s, layoutType),
+          ),
+      ],
+    );
+  }
+
+  Widget _stagingContent(S s, LayoutType layoutType) {
+    final page = _stagingPage;
+    final request = _stagingRequest;
+    if (page == null || request == null) return const SizedBox.shrink();
+    final videos = _stagingVideos(page);
+    return Column(
+      children: [
+        Expanded(
+          child: VideoCollectionView<VideoItem>(
+            items: videos,
+            layoutType: layoutType,
+            itemId: (video) => video.id,
+            itemBuilder: (_, video, _) => VideoCard(
+              video: video,
+              layoutType: layoutType,
+              onTap: null,
+              onCoverTerminal: (key, {required failed}) =>
+                  _onStagingCoverTerminal(request, key, failed: failed),
+              failedCoverKeys: _stagingFailedCovers,
             ),
-          ],
-        );
-      },
+            controller: _stagingScrollController,
+            pageStorageKey: PageStorageKey<String>(
+              'video-staging-$request-$_stagingRevision-${page.url}',
+            ),
+            emptyBuilder: (_) => Center(child: Text(s.noResults)),
+            onVisibleItemsChanged: (items, cacheWidth) =>
+                _onStagingVisibleItemsChanged(request, items, cacheWidth),
+            onCoverCacheWidthChanged: (cacheWidth) =>
+                _onStagingCacheWidthChanged(request, cacheWidth),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1096,7 +1553,14 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     _client.removeListener(_onClientChanged);
     _route?.secondaryAnimation?.removeStatusListener(_onRouteStatusChanged);
     _request++;
+    final activeBrowseCancelToken = _activeBrowseCancelToken;
+    if (activeBrowseCancelToken != null &&
+        !activeBrowseCancelToken.isCancelled) {
+      activeBrowseCancelToken.cancel('Video screen was disposed.');
+    }
+    _discardStaging();
     _scrollController.dispose();
+    _stagingScrollController.dispose();
     super.dispose();
   }
 }

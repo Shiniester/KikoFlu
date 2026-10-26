@@ -468,6 +468,104 @@ void main() {
     },
   );
 
+  test('reports parsed covers before the complete metadata result', () async {
+    final metadataStarted = Completer<void>();
+    final metadataResponse = Completer<ResponseBody>();
+    final parsed = Completer<VideoCatalogPage>();
+    final client = MissavClient(
+      dio: Dio()
+        ..httpClientAdapter = _Adapter(
+          (_) => _response(_searchCatalogHtml(['alpha'])),
+        ),
+      metadataDio: Dio()
+        ..httpClientAdapter = _Adapter((_) {
+          metadataStarted.complete();
+          return metadataResponse.future;
+        }),
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+    var finished = false;
+    final loading = client
+        .browse('https://missav.ai/cn', onParsed: parsed.complete)
+        .then((page) {
+          finished = true;
+          return page;
+        });
+    final preview = await parsed.future;
+    await metadataStarted.future;
+    expect(preview.videos.single.cover, 'https://media.example/alpha.jpg');
+    expect(preview.videos.single.actors, isEmpty);
+    expect(finished, isFalse);
+
+    metadataResponse.complete(
+      _metadataResponse({
+        'recomms': [
+          {
+            'id': 'alpha',
+            'values': {
+              'actresses': ['Actress A'],
+              'duration': 120,
+            },
+          },
+        ],
+      }),
+    );
+    final page = await loading;
+    expect(page.videos.single.actors.single.label, 'Actress A');
+    expect(page.videos.single.durationSeconds, 120);
+  });
+
+  for (final cancelMetadata in [false, true]) {
+    test(
+      'cancels a directory during ${cancelMetadata ? 'metadata' : 'HTML'} loading',
+      () async {
+        final started = Completer<void>();
+        final response = Completer<ResponseBody>();
+        final sourcePage = _response(_searchCatalogHtml(['alpha']));
+        final client = MissavClient(
+          dio: Dio()
+            ..httpClientAdapter = _Adapter((_) {
+              if (cancelMetadata) return sourcePage;
+              started.complete();
+              return response.future;
+            }),
+          metadataDio: Dio()
+            ..httpClientAdapter = _Adapter((_) {
+              started.complete();
+              return response.future;
+            }),
+          secureStorage: _MemorySecureStorage(),
+        );
+        addTearDown(client.dispose);
+        final cancelToken = CancelToken();
+        var parsedCount = 0;
+        final loading = client.browse(
+          'https://missav.ai/cn',
+          cancelToken: cancelToken,
+          onParsed: (_) => parsedCount++,
+        );
+        final cancelled = expectLater(
+          loading,
+          throwsA(
+            isA<DioException>().having(
+              (error) => error.type,
+              'type',
+              DioExceptionType.cancel,
+            ),
+          ),
+        );
+        await started.future;
+        cancelToken.cancel('A newer directory was selected.');
+        response.complete(
+          cancelMetadata ? _metadataResponse({'recomms': []}) : sourcePage,
+        );
+        await cancelled;
+        expect(parsedCount, cancelMetadata ? 1 : 0);
+      },
+    );
+  }
+
   test(
     'metadata failure preserves source cards and empty catalogs make no metadata call',
     () async {
@@ -519,8 +617,47 @@ void main() {
       final stale = expectLater(browsing, throwsA(isA<MissavException>()));
       await started.future;
       await client.logout();
+      expect(metadata.requests.single.cancelToken!.isCancelled, isTrue);
       response.complete(_metadataResponse({'recomms': []}));
       await stale;
+    },
+  );
+
+  test(
+    'session changes cancel remaining browses sharing a request token',
+    () async {
+      final slowStarted = Completer<void>();
+      final slowResponse = Completer<ResponseBody>();
+      final client = MissavClient(
+        dio: Dio()
+          ..httpClientAdapter = _Adapter((request) {
+            if (request.uri.path.endsWith('/slow')) {
+              slowStarted.complete();
+              return slowResponse.future;
+            }
+            return _response('<main></main>');
+          }),
+        metadataDio: _emptyMetadataDio(),
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+      final cancelToken = CancelToken();
+      final slow = client.browse(
+        'https://missav.ai/cn/slow',
+        cancelToken: cancelToken,
+      );
+      final rejected = expectLater(slow, throwsA(isA<MissavException>()));
+      await slowStarted.future;
+      await client.browse(
+        'https://missav.ai/cn/fast',
+        cancelToken: cancelToken,
+      );
+      expect(cancelToken.isCancelled, isFalse);
+
+      await client.logout();
+      expect(cancelToken.isCancelled, isTrue);
+      slowResponse.complete(_response('<main></main>'));
+      await rejected;
     },
   );
 

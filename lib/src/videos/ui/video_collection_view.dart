@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -9,6 +11,14 @@ import '../../utils/string_utils.dart';
 import '../../widgets/virtualized_sliver_collection.dart';
 import '../video_card_display_provider.dart';
 import '../video_models.dart';
+
+typedef VideoCoverImageKey = ({String videoId, String url, int? cacheWidth});
+
+typedef VideoCoverImageCallback =
+    void Function(VideoCoverImageKey key, {required bool failed});
+typedef VideoCoverRetryCallback = void Function(VideoCoverImageKey key);
+typedef VideoVisibleItemsChanged<T> =
+    void Function(List<T> items, int? coverCacheWidth);
 
 class VideoCollectionView<T> extends StatelessWidget {
   const VideoCollectionView({
@@ -22,6 +32,8 @@ class VideoCollectionView<T> extends StatelessWidget {
     required this.emptyBuilder,
     this.pagination,
     this.padding = const EdgeInsets.fromLTRB(12, 8, 12, 12),
+    this.onVisibleItemsChanged,
+    this.onCoverCacheWidthChanged,
   });
 
   final List<T> items;
@@ -33,6 +45,8 @@ class VideoCollectionView<T> extends StatelessWidget {
   final WidgetBuilder emptyBuilder;
   final VirtualizedPagination? pagination;
   final EdgeInsetsGeometry padding;
+  final VideoVisibleItemsChanged<T>? onVisibleItemsChanged;
+  final ValueChanged<int?>? onCoverCacheWidthChanged;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -48,8 +62,18 @@ class VideoCollectionView<T> extends StatelessWidget {
             : MediaQuery.sizeOf(context).height,
       );
       final isGrid = layoutType != LayoutType.list;
+      final coverWidth = isGrid
+          ? (constraints.maxWidth -
+                    metrics.padding.horizontal -
+                    metrics.spacing * (metrics.crossAxisCount - 1)) /
+                metrics.crossAxisCount
+          : collectionListCoverSize.width;
+      final coverCacheWidth = _videoCoverCacheWidth(context, coverWidth);
+      onCoverCacheWidthChanged?.call(coverCacheWidth);
       return VirtualizedSliverCollection<T>(
-        key: pageStorageKey,
+        key: onVisibleItemsChanged == null
+            ? pageStorageKey
+            : ValueKey('${pageStorageKey.value}-$coverCacheWidth'),
         items: items,
         itemId: itemId,
         itemBuilder: itemBuilder,
@@ -65,6 +89,11 @@ class VideoCollectionView<T> extends StatelessWidget {
         showEndIndicator: false,
         emptyBuilder: emptyBuilder,
         pagination: pagination,
+        onVisibleItemsChanged: onVisibleItemsChanged == null
+            ? null
+            : (items) => onVisibleItemsChanged!([
+                for (final item in items) item.item,
+              ], coverCacheWidth),
       );
     },
   );
@@ -78,6 +107,9 @@ class VideoCard extends ConsumerWidget {
     required this.onTap,
     this.subtitle,
     this.onOpenLink,
+    this.onCoverTerminal,
+    this.failedCoverKeys = const {},
+    this.onCoverRetry,
   });
 
   final VideoItem video;
@@ -85,6 +117,9 @@ class VideoCard extends ConsumerWidget {
   final VoidCallback? onTap;
   final String? subtitle;
   final ValueChanged<VideoLink>? onOpenLink;
+  final VideoCoverImageCallback? onCoverTerminal;
+  final Set<VideoCoverImageKey> failedCoverKeys;
+  final VideoCoverRetryCallback? onCoverRetry;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -133,7 +168,12 @@ class VideoCard extends ConsumerWidget {
                       children: [
                         SizedBox.fromSize(
                           size: collectionListCoverSize,
-                          child: VideoCover(video: video),
+                          child: VideoCover(
+                            video: video,
+                            onImageTerminal: onCoverTerminal,
+                            failedImageKeys: failedCoverKeys,
+                            onImageRetry: onCoverRetry,
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -161,7 +201,12 @@ class VideoCard extends ConsumerWidget {
                     children: [
                       AspectRatio(
                         aspectRatio: collectionCoverAspectRatio,
-                        child: VideoCover(video: video),
+                        child: VideoCover(
+                          video: video,
+                          onImageTerminal: onCoverTerminal,
+                          failedImageKeys: failedCoverKeys,
+                          onImageRetry: onCoverRetry,
+                        ),
                       ),
                       Padding(
                         padding: const EdgeInsets.all(8),
@@ -366,14 +411,75 @@ class VideoDurationInfo extends ConsumerWidget {
   }
 }
 
-class VideoCover extends ConsumerWidget {
-  const VideoCover({super.key, required this.video});
+class VideoCover extends ConsumerStatefulWidget {
+  const VideoCover({
+    super.key,
+    required this.video,
+    this.onImageTerminal,
+    this.failedImageKeys = const {},
+    this.onImageRetry,
+  });
 
   final VideoItem video;
+  final VideoCoverImageCallback? onImageTerminal;
+  final Set<VideoCoverImageKey> failedImageKeys;
+  final VideoCoverRetryCallback? onImageRetry;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => LayoutBuilder(
+  ConsumerState<VideoCover> createState() => _VideoCoverState();
+}
+
+class _VideoCoverState extends ConsumerState<VideoCover> {
+  static const _loadTimeout = Duration(seconds: 10);
+
+  final Set<VideoCoverImageKey> _reportedKeys = {};
+  Timer? _loadTimer;
+  VideoCoverImageKey? _loadingKey;
+  VideoCoverImageKey? _failedKey;
+  int _retryRevision = 0;
+
+  void _reportTerminal(VideoCoverImageKey key, {required bool failed}) {
+    if (_loadingKey != key) return;
+    _loadTimer?.cancel();
+    _loadTimer = null;
+    if (!_reportedKeys.add(key)) return;
+    widget.onImageTerminal?.call(key, failed: failed);
+  }
+
+  Widget _errorPlaceholder(
+    VideoItem video,
+    int? cacheWidth,
+    VideoCoverImageKey key,
+    S s,
+  ) => ColoredBox(
+    color: Colors.black12,
+    child: Center(
+      child: IconButton(
+        tooltip: s.retry,
+        onPressed: () async {
+          widget.onImageRetry?.call(key);
+          await ResizeImage.resizeIfNeeded(
+            cacheWidth,
+            null,
+            NetworkImage(video.cover),
+          ).evict();
+          if (!mounted) return;
+          setState(() {
+            _failedKey = null;
+            _reportedKeys.remove(key);
+            _retryRevision++;
+          });
+        },
+        icon: const Icon(Icons.refresh),
+        color: Colors.black54,
+      ),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
+      final video = widget.video;
       final showReleaseDate = ref.watch(
         videoCardDisplayProvider.select(
           (fields) => fields.contains(VideoCardField.releaseDate),
@@ -390,13 +496,9 @@ class VideoCover extends ConsumerWidget {
         ),
       );
       final compact = constraints.maxWidth < 120;
-      int? cacheWidth;
-      if (constraints.hasBoundedWidth) {
-        final displayWidth =
-            (constraints.maxWidth * MediaQuery.devicePixelRatioOf(context))
-                .ceil();
-        cacheWidth = displayWidth < 1 ? 1 : displayWidth;
-      }
+      final cacheWidth = constraints.hasBoundedWidth
+          ? _videoCoverCacheWidth(context, constraints.maxWidth)
+          : null;
       final isLandscape =
           MediaQuery.orientationOf(context) == Orientation.landscape;
       final inset = compact ? 2.0 : 6.0;
@@ -423,7 +525,7 @@ class VideoCover extends ConsumerWidget {
           key: ValueKey('video-cover-${video.id}'),
           fit: StackFit.expand,
           children: [
-            _image(cacheWidth),
+            _image(video, cacheWidth, s),
             Positioned(
               left: inset,
               right: inset,
@@ -483,18 +585,60 @@ class VideoCover extends ConsumerWidget {
     },
   );
 
-  Widget _image(int? cacheWidth) => video.cover.isEmpty
-      ? const ColoredBox(
-          color: Colors.black12,
-          child: Center(child: Icon(Icons.movie_outlined)),
-        )
-      : Image.network(
-          video.cover,
-          cacheWidth: cacheWidth,
-          fit: BoxFit.cover,
-          errorBuilder: (_, _, _) => const ColoredBox(
-            color: Colors.black12,
-            child: Center(child: Icon(Icons.movie_outlined)),
-          ),
-        );
+  Widget _image(VideoItem video, int? cacheWidth, S s) {
+    if (video.cover.isEmpty) {
+      _loadTimer?.cancel();
+      _loadTimer = null;
+      _loadingKey = null;
+      return const ColoredBox(
+        color: Colors.black12,
+        child: Center(child: Icon(Icons.movie_outlined)),
+      );
+    }
+    final key = (videoId: video.id, url: video.cover, cacheWidth: cacheWidth);
+    if (_loadingKey != key) {
+      _loadTimer?.cancel();
+      _loadTimer = null;
+      _loadingKey = key;
+      _reportedKeys.clear();
+    }
+    if (_failedKey == key || widget.failedImageKeys.contains(key)) {
+      _reportTerminal(key, failed: true);
+      return _errorPlaceholder(video, cacheWidth, key, s);
+    }
+    if (!_reportedKeys.contains(key) && _loadTimer == null) {
+      _loadTimer = Timer(_loadTimeout, () {
+        if (!mounted) return;
+        setState(() => _failedKey = key);
+        _reportTerminal(key, failed: true);
+      });
+    }
+    return Image.network(
+      key: ValueKey('video-cover-${video.id}-$_retryRevision'),
+      video.cover,
+      cacheWidth: cacheWidth,
+      fit: BoxFit.cover,
+      frameBuilder: (_, child, frame, _) {
+        if (frame != null) _reportTerminal(key, failed: false);
+        return child;
+      },
+      errorBuilder: (context, error, stackTrace) {
+        _failedKey = key;
+        _reportTerminal(key, failed: true);
+        return _errorPlaceholder(video, cacheWidth, key, s);
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _loadTimer?.cancel();
+    super.dispose();
+  }
+}
+
+int? _videoCoverCacheWidth(BuildContext context, double width) {
+  if (!width.isFinite) return null;
+  final displayWidth = (width * MediaQuery.devicePixelRatioOf(context)).ceil();
+  return displayWidth < 1 ? 1 : displayWidth;
 }

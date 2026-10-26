@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
@@ -28,6 +30,497 @@ import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets(
+    'prepares parsed covers before metadata returns and waits before showing cards',
+    (tester) async {
+      final browseStarted = Completer<void>();
+      final browseResult = Completer<VideoCatalogPage>();
+      const page = VideoCatalogPage(
+        title: 'Prepared catalog',
+        url: 'https://missav.ai/cn',
+        videos: [
+          VideoItem(
+            id: 'prepared',
+            title: 'Prepared video',
+            pageUrl: 'https://missav.ai/cn/prepared',
+            cover: 'https://missav.ai/images/prepared.png',
+          ),
+        ],
+      );
+      final parsedPage = VideoCatalogPage(
+        title: 'Parsed catalog',
+        url: page.url,
+        videos: const [
+          VideoItem(
+            id: 'prepared',
+            title: 'Parsed video',
+            pageUrl: 'https://missav.ai/cn/prepared',
+            cover: 'https://missav.ai/images/prepared.png',
+          ),
+        ],
+      );
+      final client = _TestMissavClient(
+        parsedCatalog: parsedPage,
+        browseStarted: browseStarted,
+        browseResult: browseResult,
+        browseCompleted: Completer<void>(),
+      );
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final imageBytes = img.encodePng(img.Image(width: 2, height: 2));
+      final imageBody = Completer<List<int>>();
+      final imageRequestStarted = Completer<void>();
+      final imageClient = _DeferredVideoCoverHttpClient(
+        imageBody.future,
+        imageRequestStarted: imageRequestStarted,
+        contentLength: imageBytes.length,
+      );
+      final previousHttpClientProvider = debugNetworkImageHttpClientProvider;
+      debugNetworkImageHttpClientProvider = () => imageClient;
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(() async {
+        if (!browseResult.isCompleted) browseResult.complete(page);
+        if (!imageBody.isCompleted) imageBody.complete(imageBytes);
+        try {
+          await tester.pumpWidget(const SizedBox.shrink());
+          PaintingBinding.instance.imageCache.clear();
+          PaintingBinding.instance.imageCache.clearLiveImages();
+        } finally {
+          debugNetworkImageHttpClientProvider = previousHttpClientProvider;
+        }
+      });
+
+      try {
+        await tester.pumpWidget(
+          _app(client, library, downloads, const VideoScreen()),
+        );
+        await tester.runAsync(
+          () => browseStarted.future.timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => throw StateError('Browse did not start.'),
+          ),
+        );
+        await tester.pump();
+        await tester.runAsync(
+          () => imageRequestStarted.future.timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => throw StateError('Cover request did not start.'),
+          ),
+        );
+
+        expect(imageClient.requestCount, greaterThan(0));
+        expect(find.text('Parsed catalog'), findsNothing);
+        expect(find.text('Prepared catalog'), findsNothing);
+
+        browseResult.complete(page);
+        await tester.runAsync(
+          () => client.browseCompleted!.future.timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => throw StateError('Browse did not complete.'),
+          ),
+        );
+        await tester.pump();
+        expect(find.text('Parsed catalog'), findsNothing);
+        expect(find.text('Prepared catalog'), findsNothing);
+
+        await tester.runAsync(() async => imageBody.complete(imageBytes));
+        final rawImageFinder = find.byType(RawImage, skipOffstage: false);
+        ui.Image? decodedImage;
+        for (var attempt = 0; attempt < 10 && decodedImage == null; attempt++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump();
+          decodedImage = tester.widget<RawImage>(rawImageFinder).image;
+        }
+        expect(decodedImage, isNotNull);
+        await tester.pumpAndSettle();
+        expect(find.text('Parsed video'), findsNothing);
+        expect(find.text('Prepared catalog'), findsOneWidget);
+        expect(find.text('Prepared video'), findsOneWidget);
+      } finally {
+        debugNetworkImageHttpClientProvider = previousHttpClientProvider;
+      }
+    },
+  );
+
+  testWidgets('failed cover retries only after tapping retry', (tester) async {
+    final client = _TestMissavClient(
+      catalog: const VideoCatalogPage(
+        title: 'Failed cover catalog',
+        url: 'https://missav.ai/cn',
+        videos: [
+          VideoItem(
+            id: 'failed-cover',
+            title: 'Failed cover video',
+            pageUrl: 'https://missav.ai/cn/failed-cover',
+            cover: 'https://missav.ai/images/failed-cover.png',
+          ),
+        ],
+      ),
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final imageClient = _DeferredVideoCoverHttpClient(
+      Future.value(const <int>[]),
+      contentLength: 0,
+      statusCode: HttpStatus.notFound,
+    );
+    final previousHttpClientProvider = debugNetworkImageHttpClientProvider;
+    debugNetworkImageHttpClientProvider = () => imageClient;
+    try {
+      await tester.pumpWidget(
+        _app(client, library, downloads, const VideoScreen()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Failed cover catalog'), findsOneWidget);
+      expect(find.text('Failed cover video'), findsOneWidget);
+      expect(imageClient.requestCount, 1);
+      expect(find.byTooltip('Retry'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Retry'));
+      await tester.pumpAndSettle();
+
+      expect(imageClient.requestCount, 2);
+      expect(find.byTooltip('Retry'), findsOneWidget);
+    } finally {
+      debugNetworkImageHttpClientProvider = previousHttpClientProvider;
+    }
+  });
+
+  testWidgets(
+    'stalled cover times out without bypassing metadata and retries',
+    (tester) async {
+      const page = VideoCatalogPage(
+        title: 'Stalled cover catalog',
+        url: 'https://missav.ai/cn',
+        videos: [
+          VideoItem(
+            id: 'stalled-cover',
+            title: 'Stalled cover video',
+            pageUrl: 'https://missav.ai/cn/stalled-cover',
+            cover: 'https://missav.ai/images/stalled-cover.png',
+          ),
+        ],
+      );
+      final metadata = Completer<VideoCatalogPage>();
+      final client = _TestMissavClient(
+        parsedCatalog: page,
+        browseResult: metadata,
+        browseCompleted: Completer<void>(),
+      );
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final imageBytes = img.encodePng(img.Image(width: 2, height: 2));
+      final stalledBody = Completer<List<int>>();
+      final imageStarted = Completer<void>();
+      final retryStarted = Completer<void>();
+      final imageClient = _DeferredVideoCoverHttpClient(
+        stalledBody.future,
+        imageRequestStarted: imageStarted,
+        contentLength: imageBytes.length,
+        bodyForRequest: (count) =>
+            count == 1 ? stalledBody.future : Future.value(imageBytes),
+        onRequest: (count) {
+          if (count == 2 && !retryStarted.isCompleted) retryStarted.complete();
+        },
+      );
+      final previousHttpClientProvider = debugNetworkImageHttpClientProvider;
+      debugNetworkImageHttpClientProvider = () => imageClient;
+      addTearDown(() async {
+        if (!metadata.isCompleted) metadata.complete(page);
+        if (!stalledBody.isCompleted) stalledBody.complete(imageBytes);
+        try {
+          await tester.pumpWidget(const SizedBox.shrink());
+          PaintingBinding.instance.imageCache.clear();
+          PaintingBinding.instance.imageCache.clearLiveImages();
+        } finally {
+          debugNetworkImageHttpClientProvider = previousHttpClientProvider;
+        }
+      });
+
+      try {
+        await tester.pumpWidget(
+          _app(client, library, downloads, const VideoScreen()),
+        );
+        await tester.pump();
+        await tester.runAsync(
+          () => imageStarted.future.timeout(const Duration(seconds: 5)),
+        );
+        await tester.pump(const Duration(seconds: 9));
+        expect(find.byTooltip('Retry', skipOffstage: false), findsNothing);
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump();
+        expect(find.byTooltip('Retry', skipOffstage: false), findsOneWidget);
+        expect(find.text('Stalled cover catalog'), findsNothing);
+
+        metadata.complete(page);
+        await tester.runAsync(() => client.browseCompleted!.future);
+        await tester.pumpAndSettle();
+        expect(find.text('Stalled cover catalog'), findsOneWidget);
+        expect(find.text('Stalled cover video'), findsOneWidget);
+        expect(imageClient.requestCount, 1);
+        expect(find.byTooltip('Retry').hitTestable(), findsOneWidget);
+
+        await tester.tap(find.byTooltip('Retry').hitTestable());
+        await tester.pump();
+        await tester.runAsync(
+          () => retryStarted.future.timeout(const Duration(seconds: 5)),
+        );
+        final rawImage = find.byType(RawImage);
+        for (var attempt = 0; attempt < 10; attempt++) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)),
+          );
+          await tester.pump();
+          if (tester.widget<RawImage>(rawImage).image != null) break;
+        }
+        expect(tester.widget<RawImage>(rawImage).image, isNotNull);
+        expect(find.byTooltip('Retry'), findsNothing);
+        expect(imageClient.requestCount, 2);
+      } finally {
+        debugNetworkImageHttpClientProvider = previousHttpClientProvider;
+      }
+    },
+  );
+
+  testWidgets('cached catalog refresh retains the current scroll position', (
+    tester,
+  ) async {
+    const homeUrl = 'https://missav.ai/cn';
+    const nextUrl = 'https://missav.ai/cn/weekly-hot';
+    final videos = _videos('scroll-cache', 40);
+    final cachedPage = VideoCatalogPage(
+      title: 'Cached scroll catalog',
+      url: homeUrl,
+      videos: videos,
+    );
+    final refreshedPage = VideoCatalogPage(
+      title: 'Refreshed scroll catalog',
+      url: homeUrl,
+      videos: videos,
+    );
+    final refresh = Completer<VideoCatalogPage>();
+    final refreshStarted = Completer<void>();
+    var homeBrowseCount = 0;
+    final client = _TestMissavClient(
+      catalog: cachedPage,
+      pagesByUrl: {
+        nextUrl: VideoCatalogPage(
+          title: 'Next scroll catalog',
+          url: nextUrl,
+          videos: _videos('next-scroll', 40),
+        ),
+      },
+      browseHandler: (url, parsedPage) {
+        if (url == homeUrl && ++homeBrowseCount == 2) {
+          refreshStarted.complete();
+          return refresh.future;
+        }
+        return Future.value(parsedPage);
+      },
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    addTearDown(() {
+      if (!refresh.isCompleted) refresh.complete(refreshedPage);
+    });
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    await tester.pumpAndSettle();
+    final l10n = await S.delegate.load(const Locale('en'));
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.navHome));
+    for (
+      var attempt = 0;
+      attempt < 10 && !refreshStarted.isCompleted;
+      attempt++
+    ) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    expect(refreshStarted.isCompleted, isTrue);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Cached scroll catalog'), findsOneWidget);
+    final scroll = tester
+        .widget<CustomScrollView>(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget is CustomScrollView &&
+                widget.key == const PageStorageKey<String>('video-$homeUrl'),
+          ),
+        )
+        .controller!;
+    scroll.jumpTo(180);
+    await tester.pump();
+    expect(scroll.offset, 180);
+
+    refresh.complete(refreshedPage);
+    await tester.pumpAndSettle();
+    expect(find.text('Refreshed scroll catalog'), findsOneWidget);
+    expect(scroll.offset, 180);
+
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.videoWeeklyHot));
+    await tester.pumpAndSettle();
+    expect(find.text('Next scroll catalog'), findsOneWidget);
+    expect(scroll.offset, 0);
+  });
+
+  testWidgets('cached cover retry does not bypass the pending refresh gate', (
+    tester,
+  ) async {
+    const homeUrl = 'https://missav.ai/cn';
+    const coverUrl = 'https://missav.ai/images/cached-retry.png';
+    const video = VideoItem(
+      id: 'cached-retry',
+      title: 'Cached retry video',
+      pageUrl: 'https://missav.ai/cn/cached-retry',
+      cover: coverUrl,
+    );
+    const cachedPage = VideoCatalogPage(
+      title: 'Cached retry catalog',
+      url: homeUrl,
+      videos: [video],
+    );
+    const refreshedPage = VideoCatalogPage(
+      title: 'Refreshed retry catalog',
+      url: homeUrl,
+      videos: [video],
+    );
+    final refreshResult = Completer<VideoCatalogPage>();
+    final refreshStarted = Completer<void>();
+    final refreshBrowseFinished = Completer<void>();
+    final retryRequestStarted = Completer<void>();
+    var homeBrowseCount = 0;
+    final client = _TestMissavClient(
+      catalog: cachedPage,
+      browseHandler: (url, parsedPage) {
+        if (url == homeUrl && ++homeBrowseCount == 2) {
+          refreshStarted.complete();
+          return refreshResult.future;
+        }
+        return Future.value(parsedPage);
+      },
+      onBrowseCompleted: (url) {
+        if (url == homeUrl &&
+            homeBrowseCount == 2 &&
+            !refreshBrowseFinished.isCompleted) {
+          refreshBrowseFinished.complete();
+        }
+      },
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final imageBytes = img.encodePng(img.Image(width: 2, height: 2));
+    final retryBody = Completer<List<int>>();
+    final imageClient = _DeferredVideoCoverHttpClient(
+      Future.value(const <int>[]),
+      contentLength: 0,
+      statusCode: HttpStatus.notFound,
+      bodyForRequest: (count) =>
+          count == 1 ? Future.value(const <int>[]) : retryBody.future,
+      contentLengthForRequest: (count) => count == 1 ? 0 : imageBytes.length,
+      statusCodeForRequest: (count) =>
+          count == 1 ? HttpStatus.notFound : HttpStatus.ok,
+      onRequest: (count) {
+        if (count == 2 && !retryRequestStarted.isCompleted) {
+          retryRequestStarted.complete();
+        }
+      },
+    );
+    final previousHttpClientProvider = debugNetworkImageHttpClientProvider;
+    debugNetworkImageHttpClientProvider = () => imageClient;
+    addTearDown(() async {
+      if (!refreshResult.isCompleted) refreshResult.complete(refreshedPage);
+      if (!retryBody.isCompleted) retryBody.complete(imageBytes);
+      try {
+        await tester.pumpWidget(const SizedBox.shrink());
+        PaintingBinding.instance.imageCache.clear();
+        PaintingBinding.instance.imageCache.clearLiveImages();
+      } finally {
+        debugNetworkImageHttpClientProvider = previousHttpClientProvider;
+      }
+    });
+
+    try {
+      await tester.pumpWidget(
+        _app(client, library, downloads, const VideoScreen()),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Cached retry catalog'), findsOneWidget);
+      expect(find.byTooltip('Retry'), findsOneWidget);
+      expect(imageClient.requestCount, 1);
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l10n.navHome));
+      for (
+        var attempt = 0;
+        attempt < 10 && !refreshStarted.isCompleted;
+        attempt++
+      ) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(refreshStarted.isCompleted, isTrue);
+      await tester.pump();
+      expect(find.text('Cached retry catalog'), findsOneWidget);
+      expect(find.byTooltip('Retry').hitTestable(), findsOneWidget);
+      expect(imageClient.requestCount, 1);
+      // Publish the cache, then let its replacement staging tree inspect covers.
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('Retry').hitTestable());
+      await tester.pump();
+      await tester.runAsync(
+        () => retryRequestStarted.future.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => throw StateError('Retry request did not start.'),
+        ),
+      );
+
+      await tester.runAsync(() async {
+        refreshResult.complete(refreshedPage);
+        await Future<void>.delayed(Duration.zero);
+      });
+      await tester.runAsync(
+        () => refreshBrowseFinished.future.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => throw StateError('Refresh browse did not finish.'),
+        ),
+      );
+      for (var attempt = 0; attempt < 5; attempt++) {
+        await tester.pump();
+      }
+      expect(find.text('Cached retry catalog'), findsOneWidget);
+      expect(find.text('Refreshed retry catalog'), findsNothing);
+
+      await tester.runAsync(() async => retryBody.complete(imageBytes));
+      for (var attempt = 0; attempt < 10; attempt++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+        if (find.text('Refreshed retry catalog').evaluate().isNotEmpty) {
+          break;
+        }
+      }
+      expect(find.text('Refreshed retry catalog'), findsOneWidget);
+      expect(imageClient.requestCount, 2);
+    } finally {
+      debugNetworkImageHttpClientProvider = previousHttpClientProvider;
+    }
+  });
 
   testWidgets('catalog keeps favorites reachable while logged out', (
     tester,
@@ -245,6 +738,52 @@ void main() {
     expect(find.text('Source recent feed'), findsNothing);
     expect(find.text('Recently updated page'), findsOneWidget);
     expect(observer.pushes, pushesAfterOpeningDrawer);
+  });
+
+  testWidgets('session generation keeps the selected catalog destination', (
+    tester,
+  ) async {
+    const destination = 'https://missav.ai/cn/weekly-hot';
+    late _TestMissavClient client;
+    var changedSession = false;
+    client = _TestMissavClient(
+      catalog: const VideoCatalogPage(
+        title: 'Home catalog',
+        url: 'https://missav.ai/cn',
+      ),
+      pagesByUrl: {
+        destination: const VideoCatalogPage(
+          title: 'Weekly hot catalog',
+          url: destination,
+        ),
+      },
+      onBrowse: (url) {
+        if (url == destination && !changedSession) {
+          changedSession = true;
+          client.advanceSessionGeneration();
+        }
+      },
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+
+    await tester.pumpWidget(
+      _app(client, library, downloads, const VideoScreen()),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+    final l10n = await S.delegate.load(const Locale('en'));
+    await tester.tap(find.text(l10n.videoWeeklyHot));
+    await tester.pumpAndSettle();
+
+    expect(changedSession, isTrue);
+    expect(client.browsedUrls, [
+      'https://missav.ai/cn',
+      destination,
+      destination,
+    ]);
+    expect(find.text('Weekly hot catalog'), findsOneWidget);
   });
 
   testWidgets('downloads route waits for the drawer to finish closing', (
@@ -1431,26 +1970,46 @@ Future<VideoLibrary> _testLibrary() async {
 class _TestMissavClient extends MissavClient {
   _TestMissavClient({
     this.catalog,
+    this.parsedCatalog,
     this.browseError,
+    this.browseStarted,
+    this.browseResult,
+    this.browseCompleted,
     this.signedOutCatalog,
     this.loggedIn = false,
     this.accountName,
     this.pagesByUrl = const {},
+    this.browseHandler,
+    this.onBrowseCompleted,
+    this.onBrowse,
     this.collectionSearchResults = const [],
   });
 
   final VideoCatalogPage? catalog;
+  final VideoCatalogPage? parsedCatalog;
   final Object? browseError;
+  final Completer<void>? browseStarted;
+  final Completer<VideoCatalogPage>? browseResult;
+  final Completer<void>? browseCompleted;
   final VideoCatalogPage? signedOutCatalog;
   final Map<String, VideoCatalogPage> pagesByUrl;
+  final Future<VideoCatalogPage> Function(
+    String url,
+    VideoCatalogPage parsedPage,
+  )?
+  browseHandler;
+  final void Function(String url)? onBrowseCompleted;
+  final void Function(String url)? onBrowse;
   final List<VideoItem> collectionSearchResults;
   bool loggedIn;
+  int _testSessionGeneration = 0;
   @override
   String? accountName;
   final List<bool> actorFavoriteChanges = [];
   int clearHistoryCalls = 0;
   int collectionSearchCalls = 0;
   final List<String> browsedUrls = [];
+  bool browseFinished = false;
   final filterOptionKinds = <VideoSearchFilterKind>[];
   final combinedSearchRequests =
       <({String query, List<VideoLink> filters, bool? current})>[];
@@ -1460,6 +2019,14 @@ class _TestMissavClient extends MissavClient {
 
   @override
   bool get isLoggedIn => loggedIn;
+
+  @override
+  int get sessionGeneration => _testSessionGeneration;
+
+  void advanceSessionGeneration() {
+    _testSessionGeneration++;
+    notifyListeners();
+  }
 
   void confirmAccount(String name) {
     loggedIn = true;
@@ -1471,12 +2038,52 @@ class _TestMissavClient extends MissavClient {
   Future<void> initialize() async {}
 
   @override
-  Future<VideoCatalogPage> browse(String url) async {
+  Future<VideoCatalogPage> browse(
+    String url, {
+    CancelToken? cancelToken,
+    void Function(VideoCatalogPage page)? onParsed,
+  }) async {
     browsedUrls.add(url);
+    onBrowse?.call(url);
     if (browseError != null) throw browseError!;
-    if (pagesByUrl[url] case final page?) return page;
-    if (!loggedIn && signedOutCatalog != null) return signedOutCatalog!;
-    return catalog ?? VideoCatalogPage(title: 'Fixture', url: url);
+    final parsedPage =
+        parsedCatalog ??
+        pagesByUrl[url] ??
+        signedOutCatalog ??
+        catalog ??
+        VideoCatalogPage(title: 'Fixture', url: url);
+    onParsed?.call(parsedPage);
+    if (browseStarted case final started? when !started.isCompleted) {
+      started.complete();
+    }
+    if (browseResult != null) {
+      final page = await browseResult!.future;
+      browseFinished = true;
+      if (browseCompleted case final completed? when !completed.isCompleted) {
+        completed.complete();
+      }
+      return page;
+    }
+    final handler = browseHandler;
+    if (handler != null) {
+      final page = await handler(url, parsedPage);
+      browseFinished = true;
+      onBrowseCompleted?.call(url);
+      if (browseCompleted case final completed? when !completed.isCompleted) {
+        completed.complete();
+      }
+      return page;
+    }
+    final page =
+        pagesByUrl[url] ??
+        (!loggedIn && signedOutCatalog != null ? signedOutCatalog! : null) ??
+        catalog ??
+        VideoCatalogPage(title: 'Fixture', url: url);
+    browseFinished = true;
+    if (browseCompleted case final completed? when !completed.isCompleted) {
+      completed.complete();
+    }
+    return page;
   }
 
   @override
@@ -1602,3 +2209,155 @@ List<VideoItem> _videos(String prefix, int count) => [
       pageUrl: 'https://missav.ai/en/$prefix-$index',
     ),
 ];
+
+class _DeferredVideoCoverHttpClient implements HttpClient {
+  _DeferredVideoCoverHttpClient(
+    this._body, {
+    this.imageRequestStarted,
+    required this.contentLength,
+    this.statusCode = HttpStatus.ok,
+    this.bodyForRequest,
+    this.contentLengthForRequest,
+    this.statusCodeForRequest,
+    this.onRequest,
+  });
+
+  final Future<List<int>> _body;
+  final Completer<void>? imageRequestStarted;
+  final int contentLength;
+  final int statusCode;
+  final Future<List<int>> Function(int requestCount)? bodyForRequest;
+  final int Function(int requestCount)? contentLengthForRequest;
+  final int Function(int requestCount)? statusCodeForRequest;
+  final void Function(int requestCount)? onRequest;
+  int requestCount = 0;
+
+  @override
+  bool autoUncompress = false;
+
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) async {
+    requestCount++;
+    if (imageRequestStarted case final started? when !started.isCompleted) {
+      started.complete();
+    }
+    onRequest?.call(requestCount);
+    return _DeferredVideoCoverHttpRequest(
+      bodyForRequest?.call(requestCount) ?? _body,
+      contentLengthForRequest?.call(requestCount) ?? contentLength,
+      statusCodeForRequest?.call(requestCount) ?? statusCode,
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _DeferredVideoCoverHttpRequest implements HttpClientRequest {
+  _DeferredVideoCoverHttpRequest(
+    this._body,
+    this._contentLength,
+    this._statusCode,
+  );
+
+  final Future<List<int>> _body;
+  final int _contentLength;
+  final int _statusCode;
+
+  @override
+  final HttpHeaders headers = _VideoCoverHttpHeaders();
+
+  @override
+  Future<HttpClientResponse> close() async =>
+      _DeferredVideoCoverHttpResponse(_body, _contentLength, _statusCode);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _DeferredVideoCoverHttpResponse extends Stream<List<int>>
+    implements HttpClientResponse {
+  _DeferredVideoCoverHttpResponse(
+    this._body,
+    this._contentLength,
+    this._statusCode,
+  ) : headers = _VideoCoverHttpHeaders({
+        HttpHeaders.contentTypeHeader: 'image/png',
+        HttpHeaders.contentLengthHeader: _contentLength.toString(),
+      });
+
+  final Future<List<int>> _body;
+  final int _contentLength;
+  final int _statusCode;
+
+  @override
+  final HttpHeaders headers;
+
+  @override
+  int get contentLength => _contentLength;
+
+  @override
+  bool get isRedirect => false;
+
+  @override
+  bool get persistentConnection => false;
+
+  @override
+  String get reasonPhrase => 'OK';
+
+  @override
+  List<RedirectInfo> get redirects => const [];
+
+  @override
+  HttpClientResponseCompressionState get compressionState =>
+      HttpClientResponseCompressionState.notCompressed;
+
+  @override
+  int get statusCode => _statusCode;
+
+  @override
+  StreamSubscription<List<int>> listen(
+    void Function(List<int>)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) => Stream<List<int>>.fromFuture(_body).listen(
+    onData,
+    onError: onError,
+    onDone: onDone,
+    cancelOnError: cancelOnError,
+  );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _VideoCoverHttpHeaders implements HttpHeaders {
+  _VideoCoverHttpHeaders([Map<String, String> values = const {}])
+    : _values = {
+        for (final entry in values.entries)
+          entry.key.toLowerCase(): <String>[entry.value],
+      };
+
+  final Map<String, List<String>> _values;
+
+  @override
+  String? value(String name) => _values[name.toLowerCase()]?.join(', ');
+
+  @override
+  void forEach(void Function(String name, List<String> values) action) =>
+      _values.forEach(action);
+
+  @override
+  void add(String name, Object value, {bool preserveHeaderCase = false}) {
+    _values.putIfAbsent(name.toLowerCase(), () => []).add(value.toString());
+  }
+
+  @override
+  void set(String name, Object value, {bool preserveHeaderCase = false}) {
+    _values[name.toLowerCase()] = [value.toString()];
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
