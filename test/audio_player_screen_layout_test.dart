@@ -4,11 +4,13 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show SemanticsAction;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
+import 'package:kikoeru_flutter/src/models/audio_slice.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/models/lyric.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
@@ -2424,9 +2426,9 @@ void main() {
       final details = await _pumpLongDetailsAtBottom(tester);
       final detailsPanel = details.panel;
       final detailsScroll = details.scroll;
-    final visibleCard = find.byKey(
-      const ValueKey('player-audio-variant-Long detail track 19.mp3'),
-    );
+      final visibleCard = find.byKey(
+        const ValueKey('player-audio-variant-Long detail track 19.mp3'),
+      );
       double relativeCardTop() {
         final panelRect = tester.getRect(detailsPanel);
         return tester.getRect(visibleCard).top - panelRect.top;
@@ -4325,6 +4327,112 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final config in const [
+    (platform: TargetPlatform.android, useSystemBack: false),
+    (platform: TargetPlatform.android, useSystemBack: true),
+    (platform: TargetPlatform.iOS, useSystemBack: false),
+  ]) {
+    testWidgets(
+      'slice manager ${config.useSystemBack ? "back" : "close"} preserves page focus policy on ${config.platform}',
+      (tester) async {
+        final positions = StreamController<Duration>.broadcast(sync: true);
+        addTearDown(positions.close);
+        await _pumpPlayer(
+          tester,
+          const Size(390, 844),
+          pushedRoute: true,
+          positionStream: positions.stream,
+          platform: config.platform,
+          onSeek: positions.add,
+          lyrics: List.generate(
+            12,
+            (index) => LyricLine(
+              startTime: Duration(seconds: index),
+              endTime: Duration(seconds: index + 1),
+              text: 'slice manager lyric $index',
+            ),
+          ),
+          sliceState: AudioSliceState.withValues(
+            trackKey: 'slice-manager-track',
+          ),
+        );
+        final pages = tester.widget<PageView>(
+          find.byKey(const ValueKey('compact-player-pages')),
+        );
+        expect(pages.controller!.page, 1);
+
+        await tester.drag(
+          find.byKey(const ValueKey('compact-player-pages')),
+          const Offset(-320, 0),
+        );
+        await tester.pumpAndSettle();
+        expect(pages.controller!.page, 2);
+        await tester.tap(find.text('slice manager lyric 3'));
+        await tester.pumpAndSettle();
+        expect(pages.controller!.page, 2);
+        final tappedLyric = tester.getSemantics(
+          find.text('slice manager lyric 3'),
+        );
+        final semanticsOwner = tappedLyric.owner!;
+        final tappedLyricFocus = Focus.of(
+          tester.element(find.text('slice manager lyric 3')),
+        );
+        await tester.drag(
+          find.byKey(const ValueKey('compact-player-pages')),
+          const Offset(320, 0),
+        );
+        await tester.pumpAndSettle();
+        expect(pages.controller!.page, 1);
+
+        await tester.tap(
+          find.byKey(const ValueKey('player-slice-manager-button')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(ResponsiveBottomSheet), findsOneWidget);
+        if (config.useSystemBack) {
+          unawaited(tester.binding.handlePopRoute());
+        } else {
+          await tester.tap(find.byIcon(Icons.close));
+        }
+        await tester.pumpAndSettle();
+        if (config.platform == TargetPlatform.iOS) {
+          expect(tappedLyricFocus.canRequestFocus, isTrue);
+          semanticsOwner.performAction(
+            tappedLyric.id,
+            SemanticsAction.showOnScreen,
+          );
+          await tester.pumpAndSettle();
+          expect(pages.controller!.page, 2);
+          expect(tester.takeException(), isNull);
+          return;
+        }
+        expect(tappedLyricFocus.canRequestFocus, isFalse);
+        tappedLyricFocus.requestFocus();
+        semanticsOwner.performAction(
+          tappedLyric.id,
+          SemanticsAction.showOnScreen,
+        );
+        for (var frame = 0; frame < 90; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          expect(pages.controller!.page, closeTo(1, 0.001));
+        }
+        expect(find.byType(ResponsiveBottomSheet), findsNothing);
+        expect(tappedLyricFocus.hasFocus, isFalse);
+        tester.semantics.scrollLeft(
+          scrollable: find.semantics.byAction(SemanticsAction.scrollLeft),
+        );
+        await tester.pumpAndSettle();
+        expect(pages.controller!.page, 2);
+        expect(tappedLyricFocus.canRequestFocus, isTrue);
+        expect(
+          tester.getSemantics(find.text('slice manager lyric 3')).owner,
+          same(semanticsOwner),
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('fullscreen lyric round trip restores the same compact page', (
     tester,
   ) async {
@@ -4525,12 +4633,14 @@ Future<void> _pumpPlayer(
   Stream<List<AudioTrack>>? queueStream,
   Stream<ManualSkipAvailability>? manualSkipAvailabilityStream,
   Stream<bool>? loadingStream,
+  Stream<Duration>? positionStream,
   PlayerTrackChangePresentation? trackChangePresentation,
   bool pushedRoute = false,
   PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
   AudioTrack track = _track,
   PlayerWorkDetailsData? workDetails,
   LyricState? lyricState,
+  AudioSliceState? sliceState,
   Locale locale = const Locale('en'),
   TargetPlatform? platform,
   KikoeruApiService? apiService,
@@ -4551,6 +4661,10 @@ Future<void> _pumpPlayer(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        if (sliceState != null)
+          audioSliceStateProvider.overrideWith(
+            (ref) => Stream.value(sliceState),
+          ),
         if (onSeek != null)
           audioPlayerControllerProvider.overrideWith(
             (ref) => _SeekingAudioController(ref, onSeek),
@@ -4579,7 +4693,9 @@ Future<void> _pumpPlayer(
         isTrackLoadingProvider.overrideWith(
           (ref) => loadingStream ?? Stream.value(false),
         ),
-        positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
+        positionProvider.overrideWith(
+          (ref) => positionStream ?? Stream.value(Duration.zero),
+        ),
         durationProvider.overrideWith(
           (ref) => Stream.value(const Duration(minutes: 4)),
         ),

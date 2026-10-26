@@ -161,7 +161,7 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
     final baseVisibleBottomInset =
         controlsBottom + actionRowHeight + viewportClearance;
     _completeSearchCloseWhenSettled(keyboardInset);
-    return RepaintBoundary(
+    final surface = RepaintBoundary(
       key: ValueKey('player-lyrics-surface-${widget.isWide}'),
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -373,6 +373,14 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
           );
         },
       ),
+    );
+    // Hidden lyrics must not reclaim Android focus when an overlay closes.
+    final excludeHiddenPage =
+        !widget.isActive &&
+        Theme.of(context).platform == TargetPlatform.android;
+    return ExcludeFocus(
+      excluding: excludeHiddenPage,
+      child: ExcludeSemantics(excluding: excludeHiddenPage, child: surface),
     );
   }
 
