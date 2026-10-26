@@ -2070,9 +2070,11 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       try {
         await _applyFullscreenOrientation(context, entering: true);
       } catch (_) {
+        await _restoreFullscreenOrientation();
         if (enterNativeFullscreen) await _platform.setNativeFullscreen(false);
         rethrow;
       }
+      await _platform.setFullscreenStatusBarHidden(true);
       _stopTemporaryRate();
       _endControlsInteraction();
       _cancelSeekPreview();
@@ -2084,6 +2086,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted) {
       await _restoreFullscreenOrientation();
+      await _platform.setFullscreenStatusBarHidden(false);
       if (enterNativeFullscreen) await _platform.setNativeFullscreen(false);
       return;
     }
@@ -2092,21 +2095,18 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       pageBuilder: (fullScreenContext, animation, secondaryAnimation) =>
           Scaffold(
             backgroundColor: Colors.black,
-            body: SafeArea(
-              child: ValueListenableBuilder<int>(
-                valueListenable: _uiRevision,
-                builder: (context, _, _) => _pictureInPictureRouteOpen
-                    ? const ColoredBox(
-                        key: ValueKey('video-fullscreen-placeholder'),
-                        color: Colors.black,
-                      )
-                    : _buildPlayerLayout(
-                        fullScreenContext,
-                        fullscreen: true,
-                        onFullscreen: () =>
-                            Navigator.of(fullScreenContext).pop(),
-                      ),
-              ),
+            body: ValueListenableBuilder<int>(
+              valueListenable: _uiRevision,
+              builder: (context, _, _) => _pictureInPictureRouteOpen
+                  ? const ColoredBox(
+                      key: ValueKey('video-fullscreen-placeholder'),
+                      color: Colors.black,
+                    )
+                  : _buildPlayerLayout(
+                      fullScreenContext,
+                      fullscreen: true,
+                      onFullscreen: () => Navigator.of(fullScreenContext).pop(),
+                    ),
             ),
           ),
       transitionsBuilder: (context, animation, secondaryAnimation, child) =>
@@ -2126,6 +2126,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     } finally {
       _fullscreenStatusTimer?.cancel();
       _fullscreenStatusTimer = null;
+      await _platform.setFullscreenStatusBarHidden(false);
       if (enterNativeFullscreen) await _platform.setNativeFullscreen(false);
       await _restoreFullscreenOrientation();
       _stopTemporaryRate();
@@ -2410,13 +2411,21 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                                 left: 0,
                                 right: 0,
                                 bottom: 0,
-                                child: LinearProgressIndicator(
-                                  minHeight: 2,
-                                  value:
-                                      (snapshot.position.inMilliseconds /
-                                              snapshot.duration.inMilliseconds)
-                                          .clamp(0.0, 1.0),
-                                  backgroundColor: Colors.white24,
+                                child: SafeArea(
+                                  top: false,
+                                  left: false,
+                                  right: false,
+                                  bottom: fullscreen,
+                                  child: LinearProgressIndicator(
+                                    minHeight: 2,
+                                    value:
+                                        (snapshot.position.inMilliseconds /
+                                                snapshot
+                                                    .duration
+                                                    .inMilliseconds)
+                                            .clamp(0.0, 1.0),
+                                    backgroundColor: Colors.white24,
+                                  ),
                                 ),
                               ),
                             if (controlsVisible)
@@ -2441,25 +2450,40 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                               ),
                             if (hasError)
                               Positioned(
-                                top: 4,
-                                right: 4,
-                                child: IgnorePointer(
-                                  ignoring: !controlsVisible,
-                                  child: AnimatedOpacity(
-                                    key: const ValueKey(
-                                      'video-fullscreen-control',
-                                    ),
-                                    opacity: controlsVisible ? 1 : 0,
-                                    duration: const Duration(milliseconds: 100),
-                                    child: IconButton(
-                                      tooltip: S.of(context).videoFullscreen,
-                                      color: Colors.white,
-                                      icon: Icon(
-                                        fullscreen
-                                            ? Icons.fullscreen_exit
-                                            : Icons.fullscreen,
+                                top: fullscreen ? 0 : 4,
+                                right: fullscreen ? 0 : 4,
+                                child: SafeArea(
+                                  top: fullscreen,
+                                  bottom: false,
+                                  left: false,
+                                  right: fullscreen,
+                                  child: Padding(
+                                    padding: fullscreen
+                                        ? const EdgeInsets.all(4)
+                                        : EdgeInsets.zero,
+                                    child: IgnorePointer(
+                                      ignoring: !controlsVisible,
+                                      child: AnimatedOpacity(
+                                        key: const ValueKey(
+                                          'video-fullscreen-control',
+                                        ),
+                                        opacity: controlsVisible ? 1 : 0,
+                                        duration: const Duration(
+                                          milliseconds: 100,
+                                        ),
+                                        child: IconButton(
+                                          tooltip: S
+                                              .of(context)
+                                              .videoFullscreen,
+                                          color: Colors.white,
+                                          icon: Icon(
+                                            fullscreen
+                                                ? Icons.fullscreen_exit
+                                                : Icons.fullscreen,
+                                          ),
+                                          onPressed: onFullscreen,
+                                        ),
                                       ),
-                                      onPressed: onFullscreen,
                                     ),
                                   ),
                                 ),
@@ -2473,13 +2497,20 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                                   child: AnimatedOpacity(
                                     opacity: controlsVisible ? 1 : 0,
                                     duration: const Duration(milliseconds: 100),
-                                    child: _buildTopControls(
-                                      context,
-                                      fullscreen: fullscreen,
-                                      onFullscreen: onFullscreen,
-                                      maxHeightListenable: fullscreen || pipMode
-                                          ? null
-                                          : _inlineViewportHeight,
+                                    child: SafeArea(
+                                      top: fullscreen,
+                                      left: fullscreen,
+                                      right: fullscreen,
+                                      bottom: false,
+                                      child: _buildTopControls(
+                                        context,
+                                        fullscreen: fullscreen,
+                                        onFullscreen: onFullscreen,
+                                        maxHeightListenable:
+                                            fullscreen || pipMode
+                                            ? null
+                                            : _inlineViewportHeight,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -2490,7 +2521,11 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                               Positioned(
                                 left: 0,
                                 right: 0,
-                                bottom: 95,
+                                bottom:
+                                    95 +
+                                    (fullscreen
+                                        ? MediaQuery.paddingOf(context).bottom
+                                        : 0),
                                 child: Center(
                                   child: FilledButton.tonal(
                                     key: const ValueKey('video-restore-screen'),
@@ -2513,15 +2548,26 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                               ),
                             if (_controlsLocked && controlsVisible)
                               Positioned(
-                                top: 4,
-                                right: 4,
-                                child: IconButton(
-                                  tooltip: S
-                                      .of(context)
-                                      .videoPlayerUnlockControls,
-                                  color: Colors.white,
-                                  icon: const Icon(Icons.lock_outline),
-                                  onPressed: _toggleControlsLock,
+                                top: fullscreen ? 0 : 4,
+                                right: fullscreen ? 0 : 4,
+                                child: SafeArea(
+                                  top: fullscreen,
+                                  bottom: false,
+                                  left: false,
+                                  right: fullscreen,
+                                  child: Padding(
+                                    padding: fullscreen
+                                        ? const EdgeInsets.all(4)
+                                        : EdgeInsets.zero,
+                                    child: IconButton(
+                                      tooltip: S
+                                          .of(context)
+                                          .videoPlayerUnlockControls,
+                                      color: Colors.white,
+                                      icon: const Icon(Icons.lock_outline),
+                                      onPressed: _toggleControlsLock,
+                                    ),
+                                  ),
                                 ),
                               ),
                             if (_gestureValueLabel != null)
@@ -2561,13 +2607,19 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                                     key: const ValueKey('video-controls'),
                                     opacity: controlsVisible ? 1 : 0,
                                     duration: const Duration(milliseconds: 100),
-                                    child: _buildControls(
-                                      context,
-                                      fullscreen: fullscreen,
-                                      onFullscreen: onFullscreen,
-                                      onSecondaryFullscreen:
-                                          onSecondaryFullscreen,
-                                      snapshot: snapshot,
+                                    child: SafeArea(
+                                      top: false,
+                                      left: fullscreen,
+                                      right: fullscreen,
+                                      bottom: fullscreen,
+                                      child: _buildControls(
+                                        context,
+                                        fullscreen: fullscreen,
+                                        onFullscreen: onFullscreen,
+                                        onSecondaryFullscreen:
+                                            onSecondaryFullscreen,
+                                        snapshot: snapshot,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -2601,7 +2653,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         _platform.supportsPictureInPicture &&
         _session is VideoPlaybackAdvancedSession;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 12, 4, 12),
+      padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(
         children: [
           IconButton(
@@ -3181,6 +3233,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
             final buttonWidth = fullscreen ? 42.0 : 35.0;
             final positionSlider = Slider(
               key: const ValueKey('video-position-slider'),
+              padding: EdgeInsets.zero,
               min: 0,
               max: durationMs > 0 ? durationMs.toDouble() : 1,
               value: durationMs > 0 ? positionMs : 0,
@@ -3396,7 +3449,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(10, 0, 10, 7),
-                  child: styledPositionSlider,
+                  child: SizedBox(height: 50, child: styledPositionSlider),
                 ),
                 Row(
                   children: [

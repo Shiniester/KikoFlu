@@ -21,6 +21,9 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.lang.ref.WeakReference
 import androidx.annotation.ChecksSdkIntAtLeast
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 class VideoPlayerBridge(private val activity: Activity, messenger: BinaryMessenger,
     private val updateKeepScreenOn: (Boolean) -> Unit) :
@@ -32,6 +35,8 @@ class VideoPlayerBridge(private val activity: Activity, messenger: BinaryMesseng
     private var pendingBrightnessPermission: MethodChannel.Result? = null
     private var systemBrightnessMode = false
     private var originalOrientation: Int? = null
+    private var fullscreenStatusBarHidden = false
+    private var originalSystemBarsBehavior: Int? = null
     private var backgroundPlayback = false
     private var playing = false
     private var autoPictureInPicture = false
@@ -158,6 +163,10 @@ class VideoPlayerBridge(private val activity: Activity, messenger: BinaryMesseng
                 updateKeepScreenOn(call.argument<Boolean>("enabled") == true)
                 result.success(null)
             }
+            "setFullscreenStatusBarHidden" -> {
+                setFullscreenStatusBarHidden(call.argument<Boolean>("hidden") == true)
+                result.success(null)
+            }
             "enterPictureInPicture" -> {
                 if (!supportsPip || pendingEnter != null) { result.success(false); return }
                 if (activity.isInPictureInPictureMode) { result.success(true); return }
@@ -185,6 +194,10 @@ class VideoPlayerBridge(private val activity: Activity, messenger: BinaryMesseng
     fun onPictureInPictureModeChanged(active: Boolean) {
         channel.invokeMethod("pictureInPictureChanged", active)
         completeEnter(active)
+    }
+
+    fun onPostResume() {
+        if (fullscreenStatusBarHidden) setFullscreenStatusBarHidden(true)
     }
 
     fun handleActivityResult(requestCode: Int): Boolean {
@@ -268,11 +281,28 @@ class VideoPlayerBridge(private val activity: Activity, messenger: BinaryMesseng
         originalBrightness = null
     }
 
+    private fun setFullscreenStatusBarHidden(hidden: Boolean) {
+        if (!hidden && !fullscreenStatusBarHidden) return
+        val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+        if (hidden) {
+            if (!fullscreenStatusBarHidden) originalSystemBarsBehavior = controller.systemBarsBehavior
+            fullscreenStatusBarHidden = true
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.statusBars())
+        } else {
+            fullscreenStatusBarHidden = false
+            controller.show(WindowInsetsCompat.Type.statusBars())
+            originalSystemBarsBehavior?.let { controller.systemBarsBehavior = it }
+            originalSystemBarsBehavior = null
+        }
+    }
+
     private fun reset() {
         pendingBrightnessPermission?.success(null)
         pendingBrightnessPermission = null
         completeEnter(false)
         resetBrightness()
+        setFullscreenStatusBarHidden(false)
         updateKeepScreenOn(false)
         systemBrightnessMode = false
         resetOrientation()

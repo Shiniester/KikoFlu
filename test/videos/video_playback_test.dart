@@ -638,19 +638,55 @@ void main() {
       final controlsRect = tester.getRect(
         find.byKey(const ValueKey('video-controls')),
       );
+      final backRect = tester.getRect(
+        find.byKey(const ValueKey('video-player-back')),
+      );
+      final sliderRect = tester.getRect(
+        find.byKey(const ValueKey('video-position-slider')),
+      );
       expect(session.playCount, 0);
-      expect(layoutRect.size, const Size(376, 211.5));
+      expect(layoutRect.size, const Size(400, 225));
       expect(controlsRect.top, greaterThanOrEqualTo(layoutRect.top));
       expect(controlsRect.left, greaterThanOrEqualTo(layoutRect.left));
       expect(controlsRect.right, lessThanOrEqualTo(layoutRect.right));
       expect(controlsRect.bottom, lessThanOrEqualTo(layoutRect.bottom));
       expect(controlsRect.height, lessThanOrEqualTo(112));
+      expect(backRect.left, layoutRect.left);
+      expect(backRect.top, layoutRect.top + 12);
+      expect(sliderRect.left, layoutRect.left + 20);
+      expect(sliderRect.right, layoutRect.right - 20);
       expect(find.byKey(const ValueKey('video-volume-slider')), findsNothing);
 
       await expectLater(
         layout,
         matchesGoldenFile('goldens/video_playback_compact_paused.png'),
       );
+
+      expect(
+        tester
+            .getSize(find.byKey(const ValueKey('video-position-slider')))
+            .height,
+        50,
+      );
+      await tester.tapAt(Offset(sliderRect.left + 10, sliderRect.center.dy));
+      await tester.pumpAndSettle();
+      expect(session.lastPosition, greaterThan(Duration.zero));
+      expect(session.lastPosition, lessThan(const Duration(seconds: 10)));
+      await tester.tapAt(Offset(sliderRect.right - 10, sliderRect.center.dy));
+      await tester.pumpAndSettle();
+      expect(session.lastPosition, greaterThan(const Duration(seconds: 170)));
+      expect(session.lastPosition, lessThan(const Duration(minutes: 3)));
+
+      tester.view.physicalSize = const Size(1200, 800);
+      await tester.pumpAndSettle();
+      expect(tester.getSize(layout).width, 1200);
+      final expandedSliderRect = tester.getRect(
+        find.byKey(const ValueKey('video-position-slider')),
+      );
+      expect(expandedSliderRect.left, 20);
+      expect(expandedSliderRect.right, 1180);
+      tester.view.physicalSize = const Size(400, 800);
+      await tester.pumpAndSettle();
 
       await _tapGestureSurface(
         tester,
@@ -772,6 +808,119 @@ void main() {
         find.byKey(const ValueKey('video-position-slider')),
       );
       expect(slider.secondaryTrackValue, 60000);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  _testPlayerWidget(
+    'fullscreen canvas fills the frame while controls avoid cutout and navigation insets',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(1000, 600);
+      tester.view.devicePixelRatio = 1;
+      tester.view.padding = const FakeViewPadding(
+        left: 40,
+        top: 28,
+        right: 24,
+        bottom: 22,
+      );
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPadding);
+      final session = _FakePlaybackSession();
+      final platform = _TestVideoPlayerPlatform();
+      await _pumpStandalonePlayer(
+        tester,
+        session,
+        width: 1000,
+        height: 600,
+        platform: platform,
+      );
+      final s = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byKey(const ValueKey('video-fullscreen-control')));
+      await tester.pumpAndSettle();
+
+      expect(platform.fullscreenStatusBarChanges, [true]);
+      final layout = find.byKey(const ValueKey('video-playback-layout'));
+      final layoutRect = tester.getRect(layout);
+      expect(layoutRect.left, 0);
+      expect(layoutRect.width, 1000);
+      final gradient = find.byWidgetPredicate(
+        (widget) =>
+            widget is DecoratedBox &&
+            widget.decoration is BoxDecoration &&
+            (widget.decoration as BoxDecoration).gradient is LinearGradient,
+      );
+      expect(gradient, findsOneWidget);
+      expect(tester.getRect(gradient), layoutRect);
+
+      final backRect = tester.getRect(
+        find.byKey(const ValueKey('video-player-back')),
+      );
+      final sliderRect = tester.getRect(
+        find.byKey(const ValueKey('video-position-slider')),
+      );
+      final playRect = tester.getRect(find.byTooltip(s.videoPlay));
+      expect(backRect.left, greaterThanOrEqualTo(40));
+      expect(backRect.top, greaterThanOrEqualTo(layoutRect.top + 28 + 12));
+      expect(sliderRect.left, greaterThanOrEqualTo(60));
+      expect(sliderRect.right, lessThanOrEqualTo(956));
+      expect(playRect.bottom, lessThanOrEqualTo(layoutRect.bottom - 22 - 12));
+
+      await _tapGestureSurface(
+        tester,
+        find.byKey(const ValueKey('video-gesture-surface')),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(session.playCount, 0);
+      expect(session.snapshot.value.duration, greaterThan(Duration.zero));
+      expect(
+        tester
+            .widget<AnimatedOpacity>(
+              find.byKey(const ValueKey('video-controls')),
+            )
+            .opacity,
+        0,
+      );
+      expect(platform.fullscreenStatusBarChanges, [true]);
+      final progress = find.byType(LinearProgressIndicator);
+      expect(progress, findsOneWidget);
+      final progressRect = tester.getRect(progress);
+      expect(progressRect.left, layoutRect.left);
+      expect(progressRect.right, layoutRect.right);
+      expect(progressRect.bottom, lessThanOrEqualTo(layoutRect.bottom - 22));
+
+      await _tapGestureSurface(
+        tester,
+        find.byKey(const ValueKey('video-gesture-surface')),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 200));
+
+      await tester.tap(find.byKey(const ValueKey('video-player-more-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(s.videoPlayerLockControls));
+      await tester.pumpAndSettle();
+      final unlockRect = tester.getRect(
+        find.byTooltip(s.videoPlayerUnlockControls),
+      );
+      expect(unlockRect.left, greaterThanOrEqualTo(40));
+      expect(unlockRect.top, greaterThanOrEqualTo(layoutRect.top + 28));
+      expect(unlockRect.right, lessThanOrEqualTo(1000 - 24));
+
+      await tester.tap(find.byTooltip(s.videoPlayerUnlockControls));
+      await tester.pumpAndSettle();
+      expect(platform.fullscreenStatusBarChanges, [true]);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(platform.fullscreenStatusBarChanges, [true, false]);
+      expect(
+        find.byKey(const ValueKey('video-fullscreen-placeholder')),
+        findsNothing,
+      );
       expect(tester.takeException(), isNull);
     },
   );
@@ -1688,53 +1837,76 @@ void main() {
     },
   );
 
-  _testPlayerWidget(
-    'two-finger pinch zoom can be restored to the original view',
-    (tester) async {
-      final session = _FakePlaybackSession();
-      await _pumpStandalonePlayer(tester, session);
-      final videoSurface = find.byKey(const ValueKey('fake-video-surface'));
-      final rect = tester.getRect(videoSurface);
-      final first = await tester.startGesture(
-        Offset(rect.left + rect.width * .35, rect.center.dy),
-        pointer: 41,
-        kind: PointerDeviceKind.touch,
-      );
-      final second = await tester.startGesture(
-        Offset(rect.left + rect.width * .65, rect.center.dy),
-        pointer: 42,
-        kind: PointerDeviceKind.touch,
-      );
-      await first.moveBy(Offset(-rect.width * .15, 0));
-      await second.moveBy(Offset(rect.width * .15, 0));
-      await tester.pump();
-      expect(
-        tester
-            .widget<Transform>(
-              find.byKey(const ValueKey('video-surface-transform')),
-            )
-            .transform
-            .getMaxScaleOnAxis(),
-        greaterThan(1),
-      );
+  for (final viewCase in [
+    (fullscreen: false, bottomInset: 0.0),
+    (fullscreen: true, bottomInset: 24.0),
+    (fullscreen: true, bottomInset: 34.0),
+  ]) {
+    _testPlayerWidget(
+      'two-finger pinch zoom can be restored to the original view '
+      '(fullscreen=${viewCase.fullscreen}, bottomInset=${viewCase.bottomInset})',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        tester.view.padding = FakeViewPadding(bottom: viewCase.bottomInset);
+        addTearDown(tester.view.resetPadding);
+        final session = _FakePlaybackSession();
+        await _pumpStandalonePlayer(
+          tester,
+          session,
+          width: viewCase.fullscreen ? 1000 : 400,
+          height: viewCase.fullscreen ? 600 : 800,
+        );
+        if (viewCase.fullscreen) {
+          await tester.tap(
+            find.byKey(const ValueKey('video-fullscreen-control')),
+          );
+          await tester.pumpAndSettle();
+        }
+        final videoSurface = find.byKey(const ValueKey('fake-video-surface'));
+        final rect = tester.getRect(videoSurface);
+        final first = await tester.startGesture(
+          Offset(rect.left + rect.width * .35, rect.center.dy),
+          pointer: 41,
+          kind: PointerDeviceKind.touch,
+        );
+        final second = await tester.startGesture(
+          Offset(rect.left + rect.width * .65, rect.center.dy),
+          pointer: 42,
+          kind: PointerDeviceKind.touch,
+        );
+        await first.moveBy(Offset(-rect.width * .15, 0));
+        await second.moveBy(Offset(rect.width * .15, 0));
+        await tester.pump();
+        expect(
+          tester
+              .widget<Transform>(
+                find.byKey(const ValueKey('video-surface-transform')),
+              )
+              .transform
+              .getMaxScaleOnAxis(),
+          greaterThan(1),
+        );
 
-      await first.up();
-      await second.up();
-      await tester.pump();
-      await tester.tap(find.byKey(const ValueKey('video-restore-screen')));
-      await tester.pump();
-      expect(
-        tester
-            .widget<Transform>(
-              find.byKey(const ValueKey('video-surface-transform')),
-            )
-            .transform
-            .getMaxScaleOnAxis(),
-        1,
-      );
-      expect(tester.takeException(), isNull);
-    },
-  );
+        await first.up();
+        await second.up();
+        await tester.pump();
+        final positionBeforeRestore = session.lastPosition;
+        await tester.tap(find.byKey(const ValueKey('video-restore-screen')));
+        await tester.pump();
+        expect(
+          tester
+              .widget<Transform>(
+                find.byKey(const ValueKey('video-surface-transform')),
+              )
+              .transform
+              .getMaxScaleOnAxis(),
+          1,
+        );
+        expect(session.lastPosition, positionBeforeRestore);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   _testPlayerWidget(
     'focused keyboard controls seek and preserve one fullscreen surface',
@@ -3060,6 +3232,7 @@ Future<void> _pumpStandalonePlayer(
   _FakePlaybackSession session, {
   double width = 400,
   double height = 800,
+  VideoPlayerPlatform? platform,
 }) async {
   tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
@@ -3079,7 +3252,7 @@ Future<void> _pumpStandalonePlayer(
           title: 'Fixture video',
           streams: _details().streams,
           sessionFactory: () => session,
-          platform: _TestVideoPlayerPlatform(),
+          platform: platform ?? _TestVideoPlayerPlatform(),
         ),
       ),
     ),
@@ -3692,6 +3865,7 @@ class _FakeDesktopPiPPlatform extends VideoPlayerPlatform {
 
 class _TestVideoPlayerPlatform extends VideoPlayerPlatform {
   final ValueNotifier<bool> _pictureInPicture = ValueNotifier(false);
+  final List<bool> fullscreenStatusBarChanges = [];
   double brightness = 0.5;
   bool alwaysOnTop = false;
 
@@ -3723,6 +3897,11 @@ class _TestVideoPlayerPlatform extends VideoPlayerPlatform {
 
   @override
   Future<void> setNativeFullscreen(bool enabled) async {}
+
+  @override
+  Future<void> setFullscreenStatusBarHidden(bool hidden) async {
+    fullscreenStatusBarChanges.add(hidden);
+  }
 
   @override
   Future<double> getBrightness() async => brightness;

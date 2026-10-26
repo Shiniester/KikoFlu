@@ -185,9 +185,11 @@ void main() {
   const pipChannel = MethodChannel('video-pip-test');
   final calls = <MethodCall>[];
   final controller = _Controller(nativePlayer: _Player());
+  var failFullscreenStatusBarChanges = false;
 
   setUp(() {
     calls.clear();
+    failFullscreenStatusBarChanges = false;
     binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
       call,
     ) async {
@@ -197,6 +199,10 @@ void main() {
       }
       if (call.method == 'getBrightness') return 0.7;
       if (call.method == 'enterPictureInPicture') return true;
+      if (call.method == 'setFullscreenStatusBarHidden' &&
+          failFullscreenStatusBarChanges) {
+        throw PlatformException(code: 'status_bar_unavailable');
+      }
       return null;
     });
   });
@@ -240,6 +246,54 @@ void main() {
       await desktop.dispose();
     },
   );
+
+  test('fullscreen status bar visibility is Android only', () async {
+    final android = VideoPlayerPlatform(
+      channel: channel,
+      platform: TargetPlatform.android,
+    );
+    await android.initialize();
+    await android.setFullscreenStatusBarHidden(true);
+    await android.setFullscreenStatusBarHidden(false);
+    expect(
+      calls
+          .where((call) => call.method == 'setFullscreenStatusBarHidden')
+          .map((call) => call.arguments),
+      [
+        {'hidden': true},
+        {'hidden': false},
+      ],
+    );
+    calls.clear();
+    failFullscreenStatusBarChanges = true;
+    await android.setFullscreenStatusBarHidden(true);
+    await android.setFullscreenStatusBarHidden(false);
+    expect(
+      calls
+          .where((call) => call.method == 'setFullscreenStatusBarHidden')
+          .map((call) => call.arguments),
+      [
+        {'hidden': true},
+        {'hidden': false},
+      ],
+    );
+    failFullscreenStatusBarChanges = false;
+    await android.dispose();
+
+    calls.clear();
+    final ios = VideoPlayerPlatform(
+      channel: channel,
+      platform: TargetPlatform.iOS,
+    );
+    await ios.initialize();
+    await ios.setFullscreenStatusBarHidden(true);
+    await ios.setFullscreenStatusBarHidden(false);
+    expect(
+      calls.where((call) => call.method == 'setFullscreenStatusBarHidden'),
+      isEmpty,
+    );
+    await ios.dispose();
+  });
 
   test(
     'brightness is bounded and temporary state is restored on dispose',

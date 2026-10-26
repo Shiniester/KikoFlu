@@ -666,8 +666,81 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
 
   Widget _buildDetails(S s, VideoDetails details, VideoDownloadTask? task) {
     final nextRelated = _firstRelated(details);
+    final detailsContent = <Widget>[
+      if (!_loading && _error != null) _buildLoadFailure(s),
+      const SizedBox(height: 16),
+      if (details.metadata.isNotEmpty)
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final entry in details.metadata.entries)
+              Chip(label: Text('${entry.key}: ${entry.value}')),
+          ],
+        ),
+      if (details.description.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        SelectableText(details.description),
+      ],
+      if (details.actors.isNotEmpty) ...[
+        const SizedBox(height: 16),
+        Text(
+          s.videoActorFavorites,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [for (final actor in details.actors) _actorChip(actor)],
+        ),
+      ],
+      if (details.tags.isNotEmpty) ...[
+        const SizedBox(height: 16),
+        Text(s.videoCatalog, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final tag in details.tags)
+              ActionChip(
+                label: Text(tag.label),
+                onPressed: () => _openCatalog(tag),
+              ),
+          ],
+        ),
+      ],
+      if (details.related.isNotEmpty) ...[
+        const SizedBox(height: 20),
+        Text(s.videoRelated, style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 8),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final columns = (constraints.maxWidth / 180)
+                .floor()
+                .clamp(1, 4)
+                .toInt();
+            return MasonryGridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: details.related.length,
+              crossAxisCount: columns,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              itemBuilder: (context, index) => VideoCard(
+                video: details.related[index],
+                layoutType: LayoutType.bigGrid,
+                onTap: () => _openRelated(details.related[index]),
+                onOpenLink: _openCatalog,
+              ),
+            );
+          },
+        ),
+      ],
+    ];
     return ListView(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+      padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
       children: [
         VideoPlaybackPanel(
           key: ValueKey('video-player-${details.video.id}'),
@@ -688,77 +761,11 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
           onOpenSource: () => unawaited(_openSource()),
           onVerifyAccess: _isOffline ? null : _verifyAndRetry,
         ),
-        if (!_loading && _error != null) _buildLoadFailure(s),
-        const SizedBox(height: 16),
-        if (details.metadata.isNotEmpty)
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final entry in details.metadata.entries)
-                Chip(label: Text('${entry.key}: ${entry.value}')),
-            ],
+        for (final child in detailsContent)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: child,
           ),
-        if (details.description.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          SelectableText(details.description),
-        ],
-        if (details.actors.isNotEmpty) ...[
-          const SizedBox(height: 16),
-          Text(
-            s.videoActorFavorites,
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [for (final actor in details.actors) _actorChip(actor)],
-          ),
-        ],
-        if (details.tags.isNotEmpty) ...[
-          const SizedBox(height: 16),
-          Text(s.videoCatalog, style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final tag in details.tags)
-                ActionChip(
-                  label: Text(tag.label),
-                  onPressed: () => _openCatalog(tag),
-                ),
-            ],
-          ),
-        ],
-        if (details.related.isNotEmpty) ...[
-          const SizedBox(height: 20),
-          Text(s.videoRelated, style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final columns = (constraints.maxWidth / 180)
-                  .floor()
-                  .clamp(1, 4)
-                  .toInt();
-              return MasonryGridView.count(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: details.related.length,
-                crossAxisCount: columns,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                itemBuilder: (context, index) => VideoCard(
-                  video: details.related[index],
-                  layoutType: LayoutType.bigGrid,
-                  onTap: () => _openRelated(details.related[index]),
-                  onOpenLink: _openCatalog,
-                ),
-              );
-            },
-          ),
-        ],
       ],
     );
   }

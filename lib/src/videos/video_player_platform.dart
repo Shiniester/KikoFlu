@@ -230,6 +230,28 @@ class VideoPlayerPlatform {
     }
   }
 
+  Future<void> setFullscreenStatusBarHidden(bool hidden) {
+    if (kIsWeb ||
+        _platform != TargetPlatform.android ||
+        !_ownsPlatform ||
+        _disposed ||
+        _releasing) {
+      return Future<void>.value();
+    }
+    return _serialize(() async {
+      if (!_ownsPlatform || _disposed || _releasing) return;
+      try {
+        await _channel.invokeMethod<void>('setFullscreenStatusBarHidden', {
+          'hidden': hidden,
+        });
+      } on MissingPluginException {
+        // Missing system UI support must not block fullscreen playback.
+      } on PlatformException {
+        // System UI visibility must not block fullscreen playback.
+      }
+    });
+  }
+
   Future<void> setNativeFullscreen(bool enabled) {
     if (!_desktop || !_ownsPlatform || _disposed || _releasing) {
       return Future<void>.value();

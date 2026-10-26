@@ -162,6 +162,12 @@ class MainActivity : AudioServiceActivity() {
         super.onActivityResult(requestCode, resultCode, data)
     }
 
+    override fun onPostResume() {
+        super.onPostResume()
+        // Flutter restores edge-to-edge on resume, so reapply video fullscreen.
+        videoPlayerBridge?.onPostResume()
+    }
+
     override fun onUserLeaveHint() {
         videoPlayerBridge?.onUserLeaveHint()
         super.onUserLeaveHint()
