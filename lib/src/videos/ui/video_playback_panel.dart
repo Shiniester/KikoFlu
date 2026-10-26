@@ -40,6 +40,7 @@ class VideoPlaybackSnapshot {
     this.rate = 1,
     this.error,
     this.audioTracks = const [],
+    this.selectedAudioTrackId,
     this.subtitleTracks = const [],
   });
 
@@ -52,6 +53,7 @@ class VideoPlaybackSnapshot {
   final double rate;
   final String? error;
   final List<VideoPlaybackTrack> audioTracks;
+  final String? selectedAudioTrackId;
   final List<VideoPlaybackTrack> subtitleTracks;
 
   VideoPlaybackSnapshot copyWith({
@@ -65,6 +67,7 @@ class VideoPlaybackSnapshot {
     String? error,
     bool clearError = false,
     List<VideoPlaybackTrack>? audioTracks,
+    String? selectedAudioTrackId,
     List<VideoPlaybackTrack>? subtitleTracks,
   }) => VideoPlaybackSnapshot(
     position: position ?? this.position,
@@ -76,6 +79,7 @@ class VideoPlaybackSnapshot {
     rate: rate ?? this.rate,
     error: clearError ? null : error ?? this.error,
     audioTracks: audioTracks ?? this.audioTracks,
+    selectedAudioTrackId: selectedAudioTrackId ?? this.selectedAudioTrackId,
     subtitleTracks: subtitleTracks ?? this.subtitleTracks,
   );
 }
@@ -171,6 +175,12 @@ class MediaKitVideoPlaybackSession implements VideoPlaybackAdvancedSession {
         (value) => _update((old) => old.copyWith(rate: value)),
       ),
       _player.stream.tracks.listen(_updateTracks),
+      if (_player.platform is! NativePlayer)
+        _player.stream.track.listen(
+          (track) => _update(
+            (old) => old.copyWith(selectedAudioTrackId: track.audio.id),
+          ),
+        ),
       _player.stream.error.listen(
         (value) => _update((old) => old.copyWith(error: value)),
       ),
@@ -183,9 +193,14 @@ class MediaKitVideoPlaybackSession implements VideoPlaybackAdvancedSession {
       final hook = _applyNativeSubtitleLoadOptions;
       _nativeSubtitleLoadHook = hook;
       platform.onLoadHooks.add(hook);
-    }
-    if (proxy != null && platform is NativePlayer) {
-      _configureProxy = platform.setProperty('http-proxy', proxy);
+      _configureNative = platform.observeProperty('aid', (id) async {
+        _update((old) => old.copyWith(selectedAudioTrackId: id));
+      });
+      if (proxy != null) {
+        _configureNative = _configureNative.then(
+          (_) => platform.setProperty('http-proxy', proxy),
+        );
+      }
     }
   }
 
@@ -195,7 +210,7 @@ class MediaKitVideoPlaybackSession implements VideoPlaybackAdvancedSession {
     const VideoPlaybackSnapshot(),
   );
   final List<StreamSubscription<dynamic>> _subscriptions = [];
-  Future<void> _configureProxy = Future.value();
+  Future<void> _configureNative = Future.value();
   Future<void> _superResolutionTail = Future<void>.value();
   NativePlayer? _nativePlayer;
   Future<void> Function()? _nativeSubtitleLoadHook;
@@ -276,7 +291,7 @@ class MediaKitVideoPlaybackSession implements VideoPlaybackAdvancedSession {
     required double volume,
   }) async {
     _update((old) => old.copyWith(clearError: true));
-    await _configureProxy;
+    await _configureNative;
     final platform = _player.platform;
     if (platform is NativePlayer) {
       final uri = Uri.parse(stream.url);
@@ -311,7 +326,7 @@ class MediaKitVideoPlaybackSession implements VideoPlaybackAdvancedSession {
     required double volume,
   }) async {
     _update((old) => old.copyWith(clearError: true));
-    await _configureProxy;
+    await _configureNative;
     await _player.setVolume(volume.clamp(0, 100).toDouble());
     // media_kit's Windows long-path prefix breaks relative HLS URLs.
     final isWindowsHls =
@@ -523,6 +538,10 @@ class MediaKitVideoPlaybackSession implements VideoPlaybackAdvancedSession {
     }
     final nativePlayer = _nativePlayer;
     final subtitleLoadHook = _nativeSubtitleLoadHook;
+    if (nativePlayer != null) {
+      await _configureNative;
+      await nativePlayer.unobserveProperty('aid');
+    }
     if (nativePlayer != null && subtitleLoadHook != null) {
       nativePlayer.onLoadHooks.remove(subtitleLoadHook);
     }
@@ -582,6 +601,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   late final VideoPlayerPlatform _platform;
   final ValueNotifier<int> _uiRevision = ValueNotifier(0);
   final FocusNode _focusNode = FocusNode(debugLabel: 'Video player');
+  final ValueNotifier<double> _inlineViewportHeight = ValueNotifier(0);
   final Map<int, Offset> _transformPointers = {};
   late double _volume;
   late int _streamIndex;
@@ -2132,6 +2152,14 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     if (mounted) await _invoke(onVerifyAccess);
   }
 
+  void _publishInlineViewportHeight(double height) {
+    if (_inlineViewportHeight.value == height) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _inlineViewportHeight.value == height) return;
+      _inlineViewportHeight.value = height;
+    });
+  }
+
   Widget _buildPlayerLayout(
     BuildContext context, {
     required bool fullscreen,
@@ -2167,90 +2195,101 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
           child: AspectRatio(
             aspectRatio: _viewportAspectRatio(context, fullscreen: fullscreen),
             child: LayoutBuilder(
-              builder: (context, constraints) => Stack(
-                key: const ValueKey('video-playback-layout'),
-                fit: StackFit.expand,
-                children: [
-                  GestureDetector(
-                    key: const ValueKey('video-gesture-surface'),
-                    behavior: HitTestBehavior.opaque,
-                    onTap: _controlsLocked || pipMode ? null : _toggleControls,
-                    onDoubleTapDown: pipMode
-                        ? null
-                        : (details) => _doubleTapX = details.localPosition.dx,
-                    onDoubleTap: pipMode
-                        ? null
-                        : () => _surfaceDoubleTap(constraints.maxWidth),
-                    onHorizontalDragStart: _controlsLocked || pipMode
-                        ? null
-                        : (_) => _startSurfaceSeek(),
-                    onHorizontalDragUpdate: (details) => _updateSurfaceSeek(
-                      details.localPosition.dx,
-                      constraints.maxWidth,
-                    ),
-                    onHorizontalDragEnd: (_) => _finishSeek(),
-                    onHorizontalDragCancel: _cancelSeekPreview,
-                    onVerticalDragStart:
-                        _controlsLocked ||
-                            pipMode ||
-                            (!_settings.enableSideSwipeAdjust &&
-                                !_settings.enableFullscreenGesture)
-                        ? null
-                        : (details) => _startVerticalGesture(
-                            details,
-                            constraints.maxWidth,
-                          ),
-                    onVerticalDragUpdate: (details) =>
-                        _updateVerticalGesture(details, constraints.maxHeight),
-                    onVerticalDragEnd: (_) => _finishVerticalGesture(
-                      fullscreen: fullscreen,
-                      onFullscreen: onFullscreen,
-                    ),
-                    onVerticalDragCancel: _cancelVerticalGesture,
-                    onLongPressStart: _controlsLocked || pipMode
-                        ? null
-                        : (_) => _startTemporaryRate(),
-                    onLongPressEnd: (_) => _stopTemporaryRate(),
-                    onLongPressCancel: _stopTemporaryRate,
-                    child: Listener(
+              builder: (context, constraints) {
+                if (!fullscreen && !pipMode) {
+                  _publishInlineViewportHeight(constraints.maxHeight);
+                }
+                return Stack(
+                  key: const ValueKey('video-playback-layout'),
+                  fit: StackFit.expand,
+                  children: [
+                    GestureDetector(
+                      key: const ValueKey('video-gesture-surface'),
                       behavior: HitTestBehavior.opaque,
-                      onPointerDown: (event) {
-                        final snapshot = _session.snapshot.value;
-                        _dragStartX = event.localPosition.dx;
-                        _dragStartPosition = snapshot.duration > Duration.zero
-                            ? _clampPosition(
-                                snapshot.position,
-                                snapshot.duration,
-                              )
-                            : null;
-                      },
-                      onPointerUp: (_) {
-                        if (_seekPreview == null) {
+                      onTap: _controlsLocked || pipMode
+                          ? null
+                          : _toggleControls,
+                      onDoubleTapDown: pipMode
+                          ? null
+                          : (details) => _doubleTapX = details.localPosition.dx,
+                      onDoubleTap: pipMode
+                          ? null
+                          : () => _surfaceDoubleTap(constraints.maxWidth),
+                      onHorizontalDragStart: _controlsLocked || pipMode
+                          ? null
+                          : (_) => _startSurfaceSeek(),
+                      onHorizontalDragUpdate: (details) => _updateSurfaceSeek(
+                        details.localPosition.dx,
+                        constraints.maxWidth,
+                      ),
+                      onHorizontalDragEnd: (_) => _finishSeek(),
+                      onHorizontalDragCancel: _cancelSeekPreview,
+                      onVerticalDragStart:
+                          _controlsLocked ||
+                              pipMode ||
+                              (!_settings.enableSideSwipeAdjust &&
+                                  !_settings.enableFullscreenGesture)
+                          ? null
+                          : (details) => _startVerticalGesture(
+                              details,
+                              constraints.maxWidth,
+                            ),
+                      onVerticalDragUpdate: (details) => _updateVerticalGesture(
+                        details,
+                        constraints.maxHeight,
+                      ),
+                      onVerticalDragEnd: (_) => _finishVerticalGesture(
+                        fullscreen: fullscreen,
+                        onFullscreen: onFullscreen,
+                      ),
+                      onVerticalDragCancel: _cancelVerticalGesture,
+                      onLongPressStart: _controlsLocked || pipMode
+                          ? null
+                          : (_) => _startTemporaryRate(),
+                      onLongPressEnd: (_) => _stopTemporaryRate(),
+                      onLongPressCancel: _stopTemporaryRate,
+                      child: Listener(
+                        behavior: HitTestBehavior.opaque,
+                        onPointerDown: (event) {
+                          final snapshot = _session.snapshot.value;
+                          _dragStartX = event.localPosition.dx;
+                          _dragStartPosition = snapshot.duration > Duration.zero
+                              ? _clampPosition(
+                                  snapshot.position,
+                                  snapshot.duration,
+                                )
+                              : null;
+                        },
+                        onPointerUp: (_) {
+                          if (_seekPreview == null) {
+                            _dragStartX = null;
+                            _dragStartPosition = null;
+                          }
+                        },
+                        onPointerCancel: (_) {
+                          _cancelSeekPreview();
+                          _cancelVerticalGesture();
                           _dragStartX = null;
                           _dragStartPosition = null;
-                        }
-                      },
-                      onPointerCancel: (_) {
-                        _cancelSeekPreview();
-                        _cancelVerticalGesture();
-                        _dragStartX = null;
-                        _dragStartPosition = null;
-                      },
-                      child: ColoredBox(
-                        color: Colors.black,
-                        child: ClipRect(
-                          child: Transform.translate(
-                            offset: _videoOffset,
-                            child: Transform.flip(
-                              flipX: _settings.flipHorizontal,
-                              flipY: _settings.flipVertical,
-                              child: Transform.scale(
-                                key: const ValueKey('video-surface-transform'),
-                                scale: _videoScale,
-                                child: _buildSurface(
-                                  _viewportAspectRatio(
-                                    context,
-                                    fullscreen: fullscreen,
+                        },
+                        child: ColoredBox(
+                          color: Colors.black,
+                          child: ClipRect(
+                            child: Transform.translate(
+                              offset: _videoOffset,
+                              child: Transform.flip(
+                                flipX: _settings.flipHorizontal,
+                                flipY: _settings.flipVertical,
+                                child: Transform.scale(
+                                  key: const ValueKey(
+                                    'video-surface-transform',
+                                  ),
+                                  scale: _videoScale,
+                                  child: _buildSurface(
+                                    _viewportAspectRatio(
+                                      context,
+                                      fullscreen: fullscreen,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -2259,278 +2298,287 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                         ),
                       ),
                     ),
-                  ),
-                  ValueListenableBuilder<VideoPlaybackSnapshot>(
-                    valueListenable: _session.snapshot,
-                    builder: (context, snapshot, _) {
-                      if (pipMode || constraints.maxWidth < 240) {
-                        return const SizedBox.shrink();
-                      }
-                      if (_error != null || snapshot.error != null) {
-                        return Center(
-                          child: SingleChildScrollView(
-                            padding: const EdgeInsets.fromLTRB(8, 52, 8, 4),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  S.of(context).videoPlaybackFailed,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(color: Colors.white),
-                                ),
-                                Wrap(
-                                  alignment: WrapAlignment.center,
-                                  crossAxisAlignment: WrapCrossAlignment.center,
-                                  children: [
-                                    IconButton(
-                                      tooltip: S.of(context).retry,
-                                      color: Colors.white,
-                                      icon: const Icon(Icons.refresh),
-                                      onPressed: () => unawaited(
-                                        _loadSource(
-                                          position:
-                                              _pendingLoadPosition ??
-                                              snapshot.position,
-                                          resume: snapshot.playing,
-                                        ),
-                                      ),
-                                    ),
-                                    if (widget.onVerifyAccess != null)
-                                      TextButton.icon(
-                                        onPressed: () =>
-                                            unawaited(_verifyAccess()),
-                                        icon: const Icon(
-                                          Icons.verified_user_outlined,
-                                        ),
-                                        label: Text(
-                                          S.of(context).videoVerifyAccess,
-                                        ),
-                                      ),
-                                    if (widget.onOpenSource != null)
-                                      TextButton.icon(
-                                        onPressed: widget.onOpenSource,
-                                        icon: const Icon(Icons.open_in_new),
-                                        label: Text(
-                                          S.of(context).videoOpenSource,
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }
-                      if (_loading || snapshot.buffering) {
-                        return const IgnorePointer(
-                          child: Center(
-                            child: CircularProgressIndicator(
-                              key: ValueKey('video-playback-loading'),
-                              color: Colors.white,
-                            ),
-                          ),
-                        );
-                      }
-                      return const SizedBox.shrink();
-                    },
-                  ),
-                  ValueListenableBuilder<VideoPlaybackSnapshot>(
-                    valueListenable: _session.snapshot,
-                    builder: (context, snapshot, _) {
-                      final hasError = _error != null || snapshot.error != null;
-                      final controlsVisible = _controlsVisible;
-                      // Android can briefly report tiny bounds when leaving PiP.
-                      if (!pipMode && constraints.maxWidth < 240) {
-                        return const SizedBox.shrink();
-                      }
-                      if (pipMode) {
-                        if (!showPipExitControl) {
+                    ValueListenableBuilder<VideoPlaybackSnapshot>(
+                      valueListenable: _session.snapshot,
+                      builder: (context, snapshot, _) {
+                        if (pipMode || constraints.maxWidth < 240) {
                           return const SizedBox.shrink();
                         }
-                        return Align(
-                          alignment: Alignment.topRight,
-                          child: IconButton.filledTonal(
-                            tooltip: S.of(context).videoPlayerPictureInPicture,
-                            color: Colors.white,
-                            icon: const Icon(Icons.picture_in_picture_alt),
-                            onPressed: _exitPictureInPicture,
-                          ),
-                        );
-                      }
-                      return Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          if (_shouldShowBottomProgress(
-                            snapshot,
-                            fullscreen: fullscreen,
-                          ))
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              child: LinearProgressIndicator(
-                                minHeight: 2,
-                                value:
-                                    (snapshot.position.inMilliseconds /
-                                            snapshot.duration.inMilliseconds)
-                                        .clamp(0.0, 1.0),
-                                backgroundColor: Colors.white24,
+                        if (_error != null || snapshot.error != null) {
+                          return Center(
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.fromLTRB(8, 52, 8, 4),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    S.of(context).videoPlaybackFailed,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(color: Colors.white),
+                                  ),
+                                  Wrap(
+                                    alignment: WrapAlignment.center,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    children: [
+                                      IconButton(
+                                        tooltip: S.of(context).retry,
+                                        color: Colors.white,
+                                        icon: const Icon(Icons.refresh),
+                                        onPressed: () => unawaited(
+                                          _loadSource(
+                                            position:
+                                                _pendingLoadPosition ??
+                                                snapshot.position,
+                                            resume: snapshot.playing,
+                                          ),
+                                        ),
+                                      ),
+                                      if (widget.onVerifyAccess != null)
+                                        TextButton.icon(
+                                          onPressed: () =>
+                                              unawaited(_verifyAccess()),
+                                          icon: const Icon(
+                                            Icons.verified_user_outlined,
+                                          ),
+                                          label: Text(
+                                            S.of(context).videoVerifyAccess,
+                                          ),
+                                        ),
+                                      if (widget.onOpenSource != null)
+                                        TextButton.icon(
+                                          onPressed: widget.onOpenSource,
+                                          icon: const Icon(Icons.open_in_new),
+                                          label: Text(
+                                            S.of(context).videoOpenSource,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
                               ),
                             ),
-                          if (controlsVisible)
-                            Positioned.fill(
-                              child: IgnorePointer(
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                      colors: [
-                                        Colors.black.withValues(alpha: .42),
-                                        Colors.transparent,
-                                        Colors.transparent,
-                                        Colors.black.withValues(alpha: .78),
-                                      ],
-                                      stops: const [0, .2, .58, 1],
-                                    ),
-                                  ),
-                                ),
+                          );
+                        }
+                        if (_loading || snapshot.buffering) {
+                          return const IgnorePointer(
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                key: ValueKey('video-playback-loading'),
+                                color: Colors.white,
                               ),
                             ),
-                          if (hasError)
-                            Positioned(
-                              top: 4,
-                              right: 4,
-                              child: IgnorePointer(
-                                ignoring: !controlsVisible,
-                                child: AnimatedOpacity(
-                                  key: const ValueKey(
-                                    'video-fullscreen-control',
-                                  ),
-                                  opacity: controlsVisible ? 1 : 0,
-                                  duration: const Duration(milliseconds: 100),
-                                  child: IconButton(
-                                    tooltip: S.of(context).videoFullscreen,
-                                    color: Colors.white,
-                                    icon: Icon(
-                                      fullscreen
-                                          ? Icons.fullscreen_exit
-                                          : Icons.fullscreen,
-                                    ),
-                                    onPressed: onFullscreen,
-                                  ),
-                                ),
-                              ),
+                          );
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                    ValueListenableBuilder<VideoPlaybackSnapshot>(
+                      valueListenable: _session.snapshot,
+                      builder: (context, snapshot, _) {
+                        final hasError =
+                            _error != null || snapshot.error != null;
+                        final controlsVisible = _controlsVisible;
+                        // Android can briefly report tiny bounds when leaving PiP.
+                        if (!pipMode && constraints.maxWidth < 240) {
+                          return const SizedBox.shrink();
+                        }
+                        if (pipMode) {
+                          if (!showPipExitControl) {
+                            return const SizedBox.shrink();
+                          }
+                          return Align(
+                            alignment: Alignment.topRight,
+                            child: IconButton.filledTonal(
+                              tooltip: S
+                                  .of(context)
+                                  .videoPlayerPictureInPicture,
+                              color: Colors.white,
+                              icon: const Icon(Icons.picture_in_picture_alt),
+                              onPressed: _exitPictureInPicture,
                             ),
-                          if (!hasError)
-                            if (controlsVisible && !_controlsLocked)
+                          );
+                        }
+                        return Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            if (_shouldShowBottomProgress(
+                              snapshot,
+                              fullscreen: fullscreen,
+                            ))
                               Positioned(
                                 left: 0,
                                 right: 0,
-                                top: 0,
-                                child: AnimatedOpacity(
-                                  opacity: controlsVisible ? 1 : 0,
-                                  duration: const Duration(milliseconds: 100),
-                                  child: _buildTopControls(
-                                    context,
-                                    fullscreen: fullscreen,
-                                    onFullscreen: onFullscreen,
-                                  ),
+                                bottom: 0,
+                                child: LinearProgressIndicator(
+                                  minHeight: 2,
+                                  value:
+                                      (snapshot.position.inMilliseconds /
+                                              snapshot.duration.inMilliseconds)
+                                          .clamp(0.0, 1.0),
+                                  backgroundColor: Colors.white24,
                                 ),
                               ),
-                          if (controlsVisible &&
-                              !_controlsLocked &&
-                              !pipMode &&
-                              _videoScale > 1)
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom: 95,
-                              child: Center(
-                                child: FilledButton.tonal(
-                                  key: const ValueKey('video-restore-screen'),
-                                  style: FilledButton.styleFrom(
-                                    padding: const EdgeInsets.all(15),
-                                    backgroundColor: Theme.of(context)
-                                        .colorScheme
-                                        .secondaryContainer
-                                        .withValues(alpha: .8),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                  ),
-                                  onPressed: _restoreVideoTransform,
-                                  child: Text(
-                                    S.of(context).videoPlayerRestoreScreen,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          if (_controlsLocked && controlsVisible)
-                            Positioned(
-                              top: 4,
-                              right: 4,
-                              child: IconButton(
-                                tooltip: S
-                                    .of(context)
-                                    .videoPlayerUnlockControls,
-                                color: Colors.white,
-                                icon: const Icon(Icons.lock_outline),
-                                onPressed: _toggleControlsLock,
-                              ),
-                            ),
-                          if (_gestureValueLabel != null)
-                            Center(
-                              child: IgnorePointer(
-                                child: DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: .68),
-                                    borderRadius: BorderRadius.circular(28),
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 20,
-                                      vertical: 12,
-                                    ),
-                                    child: Text(
-                                      _gestureValueLabel!,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 18,
+                            if (controlsVisible)
+                              Positioned.fill(
+                                child: IgnorePointer(
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                        colors: [
+                                          Colors.black.withValues(alpha: .42),
+                                          Colors.transparent,
+                                          Colors.transparent,
+                                          Colors.black.withValues(alpha: .78),
+                                        ],
+                                        stops: const [0, .2, .58, 1],
                                       ),
                                     ),
                                   ),
                                 ),
                               ),
-                            ),
-                          if (!hasError && !_controlsLocked)
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              child: IgnorePointer(
-                                ignoring: !controlsVisible,
-                                child: AnimatedOpacity(
-                                  key: const ValueKey('video-controls'),
-                                  opacity: controlsVisible ? 1 : 0,
-                                  duration: const Duration(milliseconds: 100),
-                                  child: _buildControls(
-                                    context,
-                                    fullscreen: fullscreen,
-                                    onFullscreen: onFullscreen,
-                                    onSecondaryFullscreen:
-                                        onSecondaryFullscreen,
-                                    snapshot: snapshot,
+                            if (hasError)
+                              Positioned(
+                                top: 4,
+                                right: 4,
+                                child: IgnorePointer(
+                                  ignoring: !controlsVisible,
+                                  child: AnimatedOpacity(
+                                    key: const ValueKey(
+                                      'video-fullscreen-control',
+                                    ),
+                                    opacity: controlsVisible ? 1 : 0,
+                                    duration: const Duration(milliseconds: 100),
+                                    child: IconButton(
+                                      tooltip: S.of(context).videoFullscreen,
+                                      color: Colors.white,
+                                      icon: Icon(
+                                        fullscreen
+                                            ? Icons.fullscreen_exit
+                                            : Icons.fullscreen,
+                                      ),
+                                      onPressed: onFullscreen,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                        ],
-                      );
-                    },
-                  ),
-                ],
-              ),
+                            if (!hasError)
+                              if (controlsVisible && !_controlsLocked)
+                                Positioned(
+                                  left: 0,
+                                  right: 0,
+                                  top: 0,
+                                  child: AnimatedOpacity(
+                                    opacity: controlsVisible ? 1 : 0,
+                                    duration: const Duration(milliseconds: 100),
+                                    child: _buildTopControls(
+                                      context,
+                                      fullscreen: fullscreen,
+                                      onFullscreen: onFullscreen,
+                                      maxHeightListenable: fullscreen || pipMode
+                                          ? null
+                                          : _inlineViewportHeight,
+                                    ),
+                                  ),
+                                ),
+                            if (controlsVisible &&
+                                !_controlsLocked &&
+                                !pipMode &&
+                                _videoScale > 1)
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: 95,
+                                child: Center(
+                                  child: FilledButton.tonal(
+                                    key: const ValueKey('video-restore-screen'),
+                                    style: FilledButton.styleFrom(
+                                      padding: const EdgeInsets.all(15),
+                                      backgroundColor: Theme.of(context)
+                                          .colorScheme
+                                          .secondaryContainer
+                                          .withValues(alpha: .8),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                    ),
+                                    onPressed: _restoreVideoTransform,
+                                    child: Text(
+                                      S.of(context).videoPlayerRestoreScreen,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            if (_controlsLocked && controlsVisible)
+                              Positioned(
+                                top: 4,
+                                right: 4,
+                                child: IconButton(
+                                  tooltip: S
+                                      .of(context)
+                                      .videoPlayerUnlockControls,
+                                  color: Colors.white,
+                                  icon: const Icon(Icons.lock_outline),
+                                  onPressed: _toggleControlsLock,
+                                ),
+                              ),
+                            if (_gestureValueLabel != null)
+                              Center(
+                                child: IgnorePointer(
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(
+                                        alpha: .68,
+                                      ),
+                                      borderRadius: BorderRadius.circular(28),
+                                    ),
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 20,
+                                        vertical: 12,
+                                      ),
+                                      child: Text(
+                                        _gestureValueLabel!,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 18,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            if (!hasError && !_controlsLocked)
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                child: IgnorePointer(
+                                  ignoring: !controlsVisible,
+                                  child: AnimatedOpacity(
+                                    key: const ValueKey('video-controls'),
+                                    opacity: controlsVisible ? 1 : 0,
+                                    duration: const Duration(milliseconds: 100),
+                                    child: _buildControls(
+                                      context,
+                                      fullscreen: fullscreen,
+                                      onFullscreen: onFullscreen,
+                                      onSecondaryFullscreen:
+                                          onSecondaryFullscreen,
+                                      snapshot: snapshot,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ),
@@ -2542,6 +2590,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     BuildContext context, {
     required bool fullscreen,
     required VoidCallback onFullscreen,
+    ValueListenable<double>? maxHeightListenable,
   }) {
     final s = S.of(context);
     final showTitle =
@@ -2671,7 +2720,12 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
               maximumSize: const Size(42, 34),
               padding: EdgeInsets.zero,
             ),
-            onPressed: () => unawaited(_showMoreOptions(canPip: canPip)),
+            onPressed: () => unawaited(
+              _showMoreOptions(
+                canPip: canPip,
+                maxHeightListenable: maxHeightListenable,
+              ),
+            ),
           ),
         ],
       ),
@@ -2771,224 +2825,295 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     _onSnapshotChanged();
   }
 
-  Future<void> _showMoreOptions({required bool canPip}) async {
+  Future<void> _showMoreOptions({
+    required bool canPip,
+    ValueListenable<double>? maxHeightListenable,
+  }) async {
     _settingsOpen = true;
     _beginControlsInteraction();
     var openPlayerSettings = false;
     var openSleepTimer = false;
+    var audioTracksExpanded = false;
     try {
       await showResponsiveBottomSheet<void>(
         context: context,
+        maxHeightListenable: maxHeightListenable,
         builder: (sheetContext) {
           final s = S.of(sheetContext);
-          final audioTracks = _session.snapshot.value.audioTracks;
-          return AnimatedBuilder(
-            animation: _settings,
-            builder: (context, _) => ListView(
-              shrinkWrap: true,
-              children: [
-                BottomSheetHeader(title: s.videoPlayerMoreOptions),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.volume_down),
-                      const SizedBox(width: 12),
-                      Text(s.volume),
-                      Expanded(
-                        child: StatefulBuilder(
-                          builder: (context, setSheetState) => Slider(
-                            key: const ValueKey('video-volume-slider'),
-                            min: 0,
-                            max: 100,
-                            value: _volume,
-                            onChanged: (value) {
-                              setSheetState(() {});
-                              unawaited(_setVolume(value));
-                            },
-                            onChangeEnd: _persistVolume,
+          return StatefulBuilder(
+            builder: (context, setSheetState) =>
+                ValueListenableBuilder<VideoPlaybackSnapshot>(
+                  valueListenable: _session.snapshot,
+                  builder: (context, snapshot, _) {
+                    final audioTracks = snapshot.audioTracks;
+                    String? selectedAudioTrackLabel;
+                    for (final track in audioTracks) {
+                      if (track.id == snapshot.selectedAudioTrackId) {
+                        selectedAudioTrackLabel = track.label;
+                        break;
+                      }
+                    }
+                    return AnimatedBuilder(
+                      animation: _settings,
+                      builder: (context, _) => ListView(
+                        shrinkWrap: true,
+                        children: [
+                          BottomSheetHeader(title: s.videoPlayerMoreOptions),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.volume_down),
+                                const SizedBox(width: 12),
+                                Text(s.volume),
+                                Expanded(
+                                  child: StatefulBuilder(
+                                    builder: (context, setSheetState) => Slider(
+                                      key: const ValueKey(
+                                        'video-volume-slider',
+                                      ),
+                                      min: 0,
+                                      max: 100,
+                                      value: _volume,
+                                      onChanged: (value) {
+                                        setSheetState(() {});
+                                        unawaited(_setVolume(value));
+                                      },
+                                      onChangeEnd: _persistVolume,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (audioTracks.length > 1) ...[
-                  const Divider(height: 1),
-                  for (final track in audioTracks)
-                    ListTile(
-                      leading: const Icon(Icons.audiotrack),
-                      title: Text(
-                        '${s.videoPlayerAudioTrack}: ${track.label}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      onTap: () {
-                        Navigator.pop(sheetContext);
-                        unawaited(
-                          _invoke(() => _session.selectAudioTrack(track.id)),
-                        );
-                      },
-                    ),
-                ],
-                const Divider(height: 1),
-                SwitchListTile(
-                  title: Text(s.videoPlayerRepeatSingle),
-                  value: _settings.loopSingle,
-                  onChanged: _settings.setLoopSingle,
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        FilterChip(
-                          showCheckmark: false,
-                          selected: _settings.flipHorizontal,
-                          label: Text(s.videoPlayerFlipHorizontal),
-                          onSelected: _settings.setFlipHorizontal,
-                        ),
-                        const SizedBox(width: 10),
-                        FilterChip(
-                          showCheckmark: false,
-                          selected: _settings.flipVertical,
-                          label: Text(s.videoPlayerFlipVertical),
-                          onSelected: _settings.setFlipVertical,
-                        ),
-                        if (!kIsWeb &&
-                            (defaultTargetPlatform == TargetPlatform.android ||
-                                defaultTargetPlatform ==
-                                    TargetPlatform.iOS)) ...[
-                          const SizedBox(width: 10),
-                          FilterChip(
-                            showCheckmark: false,
-                            selected: _settings.backgroundPlayback,
-                            label: Text(s.videoPlayerBackgroundPlayback),
-                            onSelected: _settings.setBackgroundPlayback,
+                          if (audioTracks.length > 1) ...[
+                            const Divider(height: 1),
+                            ListTile(
+                              leading: const Icon(Icons.audiotrack),
+                              title: Text(s.videoPlayerAudioTrack),
+                              subtitle: selectedAudioTrackLabel == null
+                                  ? null
+                                  : Text(
+                                      selectedAudioTrackLabel,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                              trailing: Icon(
+                                audioTracksExpanded
+                                    ? Icons.expand_less
+                                    : Icons.expand_more,
+                              ),
+                              onTap: () => setSheetState(
+                                () =>
+                                    audioTracksExpanded = !audioTracksExpanded,
+                              ),
+                            ),
+                            if (audioTracksExpanded)
+                              RadioGroup<String>(
+                                groupValue: snapshot.selectedAudioTrackId,
+                                onChanged: (id) {
+                                  if (id == null) return;
+                                  setSheetState(
+                                    () => audioTracksExpanded = false,
+                                  );
+                                  unawaited(
+                                    _invoke(
+                                      () => _session.selectAudioTrack(id),
+                                    ),
+                                  );
+                                },
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    for (final track in audioTracks)
+                                      RadioListTile<String>(
+                                        value: track.id,
+                                        title: Text(
+                                          track.label,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                          const Divider(height: 1),
+                          SwitchListTile(
+                            title: Text(s.videoPlayerRepeatSingle),
+                            value: _settings.loopSingle,
+                            onChanged: _settings.setLoopSingle,
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  FilterChip(
+                                    showCheckmark: false,
+                                    selected: _settings.flipHorizontal,
+                                    label: Text(s.videoPlayerFlipHorizontal),
+                                    onSelected: _settings.setFlipHorizontal,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  FilterChip(
+                                    showCheckmark: false,
+                                    selected: _settings.flipVertical,
+                                    label: Text(s.videoPlayerFlipVertical),
+                                    onSelected: _settings.setFlipVertical,
+                                  ),
+                                  if (!kIsWeb &&
+                                      (defaultTargetPlatform ==
+                                              TargetPlatform.android ||
+                                          defaultTargetPlatform ==
+                                              TargetPlatform.iOS)) ...[
+                                    const SizedBox(width: 10),
+                                    FilterChip(
+                                      showCheckmark: false,
+                                      selected: _settings.backgroundPlayback,
+                                      label: Text(
+                                        s.videoPlayerBackgroundPlayback,
+                                      ),
+                                      onSelected:
+                                          _settings.setBackgroundPlayback,
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                          if (widget.streams.length > 1)
+                            PopupMenuButton<int>(
+                              tooltip: s.videoQuality,
+                              initialValue: _streamIndex,
+                              onSelected: (index) {
+                                Navigator.pop(sheetContext);
+                                unawaited(_selectStream(index));
+                              },
+                              itemBuilder: (_) => [
+                                for (
+                                  var index = 0;
+                                  index < widget.streams.length;
+                                  index++
+                                )
+                                  PopupMenuItem(
+                                    value: index,
+                                    child: Text(widget.streams[index].label),
+                                  ),
+                              ],
+                              child: ListTile(
+                                leading: const Icon(Icons.play_circle_outline),
+                                title: Text(s.videoQuality),
+                                subtitle: Text(
+                                  widget.streams[_streamIndex].label,
+                                ),
+                              ),
+                            ),
+                          if (_session is VideoPlaybackAdvancedSession)
+                            ListTile(
+                              leading: const Icon(Icons.subtitles_outlined),
+                              title: Text(s.loadSubtitle),
+                              onTap: () {
+                                Navigator.pop(sheetContext);
+                                unawaited(_loadExternalSubtitle());
+                              },
+                            ),
+                          if (_session is VideoPlaybackAdvancedSession &&
+                              supportsVideoSuperResolution)
+                            ListTile(
+                              title: Text(s.videoPlayerSuperResolution),
+                              subtitle: Text(
+                                _superResolutionLabel(
+                                  s,
+                                  _settings.superResolution,
+                                ),
+                              ),
+                              trailing: PopupMenuButton<VideoSuperResolution>(
+                                tooltip: s.videoPlayerSuperResolution,
+                                onSelected: _settings.setSuperResolution,
+                                itemBuilder: (context) => [
+                                  for (final mode
+                                      in VideoSuperResolution.values)
+                                    CheckedPopupMenuItem(
+                                      value: mode,
+                                      checked:
+                                          mode == _settings.superResolution,
+                                      child: Text(
+                                        _superResolutionLabel(s, mode),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ListTile(
+                            leading: const Icon(Icons.refresh),
+                            title: Text(s.videoPlayerReload),
+                            onTap: () {
+                              Navigator.pop(sheetContext);
+                              unawaited(_reloadSource());
+                            },
+                          ),
+                          if (_hasPlaybackInfo)
+                            ListTile(
+                              leading: const Icon(Icons.info_outline),
+                              title: Text(s.videoPlayerPlaybackInfo),
+                              onTap: () {
+                                Navigator.pop(sheetContext);
+                                unawaited(_showPlaybackInfo());
+                              },
+                            ),
+                          ListTile(
+                            leading: const Icon(Icons.timer_outlined),
+                            title: Text(s.videoPlayerSleepTimer),
+                            onTap: () {
+                              openSleepTimer = true;
+                              Navigator.pop(sheetContext);
+                            },
+                          ),
+                          if (_session is VideoPlaybackAdvancedSession &&
+                              (!_fullscreen ||
+                                  _settings.showFullscreenScreenshotButton))
+                            ListTile(
+                              leading: const Icon(Icons.screenshot_monitor),
+                              title: Text(s.videoPlayerTakeScreenshot),
+                              onTap: () {
+                                Navigator.pop(sheetContext);
+                                unawaited(_takeScreenshot());
+                              },
+                            ),
+                          if (!_fullscreen ||
+                              _settings.showFullscreenLockButton)
+                            ListTile(
+                              leading: const Icon(Icons.lock_outline),
+                              title: Text(s.videoPlayerLockControls),
+                              onTap: () {
+                                Navigator.pop(sheetContext);
+                                _toggleControlsLock();
+                              },
+                            ),
+                          if (canPip)
+                            ListTile(
+                              leading: const Icon(Icons.picture_in_picture_alt),
+                              title: Text(s.videoPlayerPictureInPicture),
+                              onTap: () {
+                                Navigator.pop(sheetContext);
+                                unawaited(_enterPictureInPicture());
+                              },
+                            ),
+                          ListTile(
+                            leading: const Icon(Icons.settings_outlined),
+                            title: Text(s.videoPlayerSettings),
+                            onTap: () {
+                              openPlayerSettings = true;
+                              Navigator.pop(sheetContext);
+                            },
                           ),
                         ],
-                      ],
-                    ),
-                  ),
-                ),
-                if (widget.streams.length > 1)
-                  PopupMenuButton<int>(
-                    tooltip: s.videoQuality,
-                    initialValue: _streamIndex,
-                    onSelected: (index) {
-                      Navigator.pop(sheetContext);
-                      unawaited(_selectStream(index));
-                    },
-                    itemBuilder: (_) => [
-                      for (
-                        var index = 0;
-                        index < widget.streams.length;
-                        index++
-                      )
-                        PopupMenuItem(
-                          value: index,
-                          child: Text(widget.streams[index].label),
-                        ),
-                    ],
-                    child: ListTile(
-                      leading: const Icon(Icons.play_circle_outline),
-                      title: Text(s.videoQuality),
-                      subtitle: Text(widget.streams[_streamIndex].label),
-                    ),
-                  ),
-                if (_session is VideoPlaybackAdvancedSession)
-                  ListTile(
-                    leading: const Icon(Icons.subtitles_outlined),
-                    title: Text(s.loadSubtitle),
-                    onTap: () {
-                      Navigator.pop(sheetContext);
-                      unawaited(_loadExternalSubtitle());
-                    },
-                  ),
-                if (_session is VideoPlaybackAdvancedSession &&
-                    supportsVideoSuperResolution)
-                  ListTile(
-                    title: Text(s.videoPlayerSuperResolution),
-                    subtitle: Text(
-                      _superResolutionLabel(s, _settings.superResolution),
-                    ),
-                    trailing: PopupMenuButton<VideoSuperResolution>(
-                      tooltip: s.videoPlayerSuperResolution,
-                      onSelected: _settings.setSuperResolution,
-                      itemBuilder: (context) => [
-                        for (final mode in VideoSuperResolution.values)
-                          CheckedPopupMenuItem(
-                            value: mode,
-                            checked: mode == _settings.superResolution,
-                            child: Text(_superResolutionLabel(s, mode)),
-                          ),
-                      ],
-                    ),
-                  ),
-                ListTile(
-                  leading: const Icon(Icons.refresh),
-                  title: Text(s.videoPlayerReload),
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    unawaited(_reloadSource());
+                      ),
+                    );
                   },
                 ),
-                if (_hasPlaybackInfo)
-                  ListTile(
-                    leading: const Icon(Icons.info_outline),
-                    title: Text(s.videoPlayerPlaybackInfo),
-                    onTap: () {
-                      Navigator.pop(sheetContext);
-                      unawaited(_showPlaybackInfo());
-                    },
-                  ),
-                ListTile(
-                  leading: const Icon(Icons.timer_outlined),
-                  title: Text(s.videoPlayerSleepTimer),
-                  onTap: () {
-                    openSleepTimer = true;
-                    Navigator.pop(sheetContext);
-                  },
-                ),
-                if (_session is VideoPlaybackAdvancedSession &&
-                    (!_fullscreen || _settings.showFullscreenScreenshotButton))
-                  ListTile(
-                    leading: const Icon(Icons.screenshot_monitor),
-                    title: Text(s.videoPlayerTakeScreenshot),
-                    onTap: () {
-                      Navigator.pop(sheetContext);
-                      unawaited(_takeScreenshot());
-                    },
-                  ),
-                if (!_fullscreen || _settings.showFullscreenLockButton)
-                  ListTile(
-                    leading: const Icon(Icons.lock_outline),
-                    title: Text(s.videoPlayerLockControls),
-                    onTap: () {
-                      Navigator.pop(sheetContext);
-                      _toggleControlsLock();
-                    },
-                  ),
-                if (canPip)
-                  ListTile(
-                    leading: const Icon(Icons.picture_in_picture_alt),
-                    title: Text(s.videoPlayerPictureInPicture),
-                    onTap: () {
-                      Navigator.pop(sheetContext);
-                      unawaited(_enterPictureInPicture());
-                    },
-                  ),
-                ListTile(
-                  leading: const Icon(Icons.settings_outlined),
-                  title: Text(s.videoPlayerSettings),
-                  onTap: () {
-                    openPlayerSettings = true;
-                    Navigator.pop(sheetContext);
-                  },
-                ),
-              ],
-            ),
           );
         },
       );
@@ -3373,6 +3498,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     _gestureOverlayTimer?.cancel();
     _focusNode.dispose();
     _uiRevision.dispose();
+    _inlineViewportHeight.dispose();
     unawaited(_disposeSession());
     super.dispose();
   }

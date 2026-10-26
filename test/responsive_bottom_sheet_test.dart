@@ -148,6 +148,87 @@ void main() {
     expect(settledRect.height, closeTo(390, 0.1));
   });
 
+  testWidgets('landscape sheet keeps the theme radius at its bottom left', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(844, 390);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      _testApp(
+        Theme(
+          data: ThemeData(
+            bottomSheetTheme: const BottomSheetThemeData(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+            ),
+          ),
+          child: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => showResponsiveBottomSheet<void>(
+                  context: context,
+                  builder: (_) => const Text('Landscape sheet'),
+                ),
+                child: const Text('Open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    final sheet = tester.widget<BottomSheet>(find.byKey(_surfaceKey));
+    final radius = (sheet.shape! as RoundedRectangleBorder).borderRadius
+        .resolve(TextDirection.ltr);
+    expect(radius.topLeft, const Radius.circular(20));
+    expect(radius.bottomLeft, radius.topLeft);
+    expect(radius.bottomRight, Radius.zero);
+  });
+
+  testWidgets('updates the live height limit without resizing the window', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(844, 390);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final maxHeight = ValueNotifier(180.0);
+    addTearDown(maxHeight.dispose);
+    await tester.pumpWidget(
+      _testApp(
+        Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => showResponsiveBottomSheet<void>(
+                context: context,
+                maxHeight: 300,
+                maxHeightListenable: maxHeight,
+                builder: (_) => BottomSheetMenu(
+                  children: List.generate(
+                    20,
+                    (index) => ListTile(title: Text('Action $index')),
+                  ),
+                ),
+              ),
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byKey(_surfaceKey)).height, closeTo(180, 0.1));
+
+    maxHeight.value = 120;
+    await tester.pumpAndSettle();
+    final rect = tester.getRect(find.byKey(_surfaceKey));
+    expect(rect.height, closeTo(120, 0.1));
+    expect(rect.right, closeTo(844, 0.1));
+  });
+
   for (final testCase in [
     (maxWidth: null, expectedWidth: 640.0),
     (maxWidth: 360.0, expectedWidth: 360.0),

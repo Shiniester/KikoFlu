@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
 /// 响应式对话框封装
@@ -150,6 +151,7 @@ class ResponsiveBottomSheet extends StatelessWidget {
   final Widget child;
   final double? maxWidth;
   final double? maxHeight;
+  final ValueListenable<double>? _maxHeightListenable;
   final bool _isScrollControlled;
   final bool _enableDrag;
   final bool _disableAnimations;
@@ -164,7 +166,8 @@ class ResponsiveBottomSheet extends StatelessWidget {
     required this.child,
     this.maxWidth,
     this.maxHeight,
-  }) : _isScrollControlled = true,
+  }) : _maxHeightListenable = null,
+       _isScrollControlled = true,
        _enableDrag = false,
        _disableAnimations = false,
        _animationController = null,
@@ -177,6 +180,7 @@ class ResponsiveBottomSheet extends StatelessWidget {
     required this.child,
     this.maxWidth,
     this.maxHeight,
+    required this._maxHeightListenable,
     required this._isScrollControlled,
     required this._enableDrag,
     required this._disableAnimations,
@@ -194,77 +198,91 @@ class ResponsiveBottomSheet extends StatelessWidget {
     final disableAnimations =
         _disableAnimations || MediaQuery.disableAnimationsOf(context);
 
-    return AnimatedPadding(
-      padding: MediaQuery.viewInsetsOf(context),
-      duration: disableAnimations
-          ? Duration.zero
-          : const Duration(milliseconds: 200),
-      curve: Curves.easeOut,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final availableHeight = constraints.maxHeight;
-          final sheetMaxHeight = math.min(
-            maxHeight ??
-                (isLandscape
-                    ? availableHeight
-                    : availableHeight * (_isScrollControlled ? 0.9 : 9 / 16)),
-            availableHeight,
-          );
-          final sheetMaxWidth = isLandscape
-              ? math.min(
-                  maxWidth ?? math.min(constraints.maxWidth * 0.6, 420),
-                  constraints.maxWidth,
-                )
-              : math.min(maxWidth ?? 640, constraints.maxWidth);
-          final sheetTheme = Theme.of(context).bottomSheetTheme;
-          final shape = isLandscape
-              ? sheetTheme.shape ??
-                    RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    )
-              : null;
+    return ListenableBuilder(
+      listenable: _maxHeightListenable ?? kAlwaysDismissedAnimation,
+      builder: (context, _) => AnimatedPadding(
+        padding: MediaQuery.viewInsetsOf(context),
+        duration: disableAnimations
+            ? Duration.zero
+            : const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final availableHeight = constraints.maxHeight;
+            final requestedMaxHeight = _maxHeightListenable?.value ?? maxHeight;
+            final sheetMaxHeight = math.min(
+              requestedMaxHeight ??
+                  (isLandscape
+                      ? availableHeight
+                      : availableHeight * (_isScrollControlled ? 0.9 : 9 / 16)),
+              availableHeight,
+            );
+            final sheetMaxWidth = isLandscape
+                ? math.min(
+                    maxWidth ?? math.min(constraints.maxWidth * 0.6, 420),
+                    constraints.maxWidth,
+                  )
+                : math.min(maxWidth ?? 640, constraints.maxWidth);
+            final sheetTheme = Theme.of(context).bottomSheetTheme;
+            ShapeBorder? shape;
+            if (isLandscape) {
+              shape =
+                  sheetTheme.shape ??
+                  RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  );
+              if (shape is RoundedRectangleBorder) {
+                final radius = shape.borderRadius.resolve(
+                  Directionality.of(context),
+                );
+                shape = shape.copyWith(
+                  borderRadius: radius.copyWith(bottomLeft: radius.topLeft),
+                );
+              }
+            }
 
-          final panel = SizedBox(
-            width: sheetMaxWidth,
-            child: BottomSheet(
-              key: const ValueKey('responsive-sheet-surface'),
-              animationController: _animationController,
-              onClosing: _onClosing ?? () {},
-              onDragStart: _onDragStart,
-              onDragEnd: _onDragEnd,
-              enableDrag: !isLandscape && _enableDrag,
-              shape: shape,
-              clipBehavior: Clip.antiAlias,
-              constraints: BoxConstraints(
-                minHeight: isLandscape && maxHeight == null
-                    ? sheetMaxHeight
-                    : 0,
-                maxWidth: sheetMaxWidth,
-                maxHeight: sheetMaxHeight,
+            final panel = SizedBox(
+              width: sheetMaxWidth,
+              child: BottomSheet(
+                key: const ValueKey('responsive-sheet-surface'),
+                animationController: _animationController,
+                onClosing: _onClosing ?? () {},
+                onDragStart: _onDragStart,
+                onDragEnd: _onDragEnd,
+                enableDrag: !isLandscape && _enableDrag,
+                shape: shape,
+                clipBehavior: Clip.antiAlias,
+                constraints: BoxConstraints(
+                  minHeight: isLandscape && requestedMaxHeight == null
+                      ? sheetMaxHeight
+                      : 0,
+                  maxWidth: sheetMaxWidth,
+                  maxHeight: sheetMaxHeight,
+                ),
+                builder: (context) => SafeArea(top: isLandscape, child: child),
               ),
-              builder: (context) => SafeArea(top: isLandscape, child: child),
-            ),
-          );
+            );
 
-          return Align(
-            alignment: isLandscape
-                ? Alignment.centerRight
-                : Alignment.bottomCenter,
-            child: _slideAnimation == null
-                ? panel
-                : SlideTransition(
-                    position: _slideAnimation.drive(
-                      Tween<Offset>(
-                        begin: isLandscape
-                            ? const Offset(1, 0)
-                            : const Offset(0, 1),
-                        end: Offset.zero,
+            return Align(
+              alignment: isLandscape
+                  ? Alignment.centerRight
+                  : Alignment.bottomCenter,
+              child: _slideAnimation == null
+                  ? panel
+                  : SlideTransition(
+                      position: _slideAnimation.drive(
+                        Tween<Offset>(
+                          begin: isLandscape
+                              ? const Offset(1, 0)
+                              : const Offset(0, 1),
+                          end: Offset.zero,
+                        ),
                       ),
+                      child: panel,
                     ),
-                    child: panel,
-                  ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
@@ -412,11 +430,13 @@ class BottomSheetMenu extends StatelessWidget {
 }
 
 /// 显示响应式 BottomSheet 的辅助方法
+/// maxHeightListenable 随视频区域变化重新限高。
 Future<T?> showResponsiveBottomSheet<T>({
   required BuildContext context,
   required WidgetBuilder builder,
   double? maxWidth,
   double? maxHeight,
+  ValueListenable<double>? maxHeightListenable,
   bool isScrollControlled = true,
   bool isDismissible = true,
   bool enableDrag = true,
@@ -434,6 +454,7 @@ Future<T?> showResponsiveBottomSheet<T>({
       barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
       maxWidth: maxWidth,
       maxHeight: maxHeight,
+      maxHeightListenable: maxHeightListenable,
       isScrollControlled: isScrollControlled,
       isDismissible: isDismissible,
       enableDrag: enableDrag,
@@ -449,6 +470,7 @@ class _ResponsiveBottomSheetRoute<T> extends PopupRoute<T> {
     required this.barrierLabel,
     required this.maxWidth,
     required this.maxHeight,
+    required this.maxHeightListenable,
     required this.isScrollControlled,
     required this.isDismissible,
     required this.enableDrag,
@@ -459,6 +481,7 @@ class _ResponsiveBottomSheetRoute<T> extends PopupRoute<T> {
   final CapturedThemes capturedThemes;
   final double? maxWidth;
   final double? maxHeight;
+  final ValueListenable<double>? maxHeightListenable;
   final bool isScrollControlled;
   final bool isDismissible;
   final bool enableDrag;
@@ -524,6 +547,7 @@ class _ResponsiveBottomSheetRoute<T> extends PopupRoute<T> {
           disableAnimations: disableAnimations,
           maxWidth: maxWidth,
           maxHeight: maxHeight,
+          maxHeightListenable: maxHeightListenable,
           child: Builder(builder: builder),
         ),
       ),

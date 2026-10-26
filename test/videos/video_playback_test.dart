@@ -99,6 +99,7 @@ void main() {
       await _pumpStandalonePlayer(tester, session);
       await _openSettings(tester);
       final s = await S.delegate.load(const Locale('en'));
+      await _ensureMoreMenuItemVisible(tester, find.text(s.loadSubtitle));
       expect(find.text(s.loadSubtitle), findsOneWidget);
       expect(find.text(s.videoPlayerSuperResolution), findsNothing);
       expect(tester.takeException(), isNull);
@@ -668,6 +669,54 @@ void main() {
     },
   );
 
+  _testPlayerWidget(
+    'more menu tracks the inline viewport across resize and keeps fullscreen height',
+    (tester) async {
+      final session = _FakePlaybackSession();
+      await _pumpStandalonePlayer(tester, session);
+      final layout = find.byKey(const ValueKey('video-playback-layout'));
+      final l10n = await S.delegate.load(const Locale('en'));
+
+      await _openSettings(tester);
+      final sheet = _responsiveSheet();
+      final portraitViewportHeight = tester.getSize(layout).height;
+      expect(
+        tester.getRect(sheet).height,
+        lessThanOrEqualTo(portraitViewportHeight),
+      );
+      expect(tester.getRect(sheet).bottom, closeTo(800, .1));
+
+      tester.view.physicalSize = const Size(1200, 800);
+      await tester.pumpAndSettle();
+      final landscapeViewportHeight = tester.getSize(layout).height;
+      expect(landscapeViewportHeight, greaterThan(portraitViewportHeight));
+      expect(tester.getRect(sheet).height, greaterThan(portraitViewportHeight));
+      expect(
+        tester.getRect(sheet).height,
+        lessThanOrEqualTo(landscapeViewportHeight),
+      );
+      expect(tester.getRect(sheet).right, closeTo(1200, .1));
+
+      tester.view.physicalSize = const Size(400, 800);
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(sheet).height,
+        lessThanOrEqualTo(tester.getSize(layout).height),
+      );
+      expect(tester.getRect(sheet).bottom, closeTo(800, .1));
+
+      await _closeSettings(tester);
+      await tester.tap(find.byTooltip(l10n.videoFullscreen));
+      await tester.pumpAndSettle();
+      await _openSettings(tester);
+      expect(
+        tester.getRect(sheet).height,
+        greaterThan(tester.getSize(layout).height),
+      );
+      expect(tester.getRect(sheet).height, lessThanOrEqualTo(800));
+    },
+  );
+
   _testPlayerWidget('paused and buffering playback controls can be hidden', (
     tester,
   ) async {
@@ -737,6 +786,7 @@ void main() {
           VideoPlaybackTrack(id: 'audio-en', label: 'English'),
           VideoPlaybackTrack(id: 'audio-ja', label: 'Japanese'),
         ],
+        selectedAudioTrackId: 'audio-en',
         subtitleTracks: const [
           VideoPlaybackTrack(id: 'subtitle-en', label: 'English'),
         ],
@@ -744,8 +794,45 @@ void main() {
       await tester.pump();
       final l10n = await S.delegate.load(const Locale('en'));
 
-      await _chooseSetting(tester, '${l10n.videoPlayerAudioTrack}: Japanese');
+      await _openSettings(tester);
+      expect(find.text(l10n.videoPlayerAudioTrack), findsOneWidget);
+      expect(find.text('English'), findsOneWidget);
+      expect(find.byType(RadioGroup<String>), findsNothing);
+
+      await tester.tap(find.text(l10n.videoPlayerAudioTrack));
+      await tester.pumpAndSettle();
+      final japaneseOption = find.widgetWithText(
+        RadioListTile<String>,
+        'Japanese',
+      );
+      await _ensureMoreMenuItemVisible(tester, japaneseOption);
+      expect(
+        tester
+            .widget<RadioGroup<String>>(find.byType(RadioGroup<String>))
+            .groupValue,
+        'audio-en',
+      );
+      await tester.tap(japaneseOption);
+      await tester.pumpAndSettle();
       expect(session.selectedAudioTrack, 'audio-ja');
+      expect(_responsiveSheet(), findsOneWidget);
+      expect(find.byType(RadioGroup<String>), findsNothing);
+
+      await _ensureMoreMenuItemVisible(
+        tester,
+        find.text(l10n.videoPlayerAudioTrack),
+      );
+      expect(find.text('Japanese'), findsOneWidget);
+      await tester.tap(find.text(l10n.videoPlayerAudioTrack));
+      await tester.pumpAndSettle();
+      await _ensureMoreMenuItemVisible(tester, japaneseOption);
+      expect(
+        tester
+            .widget<RadioGroup<String>>(find.byType(RadioGroup<String>))
+            .groupValue,
+        'audio-ja',
+      );
+      await _closeSettings(tester);
       await _chooseSetting(
         tester,
         '${l10n.videoPlayerSubtitleTrack}: ${l10n.noSubtitle}',
@@ -885,6 +972,10 @@ void main() {
       expect(find.text('Fixture video'), findsNothing);
       await tester.tap(find.byKey(const ValueKey('video-player-more-menu')));
       await tester.pumpAndSettle();
+      await _ensureMoreMenuItemVisible(
+        tester,
+        find.text(l10n.videoPlayerSettings),
+      );
       await tester.tap(find.text(l10n.videoPlayerSettings));
       await tester.pumpAndSettle();
 
@@ -921,7 +1012,7 @@ void main() {
 
       await _openSettings(tester);
       final sleepTimerOption = find.text(l10n.videoPlayerSleepTimer);
-      await tester.ensureVisible(sleepTimerOption);
+      await _ensureMoreMenuItemVisible(tester, sleepTimerOption);
       await tester.tap(sleepTimerOption);
       await tester.pumpAndSettle();
 
@@ -1045,6 +1136,67 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
+
+  _testPlayerWidget('more menu height survives desktop PiP and resize', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    SharedPreferences.setMockInitialValues({});
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final session = _FakeAdvancedPlaybackSession();
+    final platform = _FakeDesktopPiPPlatform(initiallyInPip: false);
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        supportedLocales: S.supportedLocales,
+        localizationsDelegates: S.localizationsDelegates,
+        home: Scaffold(
+          body: VideoPlaybackPanel(
+            videoId: 'dvd-1',
+            library: await _testLibrary(),
+            streams: _details().streams,
+            sessionFactory: () => session,
+            platform: platform,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _openSettings(tester);
+
+    final layout = find.byKey(const ValueKey('video-playback-layout'));
+    final sheet = _responsiveSheet();
+    final portraitViewportHeight = tester.getSize(layout).height;
+    expect(
+      tester.getRect(sheet).height,
+      lessThanOrEqualTo(portraitViewportHeight),
+    );
+
+    platform.startPictureInPicture();
+    await tester.pumpAndSettle();
+    tester.view.physicalSize = const Size(1200, 800);
+    await tester.pumpAndSettle();
+    await platform.exitPictureInPicture();
+    await tester.pumpAndSettle();
+
+    final landscapeViewportHeight = tester.getSize(layout).height;
+    expect(landscapeViewportHeight, greaterThan(portraitViewportHeight));
+    expect(
+      find.byKey(const ValueKey('responsive-sheet-surface')),
+      findsOneWidget,
+    );
+    expect(
+      tester.getRect(sheet).height,
+      lessThanOrEqualTo(landscapeViewportHeight),
+    );
+    expect(tester.getRect(sheet).height, greaterThan(portraitViewportHeight));
+    expect(tester.takeException(), isNull);
+  });
 
   _testPlayerWidget(
     'Android PiP replaces details with the same video surface',
@@ -2667,10 +2819,9 @@ void main() {
         expect(nextCalls, 0);
 
         final s = await S.delegate.load(const Locale('en'));
-        await tester.scrollUntilVisible(
+        await _ensureMoreMenuItemVisible(
+          tester,
           find.text(s.videoPlayerSettings),
-          240,
-          scrollable: find.byType(Scrollable).first,
         );
         await tester.tap(find.text(s.videoPlayerSettings));
         await tester.pumpAndSettle();
@@ -2908,8 +3059,9 @@ Future<void> _pumpStandalonePlayer(
   WidgetTester tester,
   _FakePlaybackSession session, {
   double width = 400,
+  double height = 800,
 }) async {
-  tester.view.physicalSize = Size(width, 800);
+  tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -2971,15 +3123,41 @@ Future<void> _closeSettings(WidgetTester tester) async {
 Finder _responsiveSheet() =>
     find.byKey(const ValueKey('responsive-sheet-surface'));
 
+Future<void> _ensureMoreMenuItemVisible(
+  WidgetTester tester,
+  Finder target,
+) async {
+  final sheet = _responsiveSheet();
+  final list = find
+      .descendant(of: sheet, matching: find.byType(ListView))
+      .first;
+  final scrollable = find
+      .descendant(of: list, matching: find.byType(Scrollable))
+      .first;
+  final sheetTarget = find.descendant(of: sheet, matching: target);
+  tester.state<ScrollableState>(scrollable).position.jumpTo(0);
+  await tester.pumpAndSettle();
+  await tester.scrollUntilVisible(
+    sheetTarget,
+    tester.getRect(sheet).height / 3,
+    scrollable: scrollable,
+  );
+  await tester.ensureVisible(sheetTarget);
+  await tester.pumpAndSettle();
+}
+
 Future<void> _chooseSetting(WidgetTester tester, String label) async {
   final s = await S.delegate.load(const Locale('en'));
   final separator = label.indexOf(': ');
   final value = separator < 0 ? label : label.substring(separator + 2);
   if (label.startsWith('${s.videoQuality}: ')) {
-    if (find.byTooltip(s.videoQuality).evaluate().isEmpty) {
-      await _openSettings(tester);
-    }
-    await tester.tap(find.byTooltip(s.videoQuality));
+    await _openSettings(tester);
+    final qualityOption = find.descendant(
+      of: _responsiveSheet(),
+      matching: find.byTooltip(s.videoQuality),
+    );
+    await _ensureMoreMenuItemVisible(tester, find.byTooltip(s.videoQuality));
+    await tester.tap(qualityOption);
     await tester.pumpAndSettle();
     await tester.tap(
       find.ancestor(
@@ -3010,18 +3188,7 @@ Future<void> _chooseSetting(WidgetTester tester, String label) async {
   } else {
     await _openSettings(tester);
     final setting = find.text(label);
-    if (setting.evaluate().isEmpty) {
-      await tester.scrollUntilVisible(
-        setting,
-        240,
-        scrollable: find
-            .descendant(
-              of: _responsiveSheet(),
-              matching: find.byType(Scrollable),
-            )
-            .first,
-      );
-    }
+    await _ensureMoreMenuItemVisible(tester, setting);
     await tester.tap(setting);
   }
   await tester.pump(const Duration(milliseconds: 350));
@@ -3283,6 +3450,7 @@ class _FakePlaybackSession implements VideoPlaybackSession {
     bool? buffering,
     Duration? bufferPosition,
     List<VideoPlaybackTrack>? audioTracks,
+    String? selectedAudioTrackId,
     List<VideoPlaybackTrack>? subtitleTracks,
   }) {
     _snapshot.value = _snapshot.value.copyWith(
@@ -3290,6 +3458,7 @@ class _FakePlaybackSession implements VideoPlaybackSession {
       buffering: buffering,
       bufferPosition: bufferPosition,
       audioTracks: audioTracks,
+      selectedAudioTrackId: selectedAudioTrackId,
       subtitleTracks: subtitleTracks,
     );
   }
@@ -3390,6 +3559,7 @@ class _FakePlaybackSession implements VideoPlaybackSession {
   @override
   Future<void> selectAudioTrack(String id) async {
     selectedAudioTrack = id;
+    _snapshot.value = _snapshot.value.copyWith(selectedAudioTrackId: id);
   }
 
   @override
