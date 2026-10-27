@@ -99,6 +99,33 @@ void main() {
     },
   );
 
+  test(
+    'marking a slice can use subtitle times without seeking playback',
+    () async {
+      await service.updateQueue([_track('subtitle-time')]);
+      player.position = const Duration(seconds: 90);
+
+      expect(
+        await service.markSlice(position: const Duration(seconds: -1)),
+        isFalse,
+      );
+      expect(service.sliceState.pendingStartMs, isNull);
+      expect(
+        await service.markSlice(position: const Duration(seconds: 10)),
+        isTrue,
+      );
+      expect(service.sliceState.pendingStartMs, 10000);
+      expect(
+        await service.markSlice(position: const Duration(seconds: 30)),
+        isTrue,
+      );
+
+      expect(service.sliceState.slices.single.startMs, 10000);
+      expect(service.sliceState.slices.single.endMs, 30000);
+      expect(player.position, const Duration(seconds: 90));
+    },
+  );
+
   test('adjacent slices are allowed and edits/deletes persist', () async {
     final track = _track('a');
     await service.updateQueue([track]);

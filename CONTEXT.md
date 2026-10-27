@@ -248,6 +248,12 @@ The vertical anchor in the Player Lyrics Page where the current lyric or
 selected search result is positioned while the player follows it.
 _Avoid_: Center line, current line
 
+**Playback Line Time (播放行时间)**:
+The start time, on the current track's timeline, of the subtitle indicated by
+the Playback Line. It can differ from the actual playback position while
+browsing or searching subtitles.
+_Avoid_: Playback position, playback clock
+
 **Repeat Mode (循环模式)**:
 The playback rule that governs natural track completion and manual previous or
 next navigation: sequential playback, single-track repeat, or queue repeat.

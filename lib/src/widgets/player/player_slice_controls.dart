@@ -32,7 +32,10 @@ int? parseAudioSliceTime(String text) {
 }
 
 class PlayerSliceCutButton extends ConsumerWidget {
-  const PlayerSliceCutButton({super.key});
+  const PlayerSliceCutButton({super.key, this.position, this.trackKey});
+
+  final Duration? position;
+  final String? trackKey;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -51,12 +54,15 @@ class PlayerSliceCutButton extends ConsumerWidget {
               state!.isLoading ||
               loading ||
               duration == null ||
-              duration <= Duration.zero
+              duration <= Duration.zero ||
+              (position != null &&
+                  (trackKey == null || trackKey != state.trackKey)) ||
+              (position?.isNegative ?? false)
           ? null
           : () async {
               final saved = await ref
                   .read(audioPlayerServiceProvider)
-                  .markSlice();
+                  .markSlice(position: position, expectedTrackKey: trackKey);
               if (!saved && context.mounted) {
                 SnackBarUtil.showError(
                   context,

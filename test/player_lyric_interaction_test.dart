@@ -5,13 +5,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/lyric.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
+import 'package:kikoeru_flutter/src/providers/subtitle_search_query_provider.dart';
+import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/utils/string_utils.dart';
 import 'package:kikoeru_flutter/src/widgets/player/lyric_display_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_glass_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_slice_controls.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_seek_preview.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   final lyrics = List.generate(
@@ -22,6 +28,13 @@ void main() {
       text: index.isEven ? 'matching lyric $index' : 'lyric $index',
     ),
   );
+
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
+  });
 
   testWidgets('hidden preview follows without replaying a suspended scroll', (
     tester,
@@ -126,6 +139,8 @@ void main() {
         ],
         child: MaterialApp(
           theme: ThemeData.dark(useMaterial3: true),
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
           home: Scaffold(
             body: FullLyricDisplay(
               isPortrait: true,
@@ -965,9 +980,14 @@ void main() {
               initialState: LyricState(lyrics: searchLyrics),
             ),
           ),
+          audioSliceStateProvider.overrideWith((ref) => const Stream.empty()),
+          durationProvider.overrideWith((ref) => const Stream.empty()),
+          isTrackLoadingProvider.overrideWith((ref) => const Stream.empty()),
         ],
         child: MaterialApp(
           theme: ThemeData.dark(useMaterial3: true),
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
           home: Scaffold(
             resizeToAvoidBottomInset: false,
             body: PlayerLyricsSurface(
@@ -1006,25 +1026,53 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('1/3'), findsOneWidget);
+    expect(find.text('3/3'), findsOneWidget);
     final colors = Theme.of(
       tester.element(find.byType(PlayerLyricsSurface)),
     ).colorScheme;
-    RichText highlightedLine(String text) => tester.widget<RichText>(
-      find.byWidgetPredicate(
+    RichText highlightedLine(String text) {
+      final finder = find.byWidgetPredicate(
         (widget) => widget is RichText && widget.text.toPlainText() == text,
-      ),
-    );
+      );
+      return tester.widget<RichText>(finder.first);
+    }
+
     List<TextSpan> hitsIn(String text) => _flattenTextSpans(
       highlightedLine(text).text,
     ).where((span) => span.text == '我').toList(growable: false);
 
+    final firstSelectedHit = hitsIn('远处还有我').single;
+    expect(firstSelectedHit.style?.backgroundColor, colors.primary);
+    expect(firstSelectedHit.style?.color, colors.onPrimary);
+
+    final lyricList = find.byKey(const ValueKey('full-lyric-list'));
+    tester
+        .state<ScrollableState>(
+          find.descendant(of: lyricList, matching: find.byType(Scrollable)),
+        )
+        .position
+        .jumpTo(0);
+    await tester.pumpAndSettle();
     var hits = hitsIn('我看见我');
     expect(hits, hasLength(2));
+    expect(hits.first.style?.backgroundColor, isNull);
+    expect(hits.last.style?.backgroundColor, isNull);
+
+    expect(
+      ProviderScope.containerOf(
+        tester.element(find.byType(PlayerLyricsSurface)),
+        listen: false,
+      ).read(subtitleSearchQueryProvider),
+      '我',
+    );
+
+    await tester.tap(find.byTooltip('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('1/3'), findsOneWidget);
+    hits = hitsIn('我看见我');
     expect(hits.first.style?.backgroundColor, colors.primary);
     expect(hits.first.style?.color, colors.onPrimary);
     expect(hits.last.style?.backgroundColor, isNull);
-    expect(hits.last.style?.color, colors.primary);
 
     await tester.tap(find.byTooltip('Next'));
     await tester.pumpAndSettle();
@@ -1040,9 +1088,12 @@ void main() {
       find.byKey(const ValueKey('lyric-keyboard-safe-viewport')),
     );
     final selectedLine = tester.getRect(
-      find.byWidgetPredicate(
-        (widget) => widget is RichText && widget.text.toPlainText() == '远处还有我',
-      ),
+      find
+          .byWidgetPredicate(
+            (widget) =>
+                widget is RichText && widget.text.toPlainText() == '远处还有我',
+          )
+          .first,
     );
     final playbackAnchor = viewport.top + viewport.height * 0.4;
     expect((selectedLine.center.dy - playbackAnchor).abs(), lessThan(36));
@@ -1087,9 +1138,14 @@ void main() {
                 initialState: LyricState(lyrics: searchLyrics),
               ),
             ),
+            audioSliceStateProvider.overrideWith((ref) => const Stream.empty()),
+            durationProvider.overrideWith((ref) => const Stream.empty()),
+            isTrackLoadingProvider.overrideWith((ref) => const Stream.empty()),
           ],
           child: MaterialApp(
             theme: ThemeData.dark(useMaterial3: true),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
             builder: (context, child) => MediaQuery(
               data: MediaQuery.of(
                 context,
@@ -1119,11 +1175,6 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('1/3'), findsOneWidget);
-      _expectMatchAtPlaybackAnchor(tester, 'needle at the beginning', 0, 6);
-
-      await tester.tap(find.byTooltip('Next'));
-      await tester.pumpAndSettle();
       expect(find.text('2/3'), findsOneWidget);
       _expectMatchAtPlaybackAnchor(
         tester,
@@ -1135,17 +1186,23 @@ void main() {
       await tester.tap(find.byTooltip('Next'));
       await tester.pumpAndSettle();
       expect(find.text('3/3'), findsOneWidget);
-      _expectMatchAtPlaybackAnchor(
-        tester,
-        'the final needle',
-        'the final '.length,
-        'the final needle'.length,
-      );
+      _expectMatchAtPlaybackAnchor(tester, 'the final needle', 10, 16);
+
+      await tester.tap(find.byTooltip('Next'));
+      await tester.pumpAndSettle();
+      expect(find.text('1/3'), findsOneWidget);
+      _expectMatchAtPlaybackAnchor(tester, 'needle at the beginning', 0, 6);
 
       addTearDown(tester.view.resetViewInsets);
       tester.view.viewInsets = const FakeViewPadding(bottom: 220);
       await tester.pump();
       await tester.tap(find.byTooltip('Previous'));
+      await tester.pumpAndSettle();
+      expect(find.text('3/3'), findsOneWidget);
+      _expectMatchAtPlaybackAnchor(tester, 'the final needle', 10, 16);
+
+      await tester.tap(find.byTooltip('Next'));
+      await tester.tap(find.byTooltip('Next'));
       await tester.pumpAndSettle();
       expect(find.text('2/3'), findsOneWidget);
       _expectMatchAtPlaybackAnchor(
@@ -1154,12 +1211,6 @@ void main() {
         middleText.lastIndexOf('needle'),
         middleText.length,
       );
-
-      await tester.tap(find.byTooltip('Next'));
-      await tester.tap(find.byTooltip('Next'));
-      await tester.pumpAndSettle();
-      expect(find.text('1/3'), findsOneWidget);
-      _expectMatchAtPlaybackAnchor(tester, 'needle at the beginning', 0, 6);
     },
   );
 
@@ -1187,9 +1238,14 @@ void main() {
               initialState: LyricState(lyrics: wrappedLyrics),
             ),
           ),
+          audioSliceStateProvider.overrideWith((ref) => const Stream.empty()),
+          durationProvider.overrideWith((ref) => const Stream.empty()),
+          isTrackLoadingProvider.overrideWith((ref) => const Stream.empty()),
         ],
         child: MaterialApp(
           theme: ThemeData.dark(useMaterial3: true),
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
           builder: (context, child) => MediaQuery(
             data: MediaQuery.of(context).copyWith(disableAnimations: true),
             child: child!,
@@ -1253,9 +1309,14 @@ void main() {
               initialState: LyricState(lyrics: stableLyrics),
             ),
           ),
+          audioSliceStateProvider.overrideWith((ref) => const Stream.empty()),
+          durationProvider.overrideWith((ref) => const Stream.empty()),
+          isTrackLoadingProvider.overrideWith((ref) => const Stream.empty()),
         ],
         child: MaterialApp(
           theme: ThemeData.dark(useMaterial3: true),
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
           home: Scaffold(
             resizeToAvoidBottomInset: false,
             body: PlayerLyricsSurface(
@@ -1322,6 +1383,277 @@ void main() {
     expect(list.position.pixels, closeTo(initialOffset, 0.01));
     expect(tester.getTopLeft(anchor).dy, closeTo(initialTop, 1));
   });
+
+  testWidgets(
+    'playback line time follows a browsed row after a search result',
+    (tester) async {
+      const timelineOffset = Duration(seconds: 4);
+      var playbackToggles = 0;
+      final browseLyrics = List.generate(
+        40,
+        (index) => LyricLine(
+          startTime: Duration(seconds: index * 10),
+          endTime: Duration(seconds: (index + 1) * 10),
+          text: switch (index) {
+            0 => 'needle current lyric 0',
+            5 => 'needle search result 5',
+            _ => 'browse lyric $index',
+          },
+        ),
+      );
+      await tester.binding.setSurfaceSize(const Size(360, 720));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            positionProvider.overrideWith(
+              (ref) => Stream.value(timelineOffset),
+            ),
+            lyricControllerProvider.overrideWith(
+              (ref) => LyricController(
+                ref,
+                initialState: LyricState(
+                  lyrics: browseLyrics,
+                  timelineOffset: timelineOffset,
+                ),
+              ),
+            ),
+            audioSliceStateProvider.overrideWith((ref) => const Stream.empty()),
+            durationProvider.overrideWith((ref) => const Stream.empty()),
+            isTrackLoadingProvider.overrideWith((ref) => const Stream.empty()),
+          ],
+          child: MaterialApp(
+            theme: ThemeData.dark(useMaterial3: true),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: Scaffold(
+              body: PlayerLyricsSurface(
+                isWide: false,
+                onFullscreen: () {},
+                onTogglePlayback: () => playbackToggles++,
+                translateButton: const IconButton(
+                  onPressed: null,
+                  icon: Icon(Icons.translate),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(PlayerLyricsSurface)),
+        listen: false,
+      );
+      expect(container.read(currentLyricIndexProvider), 0);
+      await tester.tap(find.byKey(const ValueKey('lyric-search-button')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('lyric-search-field')),
+        'needle',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('2/2'), findsOneWidget);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('playback-line-time')))
+            .data,
+        '00:54',
+      );
+      expect(
+        tester
+            .widget<PlayerSliceCutButton>(find.byType(PlayerSliceCutButton))
+            .position,
+        const Duration(seconds: 54),
+      );
+      expect(container.read(currentLyricIndexProvider), 0);
+      expect(container.read(positionProvider).valueOrNull, timelineOffset);
+
+      await tester.drag(
+        find.byKey(const ValueKey('full-lyric-list')),
+        const Offset(0, -190),
+      );
+      await tester.pumpAndSettle();
+      final anchorY = tester
+          .getRect(find.byKey(const ValueKey('playback-line-controls')))
+          .center
+          .dy;
+      final visibleLines = find.byWidgetPredicate(
+        (widget) =>
+            widget is RichText &&
+            (widget.text.toPlainText().startsWith('needle ') ||
+                widget.text.toPlainText().startsWith('browse lyric ')),
+      );
+      final nearestLine = visibleLines.evaluate().reduce((left, right) {
+        double centerY(Element element) {
+          final paragraph = element.renderObject! as RenderParagraph;
+          return paragraph.localToGlobal(paragraph.size.center(Offset.zero)).dy;
+        }
+
+        return (centerY(left) - anchorY).abs() <=
+                (centerY(right) - anchorY).abs()
+            ? left
+            : right;
+      });
+      final nearestText = (nearestLine.widget as RichText).text.toPlainText();
+      final lineIndex = int.parse(
+        RegExp(r'(\d+)$').firstMatch(nearestText)![1]!,
+      );
+      expect(lineIndex, isNot(5));
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('playback-line-time')))
+            .data,
+        formatDuration(
+          Duration(seconds: lineIndex * 10 + timelineOffset.inSeconds),
+          padHours: false,
+        ),
+      );
+      expect(
+        tester
+            .widget<PlayerSliceCutButton>(find.byType(PlayerSliceCutButton))
+            .position,
+        Duration(seconds: lineIndex * 10 + timelineOffset.inSeconds),
+      );
+      expect(container.read(currentLyricIndexProvider), 0);
+      expect(playbackToggles, 0);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'playback row controls fit narrow and wide screens around wrapped lyrics',
+    (tester) async {
+      const playbackTime = Duration(hours: 12, minutes: 34, seconds: 56);
+      const longLyric =
+          'a long lyric line wraps around the fixed playback controls on a narrow screen';
+      final layoutLyrics = [
+        LyricLine(
+          startTime: playbackTime,
+          endTime: const Duration(hours: 12, minutes: 34, seconds: 57),
+          text: longLyric,
+        ),
+      ];
+
+      for (final size in const [Size(320, 720), Size(1000, 720)]) {
+        await tester.binding.setSurfaceSize(size);
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              positionProvider.overrideWith(
+                (ref) => Stream.value(playbackTime),
+              ),
+              lyricControllerProvider.overrideWith(
+                (ref) => LyricController(
+                  ref,
+                  initialState: LyricState(lyrics: layoutLyrics),
+                ),
+              ),
+              audioSliceStateProvider.overrideWith(
+                (ref) => const Stream.empty(),
+              ),
+              durationProvider.overrideWith((ref) => const Stream.empty()),
+              isTrackLoadingProvider.overrideWith(
+                (ref) => const Stream.empty(),
+              ),
+            ],
+            child: MaterialApp(
+              theme: ThemeData.dark(useMaterial3: true),
+              localizationsDelegates: S.localizationsDelegates,
+              supportedLocales: S.supportedLocales,
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: const TextScaler.linear(2)),
+                child: child!,
+              ),
+              home: Scaffold(
+                body: PlayerLyricsSurface(
+                  isWide: size.width >= 600,
+                  onFullscreen: () {},
+                  translateButton: const IconButton(
+                    onPressed: null,
+                    icon: Icon(Icons.translate),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final controls = tester.getRect(
+          find.byKey(const ValueKey('playback-line-controls')),
+        );
+        expect(controls.left, greaterThanOrEqualTo(0));
+        expect(controls.right, lessThanOrEqualTo(size.width));
+        expect(
+          tester
+              .widget<Text>(find.byKey(const ValueKey('playback-line-time')))
+              .data,
+          '12:34:56',
+        );
+        final timeColumn = tester.getRect(
+          find.byKey(const ValueKey('playback-line-time-column')),
+        );
+        final timeFinder = find.byKey(const ValueKey('playback-line-time'));
+        final timeParagraph = tester.renderObject<RenderParagraph>(timeFinder);
+        final timeBoxes = timeParagraph.getBoxesForSelection(
+          TextSelection(
+            baseOffset: 0,
+            extentOffset: timeParagraph.text.toPlainText().length,
+          ),
+        );
+        expect(timeColumn.width, greaterThanOrEqualTo(56));
+        expect(timeBoxes, isNotEmpty);
+        for (final box in timeBoxes) {
+          expect(
+            timeParagraph.localToGlobal(Offset(box.left, box.top)).dx,
+            greaterThanOrEqualTo(timeColumn.left),
+          );
+          expect(
+            timeParagraph.localToGlobal(Offset(box.right, box.bottom)).dx,
+            lessThanOrEqualTo(timeColumn.right),
+          );
+        }
+        if (size.width == 320) {
+          final lyricFinder = find.byWidgetPredicate(
+            (widget) =>
+                widget is RichText && widget.text.toPlainText() == longLyric,
+          );
+          final lyricParagraph = tester.renderObject<RenderParagraph>(
+            lyricFinder,
+          );
+          final lyricRect = Rect.fromLTWH(
+            lyricParagraph.localToGlobal(Offset.zero).dx,
+            lyricParagraph.localToGlobal(Offset.zero).dy,
+            lyricParagraph.size.width,
+            lyricParagraph.size.height,
+          );
+          expect(lyricRect.height, greaterThan(48));
+          expect(
+            tester
+                .getRect(
+                  find.byKey(const ValueKey('playback-line-left-divider')),
+                )
+                .right,
+            lessThanOrEqualTo(lyricRect.left),
+          );
+          expect(
+            tester
+                .getRect(
+                  find.byKey(const ValueKey('playback-line-right-divider')),
+                )
+                .left,
+            greaterThanOrEqualTo(lyricRect.right),
+          );
+        }
+        expect(tester.takeException(), isNull);
+      }
+      await tester.binding.setSurfaceSize(null);
+    },
+  );
 }
 
 void _expectMatchAtPlaybackAnchor(

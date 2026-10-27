@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,6 +16,7 @@ import 'package:kikoeru_flutter/src/services/audio_slice_store.dart';
 import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
+import 'package:kikoeru_flutter/src/widgets/player/lyric_display_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_controls_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_slice_controls.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -96,6 +99,120 @@ void main() {
     expect(find.text('00:20.000 – 02:00.000'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('cut button uses the supplied subtitle timestamps', (
+    tester,
+  ) async {
+    await tester.runAsync(createService);
+    player.position = const Duration(seconds: 90);
+    await _pumpControls(
+      tester,
+      service,
+      const Size(390, 844),
+      slicePosition: const Duration(seconds: 10),
+    );
+    await tester.runAsync(
+      () => tester.tap(find.byKey(const ValueKey('player-slice-cut-button'))),
+    );
+    await tester.pumpAndSettle();
+    expect(service.sliceState.pendingStartMs, 10000);
+
+    await _pumpControls(
+      tester,
+      service,
+      const Size(390, 844),
+      slicePosition: const Duration(seconds: 30),
+    );
+    await tester.runAsync(
+      () => tester.tap(find.byKey(const ValueKey('player-slice-cut-button'))),
+    );
+    await tester.pumpAndSettle();
+
+    expect(service.sliceState.slices.single.startMs, 10000);
+    expect(service.sliceState.slices.single.endMs, 30000);
+    expect(player.position, const Duration(seconds: 90));
+  });
+
+  testWidgets(
+    'subtitle cuts wait for the new track subtitles after switching',
+    (tester) async {
+      await tester.runAsync(createService);
+      final directory = Directory.systemTemp.createTempSync(
+        'subtitle-cut-track-',
+      );
+      final first = File('${directory.path}/first.lrc')
+        ..writeAsStringSync('[00:10.00]old subtitle');
+      final second = File('${directory.path}/second.lrc')
+        ..writeAsStringSync('[00:20.00]new subtitle');
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.runAsync(() => directory.delete(recursive: true));
+      });
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [audioPlayerServiceProvider.overrideWithValue(service)],
+          child: const MaterialApp(
+            locale: Locale('en'),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: Scaffold(
+              body: FullLyricDisplay(
+                isPortrait: true,
+                showPlaybackLineControls: true,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(FullLyricDisplay)),
+        listen: false,
+      );
+      final lyrics = container.read(lyricControllerProvider.notifier);
+      await tester.runAsync(() => container.read(currentTrackProvider.future));
+      await tester.runAsync(() => lyrics.loadLyricFromLocalFile(first.path));
+      await tester.pumpAndSettle();
+      final cut = find.byKey(const ValueKey('player-slice-cut-button'));
+      final previousCut = tester.widget<IconButton>(cut).onPressed;
+      expect(previousCut, isNotNull);
+
+      await tester.runAsync(
+        () => service.updateQueue(const [
+          AudioTrack(
+            id: 'next-track',
+            hash: 'next-track',
+            workId: 42,
+            title: 'Next track',
+            url: 'https://example.invalid/next.mp3',
+          ),
+        ], autoplay: false),
+      );
+      await tester.pumpAndSettle();
+      expect(service.isTrackLoading, isFalse);
+      expect(container.read(lyricControllerProvider).isLoading, isFalse);
+      expect(
+        container.read(lyricControllerProvider).lyrics.single.text,
+        'old subtitle',
+      );
+      expect(tester.widget<IconButton>(cut).onPressed, isNull);
+
+      await tester.runAsync(() async => previousCut!());
+      await tester.pumpAndSettle();
+      expect(service.sliceState.pendingStartMs, isNull);
+
+      await tester.runAsync(() => lyrics.loadLyricFromLocalFile(second.path));
+      lyrics.clearTranslation();
+      lyrics.adjustTimelineOffset(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(tester.widget<IconButton>(cut).onPressed, isNotNull);
+      await tester.runAsync(() => tester.tap(cut));
+      await tester.pumpAndSettle();
+      expect(service.sliceState.pendingStartMs, 22000);
+      expect(player.position, Duration.zero);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('manager timeline seeks gaps and links slice selection to rows', (
     tester,
@@ -868,6 +985,7 @@ Future<void> _pumpControls(
   AudioPlayerService service,
   Size size, {
   bool miniOnly = false,
+  Duration? slicePosition,
   Locale locale = const Locale('en'),
   double textScale = 1,
 }) async {
@@ -909,11 +1027,14 @@ Future<void> _pumpControls(
                             Duration(milliseconds: (value * 300000).round()),
                           ),
                         ),
-                        const Row(
+                        Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            PlayerSliceCutButton(),
-                            PlayerSliceManagerButton(),
+                            PlayerSliceCutButton(
+                              position: slicePosition,
+                              trackKey: service.sliceState.trackKey,
+                            ),
+                            const PlayerSliceManagerButton(),
                           ],
                         ),
                       ],

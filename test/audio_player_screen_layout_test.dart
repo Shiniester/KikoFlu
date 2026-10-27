@@ -3076,9 +3076,7 @@ void main() {
     expect(find.text('Keep Screen Awake'), findsOneWidget);
   });
 
-  testWidgets('lyric content and action glyphs align with the compact header', (
-    tester,
-  ) async {
+  testWidgets('compact lyrics align around playback controls', (tester) async {
     final lyrics = List.generate(
       8,
       (index) => LyricLine(
@@ -3133,8 +3131,20 @@ void main() {
     expect(lyricRight.dx, closeTo(mainRight.dx, 0.01));
     expect(lyricLeftIcon.left, closeTo(coverRect.left, 0.01));
     expect(lyricRightIcon.right, closeTo(coverRect.right, 0.01));
-    expect(lyricText.left, closeTo(coverRect.left, 0.01));
-    expect(lyricText.right, closeTo(coverRect.right, 0.01));
+    expect(lyricText.center.dx, closeTo(coverRect.center.dx, 0.01));
+    expect(lyricText.width, lessThan(coverRect.width));
+    expect(
+      tester
+          .getRect(find.byKey(const ValueKey('playback-line-left-divider')))
+          .right,
+      lessThanOrEqualTo(lyricText.left),
+    );
+    expect(
+      tester
+          .getRect(find.byKey(const ValueKey('playback-line-right-divider')))
+          .left,
+      greaterThanOrEqualTo(lyricText.right),
+    );
   });
 
   testWidgets('wide lyric search shares the action row center and width', (

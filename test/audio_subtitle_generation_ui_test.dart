@@ -64,6 +64,9 @@ void main() {
               return actions;
             }),
             positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
+            audioSliceStateProvider.overrideWith((ref) => const Stream.empty()),
+            durationProvider.overrideWith((ref) => const Stream.empty()),
+            isTrackLoadingProvider.overrideWith((ref) => const Stream.empty()),
             playerSubtitleCandidatesProvider.overrideWith((ref) async => []),
             lyricControllerProvider.overrideWith(
               (ref) => LyricController(
@@ -218,6 +221,9 @@ void main() {
             (ref) => actions = _Actions(ref, controller),
           ),
           positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
+          audioSliceStateProvider.overrideWith((ref) => const Stream.empty()),
+          durationProvider.overrideWith((ref) => const Stream.empty()),
+          isTrackLoadingProvider.overrideWith((ref) => const Stream.empty()),
           lyricControllerProvider.overrideWith(
             (ref) => LyricController(ref, initialState: LyricState()),
           ),

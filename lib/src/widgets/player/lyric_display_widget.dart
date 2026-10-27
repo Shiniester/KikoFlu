@@ -13,6 +13,8 @@ import '../../models/lyric.dart';
 import '../../providers/audio_provider.dart';
 import '../../providers/lyric_provider.dart';
 import '../../providers/player_lyric_style_provider.dart';
+import '../../utils/string_utils.dart';
+import 'player_slice_controls.dart';
 import 'player_seek_preview.dart';
 import '../../../l10n/app_localizations.dart';
 
@@ -1001,6 +1003,7 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
     this.selectedSearchMatch,
     this.playbackAnchorFraction = 0.4,
     this.contentWidth,
+    this.showPlaybackLineControls = false,
     this.visibleBottomInset = 0,
     this.snapOnAutoScrollResume = true,
     this.snapToCurrentOnFirstLayout = false,
@@ -1024,6 +1027,7 @@ class FullLyricDisplay extends ConsumerStatefulWidget {
   final LyricSearchMatch? selectedSearchMatch;
   final double playbackAnchorFraction;
   final double? contentWidth;
+  final bool showPlaybackLineControls;
   final double visibleBottomInset;
   final bool snapOnAutoScrollResume;
   final bool snapToCurrentOnFirstLayout;
@@ -1661,6 +1665,165 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
         widget.playbackAnchorFraction;
   }
 
+  int? _lineAtPlaybackAnchor(List<LyricLine> lyrics, double anchorY) {
+    if (lyrics.isEmpty) return null;
+    final layoutIndex = _layoutIndex;
+    if (layoutIndex == null || !_scrollController.hasClients) {
+      final selectedMatch = widget.selectedSearchMatch;
+      if (selectedMatch != null &&
+          selectedMatch.lineIndex >= 0 &&
+          selectedMatch.lineIndex < lyrics.length) {
+        return selectedMatch.lineIndex;
+      }
+      final currentIndex = _currentLyricIndex;
+      return currentIndex != null &&
+              currentIndex >= 0 &&
+              currentIndex < lyrics.length
+          ? currentIndex
+          : 0;
+    }
+
+    final anchorOffset =
+        _scrollController.position.pixels + anchorY - _effectiveTopPadding;
+    var lineOffset = 0.0;
+    for (var index = 0; index < lyrics.length; index++) {
+      final extent = layoutIndex.extentFor(
+        index,
+        currentIndex: _layoutCurrentIndex,
+        selectedMatch: _layoutSelectedMatch,
+      );
+      if (anchorOffset <= lineOffset + extent) return index;
+      lineOffset += extent;
+    }
+    return lyrics.length - 1;
+  }
+
+  Widget _buildPlaybackLineControls({
+    required List<LyricLine> lyrics,
+    required double textWidth,
+    required double sideColumnWidth,
+    required double maxWidth,
+    required double maxHeight,
+    required double visibleHeight,
+  }) {
+    final trackKey = ref.watch(
+      lyricControllerProvider.select(
+        (state) => state.isLoading ? null : state.trackKey,
+      ),
+    );
+    return AnimatedBuilder(
+      animation: _scrollController,
+      builder: (context, _) {
+        final index = _lineAtPlaybackAnchor(
+          lyrics,
+          visibleHeight * widget.playbackAnchorFraction,
+        );
+        if (index == null || lyrics[index].startTime.isNegative) {
+          return const SizedBox.shrink();
+        }
+
+        final usableWidth = math.max(0.0, maxWidth - 2);
+        final availableSpacing = math.max(
+          0.0,
+          usableWidth - sideColumnWidth * 2 - textWidth,
+        );
+        final spacingScale = math.min(1.0, availableSpacing / 48);
+        final controlGap = 8 * spacingScale;
+        final linePadding = 8 * spacingScale;
+        final line = lyrics[index];
+        final anchorY = visibleHeight * widget.playbackAnchorFraction;
+        const rowHeight = 48.0;
+        final top = (anchorY - rowHeight / 2)
+            .clamp(0.0, math.max(0.0, maxHeight - rowHeight))
+            .toDouble();
+        final rowWidth = math.min(
+          usableWidth,
+          sideColumnWidth * 2 + textWidth + 48 * spacingScale,
+        );
+        final time = formatDuration(line.startTime, padHours: false);
+
+        return Positioned(
+          key: const ValueKey('playback-line-controls'),
+          left: (maxWidth - rowWidth) / 2,
+          top: top,
+          width: rowWidth,
+          height: rowHeight,
+          child: Row(
+            children: [
+              SizedBox(
+                width: sideColumnWidth,
+                child: Center(
+                  child: SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: PlayerSliceCutButton(
+                      position: line.startTime,
+                      trackKey: trackKey,
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(width: controlGap),
+              Expanded(
+                child: IgnorePointer(
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Divider(
+                          key: ValueKey('playback-line-left-divider'),
+                          height: 16,
+                          thickness: 1,
+                        ),
+                      ),
+                      SizedBox(width: textWidth + linePadding * 2),
+                      const Expanded(
+                        child: Divider(
+                          key: ValueKey('playback-line-right-divider'),
+                          height: 16,
+                          thickness: 1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              SizedBox(width: controlGap),
+              SizedBox(
+                key: const ValueKey('playback-line-time-column'),
+                width: sideColumnWidth,
+                child: Center(
+                  child: IgnorePointer(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 1),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          key: const ValueKey('playback-line-time'),
+                          time,
+                          maxLines: 1,
+                          softWrap: false,
+                          textAlign: TextAlign.center,
+                          style:
+                              (Theme.of(context).textTheme.labelMedium ??
+                                      const TextStyle())
+                                  .copyWith(
+                                    fontFeatures: const [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                  ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _positionAtPlaybackAnchor(
     RenderBox item,
     Duration duration,
@@ -1852,6 +2015,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       onLongPress: widget.onLongPress,
       child: LayoutBuilder(
         builder: (context, constraints) {
+          final layoutWidth = math.max(0.0, constraints.maxWidth - 2);
           final theme = Theme.of(context);
           final colors = theme.colorScheme;
           final baseStyle = theme.textTheme.bodyLarge ?? const TextStyle();
@@ -1871,11 +2035,42 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           final textScaler = MediaQuery.textScalerOf(context);
           final textDirection = Directionality.of(context);
           final locale = Localizations.maybeLocaleOf(context);
-          final availableTextWidth = math.max(1.0, constraints.maxWidth - 56);
-          final textWidth = math.min(
+          final timeStyle = (theme.textTheme.labelMedium ?? const TextStyle())
+              .copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
+          var timeColumnWidth = 56.0;
+          if (widget.showPlaybackLineControls && lyrics.isNotEmpty) {
+            final latestTime = formatDuration(
+              lyrics.last.startTime,
+              padHours: false,
+            );
+            final timePainter = TextPainter(
+              text: TextSpan(text: latestTime, style: timeStyle),
+              textDirection: textDirection,
+              textScaler: textScaler,
+              locale: locale,
+            )..layout();
+            timeColumnWidth = math.max(56.0, timePainter.width + 8);
+            timePainter.dispose();
+          }
+          final minLyricWidth = math.min(
+            64.0,
+            math.max(0.0, layoutWidth - 112),
+          );
+          final sideColumnWidth = math.min(
+            math.max(56.0, timeColumnWidth),
+            math.max(0.0, (layoutWidth - minLyricWidth) / 2),
+          );
+          final availableTextWidth = math.max(1.0, layoutWidth - 56);
+          final requestedTextWidth = math.min(
             widget.contentWidth ?? availableTextWidth,
             availableTextWidth,
           );
+          final maxTextWidth = widget.showPlaybackLineControls
+              ? math.max(minLyricWidth, layoutWidth - sideColumnWidth * 2 - 72)
+              : requestedTextWidth;
+          final textWidth = widget.showPlaybackLineControls
+              ? math.min(requestedTextWidth, maxTextWidth)
+              : requestedTextWidth;
           final normalizedQuery = widget.searchQuery.trim();
           final normalizedLayoutQuery =
               (widget.layoutSearchQuery ?? widget.searchQuery).trim();
@@ -1937,150 +2132,172 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
 
           return SizedBox.expand(
             key: _viewportKey,
-            child: NotificationListener<ScrollNotification>(
-              onNotification: _handleScrollNotification,
-              child: ListView.builder(
-                key: const ValueKey('full-lyric-list'),
-                controller: _scrollController,
-                physics: const AlwaysScrollableScrollPhysics(
-                  parent: ClampingScrollPhysics(),
-                ),
-                padding: EdgeInsets.fromLTRB(
-                  12,
-                  effectiveTopPadding,
-                  12,
-                  effectiveBottomPadding,
-                ),
-                itemCount: lyrics.length,
-                itemExtentBuilder: (index, dimensions) => layoutIndex.extentFor(
-                  index,
-                  currentIndex: currentIndex,
-                  selectedMatch: widget.selectedSearchMatch,
-                ),
-                itemBuilder: (context, index) {
-                  final lyric = lyrics[index];
-                  final active = index == currentIndex;
-                  final past = index < currentIndex;
-                  final style = (active ? activeStyle : inactiveStyle).copyWith(
-                    color: colors.onSurface.withValues(
-                      alpha: active ? 1 : (past ? 0.24 : 0.34),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                NotificationListener<ScrollNotification>(
+                  onNotification: _handleScrollNotification,
+                  child: ListView.builder(
+                    key: const ValueKey('full-lyric-list'),
+                    controller: _scrollController,
+                    physics: const AlwaysScrollableScrollPhysics(
+                      parent: ClampingScrollPhysics(),
                     ),
-                  );
-                  final lyricRow = Listener(
-                    behavior:
-                        widget.enableLineTapFeedback &&
-                            widget.isActive &&
-                            !widget.isLocked
-                        ? HitTestBehavior.opaque
-                        : HitTestBehavior.deferToChild,
-                    onPointerDown:
-                        widget.enableLineTapFeedback &&
-                            widget.isActive &&
-                            !widget.isLocked
-                        ? (event) =>
-                              _pointerTracker.handlePointerDown(event, index)
-                        : null,
-                    onPointerMove:
-                        widget.enableLineTapFeedback &&
-                            widget.isActive &&
-                            !widget.isLocked
-                        ? _pointerTracker.handlePointerMove
-                        : null,
-                    onPointerUp:
-                        widget.enableLineTapFeedback &&
-                            widget.isActive &&
-                            !widget.isLocked
-                        ? _pointerTracker.handlePointerUp
-                        : null,
-                    onPointerCancel:
-                        widget.enableLineTapFeedback &&
-                            widget.isActive &&
-                            !widget.isLocked
-                        ? _pointerTracker.handlePointerCancel
-                        : null,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        key: _getKeyForIndex(index),
-                        borderRadius: BorderRadius.circular(12),
-                        overlayColor: widget.enableLineTapFeedback
-                            ? const WidgetStatePropertyAll(Colors.transparent)
+                    padding: EdgeInsets.fromLTRB(
+                      12,
+                      effectiveTopPadding,
+                      12,
+                      effectiveBottomPadding,
+                    ),
+                    itemCount: lyrics.length,
+                    itemExtentBuilder: (index, dimensions) =>
+                        layoutIndex.extentFor(
+                          index,
+                          currentIndex: currentIndex,
+                          selectedMatch: widget.selectedSearchMatch,
+                        ),
+                    itemBuilder: (context, index) {
+                      final lyric = lyrics[index];
+                      final active = index == currentIndex;
+                      final past = index < currentIndex;
+                      final style = (active ? activeStyle : inactiveStyle)
+                          .copyWith(
+                            color: colors.onSurface.withValues(
+                              alpha: active ? 1 : (past ? 0.24 : 0.34),
+                            ),
+                          );
+                      final lyricRow = Listener(
+                        behavior:
+                            widget.enableLineTapFeedback &&
+                                widget.isActive &&
+                                !widget.isLocked
+                            ? HitTestBehavior.opaque
+                            : HitTestBehavior.deferToChild,
+                        onPointerDown:
+                            widget.enableLineTapFeedback &&
+                                widget.isActive &&
+                                !widget.isLocked
+                            ? (event) => _pointerTracker.handlePointerDown(
+                                event,
+                                index,
+                              )
                             : null,
-                        splashFactory: widget.enableLineTapFeedback
-                            ? NoSplash.splashFactory
+                        onPointerMove:
+                            widget.enableLineTapFeedback &&
+                                widget.isActive &&
+                                !widget.isLocked
+                            ? _pointerTracker.handlePointerMove
                             : null,
-                        onTap: widget.isLocked
-                            ? null
-                            : () {
-                                if (!_consumePointerFeedbackSuppression(
-                                  index,
-                                )) {
-                                  _showTapFeedback(index);
-                                }
-                                _onLyricTap(index, lyrics);
-                              },
-                        onDoubleTap:
-                            widget.isLocked || widget.onLineDoubleTap == null
-                            ? null
-                            : () {
-                                if (!_consumePointerFeedbackSuppression(
-                                      index,
-                                    ) &&
-                                    _tapFeedbackIndex != index) {
-                                  _showTapFeedback(index);
-                                }
-                                widget.onLineDoubleTap!.call();
-                              },
-                        onLongPress: widget.onLongPress == null
-                            ? null
-                            : () {
-                                _pointerTracker.clear();
-                                widget.onLongPress!.call();
-                              },
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 10,
-                            horizontal: 16,
-                          ),
-                          child: _HighlightedLyricText(
-                            key: _getTextKeyForIndex(index),
-                            text: lyric.text,
-                            query: normalizedQuery,
-                            selectedMatch:
-                                widget.selectedSearchMatch?.lineIndex == index
-                                ? widget.selectedSearchMatch
+                        onPointerUp:
+                            widget.enableLineTapFeedback &&
+                                widget.isActive &&
+                                !widget.isLocked
+                            ? _pointerTracker.handlePointerUp
+                            : null,
+                        onPointerCancel:
+                            widget.enableLineTapFeedback &&
+                                widget.isActive &&
+                                !widget.isLocked
+                            ? _pointerTracker.handlePointerCancel
+                            : null,
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            key: _getKeyForIndex(index),
+                            borderRadius: BorderRadius.circular(12),
+                            overlayColor: widget.enableLineTapFeedback
+                                ? const WidgetStatePropertyAll(
+                                    Colors.transparent,
+                                  )
                                 : null,
-                            style: style,
+                            splashFactory: widget.enableLineTapFeedback
+                                ? NoSplash.splashFactory
+                                : null,
+                            onTap: widget.isLocked
+                                ? null
+                                : () {
+                                    if (!_consumePointerFeedbackSuppression(
+                                      index,
+                                    )) {
+                                      _showTapFeedback(index);
+                                    }
+                                    _onLyricTap(index, lyrics);
+                                  },
+                            onDoubleTap:
+                                widget.isLocked ||
+                                    widget.onLineDoubleTap == null
+                                ? null
+                                : () {
+                                    if (!_consumePointerFeedbackSuppression(
+                                          index,
+                                        ) &&
+                                        _tapFeedbackIndex != index) {
+                                      _showTapFeedback(index);
+                                    }
+                                    widget.onLineDoubleTap!.call();
+                                  },
+                            onLongPress: widget.onLongPress == null
+                                ? null
+                                : () {
+                                    _pointerTracker.clear();
+                                    widget.onLongPress!.call();
+                                  },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 10,
+                                horizontal: 16,
+                              ),
+                              child: _HighlightedLyricText(
+                                key: _getTextKeyForIndex(index),
+                                text: lyric.text,
+                                query: normalizedQuery,
+                                selectedMatch:
+                                    widget.selectedSearchMatch?.lineIndex ==
+                                        index
+                                    ? widget.selectedSearchMatch
+                                    : null,
+                                style: style,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-                  );
-                  final content = widget.enableLineTapFeedback
-                      ? _buildLyricTapFeedbackSurface(
-                          opacity: _tapFeedbackOpacity,
-                          active: _tapFeedbackIndex == index,
-                          reducedMotion: MediaQuery.disableAnimationsOf(
-                            context,
+                      );
+                      final content = widget.enableLineTapFeedback
+                          ? _buildLyricTapFeedbackSurface(
+                              opacity: _tapFeedbackOpacity,
+                              active: _tapFeedbackIndex == index,
+                              reducedMotion: MediaQuery.disableAnimationsOf(
+                                context,
+                              ),
+                              color: colors.onSurface,
+                              keyValue: 'full-lyric-tap-feedback-$index',
+                              child: lyricRow,
+                            )
+                          : lyricRow;
+                      return Align(
+                        alignment: Alignment.center,
+                        child: SizedBox(
+                          width: rowWidth,
+                          child: Semantics(
+                            selected: active,
+                            button: !widget.isLocked,
+                            child: content,
                           ),
-                          color: colors.onSurface,
-                          keyValue: 'full-lyric-tap-feedback-$index',
-                          child: lyricRow,
-                        )
-                      : lyricRow;
-                  return Align(
-                    alignment: Alignment.center,
-                    child: SizedBox(
-                      width: rowWidth,
-                      child: Semantics(
-                        selected: active,
-                        button: !widget.isLocked,
-                        child: content,
-                      ),
-                    ),
-                  );
-                },
-              ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                if (widget.showPlaybackLineControls)
+                  _buildPlaybackLineControls(
+                    lyrics: lyrics,
+                    textWidth: textWidth,
+                    sideColumnWidth: sideColumnWidth,
+                    maxWidth: constraints.maxWidth,
+                    maxHeight: constraints.maxHeight,
+                    visibleHeight: visibleHeight,
+                  ),
+              ],
             ),
           );
         },

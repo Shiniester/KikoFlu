@@ -8,6 +8,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../providers/audio_subtitle_generation_provider.dart';
 import '../../providers/lyric_provider.dart';
 import '../../providers/player_lyric_style_provider.dart';
+import '../../providers/subtitle_search_query_provider.dart';
 import '../../utils/snackbar_util.dart';
 import '../audio_subtitle_generation_sheet.dart';
 import '../lyric_translation_confirmation.dart';
@@ -215,6 +216,7 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                       snapToCurrentOnFirstLayout: true,
                       onLineDoubleTap: widget.onTogglePlayback,
                       enableLineTapFeedback: true,
+                      showPlaybackLineControls: true,
                     ),
                     if (state.isLoading)
                       const IgnorePointer(
@@ -424,7 +426,7 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
                       border: InputBorder.none,
                       isDense: true,
                     ),
-                    onChanged: (_) => _updateMatches(state),
+                    onChanged: (_) => _handleQueryChanged(state),
                   ),
                 ),
                 Text(
@@ -452,12 +454,18 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
   Future<void> _toggleSearch() async {
     if (!_searchControlsVisible && !_searchSessionActive) {
       final generation = ++_searchTransitionGeneration;
+      final rememberedQuery = ref.read(subtitleSearchQueryProvider);
+      _searchController.value = TextEditingValue(
+        text: rememberedQuery,
+        selection: TextSelection.collapsed(offset: rememberedQuery.length),
+      );
       setState(() {
         _searchControlsVisible = true;
         _searchSessionActive = true;
         _searchHighlightsVisible = true;
         _searchClosing = false;
       });
+      _updateMatches(ref.read(lyricControllerProvider));
       _searchRevealController.stop();
       if (MediaQuery.disableAnimationsOf(context)) {
         _searchRevealController.value = 1;
@@ -544,16 +552,27 @@ class _PlayerLyricsSurfaceState extends ConsumerState<PlayerLyricsSurface>
   }
 
   void _updateMatches(LyricState state) {
-    final matches = findLyricSearchMatches(
-      state.displayLyrics,
-      _searchController.text,
+    final query = _searchController.text;
+    final matches = findLyricSearchMatches(state.displayLyrics, query);
+    final playbackIndex = ref.read(currentLyricIndexProvider);
+    final nextMatchIndex = matches.indexWhere(
+      (match) => match.lineIndex > playbackIndex,
     );
     setState(() {
       _matches = matches;
-      _matchCursor = matches.isEmpty ? -1 : 0;
+      _matchCursor = matches.isEmpty
+          ? -1
+          : (nextMatchIndex < 0 ? 0 : nextMatchIndex);
       _matchedLyricsSignature = _lyricTextSignature(state);
     });
     if (matches.isNotEmpty) _centerSelectedMatch();
+  }
+
+  void _handleQueryChanged(LyricState state) {
+    ref
+        .read(subtitleSearchQueryProvider.notifier)
+        .setQuery(_searchController.text);
+    _updateMatches(state);
   }
 
   void _moveMatch(int delta) {

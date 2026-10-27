@@ -2997,13 +2997,17 @@ class AudioPlayerService {
   bool get canSkipNextManually => manualSkipAvailability.canSkipNext;
   bool get canSkipPreviousManually => manualSkipAvailability.canSkipPrevious;
 
-  Future<bool> markSlice() async {
+  Future<bool> markSlice({Duration? position, String? expectedTrackKey}) async {
     final track = currentTrack;
-    if (track == null || !_isSliceTrackCurrent(audioSliceTrackKey(track))) {
+    if (track == null) return false;
+    final trackKey = audioSliceTrackKey(track);
+    if (!_isSliceTrackCurrent(trackKey) ||
+        (expectedTrackKey != null && expectedTrackKey != trackKey)) {
       return false;
     }
     final durationMs = _sliceDurationMs(track);
-    final positionMs = _player.position.inMilliseconds;
+    final positionMs =
+        position?.inMilliseconds ?? _player.position.inMilliseconds;
     if (durationMs == null || durationMs <= 0 || positionMs < 0) return false;
 
     final pendingStartMs = _sliceState.pendingStartMs;
@@ -3014,7 +3018,6 @@ class AudioPlayerService {
     }
     if (positionMs <= pendingStartMs || positionMs > durationMs) return false;
 
-    final trackKey = audioSliceTrackKey(track);
     final slice = AudioSlice(startMs: pendingStartMs, endMs: positionMs);
     final saved = await saveSlice(trackKey: trackKey, slice: slice);
     if (saved &&
