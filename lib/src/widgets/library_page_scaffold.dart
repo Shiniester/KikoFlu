@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart' show DragStartBehavior, kTouchSlop;
 import 'package:flutter/material.dart';
 
 import '../utils/system_ui_style.dart';
@@ -35,6 +36,7 @@ class _LibraryPageScaffoldState extends State<LibraryPageScaffold> {
   final GlobalKey<_LibraryDrawerLifecycleState> _drawerLifecycleKey =
       GlobalKey<_LibraryDrawerLifecycleState>();
   VoidCallback? _pendingDrawerAction;
+  double _drawerDragDistance = 0;
 
   @override
   void didUpdateWidget(LibraryPageScaffold oldWidget) {
@@ -177,10 +179,24 @@ class _LibraryPageScaffoldState extends State<LibraryPageScaffold> {
               ),
             ),
             Expanded(
-              child: MediaQuery.removePadding(
-                context: context,
-                removeTop: true,
-                child: widget.body,
+              child: Builder(
+                builder: (context) => GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  dragStartBehavior: DragStartBehavior.down,
+                  onHorizontalDragStart: (_) => _drawerDragDistance = 0,
+                  onHorizontalDragUpdate: (details) =>
+                      _drawerDragDistance += details.primaryDelta ?? 0,
+                  onHorizontalDragEnd: (_) {
+                    if (_drawerDragDistance > kTouchSlop) {
+                      Scaffold.of(context).openDrawer();
+                    }
+                  },
+                  child: MediaQuery.removePadding(
+                    context: context,
+                    removeTop: true,
+                    child: widget.body,
+                  ),
+                ),
               ),
             ),
           ],
@@ -275,53 +291,74 @@ class LibraryDrawerTile extends StatelessWidget {
     required this.icon,
     required this.title,
     this.selected = false,
+    this.subtitle,
     this.trailing,
     this.closeOnTap = true,
     this.onTap,
+    this.children = const [],
   });
 
   final IconData icon;
   final String title;
   final bool selected;
+  final Widget? subtitle;
   final Widget? trailing;
   final bool closeOnTap;
   final VoidCallback? onTap;
+  final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) => ListTile(
-    dense: true,
-    minTileHeight: 48,
-    minLeadingWidth: 20,
-    horizontalTitleGap: 12,
-    minVerticalPadding: 4,
-    contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-    leading: Icon(icon, size: 20),
-    title: Text(
-      title,
-      style: TextStyle(
-        fontSize: 16,
-        fontWeight: selected ? FontWeight.bold : null,
+  Widget build(BuildContext context) {
+    final tile = ListTile(
+      dense: true,
+      minTileHeight: 48,
+      minLeadingWidth: 20,
+      horizontalTitleGap: 12,
+      minVerticalPadding: 4,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+      leading: Icon(icon, size: 20),
+      title: Text(
+        title,
+        style: TextStyle(
+          fontSize: 16,
+          fontWeight: selected ? FontWeight.bold : null,
+        ),
       ),
-    ),
-    leadingAndTrailingTextStyle: Theme.of(context).textTheme.bodyMedium,
-    selected: selected,
-    selectedColor: Theme.of(context).colorScheme.primary,
-    selectedTileColor: Colors.transparent,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-    trailing: trailing,
-    onTap: onTap == null
-        ? null
-        : () {
-            final scaffold = context
-                .findAncestorStateOfType<_LibraryPageScaffoldState>();
-            if (closeOnTap &&
-                scaffold != null &&
-                scaffold.widget.deferDrawerActions) {
-              scaffold._deferDrawerAction(context, onTap!);
-            } else {
-              if (closeOnTap) Navigator.of(context).pop();
-              onTap!();
-            }
-          },
-  );
+      subtitle: subtitle,
+      leadingAndTrailingTextStyle: Theme.of(context).textTheme.bodyMedium,
+      selected: selected,
+      selectedColor: Theme.of(context).colorScheme.primary,
+      selectedTileColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      trailing: trailing,
+      onTap: onTap == null
+          ? null
+          : () {
+              final scaffold = context
+                  .findAncestorStateOfType<_LibraryPageScaffoldState>();
+              if (closeOnTap &&
+                  scaffold != null &&
+                  scaffold.widget.deferDrawerActions) {
+                scaffold._deferDrawerAction(context, onTap!);
+              } else {
+                if (closeOnTap) Navigator.of(context).pop();
+                onTap!();
+              }
+            },
+    );
+    if (children.isEmpty) return tile;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        tile,
+        Padding(
+          padding: const EdgeInsetsDirectional.only(start: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: children,
+          ),
+        ),
+      ],
+    );
+  }
 }

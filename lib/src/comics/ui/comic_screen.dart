@@ -246,6 +246,24 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
                 icon: _collectionIcon(tab),
                 title: _collectionTitle(s, tab),
                 selected: _currentTab == tab,
+                children: tab == 1 && _currentTab == 1
+                    ? [
+                        LibraryDrawerTile(
+                          icon: Icons.bookmark,
+                          title: s.comicLocalFavorites,
+                          selected: !onlineFavorites,
+                          closeOnTap: false,
+                          onTap: () => _setOnlineFavorites(false),
+                        ),
+                        LibraryDrawerTile(
+                          icon: Icons.cloud_outlined,
+                          title: s.comicOnlineFavorites,
+                          selected: onlineFavorites,
+                          closeOnTap: false,
+                          onTap: () => _setOnlineFavorites(true),
+                        ),
+                      ]
+                    : const [],
                 onTap: () => _selectTab(tab),
               ),
           ],
@@ -253,22 +271,6 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
         LibraryDrawerSection(
           title: s.libraryBrowseOptions,
           children: [
-            if (_currentTab == 1) ...[
-              LibraryDrawerTile(
-                icon: Icons.bookmark,
-                title: s.comicLocalFavorites,
-                selected: !onlineFavorites,
-                closeOnTap: false,
-                onTap: () => _setOnlineFavorites(false),
-              ),
-              LibraryDrawerTile(
-                icon: Icons.cloud_outlined,
-                title: s.comicOnlineFavorites,
-                selected: onlineFavorites,
-                closeOnTap: false,
-                onTap: () => _setOnlineFavorites(true),
-              ),
-            ],
             LibraryDrawerTile(
               icon: switch (ref.watch(comicLayoutProvider)) {
                 LayoutType.bigGrid => Icons.grid_view,

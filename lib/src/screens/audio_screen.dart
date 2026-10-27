@@ -452,6 +452,13 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
             icon: Icons.home_outlined,
             title: s.navHome,
             selected: _selectedPageId == 'home',
+            children: _selectedPageId == 'home'
+                ? _buildPageOptions(
+                    source: source,
+                    displayMode: displayMode,
+                    marksState: marksState,
+                  )
+                : const [],
             onTap: () => _selectPage('home'),
           ),
           for (final page in pages)
@@ -459,30 +466,32 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
               icon: _pageIcon(page),
               title: _pageTitle(page),
               selected: _selectedPageId == page,
+              children: _selectedPageId == page
+                  ? _buildPageOptions(
+                      source: source,
+                      displayMode: displayMode,
+                      marksState: marksState,
+                    )
+                  : const [],
               onTap: () => _selectPage(page),
             ),
         ],
       ),
       LibraryDrawerSection(
         title: s.libraryBrowseOptions,
-        children: _buildBrowseOptions(
-          source: source,
-          displayMode: displayMode,
-          marksState: marksState,
-        ),
+        children: _buildBrowseOptions(source: source),
       ),
     ];
     return children;
   }
 
-  List<Widget> _buildBrowseOptions({
+  List<Widget> _buildPageOptions({
     required AudioSource source,
     required DisplayMode displayMode,
     required MyReviewsState marksState,
   }) {
     final s = S.of(context);
     final options = <Widget>[];
-    final autoTranslate = ref.watch(autoTranslateWorkDetailsProvider);
     switch (_selectedPageId) {
       case 'home':
       case 'popular':
@@ -514,7 +523,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
             LibraryDrawerTile(
               icon: Icons.sort,
               title: s.sort,
-              trailing: Text(
+              subtitle: Text(
                 worksState.sortOption.localizedLabel(context),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -527,7 +536,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
             LibraryDrawerTile(
               icon: Icons.sort,
               title: s.sort,
-              trailing: Text(
+              subtitle: Text(
                 _japaneseAsmrSortLabel(s, worksState.japaneseAsmrSortOption),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -539,7 +548,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
             LibraryDrawerTile(
               icon: Icons.date_range,
               title: s.jpAsmrPopularPeriod,
-              trailing: Text(
+              subtitle: Text(
                 _japaneseAsmrPeriodLabel(s, worksState),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -553,7 +562,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
             LibraryDrawerTile(
               icon: Icons.date_range,
               title: s.jpAsmrCommentsPeriod,
-              trailing: Text(
+              subtitle: Text(
                 _japaneseAsmrPeriodLabel(s, worksState),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -660,7 +669,13 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         options.addAll(_subtitleBrowseOptions(s));
         break;
     }
-    options.add(
+    return options;
+  }
+
+  List<Widget> _buildBrowseOptions({required AudioSource source}) {
+    final s = S.of(context);
+    final autoTranslate = ref.watch(autoTranslateWorkDetailsProvider);
+    return [
       LibraryDrawerTile(
         icon: Icons.block,
         title: s.block,
@@ -670,8 +685,6 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
           ),
         ),
       ),
-    );
-    options.add(
       LibraryDrawerTile(
         icon: Icons.translate,
         title: s.autoTranslateWorkDetails,
@@ -686,8 +699,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
             .read(autoTranslateWorkDetailsProvider.notifier)
             .setEnabled(!ref.read(autoTranslateWorkDetailsProvider)),
       ),
-    );
-    return options;
+    ];
   }
 
   List<Widget> _downloadBrowseOptions(S s) {
@@ -699,7 +711,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         LibraryDrawerTile(
           icon: downloads.isSelectionMode ? Icons.close : Icons.checklist,
           title: downloads.isSelectionMode ? s.exitSelection : s.select,
-          trailing: downloads.isSelectionMode
+          subtitle: downloads.isSelectionMode
               ? Text(s.selectedCount(downloads.selectedCount))
               : null,
           onTap: downloads.toggleSelectionModeFromDrawer,
@@ -773,7 +785,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
       LibraryDrawerTile(
         icon: subtitles.isSelectionMode ? Icons.close : Icons.checklist,
         title: subtitles.isSelectionMode ? s.exitSelection : s.select,
-        trailing: subtitles.isSelectionMode
+        subtitle: subtitles.isSelectionMode
             ? Text(s.selectedCount(subtitles.selectedCount))
             : null,
         onTap: subtitles.toggleSelectionFromDrawer,

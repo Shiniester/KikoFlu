@@ -122,8 +122,8 @@ adjustable volume.
 The app page that contains the Works Home Page and the user's online marks,
 history, playlists, downloads, and subtitle library pages. A fixed header shows
 the menu button, current page name, and an entry to the scoped search screen.
-The drawer contains
-vertical source and page entries, followed by the current page's browse options.
+The sidebar shows the current page's options beneath its page entry, with shared
+browsing options in a separate group; swiping right across the main content opens it.
 _Avoid_: Home page, My page
 
 **Audio Source (音声源)**:
@@ -422,8 +422,10 @@ _避免_：应用配色、全局主题
 
 
 **Comic Screen (漫画页)**:
-The app page containing Home, Favorites, History, and Downloaded tabs. It shares
-floating navigation and toolbar behavior with the Audio Screen.
+The app page containing the Comic Home Page, favorites, history, and downloads,
+with the same header and sidebar behavior as the Audio Screen. Its selected
+Favorites entry shows the Local Favorite and Source Favorite choices, while
+Comic Collection Layout remains shared across pages.
 _Avoid_: Works Home Tab, discovery page
 
 **Comic Details Screen (漫画详情页)**:

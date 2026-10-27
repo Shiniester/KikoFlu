@@ -5158,11 +5158,66 @@ void main() {
     expect(library.favoriteReads, 1);
 
     await openComicDrawer(tester);
+    final drawer = find.byKey(const ValueKey('library-drawer'));
+    final favoriteTile = find.descendant(
+      of: drawer,
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget is LibraryDrawerTile && widget.title == s.libraryFavorites,
+      ),
+    );
+    expect(favoriteTile, findsOneWidget);
+    expect(
+      find.descendant(
+        of: favoriteTile,
+        matching: find.text(s.comicLocalFavorites),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: favoriteTile,
+        matching: find.text(s.comicOnlineFavorites),
+      ),
+      findsOneWidget,
+    );
+    final browseOptions = find.descendant(
+      of: drawer,
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget is LibraryDrawerSection &&
+            widget.title == s.libraryBrowseOptions,
+      ),
+    );
+    expect(
+      find.descendant(
+        of: browseOptions,
+        matching: find.text(s.comicLocalFavorites),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: browseOptions,
+        matching: find.text(s.comicOnlineFavorites),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: browseOptions, matching: find.text(s.layout)),
+      findsOneWidget,
+    );
     await tapComicDrawerItem(tester, s.comicOnlineFavorites);
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 10)),
     );
     await pumpFrames(tester, frames: 25);
+    expect(
+      Scaffold.of(
+        tester.element(find.byKey(const ValueKey('library-menu-button'))),
+      ).isDrawerOpen,
+      isTrue,
+    );
     expect(source.favoriteReads, 1);
     expect(
       find.descendant(
@@ -5193,12 +5248,40 @@ void main() {
 
     await tapComicDrawerItem(tester, s.comicLocalFavorites);
     await pumpFrames(tester, frames: 2);
+    expect(
+      Scaffold.of(
+        tester.element(find.byKey(const ValueKey('library-menu-button'))),
+      ).isDrawerOpen,
+      isTrue,
+    );
     expect(source.favoriteReads, onlineReadsAfterSearch);
     expect(
       find.descendant(
         of: find.byType(ComicScreen),
         matching: find.text(localFavorite.title),
       ),
+      findsOneWidget,
+    );
+
+    await tapComicDrawerItem(tester, s.navHome);
+    await pumpFrames(tester, frames: 25);
+    expect(
+      Scaffold.of(
+        tester.element(find.byKey(const ValueKey('library-menu-button'))),
+      ).isDrawerOpen,
+      isFalse,
+    );
+    await openComicDrawer(tester);
+    expect(
+      find.descendant(of: drawer, matching: find.text(s.comicLocalFavorites)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: drawer, matching: find.text(s.comicOnlineFavorites)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: browseOptions, matching: find.text(s.layout)),
       findsOneWidget,
     );
   });

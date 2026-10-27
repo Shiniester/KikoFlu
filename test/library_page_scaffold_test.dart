@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/widgets/library_page_scaffold.dart';
@@ -12,14 +13,18 @@ void main() {
     VoidCallback? onSettings,
     double textScale = 1,
     Brightness brightness = Brightness.light,
+    TargetPlatform? platform,
+    Locale locale = const Locale('zh'),
     bool longDrawer = true,
     bool deferDrawerActions = false,
     bool closeOnTap = true,
+    List<Widget> historyChildren = const [],
+    Widget? body,
   }) => MaterialApp(
-    theme: ThemeData(brightness: brightness),
+    theme: ThemeData(brightness: brightness, platform: platform),
     localizationsDelegates: S.localizationsDelegates,
     supportedLocales: S.supportedLocales,
-    locale: const Locale('zh'),
+    locale: locale,
     builder: (context, child) => MediaQuery(
       data: MediaQuery.of(
         context,
@@ -53,6 +58,7 @@ void main() {
               selected: true,
               closeOnTap: closeOnTap,
               onTap: onSelect ?? () {},
+              children: historyChildren,
             ),
             if (onAlternate != null)
               LibraryDrawerTile(
@@ -86,12 +92,249 @@ void main() {
         title: '音声设置',
         onTap: onSettings ?? () {},
       ),
-      body: ListView.builder(
-        itemCount: 80,
-        itemBuilder: (_, index) => ListTile(title: Text('作品 $index')),
-      ),
+      body:
+          body ??
+          ListView.builder(
+            itemCount: 80,
+            itemBuilder: (_, index) => ListTile(title: Text('作品 $index')),
+          ),
     ),
   );
+
+  for (final platform in [
+    TargetPlatform.android,
+    TargetPlatform.iOS,
+    TargetPlatform.windows,
+  ]) {
+    for (final width in [320.0, 1000.0]) {
+      testWidgets('content right swipe opens drawer ($platform, $width)', (
+        tester,
+      ) async {
+        await tester.binding.setSurfaceSize(Size(width, 640));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        var selected = 0;
+        await tester.pumpWidget(
+          app(platform: platform, onSelect: () => selected++),
+        );
+
+        await tester.dragFrom(Offset(width / 2, 300), Offset(width / 3, 0));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const ValueKey('library-drawer')), findsOneWidget);
+        expect(selected, 0);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
+  testWidgets('left swipes and vertical scrolling do not open drawer', (
+    tester,
+  ) async {
+    await tester.pumpWidget(app());
+    await tester.dragFrom(const Offset(400, 300), const Offset(-180, 0));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('library-drawer')), findsNothing);
+
+    await tester.drag(find.byType(ListView), const Offset(0, -600));
+    await tester.pumpAndSettle();
+    expect(find.text('作品 0'), findsNothing);
+    expect(find.byKey(const ValueKey('library-drawer')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a single rightward move opens drawer', (tester) async {
+    await tester.pumpWidget(app());
+    final gesture = await tester.startGesture(const Offset(400, 300));
+    await gesture.moveBy(const Offset(120, 0));
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('library-drawer')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('horizontal content keeps its own drag gesture', (tester) async {
+    final scroll = ScrollController(initialScrollOffset: 300);
+    addTearDown(scroll.dispose);
+    await tester.pumpWidget(
+      app(
+        body: ListView(
+          controller: scroll,
+          scrollDirection: Axis.horizontal,
+          children: const [SizedBox(width: 1600)],
+        ),
+      ),
+    );
+    await tester.dragFrom(const Offset(400, 300), const Offset(180, 0));
+    await tester.pumpAndSettle();
+
+    expect(scroll.offset, lessThan(300));
+    expect(find.byKey(const ValueKey('library-drawer')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final textScale in [1.0, 2.0]) {
+    testWidgets(
+      'page children are indented and keep tap behavior ($textScale)',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(320, 640));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        var parentSelected = 0;
+        var childSelected = 0;
+        const childKey = ValueKey('nested-layout');
+        await tester.pumpWidget(
+          app(
+            textScale: textScale,
+            longDrawer: false,
+            onSelect: () => parentSelected++,
+            historyChildren: [
+              LibraryDrawerTile(
+                key: childKey,
+                icon: Icons.grid_view,
+                title: '布局',
+                closeOnTap: false,
+                onTap: () => childSelected++,
+              ),
+            ],
+          ),
+        );
+        await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+        await tester.pumpAndSettle();
+        final parent = find.widgetWithText(ListTile, '历史');
+        final child = find.byKey(childKey);
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('history-row')),
+            matching: child,
+          ),
+          findsOneWidget,
+        );
+        expect(
+          tester.getTopLeft(child).dx,
+          greaterThan(tester.getTopLeft(parent).dx),
+        );
+        expect(
+          tester.getTopLeft(child).dy,
+          greaterThanOrEqualTo(tester.getBottomLeft(parent).dy),
+        );
+        await tester.tap(child);
+        await tester.pumpAndSettle();
+        expect(childSelected, 1);
+        expect(parentSelected, 0);
+        expect(find.byKey(const ValueKey('library-drawer')), findsOneWidget);
+        await tester.tap(find.text('历史'));
+        await tester.pumpAndSettle();
+        expect(parentSelected, 1);
+        expect(find.byKey(const ValueKey('library-drawer')), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  for (final locale in [
+    const Locale('en'),
+    const Locale('ja'),
+    const Locale('zh'),
+  ]) {
+    for (final textScale in [1.0, 2.0]) {
+      testWidgets('localized submenu labels fit ($locale, $textScale)', (
+        tester,
+      ) async {
+        await tester.binding.setSurfaceSize(const Size(320, 640));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final s = await S.delegate.load(locale);
+        const sortKey = ValueKey('nested-sort');
+        final selectedCount = s.selectedCount(1);
+        await tester.pumpWidget(
+          app(
+            locale: locale,
+            textScale: textScale,
+            longDrawer: false,
+            historyChildren: [
+              LibraryDrawerTile(
+                icon: Icons.add,
+                title: s.createPlaylist,
+                onTap: () {},
+              ),
+              LibraryDrawerTile(
+                icon: Icons.cloud_outlined,
+                title: s.comicOnlineFavorites,
+                onTap: () {},
+              ),
+              LibraryDrawerTile(
+                key: sortKey,
+                icon: Icons.sort,
+                title: s.sort,
+                subtitle: Text(
+                  s.sortRelease,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onTap: () {},
+              ),
+              LibraryDrawerTile(
+                icon: Icons.close,
+                title: s.exitSelection,
+                subtitle: Text(selectedCount),
+                onTap: () {},
+              ),
+            ],
+          ),
+        );
+        await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+        await tester.pumpAndSettle();
+        final sort = find.byKey(sortKey);
+        await tester.ensureVisible(sort);
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .getSize(find.descendant(of: sort, matching: find.text(s.sort)))
+              .width,
+          greaterThan(0),
+        );
+        final count = find.text(selectedCount);
+        await tester.ensureVisible(count);
+        await tester.pumpAndSettle();
+        final paragraph = tester.renderObject<RenderParagraph>(count);
+        final boxes = paragraph.getBoxesForSelection(
+          TextSelection(baseOffset: 0, extentOffset: selectedCount.length),
+        );
+        expect(boxes, isNotEmpty);
+        expect(
+          boxes.every((box) => box.bottom <= paragraph.size.height),
+          isTrue,
+        );
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
+  testWidgets('page child actions can wait until the drawer closes', (
+    tester,
+  ) async {
+    var selected = 0;
+    await tester.pumpWidget(
+      app(
+        longDrawer: false,
+        deferDrawerActions: true,
+        historyChildren: [
+          LibraryDrawerTile(
+            icon: Icons.delete_outline,
+            title: '清空历史',
+            onTap: () => selected++,
+          ),
+        ],
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('library-menu-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('清空历史'));
+    expect(selected, 0);
+    await tester.pumpAndSettle();
+    expect(selected, 1);
+    expect(find.byKey(const ValueKey('library-drawer')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('header stays fixed and title precedes search entry', (
     tester,

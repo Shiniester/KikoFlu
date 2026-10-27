@@ -18,6 +18,7 @@ import 'package:kikoeru_flutter/src/providers/download_provider.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/history_provider.dart';
 import 'package:kikoeru_flutter/src/providers/my_reviews_provider.dart';
+import 'package:kikoeru_flutter/src/providers/playlists_provider.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart';
 import 'package:kikoeru_flutter/src/providers/subtitle_library_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_screen.dart';
@@ -58,6 +59,7 @@ import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/src/utils/theme.dart';
+import 'package:kikoeru_flutter/src/utils/l10n_extensions.dart';
 import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 import 'package:kikoeru_flutter/src/utils/snackbar_util.dart';
 import 'package:kikoeru_flutter/src/widgets/settings_section.dart';
@@ -172,6 +174,16 @@ class _Works extends WorksNotifier {
 }
 
 class _SubtitleLibrary extends SubtitleLibraryNotifier {}
+
+class _EmptyPlaylistsApi extends KikoeruApiService {
+  @override
+  Future<Map<String, dynamic>> getUserPlaylists({
+    int page = 1,
+    int pageSize = 20,
+    String filterBy = 'all',
+    dynamic cancelToken,
+  }) async => {'playlists': <dynamic>[]};
+}
 
 class _PendingDetailsApi extends KikoeruApiService {
   final metadata = Completer<Map<String, dynamic>>();
@@ -315,6 +327,13 @@ LibraryDrawerSection _section(WidgetTester tester, String title) =>
         .whereType<LibraryDrawerSection>()
         .firstWhere((section) => section.title == title);
 
+LibraryDrawerTile _audioPageTile(WidgetTester tester, String page) {
+  final s = S.of(tester.element(find.byType(AudioScreen)));
+  return _section(tester, s.libraryPages).children
+      .whereType<LibraryDrawerTile>()
+      .singleWhere((tile) => tile.title == _pageLabel(s, page));
+}
+
 void _requestAudioPage(WidgetTester tester, String page) {
   final s = S.of(tester.element(find.byType(AudioScreen)));
   final section = _section(tester, s.libraryPages);
@@ -353,9 +372,17 @@ ScrollController _worksScroll(WidgetTester tester) => tester
 
 LibraryDrawerTile _browseTile(WidgetTester tester, String title) {
   final s = S.of(tester.element(find.byType(AudioScreen)));
-  return _section(tester, s.libraryBrowseOptions).children
+  final pageOptions = _section(tester, s.libraryPages).children
       .whereType<LibraryDrawerTile>()
-      .firstWhere((tile) => tile.title == title);
+      .expand((page) => page.children.whereType<LibraryDrawerTile>());
+  final browseOptions = _section(
+    tester,
+    s.libraryBrowseOptions,
+  ).children.whereType<LibraryDrawerTile>();
+  return [
+    ...pageOptions,
+    ...browseOptions,
+  ].firstWhere((tile) => tile.title == title);
 }
 
 void _advancedSearch(WidgetTester tester) => _library(tester).onSearch();
@@ -1722,8 +1749,23 @@ void main() {
     final reduced = ValueNotifier(true);
     addTearDown(reduced.dispose);
     await _pumpAudioScreen(tester, reduced);
+    final s = S.of(tester.element(find.byType(AudioScreen)));
     final container = ProviderScope.containerOf(
       tester.element(find.byType(AudioScreen)),
+    );
+    expect(
+      _section(
+        tester,
+        s.libraryBrowseOptions,
+      ).children.whereType<LibraryDrawerTile>().map((tile) => tile.title),
+      [s.block, s.autoTranslateWorkDetails],
+    );
+    expect(
+      _audioPageTile(
+        tester,
+        'home',
+      ).children.whereType<LibraryDrawerTile>().map((tile) => tile.title),
+      contains(s.layout),
     );
     final reviewLayout = container.read(myReviewsProvider).layoutType;
     final homeLayout = container.read(worksProvider).layoutType;
@@ -1745,6 +1787,24 @@ void main() {
 
     _requestAudioPage(tester, 'onlineMarks');
     await tester.pumpAndSettle();
+    expect(_audioPageTile(tester, 'home').children, isEmpty);
+    expect(
+      _section(tester, s.libraryPages).children
+          .whereType<LibraryDrawerTile>()
+          .where((tile) => tile.children.isNotEmpty)
+          .map((tile) => tile.title),
+      [s.libraryMarks],
+    );
+    final markedLabel = MyReviewFilter.marked.localizedLabel(
+      tester.element(find.byType(AudioScreen)),
+    );
+    expect(
+      _audioPageTile(
+        tester,
+        'onlineMarks',
+      ).children.whereType<LibraryDrawerTile>().map((tile) => tile.title),
+      contains(markedLabel),
+    );
     final workLayout = container.read(worksProvider).layoutType;
     final workSubtitleFilter = container.read(worksProvider).subtitleFilter;
     _browseTile(tester, 'Layout').onTap!();
@@ -1756,6 +1816,94 @@ void main() {
     expect(container.read(myReviewsProvider).subtitleFilter, isNot(0));
     expect(container.read(worksProvider).subtitleFilter, workSubtitleFilter);
     expect(container.read(worksProvider).subtitleFilter, homeSubtitleFilter);
+    final menu = find.byKey(const ValueKey('library-menu-button'));
+    await tester.tap(menu);
+    await tester.pumpAndSettle();
+    final drawer = find.byKey(const ValueKey('library-drawer'));
+    final marked = find.descendant(
+      of: drawer,
+      matching: find.text(markedLabel),
+    );
+    await tester.scrollUntilVisible(
+      marked,
+      250,
+      scrollable: find
+          .descendant(of: drawer, matching: find.byType(Scrollable))
+          .first,
+    );
+    await tester.tap(marked);
+    await tester.pumpAndSettle();
+    expect(Scaffold.of(tester.element(menu)).isDrawerOpen, isTrue);
+    expect(container.read(myReviewsProvider).filter, MyReviewFilter.marked);
+  });
+
+  testWidgets('playlist options stay under the selected Audio page', (
+    tester,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('my_tabs_show_playlists', true);
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(
+      tester,
+      reduced,
+      screen: ProviderScope(
+        overrides: [
+          playlistsProvider.overrideWith(
+            (ref) => PlaylistsNotifier(_EmptyPlaylistsApi()),
+          ),
+        ],
+        child: const AudioScreen(),
+      ),
+    );
+    final s = S.of(tester.element(find.byType(AudioScreen)));
+
+    _requestAudioPage(tester, 'playlists');
+    await tester.pumpAndSettle();
+
+    final menu = find.byKey(const ValueKey('library-menu-button'));
+    await tester.tap(menu);
+    await tester.pumpAndSettle();
+    final drawer = find.byKey(const ValueKey('library-drawer'));
+    final favoritesTile = find.descendant(
+      of: drawer,
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget is LibraryDrawerTile && widget.title == s.libraryFavorites,
+      ),
+    );
+    final createPlaylist = find.descendant(
+      of: drawer,
+      matching: find.text(s.createPlaylist),
+    );
+    expect(
+      find.descendant(of: favoritesTile, matching: find.text(s.createPlaylist)),
+      findsOneWidget,
+    );
+    final browseOptions = find.descendant(
+      of: drawer,
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget is LibraryDrawerSection &&
+            widget.title == s.libraryBrowseOptions,
+      ),
+    );
+    expect(
+      find.descendant(of: browseOptions, matching: find.text(s.createPlaylist)),
+      findsNothing,
+    );
+    await tester.scrollUntilVisible(
+      createPlaylist,
+      250,
+      scrollable: find
+          .descendant(of: drawer, matching: find.byType(Scrollable))
+          .first,
+    );
+    await tester.tap(createPlaylist);
+    await tester.pumpAndSettle();
+    expect(find.byType(Dialog), findsOneWidget);
+    await tester.tap(find.text(s.cancel));
+    await tester.pumpAndSettle();
   });
 
   for (final reducedMotion in [false, true]) {
