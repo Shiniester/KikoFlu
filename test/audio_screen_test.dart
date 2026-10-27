@@ -6,6 +6,7 @@ import 'package:kikoeru_flutter/src/comics/ui/comic_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_screen.dart';
 import 'package:kikoeru_flutter/src/videos/video_providers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/rendering.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart'
@@ -22,6 +23,7 @@ import 'package:kikoeru_flutter/src/providers/playlists_provider.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart';
 import 'package:kikoeru_flutter/src/providers/subtitle_library_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_screen.dart';
+import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
 import 'package:kikoeru_flutter/src/screens/search_screen.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
@@ -48,10 +50,13 @@ import 'package:kikoeru_flutter/src/screens/playlists_screen.dart';
 import 'package:kikoeru_flutter/src/screens/local_downloads_screen.dart';
 import 'package:kikoeru_flutter/src/screens/subtitle_library_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/global_audio_player_wrapper.dart';
+import 'package:kikoeru_flutter/src/widgets/app_navigation_scope.dart';
+import 'package:kikoeru_flutter/src/widgets/app_navigation_shell.dart';
 import 'package:kikoeru_flutter/src/widgets/library_page_scaffold.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
+import 'package:kikoeru_flutter/src/widgets/volume_control.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/models/audio_source.dart' as audio_source;
 import 'package:kikoeru_flutter/src/providers/audio_source_provider.dart';
@@ -241,6 +246,12 @@ Future<void> _pumpAudioScreen(
   GlobalKey? sceneKey,
   KikoeruApiService? detailApi,
 }) async {
+  final navigationController = screen is MainScreen
+      ? AppNavigationController()
+      : null;
+  if (navigationController != null) {
+    addTearDown(navigationController.dispose);
+  }
   final app = ProviderScope(
     overrides: [
       if (detailApi != null)
@@ -284,6 +295,15 @@ Future<void> _pumpAudioScreen(
       theme: theme,
       localizationsDelegates: S.localizationsDelegates,
       supportedLocales: S.supportedLocales,
+      navigatorObservers: [
+        if (navigationController != null) navigationController,
+      ],
+      builder: navigationController == null
+          ? null
+          : (context, navigator) => AppNavigationShell(
+              controller: navigationController,
+              child: navigator!,
+            ),
       home: ValueListenableBuilder<bool>(
         valueListenable: reduced,
         child: screen,
@@ -298,6 +318,17 @@ Future<void> _pumpAudioScreen(
     sceneKey == null ? app : RepaintBoundary(key: sceneKey, child: app),
   );
   if (settle) await tester.pumpAndSettle();
+}
+
+void _pushGlobalAudioDetail(BuildContext context, String label) {
+  unawaited(
+    pushWorkDetailRoute(
+      context,
+      builder: (_) => GlobalAudioPlayerWrapper(
+        child: Scaffold(body: Center(child: Text(label))),
+      ),
+    ),
+  );
 }
 
 PageController _pages(WidgetTester tester) => tester
@@ -1913,6 +1944,453 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  for (final withTrack in [false, true]) {
+    testWidgets(
+      'app Dock remains visible above detail routes (track=$withTrack)',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final reduced = ValueNotifier(true);
+        addTearDown(reduced.dispose);
+        await _pumpAudioScreen(
+          tester,
+          reduced,
+          screen: const MainScreen(),
+          track: withTrack
+              ? const AudioTrack(
+                  id: 'detail-dock-track',
+                  title: 'Audio',
+                  url: 'https://example.invalid/audio.mp3',
+                )
+              : null,
+        );
+
+        _pushGlobalAudioDetail(
+          tester.element(find.byType(WorksScreen)),
+          'Browsing detail',
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Browsing detail'), findsOneWidget);
+        expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
+        expect(
+          find.byType(MiniPlayer, skipOffstage: false),
+          withTrack ? findsOneWidget : findsNothing,
+        );
+        tester.view.physicalSize = const Size(844, 390);
+        await tester.pumpAndSettle();
+        expect(find.text('Browsing detail'), findsOneWidget);
+        expect(find.byType(NavigationRail).hitTestable(), findsOneWidget);
+        expect(find.byType(NavigationBar), findsNothing);
+        tester.view.physicalSize = const Size(390, 844);
+        await tester.pumpAndSettle();
+        expect(find.text('Browsing detail'), findsOneWidget);
+        expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets(
+    'top-level tab changes return to each home and retain audio scroll state',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(true);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+
+      final works = find.byType(WorksScreen);
+      final audioState = tester.state(find.byType(AudioScreen));
+      final worksState = tester.state(works);
+      final scroll = tester
+          .widget<CustomScrollView>(
+            find.descendant(of: works, matching: find.byType(CustomScrollView)),
+          )
+          .controller!;
+      scroll.jumpTo(400);
+      await tester.pumpAndSettle();
+      final audioContext = tester.element(works);
+      _pushGlobalAudioDetail(audioContext, 'Audio detail');
+      await tester.pumpAndSettle();
+
+      final navigation = find.byType(NavigationBar);
+      expect(navigation.hitTestable(), findsOneWidget);
+      await tester.tap(
+        find.descendant(
+          of: navigation,
+          matching: find.byIcon(Icons.menu_book_outlined),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.widget<NavigationBar>(navigation).selectedIndex, 1);
+      expect(find.text('Audio detail'), findsNothing);
+      expect(find.byType(ComicScreen), findsOneWidget);
+
+      final comicContext = tester.element(find.byType(ComicScreen));
+      _pushGlobalAudioDetail(comicContext, 'Comic detail');
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(
+          of: navigation,
+          matching: find.byIcon(Icons.settings_outlined),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.widget<NavigationBar>(navigation).selectedIndex, 3);
+      expect(find.text('Comic detail'), findsNothing);
+      expect(find.byType(SettingsScreen), findsOneWidget);
+
+      await tester.tap(
+        find.descendant(
+          of: navigation,
+          matching: find.byIcon(Icons.library_music_outlined),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.widget<NavigationBar>(navigation).selectedIndex, 0);
+      expect(find.text('Audio detail'), findsNothing);
+      expect(find.text('Comic detail'), findsNothing);
+      expect(tester.state(find.byType(AudioScreen)), same(audioState));
+      expect(tester.state(find.byType(WorksScreen)), same(worksState));
+      expect(scroll.offset, 400);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'landscape NavigationRail remains selected after a tab detail returns',
+    (tester) async {
+      tester.view.physicalSize = const Size(844, 390);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(true);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+
+      final navigation = find.byType(NavigationRail);
+      final settingsLabel = S
+          .of(tester.element(find.byType(MainScreen)))
+          .navSettings;
+      await tester.tap(
+        find.descendant(
+          of: navigation,
+          matching: find.byIcon(Icons.settings_outlined),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final settingsContext = tester.element(find.byType(SettingsScreen));
+      _pushGlobalAudioDetail(settingsContext, 'Landscape detail');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Landscape detail'), findsOneWidget);
+      expect(navigation.hitTestable(), findsOneWidget);
+      expect(tester.widget<NavigationRail>(navigation).selectedIndex, 3);
+      Navigator.of(settingsContext).pop();
+      await tester.pumpAndSettle();
+      expect(navigation.hitTestable(), findsOneWidget);
+      expect(tester.widget<NavigationRail>(navigation).selectedIndex, 3);
+      expect(
+        find.descendant(of: navigation, matching: find.text(settingsLabel)),
+        findsOneWidget,
+      );
+      expect(find.byType(SettingsScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('full audio player hides the Dock and restores it on return', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(
+      tester,
+      reduced,
+      screen: const MainScreen(),
+      track: const AudioTrack(
+        id: 'full-player-dock-track',
+        title: 'Audio',
+        url: 'https://example.invalid/audio.mp3',
+      ),
+    );
+
+    expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
+    final gesture = await tester.startGesture(
+      tester.getCenter(
+        find.byKey(const ValueKey('mini-player-upward-launcher')),
+      ),
+    );
+    await gesture.moveBy(const Offset(0, -400));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(find.byType(AudioPlayerScreen), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(
+      find.byType(NavigationBar, skipOffstage: false).hitTestable(),
+      findsNothing,
+    );
+    expect(
+      find.byType(NavigationRail, skipOffstage: false).hitTestable(),
+      findsNothing,
+    );
+
+    final playerContext = tester.element(find.byType(AudioPlayerScreen));
+    _pushGlobalAudioDetail(playerContext, 'Player work detail');
+    await tester.pumpAndSettle();
+    expect(find.text('Player work detail'), findsOneWidget);
+    expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
+    expect(find.byType(MiniPlayer, skipOffstage: false), findsOneWidget);
+    Navigator.of(playerContext).pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(AudioPlayerScreen), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+
+    unawaited(
+      showDialog<void>(
+        context: playerContext,
+        builder: (_) => const AlertDialog(content: Text('Player modal')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(find.byType(NavigationBar), findsNothing);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byType(NavigationBar), findsNothing);
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
+    expect(
+      tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+      0,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'detail tab switch keeps Dock usable during the longer player close',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(false);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(
+        tester,
+        reduced,
+        screen: const MainScreen(),
+        theme: AppTheme.lightTheme(null),
+        track: const AudioTrack(
+          id: 'player-close-dock-track',
+          title: 'Audio',
+          url: 'https://example.invalid/audio.mp3',
+        ),
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey('mini-player-upward-launcher')),
+      );
+      await tester.pumpAndSettle();
+      final playerContext = tester.element(find.byType(AudioPlayerScreen));
+      _pushGlobalAudioDetail(playerContext, 'Player work detail');
+      await tester.pumpAndSettle();
+
+      final navigation = find.byType(NavigationBar);
+      await tester.tap(
+        find.descendant(
+          of: navigation,
+          matching: find.byIcon(Icons.settings_outlined),
+        ),
+      );
+      await tester.pump();
+      for (var frame = 0; frame < 20; frame++) {
+        await tester.pump(const Duration(milliseconds: 20));
+        expect(navigation.hitTestable(), findsOneWidget);
+        expect(tester.widget<NavigationBar>(navigation).selectedIndex, 3);
+      }
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('modal routes block Dock tab changes until dismissed', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+
+    final navigation = find.byType(NavigationBar);
+    final settings = find.descendant(
+      of: navigation,
+      matching: find.byIcon(Icons.settings_outlined),
+    );
+    final settingsCenter = tester.getCenter(settings);
+    final mainContext = tester.element(find.byType(MainScreen));
+    unawaited(
+      showDialog<void>(
+        context: mainContext,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: const Text('Dock blocking modal'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close modal'),
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dock blocking modal'), findsOneWidget);
+    expect(navigation.hitTestable(), findsNothing);
+    await tester.tapAt(settingsCenter);
+    await tester.pumpAndSettle();
+    expect(find.text('Dock blocking modal'), findsOneWidget);
+    expect(tester.widget<NavigationBar>(navigation).selectedIndex, 0);
+
+    await tester.tap(find.text('Close modal'));
+    await tester.pumpAndSettle();
+    expect(navigation.hitTestable(), findsOneWidget);
+    await tester.tap(settings);
+    await tester.pumpAndSettle();
+    expect(tester.widget<NavigationBar>(navigation).selectedIndex, 3);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('closing a modal cannot dismiss the detail beneath it', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final reduced = ValueNotifier(false);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+    _pushGlobalAudioDetail(
+      tester.element(find.byType(WorksScreen)),
+      'Retained detail',
+    );
+    await tester.pumpAndSettle();
+
+    final detailContext = tester.element(find.text('Retained detail'));
+    final navigation = find.byType(NavigationBar);
+    final dockPoint = tester.getCenter(
+      find.descendant(
+        of: navigation,
+        matching: find.byIcon(Icons.settings_outlined),
+      ),
+    );
+    unawaited(
+      showDialog<void>(
+        context: detailContext,
+        builder: (_) => const AlertDialog(content: Text('Dismissible modal')),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tapAt(dockPoint);
+    await tester.pump();
+    expect(AppNavigationScope.of(detailContext).popupRoute?.isCurrent, isFalse);
+    await tester.tapAt(dockPoint);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dismissible modal'), findsNothing);
+    expect(find.text('Retained detail'), findsOneWidget);
+    expect(navigation.hitTestable(), findsOneWidget);
+    expect(tester.widget<NavigationBar>(navigation).selectedIndex, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('modal routes hide the hovered global volume slider', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(
+      tester,
+      reduced,
+      screen: const MainScreen(),
+      track: const AudioTrack(
+        id: 'volume-modal-track',
+        title: 'Audio',
+        url: 'https://example.invalid/audio.mp3',
+      ),
+    );
+
+    final volumeControl = find.byType(VolumeControl);
+    final volumeCenter = tester.getCenter(volumeControl);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(location: volumeCenter);
+    await mouse.moveTo(volumeCenter);
+    await tester.pump();
+    final slider = find.descendant(
+      of: find.byType(CompositedTransformFollower),
+      matching: find.byType(Slider),
+    );
+    expect(slider.hitTestable(), findsOneWidget);
+    await mouse.moveTo(tester.getCenter(slider));
+    await tester.pump();
+
+    final mainContext = tester.element(find.byType(MainScreen));
+    unawaited(
+      showDialog<void>(
+        context: mainContext,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: const Text('Volume modal'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close modal'),
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Volume modal'), findsOneWidget);
+    expect(slider, findsNothing);
+    expect(slider.hitTestable(), findsNothing);
+    await tester.tap(find.text('Close modal'));
+    await tester.pumpAndSettle();
+    final navigation = find.byType(NavigationBar);
+    expect(navigation.hitTestable(), findsOneWidget);
+    await tester.tap(
+      find.descendant(
+        of: navigation,
+        matching: find.byIcon(Icons.settings_outlined),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.widget<NavigationBar>(navigation).selectedIndex, 3);
+
+    await mouse.moveTo(Offset.zero);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 101));
+    expect(tester.takeException(), isNull);
+  });
+
   for (final reducedMotion in [false, true]) {
     for (final size in [const Size(390, 844), const Size(1000, 600)]) {
       testWidgets(
@@ -2034,8 +2512,13 @@ void main() {
       _advancedSearch(tester);
       await tester.pumpAndSettle();
       expect(find.byType(GlobalAudioPlayerWrapper), findsOneWidget);
-      expect(find.byType(NavigationBar), findsNothing);
-      expect(find.byType(NavigationRail), findsNothing);
+      expect(navigation.hitTestable(), findsOneWidget);
+      expect(
+        size.width > size.height
+            ? find.byType(NavigationBar)
+            : find.byType(NavigationRail),
+        findsNothing,
+      );
       await tester.tap(find.byTooltip('Back'));
       await tester.pumpAndSettle();
       expect(scroll.offset, offset);

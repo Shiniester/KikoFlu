@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/audio_provider.dart';
+import 'app_navigation_scope.dart';
 import 'mini_player.dart';
 
 /// Global wrapper that shows the mini player on all screens except login.
@@ -19,6 +20,7 @@ class GlobalAudioPlayerWrapper extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (AppNavigationScope.maybeOf(context) != null) return child;
     final currentTrack = ref.watch(currentTrackProvider);
     final miniPlayer = currentTrack.when(
       data: (track) =>

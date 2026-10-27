@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:math' as math;
 import '../../../l10n/app_localizations.dart';
+import '../../widgets/app_navigation_scope.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../../widgets/scrollable_appbar.dart';
 import '../../widgets/metadata_search_chip.dart';
@@ -304,6 +305,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
       _readerReturning = false;
     });
     final route = MaterialPageRoute<void>(
+      settings: appImmersiveRouteSettings,
       builder: (_) => ComicReaderScreen(
         comic: comic,
         chapter: chapter!,
@@ -573,7 +575,12 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
             child: CustomScrollView(
               slivers: [
                 SliverPadding(
-                  padding: EdgeInsets.all(detailPadding),
+                  padding: EdgeInsets.fromLTRB(
+                    detailPadding,
+                    detailPadding,
+                    detailPadding,
+                    detailPadding + MediaQuery.paddingOf(context).bottom,
+                  ),
                   sliver: SliverMainAxisGroup(
                     slivers: [
                       SliverToBoxAdapter(

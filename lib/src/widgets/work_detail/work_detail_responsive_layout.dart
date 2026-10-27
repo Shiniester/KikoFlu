@@ -40,7 +40,12 @@ class WorkDetailResponsiveLayout extends StatelessWidget {
   Widget _buildScrollable(BuildContext context, List<Widget> slivers) {
     final scrollable = CustomScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
-      slivers: slivers,
+      slivers: [
+        ...slivers,
+        SliverToBoxAdapter(
+          child: SizedBox(height: MediaQuery.paddingOf(context).bottom),
+        ),
+      ],
     );
 
     if (onRefresh == null) return scrollable;

@@ -28,6 +28,7 @@ import '../providers/lyric_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/file_tree_utils.dart';
 import '../utils/snackbar_util.dart';
+import 'app_navigation_scope.dart';
 import 'file_tree_actions.dart';
 import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
@@ -565,6 +566,7 @@ class _OfflineFileExplorerWidgetState
         final target = result.requireTarget;
         Navigator.of(context).push(
           MaterialPageRoute(
+            settings: appImmersiveRouteSettings,
             builder: (context) => WorkImageReader(
               title: widget.work.title,
               images: target.toGalleryMaps(),

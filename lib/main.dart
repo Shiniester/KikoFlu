@@ -18,6 +18,8 @@ import 'dart:ffi' as ffi;
 import 'package:sqlite3/open.dart' as sqlite3_open;
 
 import 'src/screens/main_screen.dart';
+import 'src/widgets/app_navigation_scope.dart';
+import 'src/widgets/app_navigation_shell.dart';
 import 'src/widgets/desktop_floating_lyric.dart';
 import 'src/utils/theme.dart';
 import 'src/services/storage_service.dart';
@@ -460,6 +462,7 @@ class KikoeruApp extends ConsumerStatefulWidget {
 class _KikoeruAppState extends ConsumerState<KikoeruApp>
     with WindowListener, WidgetsBindingObserver {
   final _appearanceService = PlatformAppearanceService.instance;
+  final _navigation = AppNavigationController();
 
   @override
   void initState() {
@@ -535,6 +538,7 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
 
   @override
   void dispose() {
+    _navigation.dispose();
     WidgetsBinding.instance.removeObserver(this);
     if (Platform.isMacOS) {
       _appearanceService.removeListener(_handleAppearanceChanged);
@@ -655,6 +659,9 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
 
         return MaterialApp(
           navigatorKey: rootNavigatorKey,
+          navigatorObservers: [_navigation],
+          builder: (context, navigator) =>
+              AppNavigationShell(controller: _navigation, child: navigator!),
           scaffoldMessengerKey: rootScaffoldMessengerKey,
           title: 'Kikoeru',
           debugShowCheckedModeBanner: false,

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 
 import '../../screens/audio_player_screen.dart';
+import '../app_navigation_scope.dart';
 import 'player_vertical_gestures.dart';
 import 'player_visual_palette.dart';
 
@@ -61,7 +62,7 @@ Future<T?> openAudioPlayer<T>(
   String? initialPaletteTrackId,
   PlayerInitialSurface initialSurface = PlayerInitialSurface.main,
 }) {
-  return Navigator.of(context).push<T>(
+  return AppNavigationScope.navigatorOf(context).push<T>(
     createAudioPlayerRoute<T>(
       initialPalette: initialPalette,
       initialPaletteTrackId: initialPaletteTrackId,
@@ -85,7 +86,8 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
   }) : _dismissVisualMode = ValueNotifier(initialDismissVisualMode),
        _prepareInitialFrame =
            !skipInitialTransition &&
-           initialDismissVisualMode == PlayerDismissVisualMode.secondary;
+           initialDismissVisualMode == PlayerDismissVisualMode.secondary,
+       super(settings: appImmersiveRouteSettings);
 
   final WidgetBuilder builder;
   final bool skipInitialTransition;

@@ -37,6 +37,7 @@ import '../utils/string_utils.dart';
 import 'file_tree_actions.dart';
 import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
+import 'app_navigation_scope.dart';
 import 'audio_subtitle_generation_sheet.dart';
 import 'lyric_translation_confirmation.dart';
 import 'work_image_reader.dart';
@@ -807,6 +808,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
         final target = result.requireTarget;
         Navigator.of(context).push(
           MaterialPageRoute(
+            settings: appImmersiveRouteSettings,
             builder: (context) => WorkImageReader(
               title: _work.title,
               images: target.toGalleryMaps(),

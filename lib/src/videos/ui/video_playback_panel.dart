@@ -10,6 +10,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../services/proxy_config.dart';
+import '../../widgets/app_navigation_scope.dart';
 import '../../widgets/image_save_service.dart';
 import '../../widgets/responsive_dialog.dart';
 import '../video_library.dart';
@@ -872,6 +873,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     _pictureInPictureRouteOpen = true;
     _updatePlayerState(() {});
     final route = PageRouteBuilder<void>(
+      settings: appImmersiveRouteSettings,
       opaque: true,
       pageBuilder: (context, animation, secondaryAnimation) => Scaffold(
         backgroundColor: Colors.black,

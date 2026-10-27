@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../app_navigation_scope.dart';
 import 'player_route.dart';
 import 'player_vertical_gestures.dart';
 
@@ -90,7 +91,7 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
         initialSurface: initialSurface,
       );
       if (!mounted) return;
-      await Navigator.of(context).push<void>(route);
+      await AppNavigationScope.navigatorOf(context).push<void>(route);
       await route.completed;
     } finally {
       _launchInProgress = false;
@@ -195,8 +196,8 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
 
   void _startInteractiveSession() {
     if (!mounted || _interactiveSession != null || _launchInProgress) return;
+    final rootNavigator = AppNavigationScope.navigatorOf(context);
     final overlay = Overlay.of(context, rootOverlay: true);
-    final rootNavigator = Navigator.of(context);
     final configuration = widget.createConfiguration();
     final generation = ++_sessionGeneration;
     _launchInProgress = true;
@@ -303,22 +304,24 @@ class _InteractivePlayerOpenSession {
     _entry = OverlayEntry(
       builder: (context) => Positioned.fill(
         child: IgnorePointer(
-          child: Navigator(
-            key: _navigatorKey,
-            requestFocus: false,
-            onGenerateInitialRoutes: (navigator, initialRoute) => [
-              PageRouteBuilder<void>(
-                settings: const RouteSettings(
-                  name: '_interactive_player_source',
+          child: HeroControllerScope.none(
+            child: Navigator(
+              key: _navigatorKey,
+              requestFocus: false,
+              onGenerateInitialRoutes: (navigator, initialRoute) => [
+                PageRouteBuilder<void>(
+                  settings: const RouteSettings(
+                    name: '_interactive_player_source',
+                  ),
+                  opaque: false,
+                  barrierColor: Colors.transparent,
+                  transitionDuration: Duration.zero,
+                  reverseTransitionDuration: Duration.zero,
+                  pageBuilder: (context, animation, secondaryAnimation) =>
+                      const SizedBox.expand(),
                 ),
-                opaque: false,
-                barrierColor: Colors.transparent,
-                transitionDuration: Duration.zero,
-                reverseTransitionDuration: Duration.zero,
-                pageBuilder: (context, animation, secondaryAnimation) =>
-                    const SizedBox.expand(),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

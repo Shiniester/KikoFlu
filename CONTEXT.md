@@ -300,7 +300,9 @@ Exporting the reader's full loaded image bytes for the actual current page.
 A two-image spread requires choosing one visible image before saving.
 
 **Bottom Dock (底部 Dock)**:
-The portrait Main Screen region formed by the Mini Player and App Tab Bar.
+The persistent Mini Player and app navigation shared by browsing pages.
+App navigation stays below the content in portrait and on the left in landscape.
+Full-screen audio playback, comic reading, and full-screen video hide this surface.
 _Avoid_: Mini Player, App Tab Bar
 
 **Player Cover Page (播放器封面页)**:

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'dart:io' show Platform;
+import 'app_navigation_scope.dart';
 
 /// 音量控制组件，适用于桌面端平台（Windows/macOS/Linux/Web）
 ///
@@ -44,6 +45,15 @@ class _VolumeControlState extends State<VolumeControl> {
   OverlayEntry? _overlayEntry;
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (AppNavigationScope.maybeOf(context)?.popupRoute != null) {
+      _isHovering = false;
+      _removeOverlay();
+    }
+  }
+
+  @override
   void dispose() {
     _removeOverlay();
     super.dispose();
@@ -62,7 +72,10 @@ class _VolumeControlState extends State<VolumeControl> {
   }
 
   void _showOverlay() {
-    if (_overlayEntry != null) return;
+    if (_overlayEntry != null ||
+        AppNavigationScope.maybeOf(context)?.popupRoute != null) {
+      return;
+    }
 
     _overlayEntry = OverlayEntry(
       builder: (context) => Positioned(

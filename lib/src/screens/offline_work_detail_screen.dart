@@ -21,6 +21,7 @@ import '../utils/system_ui_style.dart';
 import '../utils/snackbar_util.dart';
 import '../widgets/scrollable_appbar.dart';
 import '../widgets/offline_file_explorer_widget.dart';
+import '../widgets/app_navigation_scope.dart';
 import '../widgets/global_audio_player_wrapper.dart';
 import '../widgets/download_fab.dart';
 import '../utils/string_utils.dart';
@@ -513,6 +514,7 @@ class _OfflineWorkDetailScreenState
           onTap: () {
             Navigator.of(context).push(
               MaterialPageRoute(
+                settings: appImmersiveRouteSettings,
                 builder: (context) => WorkImageReader(
                   title: work.title,
                   images: [

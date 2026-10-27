@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../providers/works_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
+import '../../widgets/app_navigation_scope.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../../widgets/responsive_dialog.dart';
 import '../../widgets/work_detail_route_readiness.dart';
@@ -71,12 +72,13 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     vsync: this,
     duration: const Duration(milliseconds: 250),
   );
+  late final Animation<double> _fullscreenProgressAnimation =
+      _fullscreenTransition.drive(CurveTween(curve: Curves.easeInOut));
   GlobalKey _playerKey = GlobalKey();
   final ScrollController _portraitDetailsController = ScrollController();
   final ScrollController _landscapeDetailsController = ScrollController();
 
-  double get _fullscreenProgress =>
-      Curves.easeInOut.transform(_fullscreenTransition.value);
+  double get _fullscreenProgress => _fullscreenProgressAnimation.value;
 
   VideoDownloadTask? get _availableTask =>
       widget.downloadedTask ??
@@ -112,7 +114,13 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     super.didChangeDependencies();
     if (MediaQuery.orientationOf(context) != Orientation.landscape ||
         MediaQuery.disableAnimationsOf(context)) {
-      _fullscreenTransition.value = _fullscreen ? 1 : 0;
+      final target = _fullscreen ? 1.0 : 0.0;
+      if (_fullscreenTransition.value != target) {
+        // The shell listens to this animation above the route.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _fullscreenTransition.value = _fullscreen ? 1 : 0;
+        });
+      }
     }
     _routeReadiness.bind(
       route: ModalRoute.of(context),
@@ -432,7 +440,6 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       button: true,
       child: PopupMenuButton<String>(
         tooltip: actor.label,
-        style: const ButtonStyle(tapTargetSize: MaterialTapTargetSize.padded),
         onSelected: (action) {
           switch (action) {
             case 'open':
@@ -463,14 +470,10 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
           ),
           PopupMenuItem(value: 'source', child: Text(s.videoOpenSource)),
         ],
-        child: Center(
-          widthFactor: 1,
-          heightFactor: 1,
-          child: _metadataPill(
-            actor.label,
-            colors.tertiaryContainer,
-            colors.onTertiaryContainer,
-          ),
+        child: _metadataPill(
+          actor.label,
+          colors.tertiaryContainer,
+          colors.onTertiaryContainer,
         ),
       ),
     );
@@ -556,7 +559,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         foregroundColor: foreground,
         minimumSize: Size.zero,
         padding: EdgeInsets.zero,
-        tapTargetSize: MaterialTapTargetSize.padded,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         visualDensity: VisualDensity.standard,
         shape: shape,
       ),
@@ -718,7 +721,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     return AnimatedBuilder(
       animation: _fullscreenTransition,
       builder: (context, child) => GlobalAudioPlayerWrapper(
-        showMiniPlayer: !_fullscreen,
+        showMiniPlayer: !_fullscreen || !_fullscreenTransition.isCompleted,
         miniPlayerHeightFactor: 1 - _fullscreenProgress,
         child: child!,
       ),
@@ -936,14 +939,22 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
         onFullscreenChanged: (fullscreen) {
           if (mounted && _fullscreen != fullscreen) {
             final size = View.of(context).physicalSize;
-            if (!fullscreen &&
-                size.width > size.height &&
+            if (size.width > size.height &&
                 !MediaQuery.disableAnimationsOf(context)) {
-              _fullscreenTransition.reverse();
+              if (fullscreen) {
+                _fullscreenTransition.forward();
+              } else {
+                _fullscreenTransition.reverse();
+              }
             } else {
               _fullscreenTransition.value = fullscreen ? 1 : 0;
             }
             setState(() => _fullscreen = fullscreen);
+            AppNavigationScope.maybeOf(context)?.setFullscreen(
+              ModalRoute.of(context)!,
+              fullscreen,
+              transition: _fullscreenProgressAnimation,
+            );
           }
         },
       ),
@@ -964,10 +975,9 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     }
 
     if (_fullscreen || isLandscape) {
-      final inlineTop = _fullscreen
-          ? 0.0
-          : MediaQuery.viewPaddingOf(context).top +
-                (AppBarTheme.of(context).toolbarHeight ?? kToolbarHeight);
+      final inlineTop =
+          MediaQuery.viewPaddingOf(context).top +
+          (AppBarTheme.of(context).toolbarHeight ?? kToolbarHeight);
       final landscapeDetails = CustomScrollView(
         key: PageStorageKey('video-details-landscape-${details.video.id}'),
         controller: _landscapeDetailsController,
@@ -1016,7 +1026,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
                     width: constraints.maxWidth - paneWidth,
                     height: inlineHeight,
                     child: Offstage(
-                      offstage: _fullscreen,
+                      offstage:
+                          _fullscreen && _fullscreenTransition.isCompleted,
                       child: Opacity(
                         opacity: inlineProgress,
                         child: landscapeDetails,
@@ -1040,7 +1051,12 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
           sliver: SliverToBoxAdapter(child: player),
         ),
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(0, 0, 0, 24),
+          padding: EdgeInsets.fromLTRB(
+            0,
+            0,
+            0,
+            24 + MediaQuery.paddingOf(context).bottom,
+          ),
           sliver: detailsSliver,
         ),
       ],

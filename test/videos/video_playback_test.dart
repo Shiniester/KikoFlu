@@ -17,6 +17,7 @@ import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
+import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
@@ -34,6 +35,8 @@ import 'package:kikoeru_flutter/src/videos/video_super_resolution.dart';
 import 'package:kikoeru_flutter/src/videos/video_sleep_timer.dart';
 import 'package:kikoeru_flutter/src/videos/video_providers.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
+import 'package:kikoeru_flutter/src/widgets/app_navigation_scope.dart';
+import 'package:kikoeru_flutter/src/widgets/app_navigation_shell.dart';
 import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_metadata_sections.dart';
 
@@ -65,22 +68,6 @@ void _testPlayerWidget(
       debugDefaultTargetPlatformOverride = null;
     }
   });
-}
-
-class _VideoMetadataTapTargetGuideline extends MinimumTapTargetGuideline {
-  _VideoMetadataTapTargetGuideline()
-    : super(
-        size: (androidTapTargetGuideline as MinimumTapTargetGuideline).size,
-        link: (androidTapTargetGuideline as MinimumTapTargetGuideline).link,
-      );
-
-  @override
-  bool shouldSkipNode(SemanticsNode node) =>
-      !const {
-        'Same name',
-        'Saved actor',
-      }.contains(node.getSemanticsData().label) ||
-      super.shouldSkipNode(node);
 }
 
 void main() {
@@ -502,6 +489,150 @@ void main() {
   );
 
   _testPlayerWidget(
+    'shared navigation stays interactive inline and hides only during video fullscreen',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final client = _TestMissavClient(_details());
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final session = _FakePlaybackSession();
+      final navigation = AppNavigationController();
+      addTearDown(navigation.dispose);
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          _testVideoDetailsScreen(
+            video: _video(),
+            sessionFactory: () => session,
+          ),
+          appNavigationController: navigation,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byTooltip(l10n.videoPlay));
+      await tester.pump();
+      for (final size in const [Size(400, 800), Size(1200, 800)]) {
+        tester.view.physicalSize = size;
+        await tester.pumpAndSettle();
+        final isLandscape = size.width > size.height;
+        final navigationWidget = find.byType(
+          isLandscape ? NavigationRail : NavigationBar,
+        );
+        expect(navigation.navigationVisible, isTrue);
+        expect(navigationWidget, findsOneWidget);
+
+        await tester.tap(
+          find.descendant(
+            of: navigationWidget,
+            matching: find.byIcon(Icons.video_library_outlined),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(navigation.selectedIndex, 2);
+        await tester.tap(
+          find.descendant(
+            of: navigationWidget,
+            matching: find.byIcon(Icons.library_music_outlined),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(navigation.selectedIndex, 0);
+
+        expect(session.snapshot.value.playing, isTrue);
+        expect(navigationWidget, findsOneWidget);
+
+        await tester.tap(
+          find.byKey(const ValueKey('video-fullscreen-control')),
+        );
+        await tester.pumpAndSettle();
+        expect(session.snapshot.value.playing, isTrue);
+        expect(navigation.navigationVisible, isFalse);
+        expect(navigation.selectedIndex, 0);
+        expect(navigationWidget, findsNothing);
+        expect(
+          tester.getRect(find.byKey(const ValueKey('video-playback-layout'))),
+          Rect.fromLTWH(0, 0, size.width, size.height),
+        );
+
+        await tester.tap(
+          find.byKey(const ValueKey('video-fullscreen-control')),
+        );
+        await tester.pumpAndSettle();
+        expect(session.snapshot.value.playing, isTrue);
+        expect(navigation.navigationVisible, isTrue);
+        expect(navigationWidget, findsOneWidget);
+      }
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  _testPlayerWidget('portrait detail tags scroll above shared navigation', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const genre = VideoLink(
+      label: 'Last genre',
+      url: 'https://missav.ai/cn/genres/last',
+      kind: VideoLinkKind.category,
+    );
+    final client = _TestMissavClient(
+      _details(
+        description: List.filled(50, 'Detail line').join('\n'),
+        tags: const [genre],
+      ),
+    );
+    final library = await _testLibrary();
+    final downloads = _TestVideoDownloads(client: client, library: library);
+    final navigation = AppNavigationController();
+    addTearDown(navigation.dispose);
+    await tester.pumpWidget(
+      _app(
+        client,
+        library,
+        downloads,
+        _testVideoDetailsScreen(
+          video: _video(),
+          sessionFactory: () => _FakePlaybackSession(),
+        ),
+        appNavigationController: navigation,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final tag = find.text(genre.label);
+    await tester.scrollUntilVisible(
+      tag,
+      500,
+      scrollable: find
+          .descendant(
+            of: find.byKey(
+              const PageStorageKey('video-details-portrait-dvd-1'),
+            ),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+    expect(tag.hitTestable(), findsOneWidget);
+    expect(
+      tester.getBottomLeft(tag).dy,
+      lessThanOrEqualTo(tester.getTopLeft(find.byType(NavigationBar)).dy),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  _testPlayerWidget(
     'video details keep a centered 40:60 landscape layout and restore its scroll after fullscreen',
     (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
@@ -833,6 +964,151 @@ void main() {
     },
   );
 
+  for (final withAudio in [false, true]) {
+    _testPlayerWidget(
+      'landscape fullscreen entry expands continuously with audio=$withAudio',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        tester.view.physicalSize = const Size(1200, 800);
+        tester.view.devicePixelRatio = 1;
+        const safeInsets = FakeViewPadding(
+          top: 24,
+          left: 20,
+          right: 20,
+          bottom: 16,
+        );
+        tester.view.padding = safeInsets;
+        tester.view.viewPadding = safeInsets;
+        addTearDown(tester.view.reset);
+        final client = _TestMissavClient(_details());
+        final library = await _testLibrary();
+        if (withAudio) {
+          await StorageService.initCritical(
+            preferences: await SharedPreferences.getInstance(),
+          );
+        }
+        final downloads = _TestVideoDownloads(client: client, library: library);
+        final platform = _TestVideoPlayerPlatform()
+          ..windowOrientation = Orientation.landscape;
+        final session = _FakePlaybackSession();
+        final navigation = AppNavigationController();
+        addTearDown(navigation.dispose);
+        await tester.pumpWidget(
+          _app(
+            client,
+            library,
+            downloads,
+            _testVideoDetailsScreen(
+              video: _video(),
+              sessionFactory: () => session,
+              platform: platform,
+            ),
+            audioTrack: withAudio
+                ? const AudioTrack(
+                    id: 'fullscreen-entry-audio',
+                    title: 'Audio playing alongside video',
+                    url: 'https://example.invalid/audio.mp3',
+                  )
+                : null,
+            appNavigationController: navigation,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final layout = find.byKey(const ValueKey('video-playback-layout'));
+        final infoPane = find.byKey(
+          const PageStorageKey<String>('video-details-landscape-dvd-1'),
+        );
+        final miniPlayer = find.byKey(
+          const ValueKey('mini-player-dismissible'),
+        );
+        final miniPlayerClip = find
+            .ancestor(of: miniPlayer, matching: find.byType(ClipRect))
+            .first;
+        final inlineRect = tester.getRect(layout);
+        final miniPlayerHeight = withAudio
+            ? tester.getRect(miniPlayerClip).height
+            : 0.0;
+        final initialPosition = session.snapshot.value.position;
+        final initialPlaying = session.snapshot.value.playing;
+        final initialLoads = session.loadStreamCount;
+        final l10n = await S.delegate.load(const Locale('en'));
+        await tester.tap(find.byTooltip(l10n.videoFullscreen));
+        await tester.pump();
+        final firstFrameRect = tester.getRect(layout);
+        expect((firstFrameRect.left - inlineRect.left).abs(), lessThan(.1));
+        expect((firstFrameRect.top - inlineRect.top).abs(), lessThan(.1));
+        expect((firstFrameRect.width - inlineRect.width).abs(), lessThan(.1));
+        expect((firstFrameRect.height - inlineRect.height).abs(), lessThan(.1));
+        expect(navigation.navigationVisible, isFalse);
+        expect(find.byType(NavigationRail), findsOneWidget);
+        expect(find.byType(NavigationRail).hitTestable(), findsNothing);
+
+        Rect? firstFullscreenFrame;
+        var sawIntermediatePlayer = false;
+        var sawRetreatingDetails = false;
+        var sawIntermediateMiniPlayerHeight = false;
+        for (var frame = 0; frame < 20; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          final rect = tester.getRect(layout);
+          if (find.byType(AppBar).evaluate().isEmpty) {
+            firstFullscreenFrame ??= rect;
+          }
+          if (rect.width > inlineRect.width + 1 && rect.width < 1199) {
+            sawIntermediatePlayer = true;
+            if (infoPane.evaluate().isNotEmpty) {
+              final infoLeft = tester.getRect(infoPane).left;
+              sawRetreatingDetails |= infoLeft > 480 && infoLeft < 1200;
+            }
+            if (withAudio) {
+              expect(miniPlayer, findsOneWidget);
+              final height = tester.getRect(miniPlayerClip).height;
+              sawIntermediateMiniPlayerHeight |=
+                  height > 0 && height < miniPlayerHeight;
+            }
+            final stack = find.ancestor(
+              of: find.byType(VideoPlaybackPanel),
+              matching: find.byWidgetPredicate(
+                (widget) =>
+                    widget is Stack && widget.clipBehavior == Clip.hardEdge,
+              ),
+            );
+            expect(
+              rect.bottom,
+              lessThanOrEqualTo(tester.getRect(stack.first).bottom + .1),
+            );
+          }
+        }
+        await tester.pumpAndSettle();
+
+        expect(sawIntermediatePlayer, isTrue);
+        expect(sawRetreatingDetails, isTrue);
+        if (withAudio) expect(sawIntermediateMiniPlayerHeight, isTrue);
+        expect(firstFullscreenFrame, isNotNull);
+        expect(
+          (firstFullscreenFrame!.left - inlineRect.left).abs(),
+          lessThan(14),
+        );
+        expect(
+          (firstFullscreenFrame.top - inlineRect.top).abs(),
+          lessThan(kToolbarHeight / 4),
+        );
+        expect(tester.getRect(layout), const Rect.fromLTWH(0, 0, 1200, 800));
+        expect(infoPane, findsNothing);
+        expect(miniPlayer, findsNothing);
+        expect(navigation.navigationVisible, isFalse);
+        expect(find.byType(NavigationRail), findsNothing);
+        expect(find.byType(AppBar), findsNothing);
+        expect(session.surfaceMountCount, 1);
+        expect(session.surfaceDisposeCount, 0);
+        expect(session.loadStreamCount, initialLoads);
+        expect(session.snapshot.value.position, initialPosition);
+        expect(session.snapshot.value.playing, initialPlaying);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   _testPlayerWidget(
     'landscape fullscreen exit animates the player while the details pane enters',
     (tester) async {
@@ -855,6 +1131,8 @@ void main() {
       final platform = _TestVideoPlayerPlatform()
         ..windowOrientation = Orientation.landscape;
       final session = _FakePlaybackSession();
+      final navigation = AppNavigationController();
+      addTearDown(navigation.dispose);
       await tester.pumpWidget(
         _app(
           client,
@@ -865,6 +1143,7 @@ void main() {
             sessionFactory: () => session,
             platform: platform,
           ),
+          appNavigationController: navigation,
         ),
       );
       await tester.pumpAndSettle();
@@ -872,6 +1151,8 @@ void main() {
       const infoKey = PageStorageKey<String>('video-details-landscape-dvd-1');
       final infoPane = find.byKey(infoKey);
       final layout = find.byKey(const ValueKey('video-playback-layout'));
+      final inlineRect = tester.getRect(layout);
+      final inlineInfoLeft = tester.getRect(infoPane).left;
       final l10n = await S.delegate.load(const Locale('en'));
       await tester.tap(find.byTooltip(l10n.videoFullscreen));
       await tester.pumpAndSettle();
@@ -908,8 +1189,8 @@ void main() {
         (firstDetailsFramePlayerTop! - fullscreenPlayerTop).abs(),
         lessThan(40),
       );
-      expect(tester.getRect(layout).width, closeTo(480, .1));
-      expect(tester.getRect(infoPane).left, closeTo(480, .1));
+      expect(tester.getRect(layout).width, closeTo(inlineRect.width, .1));
+      expect(tester.getRect(infoPane).left, closeTo(inlineInfoLeft, .1));
       expect(session.surfaceMountCount, 1);
       expect(session.surfaceDisposeCount, 0);
 
@@ -970,6 +1251,8 @@ void main() {
       final platform = _TestVideoPlayerPlatform()
         ..windowOrientation = Orientation.landscape;
       final session = _FakePlaybackSession();
+      final navigation = AppNavigationController();
+      addTearDown(navigation.dispose);
       await tester.pumpWidget(
         _app(
           client,
@@ -985,22 +1268,37 @@ void main() {
             title: 'Audio playing alongside video',
             url: 'https://example.invalid/audio.mp3',
           ),
+          appNavigationController: navigation,
         ),
       );
       await tester.pumpAndSettle();
       final miniPlayer = find.byKey(const ValueKey('mini-player-dismissible'));
       expect(miniPlayer, findsOneWidget);
+      final miniPlayerClip = find
+          .ancestor(of: miniPlayer, matching: find.byType(ClipRect))
+          .first;
       final layout = find.byKey(const ValueKey('video-playback-layout'));
       final inlineRect = tester.getRect(layout);
+      final inlineMiniPlayerHeight = tester.getRect(miniPlayerClip).height;
       final l10n = await S.delegate.load(const Locale('en'));
       await tester.tap(find.byTooltip(l10n.videoFullscreen));
       await tester.pumpAndSettle();
       expect(miniPlayer, findsNothing);
+      expect(navigation.navigationVisible, isFalse);
+      final fullscreenRect = tester.getRect(layout);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(tester.getRect(layout), fullscreenRect);
       var clippedFrames = 0;
+      var sawIntermediateMiniPlayerHeight = false;
       for (var frame = 0; frame < 24; frame++) {
         await tester.pump(const Duration(milliseconds: 16));
+        if (miniPlayer.evaluate().isNotEmpty) {
+          final height = tester.getRect(miniPlayerClip).height;
+          sawIntermediateMiniPlayerHeight |=
+              height > 0 && height < inlineMiniPlayerHeight;
+        }
         final stack = find.ancestor(
           of: find.byType(VideoPlaybackPanel),
           matching: find.byWidgetPredicate(
@@ -1015,8 +1313,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(clippedFrames, 0);
+      expect(sawIntermediateMiniPlayerHeight, isTrue);
       expect(miniPlayer, findsOneWidget);
       expect(tester.getRect(layout), inlineRect);
+      expect(navigation.navigationVisible, isTrue);
+      expect(find.byType(NavigationRail), findsOneWidget);
       expect(session.surfaceMountCount, 1);
       expect(session.surfaceDisposeCount, 0);
       expect(tester.takeException(), isNull);
@@ -1024,7 +1325,7 @@ void main() {
   );
 
   _testPlayerWidget(
-    'landscape fullscreen exit skips motion when animations are disabled',
+    'landscape fullscreen transitions skip motion when animations are disabled',
     (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
       tester.view.physicalSize = const Size(1200, 800);
@@ -1037,6 +1338,8 @@ void main() {
       final platform = _TestVideoPlayerPlatform()
         ..windowOrientation = Orientation.landscape;
       final session = _FakePlaybackSession();
+      final navigation = AppNavigationController();
+      addTearDown(navigation.dispose);
       await tester.pumpWidget(
         _app(
           client,
@@ -1052,6 +1355,7 @@ void main() {
               platform: platform,
             ),
           ),
+          appNavigationController: navigation,
         ),
       );
       await tester.pumpAndSettle();
@@ -1061,7 +1365,20 @@ void main() {
       );
       final layout = find.byKey(const ValueKey('video-playback-layout'));
       final l10n = await S.delegate.load(const Locale('en'));
+      final inlineRect = tester.getRect(layout);
+      final inlineInfoLeft = tester.getRect(infoPane).left;
       await tester.tap(find.byTooltip(l10n.videoFullscreen));
+      for (
+        var frame = 0;
+        frame < 10 && find.byType(AppBar).evaluate().isNotEmpty;
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(find.byType(AppBar), findsNothing);
+      expect(navigation.navigationVisible, isFalse);
+      expect(tester.getRect(layout).width, closeTo(1200, .1));
+      expect(infoPane, findsNothing);
       await tester.pumpAndSettle();
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       for (var frame = 0; frame < 10 && infoPane.evaluate().isEmpty; frame++) {
@@ -1069,8 +1386,10 @@ void main() {
       }
 
       expect(infoPane, findsOneWidget);
-      expect(tester.getRect(layout).width, closeTo(480, .1));
-      expect(tester.getRect(infoPane).left, closeTo(480, .1));
+      expect(navigation.navigationVisible, isTrue);
+      expect(find.byType(NavigationRail), findsOneWidget);
+      expect(tester.getRect(layout).width, closeTo(inlineRect.width, .1));
+      expect(tester.getRect(infoPane).left, closeTo(inlineInfoLeft, .1));
       expect(session.surfaceMountCount, 1);
       expect(session.surfaceDisposeCount, 0);
       expect(tester.takeException(), isNull);
@@ -3854,6 +4173,11 @@ void main() {
         url: 'https://missav.ai/cn/makers/same-name',
         kind: VideoLinkKind.studio,
       );
+      const shortMakerLink = VideoLink(
+        label: 'M',
+        url: 'https://missav.ai/cn/makers/m',
+        kind: VideoLinkKind.studio,
+      );
       const labelLink = VideoLink(
         label: 'Linked label',
         url: 'https://missav.ai/cn/labels/linked-label',
@@ -3884,18 +4208,28 @@ void main() {
         url: 'https://missav.ai/cn/actresses/saved-actor',
         kind: VideoLinkKind.actor,
       );
-      const video = VideoItem(
+      final extraGenres = List.generate(
+        8,
+        (index) => VideoLink(
+          label: 'Tag $index',
+          url: 'https://missav.ai/cn/genres/tag-$index',
+          kind: VideoLinkKind.tag,
+        ),
+      );
+      final video = VideoItem(
         id: 'metadata-video',
         title: 'Metadata video',
         pageUrl: 'https://missav.ai/cn/metadata-video',
         actors: [actor, linklessActor],
         tags: [
           apiGenre,
+          shortMakerLink,
           makerLink,
           labelLink,
           seriesLink,
           directorLink,
           linklessTag,
+          ...extraGenres,
         ],
         makers: ['Same name', 'Linkless maker'],
         labels: ['Linkless label'],
@@ -3905,13 +4239,15 @@ void main() {
       final details = VideoDetails(
         video: video,
         actors: const [actor, linklessActor],
-        tags: const [
+        tags: [
           pageGenre,
+          shortMakerLink,
           makerLink,
           labelLink,
           seriesLink,
           directorLink,
           linklessTag,
+          ...extraGenres,
         ],
         metadata: const {
           'Director': 'Raw director',
@@ -3993,6 +4329,40 @@ void main() {
         find.text('Duration: 128 minutes', findRichText: true),
         findsOneWidget,
       );
+      Rect pillRect(String label) => tester.getRect(
+        find
+            .ancestor(of: find.text(label), matching: find.byType(Container))
+            .first,
+      );
+      for (final (title, label) in [
+        (l10n.videoDetailCreators, 'M'),
+        (l10n.videoDetailActors, actor.label),
+        (l10n.tagLabel, 'Same name'),
+      ]) {
+        final heading = tester.getRect(find.text(title));
+        final pill = label == 'Same name'
+            ? tester.getRect(
+                find
+                    .ancestor(
+                      of: find.text(label).last,
+                      matching: find.byType(Container),
+                    )
+                    .first,
+              )
+            : pillRect(label);
+        expect(pill.left, closeTo(heading.left, .1));
+        expect(pill.top - heading.bottom, closeTo(8, .1));
+      }
+      expect(
+        tester.getTopLeft(find.text(l10n.videoDetailActors)).dy -
+            pillRect(seriesLink.label).bottom,
+        closeTo(16, .1),
+      );
+      expect(
+        tester.getTopLeft(find.text(l10n.tagLabel)).dy -
+            pillRect(actor.label).bottom,
+        closeTo(16, .1),
+      );
       final semantics = tester.ensureSemantics();
       try {
         expect(client.browsedUrls, isEmpty);
@@ -4042,13 +4412,8 @@ void main() {
         );
         await tester.ensureVisible(linkedLabels.last);
         await tester.pumpAndSettle();
-        await expectLater(
-          tester,
-          meetsGuideline(_VideoMetadataTapTargetGuideline()),
-        );
         final actorTarget = tester.getRect(find.byTooltip(actor.label));
-        expect(actorTarget.width, greaterThanOrEqualTo(48));
-        expect(actorTarget.height, greaterThanOrEqualTo(48));
+        expect(actorTarget, pillRect(actor.label));
         expect(
           tester
               .getSemantics(linkedControl)
@@ -4071,6 +4436,25 @@ void main() {
         await tester.tapAt(tester.getTopLeft(button) + const Offset(2, 2));
         await tester.pumpAndSettle();
         expect(client.browsedUrls, [pageGenre.url]);
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        tester.view.physicalSize = const Size(320, 1600);
+        await tester.pumpAndSettle();
+        final videoTags = find.ancestor(
+          of: find.text(extraGenres.first.label),
+          matching: find.byType(Wrap),
+        );
+        final videoTagsSize = tester.getSize(videoTags);
+        final tagRows = extraGenres.map((tag) => pillRect(tag.label)).toList();
+        expect(tagRows.last.top, greaterThan(tagRows.first.top));
+        for (var index = 1; index < tagRows.length; index++) {
+          if (tagRows[index].top > tagRows[index - 1].top) {
+            expect(
+              tagRows[index].top - tagRows[index - 1].bottom,
+              closeTo(4, .1),
+            );
+          }
+        }
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pumpAndSettle();
         await tester.pumpWidget(
@@ -4078,9 +4462,28 @@ void main() {
             client,
             library,
             downloads,
-            const Scaffold(
-              body: WorkCreatorChipsSection(
-                work: Work(id: 1, title: 'Audio reference', name: 'Same name'),
+            Scaffold(
+              body: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const WorkCreatorChipsSection(
+                      work: Work(
+                        id: 1,
+                        title: 'Audio reference',
+                        name: 'Same name',
+                      ),
+                    ),
+                    WorkTagChipsSection(
+                      tags: [
+                        const Tag(id: -1, name: 'Same name'),
+                        for (var index = 0; index < extraGenres.length; index++)
+                          Tag(id: -2 - index, name: extraGenres[index].label),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -4088,11 +4491,22 @@ void main() {
         await tester.pumpAndSettle();
         final audioPill = find
             .ancestor(
-              of: find.text('Same name'),
+              of: find.text('Same name').first,
               matching: find.byType(Container),
             )
             .first;
         expect(tester.getSize(audioPill), makerSize);
+        expect(
+          tester
+              .getSize(
+                find.ancestor(
+                  of: find.text(extraGenres.first.label),
+                  matching: find.byType(Wrap),
+                ),
+              )
+              .height,
+          videoTagsSize.height,
+        );
       } finally {
         semantics.dispose();
       }
@@ -5398,6 +5812,14 @@ Future<void> _tapGestureSurface(WidgetTester tester, Finder surface) async {
   await tester.tapAt(Offset(rect.center.dx, rect.top + rect.height * .2));
 }
 
+class _TestNavigationAuth extends StateNotifier<AuthState>
+    implements AuthNotifier {
+  _TestNavigationAuth() : super(const AuthState());
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 Widget _app(
   _TestMissavClient client,
   VideoLibrary library,
@@ -5406,8 +5828,11 @@ Widget _app(
   double textScale = 1,
   ThemeData? theme,
   AudioTrack? audioTrack,
+  AppNavigationController? appNavigationController,
 }) => ProviderScope(
   overrides: [
+    if (appNavigationController != null)
+      authProvider.overrideWith((ref) => _TestNavigationAuth()),
     videoClientProvider.overrideWith((ref) => client),
     videoLibraryProvider.overrideWith((ref) => library),
     videoDownloadsProvider.overrideWith((ref) => downloads),
@@ -5433,12 +5858,20 @@ Widget _app(
     supportedLocales: S.supportedLocales,
     localizationsDelegates: S.localizationsDelegates,
     theme: theme ?? ThemeData(useMaterial3: true),
-    builder: (context, child) => MediaQuery(
-      data: MediaQuery.of(
-        context,
-      ).copyWith(textScaler: TextScaler.linear(textScale)),
-      child: child!,
-    ),
+    navigatorObservers: [
+      if (appNavigationController != null) appNavigationController,
+    ],
+    builder: (context, child) {
+      final navigation = appNavigationController;
+      return MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(textScale)),
+        child: navigation == null
+            ? child!
+            : AppNavigationShell(controller: navigation, child: child!),
+      );
+    },
     home: home,
   ),
 );

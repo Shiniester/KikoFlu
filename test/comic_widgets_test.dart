@@ -2,6 +2,8 @@ import 'package:kikoeru_flutter/src/comics/comic_downloads.dart';
 import 'package:kikoeru_flutter/src/utils/theme.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_widgets.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
+import 'package:kikoeru_flutter/src/widgets/app_navigation_scope.dart';
+import 'package:kikoeru_flutter/src/widgets/app_navigation_shell.dart';
 import 'package:kikoeru_flutter/src/widgets/library_content_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/library_page_scaffold.dart';
 import 'package:kikoeru_flutter/src/widgets/metadata_search_chip.dart';
@@ -586,7 +588,10 @@ void main() {
     Locale locale = const Locale('en'),
     ThemeData? theme,
     ComicDownloads? downloads,
+    bool appNavigation = false,
   }) async {
+    final navigation = appNavigation ? AppNavigationController() : null;
+    if (navigation != null) addTearDown(navigation.dispose);
     final container = ProviderContainer(
       overrides: [
         comicSourcesProvider.overrideWithValue([
@@ -625,6 +630,7 @@ void main() {
         container: container,
         child: MaterialApp(
           theme: theme,
+          navigatorObservers: [if (navigation != null) navigation],
           builder: (context, child) {
             Widget mediaContent(bool disableAnimations) => MediaQuery(
               data: MediaQuery.of(context).copyWith(
@@ -633,7 +639,9 @@ void main() {
               ),
               child: RepaintBoundary(
                 key: const ValueKey('app-paint'),
-                child: child!,
+                child: navigation == null
+                    ? child!
+                    : AppNavigationShell(controller: navigation, child: child!),
               ),
             );
 
@@ -1873,6 +1881,94 @@ void main() {
     expect(saveCalls, 1);
     expect(tester.takeException(), isNull);
   });
+
+  for (final withTrack in [false, true]) {
+    testWidgets(
+      'last comic chapter scrolls above the shared Dock (track=$withTrack)',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final comic = _comic.withChapters([
+          for (var i = 1; i <= 20; i++)
+            ComicChapter('chapter-$i', 'Chapter $i'),
+        ]);
+        final source = _Source()..detailResult = comic;
+        await pump(
+          tester,
+          ComicDetailScreen(comic: comic),
+          _Library(),
+          source,
+          appNavigation: true,
+          track: withTrack
+              ? const AudioTrack(
+                  id: 'comic-detail-dock-track',
+                  title: 'Audio',
+                  url: 'https://example.invalid/audio.mp3',
+                )
+              : null,
+        );
+
+        final chapter = find.text('Chapter 20');
+        await tester.scrollUntilVisible(
+          chapter,
+          500,
+          scrollable: find
+              .descendant(
+                of: find.byType(CustomScrollView),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+          maxScrolls: 30,
+        );
+        await tester.pumpAndSettle();
+
+        expect(chapter.hitTestable(), findsOneWidget);
+        expect(
+          tester.getBottomLeft(chapter).dy,
+          lessThanOrEqualTo(tester.getTopLeft(find.byType(AppBottomDock)).dy),
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  for (final size in [const Size(390, 844), const Size(900, 500)]) {
+    testWidgets(
+      'comic reader hides shared navigation and restores it at $size',
+      (tester) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = size;
+        addTearDown(tester.view.reset);
+        await pump(
+          tester,
+          const ComicDetailScreen(comic: _comic),
+          _Library(),
+          _Source(),
+          appNavigation: true,
+        );
+        final navigation = size.width > size.height
+            ? find.byType(NavigationRail)
+            : find.byType(NavigationBar);
+        expect(navigation.hitTestable(), findsOneWidget);
+        await tester.tap(
+          find.ancestor(
+            of: find.byIcon(Icons.menu_book),
+            matching: find.byType(FilledButton),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(ComicReaderScreen), findsOneWidget);
+        expect(find.byType(NavigationBar), findsNothing);
+        expect(find.byType(NavigationRail), findsNothing);
+        Navigator.of(tester.element(find.byType(ComicReaderScreen))).pop();
+        await tester.pumpAndSettle();
+        expect(find.byType(ComicReaderScreen), findsNothing);
+        expect(navigation.hitTestable(), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 
   testWidgets('WorkImageReader loads cached local bytes and initial index', (
     tester,
@@ -4868,6 +4964,7 @@ void main() {
       ),
       _Library(),
       source,
+      appNavigation: true,
     );
     final navigation = find.byType(NavigationBar);
     Future<void> select(String label) async {
@@ -8780,6 +8877,7 @@ void main() {
       ),
       _Library(),
       source,
+      appNavigation: true,
       loadImage: (_) {
         coverRequests++;
         return Future.value(_png);
@@ -9832,6 +9930,7 @@ void main() {
       ),
       _Library(),
       source,
+      appNavigation: true,
       loadImage: (page) {
         coverRequests++;
         return gates.putIfAbsent(page.url, Completer<Uint8List>.new).future;
