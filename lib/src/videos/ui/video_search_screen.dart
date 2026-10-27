@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../utils/snackbar_util.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/works_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
@@ -596,7 +597,8 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
                 if (confirmed == true) {
                   await searchHistory.clear();
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBarUtil.showFromSnackBar(
+                      context,
                       SnackBar(content: Text(s.searchHistoryCleared)),
                     );
                   }

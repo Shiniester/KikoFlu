@@ -6,6 +6,7 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../utils/snackbar_util.dart';
 import '../../providers/works_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/app_navigation_scope.dart';
@@ -277,7 +278,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     if (uri == null) return;
     final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!opened && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      SnackBarUtil.showFromSnackBar(
+        context,
         SnackBar(content: Text(S.of(context).videoSourceUnavailable)),
       );
     }
@@ -681,7 +683,8 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     try {
       await _downloads.add(_details?.video ?? widget.video, stream);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      SnackBarUtil.showFromSnackBar(
+        context,
         SnackBar(content: Text(S.of(context).videoDownloadQueued)),
       );
     } catch (_) {

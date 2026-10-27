@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../utils/snackbar_util.dart';
 import '../../utils/collection_grid_layout.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/works_provider.dart';
@@ -58,7 +59,8 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
       await action(id);
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        SnackBarUtil.showFromSnackBar(
+          context,
           SnackBar(content: Text(S.of(context).videoDownloadFailed)),
         );
       }
@@ -363,7 +365,8 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
     if (uri == null) return;
     final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!launched && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      SnackBarUtil.showFromSnackBar(
+        context,
         SnackBar(content: Text(S.of(context).videoSourceUnavailable)),
       );
     }

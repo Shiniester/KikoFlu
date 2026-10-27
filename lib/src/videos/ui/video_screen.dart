@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../utils/snackbar_util.dart';
 import '../../providers/settings_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
@@ -1417,7 +1418,8 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     if (uri == null) return;
     final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!opened && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      SnackBarUtil.showFromSnackBar(
+        context,
         SnackBar(content: Text(S.of(context).videoSourceUnavailable)),
       );
     }

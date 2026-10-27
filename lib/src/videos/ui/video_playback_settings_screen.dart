@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../utils/snackbar_util.dart';
 import '../../widgets/responsive_dialog.dart';
 import '../video_playback_settings.dart';
 import '../video_player_platform.dart';
@@ -205,7 +206,8 @@ class VideoPlaybackSettingsScreen extends StatelessWidget {
                   if (applied) {
                     await settings.setSystemBrightness(value);
                   } else if (value) {
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBarUtil.showFromSnackBar(
+                      context,
                       SnackBar(
                         content: Text(s.videoPlayerSystemBrightnessPermission),
                       ),

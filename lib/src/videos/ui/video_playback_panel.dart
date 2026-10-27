@@ -9,6 +9,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../utils/snackbar_util.dart';
 import '../../services/proxy_config.dart';
 import '../../widgets/app_navigation_scope.dart';
 import '../../widgets/image_save_service.dart';
@@ -1671,9 +1672,10 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       final bytes = await advanced.takeScreenshot();
       if (!mounted) return;
       if (bytes == null) {
-        ScaffoldMessenger.of(
+        SnackBarUtil.showFromSnackBar(
           context,
-        ).showSnackBar(SnackBar(content: Text(S.of(context).saveImageFailed)));
+          SnackBar(content: Text(S.of(context).saveImageFailed)),
+        );
         return;
       }
       await saveReaderImage(
@@ -1683,7 +1685,8 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      SnackBarUtil.showFromSnackBar(
+        context,
         SnackBar(
           content: Text(S.of(context).saveFailedWithError(error.toString())),
         ),

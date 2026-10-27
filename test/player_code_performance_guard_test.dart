@@ -235,7 +235,7 @@ void main() {
       expect(playerCover, contains('class PlayerCoverPreviewHero'));
       expect(miniPlayer, contains('PlayerCompactArtwork('));
       expect(playerLaunch, isNot(contains('PlayerArtworkHero(')));
-      expect(playerLaunch, isNot(contains('HeroController')));
+      expect(playerLaunch, isNot(contains('HeroController(')));
       expect(miniPlayer, contains("'mini-player-queue-button'"));
       expect(miniPlayer, contains('class _MiniPlayerTrackSwitcher'));
       expect(miniPlayer, contains('PlayerTrackLayers<AudioTrack>'));

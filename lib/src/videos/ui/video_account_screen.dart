@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../utils/snackbar_util.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../missav_client.dart';
 import '../missav_verification.dart';
@@ -74,9 +75,10 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
         _error = null;
         _verificationError = null;
       });
-      ScaffoldMessenger.of(
+      SnackBarUtil.showFromSnackBar(
         context,
-      ).showSnackBar(SnackBar(content: Text(S.of(context).loginSuccess)));
+        SnackBar(content: Text(S.of(context).loginSuccess)),
+      );
     } on MissavVerificationRequiredException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -109,7 +111,8 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
       logoutError ??= error;
     }
     if (logoutError != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      SnackBarUtil.showFromSnackBar(
+        context,
         SnackBar(content: Text(S.of(context).videoSourceUnavailable)),
       );
     }
@@ -136,7 +139,8 @@ class _VideoAccountScreenState extends ConsumerState<VideoAccountScreen> {
     if (uri == null) return;
     final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!launched && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      SnackBarUtil.showFromSnackBar(
+        context,
         SnackBar(content: Text(S.of(context).videoSourceUnavailable)),
       );
     }

@@ -14,7 +14,7 @@ final class VideoPictureInPictureBridge {
 
   init(registrar: FlutterPluginRegistrar, manager: VideoOutputManager) {
     self.manager = manager
-    view = registrar.viewController()?.view
+    view = registrar.viewController?.view
     channel = FlutterMethodChannel(
       name: "com.meteor.kikoeruflutter/video_picture_in_picture",
       binaryMessenger: registrar.messenger())

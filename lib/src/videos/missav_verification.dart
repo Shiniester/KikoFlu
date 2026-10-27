@@ -13,6 +13,7 @@ import '../../l10n/app_localizations.dart';
 import '../services/proxy_config.dart';
 import '../utils/process_environment.dart';
 import '../utils/global_keys.dart';
+import '../utils/snackbar_util.dart';
 import 'missav_client.dart';
 import 'missav_browser_adapter.dart';
 import 'missav_browser_media.dart';
@@ -1244,7 +1245,8 @@ Future<bool> verifyMissavAccess(
     return verified ?? false;
   } catch (_) {
     if (context.mounted) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBarUtil.showFromSnackBar(
+        context,
         SnackBar(content: Text(S.of(context).videoSourceUnavailable)),
       );
     }
