@@ -4,7 +4,6 @@ import '../../widgets/metadata_search_chip.dart';
 import '../../widgets/tab_page_motion.dart';
 import '../../widgets/image_prefetch_queue.dart';
 import '../../widgets/sliver_masonry_grid_tail.dart';
-import '../../providers/work_card_display_provider.dart';
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../utils/collection_grid_layout.dart';
 import 'dart:typed_data';
@@ -1214,7 +1213,6 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
         final metrics = resolveCollectionGridMetrics(
           context,
           layoutType: layoutType,
-          cardSize: WorkCardSize.normal,
           padding: collectionPadding,
           availableWidth: constraints.hasBoundedWidth
               ? constraints.maxWidth
@@ -1227,7 +1225,6 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
             ? resolveCollectionGridMetrics(
                 context,
                 layoutType: LayoutType.bigGrid,
-                cardSize: WorkCardSize.normal,
                 padding: collectionPadding,
                 availableWidth: constraints.hasBoundedWidth
                     ? constraints.maxWidth
@@ -1245,9 +1242,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                 detailMetrics.padding.horizontal -
                 detailMetrics.spacing * (detailMetrics.crossAxisCount - 1)) /
             detailMetrics.crossAxisCount;
-        _coverDisplayWidth = isList
-            ? collectionListCoverSize.width
-            : gridCoverWidth;
+        _coverDisplayWidth = isList ? comicListCoverWidth : gridCoverWidth;
         _coverCachePixelWidth =
             (_coverDisplayWidth! * MediaQuery.devicePixelRatioOf(context))
                 .ceil();
@@ -1313,7 +1308,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                               context,
                               comics[i],
                               gridCoverWidth: gridCoverWidth,
-                              initialCoverWidth: collectionListCoverSize.width,
+                              initialCoverWidth: comicListCoverWidth,
                             ),
                             onLongPress: onLongPress == null
                                 ? null
@@ -1326,7 +1321,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                                   ComicCover(
                                     source: comics[i].source,
                                     page: comics[i].coverPage,
-                                    maxWidth: collectionListCoverSize.width,
+                                    maxWidth: comicListCoverWidth,
                                     placeholderAspectRatio:
                                         placeholderAspectRatio,
                                     onFirstFrameReady: onFirstFrameReady,
@@ -1400,7 +1395,7 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                             ),
                           ),
                         ),
-                        coverWidth: collectionListCoverSize.width,
+                        coverWidth: comicListCoverWidth,
                       ),
                       childCount: comics.length,
                     ),

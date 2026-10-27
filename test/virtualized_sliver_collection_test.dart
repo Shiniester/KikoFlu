@@ -369,6 +369,52 @@ void main() {
     expect(allPrefetched.toSet().length, allPrefetched.length);
   });
 
+  testWidgets('prefetch key changes resend nearby IDs without moving scroll',
+      (tester) async {
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    final batches = <(int width, List<int> items)>[];
+    late StateSetter update;
+    var prefetchWidth = 192;
+
+    await tester.pumpWidget(_app(StatefulBuilder(
+      builder: (context, setState) {
+        update = setState;
+        final width = prefetchWidth;
+        return VirtualizedSliverCollection<int>(
+          items: List.generate(100, (index) => index),
+          itemId: (item) => item,
+          controller: controller,
+          pageStorageKey: const PageStorageKey<String>('prefetch-key'),
+          scrollCacheExtent: const ScrollCacheExtent.pixels(0),
+          prefetchItemCount: 4,
+          prefetchKey: width,
+          showEndIndicator: false,
+          onPrefetch: (items) => batches.add((width, items)),
+          itemBuilder: (context, item, index) => _IdentityTile(item: item),
+        );
+      },
+    )));
+    await tester.pumpAndSettle();
+    controller.jumpTo(400);
+    await tester.pumpAndSettle();
+    final offsetBeforeChange = controller.offset;
+    final firstWidthItems = batches
+        .where((batch) => batch.$1 == prefetchWidth)
+        .expand((batch) => batch.$2)
+        .toSet();
+
+    update(() => prefetchWidth = 360);
+    await tester.pumpAndSettle();
+
+    final secondWidthItems = batches
+        .where((batch) => batch.$1 == prefetchWidth)
+        .expand((batch) => batch.$2)
+        .toSet();
+    expect(controller.offset, offsetBeforeChange);
+    expect(secondWidthItems, isNotEmpty);
+    expect(firstWidthItems.intersection(secondWidthItems), isNotEmpty);
+  });
   testWidgets('prefetch-only scrolling avoids per-frame item scans',
       (tester) async {
     var itemIdReads = 0;

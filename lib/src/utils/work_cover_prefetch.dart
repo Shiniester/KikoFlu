@@ -9,7 +9,6 @@ import '../services/cache_service.dart';
 import '../services/storage_service.dart';
 import '../services/speculative_transfer_coordinator.dart';
 import 'audio_source_headers.dart';
-import 'collection_grid_layout.dart';
 
 typedef WorkCoverPrecache =
     Future<void> Function(ImageProvider<Object> provider, BuildContext context);
@@ -36,13 +35,18 @@ int calculateWorkCoverCacheWidth({
   required int crossAxisCount,
   required double horizontalPadding,
   required double crossAxisSpacing,
+  double? listCoverWidth,
   bool isListCard = true,
 }) {
   if (crossAxisCount <= 1 && isListCard) {
-    return (collectionListCoverSize.width * devicePixelRatio).round().clamp(
-      160,
-      512,
-    );
+    if (listCoverWidth == null) {
+      throw ArgumentError.value(
+        listCoverWidth,
+        'listCoverWidth',
+        'Required for list cover decoding',
+      );
+    }
+    return (listCoverWidth * devicePixelRatio).round().clamp(160, 512);
   }
 
   final columns = crossAxisCount.clamp(1, 6);
@@ -55,6 +59,7 @@ int calculateWorkCoverCacheWidth({
 int resolveWorkCoverCacheWidth(
   BuildContext context, {
   required int crossAxisCount,
+  double? listCoverWidth,
   bool isListCard = true,
 }) {
   final isLandscape =
@@ -68,6 +73,7 @@ int resolveWorkCoverCacheWidth(
     crossAxisCount: crossAxisCount,
     horizontalPadding: padding,
     crossAxisSpacing: spacing,
+    listCoverWidth: listCoverWidth,
     isListCard: isListCard,
   );
 }
@@ -134,6 +140,7 @@ class WorkCoverPrefetchController {
     required String host,
     required String token,
     required int crossAxisCount,
+    double? listCoverWidth,
     bool isListCard = true,
     Map<String, String>? headers,
   }) {
@@ -142,6 +149,7 @@ class WorkCoverPrefetchController {
     final targetWidth = resolveWorkCoverCacheWidth(
       context,
       crossAxisCount: crossAxisCount,
+      listCoverWidth: listCoverWidth,
       isListCard: isListCard,
     );
     for (final work in works) {

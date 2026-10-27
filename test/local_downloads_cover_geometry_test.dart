@@ -9,15 +9,14 @@ import 'package:kikoeru_flutter/src/providers/works_provider.dart'
     show LayoutType;
 import 'package:kikoeru_flutter/src/screens/local_downloads_screen.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
-import 'package:kikoeru_flutter/src/utils/collection_grid_layout.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _CompletedDownload implements DownloadTaskRepository {
-  _CompletedDownload()
+  _CompletedDownload({String title = 'One\nTwo\nThree\nFour'})
     : _task = DownloadTask(
         id: 'downloaded-work',
         workId: 12345,
-        workTitle: 'Downloaded Work',
+        workTitle: title,
         fileName: 'track.mp3',
         downloadUrl: '',
         totalBytes: 2048,
@@ -25,11 +24,7 @@ class _CompletedDownload implements DownloadTaskRepository {
         status: DownloadStatus.completed,
         createdAt: DateTime(2026),
         completedAt: DateTime(2026),
-        workMetadata: const {
-          'id': 12345,
-          'title': 'Downloaded Work',
-          'children': [],
-        },
+        workMetadata: {'id': 12345, 'title': title, 'children': const []},
       );
 
   final DownloadTask _task;
@@ -50,7 +45,11 @@ class _CompletedDownload implements DownloadTaskRepository {
   DownloadTask? taskById(String taskId) => taskId == _task.id ? _task : null;
 }
 
-Widget _testApp(DownloadTaskRepository repository, Size size) => ProviderScope(
+Widget _testApp(
+  DownloadTaskRepository repository,
+  Size size, {
+  TextScaler? textScaler,
+}) => ProviderScope(
   overrides: [
     downloadServiceProvider.overrideWithValue(repository),
     downloadTaskIdsProvider.overrideWith(
@@ -63,7 +62,11 @@ Widget _testApp(DownloadTaskRepository repository, Size size) => ProviderScope(
     supportedLocales: S.supportedLocales,
     home: Scaffold(
       body: MediaQuery(
-        data: MediaQueryData(size: size, disableAnimations: true),
+        data: MediaQueryData(
+          size: size,
+          disableAnimations: true,
+          textScaler: textScaler ?? TextScaler.noScaling,
+        ),
         child: const LocalDownloadsScreen(),
       ),
     ),
@@ -79,6 +82,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
+    double? listCoverHeight;
     for (final size in [const Size(320, 800), const Size(1280, 800)]) {
       tester.view.physicalSize = size;
       for (final layout in LayoutType.values) {
@@ -88,12 +92,19 @@ void main() {
         await StorageService.initCritical(
           preferences: await SharedPreferences.getInstance(),
         );
-        await tester.pumpWidget(_testApp(_CompletedDownload(), size));
+        await tester.pumpWidget(
+          _testApp(
+            _CompletedDownload(),
+            size,
+            textScaler: const TextScaler.linear(1.3),
+          ),
+        );
         await tester.pumpAndSettle();
 
         final card = find.byKey(const ValueKey(12345));
         expect(card, findsOneWidget);
-        expect(tester.widget<Text>(find.text('Downloaded Work')).maxLines, 4);
+        final titleFinder = find.text('One\nTwo\nThree\nFour');
+        expect(tester.widget<Text>(titleFinder).maxLines, 4);
         final cardSurface = find
             .descendant(of: card, matching: find.byType(Material))
             .first;
@@ -106,10 +117,14 @@ void main() {
             .first;
         final coverSize = tester.getSize(coverClip);
         if (layout == LayoutType.list) {
-          expect(coverSize, collectionListCoverSize);
+          expect(
+            coverSize.height,
+            closeTo(tester.getSize(titleFinder).height, 0.1),
+          );
+          listCoverHeight = coverSize.height;
           expect(
             tester.widget<ClipRRect>(coverClip).borderRadius,
-            BorderRadius.circular(collectionListCoverSize.width / 15),
+            BorderRadius.circular(coverSize.width / 15),
           );
         } else {
           expect(coverSize.width / coverSize.height, 4 / 3);
@@ -122,5 +137,33 @@ void main() {
         await tester.pumpWidget(const SizedBox());
       }
     }
+
+    tester.view.physicalSize = const Size(320, 800);
+    SharedPreferences.setMockInitialValues({
+      'collection_downloads_layout_type': LayoutType.list.name,
+    });
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
+    await tester.pumpWidget(
+      _testApp(
+        _CompletedDownload(title: 'Short'),
+        const Size(320, 800),
+        textScaler: const TextScaler.linear(1.3),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final shortCover = find
+        .descendant(
+          of: find.byKey(const ValueKey(12345)),
+          matching: find.byType(ClipRRect),
+        )
+        .first;
+    expect(tester.getSize(shortCover).height, closeTo(listCoverHeight!, 0.1));
+    expect(
+      tester.getSize(find.text('Short')).height,
+      lessThan(tester.getSize(shortCover).height),
+    );
+    expect(tester.takeException(), isNull);
   });
 }

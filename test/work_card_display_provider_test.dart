@@ -16,107 +16,45 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  test('uses current card size and font scale by default', () async {
+  test('uses default card content settings', () async {
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
-    expect(
-      container.read(workCardDisplayProvider).cardSize,
-      WorkCardSize.normal,
-    );
-    expect(
-      container.read(workCardDisplayProvider).fontScale,
-      WorkCardFontScale.normal,
-    );
     expect(container.read(workCardDisplayProvider).showAgeRating, isFalse);
     expect(container.read(workCardDisplayProvider).showUserAddedTags, isFalse);
     await _pumpAsyncPreferenceLoad();
 
     final settings = container.read(workCardDisplayProvider);
-    expect(settings.applyCardSize(2), 2);
-    expect(settings.scaleFontSize(12), 12);
+    expect(settings.showRating, isTrue);
+    expect(settings.showSubtitleTag, isTrue);
   });
 
-  test('loads and persists card size and font scale preferences', () async {
+  test('ignores saved retired card size and font scale values', () async {
     SharedPreferences.setMockInitialValues({
-      WorkCardDisplayNotifier.keyCardSize: WorkCardSize.large.value,
-      WorkCardDisplayNotifier.keyFontScale: WorkCardFontScale.extraLarge.value,
+      'work_card_display_card_size': 'extra_large',
+      'work_card_display_font_scale': 'extra_large',
     });
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
-    expect(
-      container.read(workCardDisplayProvider).cardSize,
-      WorkCardSize.normal,
-    );
     await _pumpAsyncPreferenceLoad();
 
-    var settings = container.read(workCardDisplayProvider);
-    expect(settings.cardSize, WorkCardSize.large);
-    expect(settings.fontScale, WorkCardFontScale.extraLarge);
-    expect(settings.applyCardSize(3), 2);
-
-    await container
-        .read(workCardDisplayProvider.notifier)
-        .updateCardSize(WorkCardSize.extraLarge);
-    await container
-        .read(workCardDisplayProvider.notifier)
-        .updateFontScale(WorkCardFontScale.large);
-
-    settings = container.read(workCardDisplayProvider);
+    final settings = container.read(workCardDisplayProvider);
     final prefs = await SharedPreferences.getInstance();
 
-    expect(settings.cardSize, WorkCardSize.extraLarge);
-    expect(settings.fontScale, WorkCardFontScale.large);
-    expect(
-      prefs.getString(WorkCardDisplayNotifier.keyCardSize),
-      WorkCardSize.extraLarge.value,
-    );
-    expect(
-      prefs.getString(WorkCardDisplayNotifier.keyFontScale),
-      WorkCardFontScale.large.value,
-    );
+    expect(settings.showRating, isTrue);
+    expect(settings.showPrice, isTrue);
+    expect(settings.showDuration, isFalse);
+    expect(settings.showUserAddedTags, isFalse);
+    expect(prefs.getString('work_card_display_card_size'), 'extra_large');
+    expect(prefs.getString('work_card_display_font_scale'), 'extra_large');
   });
 
-  test(
-    'card size can move back from default to large sizes repeatedly',
-    () async {
-      final container = ProviderContainer();
-      addTearDown(container.dispose);
-      await _pumpAsyncPreferenceLoad();
-
-      final notifier = container.read(workCardDisplayProvider.notifier);
-
-      await notifier.updateCardSize(WorkCardSize.large);
-      expect(
-        container.read(workCardDisplayProvider).cardSize,
-        WorkCardSize.large,
-      );
-      expect(container.read(workCardDisplayProvider).applyCardSize(2), 1);
-
-      await notifier.updateCardSize(WorkCardSize.normal);
-      expect(
-        container.read(workCardDisplayProvider).cardSize,
-        WorkCardSize.normal,
-      );
-      expect(container.read(workCardDisplayProvider).applyCardSize(2), 2);
-
-      await notifier.updateCardSize(WorkCardSize.extraLarge);
-      expect(
-        container.read(workCardDisplayProvider).cardSize,
-        WorkCardSize.extraLarge,
-      );
-      expect(container.read(workCardDisplayProvider).applyCardSize(3), 1);
-
-      final prefs = await SharedPreferences.getInstance();
-      expect(
-        prefs.getString(WorkCardDisplayNotifier.keyCardSize),
-        WorkCardSize.extraLarge.value,
-      );
-    },
-  );
-
   test('reset restores and persists all work card defaults', () async {
+    SharedPreferences.setMockInitialValues({
+      'work_card_display_card_size': 'extra_large',
+      'work_card_display_font_scale': 'extra_large',
+    });
     final container = ProviderContainer();
     addTearDown(container.dispose);
     await _pumpAsyncPreferenceLoad();
@@ -126,8 +64,6 @@ void main() {
     await notifier.toggleDuration();
     await notifier.toggleAgeRating();
     await notifier.toggleUserAddedTags();
-    await notifier.updateCardSize(WorkCardSize.extraLarge);
-    await notifier.updateFontScale(WorkCardFontScale.large);
     await notifier.resetToDefault();
 
     final settings = container.read(workCardDisplayProvider);
@@ -135,22 +71,14 @@ void main() {
     expect(settings.showDuration, isFalse);
     expect(settings.showAgeRating, isFalse);
     expect(settings.showUserAddedTags, isFalse);
-    expect(settings.cardSize, WorkCardSize.normal);
-    expect(settings.fontScale, WorkCardFontScale.normal);
 
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getBool('work_card_display_rating'), isTrue);
     expect(prefs.getBool('work_card_display_duration'), isFalse);
     expect(prefs.getBool(WorkCardDisplayNotifier.keyAgeRating), isFalse);
     expect(prefs.getBool(WorkCardDisplayNotifier.keyUserAddedTags), isFalse);
-    expect(
-      prefs.getString(WorkCardDisplayNotifier.keyCardSize),
-      WorkCardSize.normal.value,
-    );
-    expect(
-      prefs.getString(WorkCardDisplayNotifier.keyFontScale),
-      WorkCardFontScale.normal.value,
-    );
+    expect(prefs.getString('work_card_display_card_size'), 'extra_large');
+    expect(prefs.getString('work_card_display_font_scale'), 'extra_large');
   });
 
   test('user-added tag visibility persists and reloads', () async {

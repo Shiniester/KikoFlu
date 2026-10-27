@@ -498,6 +498,198 @@ void main() {
     },
   );
 
+  test('mobile document fake honors the requested ready state', () async {
+    final browser = _FakeWebViewController(
+      const PlatformWebViewControllerCreationParams(),
+      initialUrl: 'https://missav.ai/cn',
+    );
+    const navigationReady = 'window.__kikofluMissavNavigationPending !== true';
+    for (final (state, documentReady, pageReady) in [
+      ('loading', false, false),
+      ('interactive', true, false),
+      ('complete', true, true),
+    ]) {
+      browser.documentReadyState = state;
+      expect(
+        await browser.runJavaScriptReturningResult(
+          "$navigationReady && document.readyState !== 'loading'",
+        ),
+        documentReady,
+      );
+      expect(
+        await browser.runJavaScriptReturningResult(
+          "$navigationReady && document.readyState === 'complete'",
+        ),
+        pageReady,
+      );
+    }
+  });
+
+  test(
+    'Android document navigation reads a new DOM before page finish',
+    () async {
+      const url = 'https://missav.ai/cn';
+      const html = '<html><body>Ready document</body></html>';
+      final oldPlatform = WebViewPlatform.instance;
+      final loadStarted = Completer<void>();
+      final finishLoad = Completer<void>();
+      WebViewPlatform.instance = _FakeWebViewPlatform(
+        Future.value(const []),
+        initialUrl: url,
+        onLoadRequest: (_) async {
+          loadStarted.complete();
+          await finishLoad.future;
+        },
+      );
+      addTearDown(() {
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+
+      final controller = WebViewController();
+      final browser = controller.platform as _FakeWebViewController;
+      final oldDocumentCheck = browser.nextDocumentReadinessCheck();
+      var read = false;
+      var stopped = false;
+      var released = false;
+      var finished = false;
+      final navigation =
+          navigateMissavDocument(
+            Uri.parse(url),
+            Completer<void>().future,
+            navigate: (signal) => waitForMissavMobilePage(
+              controller,
+              url,
+              cancelSignal: signal,
+              ensureActive: () {},
+              documentOnly: true,
+            ),
+            read: (_) async {
+              expect(finishLoad.isCompleted, isFalse);
+              expect(released, isFalse);
+              read = true;
+              return {'url': url, 'html': html};
+            },
+            stop: () async => stopped = true,
+            releaseDocument: (documentRead) async {
+              expect(documentRead, isTrue);
+              released = true;
+            },
+          ).then((document) {
+            finished = true;
+            return document;
+          });
+
+      await loadStarted.future;
+      await oldDocumentCheck;
+      await Future<void>.delayed(Duration.zero);
+      expect(read, isFalse);
+      expect(finished, isFalse);
+
+      final challengeCheck = browser.nextDocumentReadinessCheck();
+      browser.documentNavigationPending = false;
+      browser.documentReadyState = 'interactive';
+      browser.cloudflareChallenge = true;
+      await challengeCheck;
+      await Future<void>.delayed(Duration.zero);
+      expect(read, isFalse);
+      expect(finished, isFalse);
+
+      browser.cloudflareChallenge = false;
+      expect(await navigation, html);
+      expect(finishLoad.isCompleted, isFalse);
+      expect(released, isTrue);
+      expect(stopped, isFalse);
+
+      finishLoad.complete();
+    },
+  );
+
+  test(
+    'Android document navigation preserves cancellation and main-frame errors',
+    () async {
+      final oldPlatform = WebViewPlatform.instance;
+      addTearDown(() {
+        if (oldPlatform != null) WebViewPlatform.instance = oldPlatform;
+      });
+
+      for (final (failWithMainFrameError, pendingLoadRequest) in [
+        (false, false),
+        (true, false),
+        (true, true),
+      ]) {
+        const url = 'https://missav.ai/cn';
+        final loadStarted = Completer<void>();
+        final finishLoad = Completer<void>();
+        final finishLoadRequest = Completer<void>();
+        final platform = _FakeWebViewPlatform(
+          Future.value(const []),
+          initialUrl: url,
+          onLoadRequest: (_) async {
+            loadStarted.complete();
+            await finishLoad.future;
+          },
+          loadRequestCompletion: pendingLoadRequest
+              ? finishLoadRequest.future
+              : null,
+        );
+        WebViewPlatform.instance = platform;
+        final controller = WebViewController();
+        final browser = controller.platform as _FakeWebViewController;
+        final cancelled = Completer<void>();
+        var reads = 0;
+        var stopped = false;
+        var released = false;
+        final navigation = navigateMissavDocument(
+          Uri.parse(url),
+          cancelled.future,
+          navigate: (signal) => waitForMissavMobilePage(
+            controller,
+            url,
+            cancelSignal: signal,
+            ensureActive: () {},
+            documentOnly: true,
+          ),
+          read: (_) async {
+            reads++;
+            return {'url': url, 'html': '<html></html>'};
+          },
+          stop: () async => stopped = true,
+          releaseDocument: (documentRead) async {
+            expect(documentRead, isFalse);
+            released = true;
+          },
+        );
+
+        await loadStarted.future;
+        if (!pendingLoadRequest) {
+          await browser.verificationReadyCheckStarted.future;
+        }
+        if (failWithMainFrameError) {
+          browser._navigationDelegate!.webResourceError!(
+            const WebResourceError(
+              errorCode: -2,
+              description: 'Main document failed.',
+              isForMainFrame: true,
+              url: url,
+            ),
+          );
+        } else {
+          cancelled.complete();
+        }
+
+        await expectLater(
+          navigation.timeout(const Duration(seconds: 1)),
+          throwsA(isA<StateError>()),
+        );
+        expect(reads, 0);
+        expect(stopped, isTrue);
+        expect(released, isTrue);
+        finishLoad.complete();
+        finishLoadRequest.complete();
+      }
+    },
+  );
+
   test(
     'mobile navigation ignores old bridge and empty-document finishes',
     () async {
@@ -685,12 +877,14 @@ class _FakeWebViewPlatform extends WebViewPlatform {
     this.initialUrl = 'https://missav.ai/cn',
     this.onLoadRequest,
     this.onLoadHtml,
+    this.loadRequestCompletion,
   });
 
   final Future<List<WebViewCookie>> cookies;
   final String? initialUrl;
   final Future<void> Function(LoadRequestParams params)? onLoadRequest;
   final Future<void> Function()? onLoadHtml;
+  final Future<void>? loadRequestCompletion;
   final cookiesRequested = Completer<void>();
 
   @override
@@ -701,6 +895,7 @@ class _FakeWebViewPlatform extends WebViewPlatform {
     initialUrl: initialUrl,
     onLoadRequest: onLoadRequest,
     onLoadHtml: onLoadHtml,
+    loadRequestCompletion: loadRequestCompletion,
   );
 
   @override
@@ -720,6 +915,7 @@ class _FakeWebViewController extends PlatformWebViewController {
     required String? initialUrl,
     this.onLoadRequest,
     this.onLoadHtml,
+    this.loadRequestCompletion,
   }) : _url = initialUrl,
        documentUrl = initialUrl,
        super.implementation();
@@ -729,12 +925,23 @@ class _FakeWebViewController extends PlatformWebViewController {
   String htmlDocument = '';
   bool hasDocumentElement = true;
   String? documentElementId;
+  String documentReadyState = 'complete';
+  bool documentNavigationPending = false;
+  bool cloudflareChallenge = false;
   int networkNavigations = 0;
   final htmlLoadStarted = Completer<void>();
   final verificationReadyCheckStarted = Completer<void>();
+  Completer<void>? _nextDocumentReadinessCheck;
   _FakeNavigationDelegate? _navigationDelegate;
   final Future<void> Function(LoadRequestParams params)? onLoadRequest;
   final Future<void> Function()? onLoadHtml;
+  final Future<void>? loadRequestCompletion;
+
+  Future<void> nextDocumentReadinessCheck() {
+    final check = Completer<void>();
+    _nextDocumentReadinessCheck = check;
+    return check.future;
+  }
 
   @override
   Future<String?> currentUrl() async => _url;
@@ -762,6 +969,9 @@ class _FakeWebViewController extends PlatformWebViewController {
         documentUrl = url;
         hasDocumentElement = true;
         documentElementId = null;
+        documentReadyState = 'complete';
+        documentNavigationPending = false;
+        cloudflareChallenge = false;
         _navigationDelegate?.pageFinished?.call(url);
       }
 
@@ -772,6 +982,7 @@ class _FakeWebViewController extends PlatformWebViewController {
         unawaited(loading.then((_) => finishNavigation()));
       }
     }
+    await loadRequestCompletion;
   }
 
   @override
@@ -783,6 +994,9 @@ class _FakeWebViewController extends PlatformWebViewController {
       documentUrl = baseUrl;
       htmlDocument = html;
       hasDocumentElement = true;
+      documentReadyState = 'complete';
+      documentNavigationPending = false;
+      cloudflareChallenge = false;
       documentElementId = html.contains('kikoflu-browser-bridge')
           ? 'kikoflu-browser-bridge'
           : null;
@@ -799,10 +1013,29 @@ class _FakeWebViewController extends PlatformWebViewController {
   Future<void> removeJavaScriptChannel(String javaScriptChannelName) async {}
 
   @override
-  Future<void> runJavaScript(String javaScript) async {}
+  Future<void> runJavaScript(String javaScript) async {
+    if (javaScript.contains('window.__kikofluMissavNavigationPending = true')) {
+      documentNavigationPending = true;
+    }
+  }
 
   @override
   Future<Object> runJavaScriptReturningResult(String javaScript) async {
+    if (javaScript.contains('__kikofluMissavNavigationPending')) {
+      if (!verificationReadyCheckStarted.isCompleted) {
+        verificationReadyCheckStarted.complete();
+      }
+      final check = _nextDocumentReadinessCheck;
+      if (check != null && !check.isCompleted) check.complete();
+      return isMissavVerificationUrl(documentUrl ?? '') &&
+          (javaScript.contains("document.readyState === 'complete'")
+              ? documentReadyState == 'complete'
+              : documentReadyState != 'loading') &&
+          hasDocumentElement &&
+          documentElementId != 'kikoflu-browser-bridge' &&
+          !documentNavigationPending &&
+          !cloudflareChallenge;
+    }
     if (javaScript.contains('location.origin')) {
       final source = isMissavVerificationUrl(documentUrl ?? '');
       return source &&
@@ -816,6 +1049,8 @@ class _FakeWebViewController extends PlatformWebViewController {
       }
       return (!javaScript.contains('!!document.documentElement') ||
               hasDocumentElement) &&
+          (!javaScript.contains("document.readyState === 'complete'") ||
+              documentReadyState == 'complete') &&
           (!javaScript.contains(
                 "document.documentElement.id !== 'kikoflu-browser-bridge'",
               ) ||
@@ -833,6 +1068,7 @@ class _FakeNavigationDelegate extends PlatformNavigationDelegate {
 
   NavigationRequestCallback? navigationRequest;
   PageEventCallback? pageFinished;
+  WebResourceErrorCallback? webResourceError;
 
   @override
   Future<void> setOnNavigationRequest(
@@ -849,7 +1085,9 @@ class _FakeNavigationDelegate extends PlatformNavigationDelegate {
   @override
   Future<void> setOnWebResourceError(
     WebResourceErrorCallback onWebResourceError,
-  ) async {}
+  ) async {
+    webResourceError = onWebResourceError;
+  }
 }
 
 class _FakeCookieManager extends PlatformWebViewCookieManager {

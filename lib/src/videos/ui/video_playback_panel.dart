@@ -573,6 +573,7 @@ class VideoPlaybackPanel extends StatefulWidget {
     this.onStreamChanged,
     this.onOpenSource,
     this.onVerifyAccess,
+    this.onFullscreenChanged,
   });
 
   final String videoId;
@@ -589,6 +590,7 @@ class VideoPlaybackPanel extends StatefulWidget {
   final ValueChanged<VideoStream>? onStreamChanged;
   final VoidCallback? onOpenSource;
   final Future<void> Function()? onVerifyAccess;
+  final ValueChanged<bool>? onFullscreenChanged;
 
   @override
   State<VideoPlaybackPanel> createState() => _VideoPlaybackPanelState();
@@ -602,6 +604,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   final ValueNotifier<int> _uiRevision = ValueNotifier(0);
   final FocusNode _focusNode = FocusNode(debugLabel: 'Video player');
   final ValueNotifier<double> _inlineMenuMaxHeight = ValueNotifier(0);
+  final GlobalKey _videoSurfaceKey = GlobalKey();
   final Map<int, Offset> _transformPointers = {};
   late double _volume;
   late int _streamIndex;
@@ -617,7 +620,6 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   double? _dragStartX;
   Duration _pendingLoadBasePosition = Duration.zero;
   ModalRoute<dynamic>? _route;
-  PageRoute<void>? _fullscreenRoute;
   PageRoute<void>? _pictureInPictureRoute;
   double? _temporaryRate;
   double? _runtimeRate;
@@ -630,6 +632,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   bool _loading = true;
   bool _fullscreen = false;
   bool _enteringFullscreen = false;
+  bool _nativeFullscreenEntered = false;
   bool _routeCovered = false;
   bool _appSuspended = false;
   bool _settingsOpen = false;
@@ -665,7 +668,10 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   Timer? _gestureOverlayTimer;
   Timer? _fullscreenStatusTimer;
   Future<void>? _platformInitialization;
+  Completer<void>? _fullscreenEntryFinished;
+  Future<void>? _fullscreenExit;
   Completer<void>? _fullscreenMetricsChanged;
+  Orientation? _fullscreenExitInitialOrientation;
   bool _disposed = false;
   bool _sourceLoaded = false;
   int _pauseGeneration = 0;
@@ -743,6 +749,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       _updatePlayerState(() {});
       _scheduleControlsHide();
       if (_fullscreen &&
+          _fullscreenExit == null &&
           _lastAppliedFullscreenOrientation !=
               _settings.fullscreenOrientation) {
         unawaited(_applyFullscreenOrientation(context, entering: true));
@@ -937,6 +944,16 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
 
   @override
   void didChangeMetrics() {
+    final initialOrientation = _fullscreenExitInitialOrientation;
+    if (_fullscreen && _fullscreenExit != null && initialOrientation != null) {
+      final size = View.of(context).physicalSize;
+      if (!size.isEmpty) {
+        final orientation = size.width > size.height
+            ? Orientation.landscape
+            : Orientation.portrait;
+        if (orientation != initialOrientation) _revealFullscreenDetails();
+      }
+    }
     _fullscreenMetricsChanged?.complete();
     _fullscreenMetricsChanged = null;
   }
@@ -1488,7 +1505,12 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     required bool pipMode,
     required VoidCallback onFullscreen,
   }) {
-    if (!_settings.keyboardControl) return KeyEventResult.ignored;
+    if (!_settings.keyboardControl &&
+        !(fullscreen &&
+            event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.escape)) {
+      return KeyEventResult.ignored;
+    }
     if (event is KeyUpEvent) {
       if (event.logicalKey == LogicalKeyboardKey.arrowRight &&
           _keyboardRightDown) {
@@ -1578,7 +1600,13 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         }
         return KeyEventResult.ignored;
       case LogicalKeyboardKey.escape:
-        if (fullscreen) onFullscreen();
+        if (fullscreen) {
+          if (_controlsLocked) {
+            _toggleControlsLock();
+            return KeyEventResult.handled;
+          }
+          onFullscreen();
+        }
         return fullscreen ? KeyEventResult.handled : KeyEventResult.ignored;
       default:
         return KeyEventResult.ignored;
@@ -1700,6 +1728,9 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         _enteringPictureInPicture) {
       return;
     }
+    final fullscreenExit = _fullscreenExit;
+    if (fullscreenExit != null) await fullscreenExit;
+    if (!mounted) return;
     _enteringPictureInPicture = true;
     _controlsTimer?.cancel();
     var entered = false;
@@ -1780,7 +1811,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       ),
     );
     final session = _session;
-    return session is VideoPlaybackAdvancedSession
+    final surface = session is VideoPlaybackAdvancedSession
         ? session.buildConfiguredSurface(
             aspectRatio: switch (_settings.fit) {
               VideoPlayerFit.fourThree => 4 / 3,
@@ -1791,6 +1822,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
             subtitleViewConfiguration: subtitleConfiguration,
           )
         : session.buildSurface(aspectRatio: aspectRatio);
+    return KeyedSubtree(key: _videoSurfaceKey, child: surface);
   }
 
   void _onSnapshotChanged() {
@@ -1845,9 +1877,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         !_pictureInPictureRouteOpen &&
         !_platform.pictureInPicture.value &&
         (!_appSuspended || _settings.backgroundPlayback) &&
-        (_fullscreen
-            ? _fullscreenRoute?.isCurrent == true
-            : _route?.isCurrent != false) &&
+        _route?.isCurrent != false &&
         !_autoAdvanceScheduled) {
       _autoAdvanceScheduled = true;
       unawaited(_advanceToRelated());
@@ -1855,11 +1885,9 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         _settings.autoExitFullscreen &&
         _settings.repeatMode == VideoPlayerRepeatMode.once &&
         _fullscreen &&
-        _fullscreenRoute?.isCurrent == true &&
         !_autoExitScheduled) {
       _autoExitScheduled = true;
-      final route = _fullscreenRoute;
-      if (route?.isCurrent == true && mounted) Navigator.of(context).pop();
+      unawaited(_exitFullscreen());
     }
     final pending = _pendingLoadPosition;
     if (pending == null ||
@@ -2012,11 +2040,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   }
 
   Future<void> _advanceToRelated() async {
-    final route = _fullscreenRoute;
-    if (route?.isCurrent == true && mounted) {
-      Navigator.of(context).pop();
-      await route!.completed;
-    }
+    if (_fullscreen || _fullscreenExit != null) await _exitFullscreen();
     if (mounted) await widget.onPlayNextRelated?.call();
   }
 
@@ -2045,7 +2069,12 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       final orientation = size.width > size.height
           ? Orientation.landscape
           : Orientation.portrait;
-      if (expected == null || size.isEmpty || orientation == expected) break;
+      if (expected == null || size.isEmpty || orientation == expected) {
+        if (!size.isEmpty && expected == orientation) {
+          _revealFullscreenDetails();
+        }
+        break;
+      }
       final changed = Completer<void>();
       _fullscreenMetricsChanged = changed;
       await changed.future;
@@ -2080,95 +2109,135 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   }
 
   Future<void> _enterFullscreen({bool nativeFullscreen = true}) async {
-    if (_fullscreen || _enteringFullscreen || !mounted) return;
+    if (_fullscreen ||
+        _fullscreenExit != null ||
+        _enteringFullscreen ||
+        !mounted) {
+      return;
+    }
     _enteringFullscreen = true;
+    final entryFinished = Completer<void>();
+    _fullscreenEntryFinished = entryFinished;
     final enterNativeFullscreen = _isDesktop && nativeFullscreen;
     try {
+      await _initializePlatform();
+      if (!mounted) return;
       if (enterNativeFullscreen) {
-        await _initializePlatform();
-        if (!mounted) return;
         await _platform.setNativeFullscreen(true);
+        _nativeFullscreenEntered = true;
       }
       if (!mounted) {
-        if (enterNativeFullscreen) await _platform.setNativeFullscreen(false);
+        await _rollbackFullscreenEntry();
         return;
       }
-      try {
-        await _applyFullscreenOrientation(context, entering: true);
-      } catch (_) {
-        await _restoreFullscreenOrientation();
-        if (enterNativeFullscreen) await _platform.setNativeFullscreen(false);
-        rethrow;
-      }
       await _platform.setFullscreenStatusBarHidden(true);
+      if (!mounted) {
+        await _rollbackFullscreenEntry();
+        return;
+      }
+      await _applyFullscreenOrientation(context, entering: true);
+      if (!mounted) {
+        await _rollbackFullscreenEntry();
+        return;
+      }
       _stopTemporaryRate();
       _endControlsInteraction();
       _cancelSeekPreview();
       _controlsTimer?.cancel();
       _updatePlayerState(() => _fullscreen = true);
-    } finally {
-      _enteringFullscreen = false;
-    }
-    await WidgetsBinding.instance.endOfFrame;
-    if (!mounted) {
-      await _restoreFullscreenOrientation();
-      await _platform.setFullscreenStatusBarHidden(false);
-      if (enterNativeFullscreen) await _platform.setNativeFullscreen(false);
-      return;
-    }
-    final route = _VideoFullscreenRoute(
-      beforePop: _isDesktop || kIsWeb
-          ? null
-          : () async {
-              await _restoreFullscreenOrientation();
-              await _waitForFullscreenWindowLayout();
-            },
-      pageBuilder: (fullScreenContext, animation, secondaryAnimation) =>
-          Scaffold(
-            backgroundColor: Colors.black,
-            body: ValueListenableBuilder<int>(
-              valueListenable: _uiRevision,
-              builder: (context, _, _) => _pictureInPictureRouteOpen
-                  ? const ColoredBox(
-                      key: ValueKey('video-fullscreen-placeholder'),
-                      color: Colors.black,
-                    )
-                  : _buildPlayerLayout(
-                      fullScreenContext,
-                      fullscreen: true,
-                      onFullscreen: () => Navigator.of(fullScreenContext).pop(),
-                    ),
-            ),
-          ),
-      transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-          FadeTransition(opacity: animation, child: child),
-    );
-    _fullscreenRoute = route;
-    try {
-      final popped = Navigator.of(context).push<void>(route);
+      widget.onFullscreenChanged?.call(true);
       _startFullscreenStatusUpdates();
       await WidgetsBinding.instance.endOfFrame;
-      if (mounted) {
-        _focusNode.requestFocus();
-        _showControls();
+      if (!mounted) {
+        await _rollbackFullscreenEntry();
+        return;
       }
-      await popped;
-      await route.completed;
+      _focusNode.requestFocus();
+      _showControls();
+    } catch (_) {
+      if (_fullscreen) {
+        await _exitFullscreen();
+      } else {
+        await _rollbackFullscreenEntry();
+      }
+      rethrow;
     } finally {
-      _fullscreenStatusTimer?.cancel();
-      _fullscreenStatusTimer = null;
-      await _platform.setFullscreenStatusBarHidden(false);
-      if (enterNativeFullscreen) await _platform.setNativeFullscreen(false);
+      _enteringFullscreen = false;
+      if (!entryFinished.isCompleted) entryFinished.complete();
+      if (identical(_fullscreenEntryFinished, entryFinished)) {
+        _fullscreenEntryFinished = null;
+      }
+      if (mounted) _onSnapshotChanged();
+    }
+  }
+
+  Future<void> _rollbackFullscreenEntry() async {
+    _fullscreenStatusTimer?.cancel();
+    _fullscreenStatusTimer = null;
+    try {
       await _restoreFullscreenOrientation();
-      _stopTemporaryRate();
-      _endControlsInteraction();
-      _cancelSeekPreview();
-      if (identical(_fullscreenRoute, route)) _fullscreenRoute = null;
+    } finally {
+      try {
+        await _platform.setFullscreenStatusBarHidden(false);
+      } finally {
+        if (_nativeFullscreenEntered) {
+          await _platform.setNativeFullscreen(false);
+          _nativeFullscreenEntered = false;
+        }
+      }
+    }
+    if (!mounted) _fullscreen = false;
+  }
+
+  Future<void> _exitFullscreen() {
+    final exiting = _fullscreenExit;
+    if (exiting != null) return exiting;
+    if (!_fullscreen) return Future<void>.value();
+
+    final size = View.of(context).physicalSize;
+    _fullscreenExitInitialOrientation = size.width > size.height
+        ? Orientation.landscape
+        : Orientation.portrait;
+    final restoration = _restoreFullscreenAndRevealDetails();
+    _fullscreenExit = restoration;
+    return restoration.whenComplete(() {
+      if (identical(_fullscreenExit, restoration)) {
+        _fullscreenExit = null;
+        _fullscreenExitInitialOrientation = null;
+      }
+    });
+  }
+
+  void _revealFullscreenDetails() {
+    if (!mounted || !_fullscreen) return;
+    _stopTemporaryRate();
+    _endControlsInteraction();
+    _cancelSeekPreview();
+    _updatePlayerState(() => _fullscreen = false);
+    widget.onFullscreenChanged?.call(false);
+  }
+
+  Future<void> _restoreFullscreenAndRevealDetails() async {
+    _controlsLocked = false;
+    _fullscreenStatusTimer?.cancel();
+    _fullscreenStatusTimer = null;
+    try {
+      if (_nativeFullscreenEntered) {
+        await _platform.setNativeFullscreen(false);
+        _nativeFullscreenEntered = false;
+      }
+      await _restoreFullscreenOrientation();
+      await _waitForFullscreenWindowLayout();
+    } finally {
+      await _platform.setFullscreenStatusBarHidden(false);
+      await WidgetsBinding.instance.endOfFrame;
       if (mounted) {
-        _updatePlayerState(() => _fullscreen = false);
+        _revealFullscreenDetails();
         _focusNode.requestFocus();
         _scheduleControlsHide();
         _onSnapshotChanged();
+      } else {
+        _fullscreen = false;
       }
     }
   }
@@ -2176,11 +2245,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   Future<void> _verifyAccess() async {
     final onVerifyAccess = widget.onVerifyAccess;
     if (onVerifyAccess == null) return;
-    final route = _fullscreenRoute;
-    if (route != null) {
-      if (route.isCurrent) Navigator.of(context).pop();
-      await route.completed;
-    }
+    if (_fullscreen || _fullscreenExit != null) await _exitFullscreen();
     if (mounted) await _invoke(onVerifyAccess);
   }
 
@@ -2758,17 +2823,11 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
             ),
             onPressed: () async {
               final navigator = Navigator.of(context);
-              final fullscreenRoute = _fullscreenRoute;
-              if (fullscreenRoute?.isActive == true) {
-                navigator.popUntil(
-                  (route) => identical(route, fullscreenRoute),
-                );
-                navigator.pop();
-                await fullscreenRoute!.completed;
+              if (_fullscreen || _fullscreenExit != null) {
+                await _exitFullscreen();
               }
-              if (navigator.mounted) {
-                navigator.popUntil((route) => route.isFirst);
-              }
+              if (!mounted || !navigator.mounted) return;
+              navigator.popUntil((route) => route.isFirst);
             },
           ),
           if (showTitle)
@@ -3618,17 +3677,32 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         ),
       );
     }
-    if (_fullscreen || _pictureInPictureRouteOpen) {
+    if (_pictureInPictureRouteOpen) {
       return const ColoredBox(
-        key: ValueKey('video-fullscreen-placeholder'),
+        key: ValueKey('video-pip-placeholder'),
         color: Colors.black,
       );
     }
-    return _buildPlayerLayout(
-      context,
-      fullscreen: false,
-      onFullscreen: () => _enterFullscreen(nativeFullscreen: _isDesktop),
-      onSecondaryFullscreen: () => _enterFullscreen(nativeFullscreen: false),
+    return PopScope<void>(
+      canPop: !_fullscreen,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && (_fullscreen || _fullscreenExit != null)) {
+          if (_fullscreen && _controlsLocked) {
+            _toggleControlsLock();
+            return;
+          }
+          unawaited(_exitFullscreen());
+        }
+      },
+      child: _buildPlayerLayout(
+        context,
+        fullscreen: _fullscreen,
+        onFullscreen: () => _fullscreen
+            ? unawaited(_exitFullscreen())
+            : unawaited(_enterFullscreen(nativeFullscreen: _isDesktop)),
+        onSecondaryFullscreen: () =>
+            unawaited(_enterFullscreen(nativeFullscreen: false)),
+      ),
     );
   }
 
@@ -3661,6 +3735,18 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
 
   Future<void> _disposeSession() async {
     try {
+      await _fullscreenExit;
+      await _fullscreenEntryFinished?.future;
+    } catch (_) {}
+    try {
+      if (_fullscreen || _nativeFullscreenEntered) {
+        await _restoreFullscreenOrientation();
+        await _platform.setFullscreenStatusBarHidden(false);
+        if (_nativeFullscreenEntered) {
+          await _platform.setNativeFullscreen(false);
+          _nativeFullscreenEntered = false;
+        }
+      }
       await _pauseAndSave();
     } catch (_) {}
     try {
@@ -3674,41 +3760,6 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       try {
         await _session.dispose();
       } catch (_) {}
-    }
-  }
-}
-
-class _VideoFullscreenRoute extends PageRouteBuilder<void> {
-  _VideoFullscreenRoute({
-    required super.pageBuilder,
-    required super.transitionsBuilder,
-    this.beforePop,
-  });
-
-  final AsyncCallback? beforePop;
-  bool _restoring = false;
-  bool _restored = false;
-
-  @override
-  bool didPop(Object? result) {
-    if (beforePop == null || _restored) return super.didPop(null);
-    if (!_restoring) {
-      _restoring = true;
-      unawaited(_restoreAndPop());
-    }
-    return false;
-  }
-
-  Future<void> _restoreAndPop() async {
-    try {
-      await beforePop!();
-    } finally {
-      _restored = true;
-      if (isCurrent) {
-        navigator?.pop();
-      } else if (isActive) {
-        navigator?.removeRoute(this);
-      }
     }
   }
 }

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/work.dart';
-import '../providers/work_card_display_provider.dart';
 import '../providers/works_provider.dart';
 import '../providers/auth_provider.dart';
 import '../utils/collection_grid_layout.dart';
@@ -68,7 +67,6 @@ class WorksGridView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final displaySettings = ref.watch(workCardDisplayProvider);
     final auth = ref.watch(
       authProvider.select((state) => (state.host ?? '', state.token ?? '')),
     );
@@ -84,7 +82,6 @@ class WorksGridView extends ConsumerWidget {
         final metrics = resolveCollectionGridMetrics(
           context,
           layoutType: layoutType,
-          cardSize: displaySettings.cardSize,
           padding: collectionCardPadding(context, padding: padding),
           availableWidth: availableWidth,
           availableHeight: availableHeight,
@@ -94,8 +91,28 @@ class WorksGridView extends ConsumerWidget {
         final spacing = metrics.spacing;
         final crossAxisCount = metrics.crossAxisCount;
         final isGrid = layoutType != LayoutType.list;
+        final listCoverSize = isGrid
+            ? null
+            : collectionListCoverSizeForTitle(
+                context,
+                titleStyle: enhancedWorkCardListTitleStyle(context),
+              );
+        final listCoverCacheWidth = listCoverSize == null
+            ? null
+            : resolveWorkCoverCacheWidth(
+                context,
+                crossAxisCount: 1,
+                listCoverWidth: listCoverSize.width,
+              );
         return WorkCoverPrefetchScope(
-          sourceKey: (auth.$1, auth.$2, key, pageStorageKey, works),
+          sourceKey: (
+            auth.$1,
+            auth.$2,
+            key,
+            pageStorageKey,
+            works,
+            listCoverCacheWidth,
+          ),
           builder: (context, coverPrefetch) =>
               VirtualizedSliverCollection<Work>(
                 retainedItemCount: 100,
@@ -141,10 +158,12 @@ class WorksGridView extends ConsumerWidget {
                     host: auth.$1,
                     token: auth.$2,
                     crossAxisCount: crossAxisCount,
+                    listCoverWidth: listCoverSize?.width,
                     isListCard: layoutType == LayoutType.list,
                   );
                   onPrefetch?.call(items);
                 },
+                prefetchKey: listCoverCacheWidth,
                 emptyBuilder: emptyBuilder,
                 loadingBuilder: loadingBuilder,
                 errorBuilder: errorBuilder,

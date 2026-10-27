@@ -1710,7 +1710,7 @@ class MissavClient extends ChangeNotifier {
         entry.key: entry.value,
   };
 
-  static const _metadataGroupByLabel = {
+  static const detailMetadataGroups = {
     'genre': 'genres',
     'genres': 'genres',
     'category': 'genres',
@@ -1764,7 +1764,7 @@ class MissavClient extends ChangeNotifier {
     String value,
     VideoItem video,
   ) {
-    final group = _metadataGroupByLabel[label.toLowerCase()];
+    final group = detailMetadataGroups[label.toLowerCase()];
     if (group == null) return false;
     final names = switch (group) {
       'genres' => video.cardTags.map((tag) => tag.label),

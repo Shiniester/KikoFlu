@@ -247,7 +247,7 @@ void main() {
       'video_card_display_subtitleTag': true,
       'video_card_display_uncensoredTag': false,
     });
-    for (final width in [100.0, collectionListCoverSize.width, 180.0]) {
+    for (final width in [100.0, 112.0, 180.0]) {
       await tester.pumpWidget(
         _app(
           Center(
@@ -653,13 +653,22 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     final controller = ScrollController();
     addTearDown(controller.dispose);
+    const titleText = 'One\nTwo\nThree\nFour';
+    final items = [
+      const VideoItem(
+        id: 'four-lines',
+        title: titleText,
+        pageUrl: 'https://missav.ai/en/four-lines',
+      ),
+      _richVideo(),
+    ];
     for (final width in [320.0, 840.0, 1280.0]) {
       tester.view.physicalSize = Size(width, 900);
       for (final layout in LayoutType.values) {
         await tester.pumpWidget(
           _app(
             VideoCollectionView<VideoItem>(
-              items: [_video, _richVideo()],
+              items: items,
               layoutType: layout,
               itemId: (video) => video.id,
               itemBuilder: (_, video, _) =>
@@ -682,9 +691,12 @@ void main() {
         final cover = tester.getSize(find.byType(VideoCover).first);
         expect(cover.width / cover.height, closeTo(4 / 3, .001));
         if (layout == LayoutType.list) {
-          expect(cover, collectionListCoverSize);
+          expect(
+            cover.height,
+            closeTo(tester.getSize(find.text(titleText)).height, 0.1),
+          );
         }
-        final title = tester.widget<Text>(find.text(_video.title));
+        final title = tester.widget<Text>(find.text(titleText));
         expect(title.maxLines, collectionCardTitleMaxLines);
         expect(title.overflow, TextOverflow.ellipsis);
       }

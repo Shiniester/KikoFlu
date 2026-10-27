@@ -699,7 +699,6 @@
   "showVa": "Show Voice Actors",
   "showRating": "Show Rating",
   "showPrice": "Show Price",
-  "cardSize": "Card Size",
   "compact": "Compact",
   "medium": "Medium",
   "full": "Full",
@@ -1539,15 +1538,6 @@
   "workCardDisplaySettings": "Work Card Display Settings",
   "circleInfo": "Circle Info",
   "showWorkCircle": "Show work's circle",
-  "workCardSizeSubtitle": "Adjust grid density to make covers larger or keep the current size",
-  "workCardFontSize": "Card Text Size",
-  "workCardFontSizeSubtitle": "Adjust title and metadata text on work cards",
-  "cardSizeNormal": "Normal",
-  "cardSizeLarge": "Large",
-  "cardSizeExtraLarge": "XL",
-  "fontSizeNormal": "Normal",
-  "fontSizeLarge": "Large",
-  "fontSizeExtraLarge": "XL",
   "showSubtitleTagOnCard": "Show subtitle tag on work card",
   "showAgeRatingOnCard": "Show age rating on work card",
   "userAddedTagsLabel": "User-added Tags",
@@ -1854,17 +1844,13 @@
   "videoCardMakers": "Studio",
   "videoCardLabels": "Label",
   "videoCardDirectors": "Directors",
-  "videoDetailMakers": "Studio",
-  "@videoDetailMakers": {
-    "description": "Heading for makers or studios on a video details screen"
-  },
-  "videoDetailLabels": "Label",
-  "@videoDetailLabels": {
-    "description": "Heading for release labels on a video details screen"
-  },
   "videoDetailActors": "Actors",
   "@videoDetailActors": {
     "description": "Heading for actors on a video details screen"
+  },
+  "videoDetailCreators": "Studio | Label | Series",
+  "@videoDetailCreators": {
+    "description": "Combined heading for linked studios, labels, and series on video details"
   },
   "videoSearchHint": "Search videos",
   "videoSourceAccount": "MissAV account",

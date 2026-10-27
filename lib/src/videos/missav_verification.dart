@@ -245,8 +245,11 @@ Future<void> waitForMissavMobilePage(
   String url, {
   Completer<void>? cancelSignal,
   required void Function() ensureActive,
+  bool documentOnly = false,
 }) async {
   final completed = Completer<void>();
+  completed.future.ignore();
+  Object? mainFrameError;
   ensureActive();
   await controller.setNavigationDelegate(
     NavigationDelegate(
@@ -255,20 +258,67 @@ Future<void> waitForMissavMobilePage(
           ? NavigationDecision.navigate
           : NavigationDecision.prevent,
       onPageFinished: (pageUrl) {
-        if (isMissavVerificationUrl(pageUrl) && !completed.isCompleted) {
+        if (!documentOnly &&
+            isMissavVerificationUrl(pageUrl) &&
+            !completed.isCompleted) {
           completed.complete();
         }
       },
       onWebResourceError: (error) {
         if (error.isForMainFrame != false &&
-            isMissavVerificationUrl(error.url ?? '') &&
-            !completed.isCompleted) {
-          completed.completeError(StateError('MissAV could not be loaded.'));
+            isMissavVerificationUrl(error.url ?? '')) {
+          final failure = StateError('MissAV could not be loaded.');
+          if (documentOnly) {
+            mainFrameError ??= failure;
+          }
+          if (!completed.isCompleted) {
+            completed.completeError(failure);
+          }
         }
       },
     ),
   );
+  if (documentOnly) {
+    // A same-URL load may still expose the previous ready document.
+    await _cancelable(
+      controller.runJavaScript(
+        'window.__kikofluMissavNavigationPending = true;',
+      ),
+      cancelSignal,
+    );
+  }
   ensureActive();
+  if (documentOnly) {
+    await _cancelable(
+      Future.any<void>([
+        controller.loadRequest(Uri.parse(url)),
+        completed.future,
+      ]).timeout(const Duration(seconds: 30)),
+      cancelSignal,
+    );
+    ensureActive();
+    const readyScript =
+        '''
+location.origin === '${MissavClient.origin}' &&
+document.readyState !== 'loading' && !!document.documentElement &&
+document.documentElement.id !== 'kikoflu-browser-bridge' &&
+window.__kikofluMissavNavigationPending !== true &&
+typeof window._cf_chl_opt === 'undefined' &&
+!/^Just a moment|Attention Required.*Cloudflare/i.test(document.title)
+''';
+    await _waitForBrowserVerification(
+      () {
+        final error = mainFrameError;
+        if (error != null) throw error;
+        return controller.runJavaScriptReturningResult(readyScript);
+      },
+      url,
+      cancelSignal,
+    );
+    ensureActive();
+    return;
+  }
+
   await _cancelable(
     Future.wait<void>([
       controller.loadRequest(Uri.parse(url)),
@@ -910,6 +960,7 @@ Future<void> connectMissavBrowserSession(
             mobile,
             uri.toString(),
             cancelSignal: signal,
+            documentOnly: Platform.isAndroid,
             ensureActive: () {
               if (signal.isCompleted) {
                 throw StateError('MissAV navigation was cancelled.');

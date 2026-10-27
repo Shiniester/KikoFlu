@@ -30,7 +30,7 @@ const _playlist = Playlist(
   name:
       'A deliberately long playlist title that wraps over multiple lines in the collection card',
   description:
-      'A long description that should expand naturally below the title without squeezing or overflowing the fixed-size cover.',
+      'A long description that should expand naturally below the title without squeezing or overflowing the cover.',
   worksCount: 12,
 );
 
@@ -38,6 +38,7 @@ Widget _testApp(
   Widget child, {
   double contentWidth = 180,
   Size windowSize = const Size(800, 700),
+  TextScaler? textScaler,
 }) => ProviderScope(
   child: MaterialApp(
     locale: const Locale('en'),
@@ -45,7 +46,11 @@ Widget _testApp(
     supportedLocales: S.supportedLocales,
     home: Scaffold(
       body: MediaQuery(
-        data: MediaQueryData(size: windowSize, disableAnimations: true),
+        data: MediaQueryData(
+          size: windowSize,
+          disableAnimations: true,
+          textScaler: textScaler ?? TextScaler.noScaling,
+        ),
         child: SingleChildScrollView(
           child: Align(
             alignment: Alignment.topLeft,
@@ -113,10 +118,11 @@ void main() {
           final coverClip = find
               .descendant(of: card, matching: find.byType(ClipRRect))
               .first;
-          expect(tester.getSize(coverClip), const Size(112, 84));
+          final coverSize = tester.getSize(coverClip);
+          expect(coverSize.width / coverSize.height, 4 / 3);
           expect(
             tester.widget<ClipRRect>(coverClip).borderRadius,
-            BorderRadius.circular(112 / 15),
+            BorderRadius.circular(coverSize.width / 15),
           );
         } else {
           final aspectRatio = find
@@ -138,6 +144,123 @@ void main() {
     }
   });
 
+  testWidgets(
+    'list covers match four rendered title lines in every audio card',
+    (tester) async {
+      const title = 'One\nTwo\nThree\nFour';
+      final work = _work.copyWith(title: title);
+      const playlist = Playlist(
+        id: 'four-lines',
+        userName: 'Creator',
+        privacy: 0,
+        name: title,
+      );
+      final cards = <(String, Widget)>[
+        (
+          'work',
+          EnhancedWorkCard(work: work, crossAxisCount: 1, isListLayout: true),
+        ),
+        (
+          'history',
+          HistoryWorkCard(
+            record: HistoryRecord(work: work, lastPlayedTime: DateTime(2026)),
+            layoutType: LayoutType.list,
+          ),
+        ),
+        (
+          'playlist',
+          const PlaylistCard(playlist: playlist, layoutType: LayoutType.list),
+        ),
+      ];
+      double? enhancedCoverHeight;
+
+      for (final (name, card) in cards) {
+        await tester.pumpWidget(
+          _testApp(
+            card,
+            contentWidth: 320,
+            windowSize: const Size(360, 800),
+            textScaler: const TextScaler.linear(1.4),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 300));
+
+        final titleFinder = find.text(title);
+        final titleSize = tester.getSize(titleFinder);
+        final coverFinder = find
+            .descendant(
+              of: find.byType(Card).first,
+              matching: find.byType(ClipRRect),
+            )
+            .first;
+        final coverSize = tester.getSize(coverFinder);
+        expect(titleSize.height, closeTo(coverSize.height, 0.1), reason: name);
+        expect(
+          tester.widget<Text>(titleFinder).maxLines,
+          collectionCardTitleMaxLines,
+          reason: name,
+        );
+        expect(
+          tester.widget<ClipRRect>(coverFinder).borderRadius,
+          BorderRadius.circular(coverSize.width / 15),
+          reason: name,
+        );
+        if (name == 'work') enhancedCoverHeight = coverSize.height;
+        expect(tester.takeException(), isNull, reason: name);
+      }
+
+      await tester.pumpWidget(
+        _testApp(
+          EnhancedWorkCard(
+            work: _work.copyWith(title: 'Short title'),
+            crossAxisCount: 1,
+            isListLayout: true,
+          ),
+          contentWidth: 320,
+          windowSize: const Size(360, 800),
+          textScaler: const TextScaler.linear(1.4),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      final shortTitle = find.text('Short title');
+      final shortCover = find.byType(ClipRRect).first;
+      expect(
+        tester.getSize(shortCover).height,
+        closeTo(enhancedCoverHeight!, 0.1),
+      );
+      expect(
+        tester.getSize(shortTitle).height,
+        lessThan(tester.getSize(shortCover).height),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('audio list title and cover follow system text scaling', (
+    tester,
+  ) async {
+    const title = 'One\nTwo\nThree\nFour';
+    await tester.pumpWidget(
+      _testApp(
+        EnhancedWorkCard(
+          work: _work.copyWith(title: title),
+          crossAxisCount: 1,
+          isListLayout: true,
+        ),
+        contentWidth: 320,
+        windowSize: const Size(320, 800),
+        textScaler: const TextScaler.linear(2.5),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final titleSize = tester.getSize(find.text(title));
+    final coverSize = tester.getSize(find.byType(ClipRRect).first);
+    expect(titleSize.height, closeTo(coverSize.height, 0.1));
+    expect(coverSize.width / coverSize.height, closeTo(4 / 3, 0.001));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('long playlist title and description expand in list layout', (
     tester,
   ) async {
@@ -153,7 +276,8 @@ void main() {
       find.textContaining('A deliberately long playlist title'),
       findsOneWidget,
     );
-    expect(tester.getSize(find.byType(ClipRRect).first), const Size(112, 84));
+    final coverSize = tester.getSize(find.byType(ClipRRect).first);
+    expect(coverSize.width / coverSize.height, 4 / 3);
     expect(tester.takeException(), isNull);
   });
 
@@ -297,6 +421,42 @@ void main() {
     }
   });
 
+  testWidgets('list duration only has spacing after a visible rating', (
+    tester,
+  ) async {
+    for (final rating in [
+      (enabled: false, count: 15),
+      (enabled: true, count: 0),
+      (enabled: true, count: 15),
+    ]) {
+      SharedPreferences.setMockInitialValues({
+        'work_card_display_rating': rating.enabled,
+        'work_card_display_duration': true,
+      });
+      final work = _work.copyWith(
+        duration: 3600,
+        rateAverage: 4.2,
+        rateCount: rating.count,
+      );
+      await tester.pumpWidget(
+        _testApp(
+          EnhancedWorkCard(work: work, crossAxisCount: 1, isListLayout: true),
+          contentWidth: 320,
+          windowSize: const Size(360, 800),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final durationLeft = tester.getRect(find.byIcon(Icons.access_time)).left;
+      if (rating.enabled && rating.count > 0) {
+        expect(durationLeft, tester.getRect(find.text('4.2 (15)')).right + 8);
+      } else {
+        expect(durationLeft, tester.getRect(find.byType(ClipRRect).first).left);
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+  });
+
   testWidgets('list release date appears once at the cover bottom right', (
     tester,
   ) async {
@@ -313,22 +473,18 @@ void main() {
 
     final releaseFinder = find.text(release);
     expect(releaseFinder, findsOneWidget);
+    final coverSize = tester.getSize(find.byType(ClipRRect).first);
+    final infoScale = collectionCoverInfoScale(coverSize.width);
     final coverPosition = tester.widget<Positioned>(
       find.ancestor(of: releaseFinder, matching: find.byType(Positioned)).first,
     );
-    expect(
-      coverPosition.bottom,
-      2 * collectionCoverInfoScale(collectionListCoverSize.width),
-    );
-    expect(
-      coverPosition.right,
-      2 * collectionCoverInfoScale(collectionListCoverSize.width),
-    );
+    expect(coverPosition.bottom, 2 * infoScale);
+    expect(coverPosition.right, 2 * infoScale);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets(
-    'cover badge dimensions scale and large text stays within a narrow card',
+    'cover badge dimensions scale with the cover and fit narrow cards',
     (tester) async {
       final work = _work.copyWith(
         sourceId: 'RJ012345678901234567890123456789',
@@ -349,7 +505,6 @@ void main() {
         tester.element(find.byType(EnhancedWorkCard)),
       );
       final notifier = container.read(workCardDisplayProvider.notifier);
-      await notifier.updateFontScale(WorkCardFontScale.extraLarge);
       await notifier.toggleAgeRating();
       await tester.pump();
 
@@ -357,11 +512,11 @@ void main() {
       final idFinder = find.text(work.displayId);
       expect(
         tester.widget<Text>(idFinder).style!.fontSize,
-        closeTo(10 * WorkCardFontScale.extraLarge.multiplier * scale, 0.01),
+        closeTo(10 * scale, 0.01),
       );
       expect(
         tester.widget<Text>(find.text(work.release!)).style!.fontSize,
-        closeTo(10 * WorkCardFontScale.extraLarge.multiplier * scale, 0.01),
+        closeTo(10 * scale, 0.01),
       );
       final idContainer = tester.widget<Container>(
         find.ancestor(of: idFinder, matching: find.byType(Container)).first,
@@ -373,17 +528,14 @@ void main() {
       final ageRating = tester.widget<AgeRatingChip>(
         find.byType(AgeRatingChip),
       );
-      expect(
-        ageRating.fontSize,
-        closeTo(10 * WorkCardFontScale.extraLarge.multiplier * scale, 0.01),
-      );
+      expect(ageRating.fontSize, closeTo(10 * scale, 0.01));
       expect(
         ageRating.padding,
         const EdgeInsets.symmetric(horizontal: 6 * scale, vertical: 2 * scale),
       );
       expect(
         tester.widget<Icon>(find.byIcon(Icons.closed_caption)).size,
-        closeTo(14 * WorkCardFontScale.extraLarge.multiplier * scale, 0.01),
+        closeTo(14 * scale, 0.01),
       );
       expect(
         tester
@@ -415,9 +567,6 @@ void main() {
       final narrowContainer = ProviderScope.containerOf(
         tester.element(find.byType(EnhancedWorkCard)),
       );
-      await narrowContainer
-          .read(workCardDisplayProvider.notifier)
-          .updateFontScale(WorkCardFontScale.extraLarge);
       await narrowContainer
           .read(workCardDisplayProvider.notifier)
           .toggleAgeRating();

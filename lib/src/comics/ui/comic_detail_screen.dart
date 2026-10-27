@@ -10,7 +10,6 @@ import '../../widgets/metadata_search_chip.dart';
 import '../../widgets/work_detail/work_cover_frame.dart';
 import '../../widgets/work_detail/work_title_header.dart';
 import '../../widgets/work_detail/work_detail_section_title.dart';
-import '../../providers/work_card_display_provider.dart';
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../utils/collection_grid_layout.dart';
 import '../../utils/system_ui_style.dart';
@@ -206,7 +205,9 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   }
 
   ComicChapter? _lastReadChapter(ComicProgress progress) =>
-      _chapters.where((chapter) => chapter.id == progress.chapterId).firstOrNull ??
+      _chapters
+          .where((chapter) => chapter.id == progress.chapterId)
+          .firstOrNull ??
       progress.comic.chapters
           .where((chapter) => chapter.id == progress.chapterId)
           .firstOrNull;
@@ -451,7 +452,6 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
         final metrics = resolveCollectionGridMetrics(
           context,
           layoutType: LayoutType.bigGrid,
-          cardSize: WorkCardSize.normal,
           availableWidth: width,
           availableHeight: constraints.maxHeight,
         );
@@ -623,7 +623,8 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                         itemBuilder: (context, index) {
                           if (index >= chapterStartIndex &&
                               index < chapterEndIndex) {
-                            final chapter = _chapters[index - chapterStartIndex];
+                            final chapter =
+                                _chapters[index - chapterStartIndex];
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [

@@ -4,7 +4,6 @@ import '../../l10n/app_localizations.dart';
 import '../providers/playlists_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/collection_layout_provider.dart';
-import '../providers/work_card_display_provider.dart';
 import '../providers/works_provider.dart' show LayoutType;
 import '../utils/collection_grid_layout.dart';
 import '../utils/l10n_extensions.dart';
@@ -567,15 +566,11 @@ class PlaylistsScreenState extends ConsumerState<PlaylistsScreen>
     final layoutType = ref.watch(
       collectionLayoutProvider(CollectionLayoutKey.playlists),
     );
-    final cardSize = ref.watch(
-      workCardDisplayProvider.select((settings) => settings.cardSize),
-    );
     return LayoutBuilder(
       builder: (context, constraints) {
         final metrics = resolveCollectionGridMetrics(
           context,
           layoutType: layoutType,
-          cardSize: cardSize,
           availableWidth: constraints.maxWidth,
           availableHeight: constraints.maxHeight,
         );

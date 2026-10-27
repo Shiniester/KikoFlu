@@ -133,6 +133,11 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
             task.status == VideoDownloadStatus.completed &&
             task.localPath?.isNotEmpty == true;
         final status = _status(task, s);
+        final titleStyle = Theme.of(context).textTheme.titleSmall;
+        final coverSize = collectionListCoverSizeForTitle(
+          context,
+          titleStyle: titleStyle,
+        );
         return Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Card(
@@ -145,84 +150,105 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox.fromSize(
-                          size: collectionListCoverSize,
-                          child: VideoCover(video: task.video),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                task.video.title,
-                                maxLines: collectionCardTitleMaxLines,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.titleSmall,
-                              ),
-                              const SizedBox(height: 4),
-                              Text('$status · ${task.quality}'),
-                              const SizedBox(height: 6),
-                              LinearProgressIndicator(
-                                value:
-                                    task.status == VideoDownloadStatus.completed
-                                    ? 1
-                                    : task.progress,
-                              ),
-                              if (task.status == VideoDownloadStatus.failed)
-                                TextButton.icon(
-                                  onPressed: () => unawaited(
-                                    _openSource(task.video.pageUrl),
-                                  ),
-                                  icon: const Icon(Icons.open_in_new),
-                                  label: Text(s.videoOpenSource),
-                                ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final coverWidth = coverSize.width
+                            .clamp(0.0, constraints.maxWidth)
+                            .toDouble();
+                        final stacked =
+                            constraints.maxWidth < coverWidth * 2 + 12;
+                        final info = Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (task.status ==
-                                    VideoDownloadStatus.downloading ||
-                                task.status == VideoDownloadStatus.queued)
-                              IconButton(
-                                tooltip: s.pause,
-                                onPressed: busy
-                                    ? null
-                                    : () => _run(task.id, downloads.pause),
-                                icon: const Icon(Icons.pause),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    task.video.title,
+                                    maxLines: collectionCardTitleMaxLines,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: titleStyle,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text('$status · ${task.quality}'),
+                                  const SizedBox(height: 6),
+                                  LinearProgressIndicator(
+                                    value:
+                                        task.status ==
+                                            VideoDownloadStatus.completed
+                                        ? 1
+                                        : task.progress,
+                                  ),
+                                  if (task.status == VideoDownloadStatus.failed)
+                                    TextButton.icon(
+                                      onPressed: () => unawaited(
+                                        _openSource(task.video.pageUrl),
+                                      ),
+                                      icon: const Icon(Icons.open_in_new),
+                                      label: Text(s.videoOpenSource),
+                                    ),
+                                ],
                               ),
-                            if (task.status == VideoDownloadStatus.paused)
-                              IconButton(
-                                tooltip: s.resume,
-                                onPressed: busy
-                                    ? null
-                                    : () => _run(task.id, downloads.resume),
-                                icon: const Icon(Icons.play_arrow),
-                              ),
-                            if (task.status == VideoDownloadStatus.failed)
-                              IconButton(
-                                tooltip: s.retry,
-                                onPressed: busy
-                                    ? null
-                                    : () => _run(task.id, downloads.retry),
-                                icon: const Icon(Icons.refresh),
-                              ),
-                            IconButton(
-                              tooltip: s.delete,
-                              onPressed: busy
-                                  ? null
-                                  : () => _delete(downloads, task),
-                              icon: const Icon(Icons.delete_outline),
+                            ),
+                            const SizedBox(width: 4),
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (task.status ==
+                                        VideoDownloadStatus.downloading ||
+                                    task.status == VideoDownloadStatus.queued)
+                                  IconButton(
+                                    tooltip: s.pause,
+                                    onPressed: busy
+                                        ? null
+                                        : () => _run(task.id, downloads.pause),
+                                    icon: const Icon(Icons.pause),
+                                  ),
+                                if (task.status == VideoDownloadStatus.paused)
+                                  IconButton(
+                                    tooltip: s.resume,
+                                    onPressed: busy
+                                        ? null
+                                        : () => _run(task.id, downloads.resume),
+                                    icon: const Icon(Icons.play_arrow),
+                                  ),
+                                if (task.status == VideoDownloadStatus.failed)
+                                  IconButton(
+                                    tooltip: s.retry,
+                                    onPressed: busy
+                                        ? null
+                                        : () => _run(task.id, downloads.retry),
+                                    icon: const Icon(Icons.refresh),
+                                  ),
+                                IconButton(
+                                  tooltip: s.delete,
+                                  onPressed: busy
+                                      ? null
+                                      : () => _delete(downloads, task),
+                                  icon: const Icon(Icons.delete_outline),
+                                ),
+                              ],
                             ),
                           ],
-                        ),
-                      ],
+                        );
+                        return Flex(
+                          direction: stacked ? Axis.vertical : Axis.horizontal,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: coverWidth,
+                              height: coverWidth / collectionCoverAspectRatio,
+                              child: VideoCover(video: task.video),
+                            ),
+                            SizedBox(
+                              width: stacked ? 0 : 12,
+                              height: stacked ? 12 : 0,
+                            ),
+                            Flexible(flex: stacked ? 0 : 1, child: info),
+                          ],
+                        );
+                      },
                     ),
                     VideoDurationInfo(
                       videoId: task.video.id,

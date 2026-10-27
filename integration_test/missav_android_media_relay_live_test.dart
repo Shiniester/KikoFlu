@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:media_kit/media_kit.dart';
@@ -20,6 +21,7 @@ import 'package:kikoeru_flutter/src/videos/video_models.dart';
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
+  binding.shouldPropagateDevicePointerEvents = true;
   const enabled = bool.fromEnvironment('KIKOFLU_LIVE_MISSAV');
 
   testWidgets(
@@ -36,6 +38,7 @@ void main() {
       HttpOverrides.global = KikoFluHttpOverrides();
       MediaKit.ensureInitialized();
       SharedPreferences.setMockInitialValues({});
+      FlutterSecureStorage.setMockInitialValues({});
 
       final client = MissavClient();
       await client.initialize();

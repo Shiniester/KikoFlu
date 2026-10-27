@@ -20,7 +20,6 @@ import '../utils/audio_source_headers.dart';
 import '../utils/ui_tokens.dart';
 import '../providers/auth_provider.dart';
 import '../providers/collection_layout_provider.dart';
-import '../providers/work_card_display_provider.dart';
 import '../providers/works_provider.dart' show LayoutType;
 import '../providers/download_provider.dart';
 import '../widgets/sort_dialog.dart';
@@ -695,10 +694,6 @@ class LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
     final layoutType = ref.watch(
       collectionLayoutProvider(CollectionLayoutKey.downloads),
     );
-    final cardSize = ref.watch(
-      workCardDisplayProvider.select((settings) => settings.cardSize),
-    );
-
     return Stack(
       children: [
         Positioned.fill(
@@ -707,7 +702,6 @@ class LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
               final metrics = resolveCollectionGridMetrics(
                 context,
                 layoutType: layoutType,
-                cardSize: cardSize,
                 availableWidth: constraints.maxWidth,
                 availableHeight: constraints.maxHeight,
               );
@@ -1043,9 +1037,16 @@ class LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
     return LayoutBuilder(
       builder: (context, constraints) {
         final isList = layoutType == LayoutType.list;
-        final coverWidth = isList
-            ? collectionListCoverSize.width
-            : constraints.maxWidth;
+        final titleStyle = TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          height: 1.3,
+          color: Theme.of(context).colorScheme.onSurface,
+        );
+        final listCoverSize = isList
+            ? collectionListCoverSizeForTitle(context, titleStyle: titleStyle)
+            : null;
+        final coverWidth = isList ? listCoverSize!.width : constraints.maxWidth;
         final radius = collectionCoverRadius(coverWidth);
         final cover = ClipRRect(
           borderRadius: BorderRadius.circular(radius),
@@ -1091,12 +1092,7 @@ class LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
                 work?.title ?? firstTask.workTitle,
                 maxLines: collectionCardTitleMaxLines,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  height: 1.3,
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
+                style: titleStyle,
               ),
               const SizedBox(height: 2),
               Text(
@@ -1215,8 +1211,8 @@ class LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             SizedBox(
-                              width: collectionListCoverSize.width,
-                              height: collectionListCoverSize.height,
+                              width: listCoverSize!.width,
+                              height: listCoverSize.height,
                               child: cover,
                             ),
                             const SizedBox(width: 8),

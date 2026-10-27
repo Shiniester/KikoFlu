@@ -25,6 +25,7 @@ void main() {
     'native player switches inline, fullscreen and picture-in-picture',
     (tester) async {
       MediaKit.ensureInitialized();
+      if (Platform.isWindows) await windowManager.ensureInitialized();
       // Keep the four-second fixture alive during native window transitions.
       SharedPreferences.setMockInitialValues({
         'video_player_v1_repeat_mode': 1,
@@ -41,28 +42,49 @@ void main() {
       await tester.pumpAndSettle();
       final player = Player();
       final session = MediaKitVideoPlaybackSession(player: player);
+      final platform = VideoPlayerPlatform();
+      final playerKey = GlobalKey();
+      var fullscreen = false;
       try {
         await tester.pumpWidget(
           MaterialApp(
             locale: const Locale('zh'),
             localizationsDelegates: S.localizationsDelegates,
             supportedLocales: S.supportedLocales,
-            home: Scaffold(
-              appBar: AppBar(title: const Text('视频详情')),
-              bottomNavigationBar: const SizedBox(
-                height: 48,
-                child: Center(child: Text('音声播放条')),
-              ),
-              body: SafeArea(
-                child: VideoPlaybackPanel(
+            home: StatefulBuilder(
+              builder: (context, setState) {
+                final panel = VideoPlaybackPanel(
+                  key: playerKey,
                   videoId: 'parity-fixture',
                   title: '视频播放',
                   library: library,
                   localPath: file.path,
                   initialVolume: 0,
+                  platform: platform,
                   sessionFactory: () => session,
-                ),
-              ),
+                  onFullscreenChanged: (value) {
+                    if (context.mounted) {
+                      setState(() => fullscreen = value);
+                    }
+                  },
+                );
+                return Scaffold(
+                  appBar: fullscreen ? null : AppBar(title: const Text('视频详情')),
+                  bottomNavigationBar: fullscreen
+                      ? null
+                      : const SizedBox(
+                          height: 48,
+                          child: Center(child: Text('音声播放条')),
+                        ),
+                  body: SafeArea(
+                    top: !fullscreen,
+                    bottom: !fullscreen,
+                    child: fullscreen
+                        ? panel
+                        : SingleChildScrollView(child: panel),
+                  ),
+                );
+              },
             ),
           ),
         );
@@ -101,39 +123,28 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        final inlineSurface = tester.state(find.byType(Video));
+        final detailsRoute = ModalRoute.of(tester.element(find.byType(Video)));
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('video-fullscreen-control')),
+        );
+        await tester.pumpAndSettle();
         await tester.tap(
           find.byKey(const ValueKey('video-fullscreen-control')),
         );
-        await _wait(
-          tester,
-          () => find
-              .byKey(
-                const ValueKey('video-fullscreen-placeholder'),
-                skipOffstage: false,
-              )
-              .evaluate()
-              .isNotEmpty,
-        );
+        await _wait(tester, () => fullscreen);
         await tester.pumpAndSettle();
-        expect(
-          find.byKey(
-            const ValueKey('video-fullscreen-placeholder'),
-            skipOffstage: false,
-          ),
-          findsOneWidget,
-        );
+        expect(detailsRoute?.isCurrent, isTrue);
+        expect(find.text('视频详情'), findsNothing);
+        expect(find.text('音声播放条'), findsNothing);
+        expect(tester.state(find.byType(Video)), same(inlineSurface));
         await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-        await _wait(
-          tester,
-          () => find
-              .byKey(
-                const ValueKey('video-fullscreen-placeholder'),
-                skipOffstage: false,
-              )
-              .evaluate()
-              .isEmpty,
-        );
+        await _wait(tester, () => !fullscreen);
         await tester.pumpAndSettle();
+        expect(detailsRoute?.isCurrent, isTrue);
+        expect(find.text('视频详情'), findsOneWidget);
+        expect(find.text('音声播放条'), findsOneWidget);
+        expect(tester.state(find.byType(Video)), same(inlineSurface));
         expect(player.state.playing, isFalse);
 
         await session.play();
@@ -153,9 +164,7 @@ void main() {
         await _wait(tester, () => find.text('视频详情').evaluate().isEmpty);
         expect(find.text('音声播放条'), findsNothing);
         expect(player.state.playing, isTrue);
-        await const MethodChannel(
-          'com.meteor.kikoeruflutter/video_player',
-        ).invokeMethod<void>('exitPictureInPicture');
+        await platform.exitPictureInPicture();
         await _wait(tester, () => find.text('视频详情').evaluate().isNotEmpty);
         expect(tester.takeException(), isNull);
       } finally {
@@ -164,7 +173,7 @@ void main() {
         library.dispose();
       }
     },
-    skip: fixturePath.isEmpty || !Platform.isAndroid,
+    skip: fixturePath.isEmpty || (!Platform.isAndroid && !Platform.isWindows),
   );
 
   testWidgets(

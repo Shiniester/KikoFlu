@@ -1778,11 +1778,18 @@ void main() {
     await tester.pumpAndSettle();
     final homeSubtitleFilter = container.read(worksProvider).subtitleFilter;
     expect(homeSubtitleFilter, isNot(0));
+    expect(_browseTile(tester, s.sort).onTap, isNotNull);
 
-    for (final mode in [DisplayMode.popular, DisplayMode.recommended]) {
-      container.read(worksProvider.notifier).setDisplayMode(mode);
+    for (final page in ['popular', 'recommended']) {
+      _requestAudioPage(tester, page);
       await tester.pumpAndSettle();
-      expect(_browseTile(tester, 'Sort').onTap, isNull);
+      final options = _audioPageTile(
+        tester,
+        page,
+      ).children.whereType<LibraryDrawerTile>().map((tile) => tile.title);
+      expect(options, isNot(contains(s.sort)));
+      expect(options, contains(s.layout));
+      expect(options, contains(s.subtitleFilter));
     }
 
     _requestAudioPage(tester, 'onlineMarks');

@@ -53,11 +53,14 @@ void main() {
     late BuildContext coverContext;
     await tester.pumpWidget(
       MaterialApp(
-        home: Builder(
-          builder: (context) {
-            coverContext = context;
-            return const SizedBox.shrink();
-          },
+        home: MediaQuery(
+          data: const MediaQueryData(size: Size(390, 844), devicePixelRatio: 2),
+          child: Builder(
+            builder: (context) {
+              coverContext = context;
+              return const SizedBox.shrink();
+            },
+          ),
         ),
       ),
     );
@@ -67,7 +70,8 @@ void main() {
         const [work],
         host: host,
         token: '',
-        crossAxisCount: 2,
+        crossAxisCount: 1,
+        listCoverWidth: 190,
       );
       await controller.whenIdle().timeout(const Duration(seconds: 10));
     });
@@ -76,8 +80,13 @@ void main() {
       work: work,
       host: host,
       token: '',
-      cacheWidth: resolveWorkCoverCacheWidth(coverContext, crossAxisCount: 2),
+      cacheWidth: resolveWorkCoverCacheWidth(
+        coverContext,
+        crossAxisCount: 1,
+        listCoverWidth: 190,
+      ),
     );
+    expect((provider as ResizeImage).width, 380);
     final key = await provider.obtainKey(
       createLocalImageConfiguration(coverContext),
     );
@@ -114,7 +123,7 @@ void main() {
       );
     });
 
-    test('uses the fixed 112dp cover width for list cards', () {
+    test('uses the measured list cover width for list cards', () {
       expect(
         calculateWorkCoverCacheWidth(
           viewportWidth: 390,
@@ -122,10 +131,39 @@ void main() {
           crossAxisCount: 1,
           horizontalPadding: 8,
           crossAxisSpacing: 8,
+          listCoverWidth: 100,
         ),
-        336,
+        300,
       );
     });
+
+    test(
+      'updates list decode width when the measured title height changes',
+      () {
+        expect(
+          calculateWorkCoverCacheWidth(
+            viewportWidth: 390,
+            devicePixelRatio: 2,
+            crossAxisCount: 1,
+            horizontalPadding: 8,
+            crossAxisSpacing: 8,
+            listCoverWidth: 96,
+          ),
+          192,
+        );
+        expect(
+          calculateWorkCoverCacheWidth(
+            viewportWidth: 390,
+            devicePixelRatio: 2,
+            crossAxisCount: 1,
+            horizontalPadding: 8,
+            crossAxisSpacing: 8,
+            listCoverWidth: 180,
+          ),
+          360,
+        );
+      },
+    );
 
     test('uses the full cell width for a single-column grid card', () {
       expect(

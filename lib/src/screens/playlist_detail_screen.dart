@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/playlist_detail_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/playlist_display_provider.dart';
-import '../providers/work_card_display_provider.dart';
 import '../models/playlist.dart';
 import '../models/work.dart';
 import '../services/storage_service.dart';
@@ -424,14 +423,30 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     final metrics = resolveCollectionGridMetrics(
       context,
       layoutType: isMasonry ? LayoutType.bigGrid : LayoutType.list,
-      cardSize: ref.watch(workCardDisplayProvider).cardSize,
     );
     final spacing = metrics.spacing;
     final crossAxisCount = isMasonry ? metrics.crossAxisCount : 1;
     final contentPadding = isMasonry ? metrics.padding.left : 8.0;
+    final listTitleStyle = _playlistWorkTitleStyle(context);
+    final listCoverSize = isMasonry
+        ? null
+        : collectionListCoverSizeForTitle(context, titleStyle: listTitleStyle);
+    final listCoverCacheWidth = listCoverSize == null
+        ? null
+        : resolveWorkCoverCacheWidth(
+            context,
+            crossAxisCount: 1,
+            listCoverWidth: listCoverSize.width,
+          );
 
     return WorkCoverPrefetchScope(
-      sourceKey: (auth.host, auth.token, widget.playlistId, state.works),
+      sourceKey: (
+        auth.host,
+        auth.token,
+        widget.playlistId,
+        state.works,
+        listCoverCacheWidth,
+      ),
       builder: (context, coverPrefetch) => VirtualizedSliverCollection(
         retainedItemCount: 100,
         controller: _scrollController,
@@ -490,8 +505,10 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
           host: auth.host,
           token: auth.token,
           crossAxisCount: isMasonry ? crossAxisCount : 1,
+          listCoverWidth: listCoverSize?.width,
           isListCard: !isMasonry,
         ),
+        prefetchKey: listCoverCacheWidth,
         emptyBuilder: (context) => Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -555,6 +572,10 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     );
   }
 
+  TextStyle? _playlistWorkTitleStyle(BuildContext context) => Theme.of(
+    context,
+  ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600, height: 1.3);
+
   Widget _buildPlaylistWorkCardMasonry(
     Work work,
     bool isOwner, {
@@ -599,11 +620,26 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
   ) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final titleStyle = _playlistWorkTitleStyle(context);
+    final coverSize = collectionListCoverSizeForTitle(
+      context,
+      titleStyle: titleStyle,
+    );
+    final coverCacheWidth = resolveWorkCoverCacheWidth(
+      context,
+      crossAxisCount: 1,
+      listCoverWidth: coverSize.width,
+    );
 
     final httpHeaders = StorageService.serverCookieHeaders;
     final initialCoverImageProvider = host.isEmpty
         ? null
-        : createWorkCoverImageProvider(work: work, host: host, token: token);
+        : createWorkCoverImageProvider(
+            work: work,
+            host: host,
+            token: token,
+            cacheWidth: coverCacheWidth,
+          );
 
     return InkWell(
       onTap: () {
@@ -626,142 +662,152 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
           ),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // 封面图使用统一的图片源
-            WorkCoverClip(
-              cornerRadius: collectionCoverRadius(
-                collectionListCoverSize.width,
-              ),
-              child: PrivacyBlurCover(
-                child: WorkCoverImage(
-                  image: createWorkCoverImageProvider(
-                    work: work,
-                    host: host,
-                    token: token,
-                    headers: httpHeaders,
-                  ),
-                  width: collectionListCoverSize.width,
-                  height: collectionListCoverSize.height,
-                  fadeInDuration: const Duration(milliseconds: 500),
-                  placeholder: (context) => Container(
-                    color: colorScheme.surfaceContainerHighest,
-                    child: Center(
-                      child: Icon(
-                        Icons.image,
-                        color: colorScheme.onSurfaceVariant,
-                        size: 24,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final coverWidth = coverSize.width
+                .clamp(0.0, constraints.maxWidth)
+                .toDouble();
+            final stacked = constraints.maxWidth < coverWidth * 2 + 12;
+            final info = Row(
+              children: [
+                // 信息区域
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // 标题
+                      Text(
+                        work.title,
+                        style: titleStyle,
+                        maxLines: collectionCardTitleMaxLines,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
+                      const SizedBox(height: 4),
+
+                      // 作品编号、社团名和用户评分
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            work.displayId,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.primary,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          if (work.name != null && work.name!.isNotEmpty)
+                            Text(
+                              work.name!,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          if (work.userRating != null && work.userRating! > 0)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: colorScheme.primaryContainer,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.person,
+                                    color: colorScheme.onPrimaryContainer,
+                                    size: 12,
+                                  ),
+                                  const SizedBox(width: 2),
+                                  Icon(
+                                    Icons.star,
+                                    size: 12,
+                                    color: Colors.amber[700],
+                                  ),
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    '${work.userRating}',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: colorScheme.onPrimaryContainer,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
                   ),
-                  errorBuilder: (context, error, stack) => Container(
-                    color: colorScheme.surfaceContainerHighest,
-                    child: Center(
-                      child: Icon(
-                        Icons.broken_image,
-                        color: colorScheme.onSurfaceVariant,
-                        size: 24,
+                ),
+
+                // 移除按钮（仅作者可见）
+                if (isOwner) ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.remove_circle_outline, size: 20),
+                    color: colorScheme.error,
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _showRemoveWorkConfirmDialog(work),
+                    tooltip: S.of(context).removeFromPlaylist,
+                  ),
+                ],
+              ],
+            );
+            return Flex(
+              direction: stacked ? Axis.vertical : Axis.horizontal,
+              crossAxisAlignment: stacked
+                  ? CrossAxisAlignment.start
+                  : CrossAxisAlignment.center,
+              children: [
+                WorkCoverClip(
+                  cornerRadius: collectionCoverRadius(coverWidth),
+                  child: PrivacyBlurCover(
+                    child: WorkCoverImage(
+                      image: createWorkCoverImageProvider(
+                        work: work,
+                        host: host,
+                        token: token,
+                        headers: httpHeaders,
+                        cacheWidth: coverCacheWidth,
+                      ),
+                      width: coverWidth,
+                      height: coverWidth / collectionCoverAspectRatio,
+                      fadeInDuration: const Duration(milliseconds: 500),
+                      placeholder: (context) => Container(
+                        color: colorScheme.surfaceContainerHighest,
+                        child: Center(
+                          child: Icon(
+                            Icons.image,
+                            color: colorScheme.onSurfaceVariant,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                      errorBuilder: (context, error, stack) => Container(
+                        color: colorScheme.surfaceContainerHighest,
+                        child: Center(
+                          child: Icon(
+                            Icons.broken_image,
+                            color: colorScheme.onSurfaceVariant,
+                            size: 24,
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 12),
-
-            // 信息区域
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // 标题
-                  Text(
-                    work.title,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      height: 1.3,
-                    ),
-                    maxLines: collectionCardTitleMaxLines,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-
-                  // 作品编号、社团名和用户评分
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 4,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      Text(
-                        work.displayId,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.primary,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      if (work.name != null && work.name!.isNotEmpty)
-                        Text(
-                          work.name!,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      if (work.userRating != null && work.userRating! > 0)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            color: colorScheme.primaryContainer,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.person,
-                                color: colorScheme.onPrimaryContainer,
-                                size: 12,
-                              ),
-                              const SizedBox(width: 2),
-                              Icon(
-                                Icons.star,
-                                size: 12,
-                                color: Colors.amber[700],
-                              ),
-                              const SizedBox(width: 2),
-                              Text(
-                                '${work.userRating}',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: colorScheme.onPrimaryContainer,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            // 移除按钮（仅作者可见）
-            if (isOwner) ...[
-              const SizedBox(width: 8),
-              IconButton(
-                icon: const Icon(Icons.remove_circle_outline, size: 20),
-                color: colorScheme.error,
-                visualDensity: VisualDensity.compact,
-                onPressed: () => _showRemoveWorkConfirmDialog(work),
-                tooltip: S.of(context).removeFromPlaylist,
-              ),
-            ],
-          ],
+                SizedBox(width: stacked ? 0 : 12, height: stacked ? 12 : 0),
+                Flexible(flex: stacked ? 0 : 1, child: info),
+              ],
+            );
+          },
         ),
       ),
     );

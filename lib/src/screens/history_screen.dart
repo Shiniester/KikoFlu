@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/history_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/collection_layout_provider.dart';
-import '../providers/work_card_display_provider.dart';
 import '../utils/work_cover_prefetch.dart';
 import '../utils/collection_grid_layout.dart';
 import '../utils/scroll_optimization.dart';
@@ -109,9 +108,6 @@ class _HistoryContent extends ConsumerWidget {
     final layoutType = ref.watch(
       collectionLayoutProvider(CollectionLayoutKey.history),
     );
-    final cardSize = ref.watch(
-      workCardDisplayProvider.select((settings) => settings.cardSize),
-    );
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -120,12 +116,24 @@ class _HistoryContent extends ConsumerWidget {
           final metrics = resolveCollectionGridMetrics(
             context,
             layoutType: layoutType,
-            cardSize: cardSize,
             availableWidth: constraints.maxWidth,
             availableHeight: constraints.maxHeight,
           );
+          final listCoverSize = layoutType == LayoutType.list
+              ? collectionListCoverSizeForTitle(
+                  context,
+                  titleStyle: historyWorkCardTitleStyle(context),
+                )
+              : null;
+          final listCoverCacheWidth = listCoverSize == null
+              ? null
+              : resolveWorkCoverCacheWidth(
+                  context,
+                  crossAxisCount: 1,
+                  listCoverWidth: listCoverSize.width,
+                );
           return WorkCoverPrefetchScope(
-            sourceKey: (auth, history),
+            sourceKey: (auth, history, listCoverCacheWidth),
             builder: (context, coverPrefetch) => VirtualizedSliverCollection(
               retainedItemCount: 100,
               items: history,
@@ -169,8 +177,10 @@ class _HistoryContent extends ConsumerWidget {
                 host: auth.host,
                 token: auth.token,
                 crossAxisCount: metrics.crossAxisCount,
+                listCoverWidth: listCoverSize?.width,
                 isListCard: layoutType == LayoutType.list,
               ),
+              prefetchKey: listCoverCacheWidth,
               emptyBuilder: (context) => historyState.isLoading
                   ? const SizedBox.shrink()
                   : Center(

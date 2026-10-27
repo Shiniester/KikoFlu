@@ -23,6 +23,10 @@ _Avoid_: Video player, source website
 The presentation of video cards as a big grid, small grid, or list.
 _Avoid_: Video playback mode
 
+**Four-line Card Title Height (作品卡片四行标题高度)**:
+作品卡片采用当前字体、字号、行高和系统文字缩放时，4 行标题占用的高度。
+该高度与单个标题实际显示的行数无关。
+
 **Video Catalog Number (作品番号)**:
 The identifier assigned to a video work, independent of a Video Source's page
 identifier and version labels such as subtitle or uncensored variants.
@@ -65,7 +69,8 @@ network. It is separate from signing in to a Video Source Account.
 _Avoid_: Video account login
 
 **Video Details Screen (视频详情页)**:
-The app page describing one video's information and related recommendations.
+The app page containing one video's inline Video Player, information, and related
+recommendations.
 _Avoid_: Video Screen, source website
 
 **Video Basic Information (视频基础信息)**:
@@ -87,6 +92,10 @@ _Avoid_: Video Screen, Video Details Screen
 Preferences controlling a Video Player's playback and interactions. They are
 separate from the video card fields shown while browsing.
 _Avoid_: Video card settings
+
+**Video First Frame Wait (视频首帧等待)**:
+从触发视频卡片或播放器播放按钮，到视频播放器显示首个可见视频画面的时间。
+视频自带的片头黑场也会延长这段等待。
 
 **Video Controls (视频控制层)**:
 The Video Player's title bar, progress control, and playback actions shown over

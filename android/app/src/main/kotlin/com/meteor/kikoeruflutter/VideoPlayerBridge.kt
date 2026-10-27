@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.app.RemoteAction
+import android.graphics.Point
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.BatteryManager
@@ -16,7 +17,11 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.util.Rational
+import android.view.Display
+import android.view.OrientationEventListener
+import android.view.Surface
 import android.view.View
+import android.view.ViewTreeObserver
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
@@ -26,7 +31,6 @@ import androidx.annotation.ChecksSdkIntAtLeast
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.core.view.OneShotPreDrawListener
 
 class VideoPlayerBridge(private val activity: Activity, messenger: BinaryMessenger,
     private val updateKeepScreenOn: (Boolean) -> Unit) :
@@ -37,7 +41,21 @@ class VideoPlayerBridge(private val activity: Activity, messenger: BinaryMesseng
     private var pendingEnter: MethodChannel.Result? = null
     private var pendingBrightnessPermission: MethodChannel.Result? = null
     private var pendingWindowLayout: MethodChannel.Result? = null
-    private var windowLayoutListener: OneShotPreDrawListener? = null
+    private var windowLayoutObserver: ViewTreeObserver? = null
+    private var windowLayoutListener: ViewTreeObserver.OnPreDrawListener? = null
+    private var windowLayoutTimeout: Runnable? = null
+    private var deviceOrientation: Int? = null
+    private var fullscreenEntryPortrait: Boolean? = null
+    private val orientationListener = object : OrientationEventListener(activity) {
+        override fun onOrientationChanged(orientation: Int) {
+            if (orientation != ORIENTATION_UNKNOWN || deviceOrientation == null) {
+                deviceOrientation = orientation
+            }
+            if (pendingWindowLayout != null) {
+                activity.findViewById<View>(FlutterActivity.FLUTTER_VIEW_ID)?.invalidate()
+            }
+        }
+    }
     private var systemBrightnessMode = false
     private var originalOrientation: Int? = null
     private var fullscreenStatusBarHidden = false
@@ -273,21 +291,89 @@ class VideoPlayerBridge(private val activity: Activity, messenger: BinaryMesseng
         pendingWindowLayout = result
         view.post {
             if (pendingWindowLayout !== result) return@post
-            windowLayoutListener = OneShotPreDrawListener.add(view) {
-                windowLayoutListener = null
-                pendingWindowLayout = null
-                result.success(if (view.width > 0 && view.height > 0) view.height >= view.width else null)
+            val observer = view.viewTreeObserver
+            val listener = ViewTreeObserver.OnPreDrawListener {
+                if (pendingWindowLayout !== result) return@OnPreDrawListener true
+                val naturalPortrait = phoneNaturalPortrait()
+                val autoRotate = Settings.System.getInt(
+                    activity.contentResolver, Settings.System.ACCELEROMETER_ROTATION, 1
+                ) != 0
+                if (naturalPortrait != null && autoRotate && deviceOrientation == null &&
+                    orientationListener.canDetectOrientation()
+                ) {
+                    return@OnPreDrawListener true
+                }
+                val targetPortrait = naturalPortrait?.let {
+                    restoredVideoPortrait(
+                        it, autoRotate,
+                        Settings.System.getInt(activity.contentResolver, Settings.System.USER_ROTATION, 0),
+                        deviceOrientation, fullscreenEntryPortrait
+                    )
+                }
+                val actualPortrait = windowPortrait(view)
+                if (targetPortrait != null && actualPortrait != targetPortrait) {
+                    return@OnPreDrawListener true
+                }
+                completeWindowLayout(actualPortrait)
+                true
             }
+            windowLayoutObserver = observer
+            windowLayoutListener = listener
+            observer.addOnPreDrawListener(listener)
+            // The system can ignore orientation requests; keep exit cancellation bounded.
+            val timeout = Runnable {
+                if (pendingWindowLayout === result) completeWindowLayout(windowPortrait(view))
+            }
+            windowLayoutTimeout = timeout
+            handler.postDelayed(timeout, 2000)
             view.requestLayout()
             view.invalidate()
         }
     }
 
-    private fun clearWindowLayout() {
-        windowLayoutListener?.removeListener()
-        windowLayoutListener = null
-        pendingWindowLayout?.success(null)
+    @Suppress("DEPRECATION")
+    private fun phoneNaturalPortrait(): Boolean? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
+            (activity.isInMultiWindowMode || activity.isInPictureInPictureMode)
+        ) return null
+
+        val display = activity.windowManager.defaultDisplay
+        if (display.displayId != Display.DEFAULT_DISPLAY) return null
+        if (activity.window.decorView.display?.displayId != display.displayId) return null
+        val size = Point()
+        display.getRealSize(size)
+        if (minOf(size.x, size.y) / activity.resources.displayMetrics.density >= 600f) return null
+
+        val currentPortrait = size.y >= size.x
+        val rotated = display.rotation == Surface.ROTATION_90 || display.rotation == Surface.ROTATION_270
+        return currentPortrait != rotated
+    }
+
+    private fun windowPortrait(view: View): Boolean? =
+        if (view.isAttachedToWindow && view.width > 0 && view.height > 0) view.height >= view.width
+        else null
+
+    private fun completeWindowLayout(portrait: Boolean?) {
+        val result = pendingWindowLayout
         pendingWindowLayout = null
+        removeWindowLayoutListener()
+        result?.success(portrait)
+    }
+
+    private fun removeWindowLayoutListener() {
+        windowLayoutTimeout?.let(handler::removeCallbacks)
+        windowLayoutTimeout = null
+        val observer = windowLayoutObserver
+        val listener = windowLayoutListener
+        if (observer?.isAlive == true && listener != null) {
+            observer.removeOnPreDrawListener(listener)
+        }
+        windowLayoutObserver = null
+        windowLayoutListener = null
+    }
+
+    private fun clearWindowLayout() {
+        completeWindowLayout(null)
     }
 
     private fun resetOrientation() {
@@ -315,11 +401,20 @@ class VideoPlayerBridge(private val activity: Activity, messenger: BinaryMesseng
         if (!hidden && !fullscreenStatusBarHidden) return
         val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
         if (hidden) {
-            if (!fullscreenStatusBarHidden) originalSystemBarsBehavior = controller.systemBarsBehavior
+            if (!fullscreenStatusBarHidden) {
+                originalSystemBarsBehavior = controller.systemBarsBehavior
+                fullscreenEntryPortrait = activity.findViewById<View>(FlutterActivity.FLUTTER_VIEW_ID)
+                    ?.let(::windowPortrait)
+                deviceOrientation = null
+                orientationListener.enable()
+            }
             fullscreenStatusBarHidden = true
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             controller.hide(WindowInsetsCompat.Type.statusBars())
         } else {
+            orientationListener.disable()
+            deviceOrientation = null
+            fullscreenEntryPortrait = null
             fullscreenStatusBarHidden = false
             controller.show(WindowInsetsCompat.Type.statusBars())
             originalSystemBarsBehavior?.let { controller.systemBarsBehavior = it }

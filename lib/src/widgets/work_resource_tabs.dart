@@ -14,7 +14,6 @@ import '../models/audio_track.dart';
 import '../providers/auth_provider.dart';
 import '../providers/player_subtitle_candidates_provider.dart';
 import '../providers/settings_provider.dart';
-import '../providers/work_card_display_provider.dart';
 import '../providers/work_detail_display_provider.dart';
 import '../providers/works_provider.dart' show LayoutType;
 import '../services/audio_subtitle_generation_service.dart';
@@ -1078,7 +1077,6 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
               final metrics = resolveCollectionGridMetrics(
                 context,
                 layoutType: LayoutType.bigGrid,
-                cardSize: WorkCardSize.normal,
                 availableWidth: constraints.crossAxisExtent,
                 padding: EdgeInsets.zero,
               );

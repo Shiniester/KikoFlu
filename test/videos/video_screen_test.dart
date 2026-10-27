@@ -1835,7 +1835,13 @@ void main() {
         ),
       ],
     );
-    for (final size in [const Size(320, 800), const Size(1280, 800)]) {
+    final s = await S.delegate.load(const Locale('en'));
+    for (final (size, textScale) in [
+      (const Size(320, 800), 1.3),
+      (const Size(1280, 800), 1.3),
+      (const Size(320, 800), 2.5),
+      (const Size(1280, 800), 2.5),
+    ]) {
       tester.view.physicalSize = size;
       await tester.pumpWidget(
         _app(
@@ -1843,7 +1849,7 @@ void main() {
           library,
           downloads,
           const VideoDownloadsScreen(),
-          textScale: 1.3,
+          textScale: textScale,
         ),
       );
       await tester.pumpAndSettle();
@@ -1874,7 +1880,10 @@ void main() {
         const ValueKey('video-cover-download-duration'),
       );
       final cover = tester.getRect(coverFinder);
-      expect(tester.getSize(coverFinder), const Size(112, 84));
+      expect(cover.width / cover.height, closeTo(4 / 3, 0.001));
+      if (size.width == 320) {
+        expect(cover.height, closeTo(title.height, 0.1));
+      }
       expect(find.text('01:02:03'), findsOneWidget);
       expect(duration.top, greaterThan(title.bottom));
       expect(duration.top, greaterThan(cover.bottom));
@@ -1883,7 +1892,29 @@ void main() {
         duration.top,
         greaterThan(tester.getRect(find.text('Queued · 720p')).bottom),
       );
-      expect(tester.takeException(), isNull, reason: '$size');
+      for (final icon in [Icons.pause, Icons.delete_outline]) {
+        final button = find.descendant(
+          of: card,
+          matching: find.widgetWithIcon(IconButton, icon),
+        );
+        final bounds = tester.getRect(button);
+        expect(bounds.left, greaterThanOrEqualTo(surface.left));
+        expect(bounds.right, lessThanOrEqualTo(surface.right));
+        expect(bounds.bottom, lessThanOrEqualTo(surface.bottom));
+      }
+      expect(tester.takeException(), isNull, reason: '$size at $textScale');
+
+      final delete = find.descendant(
+        of: card,
+        matching: find.widgetWithIcon(IconButton, Icons.delete_outline),
+      );
+      await tester.ensureVisible(delete);
+      await tester.pumpAndSettle();
+      await tester.tap(delete);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      await tester.tap(find.text(s.cancel));
+      await tester.pumpAndSettle();
     }
   });
 

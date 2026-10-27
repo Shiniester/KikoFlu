@@ -2896,12 +2896,6 @@ abstract class S {
   /// **'Show Price'**
   String get showPrice;
 
-  /// No description provided for @cardSize.
-  ///
-  /// In en, this message translates to:
-  /// **'Card Size'**
-  String get cardSize;
-
   /// No description provided for @compact.
   ///
   /// In en, this message translates to:
@@ -6568,60 +6562,6 @@ abstract class S {
   /// **'Show work\'s circle'**
   String get showWorkCircle;
 
-  /// No description provided for @workCardSizeSubtitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Adjust grid density to make covers larger or keep the current size'**
-  String get workCardSizeSubtitle;
-
-  /// No description provided for @workCardFontSize.
-  ///
-  /// In en, this message translates to:
-  /// **'Card Text Size'**
-  String get workCardFontSize;
-
-  /// No description provided for @workCardFontSizeSubtitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Adjust title and metadata text on work cards'**
-  String get workCardFontSizeSubtitle;
-
-  /// No description provided for @cardSizeNormal.
-  ///
-  /// In en, this message translates to:
-  /// **'Normal'**
-  String get cardSizeNormal;
-
-  /// No description provided for @cardSizeLarge.
-  ///
-  /// In en, this message translates to:
-  /// **'Large'**
-  String get cardSizeLarge;
-
-  /// No description provided for @cardSizeExtraLarge.
-  ///
-  /// In en, this message translates to:
-  /// **'XL'**
-  String get cardSizeExtraLarge;
-
-  /// No description provided for @fontSizeNormal.
-  ///
-  /// In en, this message translates to:
-  /// **'Normal'**
-  String get fontSizeNormal;
-
-  /// No description provided for @fontSizeLarge.
-  ///
-  /// In en, this message translates to:
-  /// **'Large'**
-  String get fontSizeLarge;
-
-  /// No description provided for @fontSizeExtraLarge.
-  ///
-  /// In en, this message translates to:
-  /// **'XL'**
-  String get fontSizeExtraLarge;
-
   /// No description provided for @showSubtitleTagOnCard.
   ///
   /// In en, this message translates to:
@@ -7870,23 +7810,17 @@ abstract class S {
   /// **'Directors'**
   String get videoCardDirectors;
 
-  /// Heading for makers or studios on a video details screen
-  ///
-  /// In en, this message translates to:
-  /// **'Studio'**
-  String get videoDetailMakers;
-
-  /// Heading for release labels on a video details screen
-  ///
-  /// In en, this message translates to:
-  /// **'Label'**
-  String get videoDetailLabels;
-
   /// Heading for actors on a video details screen
   ///
   /// In en, this message translates to:
   /// **'Actors'**
   String get videoDetailActors;
+
+  /// Combined heading for linked studios, labels, and series on video details
+  ///
+  /// In en, this message translates to:
+  /// **'Studio | Label | Series'**
+  String get videoDetailCreators;
 
   /// No description provided for @videoSearchHint.
   ///

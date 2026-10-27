@@ -519,7 +519,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
               onTap: () =>
                   ref.read(worksProvider.notifier).toggleSubtitleFilter(),
             ),
-          if (source != AudioSource.jpAsmr)
+          if (source != AudioSource.jpAsmr && displayMode == DisplayMode.all)
             LibraryDrawerTile(
               icon: Icons.sort,
               title: s.sort,
@@ -528,9 +528,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              onTap: displayMode == DisplayMode.all
-                  ? _showWorksSortDialog
-                  : null,
+              onTap: _showWorksSortDialog,
             ),
           if (source == AudioSource.jpAsmr && displayMode == DisplayMode.all)
             LibraryDrawerTile(

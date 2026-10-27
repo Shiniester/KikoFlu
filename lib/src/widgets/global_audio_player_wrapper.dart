@@ -8,11 +8,13 @@ import 'mini_player.dart';
 class GlobalAudioPlayerWrapper extends ConsumerWidget {
   final Widget child;
   final bool showMiniPlayer;
+  final double? miniPlayerHeightFactor;
 
   const GlobalAudioPlayerWrapper({
     super.key,
     required this.child,
     this.showMiniPlayer = true,
+    this.miniPlayerHeightFactor,
   });
 
   @override
@@ -28,7 +30,16 @@ class GlobalAudioPlayerWrapper extends ConsumerWidget {
       body: Column(
         children: [
           Expanded(child: child),
-          if (showMiniPlayer) miniPlayer,
+          if (showMiniPlayer)
+            miniPlayerHeightFactor == null
+                ? miniPlayer
+                : ClipRect(
+                    child: Align(
+                      heightFactor: miniPlayerHeightFactor,
+                      alignment: Alignment.bottomCenter,
+                      child: miniPlayer,
+                    ),
+                  ),
         ],
       ),
     );

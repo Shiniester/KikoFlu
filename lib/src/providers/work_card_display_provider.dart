@@ -1,51 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum WorkCardSize {
-  normal('normal', 0),
-  large('large', 1),
-  extraLarge('extra_large', 2);
-
-  const WorkCardSize(this.value, this.columnReduction);
-
-  final String value;
-  final int columnReduction;
-
-  int applyToCrossAxisCount(int crossAxisCount, {int minCrossAxisCount = 1}) {
-    final minCount = minCrossAxisCount.clamp(1, crossAxisCount).toInt();
-    return (crossAxisCount - columnReduction)
-        .clamp(minCount, crossAxisCount)
-        .toInt();
-  }
-
-  static WorkCardSize fromValue(String? value) {
-    return WorkCardSize.values.firstWhere(
-      (size) => size.value == value,
-      orElse: () => WorkCardSize.normal,
-    );
-  }
-}
-
-enum WorkCardFontScale {
-  normal('normal', 1.0),
-  large('large', 1.12),
-  extraLarge('extra_large', 1.24);
-
-  const WorkCardFontScale(this.value, this.multiplier);
-
-  final String value;
-  final double multiplier;
-
-  double apply(double fontSize) => fontSize * multiplier;
-
-  static WorkCardFontScale fromValue(String? value) {
-    return WorkCardFontScale.values.firstWhere(
-      (scale) => scale.value == value,
-      orElse: () => WorkCardFontScale.normal,
-    );
-  }
-}
-
 /// 作品卡片显示设置
 class WorkCardDisplaySettings {
   final bool showRating;
@@ -57,8 +12,6 @@ class WorkCardDisplaySettings {
   final bool showSubtitleTag;
   final bool showUserAddedTags;
   final bool showAgeRating;
-  final WorkCardSize cardSize;
-  final WorkCardFontScale fontScale;
 
   const WorkCardDisplaySettings({
     this.showRating = true,
@@ -70,8 +23,6 @@ class WorkCardDisplaySettings {
     this.showSubtitleTag = true,
     this.showUserAddedTags = false,
     this.showAgeRating = false,
-    this.cardSize = WorkCardSize.normal,
-    this.fontScale = WorkCardFontScale.normal,
   });
 
   WorkCardDisplaySettings copyWith({
@@ -84,8 +35,6 @@ class WorkCardDisplaySettings {
     bool? showSubtitleTag,
     bool? showUserAddedTags,
     bool? showAgeRating,
-    WorkCardSize? cardSize,
-    WorkCardFontScale? fontScale,
   }) {
     return WorkCardDisplaySettings(
       showRating: showRating ?? this.showRating,
@@ -97,20 +46,7 @@ class WorkCardDisplaySettings {
       showSubtitleTag: showSubtitleTag ?? this.showSubtitleTag,
       showUserAddedTags: showUserAddedTags ?? this.showUserAddedTags,
       showAgeRating: showAgeRating ?? this.showAgeRating,
-      cardSize: cardSize ?? this.cardSize,
-      fontScale: fontScale ?? this.fontScale,
     );
-  }
-
-  int applyCardSize(int crossAxisCount, {int minCrossAxisCount = 1}) {
-    return cardSize.applyToCrossAxisCount(
-      crossAxisCount,
-      minCrossAxisCount: minCrossAxisCount,
-    );
-  }
-
-  double scaleFontSize(double fontSize) {
-    return fontScale.apply(fontSize);
   }
 }
 
@@ -126,8 +62,6 @@ class WorkCardDisplayNotifier extends StateNotifier<WorkCardDisplaySettings> {
   static const String _keySubtitleTag = '${_keyPrefix}subtitle_tag';
   static const String keyUserAddedTags = '${_keyPrefix}user_added_tags';
   static const String keyAgeRating = '${_keyPrefix}age_rating';
-  static const String keyCardSize = '${_keyPrefix}card_size';
-  static const String keyFontScale = '${_keyPrefix}font_scale';
 
   final Set<String> _dirtyKeys = {};
 
@@ -150,8 +84,6 @@ class WorkCardDisplayNotifier extends StateNotifier<WorkCardDisplaySettings> {
         showSubtitleTag: prefs.getBool(_keySubtitleTag) ?? true,
         showUserAddedTags: prefs.getBool(keyUserAddedTags) ?? false,
         showAgeRating: prefs.getBool(keyAgeRating) ?? false,
-        cardSize: WorkCardSize.fromValue(prefs.getString(keyCardSize)),
-        fontScale: WorkCardFontScale.fromValue(prefs.getString(keyFontScale)),
       );
 
       if (_dirtyKeys.isEmpty) {
@@ -179,8 +111,6 @@ class WorkCardDisplayNotifier extends StateNotifier<WorkCardDisplaySettings> {
         showAgeRating: _dirtyKeys.contains(keyAgeRating)
             ? state.showAgeRating
             : null,
-        cardSize: _dirtyKeys.contains(keyCardSize) ? state.cardSize : null,
-        fontScale: _dirtyKeys.contains(keyFontScale) ? state.fontScale : null,
       );
       _dirtyKeys.clear();
     } catch (e) {
@@ -259,16 +189,6 @@ class WorkCardDisplayNotifier extends StateNotifier<WorkCardDisplaySettings> {
     await _saveSettings();
   }
 
-  Future<void> updateCardSize(WorkCardSize cardSize) async {
-    _applyLocalChange(state.copyWith(cardSize: cardSize), keyCardSize);
-    await _saveSettings();
-  }
-
-  Future<void> updateFontScale(WorkCardFontScale fontScale) async {
-    _applyLocalChange(state.copyWith(fontScale: fontScale), keyFontScale);
-    await _saveSettings();
-  }
-
   Future<void> resetToDefault() async {
     _dirtyKeys.addAll({
       _keyRating,
@@ -280,8 +200,6 @@ class WorkCardDisplayNotifier extends StateNotifier<WorkCardDisplaySettings> {
       _keySubtitleTag,
       keyUserAddedTags,
       keyAgeRating,
-      keyCardSize,
-      keyFontScale,
     });
     state = const WorkCardDisplaySettings();
     await _saveSettings();
@@ -299,8 +217,6 @@ class WorkCardDisplayNotifier extends StateNotifier<WorkCardDisplaySettings> {
       await prefs.setBool(_keySubtitleTag, state.showSubtitleTag);
       await prefs.setBool(keyUserAddedTags, state.showUserAddedTags);
       await prefs.setBool(keyAgeRating, state.showAgeRating);
-      await prefs.setString(keyCardSize, state.cardSize.value);
-      await prefs.setString(keyFontScale, state.fontScale.value);
     } catch (e) {
       // 保存失败时静默处理
     }

@@ -162,6 +162,7 @@ class VirtualizedSliverCollection<T> extends StatefulWidget {
     this.showEndIndicator = true,
     this.onVisibleItemsChanged,
     this.onPrefetch,
+    this.prefetchKey,
     this.prefetchItemCount = 6,
     this.nearEndExtent = 720,
     this.scrollCacheExtent,
@@ -217,6 +218,7 @@ class VirtualizedSliverCollection<T> extends StatefulWidget {
   final bool showEndIndicator;
   final ValueChanged<List<VirtualizedVisibleItem<T>>>? onVisibleItemsChanged;
   final ValueChanged<List<T>>? onPrefetch;
+  final Object? prefetchKey;
   final int prefetchItemCount;
   final double nearEndExtent;
 
@@ -294,6 +296,9 @@ class _VirtualizedSliverCollectionState<T>
         _indexedItemCount != widget.items.length) {
       _rebuildIndex();
       _prefetchedIds.removeWhere((id) => !_indexById.containsKey(id));
+    }
+    if (oldWidget.prefetchKey != widget.prefetchKey) {
+      _prefetchedIds.clear();
     }
     _scheduleInspection();
   }

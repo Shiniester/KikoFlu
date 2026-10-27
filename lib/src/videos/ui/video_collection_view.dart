@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/app_localizations.dart';
-import '../../providers/work_card_display_provider.dart';
 import '../../providers/works_provider.dart';
 import '../../utils/collection_grid_layout.dart';
 import '../../utils/string_utils.dart';
@@ -19,6 +18,16 @@ typedef VideoCoverImageCallback =
 typedef VideoCoverRetryCallback = void Function(VideoCoverImageKey key);
 typedef VideoVisibleItemsChanged<T> =
     void Function(List<T> items, int? coverCacheWidth);
+
+TextStyle? videoCollectionListTitleStyle(BuildContext context) {
+  final isLandscape =
+      MediaQuery.orientationOf(context) == Orientation.landscape;
+  return Theme.of(context).textTheme.titleSmall?.copyWith(
+    fontWeight: FontWeight.bold,
+    height: 1.3,
+    fontSize: isLandscape ? 16.0 : 14.0,
+  );
+}
 
 class VideoCollectionView<T> extends StatelessWidget {
   const VideoCollectionView({
@@ -54,7 +63,6 @@ class VideoCollectionView<T> extends StatelessWidget {
       final metrics = resolveCollectionGridMetrics(
         context,
         layoutType: layoutType,
-        cardSize: WorkCardSize.normal,
         padding: collectionCardPadding(context, padding: padding),
         availableWidth: constraints.maxWidth,
         availableHeight: constraints.hasBoundedHeight
@@ -62,12 +70,18 @@ class VideoCollectionView<T> extends StatelessWidget {
             : MediaQuery.sizeOf(context).height,
       );
       final isGrid = layoutType != LayoutType.list;
+      final listCoverSize = isGrid
+          ? null
+          : collectionListCoverSizeForTitle(
+              context,
+              titleStyle: videoCollectionListTitleStyle(context),
+            );
       final coverWidth = isGrid
           ? (constraints.maxWidth -
                     metrics.padding.horizontal -
                     metrics.spacing * (metrics.crossAxisCount - 1)) /
                 metrics.crossAxisCount
-          : collectionListCoverSize.width;
+          : listCoverSize!.width;
       final coverCacheWidth = _videoCoverCacheWidth(context, coverWidth);
       onCoverCacheWidthChanged?.call(coverCacheWidth);
       return VirtualizedSliverCollection<T>(
@@ -132,9 +146,7 @@ class VideoCard extends ConsumerWidget {
         final isCompact =
             layoutType == LayoutType.smallGrid ||
             (layoutType == LayoutType.bigGrid && constraints.maxWidth < 160);
-        final titleFontSize = isList
-            ? (isLandscape ? 16.0 : 14.0)
-            : isCompact
+        final titleFontSize = isCompact
             ? (isLandscape ? 13.5 : 11.0)
             : (isLandscape ? 14.5 : 12.0);
         final bodyFontSize = isList
@@ -143,15 +155,21 @@ class VideoCard extends ConsumerWidget {
         final chipFontSize = isList
             ? bodyFontSize
             : (isLandscape ? 13.0 : 10.0);
+        final titleStyle = isList
+            ? videoCollectionListTitleStyle(context)
+            : Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                height: 1.1,
+                fontSize: titleFontSize,
+              );
+        final listCoverSize = isList
+            ? collectionListCoverSizeForTitle(context, titleStyle: titleStyle)
+            : null;
         final title = Text(
           video.title,
           maxLines: collectionCardTitleMaxLines,
           overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.bold,
-            height: isList ? 1.3 : 1.1,
-            fontSize: titleFontSize,
-          ),
+          style: titleStyle,
         );
         return Card(
           margin: isList
@@ -177,7 +195,7 @@ class VideoCard extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             SizedBox.fromSize(
-                              size: collectionListCoverSize,
+                              size: listCoverSize!,
                               child: VideoCover(
                                 video: video,
                                 onImageTerminal: onCoverTerminal,

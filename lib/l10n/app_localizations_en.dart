@@ -1521,9 +1521,6 @@ class SEn extends S {
   String get showPrice => 'Show Price';
 
   @override
-  String get cardSize => 'Card Size';
-
-  @override
   String get compact => 'Compact';
 
   @override
@@ -3695,35 +3692,6 @@ class SEn extends S {
   String get showWorkCircle => 'Show work\'s circle';
 
   @override
-  String get workCardSizeSubtitle =>
-      'Adjust grid density to make covers larger or keep the current size';
-
-  @override
-  String get workCardFontSize => 'Card Text Size';
-
-  @override
-  String get workCardFontSizeSubtitle =>
-      'Adjust title and metadata text on work cards';
-
-  @override
-  String get cardSizeNormal => 'Normal';
-
-  @override
-  String get cardSizeLarge => 'Large';
-
-  @override
-  String get cardSizeExtraLarge => 'XL';
-
-  @override
-  String get fontSizeNormal => 'Normal';
-
-  @override
-  String get fontSizeLarge => 'Large';
-
-  @override
-  String get fontSizeExtraLarge => 'XL';
-
-  @override
   String get showSubtitleTagOnCard => 'Show subtitle tag on work card';
 
   @override
@@ -4420,13 +4388,10 @@ class SEn extends S {
   String get videoCardDirectors => 'Directors';
 
   @override
-  String get videoDetailMakers => 'Studio';
-
-  @override
-  String get videoDetailLabels => 'Label';
-
-  @override
   String get videoDetailActors => 'Actors';
+
+  @override
+  String get videoDetailCreators => 'Studio | Label | Series';
 
   @override
   String get videoSearchHint => 'Search videos';

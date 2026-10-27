@@ -16,6 +16,7 @@ import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/utils/work_cover_prefetch.dart';
+import 'package:kikoeru_flutter/src/utils/collection_grid_layout.dart';
 import 'package:kikoeru_flutter/src/widgets/enhanced_work_card.dart';
 import 'package:kikoeru_flutter/src/widgets/history_work_card.dart';
 import 'package:kikoeru_flutter/src/widgets/virtualized_sliver_collection.dart';
@@ -98,6 +99,23 @@ void main() {
             await directory.delete(recursive: true);
           });
           final navigator = GlobalKey<NavigatorState>();
+          var listCoverWidth = 0.0;
+          if (columns == 1) {
+            await tester.pumpWidget(
+              MaterialApp(
+                theme: ThemeData(platform: TargetPlatform.android),
+                home: Builder(
+                  builder: (context) {
+                    listCoverWidth = collectionListCoverSizeForTitle(
+                      context,
+                      titleStyle: enhancedWorkCardListTitleStyle(context),
+                    ).width;
+                    return const SizedBox.shrink();
+                  },
+                ),
+              ),
+            );
+          }
           await tester.runAsync(() async {
             for (var id = 0; id < 3; id++) {
               final ImageProvider provider = kind == 'local'
@@ -114,6 +132,9 @@ void main() {
                               crossAxisCount: columns,
                               horizontalPadding: 8,
                               crossAxisSpacing: 8,
+                              listCoverWidth: columns == 1
+                                  ? listCoverWidth
+                                  : null,
                               isListCard: columns == 1,
                             ),
                     );
@@ -167,6 +188,9 @@ void main() {
                                             : resolveWorkCoverCacheWidth(
                                                 context,
                                                 crossAxisCount: columns,
+                                                listCoverWidth: columns == 1
+                                                    ? listCoverWidth
+                                                    : null,
                                                 isListCard: columns == 1,
                                               ),
                                       ),
