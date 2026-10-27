@@ -120,9 +120,11 @@ void main() {
 
     trackChanges.add(_track('track-1', 'track01.mp3'));
     await _waitForLyricText(container, 'first line');
+    expect(container.read(lyricControllerProvider).trackKey, '123:track-1');
 
     trackChanges.add(_track('track-2', 'track02.mp3'));
     await _waitForLyricText(container, 'second line');
+    expect(container.read(lyricControllerProvider).trackKey, '123:track-2');
 
     autoLoaderSubscription.close();
   });

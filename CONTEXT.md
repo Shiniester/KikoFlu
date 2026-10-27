@@ -248,6 +248,12 @@ The vertical anchor in the Player Lyrics Page where the current lyric or
 selected search result is positioned while the player follows it.
 _Avoid_: Center line, current line
 
+**Playback Line Time (播放行时间)**:
+The start time, on the current track's timeline, of the subtitle indicated by
+the Playback Line. It can differ from the actual playback position while
+browsing or searching subtitles.
+_Avoid_: Playback position, playback clock
+
 **Repeat Mode (循环模式)**:
 The playback rule that governs natural track completion and manual previous or
 next navigation: sequential playback, single-track repeat, or queue repeat.
@@ -265,6 +271,31 @@ _Avoid_: Cover transition, title animation
 Moving to a selected time within the current track from the player's progress
 control or lyrics. The current track and its queue position remain the same.
 _Avoid_: Track Switch, 曲目切换
+
+**Audio Slice (音频切片)**:
+A saved start and end range within one playable audio track, shared by online,
+cached, and downloaded playback of that same track. Each Work Audio Chapter has
+independent slices on its own timeline starting at zero.
+_Avoid_: Point marker, exported audio clip, Work Audio Chapter
+
+**Current Audio Slice (当前切片)**:
+The saved Audio Slice containing the current playback position, including while
+playback is paused. It is independent of the Selected Audio Slice and Slice Preview.
+
+**Selected Audio Slice (选中切片)**:
+The Audio Slice explicitly chosen for inspection or editing during the current
+slice manager visit. Selection ends when the manager closes or the track changes.
+
+**Slice Preview (切片试听)**:
+Playback of one selected Audio Slice once, followed by a pause at its end.
+_Avoid_: Single-track repeat, Only Slices Mode
+
+**Only Slices Mode (仅播放切片)**:
+The playback rule that skips gaps during playback and plays a track's Audio
+Slices in time order; paused playback keeps the selected position.
+At the final slice, Repeat Mode determines whether playback returns to the first
+slice or advances to the next track.
+_Avoid_: Slice Preview, audio-file trimming
 
 **Automatic Audio Cache (音频自动缓存)**:
 Saving online audio in the background for later playback. A cache entry becomes
@@ -406,3 +437,18 @@ A user without an active audio account. Startup does not submit demo credentials
 Audio requests use the saved server with no account credentials; each Comic
 Source independently determines whether anonymous access is permitted.
 _Avoid_: guest demo account, offline account
+
+**Update Channel (更新渠道)**:
+The release family selected for KikoFlu update checks: Stable Release or Beta
+Release.
+
+**Stable Release (正式版)**:
+A published KikoFlu version intended for regular use.
+
+**Beta Release (测试版)**:
+A published KikoFlu version intended for testing changes before a Stable Release.
+_Avoid_: Development build, nightly build
+
+**KikoFlu Beta**:
+The Android testing edition of KikoFlu. It is installed alongside the stable app
+and keeps separate app data.

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,6 +30,8 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
     'https://github.com/pa-jesusf/KikoFlu',
   );
   late final Future<_AboutData> _aboutFuture;
+  UpdateChannel? _selectedUpdateChannel;
+  bool _isCheckingUpdate = false;
 
   @override
   void initState() {
@@ -37,6 +40,7 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
 
     // Mark update as notified when entering this screen (hide red dot only)
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final updateService = ref.read(updateServiceProvider);
       updateService.markAsNotified();
       // Only hide red dot, keep the "New Version" badge visible
@@ -45,12 +49,15 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
   }
 
   Future<_AboutData> _loadAboutData() async {
+    final updateService = ref.read(updateServiceProvider);
     var version = 'Unknown';
     var buildNumber = '';
+    var packageName = '';
     try {
       final info = await PackageInfo.fromPlatform();
       version = info.version;
       buildNumber = info.buildNumber;
+      packageName = info.packageName;
     } catch (error, stackTrace) {
       debugPrint('AboutScreen: failed to load app version: $error');
       debugPrint(stackTrace.toString());
@@ -65,10 +72,16 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
       debugPrint(stackTrace.toString());
     }
 
+    final updateChannel = await updateService.getUpdateChannel(
+      packageName: packageName,
+    );
+    _selectedUpdateChannel = updateChannel;
+
     return _AboutData(
       version: version,
       buildNumber: buildNumber,
       license: licenseText,
+      updateChannel: updateChannel,
     );
   }
 
@@ -116,13 +129,31 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
               : data.version;
 
           final primaryColor = Theme.of(context).colorScheme.primary;
+          final isAndroid =
+              !kIsWeb && Theme.of(context).platform == TargetPlatform.android;
+          final updateChannel = _selectedUpdateChannel ?? data.updateChannel;
           final updateInfo = ref.watch(updateInfoProvider);
-          final isCheckingUpdate = ref.watch(isCheckingUpdateProvider);
+          final isCheckingUpdate = _isCheckingUpdate;
           final updateState = ref.watch(updateControllerProvider);
 
           return ListView(
             padding: const EdgeInsets.all(16),
             children: [
+              SettingsSectionCard(
+                child: SettingsListTile(
+                  key: const ValueKey('update-channel-setting'),
+                  icon: Icons.system_update_alt,
+                  iconColor: primaryColor,
+                  title: S.of(context).updateChannel,
+                  subtitle: _updateChannelLabel(context, updateChannel),
+                  trailing: const Icon(Icons.arrow_drop_down),
+                  onTap: () => _showUpdateChannelDialog(
+                    updateChannel,
+                    isAndroid: isAndroid,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
               // Update check card - shown at top if update available
               if (updateInfo != null && updateInfo.hasNewVersion)
                 SettingsSectionCard(
@@ -132,12 +163,14 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
                       updateState.status == UpdateStatus.downloading
                           ? Icons.downloading
                           : updateState.status == UpdateStatus.readyToInstall
-                              ? Icons.download_done
-                              : Icons.system_update,
+                          ? Icons.download_done
+                          : Icons.system_update,
                       color: Theme.of(context).colorScheme.onSecondaryContainer,
                     ),
                     title: Text(
-                      S.of(context).newVersionFound,
+                      updateInfo.isCrossChannel
+                          ? S.of(context).updateChannelVersionAvailable
+                          : S.of(context).newVersionFound,
                       style: TextStyle(
                         color: Theme.of(
                           context,
@@ -161,6 +194,18 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
                             ).colorScheme.onSecondaryContainer,
                           ),
                         ),
+                        if (updateInfo.isCrossChannel) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            S.of(context).crossChannelUpdateNotice,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSecondaryContainer,
+                                ),
+                          ),
+                        ],
                         if (updateState.status == UpdateStatus.downloading) ...[
                           const SizedBox(height: 8),
                           LinearProgressIndicator(
@@ -171,12 +216,16 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
                           const SizedBox(height: 4),
                           Text(
                             '${(updateState.progress * 100).toStringAsFixed(0)}% (${formatBytes(updateState.receivedBytes)} / ${formatBytes(updateState.totalBytes)})',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: Theme.of(context).colorScheme.onSecondaryContainer,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSecondaryContainer,
                                 ),
                           ),
                         ],
-                        if (updateState.status == UpdateStatus.readyToInstall) ...[
+                        if (updateState.status ==
+                            UpdateStatus.readyToInstall) ...[
                           const SizedBox(height: 4),
                           Text(
                             S.of(context).downloadCompleted,
@@ -196,17 +245,17 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
                             child: Text(S.of(context).installUpdate),
                           )
                         : updateState.status == UpdateStatus.downloading
-                            ? IconButton(
-                                icon: const Icon(Icons.close),
-                                tooltip: S.of(context).cancelDownload,
-                                onPressed: () => ref
-                                    .read(updateControllerProvider.notifier)
-                                    .cancelDownload(),
-                              )
-                            : FilledButton.tonal(
-                                onPressed: () => _showUpdateDialog(updateInfo),
-                                child: Text(S.of(context).updateNow),
-                              ),
+                        ? IconButton(
+                            icon: const Icon(Icons.close),
+                            tooltip: S.of(context).cancelDownload,
+                            onPressed: () => ref
+                                .read(updateControllerProvider.notifier)
+                                .cancelDownload(),
+                          )
+                        : FilledButton.tonal(
+                            onPressed: () => _showUpdateDialog(updateInfo),
+                            child: Text(S.of(context).updateNow),
+                          ),
                     onTap: () => _showUpdateDialog(updateInfo),
                   ),
                 ),
@@ -313,31 +362,113 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
   }
 
   Future<void> _manualCheckUpdate() async {
-    if (ref.read(isCheckingUpdateProvider)) return;
+    await _checkUpdates(allowConcurrent: false);
+  }
 
-    ref.read(isCheckingUpdateProvider.notifier).state = true;
+  Future<void> _checkUpdates({required bool allowConcurrent}) async {
+    if (!allowConcurrent && _isCheckingUpdate) return;
+
+    final updateService = ref.read(updateServiceProvider);
+    final channelRevision = updateService.channelRevision;
+    setState(() => _isCheckingUpdate = true);
 
     try {
-      final updateService = ref.read(updateServiceProvider);
-      final updateInfo = await updateService.checkForUpdates(force: true);
+      final channel =
+          _selectedUpdateChannel ?? await updateService.getUpdateChannel();
+      final updateInfo = await updateService.checkForUpdates(
+        force: true,
+        channel: channel,
+      );
 
-      if (!mounted) return;
+      if (!mounted || channelRevision != updateService.channelRevision) return;
+      ref.read(updateInfoProvider.notifier).state =
+          updateInfo?.hasNewVersion == true ? updateInfo : null;
+      ref.read(hasNewVersionProvider.notifier).state =
+          updateInfo?.hasNewVersion ?? false;
+      ref.read(showUpdateRedDotProvider.notifier).state = false;
 
       if (updateInfo != null && updateInfo.hasNewVersion) {
-        ref.read(updateInfoProvider.notifier).state = updateInfo;
-        if (!mounted) return;
+        await updateService.markAsNotified(channel: channel);
+        if (!mounted || channelRevision != updateService.channelRevision) {
+          return;
+        }
         _showUpdateDialog(updateInfo);
+      } else if (channel == UpdateChannel.beta && updateInfo == null) {
+        SnackBarUtil.showInfo(context, S.of(context).noBetaRelease);
       } else {
         SnackBarUtil.showInfo(context, S.of(context).alreadyLatestVersion);
       }
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || channelRevision != updateService.channelRevision) return;
       SnackBarUtil.showError(context, S.of(context).checkUpdateFailed);
     } finally {
-      if (mounted) {
-        ref.read(isCheckingUpdateProvider.notifier).state = false;
+      if (mounted && channelRevision == updateService.channelRevision) {
+        setState(() => _isCheckingUpdate = false);
       }
     }
+  }
+
+  String _updateChannelLabel(BuildContext context, UpdateChannel channel) =>
+      channel == UpdateChannel.beta
+      ? S.of(context).betaUpdateChannel
+      : S.of(context).stableUpdateChannel;
+
+  Future<void> _showUpdateChannelDialog(
+    UpdateChannel selectedChannel, {
+    required bool isAndroid,
+  }) async {
+    final channel = await showDialog<UpdateChannel>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(S.of(dialogContext).updateChannel),
+        content: RadioGroup<UpdateChannel>(
+          groupValue: selectedChannel,
+          onChanged: (channel) {
+            if (channel != null) Navigator.of(dialogContext).pop(channel);
+          },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile<UpdateChannel>(
+                key: const ValueKey('stable-update-channel'),
+                value: UpdateChannel.stable,
+                title: Text(S.of(dialogContext).stableUpdateChannel),
+              ),
+              RadioListTile<UpdateChannel>(
+                key: const ValueKey('beta-update-channel'),
+                value: UpdateChannel.beta,
+                enabled: isAndroid,
+                title: Text(S.of(dialogContext).betaUpdateChannel),
+                subtitle: isAndroid
+                    ? null
+                    : Text(S.of(dialogContext).betaOnlyAndroid),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(S.of(dialogContext).close),
+          ),
+        ],
+      ),
+    );
+
+    if (channel == null || channel == selectedChannel || !mounted) return;
+    final updateService = ref.read(updateServiceProvider);
+    final updateInfo = ref.read(updateInfoProvider.notifier);
+    final hasNewVersion = ref.read(hasNewVersionProvider.notifier);
+    final showRedDot = ref.read(showUpdateRedDotProvider.notifier);
+    final updateController = ref.read(updateControllerProvider.notifier);
+    updateInfo.state = null;
+    hasNewVersion.state = false;
+    showRedDot.state = false;
+    updateController.reset();
+    await updateService.setUpdateChannel(channel);
+    if (!mounted) return;
+    setState(() => _selectedUpdateChannel = channel);
+    await _checkUpdates(allowConcurrent: true);
   }
 
   void _showUpdateDialog(UpdateInfo updateInfo) {
@@ -373,10 +504,12 @@ class _AboutData {
   final String version;
   final String buildNumber;
   final String license;
+  final UpdateChannel updateChannel;
 
   const _AboutData({
     required this.version,
     required this.buildNumber,
     required this.license,
+    required this.updateChannel,
   });
 }

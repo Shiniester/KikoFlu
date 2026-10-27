@@ -18,6 +18,7 @@ import '../services/remote_asset_cache.dart';
 import '../services/remote_text_loader.dart';
 import '../providers/settings_provider.dart';
 import '../providers/lyric_provider.dart';
+import '../providers/subtitle_search_query_provider.dart';
 import '../utils/snackbar_util.dart';
 import '../utils/encoding_utils.dart';
 import '../utils/file_icon_utils.dart';
@@ -340,6 +341,11 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
   }
 
   void _openSearch() {
+    final rememberedQuery = ref.read(subtitleSearchQueryProvider);
+    _searchController.value = TextEditingValue(
+      text: rememberedQuery,
+      selection: TextSelection.collapsed(offset: rememberedQuery.length),
+    );
     setState(() {
       _isSearchMode = true;
     });
@@ -370,8 +376,14 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
 
   void _clearSearch() {
     _searchController.clear();
+    ref.read(subtitleSearchQueryProvider.notifier).setQuery('');
     _updateSearchResults('');
     _searchFocusNode.requestFocus();
+  }
+
+  void _handleSearchInput(String query) {
+    ref.read(subtitleSearchQueryProvider.notifier).setQuery(query);
+    _updateSearchResults(query);
   }
 
   void _refreshSearchResults() {
@@ -476,7 +488,7 @@ class _TextPreviewScreenState extends ConsumerState<TextPreviewScreen> {
                   isDense: true,
                   border: const OutlineInputBorder(),
                 ),
-                onChanged: _updateSearchResults,
+                onChanged: _handleSearchInput,
                 onSubmitted: (_) => _moveToSearchMatch(1),
               ),
             ),

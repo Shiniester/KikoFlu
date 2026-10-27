@@ -6,10 +6,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:kikoeru_flutter/src/models/audio_slice.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_cache_downloader.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
+import 'package:kikoeru_flutter/src/services/audio_slice_store.dart';
 import 'package:kikoeru_flutter/src/services/cache_service.dart';
 import 'package:kikoeru_flutter/src/services/playback_history_service.dart';
 import 'package:kikoeru_flutter/src/services/speculative_transfer_coordinator.dart';
@@ -110,6 +112,73 @@ void main() {
       await subscription.cancel();
     },
   );
+
+  test('preview-end cache recovery preserves the preview boundary', () async {
+    final player = _CachedSeekPlayer()
+      ..bufferedPosition = const Duration(seconds: 10);
+    final service = createService(player);
+    const track = AudioTrack(
+      id: 'preview-cached-seek',
+      title: 'preview-cached-seek.flac',
+      url: 'https://example.invalid/preview-cached-seek.flac',
+      hash: 'preview-cached-seek-audio',
+    );
+    await service.updateQueue([track]);
+    final trackKey = service.sliceState.trackKey!;
+    const preview = AudioSlice(startMs: 10000, endMs: 20000);
+    await service.saveSlice(trackKey: trackKey, slice: preview);
+    await service.saveSlice(
+      trackKey: trackKey,
+      slice: const AudioSlice(startMs: 30000, endMs: 40000),
+    );
+    service.setOnlySlices(true);
+    await service.previewSlice(trackKey, preview);
+    final cachePath = await createCompleteCache(track.hash!);
+
+    player.position = const Duration(seconds: 20);
+    player.positions.add(player.position);
+    await until(() => !player.playing && service.sliceState.preview == null);
+
+    expect(player.loaded, [track.url, cachePath]);
+    expect(player.initialPositions.last, const Duration(seconds: 20));
+    expect(player.position, const Duration(seconds: 20));
+    expect(service.sliceState.onlySlices, isTrue);
+    expect(service.currentTrack?.id, track.id);
+  });
+
+  test('cached reload preserves slice deletion during loading', () async {
+    final player = _CachedSeekPlayer()
+      ..bufferedPosition = const Duration(seconds: 5);
+    final service = createService(player);
+    const track = AudioTrack(
+      id: 'slice-mutation-cached-seek',
+      title: 'slice-mutation-cached-seek.flac',
+      url: 'https://example.invalid/slice-mutation-cached-seek.flac',
+      hash: 'slice-mutation-cached-seek-audio',
+    );
+    await service.updateQueue([track], autoplay: true);
+    final trackKey = service.sliceState.trackKey!;
+    const deleted = AudioSlice(startMs: 10000, endMs: 20000);
+    const retained = AudioSlice(startMs: 40000, endMs: 50000);
+    await service.saveSlice(trackKey: trackKey, slice: deleted);
+    await service.saveSlice(trackKey: trackKey, slice: retained);
+    await createCompleteCache(track.hash!);
+    player.holdNextLoad = true;
+
+    final seeking = service.seek(const Duration(seconds: 30));
+    await until(() => player.pendingLoad != null);
+    expect(await service.deleteSlice(trackKey, deleted), isTrue);
+    player.finishLoad();
+    expect(await seeking, isTrue);
+
+    expect(service.sliceState.slices, const [retained]);
+    const added = AudioSlice(startMs: 60000, endMs: 70000);
+    expect(await service.saveSlice(trackKey: trackKey, slice: added), isTrue);
+    expect(
+      await const SharedPreferencesAudioSliceStore().load(trackKey),
+      const [retained, added],
+    );
+  });
 
   test('buffered and partial-cache seeks keep the remote source', () async {
     final player = _CachedSeekPlayer()

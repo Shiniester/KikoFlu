@@ -24,35 +24,72 @@ void main() {
     assetSize: 26611270,
   );
 
-  testWidgets('UpdateDialog displays version info, release notes, and update action', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1080, 1920);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets(
+    'UpdateDialog displays version info, release notes, and update action',
+    (tester) async {
+      tester.view.physicalSize = const Size(1080, 1920);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(
-      const ProviderScope(
-        child: MaterialApp(
-          locale: Locale('zh'),
-          localizationsDelegates: S.localizationsDelegates,
-          supportedLocales: S.supportedLocales,
-          home: Scaffold(
-            body: UpdateDialog(updateInfo: sampleUpdateInfo),
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            locale: Locale('zh'),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: Scaffold(body: UpdateDialog(updateInfo: sampleUpdateInfo)),
           ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('发现新版本'), findsOneWidget);
-    expect(find.text('v4.19.2'), findsOneWidget);
-    expect(find.textContaining('4.19.2'), findsWidgets);
-    expect(find.textContaining('1. 支持应用内直接更新'), findsOneWidget);
-    expect(find.text('立即更新'), findsOneWidget);
-    expect(find.text('稍后提醒'), findsOneWidget);
-  });
+      expect(find.text('发现新版本'), findsOneWidget);
+      expect(find.text('v4.19.2'), findsOneWidget);
+      expect(find.textContaining('4.19.2'), findsWidgets);
+      expect(find.textContaining('1. 支持应用内直接更新'), findsOneWidget);
+      expect(find.text('立即更新'), findsOneWidget);
+      expect(find.text('稍后提醒'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'cross-channel release explains the separate Android installation',
+    (tester) async {
+      tester.view.physicalSize = const Size(1080, 1920);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      const crossChannelInfo = UpdateInfo(
+        latestVersion: '4.3.0-beta.2',
+        currentVersion: '4.4.0',
+        releaseUrl:
+            'https://github.com/Shiniester/KikoFlu/releases/tag/v4.3.0-beta.2',
+        hasNewVersion: true,
+        isCrossChannel: true,
+      );
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            locale: Locale('zh'),
+            localizationsDelegates: S.localizationsDelegates,
+            supportedLocales: S.supportedLocales,
+            home: Scaffold(body: UpdateDialog(updateInfo: crossChannelInfo)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('所选渠道版本'), findsOneWidget);
+      expect(
+        find.text('Android 正式版与测试版是独立应用，数据分别保存。安装后不会替换当前应用。'),
+        findsOneWidget,
+      );
+      expect(find.text('发现新版本'), findsNothing);
+      expect(find.text('v4.3.0-beta.2'), findsOneWidget);
+    },
+  );
 
   testWidgets('UpdateDialog displays progress when downloading', (
     tester,
@@ -80,9 +117,7 @@ void main() {
           locale: Locale('zh'),
           localizationsDelegates: S.localizationsDelegates,
           supportedLocales: S.supportedLocales,
-          home: Scaffold(
-            body: UpdateDialog(updateInfo: sampleUpdateInfo),
-          ),
+          home: Scaffold(body: UpdateDialog(updateInfo: sampleUpdateInfo)),
         ),
       ),
     );
@@ -118,9 +153,7 @@ void main() {
           locale: Locale('zh'),
           localizationsDelegates: S.localizationsDelegates,
           supportedLocales: S.supportedLocales,
-          home: Scaffold(
-            body: UpdateDialog(updateInfo: sampleUpdateInfo),
-          ),
+          home: Scaffold(body: UpdateDialog(updateInfo: sampleUpdateInfo)),
         ),
       ),
     );

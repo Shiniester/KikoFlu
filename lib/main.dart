@@ -628,16 +628,19 @@ class _KikoeruAppState extends ConsumerState<KikoeruApp>
   Future<void> _checkForUpdates() async {
     try {
       final updateService = ref.read(updateServiceProvider);
-      final updateInfo = await updateService.checkForUpdates();
+      final channelRevision = updateService.channelRevision;
+      final channel = await updateService.getUpdateChannel();
+      final updateInfo = await updateService.checkForUpdates(channel: channel);
+      if (!mounted || channelRevision != updateService.channelRevision) return;
 
-      if (updateInfo != null && updateInfo.hasNewVersion) {
-        ref.read(updateInfoProvider.notifier).state = updateInfo;
-        ref.read(hasNewVersionProvider.notifier).state = true;
-
-        // Check if red dot should be shown
-        final shouldShow = await updateService.shouldShowRedDot();
-        ref.read(showUpdateRedDotProvider.notifier).state = shouldShow;
-      }
+      final shouldShow = updateInfo?.hasNewVersion == true
+          ? await updateService.shouldShowRedDot(channel: channel)
+          : false;
+      if (!mounted || channelRevision != updateService.channelRevision) return;
+      ref.read(updateInfoProvider.notifier).state = updateInfo;
+      ref.read(hasNewVersionProvider.notifier).state =
+          updateInfo?.hasNewVersion ?? false;
+      ref.read(showUpdateRedDotProvider.notifier).state = shouldShow;
     } catch (e) {
       // Silent failure - no user notification
     }

@@ -8,6 +8,7 @@ import 'package:path/path.dart' as path;
 
 import '../models/lyric.dart';
 import '../models/audio_track.dart';
+import '../services/audio_slice_store.dart';
 import '../services/cache_service.dart';
 import '../services/download_service.dart';
 import '../services/local_work_metadata_service.dart';
@@ -69,6 +70,7 @@ class LyricState {
   final String? translatedSubtitlePath;
   final String? translatedTargetLanguage;
   final LyricSourceDescriptor? source;
+  final String? trackKey;
 
   LyricState({
     this.lyrics = const [],
@@ -84,6 +86,7 @@ class LyricState {
     this.translatedSubtitlePath,
     this.translatedTargetLanguage,
     this.source,
+    this.trackKey,
   });
 
   LyricState copyWith({
@@ -100,6 +103,7 @@ class LyricState {
     String? translatedSubtitlePath,
     String? translatedTargetLanguage,
     LyricSourceDescriptor? source,
+    String? trackKey,
   }) {
     final nextState = LyricState(
       lyrics: lyrics ?? this.lyrics,
@@ -117,6 +121,7 @@ class LyricState {
       translatedTargetLanguage:
           translatedTargetLanguage ?? this.translatedTargetLanguage,
       source: source ?? this.source,
+      trackKey: trackKey ?? this.trackKey,
     );
 
     final cachedDisplayLyrics = _cachedDisplayLyrics;
@@ -206,6 +211,7 @@ class LyricState {
 class LyricController extends StateNotifier<LyricState> {
   final Ref ref;
   int _loadRequestId = 0;
+  String? _loadTrackKey;
   int _translationRequestId = 0;
   RemoteTextLease? _remoteTextLease;
   final _generatedTranslations =
@@ -216,7 +222,8 @@ class LyricController extends StateNotifier<LyricState> {
   LyricController(this.ref, {LyricState? initialState})
     : super(initialState ?? LyricState());
 
-  int _beginLoadRequest({RemoteAssetKey? remoteHandoffKey}) {
+  int _beginLoadRequest({AudioTrack? track, RemoteAssetKey? remoteHandoffKey}) {
+    _loadTrackKey = track == null ? null : audioSliceTrackKey(track);
     if (_remoteTextLease?.key != remoteHandoffKey) {
       _releaseRemoteTextLease();
     }
@@ -273,6 +280,7 @@ class LyricController extends StateNotifier<LyricState> {
       lyricUrl: state.lyricUrl,
       timelineOffset: state.timelineOffset,
       source: state.source,
+      trackKey: state.trackKey,
     );
   }
 
@@ -298,6 +306,7 @@ class LyricController extends StateNotifier<LyricState> {
     List<dynamic> allFiles,
   ) async {
     final requestId = _beginLoadRequest(
+      track: track,
       remoteHandoffKey: _remoteTextLease?.key,
     );
     _log.captureOutput(
@@ -498,6 +507,7 @@ class LyricController extends StateNotifier<LyricState> {
     _beginLoadRequest();
     state = LyricState(
       lyrics: translation.original,
+      trackKey: audioSliceTrackKey(track),
       translatedLyrics: translation.translated,
       translatedSubtitlePath: translation.savedPath,
       translatedTargetLanguage: targetKey,
@@ -789,6 +799,7 @@ class LyricController extends StateNotifier<LyricState> {
       lyricUrl: state.lyricUrl,
       timelineOffset: state.timelineOffset,
       source: state.source,
+      trackKey: state.trackKey,
     );
   }
 
@@ -871,7 +882,9 @@ class LyricController extends StateNotifier<LyricState> {
   // 手动加载字幕文件
   /// 从本地文件路径加载字幕（用于字幕库）
   Future<void> loadLyricFromLocalFile(String filePath) async {
-    final requestId = _beginLoadRequest();
+    final requestId = _beginLoadRequest(
+      track: ref.read(currentTrackProvider).valueOrNull,
+    );
     await _loadLyricFromLocalFile(
       filePath,
       requestId,
@@ -916,6 +929,7 @@ class LyricController extends StateNotifier<LyricState> {
 
   Future<void> loadLyricManually(dynamic lyricFile, {int? workId}) async {
     final requestId = _beginLoadRequest(
+      track: ref.read(currentTrackProvider).valueOrNull,
       remoteHandoffKey: _remoteTextKeyFor(lyricFile),
     );
     _setStateForLoadRequest(requestId, _loadingStatePreservingCurrentLyrics());
@@ -1102,6 +1116,7 @@ class LyricController extends StateNotifier<LyricState> {
     _log.captureOutput('[Lyric] 解析完成: ${lyrics.length} 行字幕');
     return LyricState(
       lyrics: lyrics,
+      trackKey: _loadTrackKey,
       isLoading: false,
       lyricUrl: lyricUrl,
       source: source,
