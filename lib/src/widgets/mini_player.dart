@@ -162,7 +162,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                             return Padding(
                               padding: EdgeInsets.fromLTRB(
                                 leadingInset,
-                                8,
+                                0,
                                 trailingInset,
                                 8,
                               ),
@@ -598,8 +598,10 @@ class _MiniPlayerProgressAreaState
 
   double _valueFromPointer(Offset localPosition, BuildContext context) {
     final box = context.findRenderObject() as RenderBox?;
-    if (box == null || box.size.width <= 0) return _dragValue;
-    return (localPosition.dx / box.size.width).clamp(0.0, 1.0);
+    const thumbRadius = PlayerUniformSliderTrackShape.thumbRadius;
+    final trackWidth = (box?.size.width ?? 0) - thumbRadius * 2;
+    if (box == null || trackWidth <= 0) return _dragValue;
+    return ((localPosition.dx - thumbRadius) / trackWidth).clamp(0.0, 1.0);
   }
 
   @override
@@ -612,6 +614,17 @@ class _MiniPlayerProgressAreaState
         ? position.inMilliseconds / duration.inMilliseconds
         : 0.0;
     final displayProgress = _isDragging ? _dragValue : progress;
+    final sliderValue = displayProgress.clamp(0.0, 1.0).toDouble();
+    final colorScheme = Theme.of(context).colorScheme;
+    final sliceColor = PlayerUniformSliderTrackShape.sliceColorFor(colorScheme);
+    final thumbColor =
+        duration.inMilliseconds > 0 &&
+            PlayerUniformSliderTrackShape.isPositionInSlice(
+              sliderValue * duration.inMilliseconds,
+              slices?.slices ?? const [],
+            )
+        ? sliceColor
+        : colorScheme.primary;
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
@@ -641,7 +654,7 @@ class _MiniPlayerProgressAreaState
         children: [
           const _MiniPlayerLyricLine(),
           SizedBox(
-            height: 4,
+            height: 12,
             child: SliderTheme(
               data: SliderTheme.of(context).copyWith(
                 trackHeight: 4,
@@ -651,13 +664,16 @@ class _MiniPlayerProgressAreaState
                   pendingStartMs: slices?.pendingStartMs,
                   onlySlices: slices?.onlySlices ?? false,
                   selectedSlice: selectedSlice,
-                  sliceColor: PlayerUniformSliderTrackShape.sliceColorFor(
-                    Theme.of(context).colorScheme,
-                  ),
+                  sliceColor: sliceColor,
                 ),
+                thumbColor: thumbColor,
                 thumbShape: const RoundSliderThumbShape(
-                  enabledThumbRadius: 0,
-                  disabledThumbRadius: 0,
+                  enabledThumbRadius: PlayerUniformSliderTrackShape.thumbRadius,
+                  disabledThumbRadius:
+                      PlayerUniformSliderTrackShape.thumbRadius,
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: PlayerUniformSliderTrackShape.thumbRadius,
                 ),
                 overlayShape: SliderComponentShape.noOverlay,
                 activeTrackColor: Theme.of(context).colorScheme.primary,
@@ -667,7 +683,7 @@ class _MiniPlayerProgressAreaState
               ),
               child: Slider(
                 key: const ValueKey('mini-player-progress-slider'),
-                value: displayProgress.clamp(0.0, 1.0),
+                value: sliderValue,
                 onChangeStart: (_) => ref
                     .read(audioPlayerServiceProvider)
                     .setSliceScrubbing(true),

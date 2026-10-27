@@ -103,6 +103,21 @@ Future<List<Color>> _paintedColors(
 }))!;
 
 void main() {
+  test('slice progress includes its start and excludes its end', () {
+    expect(
+      PlayerUniformSliderTrackShape.isPositionInSlice(20000, _slices),
+      isTrue,
+    );
+    expect(
+      PlayerUniformSliderTrackShape.isPositionInSlice(39999.5, _slices),
+      isTrue,
+    );
+    expect(
+      PlayerUniformSliderTrackShape.isPositionInSlice(40000, _slices),
+      isFalse,
+    );
+  });
+
   for (final brightness in Brightness.values) {
     final schemes = {
       for (final type in ColorSchemeType.values)
@@ -150,7 +165,7 @@ void main() {
               enabled ? _sliceColor : _sliceColor.withValues(alpha: 0.38),
             );
             final sliceInactive = _onWhite(
-              _sliceColor.withValues(alpha: enabled ? 0.65 : 0.12),
+              _sliceColor.withValues(alpha: enabled ? 0.4 : 0.12),
             );
             expect(
               await _paintedColors(tester, [
@@ -193,7 +208,7 @@ void main() {
     testWidgets('short slices stay visible on a long track with $direction', (
       tester,
     ) async {
-      final inactive = _onWhite(_sliceColor.withValues(alpha: 0.65));
+      final inactive = _onWhite(_sliceColor.withValues(alpha: 0.4));
       for (final value in [0.25, 0.75]) {
         await _pumpProgress(
           tester,
@@ -233,7 +248,7 @@ void main() {
           Offset point(double x, double y) =>
               Offset(direction == TextDirection.ltr ? x : 299 - x, y);
           final inactive = _onWhite(_inactiveColor);
-          final sliceInactive = _onWhite(_sliceColor.withValues(alpha: 0.65));
+          final sliceInactive = _onWhite(_sliceColor.withValues(alpha: 0.4));
           expect(
             await _paintedColors(tester, [
               point(209, 12),

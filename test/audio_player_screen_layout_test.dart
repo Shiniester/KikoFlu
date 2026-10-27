@@ -2816,7 +2816,10 @@ void main() {
         matching: find.byType(SliderTheme),
       ),
     );
-    expect(progressTheme.data.padding, EdgeInsets.zero);
+    expect(
+      progressTheme.data.padding,
+      const EdgeInsets.symmetric(horizontal: 5),
+    );
     expect(progressTheme.data.trackHeight, 4);
     expect(progressTheme.data.trackShape, isA<PlayerUniformSliderTrackShape>());
     final progressContext = tester.element(
@@ -2837,7 +2840,9 @@ void main() {
       progressTheme.data.thumbColor,
       Theme.of(progressContext).colorScheme.primary,
     );
-    expect(progressTheme.data.thumbShape, same(SliderComponentShape.noThumb));
+    final thumbShape = progressTheme.data.thumbShape! as RoundSliderThumbShape;
+    expect(thumbShape.enabledThumbRadius, 5);
+    expect(thumbShape.disabledThumbRadius, 5);
 
     await tester.drag(
       find.byKey(const ValueKey('compact-player-pages')),
@@ -2921,8 +2926,28 @@ void main() {
       'new drag keeps the ${layout.name} seek preview past old cleanup',
       (tester) async {
         final seekPositions = <Duration>[];
-        await _pumpPlayer(tester, layout.size, onSeek: seekPositions.add);
+        await _pumpPlayer(
+          tester,
+          layout.size,
+          onSeek: seekPositions.add,
+          sliceState: AudioSliceState.withValues(
+            trackKey: 'track-1',
+            slices: const [AudioSlice(startMs: 60000, endMs: 180000)],
+          ),
+        );
         final slider = find.byKey(const ValueKey('player-progress-slider'));
+        final progressTheme = find
+            .ancestor(of: slider, matching: find.byType(SliderTheme))
+            .first;
+        final primaryColor = Theme.of(
+          tester.element(slider),
+        ).colorScheme.primary;
+        final sliceColor = PlayerUniformSliderTrackShape.sliceColorFor(
+          Theme.of(tester.element(slider)).colorScheme,
+        );
+        Color thumbColor() =>
+            tester.widget<SliderTheme>(progressTheme).data.thumbColor!;
+        expect(thumbColor(), primaryColor);
         final target = tester.getRect(
           find.byKey(const ValueKey('player-progress-gesture-target')),
         );
@@ -2931,15 +2956,19 @@ void main() {
 
         final first = await tester.startGesture(point(0.2));
         await first.moveTo(point(0.4));
+        await tester.pump();
+        expect(thumbColor(), sliceColor);
         await first.up();
         await tester.pump(const Duration(milliseconds: 40));
         expect(seekPositions, hasLength(1));
+        expect(thumbColor(), sliceColor);
 
         final second = await tester.startGesture(point(0.5));
         await second.moveTo(point(0.8));
         await tester.pump();
         final preview = tester.widget<Slider>(slider).value;
         expect(preview, greaterThan(0.6));
+        expect(thumbColor(), primaryColor);
         await tester.pump(const Duration(milliseconds: 80));
         expect(tester.widget<Slider>(slider).value, closeTo(preview, 0.001));
 
@@ -2949,6 +2978,7 @@ void main() {
         expect(tester.widget<Slider>(slider).value, closeTo(preview, 0.001));
         await tester.pump(const Duration(milliseconds: 50));
         expect(tester.widget<Slider>(slider).value, 0);
+        expect(thumbColor(), primaryColor);
         expect(tester.takeException(), isNull);
       },
     );
@@ -3133,15 +3163,18 @@ void main() {
     expect(lyricRightIcon.right, closeTo(coverRect.right, 0.01));
     expect(lyricText.center.dx, closeTo(coverRect.center.dx, 0.01));
     expect(lyricText.width, lessThan(coverRect.width));
-    expect(
-      tester
-          .getRect(find.byKey(const ValueKey('playback-line-left-divider')))
-          .right,
-      lessThanOrEqualTo(lyricText.left),
+    final timeText = tester.renderObject<RenderBox>(
+      find.byKey(const ValueKey('playback-line-time')),
     );
+    expect(timeText.getTransformTo(null).entry(0, 0), closeTo(1, 0.001));
+    final line = tester.getRect(
+      find.byKey(const ValueKey('playback-line-indicator')),
+    );
+    expect(line.left, closeTo(lyricText.left, 0.01));
+    expect(line.right, closeTo(lyricText.right, 0.01));
     expect(
       tester
-          .getRect(find.byKey(const ValueKey('playback-line-right-divider')))
+          .getRect(find.byKey(const ValueKey('playback-line-time-column')))
           .left,
       greaterThanOrEqualTo(lyricText.right),
     );

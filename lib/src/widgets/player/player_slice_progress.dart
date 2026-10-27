@@ -4,6 +4,8 @@ import '../../models/audio_slice.dart';
 
 /// Keeps the playback track uniform while showing saved slice ranges.
 class PlayerUniformSliderTrackShape extends SliderTrackShape {
+  static const thumbRadius = 5.0;
+
   const PlayerUniformSliderTrackShape({
     required this.sliceColor,
     this.slices = const [],
@@ -30,6 +32,13 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
         .withLightness(scheme.brightness == Brightness.dark ? 0.72 : 0.32)
         .toColor();
   }
+
+  static bool isPositionInSlice(
+    double positionMs,
+    Iterable<AudioSlice> slices,
+  ) => slices.any(
+    (slice) => positionMs >= slice.startMs && positionMs < slice.endMs,
+  );
 
   @override
   bool get isRounded => true;
@@ -162,7 +171,7 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
     );
     final sliceTheme = sliderTheme.copyWith(
       activeTrackColor: sliceColor,
-      inactiveTrackColor: sliceColor.withValues(alpha: 0.65),
+      inactiveTrackColor: sliceColor.withValues(alpha: 0.4),
       disabledActiveTrackColor: sliceColor.withValues(alpha: 0.38),
       disabledInactiveTrackColor: sliceColor.withValues(alpha: 0.12),
     );

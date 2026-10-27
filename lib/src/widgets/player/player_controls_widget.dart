@@ -899,6 +899,24 @@ class PlayerProgressSection extends ConsumerWidget {
     required double seekValue,
     required Duration displayPos,
   }) {
+    final sliderValue =
+        (isSeekingManually
+                ? seekValue
+                : dur.inMilliseconds > 0
+                ? pos.inMilliseconds / dur.inMilliseconds
+                : 0.0)
+            .clamp(0.0, 1.0)
+            .toDouble();
+    final colorScheme = Theme.of(context).colorScheme;
+    final sliceColor = PlayerUniformSliderTrackShape.sliceColorFor(colorScheme);
+    final thumbColor =
+        dur.inMilliseconds > 0 &&
+            PlayerUniformSliderTrackShape.isPositionInSlice(
+              sliderValue * dur.inMilliseconds,
+              slices.slices,
+            )
+        ? sliceColor
+        : colorScheme.primary;
     return IgnorePointer(
       key: const ValueKey('player-progress-loading-guard'),
       ignoring: isTrackLoading,
@@ -909,8 +927,11 @@ class PlayerProgressSection extends ConsumerWidget {
               onLongPressStart: (details) {
                 if (slices.trackKey == null) return;
                 final box = context.findRenderObject() as RenderBox;
-                final fraction = (details.localPosition.dx / box.size.width)
-                    .clamp(0.0, 1.0);
+                const thumbRadius = PlayerUniformSliderTrackShape.thumbRadius;
+                final trackWidth = box.size.width - thumbRadius * 2;
+                final fraction =
+                    ((details.localPosition.dx - thumbRadius) / trackWidth)
+                        .clamp(0.0, 1.0);
                 final time =
                     (Directionality.of(context) == TextDirection.rtl
                         ? 1 - fraction
@@ -942,8 +963,8 @@ class PlayerProgressSection extends ConsumerWidget {
                   height: 32,
                   child: SliderTheme(
                     data: SliderTheme.of(context).copyWith(
-                      activeTrackColor: Theme.of(context).colorScheme.primary,
-                      thumbColor: Theme.of(context).colorScheme.primary,
+                      activeTrackColor: colorScheme.primary,
+                      thumbColor: thumbColor,
                       inactiveTrackColor: Theme.of(
                         context,
                       ).colorScheme.onSurfaceVariant.withValues(alpha: 0.15),
@@ -954,22 +975,21 @@ class PlayerProgressSection extends ConsumerWidget {
                         pendingStartMs: slices.pendingStartMs,
                         onlySlices: slices.onlySlices,
                         selectedSlice: selectedSlice,
-                        sliceColor: PlayerUniformSliderTrackShape.sliceColorFor(
-                          Theme.of(context).colorScheme,
-                        ),
+                        sliceColor: sliceColor,
                       ),
-                      thumbShape: SliderComponentShape.noThumb,
-                      padding: EdgeInsets.zero,
+                      thumbShape: const RoundSliderThumbShape(
+                        enabledThumbRadius:
+                            PlayerUniformSliderTrackShape.thumbRadius,
+                        disabledThumbRadius:
+                            PlayerUniformSliderTrackShape.thumbRadius,
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: PlayerUniformSliderTrackShape.thumbRadius,
+                      ),
                     ),
                     child: Slider(
                       key: const ValueKey('player-progress-slider'),
-                      value:
-                          (isSeekingManually
-                                  ? seekValue
-                                  : dur.inMilliseconds > 0
-                                  ? pos.inMilliseconds / dur.inMilliseconds
-                                  : 0.0)
-                              .clamp(0.0, 1.0),
+                      value: sliderValue,
                       onChanged: onSeekChanged,
                       onChangeStart: (_) => ref
                           .read(audioPlayerServiceProvider)

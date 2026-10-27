@@ -1523,7 +1523,7 @@ void main() {
   );
 
   testWidgets(
-    'playback row controls fit narrow and wide screens around wrapped lyrics',
+    'playback controls use side margins and a faint line crosses wide lyrics',
     (tester) async {
       const playbackTime = Duration(hours: 12, minutes: 34, seconds: 56);
       const longLyric =
@@ -1571,6 +1571,7 @@ void main() {
               home: Scaffold(
                 body: PlayerLyricsSurface(
                   isWide: size.width >= 600,
+                  lyricContentWidth: size.width >= 600 ? 600 : null,
                   onFullscreen: () {},
                   translateButton: const IconButton(
                     onPressed: null,
@@ -1605,7 +1606,13 @@ void main() {
             extentOffset: timeParagraph.text.toPlainText().length,
           ),
         );
-        expect(timeColumn.width, greaterThanOrEqualTo(56));
+        expect(timeColumn.width, greaterThanOrEqualTo(48));
+        if (size.width >= 600) {
+          expect(
+            timeParagraph.getTransformTo(null).entry(0, 0),
+            closeTo(1, 0.001),
+          );
+        }
         expect(timeBoxes, isNotEmpty);
         for (final box in timeBoxes) {
           expect(
@@ -1617,37 +1624,51 @@ void main() {
             lessThanOrEqualTo(timeColumn.right),
           );
         }
+        final lyricFinder = find.byWidgetPredicate(
+          (widget) =>
+              widget is RichText && widget.text.toPlainText() == longLyric,
+        );
+        final lyricRect = tester.getRect(lyricFinder);
+        expect(lyricRect.width, closeTo(size.width == 320 ? 64 : 600, 0.01));
+        final button = tester.getRect(
+          find.byKey(const ValueKey('player-slice-cut-button')),
+        );
+        expect(button.width, 48);
+        expect(button.height, 48);
+        expect(button.right, lessThanOrEqualTo(lyricRect.left));
+        expect(timeColumn.left, greaterThanOrEqualTo(lyricRect.right));
+        expect(
+          tester.getSize(find.byIcon(Icons.content_cut)),
+          const Size(18, 18),
+        );
+
+        final lineFinder = find.byKey(
+          const ValueKey('playback-line-indicator'),
+        );
+        final lineRect = tester.getRect(lineFinder);
+        expect(lineRect.height, 1);
+        expect(lineRect.left, closeTo(lyricRect.left, 0.01));
+        expect(lineRect.right, closeTo(lyricRect.right, 0.01));
+        expect(lineRect.center.dy, closeTo(controls.center.dy, 0.01));
+        expect(lineRect.overlaps(lyricRect), isTrue);
+        final lineColor = tester
+            .widget<ColoredBox>(
+              find.descendant(
+                of: lineFinder,
+                matching: find.byType(ColoredBox),
+              ),
+            )
+            .color;
+        expect(lineColor.a, closeTo(0.15, 0.001));
+        final lyricStack = tester.widget<Stack>(
+          find.ancestor(of: lineFinder, matching: find.byType(Stack)).first,
+        );
+        expect(
+          lyricStack.children.first.key,
+          const ValueKey('playback-line-indicator'),
+        );
         if (size.width == 320) {
-          final lyricFinder = find.byWidgetPredicate(
-            (widget) =>
-                widget is RichText && widget.text.toPlainText() == longLyric,
-          );
-          final lyricParagraph = tester.renderObject<RenderParagraph>(
-            lyricFinder,
-          );
-          final lyricRect = Rect.fromLTWH(
-            lyricParagraph.localToGlobal(Offset.zero).dx,
-            lyricParagraph.localToGlobal(Offset.zero).dy,
-            lyricParagraph.size.width,
-            lyricParagraph.size.height,
-          );
           expect(lyricRect.height, greaterThan(48));
-          expect(
-            tester
-                .getRect(
-                  find.byKey(const ValueKey('playback-line-left-divider')),
-                )
-                .right,
-            lessThanOrEqualTo(lyricRect.left),
-          );
-          expect(
-            tester
-                .getRect(
-                  find.byKey(const ValueKey('playback-line-right-divider')),
-                )
-                .left,
-            greaterThanOrEqualTo(lyricRect.right),
-          );
         }
         expect(tester.takeException(), isNull);
       }

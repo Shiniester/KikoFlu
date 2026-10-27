@@ -330,6 +330,61 @@ void main() {
   });
 
   testWidgets(
+    'progress long press maps padded track endpoints to slice times',
+    (tester) async {
+      await tester.runAsync(createService);
+      final trackKey = service.sliceState.trackKey!;
+      const slices = [
+        AudioSlice(startMs: 30000, endMs: 31000),
+        AudioSlice(startMs: 296000, endMs: 300000),
+      ];
+      await tester.runAsync(() async {
+        for (final slice in slices) {
+          await service.saveSlice(trackKey: trackKey, slice: slice);
+        }
+      });
+      await _pumpControls(
+        tester,
+        service,
+        const Size(390, 844),
+        onSeekEnd: (_) {},
+      );
+
+      final target = find.byKey(
+        const ValueKey('player-progress-gesture-target'),
+      );
+      final rect = tester.getRect(target);
+      final container = ProviderScope.containerOf(
+        tester.element(target),
+        listen: false,
+      );
+      Future<void> expectInitialSliceAt(
+        double fraction,
+        AudioSlice? slice,
+      ) async {
+        await tester.longPressAt(
+          Offset(
+            rect.left +
+                PlayerUniformSliderTrackShape.thumbRadius +
+                (rect.width - PlayerUniformSliderTrackShape.thumbRadius * 2) *
+                    fraction,
+            rect.center.dy,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(container.read(audioSliceSelectionProvider)?.slice, slice);
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pumpAndSettle();
+      }
+
+      await expectInitialSliceAt(30500 / 300000, slices.first);
+      await expectInitialSliceAt(298000 / 300000, slices.last);
+      await expectInitialSliceAt(0, null);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'manager selection does not return after switching away and back',
     (tester) async {
       await tester.runAsync(createService);
@@ -861,9 +916,14 @@ void main() {
       find.ancestor(of: slider, matching: find.byType(SliderTheme)).first,
     );
     expect(theme.data.trackHeight, 4);
+    expect(tester.getSize(slider).height, 12);
+    final thumbShape = theme.data.thumbShape! as RoundSliderThumbShape;
+    expect(thumbShape.enabledThumbRadius, 5);
+    expect(thumbShape.disabledThumbRadius, 5);
     final sliceColor =
         (theme.data.trackShape! as PlayerUniformSliderTrackShape).sliceColor;
     final primaryColor = Theme.of(tester.element(slider)).colorScheme.primary;
+    expect(theme.data.thumbColor, primaryColor);
     expect(
       (HSLColor.fromColor(sliceColor).hue -
               HSLColor.fromColor(primaryColor).hue)
@@ -903,9 +963,52 @@ void main() {
     expect(shape.selectedSlice, service.sliceState.slices.single);
     expect(player.playing, isFalse);
     expect(find.byKey(const ValueKey('player-slice-cut-button')), findsNothing);
-    await tester.runAsync(() => tester.tapAt(tester.getCenter(slider)));
+    expect(updatedTheme.data.thumbColor, sliceColor);
+
+    final sliderRect = tester.getRect(slider);
+    final trackLeft =
+        sliderRect.left + PlayerUniformSliderTrackShape.thumbRadius;
+    final trackWidth =
+        sliderRect.width - PlayerUniformSliderTrackShape.thumbRadius * 2;
+    Offset trackPoint(double fraction) =>
+        Offset(trackLeft + trackWidth * fraction, sliderRect.center.dy);
+    final drag = await tester.startGesture(trackPoint(0.1));
+    await drag.moveTo(trackPoint(0.7));
+    await tester.pump();
+    final outsideTheme = tester.widget<SliderTheme>(
+      find.ancestor(of: slider, matching: find.byType(SliderTheme)).first,
+    );
+    expect(outsideTheme.data.thumbColor, primaryColor);
+    expect(tester.widget<Slider>(slider).value, closeTo(0.7, 0.01));
+
+    await drag.moveTo(trackPoint(0.3));
+    await tester.pump();
+    final insideTheme = tester.widget<SliderTheme>(
+      find.ancestor(of: slider, matching: find.byType(SliderTheme)).first,
+    );
+    expect(insideTheme.data.thumbColor, sliceColor);
+    expect(tester.widget<Slider>(slider).value, closeTo(0.3, 0.01));
+    await tester.runAsync(drag.up);
     await tester.pumpAndSettle();
-    expect(player.position, greaterThan(const Duration(seconds: 120)));
+
+    await tester.runAsync(() => tester.tapAt(trackPoint(0.25)));
+    await tester.pumpAndSettle();
+    await tester.runAsync(
+      () => until(() => player.position == const Duration(seconds: 75)),
+    );
+    await tester.runAsync(
+      () => tester.tapAt(
+        Offset(
+          sliderRect.right - PlayerUniformSliderTrackShape.thumbRadius,
+          sliderRect.center.dy,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.runAsync(
+      () => until(() => player.position == const Duration(minutes: 5)),
+    );
+    expect(player.position, const Duration(minutes: 5));
     expect(player.playing, isFalse);
     expect(tester.takeException(), isNull);
   });
@@ -988,6 +1091,7 @@ Future<void> _pumpControls(
   Duration? slicePosition,
   Locale locale = const Locale('en'),
   double textScale = 1,
+  ValueChanged<double>? onSeekEnd,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -1023,9 +1127,13 @@ Future<void> _pumpControls(
                           isSeekingManually: false,
                           seekValue: 0,
                           onSeekChanged: (_) {},
-                          onSeekEnd: (value) => service.seek(
-                            Duration(milliseconds: (value * 300000).round()),
-                          ),
+                          onSeekEnd:
+                              onSeekEnd ??
+                              (value) => service.seek(
+                                Duration(
+                                  milliseconds: (value * 300000).round(),
+                                ),
+                              ),
                         ),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,

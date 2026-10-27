@@ -1722,24 +1722,13 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           return const SizedBox.shrink();
         }
 
-        final usableWidth = math.max(0.0, maxWidth - 2);
-        final availableSpacing = math.max(
-          0.0,
-          usableWidth - sideColumnWidth * 2 - textWidth,
-        );
-        final spacingScale = math.min(1.0, availableSpacing / 48);
-        final controlGap = 8 * spacingScale;
-        final linePadding = 8 * spacingScale;
         final line = lyrics[index];
         final anchorY = visibleHeight * widget.playbackAnchorFraction;
         const rowHeight = 48.0;
         final top = (anchorY - rowHeight / 2)
             .clamp(0.0, math.max(0.0, maxHeight - rowHeight))
             .toDouble();
-        final rowWidth = math.min(
-          usableWidth,
-          sideColumnWidth * 2 + textWidth + 48 * spacingScale,
-        );
+        final rowWidth = textWidth + sideColumnWidth * 2;
         final time = formatDuration(line.startTime, padHours: false);
 
         return Positioned(
@@ -1756,38 +1745,17 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
                   child: SizedBox(
                     width: 48,
                     height: 48,
-                    child: PlayerSliceCutButton(
-                      position: line.startTime,
-                      trackKey: trackKey,
+                    child: IconTheme.merge(
+                      data: const IconThemeData(size: 18),
+                      child: PlayerSliceCutButton(
+                        position: line.startTime,
+                        trackKey: trackKey,
+                      ),
                     ),
                   ),
                 ),
               ),
-              SizedBox(width: controlGap),
-              Expanded(
-                child: IgnorePointer(
-                  child: Row(
-                    children: [
-                      const Expanded(
-                        child: Divider(
-                          key: ValueKey('playback-line-left-divider'),
-                          height: 16,
-                          thickness: 1,
-                        ),
-                      ),
-                      SizedBox(width: textWidth + linePadding * 2),
-                      const Expanded(
-                        child: Divider(
-                          key: ValueKey('playback-line-right-divider'),
-                          height: 16,
-                          thickness: 1,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              SizedBox(width: controlGap),
+              SizedBox(width: textWidth),
               SizedBox(
                 key: const ValueKey('playback-line-time-column'),
                 width: sideColumnWidth,
@@ -2015,7 +1983,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
       onLongPress: widget.onLongPress,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final layoutWidth = math.max(0.0, constraints.maxWidth - 2);
+          final layoutWidth = constraints.maxWidth;
           final theme = Theme.of(context);
           final colors = theme.colorScheme;
           final baseStyle = theme.textTheme.bodyLarge ?? const TextStyle();
@@ -2035,29 +2003,26 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
           final textScaler = MediaQuery.textScalerOf(context);
           final textDirection = Directionality.of(context);
           final locale = Localizations.maybeLocaleOf(context);
-          final timeStyle = (theme.textTheme.labelMedium ?? const TextStyle())
-              .copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
-          var timeColumnWidth = 56.0;
+          var timeColumnWidth = 48.0;
           if (widget.showPlaybackLineControls && lyrics.isNotEmpty) {
-            final latestTime = formatDuration(
-              lyrics.last.startTime,
-              padHours: false,
-            );
             final timePainter = TextPainter(
-              text: TextSpan(text: latestTime, style: timeStyle),
+              text: TextSpan(
+                text: formatDuration(lyrics.last.startTime, padHours: false),
+                style: (theme.textTheme.labelMedium ?? const TextStyle())
+                    .copyWith(
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+              ),
               textDirection: textDirection,
               textScaler: textScaler,
               locale: locale,
             )..layout();
-            timeColumnWidth = math.max(56.0, timePainter.width + 8);
+            timeColumnWidth = math.max(48.0, timePainter.width + 2);
             timePainter.dispose();
           }
-          final minLyricWidth = math.min(
-            64.0,
-            math.max(0.0, layoutWidth - 112),
-          );
+          final minLyricWidth = math.min(64.0, math.max(1.0, layoutWidth - 96));
           final sideColumnWidth = math.min(
-            math.max(56.0, timeColumnWidth),
+            timeColumnWidth,
             math.max(0.0, (layoutWidth - minLyricWidth) / 2),
           );
           final availableTextWidth = math.max(1.0, layoutWidth - 56);
@@ -2066,7 +2031,7 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             availableTextWidth,
           );
           final maxTextWidth = widget.showPlaybackLineControls
-              ? math.max(minLyricWidth, layoutWidth - sideColumnWidth * 2 - 72)
+              ? math.max(1.0, layoutWidth - sideColumnWidth * 2)
               : requestedTextWidth;
           final textWidth = widget.showPlaybackLineControls
               ? math.min(requestedTextWidth, maxTextWidth)
@@ -2135,6 +2100,19 @@ class _FullLyricDisplayState extends ConsumerState<FullLyricDisplay>
             child: Stack(
               fit: StackFit.expand,
               children: [
+                if (widget.showPlaybackLineControls)
+                  Positioned(
+                    key: const ValueKey('playback-line-indicator'),
+                    left: (constraints.maxWidth - textWidth) / 2,
+                    top: anchorY - 0.5,
+                    width: textWidth,
+                    height: 1,
+                    child: IgnorePointer(
+                      child: ColoredBox(
+                        color: colors.onSurface.withValues(alpha: 0.15),
+                      ),
+                    ),
+                  ),
                 NotificationListener<ScrollNotification>(
                   onNotification: _handleScrollNotification,
                   child: ListView.builder(
