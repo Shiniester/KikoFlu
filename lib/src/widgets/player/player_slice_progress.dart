@@ -22,6 +22,15 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
 
   static const _delegate = RectangularSliderTrackShape();
 
+  static Color sliceColorFor(ColorScheme scheme) {
+    final primary = HSLColor.fromColor(scheme.primary);
+    return primary
+        .withHue((primary.hue + 180) % 360)
+        .withSaturation(0.75)
+        .withLightness(scheme.brightness == Brightness.dark ? 0.72 : 0.32)
+        .toColor();
+  }
+
   @override
   bool get isRounded => true;
 
@@ -153,7 +162,7 @@ class PlayerUniformSliderTrackShape extends SliderTrackShape {
     );
     final sliceTheme = sliderTheme.copyWith(
       activeTrackColor: sliceColor,
-      inactiveTrackColor: sliceColor.withValues(alpha: 0.3),
+      inactiveTrackColor: sliceColor.withValues(alpha: 0.65),
       disabledActiveTrackColor: sliceColor.withValues(alpha: 0.38),
       disabledInactiveTrackColor: sliceColor.withValues(alpha: 0.12),
     );

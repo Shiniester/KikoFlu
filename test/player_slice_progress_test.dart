@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/models/audio_slice.dart';
+import 'package:kikoeru_flutter/src/providers/theme_provider.dart';
+import 'package:kikoeru_flutter/src/utils/theme.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_slice_progress.dart';
 
 const _boundaryKey = ValueKey('slice-progress-boundary');
@@ -101,6 +103,28 @@ Future<List<Color>> _paintedColors(
 }))!;
 
 void main() {
+  for (final brightness in Brightness.values) {
+    final schemes = {
+      for (final type in ColorSchemeType.values)
+        type.name: AppTheme.getColorScheme(type, brightness == Brightness.dark),
+      for (final seed in [Colors.red, Colors.blue, Colors.grey])
+        'cover ${seed.toARGB32()}': AppTheme.colorSchemeFromSeed(
+          seed,
+          brightness,
+        ),
+    };
+    for (final entry in schemes.entries) {
+      test('slice hue differs from ${entry.key} progress in $brightness', () {
+        final primary = HSLColor.fromColor(entry.value.primary);
+        final slice = HSLColor.fromColor(
+          PlayerUniformSliderTrackShape.sliceColorFor(entry.value),
+        );
+        expect((slice.hue - primary.hue).abs(), inInclusiveRange(120, 240));
+        expect(slice.saturation, greaterThanOrEqualTo(0.6));
+      });
+    }
+  }
+
   for (final direction in TextDirection.values) {
     for (final onlySlices in [false, true]) {
       for (final enabled in [true, false]) {
@@ -126,7 +150,7 @@ void main() {
               enabled ? _sliceColor : _sliceColor.withValues(alpha: 0.38),
             );
             final sliceInactive = _onWhite(
-              _sliceColor.withValues(alpha: enabled ? 0.3 : 0.12),
+              _sliceColor.withValues(alpha: enabled ? 0.65 : 0.12),
             );
             expect(
               await _paintedColors(tester, [
@@ -169,7 +193,7 @@ void main() {
     testWidgets('short slices stay visible on a long track with $direction', (
       tester,
     ) async {
-      final inactive = _onWhite(_sliceColor.withValues(alpha: 0.3));
+      final inactive = _onWhite(_sliceColor.withValues(alpha: 0.65));
       for (final value in [0.25, 0.75]) {
         await _pumpProgress(
           tester,
@@ -209,7 +233,7 @@ void main() {
           Offset point(double x, double y) =>
               Offset(direction == TextDirection.ltr ? x : 299 - x, y);
           final inactive = _onWhite(_inactiveColor);
-          final sliceInactive = _onWhite(_sliceColor.withValues(alpha: 0.3));
+          final sliceInactive = _onWhite(_sliceColor.withValues(alpha: 0.65));
           expect(
             await _paintedColors(tester, [
               point(209, 12),

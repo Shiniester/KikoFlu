@@ -744,9 +744,14 @@ void main() {
       find.ancestor(of: slider, matching: find.byType(SliderTheme)).first,
     );
     expect(theme.data.trackHeight, 4);
+    final sliceColor =
+        (theme.data.trackShape! as PlayerUniformSliderTrackShape).sliceColor;
+    final primaryColor = Theme.of(tester.element(slider)).colorScheme.primary;
     expect(
-      (theme.data.trackShape! as PlayerUniformSliderTrackShape).sliceColor,
-      Theme.of(tester.element(slider)).colorScheme.secondary,
+      (HSLColor.fromColor(sliceColor).hue -
+              HSLColor.fromColor(primaryColor).hue)
+          .abs(),
+      inInclusiveRange(120, 240),
     );
     expect(
       (theme.data.trackShape! as PlayerUniformSliderTrackShape).slices,

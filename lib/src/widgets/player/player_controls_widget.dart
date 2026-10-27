@@ -954,7 +954,9 @@ class PlayerProgressSection extends ConsumerWidget {
                         pendingStartMs: slices.pendingStartMs,
                         onlySlices: slices.onlySlices,
                         selectedSlice: selectedSlice,
-                        sliceColor: Theme.of(context).colorScheme.secondary,
+                        sliceColor: PlayerUniformSliderTrackShape.sliceColorFor(
+                          Theme.of(context).colorScheme,
+                        ),
                       ),
                       thumbShape: SliderComponentShape.noThumb,
                       padding: EdgeInsets.zero,

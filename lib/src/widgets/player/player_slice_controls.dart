@@ -713,7 +713,9 @@ class _AudioSliceTimelineState extends ConsumerState<_AudioSliceTimeline> {
                   duration: widget.duration,
                   onlySlices: onlySlices,
                   selectedSlice: widget.selectedSlice,
-                  sliceColor: Theme.of(context).colorScheme.secondary,
+                  sliceColor: PlayerUniformSliderTrackShape.sliceColorFor(
+                    Theme.of(context).colorScheme,
+                  ),
                 ),
               ),
               child: Slider(

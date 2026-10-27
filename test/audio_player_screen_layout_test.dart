@@ -2825,7 +2825,9 @@ void main() {
     expect(
       (progressTheme.data.trackShape! as PlayerUniformSliderTrackShape)
           .sliceColor,
-      Theme.of(progressContext).colorScheme.secondary,
+      PlayerUniformSliderTrackShape.sliceColorFor(
+        Theme.of(progressContext).colorScheme,
+      ),
     );
     expect(
       progressTheme.data.activeTrackColor,

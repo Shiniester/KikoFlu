@@ -651,7 +651,9 @@ class _MiniPlayerProgressAreaState
                   pendingStartMs: slices?.pendingStartMs,
                   onlySlices: slices?.onlySlices ?? false,
                   selectedSlice: selectedSlice,
-                  sliceColor: Theme.of(context).colorScheme.secondary,
+                  sliceColor: PlayerUniformSliderTrackShape.sliceColorFor(
+                    Theme.of(context).colorScheme,
+                  ),
                 ),
                 thumbShape: const RoundSliderThumbShape(
                   enabledThumbRadius: 0,
