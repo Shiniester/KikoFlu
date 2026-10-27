@@ -904,7 +904,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     final brightness = Theme.of(context).brightness;
     final systemOverlayStyle = transparentSystemBarsForBrightness(brightness);
 
-    return GlobalAudioPlayerWrapper.workDetails(
+    return GlobalAudioPlayerWrapper(
       child: Scaffold(
         floatingActionButton: const DownloadFab(),
         appBar: ScrollableAppBar(

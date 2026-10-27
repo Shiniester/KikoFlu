@@ -3,8 +3,6 @@ import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
-import '../app_bottom_dock_transition.dart';
-import 'player_cover_widget.dart';
 import 'player_route.dart';
 import 'player_vertical_gestures.dart';
 
@@ -36,16 +34,12 @@ class PlayerLaunchRegion extends StatefulWidget {
     required this.sessionIdentity,
     required this.createConfiguration,
     required this.artworkBuilder,
-    required this.artworkHeroEnabled,
-    required this.initialArtworkFlightTarget,
     required this.builder,
   });
 
   final Object sessionIdentity;
   final AudioPlayerOpenConfiguration Function() createConfiguration;
   final WidgetBuilder artworkBuilder;
-  final bool artworkHeroEnabled;
-  final PlayerArtworkFlightTarget initialArtworkFlightTarget;
   final PlayerLaunchRegionBuilder builder;
 
   @override
@@ -55,8 +49,6 @@ class PlayerLaunchRegion extends StatefulWidget {
 class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
     with WidgetsBindingObserver
     implements PlayerLaunchRegionController {
-  final GlobalKey _miniArtworkKey = GlobalKey();
-  final ValueNotifier<bool> _interactiveArtworkHidden = ValueNotifier(false);
   int? _pointer;
   Offset? _startPosition;
   VelocityTracker? _velocityTracker;
@@ -68,23 +60,16 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
   double _latestExtent = 1;
   _InteractivePlayerOpenSession? _interactiveSession;
   int _sessionGeneration = 0;
-  late PlayerArtworkFlightTarget _artworkFlightTarget;
 
   @override
   void initState() {
     super.initState();
-    _artworkFlightTarget = widget.initialArtworkFlightTarget;
     WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void didUpdateWidget(covariant PlayerLaunchRegion oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialArtworkFlightTarget !=
-            widget.initialArtworkFlightTarget &&
-        _artworkFlightTarget == oldWidget.initialArtworkFlightTarget) {
-      _artworkFlightTarget = widget.initialArtworkFlightTarget;
-    }
     if (oldWidget.sessionIdentity != widget.sessionIdentity) {
       _abortInteractiveSession();
       _clearPointer();
@@ -101,8 +86,6 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
     if (!mounted || _launchInProgress) return;
     _launchInProgress = true;
     try {
-      await _prepareArtworkTarget(initialSurface);
-      if (!mounted) return;
       final route = widget.createConfiguration().createRoute(
         initialSurface: initialSurface,
       );
@@ -110,7 +93,6 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
       await Navigator.of(context).push<void>(route);
       await route.completed;
     } finally {
-      _restoreArtworkTarget();
       _launchInProgress = false;
     }
   }
@@ -124,7 +106,6 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
 
   @override
   Widget build(BuildContext context) {
-    final artwork = _buildArtwork(context);
     return Listener(
       key: const ValueKey('mini-player-upward-launcher'),
       behavior: HitTestBehavior.translucent,
@@ -132,56 +113,8 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
       onPointerMove: _handlePointerMove,
       onPointerUp: _handlePointerUp,
       onPointerCancel: _handlePointerCancel,
-      child: widget.builder(context, this, artwork),
+      child: widget.builder(context, this, widget.artworkBuilder(context)),
     );
-  }
-
-  Widget _buildArtwork(BuildContext context) {
-    final artwork = PlayerArtworkHero(
-      trackId: widget.sessionIdentity.toString(),
-      target: _artworkFlightTarget,
-      cornerRadius: PlayerCompactArtwork.cornerRadius,
-      enabled:
-          widget.artworkHeroEnabled &&
-          AppBottomDockTransitionScope.artworkHeroEnabledOf(context),
-      child: widget.artworkBuilder(context),
-    );
-    return KeyedSubtree(
-      key: _miniArtworkKey,
-      child: ValueListenableBuilder<bool>(
-        valueListenable: _interactiveArtworkHidden,
-        child: RepaintBoundary(child: artwork),
-        builder: (context, hidden, child) =>
-            Opacity(opacity: hidden ? 0 : 1, child: child),
-      ),
-    );
-  }
-
-  Rect? _miniArtworkRect() {
-    final renderObject = _miniArtworkKey.currentContext?.findRenderObject();
-    if (renderObject is! RenderBox ||
-        !renderObject.attached ||
-        !renderObject.hasSize) {
-      return null;
-    }
-    return renderObject.localToGlobal(Offset.zero) & renderObject.size;
-  }
-
-  Future<void> _prepareArtworkTarget(PlayerInitialSurface surface) async {
-    final target = surface == PlayerInitialSurface.queue
-        ? PlayerArtworkFlightTarget.none
-        : PlayerArtworkFlightTarget.main;
-    if (_artworkFlightTarget != target && mounted) {
-      setState(() => _artworkFlightTarget = target);
-      await WidgetsBinding.instance.endOfFrame;
-    }
-  }
-
-  void _restoreArtworkTarget() {
-    if (!mounted || _artworkFlightTarget == widget.initialArtworkFlightTarget) {
-      return;
-    }
-    setState(() => _artworkFlightTarget = widget.initialArtworkFlightTarget);
   }
 
   void _handlePointerDown(PointerDownEvent event) {
@@ -271,16 +204,8 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
       overlay: overlay,
       rootNavigator: rootNavigator,
       configuration: configuration,
-      artworkRect: _miniArtworkRect(),
-      artworkBuilder: widget.artworkBuilder,
-      artworkTrackId: widget.sessionIdentity.toString(),
-      artworkHeroEnabled: widget.artworkHeroEnabled,
-      onArtworkVisibilityChanged: (hidden) {
-        _interactiveArtworkHidden.value = hidden;
-      },
       onRootRouteClosed: () {
         if (!mounted || generation != _sessionGeneration) return;
-        _restoreArtworkTarget();
         _launchInProgress = false;
       },
     );
@@ -294,13 +219,11 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
     required double velocity,
     required double extent,
   }) async {
-    await _prepareArtworkTarget(PlayerInitialSurface.main);
     if (!mounted || !identical(_interactiveSession, session)) return;
     final completed = await session.finish(velocity: velocity, extent: extent);
     if (!mounted || !identical(_interactiveSession, session)) return;
     _interactiveSession = null;
     if (!completed) {
-      _restoreArtworkTarget();
       _launchInProgress = false;
     }
   }
@@ -316,15 +239,10 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
 
   void _abortInteractiveSession() {
     if (_interactiveSession == null) return;
-    final generation = ++_sessionGeneration;
+    ++_sessionGeneration;
     _interactiveSession?.abort();
     _interactiveSession = null;
     _launchInProgress = false;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && generation == _sessionGeneration) {
-        _restoreArtworkTarget();
-      }
-    });
   }
 
   void _clearPointer() {
@@ -349,7 +267,6 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
     WidgetsBinding.instance.removeObserver(this);
     _abortInteractiveSession();
     _clearPointer();
-    _interactiveArtworkHidden.dispose();
     super.dispose();
   }
 }
@@ -361,34 +278,17 @@ class _InteractivePlayerOpenSession {
     required this.overlay,
     required this.rootNavigator,
     required this.configuration,
-    required this.artworkRect,
-    required this.artworkBuilder,
-    required this.artworkTrackId,
-    required this.artworkHeroEnabled,
-    required this.onArtworkVisibilityChanged,
     required this.onRootRouteClosed,
   });
 
   final OverlayState overlay;
   final NavigatorState rootNavigator;
   final AudioPlayerOpenConfiguration configuration;
-  final Rect? artworkRect;
-  final WidgetBuilder artworkBuilder;
-  final String artworkTrackId;
-  final bool artworkHeroEnabled;
-  final ValueChanged<bool> onArtworkVisibilityChanged;
   final VoidCallback onRootRouteClosed;
 
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   final GlobalKey _playerPageKey = GlobalKey();
   final Completer<void> _routeReady = Completer<void>();
-  late final HeroController _heroController = HeroController(
-    createRectTween: (begin, end) => createPlayerArtworkRectTween(
-      begin,
-      end,
-      viewportHeight: MediaQuery.sizeOf(overlay.context).height,
-    ),
-  );
   OverlayEntry? _entry;
   AudioPlayerPageRoute<void>? _route;
   double _distance = 0;
@@ -405,7 +305,6 @@ class _InteractivePlayerOpenSession {
         child: IgnorePointer(
           child: Navigator(
             key: _navigatorKey,
-            observers: [_heroController],
             requestFocus: false,
             onGenerateInitialRoutes: (navigator, initialRoute) => [
               PageRouteBuilder<void>(
@@ -417,12 +316,7 @@ class _InteractivePlayerOpenSession {
                 transitionDuration: Duration.zero,
                 reverseTransitionDuration: Duration.zero,
                 pageBuilder: (context, animation, secondaryAnimation) =>
-                    _InteractivePlayerHeroSource(
-                      artworkRect: artworkRect,
-                      artworkBuilder: artworkBuilder,
-                      artworkTrackId: artworkTrackId,
-                      artworkHeroEnabled: artworkHeroEnabled,
-                    ),
+                    const SizedBox.expand(),
               ),
             ],
           ),
@@ -439,7 +333,6 @@ class _InteractivePlayerOpenSession {
     }
     final route = configuration.createRoute(playerKey: _playerPageKey);
     _route = route;
-    if (artworkHeroEnabled) onArtworkVisibilityChanged(true);
     unawaited(navigator.push<void>(route));
     await WidgetsBinding.instance.endOfFrame;
     if (_disposed) return;
@@ -517,45 +410,5 @@ class _InteractivePlayerOpenSession {
     _disposed = true;
     _entry?.remove();
     _entry = null;
-    onArtworkVisibilityChanged(false);
-  }
-}
-
-class _InteractivePlayerHeroSource extends StatelessWidget {
-  const _InteractivePlayerHeroSource({
-    required this.artworkRect,
-    required this.artworkBuilder,
-    required this.artworkTrackId,
-    required this.artworkHeroEnabled,
-  });
-
-  final Rect? artworkRect;
-  final WidgetBuilder artworkBuilder;
-  final String artworkTrackId;
-  final bool artworkHeroEnabled;
-
-  @override
-  Widget build(BuildContext context) {
-    final rect = artworkRect;
-    if (!artworkHeroEnabled || rect == null) {
-      return const SizedBox.expand();
-    }
-    return Material(
-      type: MaterialType.transparency,
-      child: Stack(
-        children: [
-          Positioned.fromRect(
-            rect: rect,
-            child: PlayerArtworkHero(
-              trackId: artworkTrackId,
-              target: PlayerArtworkFlightTarget.main,
-              cornerRadius: PlayerCompactArtwork.cornerRadius,
-              enabled: artworkHeroEnabled,
-              child: artworkBuilder(context),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

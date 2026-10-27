@@ -745,7 +745,7 @@ class _VideoScreenState extends ConsumerState<VideoScreen> {
     final collectionKey = _activeCollectionKey;
     await pushWorkDetailRoute(
       context,
-      builder: (_) => GlobalAudioPlayerWrapper.workDetails(
+      builder: (_) => GlobalAudioPlayerWrapper(
         child: VideoSearchScreen(
           title: s.search,
           search: (query, filters, isCurrent) async {

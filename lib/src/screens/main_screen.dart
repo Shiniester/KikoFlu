@@ -6,7 +6,6 @@ import '../../l10n/app_localizations.dart';
 import '../providers/audio_provider.dart';
 import '../providers/update_provider.dart';
 import '../providers/auth_provider.dart';
-import '../widgets/app_bottom_dock_transition.dart';
 import '../widgets/app_bottom_dock.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/tab_page_motion.dart';
@@ -310,7 +309,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
           ],
         ),
       );
-      return AppBottomDockTransitionScope(child: landscapeScaffold);
+      return landscapeScaffold;
     }
 
     // 竖屏布局：播放条和应用标签栏共同组成底部 Dock。
@@ -434,7 +433,7 @@ class _MainScreenState extends ConsumerState<MainScreen> {
       ),
       bottomNavigationBar: bottomDock,
     );
-    return AppBottomDockTransitionScope(child: portraitScaffold);
+    return portraitScaffold;
   }
 
   Widget _buildNavigationRail(List<NavigationDestination> destinations) {

@@ -72,9 +72,8 @@ Future<T?> openAudioPlayer<T>(
 
 /// Shared route used by every global Mini Player entry point.
 ///
-/// The Player Cover Page's artwork follows the full-page route through a staged
-/// Hero path. Queue content and background travel together, using the internal
-/// queue motion for compact entry and the full-page motion for dismissal.
+/// Queue content and background travel together, using the internal queue
+/// motion for compact entry and the full-page motion for dismissal.
 class AudioPlayerPageRoute<T> extends PageRoute<T>
     with CupertinoRouteTransitionMixin<T>
     implements PlayerInteractiveDismissRoute {
@@ -272,8 +271,8 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
       }
     } else {
       // Direct value updates preserve the controller's last direction. Mark
-      // this session as a reverse transition before notifying HeroController
-      // so an interactive dismissal produces a reverse artwork flight.
+      // this session as a reverse transition so the route uses its dismissal
+      // curve during the gesture.
       unawaited(
         animationController.animateBack(
           animationController.value,
@@ -429,7 +428,7 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
         if (navigator == null || !_reduceMotion) return;
         final animationController = controller!;
         if (animationController.isAnimating) {
-          // Completing the shared animation also ends its active Hero flight.
+          // Complete the route motion as soon as reduced motion is enabled.
           final target = animationController.status == AnimationStatus.reverse
               ? 0.0
               : 1.0;

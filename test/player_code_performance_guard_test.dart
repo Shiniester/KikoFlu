@@ -229,14 +229,13 @@ void main() {
           'Duration playerRouteTransitionDuration = Duration(milliseconds: 380)',
         ),
       );
-      expect(playerCover, contains('transitionOnUserGestures: true'));
-      expect(playerCover, contains('createPlayerArtworkRectTween'));
-      expect(playerCover, contains('playerArtworkAttachmentStart = 0.20'));
-      expect(playerCover, contains('playerArtworkAttachmentEnd = 0.85'));
-      expect(screen, isNot(contains('PlayerArtworkFlightTarget.queue')));
+      expect(playerCover, isNot(contains('PlayerArtworkHero')));
+      expect(playerCover, isNot(contains('PlayerArtworkFlightTarget')));
+      expect(playerCover, isNot(contains('createPlayerArtworkRectTween')));
+      expect(playerCover, contains('class PlayerCoverPreviewHero'));
       expect(miniPlayer, contains('PlayerCompactArtwork('));
-      expect(playerLaunch, contains('PlayerArtworkHero('));
-      expect(playerLaunch, contains('createPlayerArtworkRectTween'));
+      expect(playerLaunch, isNot(contains('PlayerArtworkHero(')));
+      expect(playerLaunch, isNot(contains('HeroController')));
       expect(miniPlayer, contains("'mini-player-queue-button'"));
       expect(miniPlayer, contains('class _MiniPlayerTrackSwitcher'));
       expect(miniPlayer, contains('PlayerTrackLayers<AudioTrack>'));
@@ -312,7 +311,7 @@ void main() {
     );
   });
 
-  test('artwork flights and transient notices stay centralized', () {
+  test('cover preview flights and transient notices stay centralized', () {
     final appSources = Directory('lib/src')
         .listSync(recursive: true)
         .whereType<File>()
@@ -344,7 +343,7 @@ void main() {
     );
     expect(noticeSource, contains('class AppFloatingNotice'));
     expect(noticeSource, contains('OverlayEntry('));
-    expect(playerCover, contains('enum PlayerArtworkFlightTarget'));
+    expect(playerCover, contains('class PlayerCoverPreviewHero'));
     expect(playerCover, contains('class PlayerCompactArtwork'));
     expect(playerCover, contains('Tween<double>('));
   });

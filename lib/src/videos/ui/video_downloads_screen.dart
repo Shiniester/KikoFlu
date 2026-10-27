@@ -279,7 +279,7 @@ class _VideoDownloadsScreenState extends ConsumerState<VideoDownloadsScreen> {
 
     await pushWorkDetailRoute(
       context,
-      builder: (_) => GlobalAudioPlayerWrapper.workDetails(
+      builder: (_) => GlobalAudioPlayerWrapper(
         child: VideoSearchScreen(
           title: s.videoDownloads,
           search: (query, filters, _) async {

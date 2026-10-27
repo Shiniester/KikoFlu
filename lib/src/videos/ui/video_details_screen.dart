@@ -578,7 +578,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
     final details = _details;
     ref.watch(videoDownloadsProvider);
     final currentTask = _availableTask;
-    return GlobalAudioPlayerWrapper.workDetails(
+    return GlobalAudioPlayerWrapper(
       child: Scaffold(
         appBar: AppBar(
           title: Text(

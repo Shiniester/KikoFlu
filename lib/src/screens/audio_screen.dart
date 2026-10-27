@@ -344,7 +344,7 @@ class _AudioScreenState extends ConsumerState<AudioScreen>
         : null;
     pushWorkDetailRoute(
       context,
-      builder: (_) => GlobalAudioPlayerWrapper.workDetails(
+      builder: (_) => GlobalAudioPlayerWrapper(
         child: SearchScreen(
           showBackButton: true,
           scope: scope,

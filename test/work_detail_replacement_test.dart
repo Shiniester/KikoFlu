@@ -5,47 +5,34 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
 
 void main() {
-  testWidgets('automatic detail replacement retains the original Dock return', (
+  testWidgets('automatic detail replacement retains the original return step', (
     tester,
   ) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(390, 844);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.reset);
     final disposed = <int>[];
     var returned = false;
     await tester.pumpWidget(
       MaterialApp(
-        home: AppBottomDockTransitionScope(
-          child: Scaffold(
-            body: Builder(
-              builder: (context) => TextButton(
-                onPressed: () => unawaited(
-                  pushWorkDetailRoute(
-                    context,
-                    builder: (_) => _Detail(index: 0, disposed: disposed),
-                  ).then((_) => returned = true),
-                ),
-                child: const Text('Open detail'),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => unawaited(
+                pushWorkDetailRoute(
+                  context,
+                  builder: (_) => _Detail(index: 0, disposed: disposed),
+                ).then((_) => returned = true),
               ),
+              child: const Text('Open detail'),
             ),
-            bottomNavigationBar: const Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AppBottomDockMiniPlayer.source(
-                  child: SizedBox(
-                    height: 64,
-                    child: Center(child: Text('Audio')),
-                  ),
-                ),
-                AppBottomDockTabBar.source(
-                  child: SizedBox(
-                    height: 58,
-                    child: Center(child: Text('Tabs')),
-                  ),
-                ),
-              ],
-            ),
+          ),
+          bottomNavigationBar: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(height: 64, child: Center(child: Text('Audio'))),
+              SizedBox(height: 58, child: Center(child: Text('Tabs'))),
+            ],
           ),
         ),
       ),
@@ -60,11 +47,10 @@ void main() {
       expect(returned, isFalse);
       expect(tester.takeException(), isNull);
     }
-    final context = tester.element(find.text('Detail 2'));
-    Navigator.of(context).pop();
+    Navigator.of(tester.element(find.text('Detail 2'))).pop();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsOneWidget);
+    expect(returned, isFalse);
     await tester.pumpAndSettle();
     expect(find.text('Open detail'), findsOneWidget);
     expect(find.text('Audio'), findsOneWidget);
@@ -86,30 +72,27 @@ class _Detail extends StatefulWidget {
 
 class _DetailState extends State<_Detail> {
   @override
-  Widget build(BuildContext context) => AppBottomDockTransitionScope(
-    child: Scaffold(
-      body: Builder(
-        builder: (context) => Column(
-          children: [
-            Text('Detail ${widget.index}'),
-            TextButton(
-              onPressed: () => unawaited(
-                replaceWorkDetailRoute(
-                  context,
-                  builder: (_) => _Detail(
-                    index: widget.index + 1,
-                    disposed: widget.disposed,
-                  ),
-                ),
+  Widget build(BuildContext context) => Scaffold(
+    body: Builder(
+      builder: (context) => Column(
+        children: [
+          Text('Detail ${widget.index}'),
+          TextButton(
+            onPressed: () => unawaited(
+              replaceWorkDetailRoute(
+                context,
+                builder: (_) =>
+                    _Detail(index: widget.index + 1, disposed: widget.disposed),
               ),
-              child: const Text('Next'),
             ),
-          ],
-        ),
+            child: const Text('Next'),
+          ),
+        ],
       ),
-      bottomNavigationBar: const AppBottomDockMiniPlayer.target(
-        child: SizedBox(height: 64, child: Center(child: Text('Audio'))),
-      ),
+    ),
+    bottomNavigationBar: const SizedBox(
+      height: 64,
+      child: Center(child: Text('Audio')),
     ),
   );
 

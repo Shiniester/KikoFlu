@@ -2,13 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_vertical_gestures.dart';
 
 const _viewportSize = Size(400, 800);
-const _miniArtworkRect = Rect.fromLTWH(16, 700, 64, 48);
-const _coverArtworkRect = Rect.fromLTWH(40, 120, 320, 240);
 const _queueArtworkRect = Rect.fromLTWH(24, 112, 64, 48);
 
 void main() {
@@ -16,9 +13,9 @@ void main() {
     testWidgets('reduced motion preserves interactive open result $complete', (
       tester,
     ) async {
-      final navigatorKey = await _pumpHost(tester, withCoverHero: true);
+      final navigatorKey = await _pumpHost(tester);
       final route = AudioPlayerPageRoute<void>(
-        builder: (_) => const _CoverPageFixture(),
+        builder: (_) => const _PlayerPageFixture(),
       );
       unawaited(navigatorKey.currentState!.push<void>(route));
       expect(route.beginVerticalOpenGesture(), isTrue);
@@ -42,11 +39,7 @@ void main() {
       expect(await result, complete);
       expect(navigatorKey.currentState!.userGestureInProgress, isFalse);
       expect(
-        find.byKey(const ValueKey('player-artwork-flight-frame')),
-        findsNothing,
-      );
-      expect(
-        find.byType(_CoverPageFixture),
+        find.byType(_PlayerPageFixture),
         complete ? findsOneWidget : findsNothing,
       );
       await tester.pumpAndSettle();
@@ -56,11 +49,11 @@ void main() {
 
   for (final popping in [false, true]) {
     testWidgets(
-      'reduced motion ends an active Hero ${popping ? "pop" : "push"}',
+      'reduced motion completes active route ${popping ? 'pop' : 'push'}',
       (tester) async {
-        final navigatorKey = await _pumpHost(tester, withCoverHero: true);
+        final navigatorKey = await _pumpHost(tester);
         final route = AudioPlayerPageRoute<void>(
-          builder: (_) => const _CoverPageFixture(),
+          builder: (_) => const _PlayerPageFixture(),
         );
         unawaited(navigatorKey.currentState!.push<void>(route));
         await tester.pump();
@@ -70,11 +63,6 @@ void main() {
           await tester.pump();
         }
         await tester.pump(const Duration(milliseconds: 80));
-        final flight = find.byKey(
-          const ValueKey('player-artwork-flight-frame'),
-          skipOffstage: false,
-        );
-        expect(flight, findsOneWidget);
 
         tester.platformDispatcher.accessibilityFeaturesTestValue =
             const FakeAccessibilityFeatures(disableAnimations: true);
@@ -83,126 +71,23 @@ void main() {
         );
         await tester.pump();
         await tester.pump();
-        expect(flight, findsNothing);
         if (popping) {
-          expect(find.byType(_CoverPageFixture), findsNothing);
+          expect(find.byType(_PlayerPageFixture), findsNothing);
         } else {
           expect(route.debugTransitionValue, 1);
           expect(route.debugTransitionStatus, AnimationStatus.completed);
           expect(_routeTranslation(tester), 0);
-          expect(
-            tester.getRect(find.byKey(const ValueKey('cover-artwork-content'))),
-            _coverArtworkRect,
-          );
         }
         await tester.pump(const Duration(milliseconds: 500));
-        expect(flight, findsNothing);
         expect(tester.takeException(), isNull);
       },
     );
   }
 
   testWidgets(
-    'Player Cover Page Hero follows the staged path for automatic push and pop',
-    (tester) async {
-      final navigatorKey = await _pumpHost(tester, withCoverHero: true);
-      final route = AudioPlayerPageRoute<void>(
-        builder: (_) => const _CoverPageFixture(),
-      );
-
-      unawaited(navigatorKey.currentState!.push<void>(route));
-      await tester.pump();
-      await tester.pump();
-
-      for (final progress in <double>[0.2, 0.5, 0.8]) {
-        final actualProgress = await _setAutomaticVisualProgress(
-          tester,
-          route,
-          progress,
-          reverse: false,
-        );
-        _expectCoverArtworkAtProgress(tester, actualProgress);
-      }
-
-      route.debugContinueForward();
-      await tester.pumpAndSettle();
-      navigatorKey.currentState!.pop();
-      await tester.pump();
-      await tester.pump();
-
-      for (final progress in <double>[0.8, 0.5, 0.2]) {
-        final actualProgress = await _setAutomaticVisualProgress(
-          tester,
-          route,
-          progress,
-          reverse: true,
-        );
-        _expectCoverArtworkAtProgress(tester, actualProgress);
-      }
-
-      route.debugContinueReverse();
-      await tester.pumpAndSettle();
-      expect(find.byType(_CoverPageFixture), findsNothing);
-    },
-  );
-
-  testWidgets(
-    'Player Cover Page Hero follows raw drag progress and the same rebound path',
-    (tester) async {
-      final navigatorKey = await _pumpHost(tester, withCoverHero: true);
-      final route = AudioPlayerPageRoute<void>(
-        builder: (_) => const _CoverPageFixture(),
-      );
-
-      unawaited(navigatorKey.currentState!.push<void>(route));
-      expect(route.beginVerticalOpenGesture(), isTrue);
-      await tester.pump();
-      await tester.pump();
-
-      for (final progress in <double>[0.2, 0.5, 0.8]) {
-        route.updateVerticalOpenGesture(
-          distance: _viewportSize.height * progress,
-          extent: _viewportSize.height,
-        );
-        await tester.pump();
-        expect(route.debugVisualValue, closeTo(progress, 0.001));
-        _expectCoverArtworkAtProgress(tester, progress);
-      }
-
-      final opened = route.endVerticalOpenGesture(
-        velocity: 0,
-        extent: _viewportSize.height,
-      );
-      await tester.pumpAndSettle();
-      expect(await opened, isTrue);
-
-      expect(
-        route.beginVerticalDismissGesture(PlayerDismissVisualMode.main),
-        isTrue,
-      );
-      await tester.pump();
-      for (final progress in <double>[0.8, 0.5, 0.2, 0.5]) {
-        route.updateVerticalDismissGesture(
-          distance: _viewportSize.height * (1 - progress),
-          extent: _viewportSize.height,
-        );
-        await tester.pump();
-        expect(route.debugVisualValue, closeTo(progress, 0.001));
-        _expectCoverArtworkAtProgress(tester, progress);
-      }
-
-      route.cancelVerticalDismissGesture();
-      await tester.pump(const Duration(milliseconds: 125));
-      _expectCoverArtworkAtProgress(tester, route.debugVisualValue);
-      await tester.pumpAndSettle();
-      expect(find.byType(_CoverPageFixture), findsOneWidget);
-    },
-  );
-
-  testWidgets(
     'Player Queue Page artwork remains fixed in the page during push and pop',
     (tester) async {
-      final navigatorKey = await _pumpHost(tester, withCoverHero: false);
+      final navigatorKey = await _pumpHost(tester);
       final route = AudioPlayerPageRoute<void>(
         initialDismissVisualMode: PlayerDismissVisualMode.secondary,
         builder: (_) => const _QueuePageFixture(),
@@ -246,10 +131,7 @@ void main() {
   );
 }
 
-Future<GlobalKey<NavigatorState>> _pumpHost(
-  WidgetTester tester, {
-  required bool withCoverHero,
-}) async {
+Future<GlobalKey<NavigatorState>> _pumpHost(WidgetTester tester) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = _viewportSize;
   addTearDown(tester.view.resetDevicePixelRatio);
@@ -258,26 +140,7 @@ Future<GlobalKey<NavigatorState>> _pumpHost(
   await tester.pumpWidget(
     MaterialApp(
       navigatorKey: navigatorKey,
-      home: Scaffold(
-        body: Stack(
-          children: [
-            Positioned.fromRect(
-              rect: _miniArtworkRect,
-              child: withCoverHero
-                  ? const PlayerArtworkHero(
-                      trackId: 'route-artwork',
-                      target: PlayerArtworkFlightTarget.main,
-                      cornerRadius: 10,
-                      child: ColoredBox(
-                        key: ValueKey('mini-artwork-content'),
-                        color: Colors.blue,
-                      ),
-                    )
-                  : const ColoredBox(color: Colors.blue),
-            ),
-          ],
-        ),
-      ),
+      home: const Scaffold(body: Center(child: Text('player-route-host'))),
     ),
   );
   return navigatorKey;
@@ -311,39 +174,6 @@ double _invertCurve(Curve curve, double target) {
   return (low + high) / 2;
 }
 
-void _expectCoverArtworkAtProgress(WidgetTester tester, double progress) {
-  final artworkRect = tester.getRect(
-    find.byKey(const ValueKey('cover-artwork-content')),
-  );
-  final expected = createPlayerArtworkRectTween(
-    _miniArtworkRect,
-    _coverArtworkRect,
-    viewportHeight: _viewportSize.height,
-  ).transform(progress)!;
-  _expectRectClose(artworkRect, expected);
-
-  final pageTranslation = _routeTranslation(tester);
-  expect(pageTranslation, closeTo(_viewportSize.height * (1 - progress), 1));
-  expect(artworkRect.top, greaterThanOrEqualTo(pageTranslation - 1));
-  expect(
-    artworkRect.bottom,
-    lessThanOrEqualTo(pageTranslation + _viewportSize.height + 1),
-  );
-
-  final flightFrame = tester.widget<ClipRRect>(
-    find.byKey(
-      const ValueKey('player-artwork-flight-frame'),
-      skipOffstage: false,
-    ),
-  );
-  final radius = flightFrame.borderRadius as BorderRadius;
-  final expectedRadius = 10 + (4 * progress);
-  expect(radius.topLeft.x, closeTo(expectedRadius, 0.01));
-  expect(radius.topRight.x, closeTo(expectedRadius, 0.01));
-  expect(radius.bottomLeft.x, closeTo(expectedRadius, 0.01));
-  expect(radius.bottomRight.x, closeTo(expectedRadius, 0.01));
-}
-
 void _expectQueueArtworkAttachedToPage(WidgetTester tester, double progress) {
   expect(find.byType(Hero, skipOffstage: false), findsNothing);
   final artworkRect = tester.getRect(
@@ -361,40 +191,12 @@ double _routeTranslation(WidgetTester tester) => tester
     .transform
     .entry(1, 3);
 
-void _expectRectClose(Rect actual, Rect expected) {
-  expect(actual.left, closeTo(expected.left, 1));
-  expect(actual.top, closeTo(expected.top, 1));
-  expect(actual.width, closeTo(expected.width, 1));
-  expect(actual.height, closeTo(expected.height, 1));
-}
-
-class _CoverPageFixture extends StatelessWidget {
-  const _CoverPageFixture();
+class _PlayerPageFixture extends StatelessWidget {
+  const _PlayerPageFixture();
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Stack(
-        children: [
-          Positioned(
-            left: 40,
-            top: 120,
-            width: 320,
-            height: 240,
-            child: PlayerArtworkHero(
-              trackId: 'route-artwork',
-              target: PlayerArtworkFlightTarget.main,
-              cornerRadius: 14,
-              isPlayerPageTarget: true,
-              child: ColoredBox(
-                key: ValueKey('cover-artwork-content'),
-                color: Colors.red,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+    return const Scaffold(body: ColoredBox(color: Colors.red));
   }
 }
 

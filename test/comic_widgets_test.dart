@@ -2,7 +2,6 @@ import 'package:kikoeru_flutter/src/comics/comic_downloads.dart';
 import 'package:kikoeru_flutter/src/utils/theme.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_widgets.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
-import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/library_content_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/library_page_scaffold.dart';
 import 'package:kikoeru_flutter/src/widgets/metadata_search_chip.dart';
@@ -8233,108 +8232,96 @@ void main() {
     },
   );
 
-  testWidgets(
-    'comic detail route hands off both dock parts and restores them on return',
-    (tester) async {
-      tester.view.physicalSize = const Size(390, 844);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      await pump(
-        tester,
-        AppBottomDockTransitionScope(
-          child: Scaffold(
-            body: Builder(
-              builder: (context) => Center(
-                child: TextButton(
-                  onPressed: () => openComic(context, _comic),
-                  child: const Text('Open comic'),
-                ),
-              ),
-            ),
-            bottomNavigationBar: AppBottomDock(
-              selectedIndex: 1,
-              onDestinationSelected: (_) {},
-              miniPlayer: const MiniPlayer(),
-              destinations: const [
-                NavigationDestination(
-                  icon: Icon(Icons.library_music),
-                  label: 'Audio',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.menu_book),
-                  label: 'Comics',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.settings),
-                  label: 'Settings',
-                ),
-              ],
+  testWidgets('comic detail route keeps the Dock at the source page bottom', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pump(
+      tester,
+      Scaffold(
+        body: Builder(
+          builder: (context) => Center(
+            child: TextButton(
+              onPressed: () => openComic(context, _comic),
+              child: const Text('Open comic'),
             ),
           ),
         ),
-        _Library(),
-        _Source(),
-        track: const AudioTrack(
-          id: 'dock-track',
-          title: 'Audio',
-          url: 'https://example.invalid/audio.mp3',
+        bottomNavigationBar: AppBottomDock(
+          selectedIndex: 1,
+          onDestinationSelected: (_) {},
+          miniPlayer: const MiniPlayer(),
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.library_music),
+              label: 'Audio',
+            ),
+            NavigationDestination(icon: Icon(Icons.menu_book), label: 'Comics'),
+            NavigationDestination(
+              icon: Icon(Icons.settings),
+              label: 'Settings',
+            ),
+          ],
         ),
-      );
-      final sourceRect = tester.getRect(find.byType(MiniPlayer));
-      await tester.tap(find.text('Open comic'));
-      await tester.pump();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsOneWidget);
-      expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
-      expect(
-        tester.getRect(find.byKey(appBottomDockMiniPlayerHandoffRootKey)).top,
-        greaterThan(sourceRect.top),
-      );
-      await tester.pumpAndSettle();
-      expect(find.byType(ComicDetailScreen), findsOneWidget);
-      expect(find.byType(MiniPlayer), findsOneWidget);
-      await tester.tap(find.byTooltip('Back'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsOneWidget);
-      expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
-      await tester.pumpAndSettle();
-      expect(tester.getRect(find.byType(MiniPlayer)), sourceRect);
-      expect(tester.takeException(), isNull);
-    },
-  );
+      ),
+      _Library(),
+      _Source(),
+      track: const AudioTrack(
+        id: 'dock-track',
+        title: 'Audio',
+        url: 'https://example.invalid/audio.mp3',
+      ),
+    );
+    final sourceRect = tester.getRect(find.byType(MiniPlayer));
+    await tester.tap(find.text('Open comic'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.getRect(find.byType(AppBottomDock)).bottom, 844);
+    expect(tester.getRect(find.byType(MiniPlayer).last).bottom, 844);
+    await tester.pumpAndSettle();
+    expect(find.byType(ComicDetailScreen), findsOneWidget);
+    expect(find.byType(MiniPlayer), findsOneWidget);
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.getRect(find.byType(AppBottomDock)).bottom, 844);
+    expect(tester.getRect(find.byType(MiniPlayer).last).bottom, 844);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(find.byType(MiniPlayer)), sourceRect);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
-    'comic search hands off the Dock and Mini Player on both directions',
+    'comic search keeps the Dock and Mini Player at their page bottoms',
     (tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       await pump(
         tester,
-        AppBottomDockTransitionScope(
-          child: Scaffold(
-            body: const ComicScreen(),
-            bottomNavigationBar: AppBottomDock(
-              selectedIndex: 1,
-              onDestinationSelected: (_) {},
-              miniPlayer: const MiniPlayer(),
-              destinations: const [
-                NavigationDestination(
-                  icon: Icon(Icons.library_music),
-                  label: 'Audio',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.menu_book),
-                  label: 'Comics',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.settings),
-                  label: 'Settings',
-                ),
-              ],
-            ),
+        Scaffold(
+          body: const ComicScreen(),
+          bottomNavigationBar: AppBottomDock(
+            selectedIndex: 1,
+            onDestinationSelected: (_) {},
+            miniPlayer: const MiniPlayer(),
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.library_music),
+                label: 'Audio',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.menu_book),
+                label: 'Comics',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.settings),
+                label: 'Settings',
+              ),
+            ],
           ),
         ),
         _Library(),
@@ -8349,8 +8336,8 @@ void main() {
       await tester.pump();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsOneWidget);
-      expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
+      expect(tester.getRect(find.byType(AppBottomDock)).bottom, 844);
+      expect(tester.getRect(find.byType(MiniPlayer).last).bottom, 844);
       await tester.pumpAndSettle();
       expect(find.byType(ComicSearchScreen), findsOneWidget);
       expect(find.byType(MiniPlayer), findsOneWidget);
@@ -8373,8 +8360,8 @@ void main() {
       await tester.tap(find.byTooltip('Back'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsOneWidget);
-      expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
+      expect(tester.getRect(find.byType(AppBottomDock)).bottom, 844);
+      expect(tester.getRect(find.byType(MiniPlayer).last).bottom, 844);
       await tester.pumpAndSettle();
       expect(find.byType(ComicSearchScreen), findsNothing);
       expect(find.byType(MiniPlayer), findsOneWidget);
@@ -8383,35 +8370,33 @@ void main() {
   );
 
   testWidgets(
-    'comic categories and nested results hand off the Dock without artwork flights',
+    'comic categories and nested results keep each Mini Player at its page bottom',
     (tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       await pump(
         tester,
-        AppBottomDockTransitionScope(
-          child: Scaffold(
-            body: const ComicScreen(),
-            bottomNavigationBar: AppBottomDock(
-              selectedIndex: 1,
-              onDestinationSelected: (_) {},
-              miniPlayer: const MiniPlayer(),
-              destinations: const [
-                NavigationDestination(
-                  icon: Icon(Icons.library_music),
-                  label: 'Audio',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.menu_book),
-                  label: 'Comics',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.settings),
-                  label: 'Settings',
-                ),
-              ],
-            ),
+        Scaffold(
+          body: const ComicScreen(),
+          bottomNavigationBar: AppBottomDock(
+            selectedIndex: 1,
+            onDestinationSelected: (_) {},
+            miniPlayer: const MiniPlayer(),
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.library_music),
+                label: 'Audio',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.menu_book),
+                label: 'Comics',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.settings),
+                label: 'Settings',
+              ),
+            ],
           ),
         ),
         _Library(),
@@ -8429,12 +8414,8 @@ void main() {
       await tester.pump();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsOneWidget);
-      expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
-      expect(
-        tester.getTopLeft(find.byKey(appBottomDockMiniPlayerHandoffRootKey)).dx,
-        0,
-      );
+      expect(tester.getRect(find.byType(AppBottomDock)).bottom, 844);
+      expect(tester.getRect(find.byType(MiniPlayer).last).bottom, 844);
       expect(
         find.byKey(const ValueKey('player-artwork-flight-frame')),
         findsNothing,
@@ -8446,10 +8427,7 @@ void main() {
       await tester.pump();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      final nestedDock = tester.getRect(
-        find.byKey(appBottomDockMiniPlayerHandoffRootKey),
-      );
-      expect(nestedDock.left, 0);
+      final nestedDock = tester.getRect(find.byType(MiniPlayer).last);
       expect(nestedDock.bottom, 844);
       expect(
         find.byKey(const ValueKey('player-artwork-flight-frame')),
@@ -8460,8 +8438,8 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
       expect(
-        tester.getRect(find.byKey(appBottomDockMiniPlayerHandoffRootKey)),
-        nestedDock,
+        tester.getRect(find.byType(MiniPlayer).last).bottom,
+        nestedDock.bottom,
       );
       expect(
         find.byKey(const ValueKey('player-artwork-flight-frame')),
@@ -8471,12 +8449,8 @@ void main() {
       await tester.tap(find.byTooltip('Back'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsOneWidget);
-      expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
-      expect(
-        tester.getTopLeft(find.byKey(appBottomDockMiniPlayerHandoffRootKey)).dx,
-        0,
-      );
+      expect(tester.getRect(find.byType(AppBottomDock)).bottom, 844);
+      expect(tester.getRect(find.byType(MiniPlayer).last).bottom, 844);
       expect(
         find.byKey(const ValueKey('player-artwork-flight-frame')),
         findsNothing,

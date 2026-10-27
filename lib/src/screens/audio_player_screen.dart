@@ -1177,36 +1177,30 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       key: const ValueKey('wide-header-dismiss-surface'),
       swipeDownDrag: dismissDrag,
       pageDragCoordinator: pageDragCoordinator,
-      child: _buildPlayerCoverHeaderTransition(
-        context,
-        key: const ValueKey('wide-player-cover-header-opacity'),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 704),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 8, 12, 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: _buildTrackTitleBlock(
-                      context,
-                      track,
-                      true,
-                      allowAnimation: allowTitleAnimation,
-                    ),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 704),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 12, 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _buildTrackTitleBlock(
+                    context,
+                    track,
+                    true,
+                    allowAnimation: allowTitleAnimation,
                   ),
-                  const SizedBox(width: 20),
-                  IconButton(
-                    key: const ValueKey('player-more-button-wide'),
-                    tooltip: MaterialLocalizations.of(
-                      context,
-                    ).moreButtonTooltip,
-                    onPressed: () => _showMoreSheet(context, track),
-                    icon: const Icon(Icons.more_vert),
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 20),
+                IconButton(
+                  key: const ValueKey('player-more-button-wide'),
+                  tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
+                  onPressed: () => _showMoreSheet(context, track),
+                  icon: const Icon(Icons.more_vert),
+                ),
+              ],
             ),
           ),
         ),
@@ -1413,80 +1407,45 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
       key: const ValueKey('compact-header-dismiss-surface'),
       swipeDownDrag: dismissDrag,
       pageDragCoordinator: _compactPageHandoff,
-      child: _buildPlayerCoverHeaderTransition(
-        context,
-        key: const ValueKey('compact-player-cover-header-opacity'),
-        child: Center(
-          child: SizedBox(
-            width: sharedWidth + 24,
-            child: Padding(
-              padding: const EdgeInsets.only(left: 12, top: 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: ValueListenableBuilder<int>(
-                      valueListenable: _semanticPageRevision,
-                      builder: (context, _, __) => _buildTrackTitleBlock(
-                        context,
-                        track,
-                        false,
-                        allowAnimation:
-                            !_queueTransitionActive &&
-                            _rightPane != PlayerRightPane.queue,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 20),
-                  IconButton(
-                    key: const ValueKey('player-more-button'),
-                    tooltip: MaterialLocalizations.of(
+      child: Center(
+        child: SizedBox(
+          width: sharedWidth + 24,
+          child: Padding(
+            padding: const EdgeInsets.only(left: 12, top: 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: ValueListenableBuilder<int>(
+                    valueListenable: _semanticPageRevision,
+                    builder: (context, _, __) => _buildTrackTitleBlock(
                       context,
-                    ).moreButtonTooltip,
-                    onPressed: () => _showMoreSheet(context, track),
-                    padding: EdgeInsets.zero,
-                    alignment: Alignment.center,
-                    constraints: const BoxConstraints(
-                      minWidth: 48,
-                      minHeight: 48,
+                      track,
+                      false,
+                      allowAnimation:
+                          !_queueTransitionActive &&
+                          _rightPane != PlayerRightPane.queue,
                     ),
-                    icon: const Icon(Icons.more_vert),
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 20),
+                IconButton(
+                  key: const ValueKey('player-more-button'),
+                  tooltip: MaterialLocalizations.of(context).moreButtonTooltip,
+                  onPressed: () => _showMoreSheet(context, track),
+                  padding: EdgeInsets.zero,
+                  alignment: Alignment.center,
+                  constraints: const BoxConstraints(
+                    minWidth: 48,
+                    minHeight: 48,
+                  ),
+                  icon: const Icon(Icons.more_vert),
+                ),
+              ],
             ),
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildPlayerCoverHeaderTransition(
-    BuildContext context, {
-    required Key key,
-    required Widget child,
-  }) {
-    return ValueListenableBuilder<int>(
-      valueListenable: _semanticPageRevision,
-      child: child,
-      builder: (context, _, child) {
-        final routeAnimation = ModalRoute.of(context)?.animation;
-        final reduceMotion = MediaQuery.disableAnimationsOf(context);
-        if (routeAnimation == null ||
-            reduceMotion ||
-            _currentPlayerDismissVisualMode != PlayerDismissVisualMode.main) {
-          return Opacity(key: key, opacity: 1, child: child);
-        }
-        return AnimatedBuilder(
-          animation: routeAnimation,
-          child: child,
-          builder: (context, child) => Opacity(
-            key: key,
-            opacity: playerCoverHeaderOpacity(routeAnimation.value),
-            child: child,
-          ),
-        );
-      },
     );
   }
 
@@ -1607,7 +1566,6 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     return ValueListenableBuilder<int>(
       valueListenable: _semanticPageRevision,
       builder: (context, _, __) {
-        final heroEnabled = _shouldEnableMainArtworkHero(isWide: isWide);
         return ValueListenableBuilder<String?>(
           valueListenable: _coverPreviewHeroTrackId,
           builder: (context, previewHeroTrackId, _) {
@@ -1618,18 +1576,14 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
               isLandscape: isWide,
               artworkLayerLink: _coverLoadingLayerLink,
               animateTrackChanges: _isPlayerCoverVisible(isWide: isWide),
-              heroEnabled: !previewHeroActive,
               onTap: coverUrl == null
                   ? null
                   : () => _showCoverPreview(track, coverUrl, previewPalette),
               previewHeroTag: playerCoverPreviewHeroTag(track.id),
               previewHeroEnabled: previewHeroActive,
             );
-            // Keep the artwork mounted when a drag changes the semantic page.
-            return HeroMode(
-              enabled: heroEnabled || previewHeroActive,
-              child: cover,
-            );
+            // Only the active cover preview participates in its Hero flight.
+            return HeroMode(enabled: previewHeroActive, child: cover);
           },
         );
       },
@@ -1928,7 +1882,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         : _pageTransitionDuration;
   }
 
-  bool _shouldEnableMainArtworkHero({required bool isWide}) {
+  bool _isMainDismissSurfaceVisible({required bool isWide}) {
     if (_directQueueEntry ||
         _queueTransitionActive ||
         _rightPane == PlayerRightPane.queue) {
@@ -1943,7 +1897,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     }
     final isWide =
         _lastWasWide ?? usesWidePlayerLayout(MediaQuery.sizeOf(context).width);
-    return _shouldEnableMainArtworkHero(isWide: isWide)
+    return _isMainDismissSurfaceVisible(isWide: isWide)
         ? PlayerDismissVisualMode.main
         : PlayerDismissVisualMode.secondary;
   }

@@ -25,7 +25,6 @@ import 'package:kikoeru_flutter/src/videos/video_library.dart';
 import 'package:kikoeru_flutter/src/videos/video_models.dart';
 import 'package:kikoeru_flutter/src/videos/video_providers.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
-import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 
 typedef _RecommendationHandler =
@@ -1709,34 +1708,32 @@ void main() {
     );
     final library = await _testLibrary();
     final downloads = _TestVideoDownloads(client: client, library: library);
-    final home = AppBottomDockTransitionScope(
-      child: Scaffold(
-        extendBody: true,
-        body: Builder(
-          builder: (context) {
-            final mediaQuery = MediaQuery.of(context);
-            return MediaQuery(
-              data: mediaQuery.copyWith(
-                viewPadding: mediaQuery.viewPadding.copyWith(
-                  bottom: mediaQuery.padding.bottom,
-                ),
+    final home = Scaffold(
+      extendBody: true,
+      body: Builder(
+        builder: (context) {
+          final mediaQuery = MediaQuery.of(context);
+          return MediaQuery(
+            data: mediaQuery.copyWith(
+              viewPadding: mediaQuery.viewPadding.copyWith(
+                bottom: mediaQuery.padding.bottom,
               ),
-              child: const SafeArea(
-                top: false,
-                bottom: false,
-                child: VideoScreen(),
-              ),
-            );
-          },
-        ),
-        bottomNavigationBar: AppBottomDock(
-          selectedIndex: 0,
-          onDestinationSelected: (_) {},
-          destinations: const [
-            NavigationDestination(icon: Icon(Icons.movie), label: 'Videos'),
-            NavigationDestination(icon: Icon(Icons.menu_book), label: 'Comics'),
-          ],
-        ),
+            ),
+            child: const SafeArea(
+              top: false,
+              bottom: false,
+              child: VideoScreen(),
+            ),
+          );
+        },
+      ),
+      bottomNavigationBar: AppBottomDock(
+        selectedIndex: 0,
+        onDestinationSelected: (_) {},
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.movie), label: 'Videos'),
+          NavigationDestination(icon: Icon(Icons.menu_book), label: 'Comics'),
+        ],
       ),
     );
     await tester.pumpWidget(_app(client, library, downloads, home));

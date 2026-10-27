@@ -392,7 +392,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
 
   Widget _buildDetail(BuildContext context) {
     final s = S.of(context);
-    return GlobalAudioPlayerWrapper.workDetails(
+    return GlobalAudioPlayerWrapper(
       child: Scaffold(
         appBar: ScrollableAppBar(
           systemOverlayStyle: transparentSystemBarsForBrightness(

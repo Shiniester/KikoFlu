@@ -80,7 +80,7 @@ void main() {
           theme: theme,
           localizationsDelegates: S.localizationsDelegates,
           supportedLocales: S.supportedLocales,
-          home: const GlobalAudioPlayerWrapper.workDetails(
+          home: const GlobalAudioPlayerWrapper(
             child: Scaffold(body: Center(child: Text('播放器打开动画测试'))),
           ),
         ),

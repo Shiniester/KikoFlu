@@ -58,7 +58,6 @@ import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/src/utils/theme.dart';
-import 'package:kikoeru_flutter/src/widgets/enhanced_work_card.dart';
 import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 import 'package:kikoeru_flutter/src/utils/snackbar_util.dart';
 import 'package:kikoeru_flutter/src/widgets/settings_section.dart';
@@ -913,115 +912,93 @@ void main() {
   );
 
   for (final withTrack in [false, true]) {
-    testWidgets('main content fills the moving Dock gap (track=$withTrack)', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(412, 844);
-      tester.view.devicePixelRatio = 1;
-      tester.view.padding = const FakeViewPadding(bottom: 34);
-      tester.view.viewPadding = const FakeViewPadding(bottom: 34);
-      addTearDown(tester.view.reset);
-      final reduced = ValueNotifier(false);
-      addTearDown(reduced.dispose);
-      await _pumpAudioScreen(
-        tester,
-        reduced,
-        screen: const MainScreen(),
-        theme: AppTheme.lightTheme(null),
-        track: withTrack
-            ? const AudioTrack(
-                id: 'dock-gap-track',
-                title: 'Audio',
-                url: 'https://example.invalid/audio.mp3',
+    testWidgets(
+      'main content and Dock retain their layout (track=$withTrack)',
+      (tester) async {
+        tester.view.physicalSize = const Size(412, 844);
+        tester.view.devicePixelRatio = 1;
+        tester.view.padding = const FakeViewPadding(bottom: 34);
+        tester.view.viewPadding = const FakeViewPadding(bottom: 34);
+        addTearDown(tester.view.reset);
+        final reduced = ValueNotifier(false);
+        addTearDown(reduced.dispose);
+        await _pumpAudioScreen(
+          tester,
+          reduced,
+          screen: const MainScreen(),
+          theme: AppTheme.lightTheme(null),
+          track: withTrack
+              ? const AudioTrack(
+                  id: 'dock-gap-track',
+                  title: 'Audio',
+                  url: 'https://example.invalid/audio.mp3',
+                )
+              : null,
+        );
+        final source = find.descendant(
+          of: find.byType(WorksScreen, skipOffstage: false),
+          matching: find.byType(CustomScrollView, skipOffstage: false),
+        );
+        final scroll = tester.widget<CustomScrollView>(source).controller!;
+        final dockTop = tester.getRect(find.byType(AppBottomDock)).top;
+        scroll.jumpTo(scroll.position.maxScrollExtent);
+        await tester.pumpAndSettle();
+        expect(
+          tester.getRect(find.byType(PaginationBar)).bottom,
+          lessThanOrEqualTo(dockTop),
+          reason: 'Pagination must remain reachable above the Dock.',
+        );
+        scroll.jumpTo(400);
+        await tester.pumpAndSettle();
+        final offset = scroll.offset;
+        final viewport = tester.getRect(source);
+        final sourceContext = tester.element(source);
+        pushWorkDetailRoute(
+          sourceContext,
+          builder: (_) => const GlobalAudioPlayerWrapper(
+            child: Scaffold(body: Center(child: Text('Details'))),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(tester.getRect(find.byType(AppBottomDock)).top, dockTop);
+        expect(tester.getSize(source), viewport.size);
+        expect(scroll.offset, offset);
+        await tester.pumpAndSettle();
+        Navigator.of(sourceContext).pop();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(tester.getRect(find.byType(AppBottomDock)).top, dockTop);
+        await tester.pumpAndSettle();
+        expect(tester.getRect(source), viewport);
+        expect(scroll.offset, offset);
+        SnackBarUtil.showInfo(sourceContext, 'Dock notice');
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<TopFloatingNoticeWidget>(
+                find.byType(TopFloatingNoticeWidget),
               )
-            : null,
-      );
-      final source = find.descendant(
-        of: find.byType(WorksScreen, skipOffstage: false),
-        matching: find.byType(CustomScrollView, skipOffstage: false),
-      );
-      final scroll = tester.widget<CustomScrollView>(source).controller!;
-      final dockTop = tester.getRect(find.byType(AppBottomDock)).top;
-      scroll.jumpTo(scroll.position.maxScrollExtent);
-      await tester.pumpAndSettle();
-      expect(
-        tester.getRect(find.byType(PaginationBar)).bottom,
-        lessThanOrEqualTo(dockTop),
-        reason: 'Pagination must remain reachable above the Dock.',
-      );
-      scroll.jumpTo(400);
-      await tester.pumpAndSettle();
-      final offset = scroll.offset;
-      final viewport = tester.getRect(source);
-      final sourceContext = tester.element(source);
-      pushWorkDetailRoute(
-        sourceContext,
-        builder: (_) => const GlobalAudioPlayerWrapper.workDetails(
-          child: Scaffold(body: Center(child: Text('Details'))),
-        ),
-      );
-      await tester.pump();
-      await tester.pump();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      final movingDock = find.byKey(
-        withTrack
-            ? appBottomDockMiniPlayerHandoffRootKey
-            : appBottomDockTabBarHandoffRootKey,
-      );
-      final movingTop = tester.getRect(movingDock).top;
-      expect(movingTop, greaterThan(dockTop));
-      expect(
-        tester.getRect(source).bottom,
-        greaterThanOrEqualTo(tester.getRect(movingDock).top),
-        reason: 'The revealed strip must contain the source list viewport.',
-      );
-      expect(tester.getSize(source), viewport.size);
-      expect(scroll.offset, offset);
-      expect(
-        find
-            .byType(EnhancedWorkCard, skipOffstage: false)
-            .evaluate()
-            .any(
-              (element) => tester
-                  .getRect(find.byWidget(element.widget, skipOffstage: false))
-                  .overlaps(Rect.fromLTRB(0, dockTop, 100, movingTop)),
-            ),
-        isTrue,
-        reason: 'Work cards must continue into the revealed strip.',
-      );
-      await tester.pumpAndSettle();
-      Navigator.of(sourceContext).pop();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(
-        tester.getRect(source).bottom,
-        greaterThanOrEqualTo(tester.getRect(movingDock).top),
-      );
-      await tester.pumpAndSettle();
-      expect(tester.getRect(source), viewport);
-      expect(scroll.offset, offset);
-      SnackBarUtil.showInfo(sourceContext, 'Dock notice');
-      await tester.pumpAndSettle();
-      expect(
-        tester.widget<TopFloatingNoticeWidget>(find.byType(TopFloatingNoticeWidget)).topOffset,
-        16.0,
-        reason:
-            'Notice placement is fixed at the top (16 dp).',
-      );
-      SnackBarUtil.clearAll();
-      _requestAudioPage(tester, 'downloads');
-      await tester.pumpAndSettle();
-      expect(
-        tester.getRect(find.byType(FloatingActionButton)).bottom,
-        lessThanOrEqualTo(dockTop - 16),
-        reason: 'Nested Scaffold buttons must remain above the Dock.',
-      );
-      expect(tester.takeException(), isNull);
-    });
+              .topOffset,
+          16.0,
+          reason: 'Notice placement is fixed at the top (16 dp).',
+        );
+        SnackBarUtil.clearAll();
+        _requestAudioPage(tester, 'downloads');
+        await tester.pumpAndSettle();
+        expect(
+          tester.getRect(find.byType(FloatingActionButton)).bottom,
+          lessThanOrEqualTo(dockTop - 16),
+          reason: 'Nested Scaffold buttons must remain above the Dock.',
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
-  testWidgets('audio search hands off the app tab bar and restores it', (
+  testWidgets('audio search keeps the app tab bar at the source page bottom', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -1032,24 +1009,19 @@ void main() {
     await _pumpAudioScreen(
       tester,
       reduced,
-      screen: AppBottomDockTransitionScope(
-        child: Scaffold(
-          body: const AudioScreen(),
-          bottomNavigationBar: AppBottomDock(
-            selectedIndex: 0,
-            onDestinationSelected: (_) {},
-            miniPlayer: const MiniPlayer(),
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.library_music),
-                label: 'Audio',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.menu_book),
-                label: 'Comics',
-              ),
-            ],
-          ),
+      screen: Scaffold(
+        body: const AudioScreen(),
+        bottomNavigationBar: AppBottomDock(
+          selectedIndex: 0,
+          onDestinationSelected: (_) {},
+          miniPlayer: const MiniPlayer(),
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.library_music),
+              label: 'Audio',
+            ),
+            NavigationDestination(icon: Icon(Icons.menu_book), label: 'Comics'),
+          ],
         ),
       ),
       track: const AudioTrack(
@@ -1062,16 +1034,14 @@ void main() {
     await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
-    expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsOneWidget);
+    expect(tester.getRect(find.byType(AppBottomDock)).bottom, 844);
     await tester.pumpAndSettle();
     expect(find.byType(SearchScreen), findsOneWidget);
     expect(find.byType(MiniPlayer), findsOneWidget);
     await tester.tap(find.byTooltip('Back'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.byKey(appBottomDockTabBarHandoffRootKey), findsOneWidget);
-    expect(find.byKey(appBottomDockMiniPlayerHandoffRootKey), findsOneWidget);
+    expect(tester.getRect(find.byType(AppBottomDock)).bottom, 844);
     await tester.pumpAndSettle();
     expect(find.byType(SearchScreen), findsNothing);
     expect(find.byType(MiniPlayer), findsOneWidget);

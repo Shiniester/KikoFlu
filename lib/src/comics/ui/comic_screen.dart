@@ -119,7 +119,6 @@ class _ComicScreenState extends ConsumerState<ComicScreen> {
     pushWorkDetailRoute(
       context,
       builder: (_) => ComicSearchScreen(
-        dockHandoff: true,
         initialSource: sourceKey,
         libraryTab: _currentTab == 0 ? null : _currentTab,
         onlineFavorites:
