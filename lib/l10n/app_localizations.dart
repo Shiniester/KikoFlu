@@ -1156,6 +1156,48 @@ abstract class S {
   /// **'Check for Updates'**
   String get checkUpdate;
 
+  /// Setting that selects the release channel used for update checks.
+  ///
+  /// In en, this message translates to:
+  /// **'Update Channel'**
+  String get updateChannel;
+
+  /// The stable release channel.
+  ///
+  /// In en, this message translates to:
+  /// **'Stable'**
+  String get stableUpdateChannel;
+
+  /// The Android beta prerelease channel.
+  ///
+  /// In en, this message translates to:
+  /// **'Beta'**
+  String get betaUpdateChannel;
+
+  /// Explains why beta updates are disabled on non-Android platforms.
+  ///
+  /// In en, this message translates to:
+  /// **'Beta is available only on Android.'**
+  String get betaOnlyAndroid;
+
+  /// Shown after a successful check finds no published beta release.
+  ///
+  /// In en, this message translates to:
+  /// **'No beta release is available yet.'**
+  String get noBetaRelease;
+
+  /// Dialog title for a release from a different channel.
+  ///
+  /// In en, this message translates to:
+  /// **'Selected channel version'**
+  String get updateChannelVersionAvailable;
+
+  /// Explains separate Android installations and app data when selecting another release channel.
+  ///
+  /// In en, this message translates to:
+  /// **'Android stable and beta releases install as separate apps and keep separate data. Installing this release will not replace the current app.'**
+  String get crossChannelUpdateNotice;
+
   /// No description provided for @author.
   ///
   /// In en, this message translates to:
@@ -1834,18 +1876,6 @@ abstract class S {
   /// **'Search online/downloads first, then subtitle library'**
   String get subtitlePriorityLowestDesc;
 
-  /// No description provided for @defaultSortSettings.
-  ///
-  /// In en, this message translates to:
-  /// **'Default Sort Settings'**
-  String get defaultSortSettings;
-
-  /// No description provided for @defaultSortUpdated.
-  ///
-  /// In en, this message translates to:
-  /// **'Default sort updated'**
-  String get defaultSortUpdated;
-
   /// No description provided for @translationSourceSettings.
   ///
   /// In en, this message translates to:
@@ -1947,12 +1977,6 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Subtitle library priority'**
   String get subtitlePrioritySettingSubtitle;
-
-  /// No description provided for @defaultSortSettingTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Default sort for home page'**
-  String get defaultSortSettingTitle;
 
   /// No description provided for @translationSource.
   ///
@@ -8673,6 +8697,186 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Audio format'**
   String get videoPlayerInfoAudioFormat;
+
+  /// Audio player slice control: audioSlices
+  ///
+  /// In en, this message translates to:
+  /// **'Audio slices'**
+  String get audioSlices;
+
+  /// Audio player slice control: markAudioSliceStart
+  ///
+  /// In en, this message translates to:
+  /// **'Mark slice start'**
+  String get markAudioSliceStart;
+
+  /// Audio player slice control: markAudioSliceEnd
+  ///
+  /// In en, this message translates to:
+  /// **'Mark slice end'**
+  String get markAudioSliceEnd;
+
+  /// Audio player slice control: manageAudioSlices
+  ///
+  /// In en, this message translates to:
+  /// **'Manage slices'**
+  String get manageAudioSlices;
+
+  /// Audio player slice control: cancelAudioSliceStart
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel slice start'**
+  String get cancelAudioSliceStart;
+
+  /// Audio player slice control: audioSlicePendingStart
+  ///
+  /// In en, this message translates to:
+  /// **'Start: {time}'**
+  String audioSlicePendingStart(String time);
+
+  /// Audio player slice control: audioSliceRange
+  ///
+  /// In en, this message translates to:
+  /// **'{start} – {end}'**
+  String audioSliceRange(String start, String end);
+
+  /// Audio player slice control: onlyPlayAudioSlices
+  ///
+  /// In en, this message translates to:
+  /// **'Only play slices'**
+  String get onlyPlayAudioSlices;
+
+  /// Audio player slice control: audioSlicesEmpty
+  ///
+  /// In en, this message translates to:
+  /// **'No slices yet. Mark a start and end to create a slice.'**
+  String get audioSlicesEmpty;
+
+  /// Audio player slice control: previewAudioSlice
+  ///
+  /// In en, this message translates to:
+  /// **'Preview slice'**
+  String get previewAudioSlice;
+
+  /// Audio player slice control: stopAudioSlicePreview
+  ///
+  /// In en, this message translates to:
+  /// **'Stop preview'**
+  String get stopAudioSlicePreview;
+
+  /// Audio player slice control: editAudioSlice
+  ///
+  /// In en, this message translates to:
+  /// **'Edit slice'**
+  String get editAudioSlice;
+
+  /// Audio player slice control: audioSliceStartTime
+  ///
+  /// In en, this message translates to:
+  /// **'Start time'**
+  String get audioSliceStartTime;
+
+  /// Audio player slice control: audioSliceEndTime
+  ///
+  /// In en, this message translates to:
+  /// **'End time'**
+  String get audioSliceEndTime;
+
+  /// Audio player slice control: audioSliceInvalidTime
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a valid time, such as 00:30.000.'**
+  String get audioSliceInvalidTime;
+
+  /// Audio player slice control: audioSliceSaveFailed
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the slice. Check the times and overlapping slices, then try again.'**
+  String get audioSliceSaveFailed;
+
+  /// Audio player slice control: audioSliceDeleteFailed
+  ///
+  /// In en, this message translates to:
+  /// **'Could not delete slices. Try again.'**
+  String get audioSliceDeleteFailed;
+
+  /// Audio player slice control: clearAudioSlices
+  ///
+  /// In en, this message translates to:
+  /// **'Clear slices'**
+  String get clearAudioSlices;
+
+  /// Audio player slice control: clearAudioSlicesConfirm
+  ///
+  /// In en, this message translates to:
+  /// **'Clear all slices for this track?'**
+  String get clearAudioSlicesConfirm;
+
+  /// Audio player slice control: audioSlicePreviewFailed
+  ///
+  /// In en, this message translates to:
+  /// **'Could not preview the slice. Try again.'**
+  String get audioSlicePreviewFailed;
+
+  /// Label for moving the edited slice endpoint earlier by a positive number of seconds.
+  ///
+  /// In en, this message translates to:
+  /// **'−{seconds} s'**
+  String audioSliceEarlier(double seconds);
+
+  /// Label for moving the edited slice endpoint later by a positive number of seconds.
+  ///
+  /// In en, this message translates to:
+  /// **'+{seconds} s'**
+  String audioSliceLater(double seconds);
+
+  /// Shortcut that sets the edited endpoint to the live playhead position.
+  ///
+  /// In en, this message translates to:
+  /// **'Set current'**
+  String get audioSliceSetCurrent;
+
+  /// Shortcut that sets the edited endpoint to the beginning of this track or chapter.
+  ///
+  /// In en, this message translates to:
+  /// **'Set to 0'**
+  String get audioSliceSetZero;
+
+  /// Shortcut that sets the edited endpoint to the track duration.
+  ///
+  /// In en, this message translates to:
+  /// **'Set to end'**
+  String get audioSliceSetEnd;
+
+  /// Accessible name for the management timeline containing all saved slices.
+  ///
+  /// In en, this message translates to:
+  /// **'Slice timeline'**
+  String get audioSliceTimeline;
+
+  /// Label for the playhead time on the slice timeline, including gaps outside saved slices.
+  ///
+  /// In en, this message translates to:
+  /// **'Position'**
+  String get audioSlicePosition;
+
+  /// State label for the slice containing the playhead, including paused playback.
+  ///
+  /// In en, this message translates to:
+  /// **'Current slice'**
+  String get audioSliceCurrent;
+
+  /// State label for the slice explicitly chosen during this manager visit.
+  ///
+  /// In en, this message translates to:
+  /// **'Selected slice'**
+  String get audioSliceSelected;
+
+  /// Endpoint-aware tooltip for a time adjustment shortcut.
+  ///
+  /// In en, this message translates to:
+  /// **'{endpoint}: {action}'**
+  String audioSliceEndpointAction(String endpoint, String action);
 }
 
 class _SDelegate extends LocalizationsDelegate<S> {

@@ -8,6 +8,7 @@ import 'package:audio_session/audio_session.dart';
 import 'package:path/path.dart' as p;
 import 'package:smtc_windows/smtc_windows.dart';
 
+import '../models/audio_slice.dart';
 import '../models/audio_track.dart';
 import '../models/audio_gain_settings.dart';
 import '../models/playback_diagnostic_event.dart';
@@ -20,6 +21,7 @@ import 'audio_haptics_service.dart';
 import 'log_service.dart';
 import 'playback_history_service.dart';
 import 'playback_session_store.dart';
+import 'audio_slice_store.dart';
 import 'download_path_service.dart';
 import 'storage_service.dart';
 import 'shared_http_client.dart';
@@ -217,6 +219,7 @@ class AudioPlayerService {
     AudioPlayer player, {
     PlaybackSessionStore sessionStore =
         const SharedPreferencesPlaybackSessionStore(),
+    AudioSliceStore sliceStore = const SharedPreferencesAudioSliceStore(),
     bool androidSeekRecovery = false,
     bool androidNativePreload = false,
     Duration seekRecoveryTimeout = const Duration(seconds: 8),
@@ -224,6 +227,7 @@ class AudioPlayerService {
   }) {
     _player = player;
     _playbackSessionStore = sessionStore;
+    _audioSliceStore = sliceStore;
     _androidSeekRecovery = androidSeekRecovery;
     _androidNativePreload = androidNativePreload;
     _seekRecoveryTimeout = seekRecoveryTimeout;
@@ -244,6 +248,16 @@ class AudioPlayerService {
   final AudioHapticsService _hapticsService = AudioHapticsService.instance;
   final List<AudioTrack> _queue = [];
   int _currentIndex = 0;
+  AudioSliceStore _audioSliceStore = const SharedPreferencesAudioSliceStore();
+  AudioSliceState _sliceState = const AudioSliceState();
+  final StreamController<AudioSliceState> _sliceStateController =
+      StreamController.broadcast();
+  Future<void> _sliceMutationTail = Future.value();
+  bool _sliceScrubbing = false;
+  bool _sliceManualSeekPending = false;
+  bool _sliceUserSeekInFlight = false;
+  bool _sliceBoundaryInFlight = false;
+  int _slicePlaybackRevision = 0;
   AudioHandler? _audioHandler;
   LoopMode _appLoopMode = LoopMode.off; // Track loop mode at app level
   String? _tempPlaybackFilePath; // 临时音频副本路径，用于规避字幕冲突
@@ -523,6 +537,7 @@ class AudioPlayerService {
         );
       }
       _updateAudioCacheTarget();
+      _handleSlicePosition(position);
       _checkpointPlaybackSession(position);
       _updatePlaybackState();
     });
@@ -558,6 +573,14 @@ class AudioPlayerService {
           state.processingState == ProcessingState.buffering,
     );
     if (state.processingState == ProcessingState.completed &&
+        _sliceState.preview != null) {
+      if (!_completionHandled) {
+        _completionHandled = true;
+        final preview = _sliceState.preview!;
+        final trackKey = _sliceState.trackKey;
+        if (trackKey != null) _finishSlicePreview(preview, trackKey);
+      }
+    } else if (state.processingState == ProcessingState.completed &&
         _activeTrackLoad == null &&
         _latestTrackLoad == null &&
         !_completionHandled) {
@@ -678,6 +701,18 @@ class AudioPlayerService {
     _queueController.add(const []);
     _lastTrackChangePresentation = null;
     _currentTrackController.add(null);
+    ++_slicePlaybackRevision;
+    _sliceScrubbing = false;
+    _sliceManualSeekPending = false;
+    _setSliceState(
+      _sliceState.copyWith(
+        trackKey: null,
+        slices: const [],
+        clearPendingStart: true,
+        clearPreview: true,
+        isLoading: false,
+      ),
+    );
     if (!stoppedNativeLoad) {
       _nativeLoadCancel = _player.stop();
       await _nativeLoadCancel;
@@ -706,6 +741,19 @@ class AudioPlayerService {
     String? nativeWindowTrackId,
   }) {
     if (_disposed) throw StateError('AudioPlayerService is disposed');
+
+    if (audioSliceTrackKey(track) != _sliceState.trackKey) {
+      ++_slicePlaybackRevision;
+      _sliceScrubbing = false;
+      _sliceManualSeekPending = false;
+      _setSliceState(
+        _sliceState.copyWith(
+          clearPendingStart: true,
+          clearPreview: true,
+          isLoading: true,
+        ),
+      );
+    }
 
     final request = _TrackLoadRequest(
       generation: ++_trackLoadGeneration,
@@ -779,12 +827,37 @@ class AudioPlayerService {
         _ensureCurrentTrackLoad(request);
         _nativeLoadCancelIssued = false;
         _nativeLoadCancel = null;
+        final sliceState = await _loadAudioSliceState(request.track);
+        _ensureCurrentTrackLoad(request);
+        _normalizeTrackLoadInitialPosition(request, sliceState);
         await _loadTrack(request);
         _ensureCurrentTrackLoad(request);
         if (request.beforeCommit != null) {
           await request.beforeCommit!(request);
           _ensureCurrentTrackLoad(request);
         }
+        final trackKey = audioSliceTrackKey(request.track);
+        await _normalizeLoadedTrackPosition(
+          request,
+          _sliceState.trackKey == trackKey ? _sliceState : sliceState,
+        );
+        _ensureCurrentTrackLoad(request);
+        final committedSliceState = _sliceState.trackKey == trackKey
+            ? _sliceState
+            : sliceState;
+        _setSliceState(
+          committedSliceState?.copyWith(
+                onlySlices: _sliceState.onlySlices,
+                isLoading: false,
+              ) ??
+              _sliceState.copyWith(
+                clearTrackKey: true,
+                slices: const [],
+                clearPendingStart: true,
+                clearPreview: true,
+                isLoading: false,
+              ),
+        );
         _commitTrackLoad(request);
         request.complete();
       } on _TrackLoadSuperseded {
@@ -807,6 +880,9 @@ class AudioPlayerService {
     }
 
     if (_latestTrackLoad == null) {
+      if (_sliceState.isLoading) {
+        _setSliceState(_sliceState.copyWith(isLoading: false));
+      }
       _pendingTargetTrackId = null;
       _refreshManualSkipAvailability();
       _requestedTrackController.add(null);
@@ -883,6 +959,75 @@ class AudioPlayerService {
 
   void _ensureCurrentTrackLoad(_TrackLoadRequest request) {
     if (!_isCurrentTrackLoad(request)) throw const _TrackLoadSuperseded();
+  }
+
+  void _normalizeTrackLoadInitialPosition(
+    _TrackLoadRequest request,
+    AudioSliceState? sliceState,
+  ) {
+    if (!_desiredPlaying ||
+        !_sliceState.onlySlices ||
+        sliceState == null ||
+        _sliceState.preview != null &&
+            _sliceState.trackKey == audioSliceTrackKey(request.track)) {
+      return;
+    }
+    final currentMs = request.initialPosition?.inMilliseconds ?? 0;
+    final targetMs = _sliceSeekTargetMs(sliceState.slices, currentMs);
+    if (targetMs == null) return;
+    request.initialPosition = Duration(milliseconds: targetMs);
+    request.latestSeekPosition = request.initialPosition;
+  }
+
+  Future<void> _normalizeLoadedTrackPosition(
+    _TrackLoadRequest request,
+    AudioSliceState? sliceState,
+  ) async {
+    if (!_desiredPlaying ||
+        !_sliceState.onlySlices ||
+        sliceState == null ||
+        _sliceState.preview != null &&
+            _sliceState.trackKey == audioSliceTrackKey(request.track)) {
+      return;
+    }
+    final targetMs = _sliceSeekTargetMs(
+      sliceState.slices,
+      _player.position.inMilliseconds,
+    );
+    if (targetMs == null) return;
+
+    _ensureCurrentTrackLoad(request);
+    if (_player.playing) await _player.pause();
+    _ensureCurrentTrackLoad(request);
+    final cancellation = Completer<void>();
+    final previousCancellation = _seekCancellation;
+    _seekCancellation = cancellation;
+    try {
+      await Future.any<void>([
+        _player
+            .seek(Duration(milliseconds: targetMs))
+            .timeout(_seekRecoveryTimeout),
+        cancellation.future.then((_) {
+          throw const _TrackLoadSuperseded();
+        }),
+        request.supersedeSignal.future.then((_) {
+          throw const _TrackLoadSuperseded();
+        }),
+      ]);
+      _ensureCurrentTrackLoad(request);
+    } finally {
+      if (identical(_seekCancellation, cancellation)) {
+        _seekCancellation = previousCancellation;
+      }
+    }
+  }
+
+  int? _sliceSeekTargetMs(List<AudioSlice> slices, int positionMs) {
+    if (_findContainingSlice(slices, positionMs) != null) return null;
+    for (final slice in slices) {
+      if (slice.startMs > positionMs) return slice.startMs;
+    }
+    return slices.isEmpty ? null : slices.first.startMs;
   }
 
   String? _performanceModeForTrack(AudioTrack track) {
@@ -1414,7 +1559,15 @@ class AudioPlayerService {
         final completedTrack = currentTrack;
         final completionRevision = _intentRevision;
         final completionGeneration = _trackLoadGeneration;
-        await seek(Duration.zero);
+        final slices = _currentTrackSlices;
+        await _seek(
+          Duration(
+            milliseconds: _sliceState.onlySlices && slices.isNotEmpty
+                ? slices.first.startMs
+                : 0,
+          ),
+          userInitiated: false,
+        );
         final sameTrack = identical(currentTrack, completedTrack);
         final unchangedIntent =
             completionRevision == _intentRevision &&
@@ -1424,7 +1577,8 @@ class AudioPlayerService {
         if (!_disposed &&
             _desiredPlaying &&
             sameTrack &&
-            (unchangedIntent || recoveredSameTrack)) {
+            (unchangedIntent || recoveredSameTrack) &&
+            !_player.playing) {
           unawaited(play());
         }
       } else if (_currentIndex < _queue.length - 1) {
@@ -1552,9 +1706,15 @@ class AudioPlayerService {
     final window = _androidSourceWindow;
     if (window == null) return;
     final preparedId = _nativePreparedTrackId;
-    // The player has already entered the prepared child; let the index handler
-    // commit it before any cache/buffer update can remove it.
-    if (_player.currentIndex == 1 && preparedId != null) return;
+    // Let the index handler commit a normal prepared child. Slice playback
+    // needs to stop or seek the child before it can be published.
+    if (_player.currentIndex == 1) {
+      if (_sliceState.preview != null || _sliceState.onlySlices) {
+        _handleNativeWindowIndex(1);
+        return;
+      }
+      if (preparedId != null) return;
+    }
 
     final current = currentTrack;
     final next = _currentIndex + 1 < _queue.length
@@ -1578,6 +1738,8 @@ class AudioPlayerService {
         : requiredBuffer;
     final eligible =
         !_disposed &&
+        !_sliceState.onlySlices &&
+        _sliceState.preview == null &&
         _desiredPlaying &&
         _player.playing &&
         _player.processingState == ProcessingState.ready &&
@@ -1703,6 +1865,8 @@ class AudioPlayerService {
         ? remaining
         : requiredBuffer;
     return !_disposed &&
+        !_sliceState.onlySlices &&
+        _sliceState.preview == null &&
         _intentRevision == intentRevision &&
         _trackLoadGeneration == trackLoadGeneration &&
         currentTrack?.id == currentId &&
@@ -1751,31 +1915,92 @@ class AudioPlayerService {
   }
 
   void _handleNativeWindowIndex(int? index) {
-    if (!_androidNativePreload ||
-        index != 1 ||
-        _disposed ||
-        _activeTrackLoad != null ||
-        _latestTrackLoad != null ||
-        _nativePreparedTrackId == null ||
-        _currentIndex + 1 >= _queue.length ||
-        _queue[_currentIndex + 1].id != _nativePreparedTrackId ||
-        _player.currentIndex != 1) {
+    if (!_androidNativePreload || index != 1 || _disposed) return;
+    if (_sliceState.preview case final preview?) {
+      _returnToTrackAfterNativePreview(preview);
       return;
     }
-    final next = _queue[_currentIndex + 1];
+    if (_activeTrackLoad != null || _latestTrackLoad != null) return;
+    final nextIndex = _currentIndex + 1;
+    if (nextIndex >= _queue.length || _player.currentIndex != 1) return;
+    final next = _queue[nextIndex];
+    final prepared = _nativePreparedTrackId == next.id;
+    if ((_nativePreparedTrackId != null && !prepared) ||
+        (!prepared && !_sliceState.onlySlices)) {
+      return;
+    }
+    if (_sliceState.onlySlices) {
+      unawaited(
+        _player.pause().catchError((Object error) {
+          _log.captureOutput(
+            '[Audio] Failed to pause native promotion for slice playback: $error',
+          );
+        }),
+      );
+    }
     final request = _enqueueTrackLoad(
       next,
       emitCurrentTrack: true,
       autoplay: _desiredPlaying,
       direction: PlayerTrackChangeDirection.next,
-      nativeWindowAlreadyCurrent: true,
-      nativeWindowTrackId: next.id,
+      nativeWindowAlreadyCurrent: prepared && !_sliceState.onlySlices,
+      nativeWindowTrackId: prepared && !_sliceState.onlySlices ? next.id : null,
     );
     unawaited(
       request.future.catchError((Object error) {
         _log.captureOutput('[Audio] Native next commit failed: $error');
       }),
     );
+  }
+
+  void _returnToTrackAfterNativePreview(AudioSlice preview) {
+    final trackKey = _sliceState.trackKey;
+    if (trackKey == null) return;
+    final revision = ++_slicePlaybackRevision;
+    ++_seekRevision;
+    _cancelPendingSeek();
+
+    unawaited(() async {
+      await Future<void>.microtask(() {});
+      if (!_isCurrentSlicePlayback(revision, trackKey) ||
+          _sliceState.preview != preview) {
+        return;
+      }
+      try {
+        final window = _androidSourceWindow;
+        await _player.seek(
+          Duration(milliseconds: preview.endMs),
+          index: window == null || window.children.isEmpty ? null : 0,
+        );
+      } catch (error) {
+        _log.captureOutput(
+          '[Audio] Failed to return to the preview track: $error',
+        );
+      }
+      if (!_isCurrentSlicePlayback(revision, trackKey) ||
+          _sliceState.preview != preview) {
+        return;
+      }
+      final window = _androidSourceWindow;
+      if (window != null && window.children.length > 1) {
+        try {
+          await _removeNativeNext(window);
+        } catch (error) {
+          _log.captureOutput(
+            '[Audio] Failed to remove the native next source: $error',
+          );
+        }
+      }
+      if (!_isCurrentSlicePlayback(revision, trackKey) ||
+          _sliceState.preview != preview) {
+        return;
+      }
+      await pause();
+      if (_sliceState.trackKey == trackKey && _sliceState.preview == preview) {
+        _setSliceState(_sliceState.copyWith(clearPreview: true));
+      }
+      _scheduleNativeWindowRefresh();
+    }());
   }
 
   void _finishNativeWindowPromotion(AudioTrack track) {
@@ -1888,7 +2113,42 @@ class AudioPlayerService {
       ).future;
       return;
     }
-    _startPlaybackWithSideEffects();
+    if (!await _prepareSlicePositionForPlayback()) return;
+    if (!_player.playing) _startPlaybackWithSideEffects();
+  }
+
+  Future<bool> _prepareSlicePositionForPlayback() async {
+    final track = currentTrack;
+    final trackKey = track == null ? null : audioSliceTrackKey(track);
+    final slices = _currentTrackSlices;
+    if (trackKey == null ||
+        _sliceState.trackKey != trackKey ||
+        _sliceState.isLoading ||
+        !_sliceState.onlySlices ||
+        slices.isEmpty ||
+        _sliceState.preview != null) {
+      return true;
+    }
+
+    final positionMs = _player.position.inMilliseconds;
+    if (_findContainingSlice(slices, positionMs) != null) {
+      _sliceManualSeekPending = false;
+      return true;
+    }
+
+    final next = slices.where((slice) => slice.startMs > positionMs);
+    final targetMs = next.isEmpty ? slices.first.startMs : next.first.startMs;
+    final revision = ++_slicePlaybackRevision;
+    _sliceManualSeekPending = false;
+    final seeked = await _seek(
+      Duration(milliseconds: targetMs),
+      userInitiated: false,
+    );
+    return seeked &&
+        _slicePlaybackRevision == revision &&
+        currentTrack != null &&
+        audioSliceTrackKey(currentTrack!) == trackKey &&
+        _desiredPlaying;
   }
 
   void _startPlaybackWithSideEffects({bool startHaptics = true}) {
@@ -1929,6 +2189,7 @@ class AudioPlayerService {
   }
 
   Future<void> pause() async {
+    ++_slicePlaybackRevision;
     _desiredPlaying = false;
     _setAudioCacheTarget(null);
     final revision = _intentRevision;
@@ -2064,7 +2325,31 @@ class AudioPlayerService {
     );
   }
 
-  Future<bool> seek(Duration position) async {
+  Future<bool> seek(Duration position) => _seek(position, userInitiated: true);
+
+  Future<bool> _seek(Duration position, {required bool userInitiated}) async {
+    if (userInitiated) {
+      ++_slicePlaybackRevision;
+      _sliceManualSeekPending = true;
+      _sliceUserSeekInFlight = true;
+      if (_sliceState.preview != null) {
+        _setSliceState(_sliceState.copyWith(clearPreview: true));
+        _scheduleNativeWindowRefresh();
+      }
+    }
+    try {
+      return await _performSeek(position);
+    } finally {
+      if (userInitiated) {
+        _sliceUserSeekInFlight = false;
+        if (_player.playing && _desiredPlaying && !_sliceScrubbing) {
+          _handleSlicePosition(_player.position);
+        }
+      }
+    }
+  }
+
+  Future<bool> _performSeek(Duration position) async {
     var targetPosition = position;
     final trackAtStart = currentTrack;
     final pendingTrackLoad = _latestTrackLoad ?? _activeTrackLoad;
@@ -2290,6 +2575,8 @@ class AudioPlayerService {
     _desiredPlaying = true;
     final useNativeNext =
         _androidNativePreload &&
+        !_sliceState.onlySlices &&
+        _sliceState.preview == null &&
         direction == PlayerTrackChangeDirection.next &&
         index == _currentIndex + 1 &&
         _nativePreparedTrackId == _queue[index].id &&
@@ -2662,6 +2949,7 @@ class AudioPlayerService {
   Stream<Duration?> get durationStream => _player.durationStream;
   Stream<List<AudioTrack>> get queueStream => _queueController.stream;
   Stream<AudioTrack?> get currentTrackStream => _currentTrackController.stream;
+  Stream<AudioSliceState> get sliceStateStream => _sliceStateController.stream;
   Stream<ManualSkipAvailability> get manualSkipAvailabilityStream =>
       _manualSkipAvailabilityController.stream;
   Stream<bool> get trackLoadingStream => _trackLoadingController.stream;
@@ -2696,6 +2984,7 @@ class AudioPlayerService {
   PlayerState get playerState => _player.playerState;
 
   AudioTrack? get currentTrack => _publishedTrack;
+  AudioSliceState get sliceState => _sliceState;
 
   ManualSkipAvailability get manualSkipAvailability => _manualSkipAvailability;
 
@@ -2707,6 +2996,397 @@ class AudioPlayerService {
   bool get hasPrevious => _effectiveQueueIndex > 0;
   bool get canSkipNextManually => manualSkipAvailability.canSkipNext;
   bool get canSkipPreviousManually => manualSkipAvailability.canSkipPrevious;
+
+  Future<bool> markSlice({Duration? position, String? expectedTrackKey}) async {
+    final track = currentTrack;
+    if (track == null) return false;
+    final trackKey = audioSliceTrackKey(track);
+    if (!_isSliceTrackCurrent(trackKey) ||
+        (expectedTrackKey != null && expectedTrackKey != trackKey)) {
+      return false;
+    }
+    final durationMs = _sliceDurationMs(track);
+    final positionMs =
+        position?.inMilliseconds ?? _player.position.inMilliseconds;
+    if (durationMs == null || durationMs <= 0 || positionMs < 0) return false;
+
+    final pendingStartMs = _sliceState.pendingStartMs;
+    if (pendingStartMs == null) {
+      if (positionMs >= durationMs) return false;
+      _setSliceState(_sliceState.copyWith(pendingStartMs: positionMs));
+      return true;
+    }
+    if (positionMs <= pendingStartMs || positionMs > durationMs) return false;
+
+    final slice = AudioSlice(startMs: pendingStartMs, endMs: positionMs);
+    final saved = await saveSlice(trackKey: trackKey, slice: slice);
+    if (saved &&
+        _isSliceTrackCurrent(trackKey) &&
+        _sliceState.pendingStartMs == pendingStartMs) {
+      _setSliceState(_sliceState.copyWith(clearPendingStart: true));
+    }
+    return saved;
+  }
+
+  void cancelSliceStart() {
+    if (_sliceState.pendingStartMs == null) return;
+    _setSliceState(_sliceState.copyWith(clearPendingStart: true));
+  }
+
+  Future<bool> saveSlice({
+    required String trackKey,
+    required AudioSlice slice,
+    AudioSlice? replacing,
+  }) => _serializeSliceMutation(() async {
+    final track = currentTrack;
+    if (track == null ||
+        !_isSliceTrackCurrent(trackKey) ||
+        slice.startMs < 0 ||
+        slice.endMs <= slice.startMs) {
+      return false;
+    }
+    final durationMs = _sliceDurationMs(track);
+    if (durationMs == null || slice.endMs > durationMs) return false;
+
+    final slices = _sliceState.slices;
+    if (replacing != null && !slices.contains(replacing)) return false;
+    final updated = slices.where((item) => item != replacing).toList();
+    if (updated.any(
+      (item) => slice.startMs < item.endMs && item.startMs < slice.endMs,
+    )) {
+      return false;
+    }
+    updated.add(slice);
+    updated.sort(_compareSlices);
+    try {
+      if (!await _audioSliceStore.write(trackKey, updated)) return false;
+    } catch (error) {
+      _log.captureOutput('[Audio] Failed to save audio slice: $error');
+      return false;
+    }
+    if (_isSliceTrackCurrent(trackKey)) {
+      _setSliceState(
+        _sliceState.copyWith(slices: updated, clearPendingStart: true),
+      );
+    }
+    return true;
+  });
+
+  Future<bool> deleteSlice(String trackKey, AudioSlice slice) =>
+      _serializeSliceMutation(() async {
+        if (!_isSliceTrackCurrent(trackKey) ||
+            !_sliceState.slices.contains(slice)) {
+          return false;
+        }
+        final updated = _sliceState.slices
+            .where((item) => item != slice)
+            .toList();
+        try {
+          if (!await _audioSliceStore.write(trackKey, updated)) return false;
+        } catch (error) {
+          _log.captureOutput('[Audio] Failed to delete audio slice: $error');
+          return false;
+        }
+        if (_isSliceTrackCurrent(trackKey)) {
+          _setSliceState(
+            _sliceState.copyWith(slices: updated, clearPendingStart: true),
+          );
+        }
+        return true;
+      });
+
+  Future<bool> clearSlices(String trackKey) =>
+      _serializeSliceMutation(() async {
+        if (!_isSliceTrackCurrent(trackKey)) return false;
+        try {
+          if (!await _audioSliceStore.clear(trackKey)) return false;
+        } catch (error) {
+          _log.captureOutput('[Audio] Failed to clear audio slices: $error');
+          return false;
+        }
+        if (_isSliceTrackCurrent(trackKey)) {
+          _setSliceState(
+            _sliceState.copyWith(slices: const [], clearPendingStart: true),
+          );
+        }
+        return true;
+      });
+
+  Future<void> previewSlice(String trackKey, AudioSlice slice) async {
+    final track = currentTrack;
+    if (track == null ||
+        !_isSliceTrackCurrent(trackKey) ||
+        !_sliceState.slices.contains(slice) ||
+        _isSwitchingTrack) {
+      return;
+    }
+    final revision = ++_slicePlaybackRevision;
+    _sliceManualSeekPending = false;
+    final previouslyDesiredPlaying = _desiredPlaying;
+    _desiredPlaying = true;
+    _setSliceState(
+      _sliceState.copyWith(preview: slice, clearPendingStart: true),
+    );
+    _scheduleNativeWindowRefresh();
+    final seeked = await _seek(
+      Duration(milliseconds: slice.startMs),
+      userInitiated: false,
+    );
+    if (!_isCurrentSlicePlayback(revision, trackKey) ||
+        _sliceState.preview != slice) {
+      return;
+    }
+    if (!seeked) {
+      _desiredPlaying = previouslyDesiredPlaying;
+      _setSliceState(_sliceState.copyWith(clearPreview: true));
+      return;
+    }
+    if (!_player.playing) _startPlaybackWithSideEffects();
+  }
+
+  void cancelSlicePreview() {
+    if (_sliceState.preview == null) return;
+    final trackKey = _sliceState.trackKey;
+    final shouldPause =
+        trackKey != null &&
+        _isSliceTrackCurrent(trackKey) &&
+        !_isSwitchingTrack;
+    ++_slicePlaybackRevision;
+    ++_seekRevision;
+    _cancelPendingSeek();
+    _setSliceState(_sliceState.copyWith(clearPreview: true));
+    _scheduleNativeWindowRefresh();
+    if (shouldPause) {
+      unawaited(
+        pause().catchError((Object error) {
+          _log.captureOutput('[Audio] Failed to pause slice preview: $error');
+        }),
+      );
+    }
+  }
+
+  void setOnlySlices(bool enabled) {
+    if (_sliceState.onlySlices == enabled) return;
+    final previewing = _sliceState.preview != null;
+    if (!previewing) ++_slicePlaybackRevision;
+    _sliceManualSeekPending = enabled;
+    _setSliceState(_sliceState.copyWith(onlySlices: enabled));
+    _scheduleNativeWindowRefresh();
+    if (enabled && !previewing && _player.playing && _desiredPlaying) {
+      _handleSlicePosition(_player.position);
+    }
+  }
+
+  void setSliceScrubbing(bool scrubbing) {
+    if (_sliceScrubbing == scrubbing) return;
+    _sliceScrubbing = scrubbing;
+    ++_slicePlaybackRevision;
+    if (scrubbing) {
+      ++_seekRevision;
+      _cancelPendingSeek();
+    } else if (_player.playing && _desiredPlaying) {
+      _handleSlicePosition(_player.position);
+    }
+  }
+
+  Future<AudioSliceState?> _loadAudioSliceState(AudioTrack track) async {
+    final trackKey = audioSliceTrackKey(track);
+    if (_sliceState.trackKey == trackKey) {
+      return _sliceState.copyWith(isLoading: false);
+    }
+    try {
+      final slices = await _audioSliceStore.load(trackKey);
+      final ordered = List<AudioSlice>.of(slices)..sort(_compareSlices);
+      return _sliceState.copyWith(
+        trackKey: trackKey,
+        slices: ordered,
+        clearPendingStart: true,
+        clearPreview: true,
+        isLoading: false,
+      );
+    } catch (error) {
+      _log.captureOutput('[Audio] Failed to load audio slices: $error');
+      return null;
+    }
+  }
+
+  bool _isSliceTrackCurrent(String trackKey) =>
+      !_sliceState.isLoading &&
+      _sliceState.trackKey == trackKey &&
+      currentTrack != null &&
+      audioSliceTrackKey(currentTrack!) == trackKey;
+
+  int? _sliceDurationMs(AudioTrack track) =>
+      _player.duration?.inMilliseconds ?? track.duration?.inMilliseconds;
+
+  Future<T> _serializeSliceMutation<T>(Future<T> Function() action) async {
+    final previous = _sliceMutationTail;
+    final done = Completer<void>();
+    _sliceMutationTail = done.future;
+    try {
+      await previous;
+      return await action();
+    } finally {
+      done.complete();
+    }
+  }
+
+  static int _compareSlices(AudioSlice left, AudioSlice right) {
+    final starts = left.startMs.compareTo(right.startMs);
+    return starts == 0 ? left.endMs.compareTo(right.endMs) : starts;
+  }
+
+  void _setSliceState(AudioSliceState state) {
+    if (state == _sliceState) return;
+    _sliceState = state;
+    if (!_sliceStateController.isClosed) _sliceStateController.add(state);
+  }
+
+  List<AudioSlice> get _currentTrackSlices {
+    final track = currentTrack;
+    if (track == null ||
+        _sliceState.isLoading ||
+        _sliceState.trackKey != audioSliceTrackKey(track)) {
+      return const [];
+    }
+    return _sliceState.slices;
+  }
+
+  AudioSlice? _findContainingSlice(List<AudioSlice> slices, int positionMs) {
+    for (final slice in slices) {
+      if (positionMs >= slice.startMs && positionMs < slice.endMs) {
+        return slice;
+      }
+      if (slice.startMs > positionMs) return null;
+    }
+    return null;
+  }
+
+  bool _isCurrentSlicePlayback(int revision, String trackKey) =>
+      !_disposed &&
+      _slicePlaybackRevision == revision &&
+      !_isSwitchingTrack &&
+      !_sliceState.isLoading &&
+      _sliceState.trackKey == trackKey &&
+      currentTrack != null &&
+      audioSliceTrackKey(currentTrack!) == trackKey;
+
+  void _runSliceBoundary(
+    Future<void> Function(int revision, String trackKey) action,
+  ) {
+    final track = currentTrack;
+    if (_sliceBoundaryInFlight || track == null) return;
+    _sliceBoundaryInFlight = true;
+    final revision = _slicePlaybackRevision;
+    final trackKey = audioSliceTrackKey(track);
+    unawaited(() async {
+      try {
+        await action(revision, trackKey);
+      } catch (error) {
+        _log.captureOutput('[Audio] Audio slice boundary failed: $error');
+      } finally {
+        _sliceBoundaryInFlight = false;
+        if (!_disposed &&
+            revision != _slicePlaybackRevision &&
+            _player.playing &&
+            _desiredPlaying &&
+            !_sliceScrubbing) {
+          _handleSlicePosition(_player.position);
+        }
+      }
+    }());
+  }
+
+  void _handleSlicePosition(Duration position) {
+    if (_disposed ||
+        !_player.playing ||
+        !_desiredPlaying ||
+        _isSwitchingTrack ||
+        _sliceScrubbing ||
+        _sliceUserSeekInFlight ||
+        _sliceBoundaryInFlight) {
+      return;
+    }
+    final track = currentTrack;
+    final trackKey = track == null ? null : audioSliceTrackKey(track);
+    if (trackKey == null ||
+        _sliceState.isLoading ||
+        _sliceState.trackKey != trackKey) {
+      return;
+    }
+
+    final preview = _sliceState.preview;
+    if (preview != null) {
+      if (position.inMilliseconds < preview.endMs) return;
+      _finishSlicePreview(preview, trackKey);
+      return;
+    }
+
+    final slices = _currentTrackSlices;
+    if (!_sliceState.onlySlices || slices.isEmpty) {
+      _sliceManualSeekPending = false;
+      return;
+    }
+    final positionMs = position.inMilliseconds;
+    if (_findContainingSlice(slices, positionMs) != null) {
+      _sliceManualSeekPending = false;
+      return;
+    }
+
+    final manualSeek = _sliceManualSeekPending;
+    _sliceManualSeekPending = false;
+    if (!manualSeek && positionMs >= slices.last.endMs) {
+      _runSliceBoundary((revision, key) async {
+        if (_isCurrentSlicePlayback(revision, key) &&
+            _sliceState.onlySlices &&
+            _currentTrackSlices.isNotEmpty) {
+          await _handleTrackCompletion();
+        }
+      });
+      return;
+    }
+
+    final laterSlices = slices.where((slice) => slice.startMs > positionMs);
+    final targetMs = laterSlices.isEmpty
+        ? slices.first.startMs
+        : laterSlices.first.startMs;
+    _runSliceBoundary((revision, key) async {
+      if (!_isCurrentSlicePlayback(revision, key) ||
+          !_sliceState.onlySlices ||
+          _findContainingSlice(
+                _currentTrackSlices,
+                _player.position.inMilliseconds,
+              ) !=
+              null) {
+        return;
+      }
+      await _seek(Duration(milliseconds: targetMs), userInitiated: false);
+    });
+  }
+
+  void _finishSlicePreview(AudioSlice preview, String trackKey) {
+    if (_androidNativePreload && _player.currentIndex == 1) {
+      _returnToTrackAfterNativePreview(preview);
+      return;
+    }
+    _runSliceBoundary((revision, key) async {
+      if (key != trackKey ||
+          !_isCurrentSlicePlayback(revision, key) ||
+          _sliceState.preview != preview) {
+        return;
+      }
+      await _seek(Duration(milliseconds: preview.endMs), userInitiated: false);
+      if (!_isCurrentSlicePlayback(revision, key) ||
+          _sliceState.preview != preview) {
+        return;
+      }
+      await pause();
+      if (_sliceState.trackKey == key && _sliceState.preview == preview) {
+        _setSliceState(_sliceState.copyWith(clearPreview: true));
+        _scheduleNativeWindowRefresh();
+      }
+    });
+  }
 
   void _emitPlaybackDiagnostic(
     PlaybackDiagnosticEventType type,
@@ -2874,6 +3554,7 @@ class AudioPlayerService {
     await _playerStateSubscription?.cancel();
     await _queueController.close();
     await _currentTrackController.close();
+    await _sliceStateController.close();
     await _manualSkipAvailabilityController.close();
     await _trackLoadingController.close();
     await _requestedTrackController.close();
@@ -3184,7 +3865,7 @@ class _TrackLoadRequest {
   final PlayerTrackChangeDirection direction;
   final Future<void> Function(_TrackLoadRequest request)? beforeCommit;
   final AudioSource? sourceToReload;
-  final Duration? initialPosition;
+  Duration? initialPosition;
   Duration? latestSeekPosition;
   final int? nativeWindowIndex;
   final bool nativeWindowAlreadyCurrent;

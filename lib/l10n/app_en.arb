@@ -250,6 +250,20 @@
     }
   },
   "checkUpdate": "Check for Updates",
+  "updateChannel": "Update Channel",
+  "stableUpdateChannel": "Stable",
+  "betaUpdateChannel": "Beta",
+  "betaOnlyAndroid": "Beta is available only on Android.",
+  "noBetaRelease": "No beta release is available yet.",
+  "updateChannelVersionAvailable": "Selected channel version",
+  "crossChannelUpdateNotice": "Android stable and beta releases install as separate apps and keep separate data. Installing this release will not replace the current app.",
+  "@updateChannel": { "description": "Setting that selects the release channel used for update checks." },
+  "@stableUpdateChannel": { "description": "The stable release channel." },
+  "@betaUpdateChannel": { "description": "The Android beta prerelease channel." },
+  "@betaOnlyAndroid": { "description": "Explains why beta updates are disabled on non-Android platforms." },
+  "@noBetaRelease": { "description": "Shown after a successful check finds no published beta release." },
+  "@updateChannelVersionAvailable": { "description": "Dialog title for a release from a different channel." },
+  "@crossChannelUpdateNotice": { "description": "Explains separate Android installations and app data when selecting another release channel." },
   "author": "Author",
   "projectRepo": "Project Repository",
   "upstreamAuthor": "Upstream Author",
@@ -458,8 +472,6 @@
   "selectSubtitlePriority": "Select subtitle library priority for auto-loading:",
   "subtitlePriorityHighestDesc": "Search subtitle library first, then online/downloads",
   "subtitlePriorityLowestDesc": "Search online/downloads first, then subtitle library",
-  "defaultSortSettings": "Default Sort Settings",
-  "defaultSortUpdated": "Default sort updated",
   "translationSourceSettings": "Translation Source Settings",
   "selectTranslationProvider": "Select translation service provider:",
   "translationTargetLanguage": "Target Language",
@@ -483,7 +495,6 @@
   "llmTranslation": "LLM Translation",
   "goToConfigure": "Configure",
   "subtitlePrioritySettingSubtitle": "Subtitle library priority",
-  "defaultSortSettingTitle": "Default sort for home page",
   "translationSource": "Translation Source",
   "llmSettings": "LLM Settings",
   "llmSettingsSubtitle": "API URL, key, and model",
@@ -2071,5 +2082,165 @@
   "videoPlayerInfoFrameRate": "Frame rate",
   "videoPlayerInfoVideoBitrate": "Video bitrate",
   "videoPlayerInfoAudioCodec": "Audio codec",
-  "videoPlayerInfoAudioFormat": "Audio format"
+  "videoPlayerInfoAudioFormat": "Audio format",
+  "audioSlices": "Audio slices",
+  "@audioSlices": {
+    "description": "Audio player slice control: audioSlices"
+  },
+  "markAudioSliceStart": "Mark slice start",
+  "@markAudioSliceStart": {
+    "description": "Audio player slice control: markAudioSliceStart"
+  },
+  "markAudioSliceEnd": "Mark slice end",
+  "@markAudioSliceEnd": {
+    "description": "Audio player slice control: markAudioSliceEnd"
+  },
+  "manageAudioSlices": "Manage slices",
+  "@manageAudioSlices": {
+    "description": "Audio player slice control: manageAudioSlices"
+  },
+  "cancelAudioSliceStart": "Cancel slice start",
+  "@cancelAudioSliceStart": {
+    "description": "Audio player slice control: cancelAudioSliceStart"
+  },
+  "audioSlicePendingStart": "Start: {time}",
+  "@audioSlicePendingStart": {
+    "description": "Audio player slice control: audioSlicePendingStart",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "00:30.000"
+      }
+    }
+  },
+  "audioSliceRange": "{start} – {end}",
+  "@audioSliceRange": {
+    "description": "Audio player slice control: audioSliceRange",
+    "placeholders": {
+      "start": {
+        "type": "String",
+        "example": "00:30.000"
+      },
+      "end": {
+        "type": "String",
+        "example": "01:00.000"
+      }
+    }
+  },
+  "onlyPlayAudioSlices": "Only play slices",
+  "@onlyPlayAudioSlices": {
+    "description": "Audio player slice control: onlyPlayAudioSlices"
+  },
+  "audioSlicesEmpty": "No slices yet. Mark a start and end to create a slice.",
+  "@audioSlicesEmpty": {
+    "description": "Audio player slice control: audioSlicesEmpty"
+  },
+  "previewAudioSlice": "Preview slice",
+  "@previewAudioSlice": {
+    "description": "Audio player slice control: previewAudioSlice"
+  },
+  "stopAudioSlicePreview": "Stop preview",
+  "@stopAudioSlicePreview": {
+    "description": "Audio player slice control: stopAudioSlicePreview"
+  },
+  "editAudioSlice": "Edit slice",
+  "@editAudioSlice": {
+    "description": "Audio player slice control: editAudioSlice"
+  },
+  "audioSliceStartTime": "Start time",
+  "@audioSliceStartTime": {
+    "description": "Audio player slice control: audioSliceStartTime"
+  },
+  "audioSliceEndTime": "End time",
+  "@audioSliceEndTime": {
+    "description": "Audio player slice control: audioSliceEndTime"
+  },
+  "audioSliceInvalidTime": "Enter a valid time, such as 00:30.000.",
+  "@audioSliceInvalidTime": {
+    "description": "Audio player slice control: audioSliceInvalidTime"
+  },
+  "audioSliceSaveFailed": "Could not save the slice. Check the times and overlapping slices, then try again.",
+  "@audioSliceSaveFailed": {
+    "description": "Audio player slice control: audioSliceSaveFailed"
+  },
+  "audioSliceDeleteFailed": "Could not delete slices. Try again.",
+  "@audioSliceDeleteFailed": {
+    "description": "Audio player slice control: audioSliceDeleteFailed"
+  },
+  "clearAudioSlices": "Clear slices",
+  "@clearAudioSlices": {
+    "description": "Audio player slice control: clearAudioSlices"
+  },
+  "clearAudioSlicesConfirm": "Clear all slices for this track?",
+  "@clearAudioSlicesConfirm": {
+    "description": "Audio player slice control: clearAudioSlicesConfirm"
+  },
+  "audioSlicePreviewFailed": "Could not preview the slice. Try again.",
+  "@audioSlicePreviewFailed": {
+    "description": "Audio player slice control: audioSlicePreviewFailed"
+  },
+  "audioSliceEarlier": "−{seconds} s",
+  "@audioSliceEarlier": {
+    "description": "Label for moving the edited slice endpoint earlier by a positive number of seconds.",
+    "placeholders": {
+      "seconds": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "0.2"
+      }
+    }
+  },
+  "audioSliceLater": "+{seconds} s",
+  "@audioSliceLater": {
+    "description": "Label for moving the edited slice endpoint later by a positive number of seconds.",
+    "placeholders": {
+      "seconds": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "0.2"
+      }
+    }
+  },
+  "audioSliceSetCurrent": "Set current",
+  "@audioSliceSetCurrent": {
+    "description": "Shortcut that sets the edited endpoint to the live playhead position."
+  },
+  "audioSliceSetZero": "Set to 0",
+  "@audioSliceSetZero": {
+    "description": "Shortcut that sets the edited endpoint to the beginning of this track or chapter."
+  },
+  "audioSliceSetEnd": "Set to end",
+  "@audioSliceSetEnd": {
+    "description": "Shortcut that sets the edited endpoint to the track duration."
+  },
+  "audioSliceTimeline": "Slice timeline",
+  "audioSlicePosition": "Position",
+  "@audioSlicePosition": {
+    "description": "Label for the playhead time on the slice timeline, including gaps outside saved slices."
+  },
+  "@audioSliceTimeline": {
+    "description": "Accessible name for the management timeline containing all saved slices."
+  },
+  "audioSliceCurrent": "Current slice",
+  "@audioSliceCurrent": {
+    "description": "State label for the slice containing the playhead, including paused playback."
+  },
+  "audioSliceSelected": "Selected slice",
+  "@audioSliceSelected": {
+    "description": "State label for the slice explicitly chosen during this manager visit."
+  },
+  "audioSliceEndpointAction": "{endpoint}: {action}",
+  "@audioSliceEndpointAction": {
+    "description": "Endpoint-aware tooltip for a time adjustment shortcut.",
+    "placeholders": {
+      "endpoint": {
+        "type": "String",
+        "example": "Start time"
+      },
+      "action": {
+        "type": "String",
+        "example": "+0.2 s"
+      }
+    }
+  }
 }

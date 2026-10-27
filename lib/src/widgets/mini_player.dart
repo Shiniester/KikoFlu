@@ -8,6 +8,7 @@ import '../../l10n/app_localizations.dart';
 import '../models/audio_track.dart';
 import '../providers/artwork_theme_provider.dart';
 import '../providers/audio_provider.dart';
+import '../providers/audio_slice_presentation_provider.dart';
 import '../providers/lyric_provider.dart';
 import '../providers/player_lyric_style_provider.dart';
 import '../services/audio_player_service.dart';
@@ -16,6 +17,7 @@ import 'volume_control.dart';
 import 'player/player_cover_widget.dart';
 import 'player/player_launch_region.dart';
 import 'player/player_route.dart';
+import 'player/player_slice_progress.dart';
 import 'player/player_track_layers.dart';
 import 'player/player_visual_palette.dart';
 
@@ -149,7 +151,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                             return Padding(
                               padding: EdgeInsets.fromLTRB(
                                 leadingInset,
-                                8,
+                                0,
                                 trailingInset,
                                 8,
                               ),
@@ -568,56 +570,99 @@ class _MiniPlayerProgressAreaState
   bool _isDragging = false;
   double _dragValue = 0;
 
-  void _seek(double value, Duration duration) {
+  Future<void> _seek(double value, Duration duration) async {
     if (duration <= Duration.zero) return;
-    ref
-        .read(audioPlayerControllerProvider.notifier)
-        .seekAndPersist(
-          Duration(milliseconds: (value * duration.inMilliseconds).round()),
-        );
+    final service = ref.read(audioPlayerServiceProvider);
+    service.setSliceScrubbing(true);
+    try {
+      await ref
+          .read(audioPlayerControllerProvider.notifier)
+          .seekAndPersist(
+            Duration(milliseconds: (value * duration.inMilliseconds).round()),
+          );
+    } finally {
+      service.setSliceScrubbing(false);
+    }
   }
 
   double _valueFromPointer(Offset localPosition, BuildContext context) {
     final box = context.findRenderObject() as RenderBox?;
-    if (box == null || box.size.width <= 0) return _dragValue;
-    return (localPosition.dx / box.size.width).clamp(0.0, 1.0);
+    const thumbRadius = PlayerUniformSliderTrackShape.thumbRadius;
+    final trackWidth = (box?.size.width ?? 0) - thumbRadius * 2;
+    if (box == null || trackWidth <= 0) return _dragValue;
+    return ((localPosition.dx - thumbRadius) / trackWidth).clamp(0.0, 1.0);
   }
 
   @override
   Widget build(BuildContext context) {
     final position = ref.watch(positionProvider).valueOrNull ?? Duration.zero;
     final duration = ref.watch(durationProvider).valueOrNull ?? Duration.zero;
+    final slices = ref.watch(audioSliceStateProvider).valueOrNull;
+    final selectedSlice = ref.watch(selectedAudioSliceProvider);
     final progress = duration.inMilliseconds > 0
         ? position.inMilliseconds / duration.inMilliseconds
         : 0.0;
     final displayProgress = _isDragging ? _dragValue : progress;
+    final sliderValue = displayProgress.clamp(0.0, 1.0).toDouble();
+    final colorScheme = Theme.of(context).colorScheme;
+    final sliceColor = PlayerUniformSliderTrackShape.sliceColorFor(colorScheme);
+    final thumbColor =
+        duration.inMilliseconds > 0 &&
+            PlayerUniformSliderTrackShape.isPositionInSlice(
+              sliderValue * duration.inMilliseconds,
+              slices?.slices ?? const [],
+            )
+        ? sliceColor
+        : colorScheme.primary;
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
-      onHorizontalDragStart: (_) => setState(() => _isDragging = true),
+      onHorizontalDragStart: (_) {
+        ref.read(audioPlayerServiceProvider).setSliceScrubbing(true);
+        setState(() => _isDragging = true);
+      },
       onHorizontalDragUpdate: (details) {
         setState(() {
           _dragValue = _valueFromPointer(details.localPosition, context);
         });
       },
       onHorizontalDragEnd: (_) {
-        _seek(_dragValue, duration);
+        unawaited(_seek(_dragValue, duration));
+        setState(() => _isDragging = false);
+      },
+      onHorizontalDragCancel: () {
+        ref.read(audioPlayerServiceProvider).setSliceScrubbing(false);
         setState(() => _isDragging = false);
       },
       onTapUp: (details) {
-        _seek(_valueFromPointer(details.localPosition, context), duration);
+        unawaited(
+          _seek(_valueFromPointer(details.localPosition, context), duration),
+        );
       },
       child: Column(
         children: [
           const _MiniPlayerLyricLine(),
           SizedBox(
-            height: 4,
+            height: 12,
             child: SliderTheme(
               data: SliderTheme.of(context).copyWith(
                 trackHeight: 4,
+                trackShape: PlayerUniformSliderTrackShape(
+                  slices: slices?.slices ?? const [],
+                  duration: duration,
+                  pendingStartMs: slices?.pendingStartMs,
+                  onlySlices: slices?.onlySlices ?? false,
+                  selectedSlice: selectedSlice,
+                  sliceColor: sliceColor,
+                ),
+                thumbColor: thumbColor,
                 thumbShape: const RoundSliderThumbShape(
-                  enabledThumbRadius: 0,
-                  disabledThumbRadius: 0,
+                  enabledThumbRadius: PlayerUniformSliderTrackShape.thumbRadius,
+                  disabledThumbRadius:
+                      PlayerUniformSliderTrackShape.thumbRadius,
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: PlayerUniformSliderTrackShape.thumbRadius,
                 ),
                 overlayShape: SliderComponentShape.noOverlay,
                 activeTrackColor: Theme.of(context).colorScheme.primary,
@@ -626,7 +671,11 @@ class _MiniPlayerProgressAreaState
                 ).colorScheme.outline.withValues(alpha: 0.2),
               ),
               child: Slider(
-                value: displayProgress.clamp(0.0, 1.0),
+                key: const ValueKey('mini-player-progress-slider'),
+                value: sliderValue,
+                onChangeStart: (_) => ref
+                    .read(audioPlayerServiceProvider)
+                    .setSliceScrubbing(true),
                 onChanged: (value) {
                   setState(() {
                     _isDragging = true;
@@ -634,7 +683,7 @@ class _MiniPlayerProgressAreaState
                   });
                 },
                 onChangeEnd: (value) {
-                  _seek(value, duration);
+                  unawaited(_seek(value, duration));
                   setState(() => _isDragging = false);
                 },
               ),

@@ -97,22 +97,22 @@ void main() {
     expect(prefs.getInt('preload_next_custom_seconds'), 60);
   });
 
-  testWidgets('preferences omit the blocking settings navigation tile', (
-    tester,
-  ) async {
+  testWidgets('preferences omit the default home sort setting', (tester) async {
+    tester.view.physicalSize = const Size(390, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({
+      'default_sort_order': 'nsfw',
+      'default_sort_direction': 'asc',
+    });
+
     await tester.pumpWidget(_testApp());
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     final preferences = find.byType(PreferencesScreen);
     final strings = S.of(tester.element(preferences));
-    await tester.scrollUntilVisible(
-      find.text(strings.defaultSortSettingTitle),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.pump();
-
-    expect(find.text(strings.defaultSortSettingTitle), findsOneWidget);
+    expect(find.text('Default sort for home page'), findsNothing);
     expect(
       find.widgetWithText(SettingsNavigationTile, strings.blockingSettings),
       findsNothing,

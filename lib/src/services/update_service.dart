@@ -9,25 +9,30 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-typedef FileOpener = Future<OpenResult> Function(
-  String filePath, {
-  String? type,
-});
+enum UpdateChannel { stable, beta }
 
-typedef ProcessStarter = Future<Process> Function(
-  String executable,
-  List<String> arguments, {
-  ProcessStartMode mode,
-  bool runInShell,
-});
+typedef FileOpener =
+    Future<OpenResult> Function(String filePath, {String? type});
+
+typedef ProcessStarter =
+    Future<Process> Function(
+      String executable,
+      List<String> arguments, {
+      ProcessStartMode mode,
+      bool runInShell,
+    });
 
 /// Service to check for app updates from GitHub releases and install them.
 class UpdateService {
-  static const String _githubApiUrl =
+  static const String _stableGithubApiUrl =
       'https://api.github.com/repos/Shiniester/KikoFlu/releases/latest';
+  static const String _betaGithubApiUrl =
+      'https://api.github.com/repos/Shiniester/KikoFlu/releases';
   static const String _releasePageUrl =
       'https://github.com/Shiniester/KikoFlu/releases/latest';
+  static const String _betaPackageName = 'com.meteor.kikoeruflutter.beta';
 
+  static const String _keyUpdateChannel = 'update_channel';
   static const String _keyLastCheckedVersion = 'last_checked_version';
   static const String _keyLastNotifiedVersion = 'last_notified_version';
   static const String _keyLastCheckTime = 'last_check_time';
@@ -35,6 +40,11 @@ class UpdateService {
   static const String _keyLastDownloadUrl = 'last_download_url';
   static const String _keyLastAssetName = 'last_asset_name';
   static const String _keyLastAssetSize = 'last_asset_size';
+  static const String _keyLastReleaseUrl = 'last_release_url';
+
+  int _channelRevision = 0;
+
+  int get channelRevision => _channelRevision;
 
   final Dio _dio;
   final FileOpener _openFile;
@@ -46,135 +56,247 @@ class UpdateService {
     FileOpener? openFile,
     ProcessStarter? processStarter,
     Future<Directory> Function()? getTempDirectory,
-  })  : _dio = dio ?? Dio(),
-        _openFile = openFile ?? OpenFilex.open,
-        _processStarter = processStarter ?? Process.start,
-        _getTempDirectory = getTempDirectory ?? getTemporaryDirectory;
+  }) : _dio = dio ?? Dio(),
+       _openFile = openFile ?? OpenFilex.open,
+       _processStarter = processStarter ?? Process.start,
+       _getTempDirectory = getTempDirectory ?? getTemporaryDirectory;
 
-  /// Check for updates silently (no user feedback on failure)
-  /// Returns update info if a new version is available, null otherwise
-  Future<UpdateInfo?> checkForUpdates({bool force = false}) async {
-    try {
-      // Get current version
-      final packageInfo = await PackageInfo.fromPlatform();
-      final currentVersion = packageInfo.version;
-
-      // Check if we should skip the check (recently checked)
-      if (!force) {
-        final prefs = await SharedPreferences.getInstance();
-        final lastCheckTime = prefs.getInt(_keyLastCheckTime) ?? 0;
-        final now = DateTime.now().millisecondsSinceEpoch;
-        // Skip if checked within last hour
-        if (now - lastCheckTime < 3600000) {
-          final lastCheckedVersion = prefs.getString(_keyLastCheckedVersion);
-          if (lastCheckedVersion != null &&
-              lastCheckedVersion != currentVersion) {
-            return UpdateInfo(
-              latestVersion: lastCheckedVersion,
-              currentVersion: currentVersion,
-              releaseUrl: _releasePageUrl,
-              hasNewVersion: _compareVersions(currentVersion, lastCheckedVersion) < 0,
-              releaseNotes: prefs.getString(_keyLastReleaseNotes),
-              downloadUrl: prefs.getString(_keyLastDownloadUrl),
-              assetName: prefs.getString(_keyLastAssetName),
-              assetSize: prefs.getInt(_keyLastAssetSize),
-            );
-          }
-          return null;
-        }
-      }
-
-      // Make API request with timeout
-      final response = await _dio.get(
-        _githubApiUrl,
-        options: Options(
-          headers: {
-            'Accept': 'application/vnd.github.v3+json',
-          },
-          receiveTimeout: const Duration(seconds: 10),
-          sendTimeout: const Duration(seconds: 10),
-        ),
-      );
-
-      if (response.statusCode == 200) {
-        final data = response.data;
-        if (data is! Map<String, dynamic>) {
-          return null;
-        }
-
-        // Only track official releases (not draft and not prerelease)
-        final isDraft = data['draft'] as bool? ?? false;
-        final isPrerelease = data['prerelease'] as bool? ?? false;
-        if (isDraft || isPrerelease) {
-          return null;
-        }
-
-        final tagName = data['tag_name'] as String? ?? '';
-
-        // Extract version from tag_name (remove 'v' prefix and anything after '(')
-        // Examples: 'v1.0.6' -> '1.0.6', 'v1.0.6(1024)' -> '1.0.6', '1.0.6' -> '1.0.6'
-        String latestVersion = tagName
-            .replaceFirst('v', '')
-            .replaceFirst(RegExp(r'\(.*\)'), '')
-            .trim();
-
-        if (latestVersion.isEmpty) {
-          return null;
-        }
-
-        final releaseNotes = data['body'] as String?;
-        final releaseUrl = data['html_url'] as String? ?? _releasePageUrl;
-        final assets = data['assets'] as List<dynamic>? ?? [];
-        final matchedAsset = findPlatformAsset(assets);
-
-        String? downloadUrl;
-        String? assetName;
-        int? assetSize;
-
-        if (matchedAsset != null) {
-          downloadUrl = matchedAsset['browser_download_url'] as String?;
-          assetName = matchedAsset['name'] as String?;
-          assetSize = matchedAsset['size'] as int?;
-        }
-
-        // Save check time and version
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(_keyLastCheckedVersion, latestVersion);
-        await prefs.setInt(
-            _keyLastCheckTime, DateTime.now().millisecondsSinceEpoch);
-        if (releaseNotes != null) {
-          await prefs.setString(_keyLastReleaseNotes, releaseNotes);
-        }
-        if (downloadUrl != null) {
-          await prefs.setString(_keyLastDownloadUrl, downloadUrl);
-        }
-        if (assetName != null) {
-          await prefs.setString(_keyLastAssetName, assetName);
-        }
-        if (assetSize != null) {
-          await prefs.setInt(_keyLastAssetSize, assetSize);
-        }
-
-        // Compare versions
-        final hasNewVersion =
-            _compareVersions(currentVersion, latestVersion) < 0;
-
-        return UpdateInfo(
-          latestVersion: latestVersion,
-          currentVersion: currentVersion,
-          releaseUrl: releaseUrl,
-          hasNewVersion: hasNewVersion,
-          releaseNotes: releaseNotes,
-          downloadUrl: downloadUrl,
-          assetName: assetName,
-          assetSize: assetSize,
-        );
-      }
-    } catch (e) {
-      // Silent failure - no user notification
+  Future<UpdateChannel> getUpdateChannel({String? packageName}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedChannel = prefs.getString(_keyUpdateChannel);
+    for (final channel in UpdateChannel.values) {
+      if (savedChannel == channel.name) return channel;
     }
-    return null;
+
+    packageName ??= (await PackageInfo.fromPlatform()).packageName;
+    return _installedChannel(packageName);
   }
+
+  Future<void> setUpdateChannel(UpdateChannel channel) async {
+    _channelRevision++;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyUpdateChannel, channel.name);
+  }
+
+  /// Returns the selected channel's release when one is available.
+  /// Request failures are propagated to the caller.
+  Future<UpdateInfo?> checkForUpdates({
+    bool force = false,
+    UpdateChannel? channel,
+  }) async {
+    final requestRevision = _channelRevision;
+    final packageInfo = await PackageInfo.fromPlatform();
+    final currentVersion = packageInfo.version;
+    final installedChannel = _installedChannel(packageInfo.packageName);
+    final prefs = await SharedPreferences.getInstance();
+    final selectedChannel =
+        channel ?? await getUpdateChannel(packageName: packageInfo.packageName);
+    final isCrossChannel = selectedChannel != installedChannel;
+    final versionKey = _cacheKey(_keyLastCheckedVersion, selectedChannel);
+    final checkedAtKey = _cacheKey(_keyLastCheckTime, selectedChannel);
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    if (!force && now - (prefs.getInt(checkedAtKey) ?? 0) < 3600000) {
+      final lastCheckedVersion = prefs.getString(versionKey);
+      if (lastCheckedVersion == null || lastCheckedVersion.isEmpty) return null;
+      if (lastCheckedVersion == currentVersion && !isCrossChannel) return null;
+
+      return UpdateInfo(
+        latestVersion: lastCheckedVersion,
+        currentVersion: currentVersion,
+        releaseUrl:
+            prefs.getString(_cacheKey(_keyLastReleaseUrl, selectedChannel)) ??
+            _releasePageUrl,
+        hasNewVersion:
+            isCrossChannel ||
+            _compareVersions(currentVersion, lastCheckedVersion) < 0,
+        releaseNotes: prefs.getString(
+          _cacheKey(_keyLastReleaseNotes, selectedChannel),
+        ),
+        downloadUrl: prefs.getString(
+          _cacheKey(_keyLastDownloadUrl, selectedChannel),
+        ),
+        assetName: prefs.getString(
+          _cacheKey(_keyLastAssetName, selectedChannel),
+        ),
+        assetSize: prefs.getInt(_cacheKey(_keyLastAssetSize, selectedChannel)),
+        isCrossChannel: isCrossChannel,
+      );
+    }
+
+    final data = await _fetchRelease(selectedChannel);
+    if (requestRevision != _channelRevision) return null;
+    if (data == null) {
+      await _cacheNoRelease(prefs, selectedChannel);
+      return null;
+    }
+
+    final latestVersion = _normalizeVersion(data['tag_name'] as String? ?? '');
+    if (latestVersion.isEmpty) {
+      throw const FormatException('Release tag has no version');
+    }
+
+    final releaseNotes = data['body'] as String?;
+    final releaseUrl = data['html_url'] as String? ?? _releasePageUrl;
+    final assets = data['assets'] as List<dynamic>? ?? [];
+    final matchedAsset = findPlatformAsset(assets);
+    final downloadUrl = matchedAsset?['browser_download_url'] as String?;
+    final assetName = matchedAsset?['name'] as String?;
+    final assetSize = matchedAsset?['size'] as int?;
+
+    await _cacheRelease(
+      prefs,
+      selectedChannel,
+      latestVersion: latestVersion,
+      releaseUrl: releaseUrl,
+      releaseNotes: releaseNotes,
+      downloadUrl: downloadUrl,
+      assetName: assetName,
+      assetSize: assetSize,
+    );
+
+    return UpdateInfo(
+      latestVersion: latestVersion,
+      currentVersion: currentVersion,
+      releaseUrl: releaseUrl,
+      hasNewVersion:
+          isCrossChannel || _compareVersions(currentVersion, latestVersion) < 0,
+      releaseNotes: releaseNotes,
+      downloadUrl: downloadUrl,
+      assetName: assetName,
+      assetSize: assetSize,
+      isCrossChannel: isCrossChannel,
+    );
+  }
+
+  Future<Map<String, dynamic>?> _fetchRelease(UpdateChannel channel) async {
+    final options = Options(
+      headers: {'Accept': 'application/vnd.github.v3+json'},
+      receiveTimeout: const Duration(seconds: 10),
+      sendTimeout: const Duration(seconds: 10),
+    );
+
+    if (channel == UpdateChannel.stable) {
+      final response = await _dio.get(_stableGithubApiUrl, options: options);
+      if (response.data is! Map<String, dynamic>) {
+        throw const FormatException('Invalid stable release response');
+      }
+      final data = response.data as Map<String, dynamic>;
+      if (data['draft'] == true || data['prerelease'] == true) return null;
+      return data;
+    }
+
+    var page = 1;
+    while (true) {
+      final response = await _dio.get(
+        _betaGithubApiUrl,
+        queryParameters: {'per_page': 100, 'page': page},
+        options: options,
+      );
+      if (response.data is! List<dynamic>) {
+        throw const FormatException('Invalid beta releases response');
+      }
+      final releases = response.data as List<dynamic>;
+      for (final release in releases.whereType<Map<String, dynamic>>()) {
+        if (release['draft'] == true || release['prerelease'] != true) continue;
+        final tag = _normalizeVersion(release['tag_name'] as String? ?? '');
+        if (RegExp(r'^\d+\.\d+\.\d+-beta\.\d+$').hasMatch(tag)) {
+          return release;
+        }
+      }
+      if (releases.length < 100) return null;
+      page++;
+    }
+  }
+
+  String _normalizeVersion(String version) => version
+      .replaceFirst(RegExp(r'^v'), '')
+      .replaceFirst(RegExp(r'\(.*\)'), '')
+      .trim();
+
+  UpdateChannel _installedChannel(String packageName) =>
+      packageName == _betaPackageName
+      ? UpdateChannel.beta
+      : UpdateChannel.stable;
+
+  String _cacheKey(String key, UpdateChannel channel) =>
+      '${key}_${channel.name}';
+
+  Future<void> _cacheRelease(
+    SharedPreferences prefs,
+    UpdateChannel channel, {
+    required String latestVersion,
+    required String releaseUrl,
+    required String? releaseNotes,
+    required String? downloadUrl,
+    required String? assetName,
+    required int? assetSize,
+  }) async {
+    final assetSizeKey = _cacheKey(_keyLastAssetSize, channel);
+    // Update all in-memory fields before yielding to a channel change.
+    await Future.wait([
+      prefs.setString(
+        _cacheKey(_keyLastCheckedVersion, channel),
+        latestVersion,
+      ),
+      prefs.setInt(
+        _cacheKey(_keyLastCheckTime, channel),
+        DateTime.now().millisecondsSinceEpoch,
+      ),
+      _setOptionalString(
+        prefs,
+        _cacheKey(_keyLastReleaseUrl, channel),
+        releaseUrl,
+      ),
+      _setOptionalString(
+        prefs,
+        _cacheKey(_keyLastReleaseNotes, channel),
+        releaseNotes,
+      ),
+      _setOptionalString(
+        prefs,
+        _cacheKey(_keyLastDownloadUrl, channel),
+        downloadUrl,
+      ),
+      _setOptionalString(
+        prefs,
+        _cacheKey(_keyLastAssetName, channel),
+        assetName,
+      ),
+      assetSize == null
+          ? prefs.remove(assetSizeKey)
+          : prefs.setInt(assetSizeKey, assetSize),
+    ]);
+  }
+
+  Future<void> _cacheNoRelease(
+    SharedPreferences prefs,
+    UpdateChannel channel,
+  ) async {
+    await Future.wait([
+      prefs.setString(_cacheKey(_keyLastCheckedVersion, channel), ''),
+      prefs.setInt(
+        _cacheKey(_keyLastCheckTime, channel),
+        DateTime.now().millisecondsSinceEpoch,
+      ),
+      for (final key in [
+        _keyLastReleaseUrl,
+        _keyLastReleaseNotes,
+        _keyLastDownloadUrl,
+        _keyLastAssetName,
+        _keyLastAssetSize,
+      ])
+        prefs.remove(_cacheKey(key, channel)),
+    ]);
+  }
+
+  Future<bool> _setOptionalString(
+    SharedPreferences prefs,
+    String key,
+    String? value,
+  ) => value == null || value.isEmpty
+      ? prefs.remove(key)
+      : prefs.setString(key, value);
 
   /// Match the corresponding release asset for the current operating system.
   Map<String, dynamic>? findPlatformAsset(
@@ -252,7 +374,8 @@ class UpdateService {
     CancelToken? cancelToken,
     Directory? targetDirectory,
   }) async {
-    final saveDir = targetDirectory ??
+    final saveDir =
+        targetDirectory ??
         Directory(p.join((await _getTempDirectory()).path, 'updates'));
     if (!await saveDir.exists()) {
       await saveDir.create(recursive: true);
@@ -274,7 +397,10 @@ class UpdateService {
 
     final downloadedPart = File(tempPath);
     if (!await downloadedPart.exists() || await downloadedPart.length() == 0) {
-      throw FileSystemException('Downloaded file is empty or missing', tempPath);
+      throw FileSystemException(
+        'Downloaded file is empty or missing',
+        tempPath,
+      );
     }
 
     final targetFile = File(savePath);
@@ -285,10 +411,7 @@ class UpdateService {
   }
 
   /// Launch or install the downloaded update package.
-  Future<bool> installUpdate(
-    String filePath, {
-    String? targetPlatform,
-  }) async {
+  Future<bool> installUpdate(String filePath, {String? targetPlatform}) async {
     final file = File(filePath);
     if (!await file.exists()) {
       return false;
@@ -325,22 +448,31 @@ class UpdateService {
 
   /// Check if the red dot should be shown for the current latest version
   /// Returns true if a new version exists and hasn't been notified yet
-  Future<bool> shouldShowRedDot() async {
+  Future<bool> shouldShowRedDot({UpdateChannel? channel}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final lastCheckedVersion = prefs.getString(_keyLastCheckedVersion);
-      final lastNotifiedVersion = prefs.getString(_keyLastNotifiedVersion);
+      final packageInfo = await PackageInfo.fromPlatform();
+      final selectedChannel =
+          channel ??
+          await getUpdateChannel(packageName: packageInfo.packageName);
+      final lastCheckedVersion = prefs.getString(
+        _cacheKey(_keyLastCheckedVersion, selectedChannel),
+      );
+      final lastNotifiedVersion = prefs.getString(
+        _cacheKey(_keyLastNotifiedVersion, selectedChannel),
+      );
 
       if (lastCheckedVersion == null || lastCheckedVersion.isEmpty) {
         return false;
       }
 
-      // Get current version
-      final packageInfo = await PackageInfo.fromPlatform();
       final currentVersion = packageInfo.version;
+      final isCrossChannel =
+          selectedChannel != _installedChannel(packageInfo.packageName);
 
       // Show red dot if there's a new version and it hasn't been notified
-      return _compareVersions(currentVersion, lastCheckedVersion) < 0 &&
+      return (isCrossChannel ||
+              _compareVersions(currentVersion, lastCheckedVersion) < 0) &&
           lastCheckedVersion != lastNotifiedVersion;
     } catch (e) {
       return false;
@@ -348,12 +480,21 @@ class UpdateService {
   }
 
   /// Mark the current new version as notified (hide red dot)
-  Future<void> markAsNotified() async {
+  Future<void> markAsNotified({UpdateChannel? channel}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final lastCheckedVersion = prefs.getString(_keyLastCheckedVersion);
+      final packageInfo = await PackageInfo.fromPlatform();
+      final selectedChannel =
+          channel ??
+          await getUpdateChannel(packageName: packageInfo.packageName);
+      final lastCheckedVersion = prefs.getString(
+        _cacheKey(_keyLastCheckedVersion, selectedChannel),
+      );
       if (lastCheckedVersion != null) {
-        await prefs.setString(_keyLastNotifiedVersion, lastCheckedVersion);
+        await prefs.setString(
+          _cacheKey(_keyLastNotifiedVersion, selectedChannel),
+          lastCheckedVersion,
+        );
       }
     } catch (e) {
       // Silent failure
@@ -363,20 +504,61 @@ class UpdateService {
   /// Compare two version strings
   /// Returns: -1 if v1 < v2, 0 if equal, 1 if v1 > v2
   int _compareVersions(String v1, String v2) {
-    final parts1 = v1.split('.').map((e) => int.tryParse(e) ?? 0).toList();
-    final parts2 = v2.split('.').map((e) => int.tryParse(e) ?? 0).toList();
-
-    final maxLength =
-        parts1.length > parts2.length ? parts1.length : parts2.length;
-
-    for (int i = 0; i < maxLength; i++) {
-      final p1 = i < parts1.length ? parts1[i] : 0;
-      final p2 = i < parts2.length ? parts2[i] : 0;
-
-      if (p1 < p2) return -1;
-      if (p1 > p2) return 1;
+    final pattern = RegExp(
+      r'^(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$',
+    );
+    final match1 = pattern.firstMatch(v1);
+    final match2 = pattern.firstMatch(v2);
+    if (match1 == null || match2 == null) {
+      return _compareNumericVersions(v1, v2);
     }
 
+    final core1 = match1.group(1)!.split('.').map(int.parse).toList();
+    final core2 = match2.group(1)!.split('.').map(int.parse).toList();
+    for (
+      var i = 0;
+      i < (core1.length > core2.length ? core1.length : core2.length);
+      i++
+    ) {
+      final part1 = i < core1.length ? core1[i] : 0;
+      final part2 = i < core2.length ? core2[i] : 0;
+      if (part1 != part2) return part1.compareTo(part2);
+    }
+
+    final prerelease1 = match1.group(2)?.split('.');
+    final prerelease2 = match2.group(2)?.split('.');
+    if (prerelease1 == null) return prerelease2 == null ? 0 : 1;
+    if (prerelease2 == null) return -1;
+    for (var i = 0; i < prerelease1.length && i < prerelease2.length; i++) {
+      final part1 = prerelease1[i];
+      final part2 = prerelease2[i];
+      final number1 = int.tryParse(part1);
+      final number2 = int.tryParse(part2);
+      if (number1 != null && number2 != null) {
+        if (number1 != number2) return number1.compareTo(number2);
+      } else if (number1 != null) {
+        return -1;
+      } else if (number2 != null) {
+        return 1;
+      } else if (part1 != part2) {
+        return part1.compareTo(part2);
+      }
+    }
+    return prerelease1.length.compareTo(prerelease2.length);
+  }
+
+  int _compareNumericVersions(String v1, String v2) {
+    final parts1 = v1.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    final parts2 = v2.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    for (
+      var i = 0;
+      i < (parts1.length > parts2.length ? parts1.length : parts2.length);
+      i++
+    ) {
+      final part1 = i < parts1.length ? parts1[i] : 0;
+      final part2 = i < parts2.length ? parts2[i] : 0;
+      if (part1 != part2) return part1.compareTo(part2);
+    }
     return 0;
   }
 
@@ -384,13 +566,31 @@ class UpdateService {
   Future<void> clearUpdateData() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_keyLastCheckedVersion);
-      await prefs.remove(_keyLastNotifiedVersion);
-      await prefs.remove(_keyLastCheckTime);
-      await prefs.remove(_keyLastReleaseNotes);
-      await prefs.remove(_keyLastDownloadUrl);
-      await prefs.remove(_keyLastAssetName);
-      await prefs.remove(_keyLastAssetSize);
+      for (final channel in UpdateChannel.values) {
+        for (final key in [
+          _keyLastCheckedVersion,
+          _keyLastNotifiedVersion,
+          _keyLastCheckTime,
+          _keyLastReleaseNotes,
+          _keyLastDownloadUrl,
+          _keyLastAssetName,
+          _keyLastAssetSize,
+          _keyLastReleaseUrl,
+        ]) {
+          await prefs.remove(_cacheKey(key, channel));
+        }
+      }
+      for (final key in [
+        _keyLastCheckedVersion,
+        _keyLastNotifiedVersion,
+        _keyLastCheckTime,
+        _keyLastReleaseNotes,
+        _keyLastDownloadUrl,
+        _keyLastAssetName,
+        _keyLastAssetSize,
+      ]) {
+        await prefs.remove(key);
+      }
     } catch (e) {
       // Silent failure
     }
@@ -407,6 +607,7 @@ class UpdateInfo {
   final String? downloadUrl;
   final String? assetName;
   final int? assetSize;
+  final bool isCrossChannel;
 
   const UpdateInfo({
     required this.latestVersion,
@@ -417,6 +618,7 @@ class UpdateInfo {
     this.downloadUrl,
     this.assetName,
     this.assetSize,
+    this.isCrossChannel = false,
   });
 
   @override

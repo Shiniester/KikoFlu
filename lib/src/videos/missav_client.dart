@@ -742,6 +742,7 @@ class MissavClient extends ChangeNotifier {
   Future<VideoDetails> details(
     VideoItem item, {
     FutureOr<void> Function(VideoDetails)? onReady,
+    bool includeAccountState = true,
   }) async {
     await _prepareOnlineAccess();
     final generation = _sessionGeneration;
@@ -826,6 +827,7 @@ class MissavClient extends ChangeNotifier {
       locale: locale,
       saved: saved,
       onReady: onReady,
+      includeAccountState: includeAccountState,
     );
   }
 
@@ -849,6 +851,7 @@ class MissavClient extends ChangeNotifier {
     required String locale,
     bool? saved,
     FutureOr<void> Function(VideoDetails)? onReady,
+    bool includeAccountState = true,
   }) async {
     final uri = _sourceUri(initialDetails.video.pageUrl);
     _checkGeneration(generation, uri);
@@ -859,7 +862,7 @@ class MissavClient extends ChangeNotifier {
     final sourceId = initialDetails.sourceId;
     Object? accountError;
     StackTrace? accountTrace;
-    if (sourceId != null) {
+    if (sourceId != null && includeAccountState) {
       final viewUri = Uri.parse(
         '$origin/api/items/${Uri.encodeComponent(sourceId)}/view',
       );

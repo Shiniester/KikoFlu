@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -50,6 +51,56 @@ void main() {
     }
     await root.delete(recursive: true);
   });
+
+  test(
+    'downloads document streams without supplemental account requests',
+    () async {
+      FlutterSecureStorage.setMockInitialValues({});
+      final server = await _server((request) async {
+        await _send(request, _mp4Fixture(), contentType: 'video/mp4');
+      });
+      final fixture = await File(
+        'test/fixtures/missav/detail.html',
+      ).readAsString();
+      final source = _SourceAdapter(
+        (request) => request.uri.path.contains('/api/')
+            ? ResponseBody.fromString('{}', 503)
+            : ResponseBody.fromString(fixture, 200),
+      );
+      final client = MissavClient(
+        metadataDio: Dio()
+          ..httpClientAdapter = _SourceAdapter(
+            (_) => ResponseBody.fromString('{"recomms":[]}', 200),
+          ),
+      );
+      _activeTest.sourceClients.add(client);
+      final mediaUri = Uri.parse(_url(server, '/clip.mp4'));
+      client.useVerifiedBrowserTransport(source, mediaRoute: (_) => mediaUri);
+      const video = VideoItem(
+        id: 'open-sample-001',
+        title: 'Sample',
+        pageUrl: 'https://missav.ai/cn/open-sample-001',
+      );
+      final downloads = await _downloads(client);
+      await downloads.add(
+        video,
+        VideoStream(label: 'Source 720', url: mediaUri.toString()),
+      );
+      await _until(
+        downloads,
+        (task) =>
+            task.status == VideoDownloadStatus.completed ||
+            task.status == VideoDownloadStatus.failed,
+      );
+      final task = downloads.forVideo(video.id)!;
+      expect(task.status, VideoDownloadStatus.completed, reason: task.error);
+      expect(await File(task.localPath!).readAsBytes(), _mp4Fixture());
+      expect(
+        source.requests.where((request) => request.uri.path.contains('/api/')),
+        isEmpty,
+      );
+    },
+  );
 
   test(
     'downloads an MP4 and retries after rejecting an HTML challenge page',
@@ -587,7 +638,7 @@ ${_url(cdnServer, '/segment.m4s')}
   );
 }
 
-Future<VideoDownloads> _downloads(_FixtureMissavClient sourceClient) async {
+Future<VideoDownloads> _downloads(MissavClient sourceClient) async {
   final test = _activeTest;
   final service = VideoDownloads(
     client: sourceClient,
@@ -718,7 +769,7 @@ class _TestContext {
   final List<HttpServer> servers;
   final List<VideoDownloads> services;
   final List<VideoLibrary> libraries;
-  final List<_FixtureMissavClient> sourceClients;
+  final List<MissavClient> sourceClients;
 
   VideoLibrary get library {
     final value = VideoLibrary(preferences: preferences);
@@ -732,6 +783,26 @@ class RemoteAssetTransportHolder {
       HttpRemoteAssetTransport(client: client);
 }
 
+class _SourceAdapter implements HttpClientAdapter {
+  _SourceAdapter(this.respond);
+
+  final ResponseBody Function(RequestOptions) respond;
+  final requests = <RequestOptions>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requests.add(options);
+    return respond(options);
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
 class _FixtureMissavClient extends MissavClient {
   _FixtureMissavClient(this.resolve) : super(dio: Dio());
 
@@ -742,6 +813,7 @@ class _FixtureMissavClient extends MissavClient {
   Future<VideoDetails> details(
     VideoItem item, {
     FutureOr<void> Function(VideoDetails)? onReady,
+    bool includeAccountState = true,
   }) {
     detailsCalls++;
     return resolve(item);

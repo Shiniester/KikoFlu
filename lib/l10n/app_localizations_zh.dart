@@ -558,6 +558,28 @@ class SZh extends S {
   String get checkUpdate => '检查更新';
 
   @override
+  String get updateChannel => '更新渠道';
+
+  @override
+  String get stableUpdateChannel => '正式版';
+
+  @override
+  String get betaUpdateChannel => '测试版';
+
+  @override
+  String get betaOnlyAndroid => '测试版仅支持 Android';
+
+  @override
+  String get noBetaRelease => '暂无测试版';
+
+  @override
+  String get updateChannelVersionAvailable => '所选渠道版本';
+
+  @override
+  String get crossChannelUpdateNotice =>
+      'Android 正式版与测试版是独立应用，数据分别保存。安装后不会替换当前应用。';
+
+  @override
   String get author => '作者';
 
   @override
@@ -929,12 +951,6 @@ class SZh extends S {
   String get subtitlePriorityLowestDesc => '优先查找在线/下载，再查找字幕库';
 
   @override
-  String get defaultSortSettings => '默认排序设置';
-
-  @override
-  String get defaultSortUpdated => '默认排序已更新';
-
-  @override
   String get translationSourceSettings => '翻译源设置';
 
   @override
@@ -984,9 +1000,6 @@ class SZh extends S {
 
   @override
   String get subtitlePrioritySettingSubtitle => '字幕库优先级';
-
-  @override
-  String get defaultSortSettingTitle => '首页默认排序方式';
 
   @override
   String get translationSource => '翻译源';
@@ -4680,6 +4693,114 @@ class SZh extends S {
 
   @override
   String get videoPlayerInfoAudioFormat => '音频格式';
+
+  @override
+  String get audioSlices => '音频切片';
+
+  @override
+  String get markAudioSliceStart => '标记起点';
+
+  @override
+  String get markAudioSliceEnd => '标记终点';
+
+  @override
+  String get manageAudioSlices => '管理切片';
+
+  @override
+  String get cancelAudioSliceStart => '取消起点';
+
+  @override
+  String audioSlicePendingStart(String time) {
+    return '起点：$time';
+  }
+
+  @override
+  String audioSliceRange(String start, String end) {
+    return '$start – $end';
+  }
+
+  @override
+  String get onlyPlayAudioSlices => '仅播放切片';
+
+  @override
+  String get audioSlicesEmpty => '标记起点和终点后，切片会显示在这里。';
+
+  @override
+  String get previewAudioSlice => '试听切片';
+
+  @override
+  String get stopAudioSlicePreview => '结束试听';
+
+  @override
+  String get editAudioSlice => '编辑切片';
+
+  @override
+  String get audioSliceStartTime => '起点时间';
+
+  @override
+  String get audioSliceEndTime => '终点时间';
+
+  @override
+  String get audioSliceInvalidTime => '请输入有效时间，例如 00:30.000。';
+
+  @override
+  String get audioSliceSaveFailed => '保存切片失败。请检查起止时间和重叠区间后重试。';
+
+  @override
+  String get audioSliceDeleteFailed => '删除切片失败，请重试。';
+
+  @override
+  String get clearAudioSlices => '清空切片';
+
+  @override
+  String get clearAudioSlicesConfirm => '清空当前音轨的全部切片？';
+
+  @override
+  String get audioSlicePreviewFailed => '试听切片失败，请重试。';
+
+  @override
+  String audioSliceEarlier(double seconds) {
+    final intl.NumberFormat secondsNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String secondsString = secondsNumberFormat.format(seconds);
+
+    return '−$secondsString 秒';
+  }
+
+  @override
+  String audioSliceLater(double seconds) {
+    final intl.NumberFormat secondsNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String secondsString = secondsNumberFormat.format(seconds);
+
+    return '+$secondsString 秒';
+  }
+
+  @override
+  String get audioSliceSetCurrent => '设为当前';
+
+  @override
+  String get audioSliceSetZero => '设为 0';
+
+  @override
+  String get audioSliceSetEnd => '设为末尾';
+
+  @override
+  String get audioSliceTimeline => '切片时间轴';
+
+  @override
+  String get audioSlicePosition => '播放位置';
+
+  @override
+  String get audioSliceCurrent => '当前切片';
+
+  @override
+  String get audioSliceSelected => '选中切片';
+
+  @override
+  String audioSliceEndpointAction(String endpoint, String action) {
+    return '$endpoint：$action';
+  }
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5236,6 +5357,28 @@ class SZhHant extends SZh {
   String get checkUpdate => '檢查更新';
 
   @override
+  String get updateChannel => 'Update Channel';
+
+  @override
+  String get stableUpdateChannel => 'Stable';
+
+  @override
+  String get betaUpdateChannel => 'Beta';
+
+  @override
+  String get betaOnlyAndroid => 'Beta is available only on Android.';
+
+  @override
+  String get noBetaRelease => 'No beta release is available yet.';
+
+  @override
+  String get updateChannelVersionAvailable => 'Selected channel version';
+
+  @override
+  String get crossChannelUpdateNotice =>
+      'Android stable and beta releases install as separate apps and keep separate data. Installing this release will not replace the current app.';
+
+  @override
   String get author => '作者';
 
   @override
@@ -5607,12 +5750,6 @@ class SZhHant extends SZh {
   String get subtitlePriorityLowestDesc => '優先查找線上/下載，再查找字幕庫';
 
   @override
-  String get defaultSortSettings => '預設排序設定';
-
-  @override
-  String get defaultSortUpdated => '預設排序已更新';
-
-  @override
   String get translationSourceSettings => '翻譯源設定';
 
   @override
@@ -5662,9 +5799,6 @@ class SZhHant extends SZh {
 
   @override
   String get subtitlePrioritySettingSubtitle => '字幕庫優先順序';
-
-  @override
-  String get defaultSortSettingTitle => '首頁預設排序方式';
 
   @override
   String get translationSource => '翻譯源';
@@ -9358,4 +9492,112 @@ class SZhHant extends SZh {
 
   @override
   String get videoPlayerInfoAudioFormat => '音訊格式';
+
+  @override
+  String get audioSlices => '音頻切片';
+
+  @override
+  String get markAudioSliceStart => '標記起點';
+
+  @override
+  String get markAudioSliceEnd => '標記終點';
+
+  @override
+  String get manageAudioSlices => '管理切片';
+
+  @override
+  String get cancelAudioSliceStart => '取消起點';
+
+  @override
+  String audioSlicePendingStart(String time) {
+    return '起點：$time';
+  }
+
+  @override
+  String audioSliceRange(String start, String end) {
+    return '$start – $end';
+  }
+
+  @override
+  String get onlyPlayAudioSlices => '僅播放切片';
+
+  @override
+  String get audioSlicesEmpty => '標記起點和終點後，切片會顯示在這裡。';
+
+  @override
+  String get previewAudioSlice => '試聽切片';
+
+  @override
+  String get stopAudioSlicePreview => '結束試聽';
+
+  @override
+  String get editAudioSlice => '編輯切片';
+
+  @override
+  String get audioSliceStartTime => '起點時間';
+
+  @override
+  String get audioSliceEndTime => '終點時間';
+
+  @override
+  String get audioSliceInvalidTime => '請輸入有效時間，例如 00:30.000。';
+
+  @override
+  String get audioSliceSaveFailed => '儲存切片失敗。請檢查起止時間和重疊區間後重試。';
+
+  @override
+  String get audioSliceDeleteFailed => '刪除切片失敗，請重試。';
+
+  @override
+  String get clearAudioSlices => '清空切片';
+
+  @override
+  String get clearAudioSlicesConfirm => '清空目前音軌的全部切片？';
+
+  @override
+  String get audioSlicePreviewFailed => '試聽切片失敗，請重試。';
+
+  @override
+  String audioSliceEarlier(double seconds) {
+    final intl.NumberFormat secondsNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String secondsString = secondsNumberFormat.format(seconds);
+
+    return '−$secondsString 秒';
+  }
+
+  @override
+  String audioSliceLater(double seconds) {
+    final intl.NumberFormat secondsNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String secondsString = secondsNumberFormat.format(seconds);
+
+    return '+$secondsString 秒';
+  }
+
+  @override
+  String get audioSliceSetCurrent => '設為目前';
+
+  @override
+  String get audioSliceSetZero => '設為 0';
+
+  @override
+  String get audioSliceSetEnd => '設為結尾';
+
+  @override
+  String get audioSliceTimeline => '切片時間軸';
+
+  @override
+  String get audioSlicePosition => '播放位置';
+
+  @override
+  String get audioSliceCurrent => '目前切片';
+
+  @override
+  String get audioSliceSelected => '選取的切片';
+
+  @override
+  String audioSliceEndpointAction(String endpoint, String action) {
+    return '$endpoint：$action';
+  }
 }

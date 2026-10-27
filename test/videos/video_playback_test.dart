@@ -5993,6 +5993,7 @@ class _TestMissavClient extends MissavClient {
   Future<VideoDetails> details(
     VideoItem item, {
     FutureOr<void> Function(VideoDetails)? onReady,
+    bool includeAccountState = true,
   }) async {
     detailsCalls++;
     if (readyDetails case final preview?) await onReady?.call(preview);

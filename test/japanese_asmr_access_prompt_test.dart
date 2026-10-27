@@ -35,7 +35,14 @@ void main() {
     messenger.setMockMethodCallHandler(_channel, (call) async {
       calls++;
       if (calls == 1) return pending.future;
-      return {'cookie': 'cf_clearance=verified', 'userAgent': 'Browser UA'};
+      return {
+        'cookie': 'cf_clearance=verified',
+        'userAgent': 'Browser UA',
+        'url': call.arguments['url'],
+        'data': '<main class="site-main"></main>',
+        'statusCode': 200,
+        'headers': <String, String>{},
+      };
     });
     var verified = 0;
     await tester.pumpWidget(

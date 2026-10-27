@@ -252,6 +252,7 @@ class _FixtureClient extends MissavClient {
   Future<VideoDetails> details(
     VideoItem item, {
     FutureOr<void> Function(VideoDetails)? onReady,
+    bool includeAccountState = true,
   }) async {
     detailsCalls++;
     return VideoDetails(video: video, streams: [stream]);

@@ -1041,6 +1041,78 @@ void main() {
     },
   );
 
+  for (final changeSession in [false, true]) {
+    test(
+      'details without account state reject stale ${changeSession ? 'sessions' : 'languages'}',
+      () async {
+        final fixture = await File(
+          'test/fixtures/missav/detail.html',
+        ).readAsString();
+        final metadataStarted = Completer<void>();
+        final metadata = Completer<ResponseBody>();
+        final client = MissavClient(
+          dio: Dio()..httpClientAdapter = _Adapter((_) => _response(fixture)),
+          metadataDio: Dio()
+            ..httpClientAdapter = _Adapter((_) {
+              metadataStarted.complete();
+              return metadata.future;
+            }),
+          secureStorage: _MemorySecureStorage(),
+        );
+        addTearDown(client.dispose);
+        final loading = client.details(
+          const VideoItem(
+            id: 'open-sample-001',
+            title: 'Sample',
+            pageUrl: 'https://missav.ai/cn/open-sample-001',
+          ),
+          includeAccountState: false,
+        );
+        final stale = expectLater(loading, throwsA(isA<MissavException>()));
+        await metadataStarted.future;
+        if (changeSession) {
+          await client.logout();
+        } else {
+          client.setLocale('en');
+        }
+        metadata.complete(_metadataResponse({'recomms': []}));
+        await stale;
+      },
+    );
+  }
+
+  test('details without account state propagate source cancellation', () async {
+    final client = MissavClient(
+      dio: Dio()
+        ..httpClientAdapter = _Adapter(
+          (request) => throw DioException(
+            requestOptions: request,
+            type: DioExceptionType.cancel,
+          ),
+        ),
+      metadataDio: _emptyMetadataDio(),
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+    await expectLater(
+      client.details(
+        const VideoItem(
+          id: 'sample',
+          title: 'Sample',
+          pageUrl: 'https://missav.ai/cn/sample',
+        ),
+        includeAccountState: false,
+      ),
+      throwsA(
+        isA<DioException>().having(
+          (error) => error.type,
+          'type',
+          DioExceptionType.cancel,
+        ),
+      ),
+    );
+  });
+
   test('supplement retry reuses the document and playback streams', () async {
     final fixture = await File(
       'test/fixtures/missav/detail.html',

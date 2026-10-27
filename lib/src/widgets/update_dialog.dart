@@ -20,10 +20,7 @@ String formatBytes(int bytes) {
 class UpdateDialog extends ConsumerWidget {
   final UpdateInfo updateInfo;
 
-  const UpdateDialog({
-    super.key,
-    required this.updateInfo,
-  });
+  const UpdateDialog({super.key, required this.updateInfo});
 
   Future<void> _openReleaseUrl(BuildContext context) async {
     try {
@@ -83,7 +80,9 @@ class UpdateDialog extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  S.of(context).newVersionFound,
+                  updateInfo.isCrossChannel
+                      ? S.of(context).updateChannelVersionAvailable
+                      : S.of(context).newVersionFound,
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -108,13 +107,25 @@ class UpdateDialog extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                S.of(context).newVersionAvailable(
-                  updateInfo.latestVersion,
-                  updateInfo.currentVersion,
-                ),
+                S
+                    .of(context)
+                    .newVersionAvailable(
+                      updateInfo.latestVersion,
+                      updateInfo.currentVersion,
+                    ),
                 style: theme.textTheme.bodyMedium,
               ),
-              if (updateInfo.assetSize != null && updateInfo.assetSize! > 0) ...[
+              if (updateInfo.isCrossChannel) ...[
+                const SizedBox(height: 8),
+                Text(
+                  S.of(context).crossChannelUpdateNotice,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+              if (updateInfo.assetSize != null &&
+                  updateInfo.assetSize! > 0) ...[
                 const SizedBox(height: 6),
                 Text(
                   S.of(context).packageSize(formatBytes(updateInfo.assetSize!)),
@@ -226,7 +237,8 @@ class UpdateDialog extends ConsumerWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        updateState.errorMessage ?? S.of(context).checkUpdateFailed,
+                        updateState.errorMessage ??
+                            S.of(context).checkUpdateFailed,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: colorScheme.error,
                         ),

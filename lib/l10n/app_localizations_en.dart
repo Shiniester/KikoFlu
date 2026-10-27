@@ -571,6 +571,28 @@ class SEn extends S {
   String get checkUpdate => 'Check for Updates';
 
   @override
+  String get updateChannel => 'Update Channel';
+
+  @override
+  String get stableUpdateChannel => 'Stable';
+
+  @override
+  String get betaUpdateChannel => 'Beta';
+
+  @override
+  String get betaOnlyAndroid => 'Beta is available only on Android.';
+
+  @override
+  String get noBetaRelease => 'No beta release is available yet.';
+
+  @override
+  String get updateChannelVersionAvailable => 'Selected channel version';
+
+  @override
+  String get crossChannelUpdateNotice =>
+      'Android stable and beta releases install as separate apps and keep separate data. Installing this release will not replace the current app.';
+
+  @override
   String get author => 'Author';
 
   @override
@@ -949,12 +971,6 @@ class SEn extends S {
       'Search online/downloads first, then subtitle library';
 
   @override
-  String get defaultSortSettings => 'Default Sort Settings';
-
-  @override
-  String get defaultSortUpdated => 'Default sort updated';
-
-  @override
   String get translationSourceSettings => 'Translation Source Settings';
 
   @override
@@ -1007,9 +1023,6 @@ class SEn extends S {
 
   @override
   String get subtitlePrioritySettingSubtitle => 'Subtitle library priority';
-
-  @override
-  String get defaultSortSettingTitle => 'Default sort for home page';
 
   @override
   String get translationSource => 'Translation Source';
@@ -4837,4 +4850,115 @@ class SEn extends S {
 
   @override
   String get videoPlayerInfoAudioFormat => 'Audio format';
+
+  @override
+  String get audioSlices => 'Audio slices';
+
+  @override
+  String get markAudioSliceStart => 'Mark slice start';
+
+  @override
+  String get markAudioSliceEnd => 'Mark slice end';
+
+  @override
+  String get manageAudioSlices => 'Manage slices';
+
+  @override
+  String get cancelAudioSliceStart => 'Cancel slice start';
+
+  @override
+  String audioSlicePendingStart(String time) {
+    return 'Start: $time';
+  }
+
+  @override
+  String audioSliceRange(String start, String end) {
+    return '$start – $end';
+  }
+
+  @override
+  String get onlyPlayAudioSlices => 'Only play slices';
+
+  @override
+  String get audioSlicesEmpty =>
+      'No slices yet. Mark a start and end to create a slice.';
+
+  @override
+  String get previewAudioSlice => 'Preview slice';
+
+  @override
+  String get stopAudioSlicePreview => 'Stop preview';
+
+  @override
+  String get editAudioSlice => 'Edit slice';
+
+  @override
+  String get audioSliceStartTime => 'Start time';
+
+  @override
+  String get audioSliceEndTime => 'End time';
+
+  @override
+  String get audioSliceInvalidTime => 'Enter a valid time, such as 00:30.000.';
+
+  @override
+  String get audioSliceSaveFailed =>
+      'Could not save the slice. Check the times and overlapping slices, then try again.';
+
+  @override
+  String get audioSliceDeleteFailed => 'Could not delete slices. Try again.';
+
+  @override
+  String get clearAudioSlices => 'Clear slices';
+
+  @override
+  String get clearAudioSlicesConfirm => 'Clear all slices for this track?';
+
+  @override
+  String get audioSlicePreviewFailed =>
+      'Could not preview the slice. Try again.';
+
+  @override
+  String audioSliceEarlier(double seconds) {
+    final intl.NumberFormat secondsNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String secondsString = secondsNumberFormat.format(seconds);
+
+    return '−$secondsString s';
+  }
+
+  @override
+  String audioSliceLater(double seconds) {
+    final intl.NumberFormat secondsNumberFormat =
+        intl.NumberFormat.decimalPattern(localeName);
+    final String secondsString = secondsNumberFormat.format(seconds);
+
+    return '+$secondsString s';
+  }
+
+  @override
+  String get audioSliceSetCurrent => 'Set current';
+
+  @override
+  String get audioSliceSetZero => 'Set to 0';
+
+  @override
+  String get audioSliceSetEnd => 'Set to end';
+
+  @override
+  String get audioSliceTimeline => 'Slice timeline';
+
+  @override
+  String get audioSlicePosition => 'Position';
+
+  @override
+  String get audioSliceCurrent => 'Current slice';
+
+  @override
+  String get audioSliceSelected => 'Selected slice';
+
+  @override
+  String audioSliceEndpointAction(String endpoint, String action) {
+    return '$endpoint: $action';
+  }
 }

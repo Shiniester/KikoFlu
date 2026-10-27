@@ -276,7 +276,10 @@ class VideoDownloads extends ChangeNotifier {
     _VideoDownloadOperation operation,
   ) async {
     _ensureCurrent(operation);
-    final details = await client.details(task.video);
+    final details = await client.details(
+      task.video,
+      includeAccountState: false,
+    );
     _ensureCurrent(operation);
     final stream = _selectStream(details, task.quality);
     if (stream == null) {
