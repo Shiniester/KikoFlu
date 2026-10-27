@@ -1597,7 +1597,11 @@ void main() {
 
       await expectLater(
         layout,
-        matchesGoldenFile('goldens/video_playback_compact_paused.png'),
+        matchesGoldenFile(
+          Platform.isLinux
+              ? 'goldens/linux/video_playback_compact_paused.png'
+              : 'goldens/video_playback_compact_paused.png',
+        ),
       );
 
       expect(
