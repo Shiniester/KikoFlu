@@ -7870,6 +7870,24 @@ abstract class S {
   /// **'Directors'**
   String get videoCardDirectors;
 
+  /// Heading for makers or studios on a video details screen
+  ///
+  /// In en, this message translates to:
+  /// **'Studio'**
+  String get videoDetailMakers;
+
+  /// Heading for release labels on a video details screen
+  ///
+  /// In en, this message translates to:
+  /// **'Label'**
+  String get videoDetailLabels;
+
+  /// Heading for actors on a video details screen
+  ///
+  /// In en, this message translates to:
+  /// **'Actors'**
+  String get videoDetailActors;
+
   /// No description provided for @videoSearchHint.
   ///
   /// In en, this message translates to:

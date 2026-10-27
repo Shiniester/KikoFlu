@@ -2784,7 +2784,7 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       expect(details.video.tags, details.tags);
       expect(details.video.hasSubtitles, isTrue);
       expect(details.video.isUncensored, isTrue);
-      expect(details.metadata['メーカー'], 'Sample maker');
+      expect(details.metadata.containsKey('メーカー'), isFalse);
       expect(details.actors.map((actor) => actor.label), ['Sample actor']);
       expect(details.tags.map((tag) => tag.label), [
         'Sample genre',
@@ -2822,6 +2822,218 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
       expect(
         adapter.requests.map((request) => request.uri.host),
         everyElement('missav.ai'),
+      );
+    },
+  );
+
+  test(
+    'keeps source metadata unless displayed links express the full row',
+    () async {
+      final adapter = _Adapter(
+        (_) => _response('''
+<main>
+  <h1>Metadata sample</h1>
+  <div class="text-secondary"><span>Genre link:</span><a href="/cn/genres/drama">Drama</a>, <a href="/cn/genres/action">Action</a></div>
+  <div class="text-secondary"><span>Genre:</span>Plain genre</div>
+  <div class="text-secondary"><span>Maker:</span><a href="/cn/makers/acme">Acme</a></div>
+  <div class="text-secondary"><span>Makers:</span>Plain maker</div>
+  <div class="text-secondary"><span>Labels:</span>Plain label</div>
+  <div class="text-secondary"><span>Series:</span>Plain series</div>
+  <div class="text-secondary"><span>Directors:</span>Plain director</div>
+  <div class="text-secondary"><span>Actresses:</span>Plain actor</div>
+  <div class="text-secondary"><span>Maker note:</span><a href="/cn/makers/acme">Acme</a> licensed</div>
+  <div class="text-secondary"><span>Unclassified:</span><a href="/cn/genres/drama">Drama</a> source detail</div>
+  <div class="text-secondary"><span>Duration:</span>128 minutes</div>
+</main>
+'''),
+      );
+      final metadata = _Adapter(
+        (_) => _metadataResponse({
+          'recomms': [
+            {
+              'id': 'metadata-sample',
+              'values': {
+                'actresses': ['Plain actor'],
+                'genres': ['Plain genre'],
+                'markers': ['Plain maker'],
+                'labels': ['Plain label'],
+                'series': ['Plain series'],
+                'directors': ['Plain director'],
+              },
+            },
+          ],
+        }),
+      );
+      final client = MissavClient(
+        metadataDio: Dio()..httpClientAdapter = metadata,
+        dio: Dio()..httpClientAdapter = adapter,
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+
+      final details = await client.details(
+        const VideoItem(
+          id: 'metadata-sample',
+          title: 'Metadata sample',
+          pageUrl: 'https://missav.ai/cn/metadata-sample',
+        ),
+      );
+
+      for (final label in [
+        'Genre link',
+        'Genre',
+        'Maker',
+        'Makers',
+        'Labels',
+        'Series',
+        'Directors',
+        'Actresses',
+      ]) {
+        expect(details.metadata.containsKey(label), isFalse, reason: label);
+      }
+      expect(details.metadata['Maker note'], 'Acme licensed');
+      expect(details.metadata['Unclassified'], 'Drama source detail');
+      expect(details.metadata['Duration'], '128 minutes');
+      expect(details.tags.map((tag) => tag.label), [
+        'Plain genre',
+        'Drama',
+        'Action',
+        'Acme',
+      ]);
+      expect(details.video.makers, ['Plain maker']);
+      expect(details.video.labels, ['Plain label']);
+      expect(details.video.series, ['Plain series']);
+      expect(details.video.directors, ['Plain director']);
+      expect(details.actors.single.label, 'Plain actor');
+    },
+  );
+
+  test('metadata name boundaries preserve unmatched source names', () async {
+    final client = MissavClient(
+      dio: Dio()
+        ..httpClientAdapter = _Adapter(
+          (_) => _response('''
+<main>
+  <h1>Metadata boundaries</h1>
+  <div class="text-secondary"><span>Maker:</span>StudioABC</div>
+  <div class="text-secondary"><span>Makers:</span>Studio, ABC</div>
+  <div class="text-secondary"><span>Studio:</span>Studio ABC</div>
+  <div class="text-secondary"><span>Studios:</span>Studio/ABC</div>
+  <div class="text-secondary"><span>Manufacturer:</span>StudioABC licensed</div>
+</main>
+'''),
+        ),
+      metadataDio: Dio()
+        ..httpClientAdapter = _Adapter(
+          (options) => throw DioException(requestOptions: options),
+        ),
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    final details = await client.details(
+      const VideoItem(
+        id: 'metadata-boundaries',
+        title: 'Metadata boundaries',
+        pageUrl: 'https://missav.ai/cn/metadata-boundaries',
+        makers: ['Studio', 'ABC'],
+      ),
+    );
+
+    expect(details.metadata['Maker'], 'StudioABC');
+    expect(details.metadata['Manufacturer'], 'StudioABC licensed');
+    for (final label in ['Makers', 'Studio', 'Studios']) {
+      expect(details.metadata.containsKey(label), isFalse, reason: label);
+    }
+    expect(details.video.makers, ['Studio', 'ABC']);
+  });
+
+  test('keeps metadata for cached names replaced by source links', () async {
+    final client = MissavClient(
+      dio: Dio()
+        ..httpClientAdapter = _Adapter(
+          (_) => _response('''
+<main>
+  <h1>Updated source details</h1>
+  <div class="text-secondary"><span>Genre:</span><a href="/cn/genres/source">Source genre</a></div>
+  <div class="text-secondary"><span>Genres:</span>Cached genre</div>
+</main>
+'''),
+        ),
+      metadataDio: Dio()
+        ..httpClientAdapter = _Adapter(
+          (options) => throw DioException(requestOptions: options),
+        ),
+      secureStorage: _MemorySecureStorage(),
+    );
+    addTearDown(client.dispose);
+
+    final details = await client.details(
+      const VideoItem(
+        id: 'updated-metadata',
+        title: 'Cached details',
+        pageUrl: 'https://missav.ai/cn/updated-metadata',
+        tags: [
+          VideoLink(
+            label: 'Cached genre',
+            url: 'https://missav.ai/cn/genres/cached',
+            kind: VideoLinkKind.category,
+          ),
+        ],
+      ),
+    );
+
+    expect(details.tags.single.label, 'Source genre');
+    expect(details.metadata['Genres'], 'Cached genre');
+  });
+
+  test(
+    'keeps same-named metadata in separate groups after supplement',
+    () async {
+      final client = MissavClient(
+        dio: Dio()
+          ..httpClientAdapter = _Adapter(
+            (_) => _response('''
+<main>
+  <h1>Shared metadata names</h1>
+  <div class="text-secondary"><span>Genre:</span><a href="/cn/genres/shared">Shared</a></div>
+  <div class="text-secondary"><span>Maker:</span><a href="/cn/makers/shared">Shared</a></div>
+</main>
+'''),
+          ),
+        metadataDio: Dio()
+          ..httpClientAdapter = _Adapter(
+            (_) => _metadataResponse({
+              'recomms': [
+                {
+                  'id': 'shared-metadata',
+                  'values': {
+                    'genres': ['Shared'],
+                  },
+                },
+              ],
+            }),
+          ),
+        secureStorage: _MemorySecureStorage(),
+      );
+      addTearDown(client.dispose);
+
+      final details = await client.details(
+        const VideoItem(
+          id: 'shared-metadata',
+          title: 'Shared metadata names',
+          pageUrl: 'https://missav.ai/cn/shared-metadata',
+        ),
+      );
+
+      expect(details.metadata.containsKey('Genre'), isFalse);
+      expect(details.metadata.containsKey('Maker'), isFalse);
+      expect(
+        details.tags.map((tag) => tag.url),
+        unorderedEquals([
+          'https://missav.ai/cn/genres/shared',
+          'https://missav.ai/cn/makers/shared',
+        ]),
       );
     },
   );

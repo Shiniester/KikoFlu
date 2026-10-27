@@ -1854,6 +1854,18 @@
   "videoCardMakers": "Studio",
   "videoCardLabels": "Label",
   "videoCardDirectors": "Directors",
+  "videoDetailMakers": "Studio",
+  "@videoDetailMakers": {
+    "description": "Heading for makers or studios on a video details screen"
+  },
+  "videoDetailLabels": "Label",
+  "@videoDetailLabels": {
+    "description": "Heading for release labels on a video details screen"
+  },
+  "videoDetailActors": "Actors",
+  "@videoDetailActors": {
+    "description": "Heading for actors on a video details screen"
+  },
   "videoSearchHint": "Search videos",
   "videoSourceAccount": "MissAV account",
   "videoCatalog": "Browse videos",

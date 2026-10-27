@@ -68,6 +68,15 @@ _Avoid_: Video account login
 The app page describing one video's information and related recommendations.
 _Avoid_: Video Screen, source website
 
+**Video Basic Information (视频基础信息)**:
+A video's source-provided information outside its genre, maker, label, series,
+director, and actor classifications, such as its catalog number, release date,
+and duration.
+
+**Video Directory Link (视频目录链接)**:
+A Video Source link to videos sharing a genre, maker, label, series, director,
+or actor. A metadata name can exist without a Video Directory Link.
+
 **Video Player (视频播放器)**:
 The viewing and playback-control surface for a video, including inline and
 full-screen modes, playback gestures, and playback options. Video metadata and

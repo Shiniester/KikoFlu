@@ -405,6 +405,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
     final colors = Theme.of(context).colorScheme;
     return PopupMenuButton<String>(
       tooltip: actor.label,
+      style: const ButtonStyle(tapTargetSize: MaterialTapTargetSize.padded),
       onSelected: (action) {
         switch (action) {
           case 'open':
@@ -435,19 +436,166 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
         ),
         PopupMenuItem(value: 'source', child: Text(s.videoOpenSource)),
       ],
-      child: Chip(
-        label: Text(actor.label),
-        labelStyle: TextStyle(
-          color: colors.onTertiaryContainer,
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
+      child: Center(
+        widthFactor: 1,
+        heightFactor: 1,
+        child: _metadataPill(
+          actor.label,
+          colors.tertiaryContainer,
+          colors.onTertiaryContainer,
         ),
-        backgroundColor: colors.tertiaryContainer,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-        side: BorderSide.none,
       ),
     );
   }
+
+  List<_VideoMetadataSection> _metadataSections(S s, VideoDetails details) {
+    final genres = <VideoLink>[];
+    final makers = <VideoLink>[];
+    final labels = <VideoLink>[];
+    final series = <VideoLink>[];
+    final directors = <VideoLink>[];
+    for (final link in [...details.tags, ...details.video.tags]) {
+      switch (link.cardMetadataRoute) {
+        case 'makers':
+          makers.add(link);
+          break;
+        case 'labels':
+          labels.add(link);
+          break;
+        case 'series':
+          series.add(link);
+          break;
+        case 'directors':
+          directors.add(link);
+          break;
+        default:
+          genres.add(link);
+          break;
+      }
+    }
+
+    List<_VideoMetadataEntry> entries(
+      Iterable<VideoLink> links,
+      Iterable<String> names, {
+      bool keepEmptyLinks = false,
+    }) {
+      final values = <String, _VideoMetadataEntry>{};
+      for (final link in links) {
+        final label = link.label.trim();
+        if (label.isEmpty) continue;
+        final current = values[label];
+        final hasUrl = link.url.trim().isNotEmpty;
+        if (current == null ||
+            (current.link?.url.trim().isEmpty != false && hasUrl)) {
+          values[label] = _VideoMetadataEntry(
+            label,
+            keepEmptyLinks || hasUrl ? link : null,
+          );
+        }
+      }
+      for (final name in names) {
+        final label = name.trim();
+        if (label.isNotEmpty) {
+          values.putIfAbsent(label, () => _VideoMetadataEntry(label));
+        }
+      }
+      return values.values.toList();
+    }
+
+    return [
+      _VideoMetadataSection(
+        s.videoFilterGenre,
+        _VideoMetadataTone.primary,
+        entries(genres, const []),
+      ),
+      _VideoMetadataSection(
+        s.videoDetailMakers,
+        _VideoMetadataTone.secondary,
+        entries(makers, details.video.makers),
+      ),
+      _VideoMetadataSection(
+        s.videoDetailLabels,
+        _VideoMetadataTone.secondary,
+        entries(labels, details.video.labels),
+      ),
+      _VideoMetadataSection(
+        s.videoFilterSeries,
+        _VideoMetadataTone.secondary,
+        entries(series, details.video.series),
+      ),
+      _VideoMetadataSection(
+        s.videoCardDirectors,
+        _VideoMetadataTone.tertiary,
+        entries(directors, details.video.directors),
+      ),
+      _VideoMetadataSection(
+        s.videoDetailActors,
+        _VideoMetadataTone.tertiary,
+        entries(
+          [...details.actors, ...details.video.actors],
+          const [],
+          keepEmptyLinks: true,
+        ),
+        isActors: true,
+      ),
+    ].where((section) => section.entries.isNotEmpty).toList();
+  }
+
+  Widget _metadataChip(_VideoMetadataEntry entry, _VideoMetadataTone tone) {
+    final colors = Theme.of(context).colorScheme;
+    final background = switch (tone) {
+      _VideoMetadataTone.primary => colors.primaryContainer,
+      _VideoMetadataTone.secondary => colors.secondaryContainer,
+      _VideoMetadataTone.tertiary => colors.tertiaryContainer,
+    };
+    final foreground = switch (tone) {
+      _VideoMetadataTone.primary => colors.onPrimaryContainer,
+      _VideoMetadataTone.secondary => colors.onSecondaryContainer,
+      _VideoMetadataTone.tertiary => colors.onTertiaryContainer,
+    };
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(6),
+    );
+    final label = _metadataText(entry.label, foreground);
+    if (entry.link == null) {
+      return Semantics(
+        container: true,
+        child: _metadataPill(entry.label, background, foreground),
+      );
+    }
+    return TextButton(
+      onPressed: () => _openCatalog(entry.link!),
+      style: TextButton.styleFrom(
+        backgroundColor: background,
+        foregroundColor: foreground,
+        minimumSize: Size.zero,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        tapTargetSize: MaterialTapTargetSize.padded,
+        visualDensity: VisualDensity.standard,
+        shape: shape,
+      ),
+      child: label,
+    );
+  }
+
+  Widget _metadataPill(String label, Color background, Color foreground) =>
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: _metadataText(label, foreground),
+      );
+
+  Widget _metadataText(String label, Color foreground) => Text(
+    label,
+    style: TextStyle(
+      color: foreground,
+      fontSize: 12,
+      fontWeight: FontWeight.w500,
+    ),
+  );
 
   Future<void> _showPlaylists() async {
     if (!_client.isLoggedIn) {
@@ -679,7 +827,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
 
   Widget _buildDetails(S s, VideoDetails details, VideoDownloadTask? task) {
     final nextRelated = _firstRelated(details);
-    final colors = Theme.of(context).colorScheme;
+    final metadataSections = _metadataSections(s, details);
     final detailsContent = <Widget>[
       if (!_loading && _error != null) _buildLoadFailure(s),
       const SizedBox(height: 16),
@@ -715,39 +863,19 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
         const SizedBox(height: 8),
         SelectableText(details.description),
       ],
-      if (details.actors.isNotEmpty) ...[
+      for (final section in metadataSections) ...[
         const SizedBox(height: 16),
-        WorkDetailSectionTitle(s.videoActorFavorites),
+        WorkDetailSectionTitle(section.title),
         const SizedBox(height: 8),
         Wrap(
           spacing: 4,
           runSpacing: 4,
-          children: [for (final actor in details.actors) _actorChip(actor)],
-        ),
-      ],
-      if (details.tags.isNotEmpty) ...[
-        const SizedBox(height: 16),
-        WorkDetailSectionTitle(s.videoCatalog),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 4,
-          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            for (final tag in details.tags)
-              ActionChip(
-                label: Text(tag.label),
-                onPressed: () => _openCatalog(tag),
-                labelStyle: TextStyle(
-                  color: colors.onPrimaryContainer,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-                backgroundColor: colors.primaryContainer,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                side: BorderSide.none,
-              ),
+            for (final entry in section.entries)
+              section.isActors
+                  ? _actorChip(entry.link!)
+                  : _metadataChip(entry, section.tone),
           ],
         ),
       ],
@@ -816,6 +944,29 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen> {
     }
     return null;
   }
+}
+
+enum _VideoMetadataTone { primary, secondary, tertiary }
+
+class _VideoMetadataSection {
+  const _VideoMetadataSection(
+    this.title,
+    this.tone,
+    this.entries, {
+    this.isActors = false,
+  });
+
+  final String title;
+  final _VideoMetadataTone tone;
+  final List<_VideoMetadataEntry> entries;
+  final bool isActors;
+}
+
+class _VideoMetadataEntry {
+  const _VideoMetadataEntry(this.label, [this.link]);
+
+  final String label;
+  final VideoLink? link;
 }
 
 class _PlaylistMenu extends StatefulWidget {

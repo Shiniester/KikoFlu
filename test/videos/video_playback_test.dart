@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui' show SemanticsAction;
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -57,6 +58,22 @@ void _testPlayerWidget(
       debugDefaultTargetPlatformOverride = null;
     }
   });
+}
+
+class _VideoMetadataTapTargetGuideline extends MinimumTapTargetGuideline {
+  _VideoMetadataTapTargetGuideline()
+    : super(
+        size: (androidTapTargetGuideline as MinimumTapTargetGuideline).size,
+        link: (androidTapTargetGuideline as MinimumTapTargetGuideline).link,
+      );
+
+  @override
+  bool shouldSkipNode(SemanticsNode node) =>
+      !const {
+        'Same name',
+        'Saved actor',
+      }.contains(node.getSemanticsData().label) ||
+      super.shouldSkipNode(node);
 }
 
 void main() {
@@ -3031,6 +3048,157 @@ void main() {
     },
   );
 
+  _testPlayerWidget(
+    'video metadata groups routes and keeps linkless names non-interactive',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      const pageGenre = VideoLink(
+        label: 'Same name',
+        url: 'https://missav.ai/cn/genres/same-name',
+        kind: VideoLinkKind.category,
+      );
+      const apiGenre = VideoLink(
+        label: 'Same name',
+        url: 'https://missav.ai/ja/genres/same-name',
+        kind: VideoLinkKind.category,
+      );
+      const makerLink = VideoLink(
+        label: 'Same name',
+        url: 'https://missav.ai/cn/makers/same-name',
+        kind: VideoLinkKind.studio,
+      );
+      const actor = VideoLink(
+        label: 'Saved actor',
+        url: 'https://missav.ai/cn/actresses/saved-actor',
+        kind: VideoLinkKind.actor,
+      );
+      const video = VideoItem(
+        id: 'metadata-video',
+        title: 'Metadata video',
+        pageUrl: 'https://missav.ai/cn/metadata-video',
+        actors: [actor],
+        tags: [apiGenre, makerLink],
+        makers: ['Same name', 'Linkless maker'],
+        labels: ['Linkless label'],
+        series: ['Linkless series'],
+        directors: ['Linkless director'],
+      );
+      final details = VideoDetails(
+        video: video,
+        actors: const [actor],
+        tags: const [pageGenre, makerLink],
+        streams: _details().streams,
+      );
+      final client = _TestMissavClient(details);
+      final library = await _testLibrary();
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final session = _FakePlaybackSession();
+
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          _testVideoDetailsScreen(video: video, sessionFactory: () => session),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      for (final title in [
+        l10n.videoFilterGenre,
+        l10n.videoDetailMakers,
+        l10n.videoDetailLabels,
+        l10n.videoFilterSeries,
+        l10n.videoCardDirectors,
+        l10n.videoDetailActors,
+      ]) {
+        expect(find.text(title), findsOneWidget);
+      }
+      expect(find.text(l10n.videoActorFavorites), findsNothing);
+      expect(find.text('Same name'), findsNWidgets(2));
+
+      final semantics = tester.ensureSemantics();
+      try {
+        final linklessLabel = find.text('Linkless maker');
+        expect(linklessLabel, findsOneWidget);
+        await tester.ensureVisible(linklessLabel);
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .getSemantics(linklessLabel)
+              .getSemanticsData()
+              .hasAction(SemanticsAction.tap),
+          isFalse,
+        );
+        await tester.tap(linklessLabel);
+        await tester.pumpAndSettle();
+        expect(client.browsedUrls, isEmpty);
+
+        final linkedLabels = find.text('Same name');
+        expect(linkedLabels, findsNWidgets(2));
+        final colors = Theme.of(tester.element(linkedLabels.first)).colorScheme;
+        final genreSurface = find
+            .ancestor(of: linkedLabels.first, matching: find.byType(Material))
+            .first;
+        final makerSurface = find
+            .ancestor(of: linkedLabels.last, matching: find.byType(Material))
+            .first;
+        expect(
+          tester.widget<Material>(genreSurface).color,
+          colors.primaryContainer,
+        );
+        expect(
+          tester.widget<Material>(makerSurface).color,
+          colors.secondaryContainer,
+        );
+        final linkedControl = find.ancestor(
+          of: linkedLabels.first,
+          matching: find.byType(InkWell),
+        );
+        await tester.ensureVisible(linkedLabels.first);
+        await tester.pumpAndSettle();
+        await expectLater(
+          tester,
+          meetsGuideline(_VideoMetadataTapTargetGuideline()),
+        );
+        final actorTarget = tester.getRect(find.byTooltip(actor.label));
+        expect(actorTarget.width, greaterThanOrEqualTo(48));
+        expect(actorTarget.height, greaterThanOrEqualTo(48));
+        expect(
+          tester.getCenter(linklessLabel).dy,
+          closeTo(tester.getCenter(linkedLabels.last).dy, 0.1),
+        );
+        expect(
+          tester
+              .getSemantics(linkedControl)
+              .getSemanticsData()
+              .hasAction(SemanticsAction.tap),
+          isTrue,
+        );
+        expect(
+          tester
+              .getSemantics(linkedControl)
+              .getSemanticsData()
+              .flagsCollection
+              .isButton,
+          isTrue,
+        );
+        final button = find.ancestor(
+          of: linkedLabels.first,
+          matching: find.byType(TextButton),
+        );
+        await tester.tapAt(tester.getTopLeft(button) + const Offset(2, 2));
+        await tester.pumpAndSettle();
+        expect(client.browsedUrls, [pageGenre.url]);
+      } finally {
+        semantics.dispose();
+      }
+    },
+  );
+
   for (final size in const [Size(320, 800), Size(1200, 800)]) {
     _testPlayerWidget(
       'video details keep their layout and metadata accessible at ${size.width.toInt()} px',
@@ -3189,9 +3357,10 @@ void main() {
           await tester.binding.handlePopRoute();
           await tester.pumpAndSettle();
 
+          final tagLabel = find.text(tag.label);
           final tagChip = find.ancestor(
-            of: find.text(tag.label),
-            matching: find.byType(ActionChip),
+            of: tagLabel,
+            matching: find.byType(InkWell),
           );
           await tester.scrollUntilVisible(
             tagChip,
@@ -3201,11 +3370,18 @@ void main() {
           await tester.pumpAndSettle();
           final tagSemantics = tester.getSemantics(tagChip).getSemanticsData();
           expect(tagSemantics.hasAction(SemanticsAction.tap), isTrue);
-          final chip = tester.widget<ActionChip>(tagChip);
           final colors = Theme.of(tester.element(tagChip)).colorScheme;
-          expect(chip.backgroundColor, colors.primaryContainer);
-          expect(chip.labelStyle?.color, colors.onPrimaryContainer);
-          expect(chip.onPressed, isNotNull);
+          final tagMaterial = find
+              .ancestor(of: tagChip, matching: find.byType(Material))
+              .first;
+          expect(
+            tester.widget<Material>(tagMaterial).color,
+            colors.primaryContainer,
+          );
+          expect(
+            tester.widget<Text>(tagLabel).style?.color,
+            colors.onPrimaryContainer,
+          );
           await tester.scrollUntilVisible(
             find.text(related.title),
             200,
@@ -3374,14 +3550,59 @@ void main() {
   _testPlayerWidget('downloaded details skip online detail loading', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final client = _TestMissavClient(
       _details(),
       initializeError: StateError('Secure storage unavailable'),
     );
     final library = await _testLibrary();
-    final task = VideoDownloadTask(
+    const actor = VideoLink(
+      label: 'Saved actor',
+      url: 'https://missav.ai/cn/actresses/saved-actor',
+      kind: VideoLinkKind.actor,
+    );
+    const savedVideo = VideoItem(
       id: 'dvd-1',
-      video: _video(),
+      title: 'Saved video',
+      pageUrl: 'https://missav.ai/cn/dvd-1',
+      actors: [actor],
+      tags: [
+        VideoLink(
+          label: 'Saved genre',
+          url: 'https://missav.ai/cn/genres/saved-genre',
+          kind: VideoLinkKind.category,
+        ),
+        VideoLink(
+          label: 'Legacy maker',
+          url: 'https://missav.ai/cn/makers/legacy-maker',
+          kind: VideoLinkKind.studio,
+        ),
+        VideoLink(
+          label: 'Legacy label',
+          url: 'https://missav.ai/cn/labels/legacy-label',
+          kind: VideoLinkKind.category,
+        ),
+        VideoLink(
+          label: 'Legacy series',
+          url: 'https://missav.ai/cn/series/legacy-series',
+          kind: VideoLinkKind.category,
+        ),
+        VideoLink(
+          label: 'Legacy director',
+          url: 'https://missav.ai/cn/directors/legacy-director',
+          kind: VideoLinkKind.other,
+        ),
+      ],
+      makers: ['Legacy maker', 'Linkless maker'],
+      labels: ['Linkless label'],
+      series: ['Linkless series'],
+      directors: ['Linkless director'],
+    );
+    const task = VideoDownloadTask(
+      id: 'dvd-1',
+      video: savedVideo,
       quality: 'Auto',
       isHls: true,
       status: VideoDownloadStatus.completed,
@@ -3414,6 +3635,38 @@ void main() {
     expect(session.loadFileCount, 1);
     expect(session.localPath, task.localPath);
     expect(session.loadStreamCount, 0);
+    final l10n = await S.delegate.load(const Locale('en'));
+    for (final title in [
+      l10n.videoFilterGenre,
+      l10n.videoDetailMakers,
+      l10n.videoDetailLabels,
+      l10n.videoFilterSeries,
+      l10n.videoCardDirectors,
+      l10n.videoDetailActors,
+    ]) {
+      expect(find.text(title), findsOneWidget);
+    }
+    expect(find.text('Legacy maker'), findsOneWidget);
+    expect(find.text('Linkless maker'), findsOneWidget);
+    for (final label in [
+      'Saved genre',
+      'Legacy label',
+      'Legacy series',
+      'Linkless label',
+      'Linkless series',
+      'Legacy director',
+      'Linkless director',
+      'Saved actor',
+    ]) {
+      expect(find.text(label), findsOneWidget, reason: label);
+    }
+    expect(
+      find.ancestor(
+        of: find.text('Legacy maker'),
+        matching: find.byType(InkWell),
+      ),
+      findsOneWidget,
+    );
   });
 
   _testPlayerWidget(
@@ -4177,6 +4430,7 @@ class _TestMissavClient extends MissavClient {
   int playlistsCalls = 0;
   List<VideoLink> playlists = [];
   final List<String> addedPlaylists = [];
+  final List<String> browsedUrls = [];
   int _generation = 0;
 
   @override
@@ -4213,6 +4467,18 @@ class _TestMissavClient extends MissavClient {
   Future<void> initialize() async {
     initializeCalls++;
     if (initializeError != null) throw initializeError!;
+  }
+
+  @override
+  Future<VideoCatalogPage> browse(
+    String url, {
+    CancelToken? cancelToken,
+    void Function(VideoCatalogPage page)? onParsed,
+  }) async {
+    browsedUrls.add(url);
+    final page = VideoCatalogPage(title: url, url: url);
+    onParsed?.call(page);
+    return page;
   }
 
   @override

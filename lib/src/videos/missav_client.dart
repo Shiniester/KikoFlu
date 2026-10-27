@@ -560,10 +560,10 @@ class MissavClient extends ChangeNotifier {
         actor.label: actor,
       for (final actor in video.actors) actor.label: actor,
     };
-    final tags = <String, VideoLink>{
+    final tags = <(String?, String), VideoLink>{
       for (final tag in links('genres', 'genres', VideoLinkKind.category))
-        tag.label: tag,
-      for (final tag in video.tags) tag.label: tag,
+        (tag.cardMetadataRoute, tag.label): tag,
+      for (final tag in video.tags) (tag.cardMetadataRoute, tag.label): tag,
     };
     final duration = values['duration'];
     final releasedAt = values['released_at'];
@@ -762,9 +762,10 @@ class MissavClient extends ChangeNotifier {
     final poster = document
         .querySelector('video[data-poster]')
         ?.attributes['data-poster'];
-    final metadata = _parseMetadata(document);
-    final actors = _parseDetailLinks(document, uri, VideoLinkKind.actor);
-    final tags = _parseDetailLinks(document, uri, VideoLinkKind.tag);
+    final parsedActors = _parseDetailLinks(document, uri, VideoLinkKind.actor);
+    final parsedTags = _parseDetailLinks(document, uri, VideoLinkKind.tag);
+    final actors = parsedActors.isEmpty ? item.actors : parsedActors;
+    final tags = parsedTags.isEmpty ? item.tags : parsedTags;
     final labels = '${uri.path} ${tags.map((tag) => tag.label).join(' ')}';
     final video = VideoItem(
       id: item.id,
@@ -781,8 +782,8 @@ class MissavClient extends ChangeNotifier {
             ).expand((row) => row.querySelectorAll('time')),
           ) ??
           item.releaseDate,
-      actors: actors.isEmpty ? item.actors : actors,
-      tags: tags.isEmpty ? item.tags : tags,
+      actors: actors,
+      tags: tags,
       makers: item.makers,
       labels: item.labels,
       series: item.series,
@@ -790,6 +791,7 @@ class MissavClient extends ChangeNotifier {
       hasSubtitles: item.hasSubtitles || _hasSubtitleLabel(labels),
       isUncensored: item.isUncensored || _hasUncensoredLabel(labels),
     );
+    final metadata = _parseMetadata(document, uri, [...actors, ...tags], video);
     final sourceId = _sourceId(document);
     final saved = _savedState(document);
     final related = _parseVideos(
@@ -887,7 +889,10 @@ class MissavClient extends ChangeNotifier {
     final details = VideoDetails(
       video: detailedVideo,
       description: initialDetails.description,
-      metadata: initialDetails.metadata,
+      metadata: _metadataWithoutVideoGroups(
+        initialDetails.metadata,
+        detailedVideo,
+      ),
       actors: detailedVideo.actors,
       tags: detailedVideo.tags,
       related: enriched.skip(1).toList(),
@@ -1669,8 +1674,14 @@ class MissavClient extends ChangeNotifier {
         '';
   }
 
-  static Map<String, String> _parseMetadata(Document document) {
+  static Map<String, String> _parseMetadata(
+    Document document,
+    Uri pageUri,
+    List<VideoLink> displayedLinks,
+    VideoItem video,
+  ) {
     final metadata = <String, String>{};
+    final displayedUrls = displayedLinks.map((link) => link.url).toSet();
     for (final row in _detailMetadataRows(document)) {
       final labelElement = row.querySelector('span');
       if (labelElement == null) continue;
@@ -1681,9 +1692,143 @@ class MissavClient extends ChangeNotifier {
           .join()
           .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
+      if (_metadataRowIsFullyDisplayed(row, value, pageUri, displayedUrls) ||
+          _metadataValueIsDisplayed(label, value, video)) {
+        continue;
+      }
       if (label.isNotEmpty && value.isNotEmpty) metadata[label] = value;
     }
     return metadata;
+  }
+
+  static Map<String, String> _metadataWithoutVideoGroups(
+    Map<String, String> metadata,
+    VideoItem video,
+  ) => {
+    for (final entry in metadata.entries)
+      if (!_metadataValueIsDisplayed(entry.key, entry.value, video))
+        entry.key: entry.value,
+  };
+
+  static const _metadataGroupByLabel = {
+    'genre': 'genres',
+    'genres': 'genres',
+    'category': 'genres',
+    'categories': 'genres',
+    'tag': 'genres',
+    'tags': 'genres',
+    'ジャンル': 'genres',
+    '类型': 'genres',
+    '類型': 'genres',
+    '类别': 'genres',
+    '類別': 'genres',
+    '分类': 'genres',
+    '分類': 'genres',
+    'maker': 'makers',
+    'makers': 'makers',
+    'manufacturer': 'makers',
+    'manufacturers': 'makers',
+    'studio': 'makers',
+    'studios': 'makers',
+    'メーカー': 'makers',
+    '厂商': 'makers',
+    '廠商': 'makers',
+    'label': 'labels',
+    'labels': 'labels',
+    'brand': 'labels',
+    'brands': 'labels',
+    'レーベル': 'labels',
+    '品牌': 'labels',
+    '系列': 'series',
+    'series': 'series',
+    'シリーズ': 'series',
+    'director': 'directors',
+    'directors': 'directors',
+    '監督': 'directors',
+    '导演': 'directors',
+    '導演': 'directors',
+    'actor': 'actors',
+    'actors': 'actors',
+    'actress': 'actors',
+    'actresses': 'actors',
+    'cast': 'actors',
+    '出演者': 'actors',
+    '演员': 'actors',
+    '演員': 'actors',
+    '女优': 'actors',
+    '女優': 'actors',
+  };
+
+  static bool _metadataValueIsDisplayed(
+    String label,
+    String value,
+    VideoItem video,
+  ) {
+    final group = _metadataGroupByLabel[label.toLowerCase()];
+    if (group == null) return false;
+    final names = switch (group) {
+      'genres' => video.cardTags.map((tag) => tag.label),
+      'makers' => video.cardMakers,
+      'labels' => video.cardLabels,
+      'series' => video.cardSeries,
+      'directors' => video.cardDirectors,
+      'actors' => video.actors.map((actor) => actor.label),
+      _ => const <String>[],
+    };
+    final displayedNames =
+        names
+            .map((name) => name.trim())
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort((left, right) => right.length.compareTo(left.length));
+    if (displayedNames.isEmpty) return false;
+    var remaining = value.trim();
+    while (remaining.isNotEmpty) {
+      String? name;
+      for (final candidate in displayedNames) {
+        if (remaining.startsWith(candidate)) {
+          name = candidate;
+          break;
+        }
+      }
+      if (name == null) return false;
+      remaining = remaining.substring(name.length);
+      if (remaining.isNotEmpty) {
+        final separator = RegExp(
+          r'^[\s,，、;；|/·•&+＋()（）\[\]{}\-–—]+',
+        ).matchAsPrefix(remaining);
+        if (separator == null) return false;
+        remaining = remaining.substring(separator.end);
+      }
+    }
+    return true;
+  }
+
+  static bool _metadataRowIsFullyDisplayed(
+    Element row,
+    String value,
+    Uri pageUri,
+    Set<String> displayedUrls,
+  ) {
+    final anchors = row.querySelectorAll('a[href]');
+    if (anchors.isEmpty) return false;
+    var remaining = value;
+    for (final anchor in anchors) {
+      final href = anchor.attributes['href'];
+      if (href == null ||
+          !displayedUrls.contains(pageUri.resolve(href).toString())) {
+        return false;
+      }
+      final label = anchor.text.trim().replaceAll(RegExp(r'\s+'), ' ');
+      if (label.isEmpty) return false;
+      final index = remaining.indexOf(label);
+      if (index < 0) return false;
+      remaining = remaining.replaceRange(index, index + label.length, '');
+    }
+    return remaining
+        .replaceAll(RegExp(r'[\s,，、;；|/·•:：&+＋()（）\[\]{}\-–—]+'), '')
+        .isEmpty;
   }
 
   static Iterable<Element> _detailMetadataRows(Document document) =>
