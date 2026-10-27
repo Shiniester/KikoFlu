@@ -1209,6 +1209,8 @@
   "showWorkCircle": "顯示作品所屬社團",
   "showSubtitleTagOnCard": "顯示作品卡片上的字幕標籤",
   "showAgeRatingOnCard": "顯示作品卡片上的年齡分級",
+  "userAddedTagsLabel": "使用者新增的標籤",
+  "showUserAddedTagsOnCard": "在作品卡片上顯示使用者新增的標籤",
 
   "myTabsDisplaySettings": "「音聲」介面設定",
   "showOnlineMarks": "顯示線上標記的作品",

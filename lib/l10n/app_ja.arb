@@ -1209,6 +1209,8 @@
   "showWorkCircle": "作品のサークルを表示",
   "showSubtitleTagOnCard": "作品カードに字幕タグを表示",
   "showAgeRatingOnCard": "作品カードに年齢区分を表示",
+  "userAddedTagsLabel": "ユーザー追加タグ",
+  "showUserAddedTagsOnCard": "作品カードにユーザー追加タグを表示",
 
   "myTabsDisplaySettings": "「音声」ページ設定",
   "showOnlineMarks": "オンラインマークの作品を表示",

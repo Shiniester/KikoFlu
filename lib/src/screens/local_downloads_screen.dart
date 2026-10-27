@@ -1089,7 +1089,7 @@ class LocalDownloadsScreenState extends ConsumerState<LocalDownloadsScreen>
             children: [
               Text(
                 work?.title ?? firstTask.workTitle,
-                maxLines: 2,
+                maxLines: collectionCardTitleMaxLines,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 13,

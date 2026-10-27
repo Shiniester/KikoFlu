@@ -114,7 +114,7 @@ void main() {
       );
     });
 
-    test('uses the fixed 80dp cover width for list cards', () {
+    test('uses the fixed 112dp cover width for list cards', () {
       expect(
         calculateWorkCoverCacheWidth(
           viewportWidth: 390,
@@ -123,7 +123,7 @@ void main() {
           horizontalPadding: 8,
           crossAxisSpacing: 8,
         ),
-        240,
+        336,
       );
     });
 

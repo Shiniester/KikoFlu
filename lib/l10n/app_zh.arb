@@ -1252,6 +1252,8 @@
   "fontSizeExtraLarge": "特大",
   "showSubtitleTagOnCard": "显示作品卡片上的字幕标签",
   "showAgeRatingOnCard": "显示作品卡片上的年龄分级",
+  "userAddedTagsLabel": "用户添加的标签",
+  "showUserAddedTagsOnCard": "在作品卡片上显示用户添加的标签",
 
   "myTabsDisplaySettings": "\"音声\"界面设置",
   "showOnlineMarks": "显示在线标记的作品",

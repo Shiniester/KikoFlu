@@ -6634,6 +6634,18 @@ abstract class S {
   /// **'Show age rating on work card'**
   String get showAgeRatingOnCard;
 
+  /// Setting title for showing user-added audio work tags on cards.
+  ///
+  /// In en, this message translates to:
+  /// **'User-added Tags'**
+  String get userAddedTagsLabel;
+
+  /// Setting subtitle for showing user-added audio work tags on cards.
+  ///
+  /// In en, this message translates to:
+  /// **'Show user-added tags on work cards'**
+  String get showUserAddedTagsOnCard;
+
   /// No description provided for @showOnlineMarks.
   ///
   /// In en, this message translates to:

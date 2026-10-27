@@ -50,21 +50,21 @@ class _CompletedDownload implements DownloadTaskRepository {
   DownloadTask? taskById(String taskId) => taskId == _task.id ? _task : null;
 }
 
-Widget _testApp(DownloadTaskRepository repository) => ProviderScope(
+Widget _testApp(DownloadTaskRepository repository, Size size) => ProviderScope(
   overrides: [
     downloadServiceProvider.overrideWithValue(repository),
     downloadTaskIdsProvider.overrideWith(
       (ref) => Stream.value(repository.taskIds),
     ),
   ],
-  child: const MaterialApp(
-    locale: Locale('en'),
+  child: MaterialApp(
+    locale: const Locale('en'),
     localizationsDelegates: S.localizationsDelegates,
     supportedLocales: S.supportedLocales,
     home: Scaffold(
       body: MediaQuery(
-        data: MediaQueryData(size: Size(800, 700), disableAnimations: true),
-        child: LocalDownloadsScreen(),
+        data: MediaQueryData(size: size, disableAnimations: true),
+        child: const LocalDownloadsScreen(),
       ),
     ),
   ),
@@ -76,37 +76,51 @@ void main() {
   testWidgets('completed download covers use shared geometry in all layouts', (
     tester,
   ) async {
-    for (final layout in LayoutType.values) {
-      SharedPreferences.setMockInitialValues({
-        'collection_downloads_layout_type': layout.name,
-      });
-      await StorageService.initCritical(
-        preferences: await SharedPreferences.getInstance(),
-      );
-      await tester.pumpWidget(_testApp(_CompletedDownload()));
-      await tester.pumpAndSettle();
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    for (final size in [const Size(320, 800), const Size(1280, 800)]) {
+      tester.view.physicalSize = size;
+      for (final layout in LayoutType.values) {
+        SharedPreferences.setMockInitialValues({
+          'collection_downloads_layout_type': layout.name,
+        });
+        await StorageService.initCritical(
+          preferences: await SharedPreferences.getInstance(),
+        );
+        await tester.pumpWidget(_testApp(_CompletedDownload(), size));
+        await tester.pumpAndSettle();
 
-      final card = find.byKey(const ValueKey(12345));
-      expect(card, findsOneWidget);
-      final coverClip = find
-          .descendant(of: card, matching: find.byType(ClipRRect))
-          .first;
-      final coverSize = tester.getSize(coverClip);
-      if (layout == LayoutType.list) {
-        expect(coverSize, collectionListCoverSize);
+        final card = find.byKey(const ValueKey(12345));
+        expect(card, findsOneWidget);
+        expect(tester.widget<Text>(find.text('Downloaded Work')).maxLines, 4);
+        final cardSurface = find
+            .descendant(of: card, matching: find.byType(Material))
+            .first;
         expect(
-          tester.widget<ClipRRect>(coverClip).borderRadius,
-          BorderRadius.circular(collectionListCoverSize.width / 15),
+          tester.getRect(cardSurface).left,
+          size.width > size.height ? 24 : 8,
         );
-      } else {
-        expect(coverSize.width / coverSize.height, 4 / 3);
-        expect(
-          tester.widget<ClipRRect>(coverClip).borderRadius,
-          BorderRadius.circular(coverSize.width / 15),
-        );
+        final coverClip = find
+            .descendant(of: card, matching: find.byType(ClipRRect))
+            .first;
+        final coverSize = tester.getSize(coverClip);
+        if (layout == LayoutType.list) {
+          expect(coverSize, collectionListCoverSize);
+          expect(
+            tester.widget<ClipRRect>(coverClip).borderRadius,
+            BorderRadius.circular(collectionListCoverSize.width / 15),
+          );
+        } else {
+          expect(coverSize.width / coverSize.height, 4 / 3);
+          expect(
+            tester.widget<ClipRRect>(coverClip).borderRadius,
+            BorderRadius.circular(coverSize.width / 15),
+          );
+        }
+        expect(tester.takeException(), isNull, reason: '$layout download card');
+        await tester.pumpWidget(const SizedBox());
       }
-      expect(tester.takeException(), isNull, reason: '$layout download card');
-      await tester.pumpWidget(const SizedBox());
     }
   });
 }

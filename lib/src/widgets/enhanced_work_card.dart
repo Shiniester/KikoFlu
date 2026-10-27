@@ -117,6 +117,13 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
       ),
     );
     final displaySettings = ref.watch(workCardDisplayProvider);
+    final visibleTags =
+        widget.work.tags
+            ?.where(
+              (tag) => displaySettings.showUserAddedTags || !tag.isUserAdded,
+            )
+            .toList(growable: false) ??
+        const <Tag>[];
     final hasLocalSubtitle = ref.watch(
       subtitleLibraryProvider.select((ids) => ids.contains(widget.work.id)),
     );
@@ -155,6 +162,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
             ? collectionListCoverSize.width
             : constraints.maxWidth;
         final coverRadius = collectionCoverRadius(coverWidth);
+        final coverInfoScale = collectionCoverInfoScale(coverWidth);
         // A very narrow grid cell should use the compact content variant even
         // when a responsive fallback reduced a nominal grid to two columns.
         final isNarrowGridCell = !_isListLayout && constraints.maxWidth < 160;
@@ -173,6 +181,8 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
             displaySettings,
             hasLocalSubtitle,
             coverRadius,
+            coverInfoScale,
+            visibleTags,
           );
         }
         if (isCompact) {
@@ -184,6 +194,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
             displaySettings,
             hasLocalSubtitle,
             coverRadius,
+            coverInfoScale,
           );
         }
         return _buildMediumCard(
@@ -194,6 +205,8 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
           displaySettings,
           hasLocalSubtitle,
           coverRadius,
+          coverInfoScale,
+          visibleTags,
         );
       },
     );
@@ -208,6 +221,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     WorkCardDisplaySettings displaySettings,
     bool hasLocalSubtitle,
     double coverRadius,
+    double coverInfoScale,
   ) {
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
@@ -240,30 +254,24 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                     token,
                     cornerRadius: coverRadius,
                   ),
-                  // 作品编号标签 (左上角)
-                  Positioned(top: 4, left: 4, child: _buildRjTag()),
-                  if (displaySettings.showAgeRating &&
-                      AgeRatingFormatter.hasValue(widget.work.age))
-                    Positioned(
-                      top: 4,
-                      right: 4,
-                      child: AgeRatingChip(age: widget.work.age, compact: true),
+                  _buildCoverTopInfo(
+                    context,
+                    displaySettings,
+                    coverInfoScale,
+                    inset: 4 * coverInfoScale,
+                  ),
+                  if ((displaySettings.showSubtitleTag &&
+                          (widget.work.hasSubtitle == true ||
+                              hasLocalSubtitle)) ||
+                      (displaySettings.showReleaseDate &&
+                          widget.work.release != null))
+                    _buildCoverBottomInfo(
+                      context,
+                      displaySettings,
+                      hasLocalSubtitle,
+                      coverInfoScale,
+                      inset: 4 * coverInfoScale,
                     ),
-                  // 字幕标签 (左下角)
-                  if (displaySettings.showSubtitleTag &&
-                      (widget.work.hasSubtitle == true || hasLocalSubtitle))
-                    Positioned(
-                      bottom: 4,
-                      left: 4,
-                      child: _buildSubtitleTag(
-                        context,
-                        isLocal: hasLocalSubtitle,
-                      ),
-                    ),
-                  // 日期标签 (右下角)
-                  if (displaySettings.showReleaseDate &&
-                      widget.work.release != null)
-                    Positioned(bottom: 4, right: 4, child: _buildDateTag()),
                 ],
               ),
             ),
@@ -277,6 +285,8 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                   // 标题
                   Text(
                     widget.work.title,
+                    maxLines: collectionCardTitleMaxLines,
+                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.bold,
                       height: 1.1,
@@ -301,6 +311,8 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     WorkCardDisplaySettings displaySettings,
     bool hasLocalSubtitle,
     double coverRadius,
+    double coverInfoScale,
+    List<Tag> visibleTags,
   ) {
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
@@ -343,28 +355,24 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                     token,
                     cornerRadius: coverRadius,
                   ),
-                  Positioned(top: 6, left: 6, child: _buildRjTag()),
-                  if (displaySettings.showAgeRating &&
-                      AgeRatingFormatter.hasValue(widget.work.age))
-                    Positioned(
-                      top: 6,
-                      right: 6,
-                      child: AgeRatingChip(age: widget.work.age, compact: true),
+                  _buildCoverTopInfo(
+                    context,
+                    displaySettings,
+                    coverInfoScale,
+                    inset: 6 * coverInfoScale,
+                  ),
+                  if ((displaySettings.showSubtitleTag &&
+                          (widget.work.hasSubtitle == true ||
+                              hasLocalSubtitle)) ||
+                      (displaySettings.showReleaseDate &&
+                          widget.work.release != null))
+                    _buildCoverBottomInfo(
+                      context,
+                      displaySettings,
+                      hasLocalSubtitle,
+                      coverInfoScale,
+                      inset: 6 * coverInfoScale,
                     ),
-                  // 字幕标签 (左下角)
-                  if (displaySettings.showSubtitleTag &&
-                      (widget.work.hasSubtitle == true || hasLocalSubtitle))
-                    Positioned(
-                      bottom: 6,
-                      left: 6,
-                      child: _buildSubtitleTag(
-                        context,
-                        isLocal: hasLocalSubtitle,
-                      ),
-                    ),
-                  if (displaySettings.showReleaseDate &&
-                      widget.work.release != null)
-                    Positioned(bottom: 6, right: 6, child: _buildDateTag()),
                 ],
               ),
             ),
@@ -378,6 +386,8 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                   // 标题
                   Text(
                     widget.work.title,
+                    maxLines: collectionCardTitleMaxLines,
+                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.bold,
                       height: 1.1,
@@ -462,9 +472,10 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                   const SizedBox(height: 4),
                   if (widget.work.vas != null && widget.work.vas!.isNotEmpty)
                     _buildVoiceActorsRow(context),
-                  const SizedBox(height: 2),
-                  if (widget.work.tags != null && widget.work.tags!.isNotEmpty)
-                    _buildTagsRow(context),
+                  if (visibleTags.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    _buildTagsRow(context, tags: visibleTags),
+                  ],
                   const SizedBox(height: 2),
                 ],
               ),
@@ -484,10 +495,11 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     WorkCardDisplaySettings displaySettings,
     bool hasLocalSubtitle,
     double coverRadius,
+    double coverInfoScale,
+    List<Tag> visibleTags,
   ) {
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
-    final rjFontSize = displaySettings.scaleFontSize(isLandscape ? 11.0 : 10.0);
     final titleFontSize = displaySettings.scaleFontSize(
       isLandscape ? 16.0 : 14.0,
     );
@@ -502,7 +514,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     );
 
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: const EdgeInsets.symmetric(vertical: 8),
       elevation: 4,
       child: InkWell(
         onTap: cardOnTap,
@@ -531,51 +543,23 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                             cornerRadius: coverRadius,
                           ),
                         ),
-                        // 作品编号标签
-                        Positioned(
-                          top: 2,
-                          left: 2,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 4,
-                              vertical: 1,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.7),
-                              borderRadius: BorderRadius.circular(3),
-                            ),
-                            child: Text(
-                              widget.work.displayId,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: rjFontSize,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
+                        _buildCoverTopInfo(
+                          context,
+                          displaySettings,
+                          coverInfoScale,
+                          inset: 2 * coverInfoScale,
                         ),
-                        if (displaySettings.showAgeRating &&
-                            AgeRatingFormatter.hasValue(widget.work.age))
-                          Positioned(
-                            top: 2,
-                            right: 2,
-                            child: AgeRatingChip(
-                              age: widget.work.age,
-                              compact: true,
-                              fontSize: rjFontSize,
-                            ),
-                          ),
-                        // 字幕标签 (左下角)
-                        if (displaySettings.showSubtitleTag &&
-                            (widget.work.hasSubtitle == true ||
-                                hasLocalSubtitle))
-                          Positioned(
-                            bottom: 2,
-                            left: 2,
-                            child: _buildSubtitleTag(
-                              context,
-                              isLocal: hasLocalSubtitle,
-                            ),
+                        if ((displaySettings.showSubtitleTag &&
+                                (widget.work.hasSubtitle == true ||
+                                    hasLocalSubtitle)) ||
+                            (displaySettings.showReleaseDate &&
+                                widget.work.release != null))
+                          _buildCoverBottomInfo(
+                            context,
+                            displaySettings,
+                            hasLocalSubtitle,
+                            coverInfoScale,
+                            inset: 2 * coverInfoScale,
                           ),
                       ],
                     ),
@@ -585,6 +569,8 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                   Expanded(
                     child: Text(
                       widget.work.title,
+                      maxLines: collectionCardTitleMaxLines,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.bold,
                         height: 1.3,
@@ -627,27 +613,14 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                     ],
                   ),
                   const SizedBox(height: 6),
-                  // 日期和下载数
+                  // 评分和下载数
                   Row(
                     children: [
-                      if (displaySettings.showReleaseDate &&
-                          widget.work.release != null)
-                        Text(
-                          widget.work.release!,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Colors.grey[500],
-                                fontSize: metaFontSize,
-                              ),
-                        ),
                       // 评分信息
                       if (displaySettings.showRating &&
                           widget.work.rateAverage != null &&
                           widget.work.rateCount != null &&
                           widget.work.rateCount! > 0) ...[
-                        if (displaySettings.showReleaseDate &&
-                            widget.work.release != null)
-                          const SizedBox(width: 8),
                         Icon(Icons.star, color: Colors.amber[700], size: 14),
                         const SizedBox(width: 2),
                         Text(
@@ -700,10 +673,15 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                   // 声优
                   if (widget.work.vas != null && widget.work.vas!.isNotEmpty)
                     _buildVoiceActorsWrap(context, fontSize: tagFontSize),
-                  const SizedBox(height: 6),
                   // 标签
-                  if (widget.work.tags != null && widget.work.tags!.isNotEmpty)
-                    _buildTagsWrap(context, fontSize: tagFontSize),
+                  if (visibleTags.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    _buildTagsWrap(
+                      context,
+                      fontSize: tagFontSize,
+                      tags: visibleTags,
+                    ),
+                  ],
                 ],
               ),
             ],
@@ -787,17 +765,131 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     );
   }
 
-  Widget _buildRjTag() {
+  Widget _buildCoverTopInfo(
+    BuildContext context,
+    WorkCardDisplaySettings displaySettings,
+    double coverInfoScale, {
+    required double inset,
+  }) {
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
-    final displaySettings = ref.watch(workCardDisplayProvider);
-    final fontSize = displaySettings.scaleFontSize(isLandscape ? 13.0 : 11.0);
+    final showAgeRating =
+        displaySettings.showAgeRating &&
+        AgeRatingFormatter.hasValue(widget.work.age);
+    final rjFontSize =
+        displaySettings.scaleFontSize(
+          _isListLayout
+              ? (isLandscape ? 11.0 : 10.0)
+              : (isLandscape ? 13.0 : 11.0),
+        ) *
+        coverInfoScale;
+    final ageFontSize =
+        displaySettings.scaleFontSize(
+          _isListLayout ? (isLandscape ? 11.0 : 10.0) : 10.0,
+        ) *
+        coverInfoScale;
 
+    return Positioned(
+      top: inset,
+      left: inset,
+      right: inset,
+      child: Row(
+        children: [
+          Expanded(
+            child: Align(
+              alignment: AlignmentDirectional.topStart,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: AlignmentDirectional.topStart,
+                child: _buildRjTag(rjFontSize, coverInfoScale),
+              ),
+            ),
+          ),
+          if (showAgeRating)
+            Expanded(
+              child: Align(
+                alignment: AlignmentDirectional.topEnd,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: AlignmentDirectional.topEnd,
+                  child: AgeRatingChip(
+                    age: widget.work.age,
+                    compact: true,
+                    fontSize: ageFontSize,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 6 * coverInfoScale,
+                      vertical: 2 * coverInfoScale,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCoverBottomInfo(
+    BuildContext context,
+    WorkCardDisplaySettings displaySettings,
+    bool hasLocalSubtitle,
+    double coverInfoScale, {
+    required double inset,
+  }) {
+    final showSubtitle =
+        displaySettings.showSubtitleTag &&
+        (widget.work.hasSubtitle == true || hasLocalSubtitle);
+    final showReleaseDate =
+        displaySettings.showReleaseDate && widget.work.release != null;
+
+    return Positioned(
+      bottom: inset,
+      left: inset,
+      right: inset,
+      child: Row(
+        children: [
+          if (showSubtitle)
+            Expanded(
+              child: Align(
+                alignment: AlignmentDirectional.bottomStart,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: AlignmentDirectional.bottomStart,
+                  child: _buildSubtitleTag(
+                    context,
+                    isLocal: hasLocalSubtitle,
+                    coverInfoScale: coverInfoScale,
+                  ),
+                ),
+              ),
+            ),
+          if (showSubtitle && showReleaseDate)
+            SizedBox(width: 4 * coverInfoScale),
+          if (showReleaseDate)
+            Expanded(
+              child: Align(
+                alignment: AlignmentDirectional.bottomEnd,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: AlignmentDirectional.bottomEnd,
+                  child: _buildDateTag(coverInfoScale),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRjTag(double fontSize, double coverInfoScale) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: EdgeInsets.symmetric(
+        horizontal: 6 * coverInfoScale,
+        vertical: 2 * coverInfoScale,
+      ),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(4 * coverInfoScale),
       ),
       child: Text(
         widget.work.displayId,
@@ -810,17 +902,22 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     );
   }
 
-  Widget _buildDateTag() {
+  Widget _buildDateTag(double coverInfoScale) {
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     final displaySettings = ref.watch(workCardDisplayProvider);
-    final fontSize = displaySettings.scaleFontSize(isLandscape ? 13.0 : 10.0);
+    final fontSize =
+        displaySettings.scaleFontSize(isLandscape ? 13.0 : 10.0) *
+        coverInfoScale;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: EdgeInsets.symmetric(
+        horizontal: 6 * coverInfoScale,
+        vertical: 2 * coverInfoScale,
+      ),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(4 * coverInfoScale),
       ),
       child: Text(
         widget.work.release!,
@@ -833,25 +930,34 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     );
   }
 
-  Widget _buildSubtitleTag(BuildContext context, {bool isLocal = false}) {
+  Widget _buildSubtitleTag(
+    BuildContext context, {
+    bool isLocal = false,
+    required double coverInfoScale,
+  }) {
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     final displaySettings = ref.watch(workCardDisplayProvider);
-    final iconSize = displaySettings.scaleFontSize(isLandscape ? 16.0 : 14.0);
+    final iconSize =
+        displaySettings.scaleFontSize(isLandscape ? 16.0 : 14.0) *
+        coverInfoScale;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: EdgeInsets.symmetric(
+        horizontal: 6 * coverInfoScale,
+        vertical: 2 * coverInfoScale,
+      ),
       decoration: BoxDecoration(
         color: isLocal
             ? Colors.green.withValues(alpha: 0.9)
             : Colors.black.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(4 * coverInfoScale),
       ),
       child: Icon(Icons.closed_caption, color: Colors.white, size: iconSize),
     );
   }
 
-  Widget _buildTagsRow(BuildContext context) {
+  Widget _buildTagsRow(BuildContext context, {required List<Tag> tags}) {
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     final displaySettings = ref.watch(workCardDisplayProvider);
@@ -862,7 +968,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
       child: Wrap(
         spacing: 3,
         runSpacing: 2,
-        children: widget.work.tags!.map((tag) {
+        children: tags.map((tag) {
           return TagChip(
             tag: tag,
             fontSize: fontSize,
@@ -899,11 +1005,15 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     );
   }
 
-  Widget _buildTagsWrap(BuildContext context, {required double fontSize}) {
+  Widget _buildTagsWrap(
+    BuildContext context, {
+    required double fontSize,
+    required List<Tag> tags,
+  }) {
     return Wrap(
       spacing: 3,
       runSpacing: 2,
-      children: widget.work.tags!.map((tag) {
+      children: tags.map((tag) {
         return TagChip(
           tag: tag,
           fontSize: fontSize,

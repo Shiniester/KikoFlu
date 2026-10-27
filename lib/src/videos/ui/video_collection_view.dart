@@ -55,7 +55,7 @@ class VideoCollectionView<T> extends StatelessWidget {
         context,
         layoutType: layoutType,
         cardSize: WorkCardSize.normal,
-        padding: padding,
+        padding: collectionCardPadding(context, padding: padding),
         availableWidth: constraints.maxWidth,
         availableHeight: constraints.hasBoundedHeight
             ? constraints.maxHeight
@@ -145,7 +145,7 @@ class VideoCard extends ConsumerWidget {
             : (isLandscape ? 13.0 : 10.0);
         final title = Text(
           video.title,
-          maxLines: 2,
+          maxLines: collectionCardTitleMaxLines,
           overflow: TextOverflow.ellipsis,
           style: Theme.of(context).textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.bold,
@@ -157,40 +157,44 @@ class VideoCard extends ConsumerWidget {
           margin: isList
               ? const EdgeInsets.symmetric(vertical: 4)
               : EdgeInsets.zero,
+          shape: layoutType != LayoutType.smallGrid
+              ? null
+              : RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(
+                    collectionCoverRadius(constraints.maxWidth),
+                  ),
+                ),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: onTap,
             child: isList
                 ? Padding(
                     padding: const EdgeInsets.all(12),
-                    child: Row(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SizedBox.fromSize(
-                          size: collectionListCoverSize,
-                          child: VideoCover(
-                            video: video,
-                            onImageTerminal: onCoverTerminal,
-                            failedImageKeys: failedCoverKeys,
-                            onImageRetry: onCoverRetry,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              title,
-                              _information(
-                                context,
-                                visibleFields,
-                                bodyFontSize,
-                                chipFontSize: chipFontSize,
-                                isList: isList,
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox.fromSize(
+                              size: collectionListCoverSize,
+                              child: VideoCover(
+                                video: video,
+                                onImageTerminal: onCoverTerminal,
+                                failedImageKeys: failedCoverKeys,
+                                onImageRetry: onCoverRetry,
                               ),
-                            ],
-                          ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(child: title),
+                          ],
+                        ),
+                        _information(
+                          context,
+                          visibleFields,
+                          bodyFontSize,
+                          chipFontSize: chipFontSize,
+                          isList: isList,
                         ),
                       ],
                     ),
@@ -397,12 +401,16 @@ class VideoDurationInfo extends ConsumerWidget {
             size: isList || isLandscape ? 14 : 12,
           ),
           const SizedBox(width: 2),
-          Text(
-            formatDuration(Duration(seconds: seconds!)),
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Colors.blue[700],
-              fontSize: fontSize,
-              fontWeight: FontWeight.w500,
+          Flexible(
+            child: Text(
+              formatDuration(Duration(seconds: seconds!)),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.blue[700],
+                fontSize: fontSize,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ],
@@ -496,26 +504,29 @@ class _VideoCoverState extends ConsumerState<VideoCover> {
           (fields) => fields.contains(VideoCardField.uncensoredTag),
         ),
       );
-      final compact = constraints.maxWidth < 120;
+      final infoScale = collectionCoverInfoScale(constraints.maxWidth);
       final cacheWidth = constraints.hasBoundedWidth
           ? _videoCoverCacheWidth(context, constraints.maxWidth)
           : null;
       final isLandscape =
           MediaQuery.orientationOf(context) == Orientation.landscape;
-      final inset = compact ? 2.0 : 6.0;
+      final inset = 6 * infoScale;
       final s = S.of(context);
       Widget badge(Widget child, {Key? key}) => Container(
         key: key,
-        padding: EdgeInsets.symmetric(horizontal: compact ? 2 : 6, vertical: 2),
+        padding: EdgeInsets.symmetric(
+          horizontal: 6 * infoScale,
+          vertical: 2 * infoScale,
+        ),
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: .7),
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(4 * infoScale),
         ),
         child: child,
       );
       final textStyle = TextStyle(
         color: Colors.white,
-        fontSize: compact ? 7 : (isLandscape ? 13 : 10),
+        fontSize: (isLandscape ? 13.0 : 10.0) * infoScale,
         fontWeight: FontWeight.bold,
       );
       return ClipRRect(
@@ -540,9 +551,7 @@ class _VideoCoverState extends ConsumerState<VideoCover> {
                       Text(
                         catalogNumber,
                         style: textStyle.copyWith(
-                          fontSize: compact
-                              ? (isLandscape ? 11 : 10)
-                              : (isLandscape ? 13 : 11),
+                          fontSize: (isLandscape ? 13.0 : 11.0) * infoScale,
                         ),
                       ),
                       key: ValueKey('video-number-${video.id}'),
@@ -563,7 +572,7 @@ class _VideoCoverState extends ConsumerState<VideoCover> {
                         Icon(
                           Icons.closed_caption,
                           color: Colors.white,
-                          size: compact ? 10 : (isLandscape ? 16 : 14),
+                          size: (isLandscape ? 16.0 : 14.0) * infoScale,
                         ),
                       ),
                     ),
@@ -571,7 +580,7 @@ class _VideoCoverState extends ConsumerState<VideoCover> {
                       video.hasSubtitles &&
                       showUncensoredTag &&
                       video.isUncensored)
-                    const SizedBox(width: 3),
+                    SizedBox(width: 3 * infoScale),
                   if (showUncensoredTag && video.isUncensored)
                     Tooltip(
                       message: s.videoUncensored,
@@ -579,7 +588,7 @@ class _VideoCoverState extends ConsumerState<VideoCover> {
                         Icon(
                           Icons.no_encryption_outlined,
                           color: Colors.white,
-                          size: compact ? 10 : (isLandscape ? 16 : 14),
+                          size: (isLandscape ? 16.0 : 14.0) * infoScale,
                         ),
                       ),
                     ),

@@ -77,7 +77,7 @@ class PlaylistCard extends ConsumerWidget {
         return Card(
           elevation: 1,
           margin: isList
-              ? const EdgeInsets.symmetric(horizontal: 12, vertical: 4)
+              ? const EdgeInsets.symmetric(vertical: 4)
               : EdgeInsets.zero,
           clipBehavior: Clip.antiAlias,
           shape: RoundedRectangleBorder(
@@ -221,7 +221,7 @@ class PlaylistCard extends ConsumerWidget {
                     fontWeight: FontWeight.w600,
                     height: 1.2,
                   ),
-                  maxLines: 2,
+                  maxLines: collectionCardTitleMaxLines,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),

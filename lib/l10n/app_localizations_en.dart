@@ -3730,6 +3730,12 @@ class SEn extends S {
   String get showAgeRatingOnCard => 'Show age rating on work card';
 
   @override
+  String get userAddedTagsLabel => 'User-added Tags';
+
+  @override
+  String get showUserAddedTagsOnCard => 'Show user-added tags on work cards';
+
+  @override
   String get showOnlineMarks => 'Show online marked works';
 
   @override

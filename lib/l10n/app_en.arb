@@ -1550,6 +1550,14 @@
   "fontSizeExtraLarge": "XL",
   "showSubtitleTagOnCard": "Show subtitle tag on work card",
   "showAgeRatingOnCard": "Show age rating on work card",
+  "userAddedTagsLabel": "User-added Tags",
+  "@userAddedTagsLabel": {
+    "description": "Setting title for showing user-added audio work tags on cards."
+  },
+  "showUserAddedTagsOnCard": "Show user-added tags on work cards",
+  "@showUserAddedTagsOnCard": {
+    "description": "Setting subtitle for showing user-added audio work tags on cards."
+  },
 
   "myTabsDisplaySettings": "\"Audio\" Page Settings",
   "showOnlineMarks": "Show online marked works",

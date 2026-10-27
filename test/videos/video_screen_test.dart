@@ -1811,12 +1811,15 @@ void main() {
     }
   });
 
-  testWidgets('download queue shows duration after task information', (
+  testWidgets('download queue shares card geometry after resize', (
     tester,
   ) async {
-    const video = VideoItem(
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final video = VideoItem(
       id: 'download-duration',
-      title: 'Queued video with duration',
+      title: List.filled(12, 'A deliberately long download title').join(' '),
       pageUrl: 'https://missav.ai/en/download-duration',
       durationSeconds: 3723,
     );
@@ -1825,7 +1828,7 @@ void main() {
     final downloads = _TestVideoDownloads(
       client: client,
       library: library,
-      tasks: const [
+      tasks: [
         VideoDownloadTask(
           id: 'download-duration',
           video: video,
@@ -1835,26 +1838,56 @@ void main() {
         ),
       ],
     );
-    await tester.pumpWidget(
-      _app(client, library, downloads, const VideoDownloadsScreen()),
-    );
-    await tester.pumpAndSettle();
+    for (final size in [const Size(320, 800), const Size(1280, 800)]) {
+      tester.view.physicalSize = size;
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          const VideoDownloadsScreen(),
+          textScale: 1.3,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    final title = tester.getRect(find.text(video.title));
-    final duration = tester.getRect(
-      find.byKey(const ValueKey('video-duration-download-duration')),
-    );
-    final cover = tester.getRect(
-      find.byKey(const ValueKey('video-cover-download-duration')),
-    );
-    expect(find.text('01:02:03'), findsOneWidget);
-    expect(duration.top, greaterThan(title.bottom));
-    expect(
-      duration.top,
-      greaterThan(tester.getRect(find.text('Queued · 720p')).bottom),
-    );
-    expect(cover.contains(duration.center), isFalse);
-    expect(tester.takeException(), isNull);
+      final titleFinder = find.text(video.title);
+      final titleWidget = tester.widget<Text>(titleFinder);
+      expect(titleWidget.maxLines, 4);
+      expect(titleWidget.overflow, TextOverflow.ellipsis);
+      if (size.width == 320) {
+        expect(
+          tester.renderObject<RenderParagraph>(titleFinder).didExceedMaxLines,
+          isTrue,
+        );
+      }
+      final card = find.ancestor(of: titleFinder, matching: find.byType(Card));
+      final surface = tester.getRect(
+        find.descendant(of: card, matching: find.byType(Material)).first,
+      );
+      final horizontalPadding = size.width > size.height ? 24.0 : 8.0;
+      expect(surface.left, closeTo(horizontalPadding, 0.1));
+      expect(surface.right, closeTo(size.width - horizontalPadding, 0.1));
+
+      final title = tester.getRect(titleFinder);
+      final duration = tester.getRect(
+        find.byKey(const ValueKey('video-duration-download-duration')),
+      );
+      final coverFinder = find.byKey(
+        const ValueKey('video-cover-download-duration'),
+      );
+      final cover = tester.getRect(coverFinder);
+      expect(tester.getSize(coverFinder), const Size(112, 84));
+      expect(find.text('01:02:03'), findsOneWidget);
+      expect(duration.top, greaterThan(title.bottom));
+      expect(duration.top, greaterThan(cover.bottom));
+      expect(duration.left, closeTo(cover.left, 0.1));
+      expect(
+        duration.top,
+        greaterThan(tester.getRect(find.text('Queued · 720p')).bottom),
+      );
+      expect(tester.takeException(), isNull, reason: '$size');
+    }
   });
 
   testWidgets(

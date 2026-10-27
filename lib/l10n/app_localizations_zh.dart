@@ -3611,6 +3611,12 @@ class SZh extends S {
   String get showAgeRatingOnCard => '显示作品卡片上的年龄分级';
 
   @override
+  String get userAddedTagsLabel => '用户添加的标签';
+
+  @override
+  String get showUserAddedTagsOnCard => '在作品卡片上显示用户添加的标签';
+
+  @override
   String get showOnlineMarks => '显示在线标记的作品';
 
   @override
@@ -8305,6 +8311,12 @@ class SZhHant extends SZh {
 
   @override
   String get showAgeRatingOnCard => '顯示作品卡片上的年齡分級';
+
+  @override
+  String get userAddedTagsLabel => '使用者新增的標籤';
+
+  @override
+  String get showUserAddedTagsOnCard => '在作品卡片上顯示使用者新增的標籤';
 
   @override
   String get showOnlineMarks => '顯示線上標記的作品';

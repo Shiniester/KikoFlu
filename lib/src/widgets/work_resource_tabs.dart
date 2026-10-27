@@ -448,7 +448,9 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
               return SliverMainAxisGroup(
                 slivers: [
                   SliverTabPageView(
-                    crossAxisPadding: _resourcePagePadding.left,
+                    crossAxisPadding: collectionCardPadding(
+                      context,
+                    ).left.clamp(0.0, _resourcePagePadding.left).toDouble(),
                     position: _pagePosition,
                     onDragStart: () {
                       _tabMotionGeneration++;
@@ -488,13 +490,14 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                       for (final tab in _pageKinds)
                         SliverPadding(
                           key: ValueKey(tab),
-                          padding: _resourcePagePadding.copyWith(
-                            top:
-                                tab == WorkResourceTab.images ||
-                                    tab == WorkResourceTab.recommendations
-                                ? 16
-                                : 0,
-                          ),
+                          padding: tab == WorkResourceTab.recommendations
+                              ? collectionCardPadding(
+                                  context,
+                                  padding: const EdgeInsets.only(top: 16),
+                                )
+                              : _resourcePagePadding.copyWith(
+                                  top: tab == WorkResourceTab.images ? 16 : 0,
+                                ),
                           sliver: _pageFor(tab, context),
                         ),
                     ],

@@ -11,10 +11,7 @@ enum WorkCardSize {
   final String value;
   final int columnReduction;
 
-  int applyToCrossAxisCount(
-    int crossAxisCount, {
-    int minCrossAxisCount = 1,
-  }) {
+  int applyToCrossAxisCount(int crossAxisCount, {int minCrossAxisCount = 1}) {
     final minCount = minCrossAxisCount.clamp(1, crossAxisCount).toInt();
     return (crossAxisCount - columnReduction)
         .clamp(minCount, crossAxisCount)
@@ -58,6 +55,7 @@ class WorkCardDisplaySettings {
   final bool showCircle;
   final bool showDuration;
   final bool showSubtitleTag;
+  final bool showUserAddedTags;
   final bool showAgeRating;
   final WorkCardSize cardSize;
   final WorkCardFontScale fontScale;
@@ -70,6 +68,7 @@ class WorkCardDisplaySettings {
     this.showCircle = true,
     this.showDuration = false,
     this.showSubtitleTag = true,
+    this.showUserAddedTags = false,
     this.showAgeRating = false,
     this.cardSize = WorkCardSize.normal,
     this.fontScale = WorkCardFontScale.normal,
@@ -83,6 +82,7 @@ class WorkCardDisplaySettings {
     bool? showCircle,
     bool? showDuration,
     bool? showSubtitleTag,
+    bool? showUserAddedTags,
     bool? showAgeRating,
     WorkCardSize? cardSize,
     WorkCardFontScale? fontScale,
@@ -95,16 +95,14 @@ class WorkCardDisplaySettings {
       showCircle: showCircle ?? this.showCircle,
       showDuration: showDuration ?? this.showDuration,
       showSubtitleTag: showSubtitleTag ?? this.showSubtitleTag,
+      showUserAddedTags: showUserAddedTags ?? this.showUserAddedTags,
       showAgeRating: showAgeRating ?? this.showAgeRating,
       cardSize: cardSize ?? this.cardSize,
       fontScale: fontScale ?? this.fontScale,
     );
   }
 
-  int applyCardSize(
-    int crossAxisCount, {
-    int minCrossAxisCount = 1,
-  }) {
+  int applyCardSize(int crossAxisCount, {int minCrossAxisCount = 1}) {
     return cardSize.applyToCrossAxisCount(
       crossAxisCount,
       minCrossAxisCount: minCrossAxisCount,
@@ -126,6 +124,7 @@ class WorkCardDisplayNotifier extends StateNotifier<WorkCardDisplaySettings> {
   static const String _keyCircle = '${_keyPrefix}circle';
   static const String _keyDuration = '${_keyPrefix}duration';
   static const String _keySubtitleTag = '${_keyPrefix}subtitle_tag';
+  static const String keyUserAddedTags = '${_keyPrefix}user_added_tags';
   static const String keyAgeRating = '${_keyPrefix}age_rating';
   static const String keyCardSize = '${_keyPrefix}card_size';
   static const String keyFontScale = '${_keyPrefix}font_scale';
@@ -149,6 +148,7 @@ class WorkCardDisplayNotifier extends StateNotifier<WorkCardDisplaySettings> {
         showCircle: prefs.getBool(_keyCircle) ?? true,
         showDuration: prefs.getBool(_keyDuration) ?? false,
         showSubtitleTag: prefs.getBool(_keySubtitleTag) ?? true,
+        showUserAddedTags: prefs.getBool(keyUserAddedTags) ?? false,
         showAgeRating: prefs.getBool(keyAgeRating) ?? false,
         cardSize: WorkCardSize.fromValue(prefs.getString(keyCardSize)),
         fontScale: WorkCardFontScale.fromValue(prefs.getString(keyFontScale)),
@@ -163,15 +163,22 @@ class WorkCardDisplayNotifier extends StateNotifier<WorkCardDisplaySettings> {
         showRating: _dirtyKeys.contains(_keyRating) ? state.showRating : null,
         showPrice: _dirtyKeys.contains(_keyPrice) ? state.showPrice : null,
         showSales: _dirtyKeys.contains(_keySales) ? state.showSales : null,
-        showReleaseDate:
-            _dirtyKeys.contains(_keyReleaseDate) ? state.showReleaseDate : null,
+        showReleaseDate: _dirtyKeys.contains(_keyReleaseDate)
+            ? state.showReleaseDate
+            : null,
         showCircle: _dirtyKeys.contains(_keyCircle) ? state.showCircle : null,
-        showDuration:
-            _dirtyKeys.contains(_keyDuration) ? state.showDuration : null,
-        showSubtitleTag:
-            _dirtyKeys.contains(_keySubtitleTag) ? state.showSubtitleTag : null,
-        showAgeRating:
-            _dirtyKeys.contains(keyAgeRating) ? state.showAgeRating : null,
+        showDuration: _dirtyKeys.contains(_keyDuration)
+            ? state.showDuration
+            : null,
+        showSubtitleTag: _dirtyKeys.contains(_keySubtitleTag)
+            ? state.showSubtitleTag
+            : null,
+        showUserAddedTags: _dirtyKeys.contains(keyUserAddedTags)
+            ? state.showUserAddedTags
+            : null,
+        showAgeRating: _dirtyKeys.contains(keyAgeRating)
+            ? state.showAgeRating
+            : null,
         cardSize: _dirtyKeys.contains(keyCardSize) ? state.cardSize : null,
         fontScale: _dirtyKeys.contains(keyFontScale) ? state.fontScale : null,
       );
@@ -195,18 +202,12 @@ class WorkCardDisplayNotifier extends StateNotifier<WorkCardDisplaySettings> {
   }
 
   Future<void> togglePrice() async {
-    _applyLocalChange(
-      state.copyWith(showPrice: !state.showPrice),
-      _keyPrice,
-    );
+    _applyLocalChange(state.copyWith(showPrice: !state.showPrice), _keyPrice);
     await _saveSettings();
   }
 
   Future<void> toggleSales() async {
-    _applyLocalChange(
-      state.copyWith(showSales: !state.showSales),
-      _keySales,
-    );
+    _applyLocalChange(state.copyWith(showSales: !state.showSales), _keySales);
     await _saveSettings();
   }
 
@@ -242,6 +243,14 @@ class WorkCardDisplayNotifier extends StateNotifier<WorkCardDisplaySettings> {
     await _saveSettings();
   }
 
+  Future<void> toggleUserAddedTags() async {
+    _applyLocalChange(
+      state.copyWith(showUserAddedTags: !state.showUserAddedTags),
+      keyUserAddedTags,
+    );
+    await _saveSettings();
+  }
+
   Future<void> toggleAgeRating() async {
     _applyLocalChange(
       state.copyWith(showAgeRating: !state.showAgeRating),
@@ -269,6 +278,7 @@ class WorkCardDisplayNotifier extends StateNotifier<WorkCardDisplaySettings> {
       _keyCircle,
       _keyDuration,
       _keySubtitleTag,
+      keyUserAddedTags,
       keyAgeRating,
       keyCardSize,
       keyFontScale,
@@ -287,6 +297,7 @@ class WorkCardDisplayNotifier extends StateNotifier<WorkCardDisplaySettings> {
       await prefs.setBool(_keyCircle, state.showCircle);
       await prefs.setBool(_keyDuration, state.showDuration);
       await prefs.setBool(_keySubtitleTag, state.showSubtitleTag);
+      await prefs.setBool(keyUserAddedTags, state.showUserAddedTags);
       await prefs.setBool(keyAgeRating, state.showAgeRating);
       await prefs.setString(keyCardSize, state.cardSize.value);
       await prefs.setString(keyFontScale, state.fontScale.value);
@@ -298,5 +309,5 @@ class WorkCardDisplayNotifier extends StateNotifier<WorkCardDisplaySettings> {
 
 final workCardDisplayProvider =
     StateNotifierProvider<WorkCardDisplayNotifier, WorkCardDisplaySettings>(
-  (ref) => WorkCardDisplayNotifier(),
-);
+      (ref) => WorkCardDisplayNotifier(),
+    );

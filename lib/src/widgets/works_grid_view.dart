@@ -85,7 +85,7 @@ class WorksGridView extends ConsumerWidget {
           context,
           layoutType: layoutType,
           cardSize: displaySettings.cardSize,
-          padding: padding,
+          padding: collectionCardPadding(context, padding: padding),
           availableWidth: availableWidth,
           availableHeight: availableHeight,
         );

@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart';
+import 'package:kikoeru_flutter/src/utils/collection_grid_layout.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
 import 'package:kikoeru_flutter/src/videos/video_models.dart';
 import 'package:kikoeru_flutter/src/videos/video_card_display_provider.dart';
@@ -211,6 +212,111 @@ void main() {
     }
   });
 
+  testWidgets('small-grid shell uses the cover radius', (tester) async {
+    await tester.pumpWidget(
+      _app(
+        const Center(
+          child: SizedBox(
+            width: 180,
+            child: VideoCard(
+              video: _video,
+              layoutType: LayoutType.smallGrid,
+              onTap: null,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final shape = tester.widget<Card>(find.byType(Card)).shape;
+    expect(shape, isA<RoundedRectangleBorder>());
+    expect(
+      (shape! as RoundedRectangleBorder).borderRadius,
+      BorderRadius.circular(collectionCoverRadius(180)),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('cover information scales with its width', (tester) async {
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({
+      'video_card_display_releaseDate': true,
+      'video_card_display_subtitleTag': true,
+      'video_card_display_uncensoredTag': false,
+    });
+    for (final width in [100.0, collectionListCoverSize.width, 180.0]) {
+      await tester.pumpWidget(
+        _app(
+          Center(
+            child: SizedBox(
+              width: width,
+              height: width * 3 / 4,
+              child: const VideoCover(video: _video),
+            ),
+          ),
+        ),
+      );
+      final scale = collectionCoverInfoScale(width);
+
+      final numberBadge = find.byKey(const ValueKey('video-number-sample'));
+      final numberContainer = tester.widget<Container>(numberBadge);
+      final badgePadding = numberContainer.padding! as EdgeInsets;
+      expect(badgePadding.left, closeTo(6 * scale, 0.01));
+      expect(badgePadding.top, closeTo(2 * scale, 0.01));
+      expect(
+        tester.widget<Text>(find.text('ABC-123')).style?.fontSize,
+        closeTo(11 * scale, 0.01),
+      );
+      final numberPosition = tester.widget<Positioned>(
+        find.ancestor(of: numberBadge, matching: find.byType(Positioned)).first,
+      );
+      expect(numberPosition.left, closeTo(6 * scale, 0.01));
+      expect(numberPosition.top, closeTo(6 * scale, 0.01));
+
+      final releaseText = tester.widget<Text>(
+        find.descendant(
+          of: find.byKey(const ValueKey('video-release-sample')),
+          matching: find.byType(Text),
+        ),
+      );
+      expect(releaseText.style?.fontSize, closeTo(10 * scale, 0.01));
+      expect(
+        tester.widget<Icon>(find.byIcon(Icons.closed_caption)).size,
+        closeTo(14 * scale, 0.01),
+      );
+      expect(tester.takeException(), isNull, reason: '$width');
+    }
+  });
+
+  testWidgets('video card titles stop at four lines in every layout', (
+    tester,
+  ) async {
+    final video = VideoItem(
+      id: 'long-title',
+      title: List.filled(80, 'Long title').join(' '),
+      pageUrl: '',
+    );
+    for (final layout in LayoutType.values) {
+      await tester.pumpWidget(
+        _app(
+          Center(
+            child: SizedBox(
+              width: layout == LayoutType.list ? 320 : 180,
+              child: VideoCard(video: video, layoutType: layout, onTap: null),
+            ),
+          ),
+        ),
+      );
+      final title = tester.widget<Text>(find.text(video.title));
+      expect(title.maxLines, collectionCardTitleMaxLines, reason: '$layout');
+      expect(title.overflow, TextOverflow.ellipsis, reason: '$layout');
+      expect(tester.takeException(), isNull, reason: '$layout');
+    }
+  });
+
   testWidgets(
     'cover badges occupy their requested corners and metadata opens its catalog',
     (tester) async {
@@ -398,7 +504,8 @@ void main() {
       final title = tester.widget<Text>(find.text(_video.title));
       expect(title.style?.fontSize, 14);
       expect(title.style?.height, 1.3);
-      expect(actress.left, greaterThan(cover.right));
+      expect(actress.left, lessThan(cover.right));
+      expect(actress.top, greaterThan(cover.bottom));
       expect(
         actress.top,
         greaterThan(
@@ -468,6 +575,14 @@ void main() {
             greaterThanOrEqualTo(tester.getRect(rows[index - 1]).bottom),
             reason: '$layout row $index',
           );
+        }
+        if (layout == LayoutType.list) {
+          final cover = tester.getRect(find.byType(VideoCover));
+          final makers = tester.getRect(
+            find.text('${strings.videoCardMakers}: Studio A'),
+          );
+          expect(makers.left, closeTo(cover.left, 0.1));
+          expect(makers.top, greaterThan(cover.bottom));
         }
         expect(tester.takeException(), isNull);
       }
@@ -558,9 +673,20 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull, reason: '$width $layout');
+        final horizontalPadding = width > 900 ? 24.0 : 8.0;
+        final card = tester.getRect(find.byType(Card).first);
+        expect(card.left, closeTo(horizontalPadding, 0.1));
+        if (layout == LayoutType.list) {
+          expect(card.right, closeTo(width - horizontalPadding, 0.1));
+        }
         final cover = tester.getSize(find.byType(VideoCover).first);
         expect(cover.width / cover.height, closeTo(4 / 3, .001));
-        if (layout == LayoutType.list) expect(cover, const Size(80, 60));
+        if (layout == LayoutType.list) {
+          expect(cover, collectionListCoverSize);
+        }
+        final title = tester.widget<Text>(find.text(_video.title));
+        expect(title.maxLines, collectionCardTitleMaxLines);
+        expect(title.overflow, TextOverflow.ellipsis);
       }
     }
   });

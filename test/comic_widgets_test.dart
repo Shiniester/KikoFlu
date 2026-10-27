@@ -5930,8 +5930,8 @@ void main() {
     );
     final card = tester.getRect(find.byType(Card));
     final cover = tester.getRect(find.byType(ComicImage));
-    expect(cover.width, 80);
-    expect(cover.height, 128);
+    expect(cover.width, 112);
+    expect(cover.height, closeTo(112 * 1.6, 0.1));
     expect(
       tester.widget<ComicImage>(find.byType(ComicImage)).fit,
       BoxFit.contain,
@@ -5964,6 +5964,79 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('comic collection titles stop at four lines in every layout', (
+    tester,
+  ) async {
+    final titleText = List.filled(100, 'Long comic title').join(' ');
+    final comic = Comic(
+      source: 'fixture',
+      id: 'long-title',
+      title: titleText,
+      cover: 'long-title-cover',
+    );
+    final container = await pump(
+      tester,
+      Scaffold(body: ComicGrid(comics: [comic])),
+      _Library(),
+      _Source(),
+      loadImage: (_) async => _png,
+      textScale: 1.3,
+    );
+
+    for (final layout in LayoutType.values) {
+      container.read(comicLayoutProvider.notifier).set(layout);
+      await tester.pumpAndSettle();
+      final title = tester.widget<Text>(find.text(titleText));
+      expect(title.maxLines, 4, reason: '$layout');
+      expect(title.overflow, TextOverflow.ellipsis, reason: '$layout');
+      expect(tester.takeException(), isNull, reason: '$layout');
+    }
+  });
+
+  testWidgets(
+    'comic collection padding is 8 portrait and 24 landscape in every layout',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(320, 640);
+      addTearDown(tester.view.reset);
+      final container = await pump(
+        tester,
+        const Scaffold(body: ComicGrid(comics: [_comic])),
+        _Library(),
+        _Source(),
+        loadImage: (_) async => _png,
+        textScale: 1.3,
+      );
+
+      for (final size in [
+        const Size(320, 640),
+        const Size(840, 1200),
+        const Size(1280, 800),
+      ]) {
+        tester.view.physicalSize = size;
+        for (final layout in LayoutType.values) {
+          container.read(comicLayoutProvider.notifier).set(layout);
+          await tester.pumpAndSettle();
+          final card = layout == LayoutType.list
+              ? find
+                    .descendant(
+                      of: find.byType(Card),
+                      matching: find.byType(InkWell),
+                    )
+                    .first
+              : find.byType(Card).first;
+          final rect = tester.getRect(card);
+          final horizontalPadding = size.width > size.height ? 24.0 : 8.0;
+          expect(rect.left, closeTo(horizontalPadding, 0.1));
+          if (layout == LayoutType.list) {
+            expect(rect.right, closeTo(size.width - horizontalPadding, 0.1));
+          }
+          expect(tester.takeException(), isNull, reason: '$size $layout');
+        }
+      }
+    },
+  );
 
   testWidgets('big comic cards show only a real source date inside the cover', (
     tester,
@@ -6020,9 +6093,9 @@ void main() {
         listFont,
       )
       in [
-        (const Size(320, 640), 304.0, 8.0, 8.0, 24.0, 12.0, 14.0),
-        (const Size(390, 844), 183.0, 8.0, 8.0, 24.0, 12.0, 14.0),
-        (const Size(1000, 600), 904 / 3, 24.0, 24.0, 40.0, 14.5, 16.0),
+        (const Size(320, 640), 304.0, 8.0, 8.0, 8.0, 12.0, 14.0),
+        (const Size(390, 844), 183.0, 8.0, 8.0, 8.0, 12.0, 14.0),
+        (const Size(1000, 600), 904 / 3, 24.0, 24.0, 24.0, 14.5, 16.0),
       ]) {
     testWidgets('comic cards match Audio spacing and title at $size', (
       tester,
@@ -6159,7 +6232,7 @@ void main() {
           expect(card.height, greaterThan(frame.height));
           expect(card.bottom, greaterThan(frame.bottom));
         } else {
-          expect(frame.width, 80);
+          expect(frame.width, 112);
           expect(
             tester.getRect(find.byType(Card)).bottom,
             greaterThan(frame.bottom),
@@ -8802,9 +8875,15 @@ void main() {
       );
       final newlyVisible = <String>{};
       for (final comic in comics) {
-        final title = find.text(comic.title, skipOffstage: false);
-        if (title.evaluate().isNotEmpty &&
-            tester.getRect(title.first).overlaps(viewportRect)) {
+        final card = comicCardForTitle(comic.title, skipOffstage: false);
+        if (card.evaluate().isEmpty) continue;
+        final rect = tester.getRect(card.first);
+        if (rect.left.isFinite &&
+            rect.top.isFinite &&
+            rect.right.isFinite &&
+            rect.bottom.isFinite &&
+            rect.overlaps(viewportRect) &&
+            !beforeScroll.contains(comic.cover)) {
           newlyVisible.add(comic.cover);
         }
       }
@@ -8855,7 +8934,7 @@ void main() {
       final prefetchedBytes = bytes[comics.last.cover]!;
       final prefetchedProvider = ResizeImage(
         MemoryImage(prefetchedBytes),
-        width: 80,
+        width: 100,
       );
       final prefetchedKey = await prefetchedProvider.obtainKey(
         ImageConfiguration.empty,
@@ -8885,7 +8964,7 @@ void main() {
         prefetchedStatus.keepAlive,
         isTrue,
         reason:
-            'Background work should warm the exact 80px display decode; '
+            'The 112px list cover should warm its source-capped 100px decode; '
             'status=$prefetchedStatus.',
       );
       expect(

@@ -3627,6 +3627,12 @@ class SJa extends S {
   String get showAgeRatingOnCard => '作品カードに年齢区分を表示';
 
   @override
+  String get userAddedTagsLabel => 'ユーザー追加タグ';
+
+  @override
+  String get showUserAddedTagsOnCard => '作品カードにユーザー追加タグを表示';
+
+  @override
   String get showOnlineMarks => 'オンラインマークの作品を表示';
 
   @override

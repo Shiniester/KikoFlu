@@ -48,8 +48,9 @@ class WorkCardDisplaySettingsScreen extends ConsumerWidget {
                 options: {
                   WorkCardFontScale.normal: S.of(context).fontSizeNormal,
                   WorkCardFontScale.large: S.of(context).fontSizeLarge,
-                  WorkCardFontScale.extraLarge:
-                      S.of(context).fontSizeExtraLarge,
+                  WorkCardFontScale.extraLarge: S
+                      .of(context)
+                      .fontSizeExtraLarge,
                 },
                 onSelected: notifier.updateFontScale,
               ),
@@ -109,6 +110,13 @@ class WorkCardDisplaySettingsScreen extends ConsumerWidget {
                 value: settings.showAgeRating,
                 onChanged: (_) => notifier.toggleAgeRating(),
               ),
+              SettingsSwitchTile(
+                icon: Icons.label_outline,
+                title: S.of(context).userAddedTagsLabel,
+                subtitle: S.of(context).showUserAddedTagsOnCard,
+                value: settings.showUserAddedTags,
+                onChanged: (_) => notifier.toggleUserAddedTags(),
+              ),
             ],
           ),
         ],
@@ -142,10 +150,7 @@ class _SegmentedSettingTile<T> extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ListTile(
-            leading: Icon(
-              icon,
-              color: Theme.of(context).colorScheme.primary,
-            ),
+            leading: Icon(icon, color: Theme.of(context).colorScheme.primary),
             title: Text(title),
             subtitle: Text(subtitle),
           ),

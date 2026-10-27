@@ -174,6 +174,11 @@ The selected Audio Source's lists of tags, voice actors, and circles used to
 choose work search conditions. Catalog entries identify a tag, voice actor, or
 circle; they are distinct from the matching works.
 
+**User-added Audio Tag (用户添加的标签)**:
+由音声源用户补充的作品标签，与作品默认标签区分。
+标签来源不表示票数高低。
+_避免_：低愿力标签、低票数标签
+
 **Work Details Screen (作品详情页)**:
 The online or offline screen describing a work and its available resource files.
 It is distinct from the Player Audio Details Page for the current track.

@@ -9,6 +9,7 @@ import '../services/cache_service.dart';
 import '../services/storage_service.dart';
 import '../services/speculative_transfer_coordinator.dart';
 import 'audio_source_headers.dart';
+import 'collection_grid_layout.dart';
 
 typedef WorkCoverPrecache =
     Future<void> Function(ImageProvider<Object> provider, BuildContext context);
@@ -38,7 +39,10 @@ int calculateWorkCoverCacheWidth({
   bool isListCard = true,
 }) {
   if (crossAxisCount <= 1 && isListCard) {
-    return (80 * devicePixelRatio).round().clamp(160, 512);
+    return (collectionListCoverSize.width * devicePixelRatio).round().clamp(
+      160,
+      512,
+    );
   }
 
   final columns = crossAxisCount.clamp(1, 6);

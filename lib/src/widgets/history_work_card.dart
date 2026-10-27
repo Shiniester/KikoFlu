@@ -60,6 +60,7 @@ class HistoryWorkCard extends ConsumerWidget {
             ? collectionListCoverSize.width
             : constraints.maxWidth;
         final cornerRadius = collectionCoverRadius(coverWidth);
+        final infoScale = collectionCoverInfoScale(coverWidth);
         final cover = ClipRRect(
           borderRadius: BorderRadius.circular(cornerRadius),
           child: Stack(
@@ -115,9 +116,17 @@ class HistoryWorkCard extends ConsumerWidget {
                   showAgeRating &&
                   AgeRatingFormatter.hasValue(work.age))
                 Positioned(
-                  top: 8,
-                  right: 8,
-                  child: AgeRatingChip(age: work.age, compact: true),
+                  top: 8 * infoScale,
+                  right: 8 * infoScale,
+                  child: AgeRatingChip(
+                    age: work.age,
+                    compact: true,
+                    fontSize: 10 * infoScale,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 6 * infoScale,
+                      vertical: 2 * infoScale,
+                    ),
+                  ),
                 ),
               if (record.lastTrack != null)
                 Positioned(
@@ -152,7 +161,7 @@ class HistoryWorkCard extends ConsumerWidget {
             children: [
               Text(
                 work.title,
-                maxLines: isList ? 2 : 1,
+                maxLines: collectionCardTitleMaxLines,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 13,
@@ -247,7 +256,9 @@ class HistoryWorkCard extends ConsumerWidget {
         );
 
         return Card(
-          margin: isList ? const EdgeInsets.all(4) : EdgeInsets.zero,
+          margin: isList
+              ? const EdgeInsets.symmetric(vertical: 4)
+              : EdgeInsets.zero,
           clipBehavior: Clip.antiAlias,
           elevation: 2,
           shape: RoundedRectangleBorder(
@@ -293,7 +304,10 @@ class HistoryWorkCard extends ConsumerWidget {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SizedBox(width: 80, height: 60, child: cover),
+                        SizedBox.fromSize(
+                          size: collectionListCoverSize,
+                          child: cover,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(child: info),
                       ],

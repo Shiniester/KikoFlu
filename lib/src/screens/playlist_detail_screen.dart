@@ -443,7 +443,10 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
         masonryCrossAxisCount: isMasonry ? crossAxisCount : null,
         masonryMainAxisSpacing: spacing,
         masonryCrossAxisSpacing: spacing,
-        padding: EdgeInsets.all(contentPadding),
+        padding: collectionCardPadding(
+          context,
+          padding: EdgeInsets.all(contentPadding),
+        ),
         physics: ScrollOptimization.physics,
         sliversBefore: [
           if (state.metadata != null)
@@ -522,7 +525,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
               )
             : Padding(
                 key: ValueKey(work.id),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                padding: const EdgeInsets.symmetric(vertical: 2),
                 child: _buildPlaylistWorkCard(
                   work,
                   isOwner,
@@ -628,7 +631,9 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
           children: [
             // 封面图使用统一的图片源
             WorkCoverClip(
-              cornerRadius: workCoverCompactRadius,
+              cornerRadius: collectionCoverRadius(
+                collectionListCoverSize.width,
+              ),
               child: PrivacyBlurCover(
                 child: WorkCoverImage(
                   image: createWorkCoverImageProvider(
@@ -637,8 +642,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                     token: token,
                     headers: httpHeaders,
                   ),
-                  width: 56,
-                  height: 56,
+                  width: collectionListCoverSize.width,
+                  height: collectionListCoverSize.height,
                   fadeInDuration: const Duration(milliseconds: 500),
                   placeholder: (context) => Container(
                     color: colorScheme.surfaceContainerHighest,
@@ -678,7 +683,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                       fontWeight: FontWeight.w600,
                       height: 1.3,
                     ),
-                    maxLines: 2,
+                    maxLines: collectionCardTitleMaxLines,
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
