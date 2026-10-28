@@ -61,23 +61,45 @@ class HistoryState {
   }
 }
 
-final historyProvider =
-    StateNotifierProvider<HistoryNotifier, HistoryState>((ref) {
+final historyProvider = StateNotifierProvider<HistoryNotifier, HistoryState>((
+  ref,
+) {
   return HistoryNotifier(ref);
 });
 
 class HistoryNotifier extends StateNotifier<HistoryState> {
   // ignore: unused_field - kept for potential future use with Ref
   final Ref _ref;
+  final DateTime Function() _now;
 
-  HistoryNotifier(this._ref) : super(const HistoryState()) {
+  HistoryNotifier(this._ref, {DateTime Function()? now})
+    : _now = now ?? DateTime.now,
+      super(const HistoryState()) {
+    _lastRefreshTime = _now();
     load(refresh: true);
     _initHistoryUpdateListener();
   }
 
   StreamSubscription? _historyUpdateSubscription;
-  DateTime _lastRefreshTime = DateTime.now();
+  late DateTime _lastRefreshTime;
   final PagedRequestGate _requestGate = PagedRequestGate();
+  bool _isVisible = false;
+  bool _historyChangePending = false;
+
+  void setVisible(bool visible) {
+    if (_isVisible == visible) return;
+    _isVisible = visible;
+    if (visible) _refreshPendingHistory();
+  }
+
+  void _refreshPendingHistory() {
+    if (!_isVisible || !_historyChangePending || _requestGate.isInFlight) {
+      return;
+    }
+    _historyChangePending = false;
+    _lastRefreshTime = _now();
+    unawaited(refresh());
+  }
 
   Future<void> load({
     bool refresh = false,
@@ -131,10 +153,12 @@ class HistoryNotifier extends StateNotifier<HistoryState> {
       logOutput('Failed to load history: $e');
     } finally {
       _requestGate.complete(token);
+      _refreshPendingHistory();
     }
   }
 
   Future<void> refresh() async {
+    _historyChangePending = false;
     await load(refresh: true, force: true);
   }
 
@@ -156,8 +180,11 @@ class HistoryNotifier extends StateNotifier<HistoryState> {
   }
 
   /// 外部直接写入历史（例如 history_work_card 恢复播放时）
-  Future<void> addOrUpdate(Work work,
-      {AudioTrack? track, int? positionMs}) async {
+  Future<void> addOrUpdate(
+    Work work, {
+    AudioTrack? track,
+    int? positionMs,
+  }) async {
     final now = DateTime.now();
     final audioService = PlaybackHistoryService.instance;
 
@@ -172,20 +199,21 @@ class HistoryNotifier extends StateNotifier<HistoryState> {
       playlistTotal = AudioPlayerServiceHelper.queueLength;
     }
 
-    final existingIndex = state.records.indexWhere((r) => r.work.id == work.id);
+    final existing = await HistoryDatabase.instance.getHistoryByWorkId(work.id);
     HistoryRecord record;
 
-    if (existingIndex >= 0) {
-      final existing = state.records[existingIndex];
+    if (existing != null) {
       record = existing.copyWith(
         work: work,
         lastPlayedTime: now,
         lastTrack: track ?? existing.lastTrack,
         lastPositionMs: positionMs ?? existing.lastPositionMs,
-        playlistIndex:
-            playlistIndex > 0 ? playlistIndex : existing.playlistIndex,
-        playlistTotal:
-            playlistTotal > 0 ? playlistTotal : existing.playlistTotal,
+        playlistIndex: playlistIndex > 0
+            ? playlistIndex
+            : existing.playlistIndex,
+        playlistTotal: playlistTotal > 0
+            ? playlistTotal
+            : existing.playlistTotal,
       );
     } else {
       record = HistoryRecord(
@@ -199,17 +227,24 @@ class HistoryNotifier extends StateNotifier<HistoryState> {
     }
 
     await HistoryDatabase.instance.addOrUpdate(record);
-    await load(force: true);
+    if (_isVisible) {
+      _historyChangePending = false;
+      await load(force: true);
+    } else {
+      _historyChangePending = true;
+    }
   }
 
   Future<void> remove(int workId) async {
     await HistoryDatabase.instance.delete(workId);
+    _historyChangePending = false;
     await load(force: true);
   }
 
   Future<void> clear() async {
     await HistoryDatabase.instance.clear();
     _requestGate.invalidate();
+    _historyChangePending = false;
     state = state.copyWith(
       records: [],
       totalCount: 0,
@@ -225,15 +260,25 @@ class HistoryNotifier extends StateNotifier<HistoryState> {
 
   /// 监听 PlaybackHistoryService 的写入通知，节流刷新列表
   void _initHistoryUpdateListener() {
-    _historyUpdateSubscription =
-        PlaybackHistoryService.instance.historyUpdatedStream.listen((_) {
-      final now = DateTime.now();
-      // 节流：10 秒内最多刷新一次列表
-      if (now.difference(_lastRefreshTime).inSeconds >= 10) {
-        _lastRefreshTime = now;
-        refresh();
-      }
-    });
+    _historyUpdateSubscription = PlaybackHistoryService
+        .instance
+        .historyUpdatedStream
+        .listen((_) {
+          final now = _now();
+          if (!_isVisible) {
+            _historyChangePending = true;
+            return;
+          }
+          // 节流：10 秒内最多刷新一次列表
+          if (now.difference(_lastRefreshTime).inSeconds >= 10) {
+            _lastRefreshTime = now;
+            if (_requestGate.isInFlight) {
+              _historyChangePending = true;
+              return;
+            }
+            unawaited(refresh());
+          }
+        });
   }
 
   @override

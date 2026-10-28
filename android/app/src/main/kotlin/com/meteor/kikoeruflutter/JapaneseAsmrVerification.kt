@@ -21,19 +21,17 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
-import androidx.webkit.ProxyConfig
-import androidx.webkit.ProxyController
 import androidx.webkit.WebViewFeature
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
 import org.json.JSONTokener
-import java.util.concurrent.Executor
 
-class JapaneseAsmrVerification(
+internal class JapaneseAsmrVerification(
     private val activity: Activity,
-    messenger: BinaryMessenger
+    messenger: BinaryMessenger,
+    private val proxyCoordinator: WebViewProxyCoordinator
 ) : MethodChannel.MethodCallHandler {
     companion object {
         const val CHANNEL_NAME = "com.meteor.kikoeruflutter/japanese_asmr"
@@ -54,7 +52,6 @@ class JapaneseAsmrVerification(
         var pageCheck: Runnable? = null
         var timeout: Runnable? = null
         var cleanup: Runnable? = null
-        var proxyChanged = false
         var finishing = false
         var mainFrameUrl: String? = null
         var statusCode = 200
@@ -64,7 +61,6 @@ class JapaneseAsmrVerification(
     private data class DocumentState(val html: String, val challenge: Boolean)
 
     private val channel = MethodChannel(messenger, CHANNEL_NAME)
-    private val executor = Executor { activity.runOnUiThread(it) }
     private val handler = Handler(Looper.getMainLooper())
     private var pendingRequest: PendingRequest? = null
     private var retainedWebView: WebView? = null
@@ -359,10 +355,23 @@ class JapaneseAsmrVerification(
     }
 
     private fun applyProxy(request: PendingRequest, proxyMode: String, proxyAddress: String?, load: () -> Unit) {
-        request.proxyChanged = true
-        val controller = ProxyController.getInstance()
-        val onApplied = Runnable {
-            if (isCurrent(request)) {
+        proxyCoordinator.acquire(
+            WebViewProxyCoordinator.Owner.JAPANESE_ASMR,
+            proxyMode,
+            proxyAddress
+        ) { failure ->
+            if (!isCurrent(request)) return@acquire
+            if (failure != null) {
+                finish(
+                    request,
+                    errorCode = if (failure.code == "proxy_configuration_failed") {
+                        if (request.isRead) "network_error" else "verification_unavailable"
+                    } else {
+                        failure.code
+                    },
+                    errorMessage = failure.message
+                )
+            } else {
                 try {
                     load()
                 } catch (error: Exception) {
@@ -374,11 +383,6 @@ class JapaneseAsmrVerification(
                 }
             }
         }
-        val config = ProxyConfig.Builder().apply {
-            if (proxyMode == "direct" || proxyAddress.isNullOrBlank()) addDirect()
-            else addProxyRule(proxyAddress)
-        }.build()
-        controller.setProxyOverride(config, executor, onApplied)
     }
 
     private fun isProxyArgumentsValid(proxyMode: String?, proxyAddress: String?): Boolean {
@@ -435,16 +439,12 @@ class JapaneseAsmrVerification(
         val clearProxy = Runnable {
             if (pendingRequest !== request) return@Runnable
             request.cleanup = null
-            if (!request.proxyChanged) {
-                complete.run()
-            } else {
-                try {
-                    ProxyController.getInstance().clearProxyOverride(executor, complete)
-                } catch (error: Exception) {
+            proxyCoordinator.release(WebViewProxyCoordinator.Owner.JAPANESE_ASMR) { failure ->
+                if (failure != null) {
                     completionErrorCode = "proxy_cleanup_failed"
-                    completionErrorMessage = error.message
-                    complete.run()
+                    completionErrorMessage = failure.message
                 }
+                complete.run()
             }
         }
         request.cleanup = clearProxy

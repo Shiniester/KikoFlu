@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="ja">
+  <head><title>Sample actor</title></head>
+  <body x-data="{user: null}">
+    <main x-data="{saved: false}"
+          x-init="axios.get('/api/actresses/987654321/view')">
+      <h1>Sample actor</h1>
+    </main>
+  </body>
+</html>

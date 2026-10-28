@@ -73,6 +73,42 @@ void main() {
     });
   }
 
+  testWidgets('last resource scrolls above the shared Dock', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          extendBody: true,
+          bottomNavigationBar: const SizedBox(
+            key: ValueKey('dock'),
+            height: 120,
+          ),
+          body: WorkDetailResponsiveLayout(
+            coverBuilder: (_, __) => const SizedBox(height: 100),
+            infoSliver: SliverList.builder(
+              itemCount: 20,
+              itemBuilder: (_, index) => ListTile(title: Text('file-$index')),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final resource = find.text('file-19');
+    await tester.scrollUntilVisible(resource, 500);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getBottomLeft(resource).dy,
+      lessThanOrEqualTo(
+        tester.getTopLeft(find.byKey(const ValueKey('dock'))).dy,
+      ),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('uses a vertical scrolling layout in portrait', (tester) async {
     await tester.pumpWidget(
       _testApp(

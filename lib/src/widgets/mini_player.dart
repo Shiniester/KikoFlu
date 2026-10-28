@@ -22,14 +22,7 @@ import 'player/player_track_layers.dart';
 import 'player/player_visual_palette.dart';
 
 class MiniPlayer extends ConsumerStatefulWidget {
-  final bool enableArtworkHero;
-  final PlayerArtworkFlightTarget initialArtworkFlightTarget;
-
-  const MiniPlayer({
-    super.key,
-    this.enableArtworkHero = true,
-    this.initialArtworkFlightTarget = PlayerArtworkFlightTarget.main,
-  });
+  const MiniPlayer({super.key});
 
   @override
   ConsumerState<MiniPlayer> createState() => _MiniPlayerState();
@@ -45,7 +38,6 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
     final currentTrack = ref.watch(currentTrackProvider);
     final currentArtwork = ref.watch(currentArtworkDescriptorProvider);
     final isMiniPlayerVisible = ref.watch(miniPlayerVisibilityProvider);
-    final artworkHeroEnabled = widget.enableArtworkHero;
 
     // 启用自动字幕加载器
     ref.watch(lyricAutoLoaderProvider);
@@ -97,11 +89,8 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
               initialPaletteTrackId: track.id,
             );
           },
-          artworkHeroEnabled:
-              artworkHeroEnabled && !MediaQuery.disableAnimationsOf(context),
           artworkBuilder: (context) =>
               _buildArtworkImage(context, track, workCoverUrl: workCoverUrl),
-          initialArtworkFlightTarget: widget.initialArtworkFlightTarget,
           builder: (context, launcher, artwork) => Dismissible(
             key: const ValueKey('mini-player-dismissible'),
             direction: DismissDirection.down,

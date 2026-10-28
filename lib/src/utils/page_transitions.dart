@@ -4,8 +4,6 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../widgets/app_bottom_dock_transition.dart';
-
 /// Slides the foreground page with source parallax; shared elements use overlays.
 class AppPageTransitionsBuilder extends PageTransitionsBuilder {
   const AppPageTransitionsBuilder();
@@ -60,19 +58,6 @@ class _PageTransitionState extends State<_PageTransition>
   bool _completionScheduled = false;
   bool _semanticsRestored = false;
   bool _semanticsRestoreScheduled = false;
-  bool _dockSnapshotSwitching = false;
-
-  bool _onDockSnapshotChanged(AppBottomDockSnapshotNotification notification) {
-    _snapshotController.clear();
-    _snapshotController.allowSnapshotting = false;
-    if (_dockSnapshotSwitching) return true;
-    _dockSnapshotSwitching = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      setState(() => _dockSnapshotSwitching = false);
-    });
-    return true;
-  }
 
   @override
   void initState() {
@@ -225,7 +210,6 @@ class _PageTransitionState extends State<_PageTransition>
             _snapshotController.allowSnapshotting =
                 platform == TargetPlatform.android &&
                 !reduceMotion &&
-                !_dockSnapshotSwitching &&
                 widget.route.allowSnapshotting &&
                 // Source parallax reuses its paint layer without a new bitmap.
                 widget.secondaryAnimation.isDismissed &&
@@ -294,12 +278,9 @@ class _PageTransitionState extends State<_PageTransition>
           ),
       ],
     );
-    return NotificationListener<AppBottomDockSnapshotNotification>(
-      onNotification: _onDockSnapshotChanged,
-      child: ClipRect(
-        clipper: _ExposedPageClipper(secondaryAnimation, widget.route),
-        child: transition,
-      ),
+    return ClipRect(
+      clipper: _ExposedPageClipper(secondaryAnimation, widget.route),
+      child: transition,
     );
   }
 

@@ -28,6 +28,7 @@ import '../providers/lyric_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/file_tree_utils.dart';
 import '../utils/snackbar_util.dart';
+import 'app_navigation_scope.dart';
 import 'file_tree_actions.dart';
 import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
@@ -40,6 +41,7 @@ import 'manual_subtitle_load_flow.dart';
 import 'text_preview_screen.dart';
 import 'pdf_preview_screen.dart';
 import 'video_open_failure_dialog.dart';
+import 'responsive_dialog.dart';
 import '../../l10n/app_localizations.dart';
 
 final _log = LogService.instance;
@@ -330,6 +332,7 @@ class _OfflineFileExplorerWidgetState
     String parentPath, {
     List<dynamic>? audioFiles,
   }) async {
+    if (!mounted) return;
     final l10n = S.of(context);
     final title = FileTreeUtils.titleOf(audioFile, defaultValue: l10n.unknown);
     try {
@@ -439,6 +442,7 @@ class _OfflineFileExplorerWidgetState
   }
 
   Future<void> _generateSubtitles(List<PlayerAudioVariant> variants) async {
+    if (!mounted) return;
     try {
       if (!await confirmLyricTranslationIfNeeded(
         context,
@@ -474,11 +478,11 @@ class _OfflineFileExplorerWidgetState
       (variant) =>
           identical(variant.source, file) && variant.parentPath == parentPath,
     );
-    await showModalBottomSheet<void>(
+    await showBottomSheetMenu<void>(
       context: context,
-      builder: (sheetContext) => SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
+      children: [
+        Builder(
+          builder: (sheetContext) => Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
@@ -505,6 +509,7 @@ class _OfflineFileExplorerWidgetState
                 title: Text(S.of(context).copyName),
                 onTap: () {
                   Navigator.of(sheetContext).pop();
+                  if (!mounted) return;
                   Clipboard.setData(ClipboardData(text: title));
                   SnackBarUtil.showSuccess(
                     context,
@@ -515,7 +520,7 @@ class _OfflineFileExplorerWidgetState
             ],
           ),
         ),
-      ),
+      ],
     );
   }
 
@@ -561,6 +566,7 @@ class _OfflineFileExplorerWidgetState
         final target = result.requireTarget;
         Navigator.of(context).push(
           MaterialPageRoute(
+            settings: appImmersiveRouteSettings,
             builder: (context) => WorkImageReader(
               title: widget.work.title,
               images: target.toGalleryMaps(),

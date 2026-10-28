@@ -574,9 +574,7 @@ void main() {
           child: const MaterialApp(
             localizationsDelegates: S.localizationsDelegates,
             supportedLocales: S.supportedLocales,
-            home: Scaffold(
-              bottomNavigationBar: MiniPlayer(enableArtworkHero: false),
-            ),
+            home: Scaffold(bottomNavigationBar: MiniPlayer()),
           ),
         ),
       );

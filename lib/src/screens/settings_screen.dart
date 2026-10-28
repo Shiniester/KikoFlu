@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'account_management_screen.dart';
 import '../comics/ui/comic_settings_screen.dart';
+import '../videos/ui/video_settings_screen.dart';
 import 'download_path_settings_screen.dart';
 import 'theme_settings_screen.dart';
 import 'ui_settings_screen.dart';
@@ -214,6 +215,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             title: S.of(context).comicSettings,
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const ComicSettingsScreen()),
+            ),
+          ),
+          SettingsNavigationTile(
+            icon: Icons.movie_outlined,
+            title: S.of(context).videoSettings,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const VideoSettingsScreen()),
             ),
           ),
           SettingsNavigationTile(

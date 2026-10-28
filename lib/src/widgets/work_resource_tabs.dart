@@ -14,7 +14,6 @@ import '../models/audio_track.dart';
 import '../providers/auth_provider.dart';
 import '../providers/player_subtitle_candidates_provider.dart';
 import '../providers/settings_provider.dart';
-import '../providers/work_card_display_provider.dart';
 import '../providers/work_detail_display_provider.dart';
 import '../providers/works_provider.dart' show LayoutType;
 import '../services/audio_subtitle_generation_service.dart';
@@ -448,7 +447,9 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
               return SliverMainAxisGroup(
                 slivers: [
                   SliverTabPageView(
-                    crossAxisPadding: _resourcePagePadding.left,
+                    crossAxisPadding: collectionCardPadding(
+                      context,
+                    ).left.clamp(0.0, _resourcePagePadding.left).toDouble(),
                     position: _pagePosition,
                     onDragStart: () {
                       _tabMotionGeneration++;
@@ -488,13 +489,14 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
                       for (final tab in _pageKinds)
                         SliverPadding(
                           key: ValueKey(tab),
-                          padding: _resourcePagePadding.copyWith(
-                            top:
-                                tab == WorkResourceTab.images ||
-                                    tab == WorkResourceTab.recommendations
-                                ? 16
-                                : 0,
-                          ),
+                          padding: tab == WorkResourceTab.recommendations
+                              ? collectionCardPadding(
+                                  context,
+                                  padding: const EdgeInsets.only(top: 16),
+                                )
+                              : _resourcePagePadding.copyWith(
+                                  top: tab == WorkResourceTab.images ? 16 : 0,
+                                ),
                           sliver: _pageFor(tab, context),
                         ),
                     ],
@@ -1075,7 +1077,6 @@ class _WorkResourceTabsState extends ConsumerState<WorkResourceTabs>
               final metrics = resolveCollectionGridMetrics(
                 context,
                 layoutType: LayoutType.bigGrid,
-                cardSize: WorkCardSize.normal,
                 availableWidth: constraints.crossAxisExtent,
                 padding: EdgeInsets.zero,
               );

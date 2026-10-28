@@ -1756,6 +1756,31 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('recommendations share collection side padding after resize', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetPhysicalSize);
+    final tree = ValueNotifier<List<dynamic>>(_files());
+    addTearDown(tree.dispose);
+    for (final size in [const Size(390, 800), const Size(900, 500)]) {
+      tester.view.physicalSize = size;
+      await _pumpResources(
+        tester,
+        tree,
+        initialTab: WorkResourceTab.recommendations,
+        recommendationCount: 3,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester.getRect(find.text('recommendation 0')).left,
+        size.width > size.height ? 24 : 8,
+      );
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   testWidgets('image scrolling stays separate from the recommendation tab', (
     tester,
   ) async {

@@ -72,7 +72,7 @@ Assert-DebugApk $apk
 ```powershell
 $env:KIKOFLU_PERF_RUN_OUTPUT = Join-Path (Get-Location) `
   'build/player-palette-device-result.json'
-fvm flutter drive --debug --no-pub -d $deviceId `
+fvm flutter drive --debug --no-pub --keep-app-running -d $deviceId `
   --driver=test_driver/performance_driver.dart `
   --target=integration_test/player_palette_route_test.dart `
   --use-application-binary=$apk *> build/palette-device-test.log
@@ -82,6 +82,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 Get-Content $env:KIKOFLU_PERF_RUN_OUTPUT -Raw | ConvertFrom-Json
 ```
+
+警告：省略 `--keep-app-running` 会在测试结束后卸载 Debug 包。
+卸载会清除 Debug 私有数据。
 
 成功条件是本次命令退出码为 0、日志包含 `All tests passed`，且本次生成的
 报告包含下列检查；旧报告不能作为本次通过的依据。

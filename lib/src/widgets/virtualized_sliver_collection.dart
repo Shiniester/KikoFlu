@@ -22,6 +22,7 @@ class VirtualizedPagination {
     required this.totalCount,
     required this.hasMore,
     required this.isLoading,
+    this.jumpMaxPage,
     this.onPreviousPage,
     this.onNextPage,
     this.onGoToPage,
@@ -38,6 +39,7 @@ class VirtualizedPagination {
   final int currentPage;
   final int pageSize;
   final int? totalCount;
+  final int? jumpMaxPage;
   final bool hasMore;
   final bool isLoading;
   final FutureOr<void> Function()? onPreviousPage;
@@ -59,6 +61,7 @@ class VirtualizedPagination {
       totalCount: totalCount,
       hasMore: hasMore,
       isLoading: isLoading,
+      jumpMaxPage: jumpMaxPage,
       onPreviousPage: onPreviousPage,
       onNextPage: onNextPage,
       onGoToPage: onGoToPage,
@@ -159,6 +162,7 @@ class VirtualizedSliverCollection<T> extends StatefulWidget {
     this.showEndIndicator = true,
     this.onVisibleItemsChanged,
     this.onPrefetch,
+    this.prefetchKey,
     this.prefetchItemCount = 6,
     this.nearEndExtent = 720,
     this.scrollCacheExtent,
@@ -214,6 +218,7 @@ class VirtualizedSliverCollection<T> extends StatefulWidget {
   final bool showEndIndicator;
   final ValueChanged<List<VirtualizedVisibleItem<T>>>? onVisibleItemsChanged;
   final ValueChanged<List<T>>? onPrefetch;
+  final Object? prefetchKey;
   final int prefetchItemCount;
   final double nearEndExtent;
 
@@ -291,6 +296,9 @@ class _VirtualizedSliverCollectionState<T>
         _indexedItemCount != widget.items.length) {
       _rebuildIndex();
       _prefetchedIds.removeWhere((id) => !_indexById.containsKey(id));
+    }
+    if (oldWidget.prefetchKey != widget.prefetchKey) {
+      _prefetchedIds.clear();
     }
     _scheduleInspection();
   }
@@ -661,6 +669,7 @@ class _VirtualizedSliverCollectionState<T>
               currentPage: pagination.currentPage,
               pageSize: pagination.pageSize,
               totalCount: pagination.totalCount,
+              jumpMaxPage: pagination.jumpMaxPage,
               hasMore: pagination.hasMore,
               isLoading: pagination.isLoading || _pageRequestInFlight,
               onPreviousPage: pagination.onPreviousPage == null

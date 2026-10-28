@@ -1,8 +1,9 @@
 # KikoFlu
 
-KikoFlu combines audio playback and comic reading. Audio uses a persistent compact
-surface and a full-screen player; comics use source-backed libraries and a
-full-screen reader with shared playback access.
+KikoFlu combines audio playback, comic reading, and video playback. Audio uses a
+persistent compact surface and a full-screen player; comics use source-backed
+libraries and a full-screen reader with shared playback access. Video uses a
+separate inline player with full-screen playback and local downloads.
 
 ## Language
 
@@ -11,15 +12,127 @@ The persistent compact playback surface shown below the app's main content.
 _Avoid_: Player bar
 
 **App Tab Bar (应用标签栏)**:
-The primary app navigation containing Audio, Comics, and Settings.
+The primary app navigation containing Audio, Comics, Videos, and Settings.
 _Avoid_: Player navigation, bottom menu
+
+**Video Screen (视频页)**:
+The app page for browsing videos from a Video Source.
+_Avoid_: Video player, source website
+
+**Video Collection Layout (视频集合布局)**:
+The presentation of video cards as a big grid, small grid, or list.
+_Avoid_: Video playback mode
+
+**Four-line Card Title Height (作品卡片四行标题高度)**:
+作品卡片采用当前字体、字号、行高和系统文字缩放时，4 行标题占用的高度。
+该高度与单个标题实际显示的行数无关。
+
+**Video Catalog Number (作品番号)**:
+The identifier assigned to a video work, independent of a Video Source's page
+identifier and version labels such as subtitle or uncensored variants.
+_Avoid_: Video ID, page identifier
+
+**Video Content Navigation (视频内容导航)**:
+The curated entries for directly browsing a Video Source's video collections.
+Search conditions belong to Video Search Filters.
+_Avoid_: Video Search Filters, Source website services, Video Collection Layout
+
+**Recommended for You (推荐给你)**:
+The recommendation collection presented on a Video Source's home page.
+_Avoid_: Related Recommendations, Video Details Screen recommendations
+
+**New Releases (新作上市)**:
+The Video Source's collection of newly released videos, distinct from recently
+updated videos.
+_Avoid_: Latest updates
+
+**Video Search Filters (视频搜索筛选)**:
+Conditions such as category, actor, or studio that narrow a video search.
+_Avoid_: Video Content Navigation, Video Collection Layout
+
+**Video Collection Page (视频集合分页)**:
+A numbered portion of a video feed, search result, or download list.
+_Avoid_: Video Resume Position
+
+**Video Source (视频源)**:
+A provider of video catalogs and playback, such as MissAV (missav.ai).
+_Avoid_: Audio Source, Comic Source
+
+**Video Source Account (视频源账号)**:
+A user's account with a Video Source and the source-owned collections belonging
+to that account.
+_Avoid_: Audio account, comic account
+
+**Video Source Verification (视频源验证)**:
+The website check required before a Video Source permits access from the current
+network. It is separate from signing in to a Video Source Account.
+_Avoid_: Video account login
+
+**Video Details Screen (视频详情页)**:
+The app page containing one video's inline Video Player, information, and related
+recommendations.
+_Avoid_: Video Screen, source website
+
+**Video Basic Information (视频基础信息)**:
+A video's source-provided information outside its genre, maker, label, series,
+director, and actor classifications, such as its catalog number, release date,
+and duration.
+
+**Video Directory Link (视频目录链接)**:
+A Video Source link to videos sharing a genre, maker, label, series, director,
+or actor. A metadata name can exist without a Video Directory Link.
+
+**Video Player (视频播放器)**:
+The viewing and playback-control surface for a video, including inline and
+full-screen modes, playback gestures, and playback options. Video metadata and
+related recommendations belong to the Video Details Screen.
+_Avoid_: Video Screen, Video Details Screen
+
+**Video Playback Settings (视频播放设置)**:
+Preferences controlling a Video Player's playback and interactions. They are
+separate from the video card fields shown while browsing.
+_Avoid_: Video card settings
+
+**Video First Frame Wait (视频首帧等待)**:
+从触发视频卡片或播放器播放按钮，到视频播放器显示首个可见视频画面的时间。
+视频自带的片头黑场也会延长这段等待。
+
+**Video Controls (视频控制层)**:
+The Video Player's title bar, progress control, and playback actions shown over
+the viewing surface.
+_Avoid_: Video picture, Video Playback Settings
+
+**Video Side Bars (视频左右黑边)**:
+The areas to the left and right of the video picture inside the Video Player
+when the picture is narrower than the viewing surface.
+_Avoid_: System safe area, page margin
+
+**Video Source Favorite (视频源收藏)**:
+A video saved in a Video Source Account's collection, belonging to that account.
+_Avoid_: Local Favorite, comic Source Favorite
+
+**Video Watch History (视频观看历史)**:
+A Video Source Account's list of watched videos.
+_Avoid_: Video Resume Position, audio playback history
+
+**Video Resume Position (视频续播进度)**:
+The saved playback time used to resume a particular video.
+_Avoid_: Video Watch History, Reading Progress
+
+**Video Download (视频下载)**:
+A saved copy of a video for playback without access to its Video Source.
+_Avoid_: Video Source Favorite, playback buffer
+
+**Simultaneous Audio and Video Playback (音声与视频同时播放)**:
+Playing an audio track and a video at the same time, each with independently
+adjustable volume.
 
 **Audio Screen (音声页)**:
 The app page that contains the Works Home Page and the user's online marks,
 history, playlists, downloads, and subtitle library pages. A fixed header shows
 the menu button, current page name, and an entry to the scoped search screen.
-The drawer contains
-vertical source and page entries, followed by the current page's browse options.
+The sidebar shows the current page's options beneath its page entry, with shared
+browsing options in a separate group; swiping right across the main content opens it.
 _Avoid_: Home page, My page
 
 **Audio Source (音声源)**:
@@ -78,6 +191,11 @@ _Avoid_: global works search
 The selected Audio Source's lists of tags, voice actors, and circles used to
 choose work search conditions. Catalog entries identify a tag, voice actor, or
 circle; they are distinct from the matching works.
+
+**User-added Audio Tag (用户添加的标签)**:
+由音声源用户补充的作品标签，与作品默认标签区分。
+标签来源不表示票数高低。
+_避免_：低愿力标签、低票数标签
 
 **Work Details Screen (作品详情页)**:
 The online or offline screen describing a work and its available resource files.
@@ -182,7 +300,9 @@ Exporting the reader's full loaded image bytes for the actual current page.
 A two-image spread requires choosing one visible image before saving.
 
 **Bottom Dock (底部 Dock)**:
-The portrait Main Screen region formed by the Mini Player and App Tab Bar.
+The persistent Mini Player and app navigation shared by browsing pages.
+App navigation stays below the content in portrait and on the left in landscape.
+Full-screen audio playback, comic reading, and full-screen video hide this surface.
 _Avoid_: Mini Player, App Tab Bar
 
 **Player Cover Page (播放器封面页)**:
@@ -344,8 +464,10 @@ _避免_：应用配色、全局主题
 
 
 **Comic Screen (漫画页)**:
-The app page containing Home, Favorites, History, and Downloaded tabs. It shares
-floating navigation and toolbar behavior with the Audio Screen.
+The app page containing the Comic Home Page, favorites, history, and downloads,
+with the same header and sidebar behavior as the Audio Screen. Its selected
+Favorites entry shows the Local Favorite and Source Favorite choices, while
+Comic Collection Layout remains shared across pages.
 _Avoid_: Works Home Tab, discovery page
 
 **Comic Details Screen (漫画详情页)**:

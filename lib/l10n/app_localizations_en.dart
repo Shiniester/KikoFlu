@@ -1534,9 +1534,6 @@ class SEn extends S {
   String get showPrice => 'Show Price';
 
   @override
-  String get cardSize => 'Card Size';
-
-  @override
   String get compact => 'Compact';
 
   @override
@@ -3708,39 +3705,16 @@ class SEn extends S {
   String get showWorkCircle => 'Show work\'s circle';
 
   @override
-  String get workCardSizeSubtitle =>
-      'Adjust grid density to make covers larger or keep the current size';
-
-  @override
-  String get workCardFontSize => 'Card Text Size';
-
-  @override
-  String get workCardFontSizeSubtitle =>
-      'Adjust title and metadata text on work cards';
-
-  @override
-  String get cardSizeNormal => 'Normal';
-
-  @override
-  String get cardSizeLarge => 'Large';
-
-  @override
-  String get cardSizeExtraLarge => 'XL';
-
-  @override
-  String get fontSizeNormal => 'Normal';
-
-  @override
-  String get fontSizeLarge => 'Large';
-
-  @override
-  String get fontSizeExtraLarge => 'XL';
-
-  @override
   String get showSubtitleTagOnCard => 'Show subtitle tag on work card';
 
   @override
   String get showAgeRatingOnCard => 'Show age rating on work card';
+
+  @override
+  String get userAddedTagsLabel => 'User-added Tags';
+
+  @override
+  String get showUserAddedTagsOnCard => 'Show user-added tags on work cards';
 
   @override
   String get showOnlineMarks => 'Show online marked works';
@@ -4410,6 +4384,472 @@ class SEn extends S {
 
   @override
   String get installFailed => 'Failed to launch installer';
+
+  @override
+  String get navVideos => 'Videos';
+
+  @override
+  String get videoSettings => 'Video settings';
+
+  @override
+  String get videoCardMakers => 'Studio';
+
+  @override
+  String get videoCardLabels => 'Label';
+
+  @override
+  String get videoCardDirectors => 'Directors';
+
+  @override
+  String get videoDetailActors => 'Actors';
+
+  @override
+  String get videoDetailCreators => 'Studio | Label | Series';
+
+  @override
+  String get videoSearchHint => 'Search videos';
+
+  @override
+  String get videoSourceAccount => 'MissAV account';
+
+  @override
+  String get videoCatalog => 'Browse videos';
+
+  @override
+  String get videoContent => 'Content';
+
+  @override
+  String get videoRecentlyUpdated => 'Recently updated';
+
+  @override
+  String get videoNewReleases => 'New releases';
+
+  @override
+  String get videoChineseSubtitles => 'Chinese subtitles';
+
+  @override
+  String get videoWeeklyHot => 'Popular this week';
+
+  @override
+  String get videoUncensoredLeak => 'Uncensored leaks';
+
+  @override
+  String get videoRecommendedForYou => 'Recommended for you';
+
+  @override
+  String get videoFilterGenre => 'Genre';
+
+  @override
+  String get videoFilterActor => 'Actor';
+
+  @override
+  String get videoFilterStudio => 'Studio';
+
+  @override
+  String get videoFilterSeries => 'Series';
+
+  @override
+  String get videoFavorites => 'Video favorites';
+
+  @override
+  String get videoActorFavorites => 'Actor favorites';
+
+  @override
+  String get videoWatchHistory => 'Watch history';
+
+  @override
+  String get videoDownloads => 'Video downloads';
+
+  @override
+  String get videoSourceUnavailable =>
+      'This source feature is unavailable in the app. Open it on MissAV.';
+
+  @override
+  String get videoVerificationRequired =>
+      'MissAV requires browser verification. Verify access, then retry.';
+
+  @override
+  String get videoVerifyAccess => 'Verify access';
+
+  @override
+  String get videoVerificationHelp =>
+      'Complete verification on MissAV, then select Check access.';
+
+  @override
+  String get videoVerificationContinue => 'Check access';
+
+  @override
+  String get videoVerificationFailed =>
+      'Access check failed. Complete browser verification, then retry.';
+
+  @override
+  String get videoVerificationSystemProxyRequired =>
+      'Browser verification requires the system proxy mode. Change the network settings, then retry.';
+
+  @override
+  String get videoLoginRequired =>
+      'Sign in to a MissAV account to use this feature.';
+
+  @override
+  String get videoLoadFailed =>
+      'Videos could not be loaded. Retry or open MissAV.';
+
+  @override
+  String get videoPlaybackFailed => 'Playback failed. Retry or open MissAV.';
+
+  @override
+  String get videoDownloadFailed =>
+      'Download failed. Retry from video downloads.';
+
+  @override
+  String get videoEmail => 'Email';
+
+  @override
+  String get videoRegisterOnSource => 'Register on MissAV';
+
+  @override
+  String get videoResetPasswordOnSource => 'Reset password on MissAV';
+
+  @override
+  String get videoPasswordOnSource => 'Change password on MissAV';
+
+  @override
+  String get videoAccountSourceHint =>
+      'These actions open MissAV. Select registration or password management on the website.';
+
+  @override
+  String get videoQuality => 'Quality';
+
+  @override
+  String get videoRelated => 'Related videos';
+
+  @override
+  String get videoDownloadQueued => 'Queued';
+
+  @override
+  String get videoDownloadPaused => 'Paused';
+
+  @override
+  String get videoDownloadFailedStatus => 'Failed';
+
+  @override
+  String get videoDownloadCompleted => 'Downloaded';
+
+  @override
+  String get videoDownloadInProgress => 'Downloading';
+
+  @override
+  String get videoNoStreams =>
+      'No playable stream was found. Open MissAV to play this video.';
+
+  @override
+  String get videoPlaylistName => 'Playlist name';
+
+  @override
+  String get videoAddToPlaylist => 'Add to playlist';
+
+  @override
+  String get videoCreatePlaylist => 'Create playlist';
+
+  @override
+  String get videoRenamePlaylist => 'Rename playlist';
+
+  @override
+  String get videoDeletePlaylist => 'Delete playlist';
+
+  @override
+  String get videoOpenSource => 'Open MissAV';
+
+  @override
+  String get videoDownloadDeleteConfirm =>
+      'Delete this video download? Offline playback will no longer be available.';
+
+  @override
+  String get videoPlay => 'Play';
+
+  @override
+  String get videoFullscreen => 'Fullscreen';
+
+  @override
+  String get videoSubtitle => 'Subtitles';
+
+  @override
+  String get videoUncensored => 'Uncensored';
+
+  @override
+  String get videoFavoriteActor => 'Favorite actor';
+
+  @override
+  String get videoUnfavoriteActor => 'Unfavorite actor';
+
+  @override
+  String get videoPlayerSettings => 'Player settings';
+
+  @override
+  String get videoPlayerMoreOptions => 'More options';
+
+  @override
+  String get videoPlayerLockControls => 'Lock controls';
+
+  @override
+  String get videoPlayerUnlockControls => 'Unlock controls';
+
+  @override
+  String get videoPlayerTakeScreenshot => 'Take screenshot';
+
+  @override
+  String get videoPlayerBrightness => 'Brightness';
+
+  @override
+  String get videoPlayerAspectRatio => 'Aspect ratio';
+
+  @override
+  String get videoPlayerFitContain => 'Auto fit';
+
+  @override
+  String get videoPlayerFitFill => 'Stretch';
+
+  @override
+  String get videoPlayerFitCover => 'Crop';
+
+  @override
+  String get videoPlayerFitWidth => 'Fit width';
+
+  @override
+  String get videoPlayerFitHeight => 'Fit height';
+
+  @override
+  String get videoPlayerFitOriginal => 'Original size';
+
+  @override
+  String get videoPlayerFitScaleDown => 'Limit size';
+
+  @override
+  String get videoPlayerFitFourThree => '4:3';
+
+  @override
+  String get videoPlayerFitSixteenNine => '16:9';
+
+  @override
+  String get videoPlayerAudioTrack => 'Audio track';
+
+  @override
+  String get videoPlayerSubtitleTrack => 'Subtitle track';
+
+  @override
+  String get videoPlayerSubtitleOffset => 'Subtitle offset';
+
+  @override
+  String get videoPlayerSubtitleStyle => 'Subtitle style';
+
+  @override
+  String get videoPlayerSubtitleFontSize => 'Subtitle size';
+
+  @override
+  String get videoPlayerSubtitleBackground => 'Subtitle background';
+
+  @override
+  String get videoPlayerDoubleTapSeek => 'Double tap to seek';
+
+  @override
+  String get videoPlayerDoubleTapSeekDuration => 'Double-tap seek duration';
+
+  @override
+  String get videoPlayerLongPressSpeed => 'Long-press speed';
+
+  @override
+  String get videoPlayerDynamicLongPressSpeed => 'Dynamic long-press speed';
+
+  @override
+  String get videoPlayerBackgroundPlayback => 'Background playback';
+
+  @override
+  String get videoPlayerPictureInPicture => 'Picture-in-picture';
+
+  @override
+  String get videoPlayerExtendedControlTime => 'Extend control display time';
+
+  @override
+  String get videoPlayerRepeatOnce => 'Play once';
+
+  @override
+  String get videoPlayerRepeatSingle => 'Repeat one';
+
+  @override
+  String get videoPlayerRepeatRelated => 'Play related videos';
+
+  @override
+  String get videoPlayerAutoPlay => 'Auto play';
+
+  @override
+  String get videoPlayerAutoFullscreen => 'Enter fullscreen automatically';
+
+  @override
+  String get videoPlayerAutoExitFullscreen => 'Exit fullscreen automatically';
+
+  @override
+  String get videoPlayerAutoPip => 'Enter picture-in-picture automatically';
+
+  @override
+  String get videoPlayerSideSwipeAdjust =>
+      'Swipe to adjust brightness and volume';
+
+  @override
+  String get videoPlayerFullscreenGesture => 'Swipe to toggle fullscreen';
+
+  @override
+  String get videoPlayerRelativeSwipeSeek => 'Seek relative to video length';
+
+  @override
+  String get videoPlayerSwipeSeekDuration => 'Full-width swipe seek duration';
+
+  @override
+  String get videoPlayerExpandVertical => 'Expand vertical videos';
+
+  @override
+  String get videoPlayerKeyboardControl => 'Keyboard controls';
+
+  @override
+  String get videoPlayerReverseFullscreenGesture =>
+      'Reverse fullscreen gesture';
+
+  @override
+  String get videoPlayerFullscreenOrientation => 'Fullscreen orientation';
+
+  @override
+  String get videoPlayerOrientationAuto => 'Auto';
+
+  @override
+  String get videoPlayerOrientationNone => 'Keep orientation';
+
+  @override
+  String get videoPlayerOrientationPortrait => 'Portrait';
+
+  @override
+  String get videoPlayerOrientationLandscape => 'Landscape';
+
+  @override
+  String get videoPlayerOrientationRatio => 'Match video aspect ratio';
+
+  @override
+  String get videoPlayerOrientationGravity => 'Follow device rotation';
+
+  @override
+  String get videoPlayerBottomProgressMode => 'Bottom progress bar';
+
+  @override
+  String get videoPlayerBottomProgressAlways => 'Always show';
+
+  @override
+  String get videoPlayerBottomProgressNever => 'Never show';
+
+  @override
+  String get videoPlayerBottomProgressFullscreenOnly => 'Fullscreen only';
+
+  @override
+  String get videoPlayerBottomProgressInlineOnly => 'Inline only';
+
+  @override
+  String get videoPlayerShowFullscreenLockButton =>
+      'Show fullscreen lock button';
+
+  @override
+  String get videoPlayerShowFullscreenScreenshotButton =>
+      'Show fullscreen screenshot button';
+
+  @override
+  String get videoPlayerSystemBrightness => 'Adjust system brightness';
+
+  @override
+  String get videoPlayerSystemBrightnessPermission =>
+      'Allow changing system settings to adjust system brightness.';
+
+  @override
+  String get videoPlayerSpeedList => 'Speed list';
+
+  @override
+  String get videoPlayerAddSpeed => 'Add speed';
+
+  @override
+  String get videoPlayerDefaultSpeed => 'Default speed';
+
+  @override
+  String get videoPlayerInvalidSpeed => 'Enter a valid speed greater than 0.';
+
+  @override
+  String get videoPlayerShowFullscreenBattery =>
+      'Show battery level in fullscreen';
+
+  @override
+  String get videoPlayerAlwaysOnTop => 'Always on top';
+
+  @override
+  String get videoPlayerCancelAlwaysOnTop => 'Stop keeping on top';
+
+  @override
+  String get videoPlayerRestoreScreen => 'Reset view';
+
+  @override
+  String get videoPlayerFlipHorizontal => 'Flip horizontally';
+
+  @override
+  String get videoPlayerFlipVertical => 'Flip vertically';
+
+  @override
+  String get videoPlayerReload => 'Reload video';
+
+  @override
+  String get videoPlayerPlaybackInfo => 'Playback information';
+
+  @override
+  String get videoPlayerSuperResolution => 'Super resolution';
+
+  @override
+  String get videoPlayerSuperResolutionOff => 'Disabled';
+
+  @override
+  String get videoPlayerSuperResolutionEfficiency => 'Efficiency';
+
+  @override
+  String get videoPlayerSuperResolutionQuality => 'Quality';
+
+  @override
+  String get videoPlayerSleepTimer => 'Sleep timer';
+
+  @override
+  String videoPlayerTimerMinutes(int minutes) {
+    return '$minutes min';
+  }
+
+  @override
+  String get videoPlayerTimerCustom => 'Custom duration';
+
+  @override
+  String get videoPlayerTimerHourUnit => 'h';
+
+  @override
+  String get videoPlayerTimerMinuteUnit => 'min';
+
+  @override
+  String get videoPlayerExitApp => 'Exit app';
+
+  @override
+  String get videoPlayerInfoResolution => 'Resolution';
+
+  @override
+  String get videoPlayerInfoVideoCodec => 'Video codec';
+
+  @override
+  String get videoPlayerInfoFrameRate => 'Frame rate';
+
+  @override
+  String get videoPlayerInfoVideoBitrate => 'Video bitrate';
+
+  @override
+  String get videoPlayerInfoAudioCodec => 'Audio codec';
+
+  @override
+  String get videoPlayerInfoAudioFormat => 'Audio format';
 
   @override
   String get audioSlices => 'Audio slices';

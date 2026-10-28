@@ -29,6 +29,12 @@ import 'age_rating_chip.dart';
 
 final _log = LogService.instance;
 
+TextStyle historyWorkCardTitleStyle(BuildContext context) => TextStyle(
+  fontSize: 13,
+  fontWeight: FontWeight.w600,
+  color: Theme.of(context).colorScheme.onSurface,
+);
+
 class HistoryWorkCard extends ConsumerWidget {
   final HistoryRecord record;
   final VoidCallback? onTap;
@@ -48,18 +54,33 @@ class HistoryWorkCard extends ConsumerWidget {
     final token = authState.token ?? '';
     final work = record.work;
     final showAgeRating = ref.watch(workCardDisplayProvider).showAgeRating;
+    final isList = layoutType == LayoutType.list;
+    final titleStyle = historyWorkCardTitleStyle(context);
+    final listCoverSize = isList
+        ? collectionListCoverSizeForTitle(context, titleStyle: titleStyle)
+        : null;
+    final listCoverCacheWidth = isList
+        ? resolveWorkCoverCacheWidth(
+            context,
+            crossAxisCount: 1,
+            listCoverWidth: listCoverSize!.width,
+          )
+        : null;
 
     final initialCoverImageProvider = host.isEmpty
         ? null
-        : createWorkCoverImageProvider(work: work, host: host, token: token);
+        : createWorkCoverImageProvider(
+            work: work,
+            host: host,
+            token: token,
+            cacheWidth: listCoverCacheWidth,
+          );
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isList = layoutType == LayoutType.list;
-        final coverWidth = isList
-            ? collectionListCoverSize.width
-            : constraints.maxWidth;
+        final coverWidth = isList ? listCoverSize!.width : constraints.maxWidth;
         final cornerRadius = collectionCoverRadius(coverWidth);
+        final infoScale = collectionCoverInfoScale(coverWidth);
         final cover = ClipRRect(
           borderRadius: BorderRadius.circular(cornerRadius),
           child: Stack(
@@ -75,6 +96,7 @@ class HistoryWorkCard extends ConsumerWidget {
                         work: work,
                         host: host,
                         token: token,
+                        cacheWidth: listCoverCacheWidth,
                       ),
                       fadeInDuration: const Duration(milliseconds: 500),
                       placeholder: (context) => Container(
@@ -115,9 +137,17 @@ class HistoryWorkCard extends ConsumerWidget {
                   showAgeRating &&
                   AgeRatingFormatter.hasValue(work.age))
                 Positioned(
-                  top: 8,
-                  right: 8,
-                  child: AgeRatingChip(age: work.age, compact: true),
+                  top: 8 * infoScale,
+                  right: 8 * infoScale,
+                  child: AgeRatingChip(
+                    age: work.age,
+                    compact: true,
+                    fontSize: 10 * infoScale,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 6 * infoScale,
+                      vertical: 2 * infoScale,
+                    ),
+                  ),
                 ),
               if (record.lastTrack != null)
                 Positioned(
@@ -152,13 +182,9 @@ class HistoryWorkCard extends ConsumerWidget {
             children: [
               Text(
                 work.title,
-                maxLines: isList ? 2 : 1,
+                maxLines: collectionCardTitleMaxLines,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
+                style: titleStyle,
               ),
               const SizedBox(height: 2),
               Text(
@@ -247,7 +273,9 @@ class HistoryWorkCard extends ConsumerWidget {
         );
 
         return Card(
-          margin: isList ? const EdgeInsets.all(4) : EdgeInsets.zero,
+          margin: isList
+              ? const EdgeInsets.symmetric(vertical: 4)
+              : EdgeInsets.zero,
           clipBehavior: Clip.antiAlias,
           elevation: 2,
           shape: RoundedRectangleBorder(
@@ -293,7 +321,7 @@ class HistoryWorkCard extends ConsumerWidget {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SizedBox(width: 80, height: 60, child: cover),
+                        SizedBox.fromSize(size: listCoverSize!, child: cover),
                         const SizedBox(width: 8),
                         Expanded(child: info),
                       ],

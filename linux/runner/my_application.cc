@@ -12,9 +12,41 @@
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
+  guint video_inhibit_cookie;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
+
+static void video_method_call(FlMethodChannel*, FlMethodCall* call, gpointer data) {
+  MyApplication* self = MY_APPLICATION(data);
+  const gchar* method = fl_method_call_get_name(call);
+  if (g_strcmp0(method, "setKeepScreenOn") != 0 && g_strcmp0(method, "dispose") != 0) {
+    g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+    fl_method_call_respond(call, response, nullptr);
+    return;
+  }
+  FlValue* args = fl_method_call_get_args(call);
+  FlValue* value = args && fl_value_get_type(args) == FL_VALUE_TYPE_MAP
+      ? fl_value_lookup_string(args, "enabled") : nullptr;
+  const bool enabled = g_strcmp0(method, "dispose") != 0 && value &&
+      fl_value_get_type(value) == FL_VALUE_TYPE_BOOL && fl_value_get_bool(value);
+  if (enabled && self->video_inhibit_cookie == 0) {
+    self->video_inhibit_cookie = gtk_application_inhibit(
+        GTK_APPLICATION(self), gtk_application_get_active_window(GTK_APPLICATION(self)),
+        GTK_APPLICATION_INHIBIT_IDLE, "KikoFlu video playback");
+    if (self->video_inhibit_cookie == 0) {
+      g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(fl_method_error_response_new(
+          "screen_awake_failed", "Desktop session rejected display sleep inhibition.", nullptr));
+      fl_method_call_respond(call, response, nullptr);
+      return;
+    }
+  } else if (!enabled && self->video_inhibit_cookie != 0) {
+    gtk_application_uninhibit(GTK_APPLICATION(self), self->video_inhibit_cookie);
+    self->video_inhibit_cookie = 0;
+  }
+  g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+  fl_method_call_respond(call, response, nullptr);
+}
 
 // Flutter already bundles the shared icon under flutter_assets. Resolve it
 // from the running executable so the icon works for both debug bundles and
@@ -135,6 +167,12 @@ static void my_application_activate(GApplication* application) {
   gtk_widget_realize(GTK_WIDGET(view));
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
+  g_autoptr(FlStandardMethodCodec) video_codec = fl_standard_method_codec_new();
+  g_autoptr(FlMethodChannel) video_channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(fl_view_get_engine(view)),
+      "com.meteor.kikoeruflutter/video_player", FL_METHOD_CODEC(video_codec));
+  fl_method_channel_set_method_call_handler(video_channel, video_method_call,
+      g_object_ref(self), g_object_unref);
 
   desktop_multi_window_plugin_set_window_created_callback(
       [](FlPluginRegistry* registry) {

@@ -30,7 +30,6 @@ import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/player/lyric_display_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_action_icons.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_controls_widget.dart';
-import 'package:kikoeru_flutter/src/widgets/player/player_cover_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_page_scroll_physics.dart';
@@ -867,10 +866,6 @@ void main() {
       await tester.tap(find.byIcon(Icons.more_vert));
       await tester.pumpAndSettle();
       expect(find.byType(ResponsiveBottomSheet), findsOneWidget);
-      expect(
-        find.byType(BottomSheet),
-        size.width > size.height ? findsNothing : findsOneWidget,
-      );
 
       for (final action in ['sleepTimer', 'speed', 'subtitleAdjustment']) {
         final button = find.byKey(ValueKey('player-more-action-$action'));
@@ -996,8 +991,6 @@ void main() {
           .initialSurface,
       PlayerInitialSurface.queue,
     );
-    expect(_mainArtworkHero(), findsNothing);
-    expect(_playerRouteHeroMode(tester).enabled, isFalse);
 
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
@@ -1923,15 +1916,9 @@ void main() {
     await openQueue();
     expect(identical(tester.widget(background), widget), isTrue);
     expect(_compactQueueProgress(tester), closeTo(1, 0.001));
-    final artworkHeroMode = find.ancestor(
-      of: _mainArtworkHero(),
-      matching: find.byType(HeroMode, skipOffstage: false),
-    );
-    expect(tester.widget<HeroMode>(artworkHeroMode).enabled, isFalse);
     await closeQueue();
     expect(identical(tester.widget(background), widget), isTrue);
     expect(_compactQueueProgress(tester), closeTo(0, 0.001));
-    expect(tester.widget<HeroMode>(artworkHeroMode).enabled, isTrue);
     expect(tester.takeException(), isNull);
   });
 
@@ -2653,41 +2640,6 @@ void main() {
     expect(find.byKey(const ValueKey('lyrics-pane-compact')), findsOneWidget);
   });
 
-  testWidgets('only the visible compact cover page enables artwork Hero', (
-    tester,
-  ) async {
-    await _pumpPlayer(tester, const Size(390, 844), pushedRoute: true);
-    _expectMainArtworkHeroState(tester, enabled: true);
-
-    await tester.drag(
-      find.byKey(const ValueKey('compact-player-pages')),
-      const Offset(320, 0),
-    );
-    await tester.pumpAndSettle();
-    _expectMainArtworkHeroState(tester, enabled: false);
-
-    await tester.drag(
-      find.byKey(const ValueKey('compact-player-pages')),
-      const Offset(-320, 0),
-    );
-    await tester.pumpAndSettle();
-    _expectMainArtworkHeroState(tester, enabled: true);
-
-    await tester.drag(
-      find.byKey(const ValueKey('compact-player-pages')),
-      const Offset(-320, 0),
-    );
-    await tester.pumpAndSettle();
-    _expectMainArtworkHeroState(tester, enabled: false);
-
-    await tester.drag(
-      find.byKey(const ValueKey('compact-player-pages')),
-      const Offset(320, 0),
-    );
-    await tester.pumpAndSettle();
-    _expectMainArtworkHeroState(tester, enabled: true);
-  });
-
   testWidgets(
     'cover tap keeps compact page while horizontal swipe opens lyrics',
     (tester) async {
@@ -2702,11 +2654,9 @@ void main() {
       await tester.pump();
 
       expect(horizontal.controller!.page, 1);
-      _expectMainArtworkHeroState(tester, enabled: true);
 
       await tester.pumpAndSettle();
       expect(horizontal.controller!.page, 1);
-      _expectMainArtworkHeroState(tester, enabled: true);
 
       await tester.drag(
         find.byKey(const ValueKey('compact-player-pages')),
@@ -2714,37 +2664,8 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(horizontal.controller!.page, 2);
-      _expectMainArtworkHeroState(tester, enabled: false);
     },
   );
-
-  testWidgets('wide artwork Hero follows visible left pane', (tester) async {
-    await _pumpPlayer(tester, const Size(1280, 720), pushedRoute: true);
-    _expectMainArtworkHeroState(tester, enabled: true);
-
-    await tester.tap(find.byKey(const ValueKey('player-cover-lyric-preview')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('lyrics-pane-wide')), findsOneWidget);
-    _expectMainArtworkHeroState(tester, enabled: true);
-
-    await tester.drag(
-      find.byKey(const ValueKey('wide-left-pages')),
-      const Offset(600, 0),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey('wide-audio-details-pane')),
-      findsOneWidget,
-    );
-    _expectMainArtworkHeroState(tester, enabled: false);
-
-    await tester.drag(
-      find.byKey(const ValueKey('wide-left-pages')),
-      const Offset(-600, 0),
-    );
-    await tester.pumpAndSettle();
-    _expectMainArtworkHeroState(tester, enabled: true);
-  });
 
   testWidgets('compact artwork uses the denser rectangular frame', (
     tester,
@@ -3331,80 +3252,6 @@ void main() {
     expect(find.text('mini-player-host'), findsOneWidget);
   });
 
-  testWidgets(
-    'Player Cover Page title row follows the reversible fade window',
-    (tester) async {
-      await _pumpPlayer(tester, const Size(390, 844), pushedRoute: true);
-      final route =
-          ModalRoute.of<void>(tester.element(find.byType(AudioPlayerScreen)))!
-              as AudioPlayerPageRoute<void>;
-      expect(
-        route.beginVerticalDismissGesture(PlayerDismissVisualMode.main),
-        isTrue,
-      );
-      final header = find.byKey(
-        const ValueKey('compact-player-cover-header-opacity'),
-      );
-      final extent = route.debugRouteTravelDistance;
-
-      for (final progress in <double>[0.85, 0.7, 0.55, 0.7, 0.85]) {
-        route.updateVerticalDismissGesture(
-          distance: extent * (1 - progress),
-          extent: extent,
-        );
-        await tester.pump();
-        expect(
-          tester.widget<Opacity>(header).opacity,
-          closeTo(playerCoverHeaderOpacity(progress), 0.001),
-        );
-      }
-      expect(
-        find.descendant(
-          of: header,
-          matching: find.byKey(const ValueKey('player-more-button')),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: header, matching: find.text(_track.title)),
-        findsOneWidget,
-      );
-
-      route.cancelVerticalDismissGesture();
-      await tester.pumpAndSettle();
-      expect(tester.widget<Opacity>(header).opacity, 1);
-    },
-  );
-
-  testWidgets('wide Player Cover Page title row uses the same fade window', (
-    tester,
-  ) async {
-    await _pumpPlayer(tester, const Size(1280, 720), pushedRoute: true);
-    final route =
-        ModalRoute.of<void>(tester.element(find.byType(AudioPlayerScreen)))!
-            as AudioPlayerPageRoute<void>;
-    expect(
-      route.beginVerticalDismissGesture(PlayerDismissVisualMode.main),
-      isTrue,
-    );
-    const progress = 0.7;
-    route.updateVerticalDismissGesture(
-      distance: route.debugRouteTravelDistance * (1 - progress),
-      extent: route.debugRouteTravelDistance,
-    );
-    await tester.pump();
-    final header = find.byKey(
-      const ValueKey('wide-player-cover-header-opacity'),
-    );
-    expect(
-      tester.widget<Opacity>(header).opacity,
-      closeTo(playerCoverHeaderOpacity(progress), 0.001),
-    );
-
-    route.cancelVerticalDismissGesture();
-    await tester.pumpAndSettle();
-  });
-
   testWidgets('fixed header dismisses directly from Player Lyrics Page', (
     tester,
   ) async {
@@ -3414,7 +3261,6 @@ void main() {
       const Offset(-320, 0),
     );
     await tester.pumpAndSettle();
-    _expectMainArtworkHeroState(tester, enabled: false);
     _expectSecondaryPageRouteGeometry(tester);
 
     final route =
@@ -3429,14 +3275,6 @@ void main() {
       extent: route.debugRouteTravelDistance,
     );
     await tester.pump();
-    expect(
-      tester
-          .widget<Opacity>(
-            find.byKey(const ValueKey('compact-player-cover-header-opacity')),
-          )
-          .opacity,
-      1,
-    );
     route.cancelVerticalDismissGesture();
     await tester.pumpAndSettle();
 
@@ -3458,7 +3296,6 @@ void main() {
       const Offset(320, 0),
     );
     await tester.pumpAndSettle();
-    _expectMainArtworkHeroState(tester, enabled: false);
     _expectSecondaryPageRouteGeometry(tester);
 
     await tester.binding.handlePopRoute();
@@ -3476,7 +3313,6 @@ void main() {
       const Offset(-320, 0),
     );
     await tester.pumpAndSettle();
-    _expectMainArtworkHeroState(tester, enabled: false);
     _expectSecondaryPageRouteGeometry(tester);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
@@ -4013,7 +3849,7 @@ void main() {
   });
 
   testWidgets(
-    'more cards match and closing more does not restore search input',
+    'more uses full-width rows and closing it does not restore search input',
     (tester) async {
       final lyrics = List.generate(
         4,
@@ -4047,18 +3883,23 @@ void main() {
       final overflowSize = tester.getSize(
         find.byKey(const ValueKey('player-more-action-floatingLyric')),
       );
-      expect(fullscreenSize, keepAwakeSize);
-      expect(lyricSettingsSize, keepAwakeSize);
-      expect(overflowSize, keepAwakeSize);
-      expect(keepAwakeSize.height, 72);
+      for (final size in [
+        keepAwakeSize,
+        fullscreenSize,
+        lyricSettingsSize,
+        overflowSize,
+      ]) {
+        expect(size.width, keepAwakeSize.width);
+        expect(size.height, greaterThanOrEqualTo(48));
+      }
       final lyricSettingsRect = tester.getRect(
         find.byKey(const ValueKey('player-more-lyric-settings-card')),
       );
       final detailsRect = tester.getRect(
         find.byKey(const ValueKey('player-more-action-detail')),
       );
-      expect(lyricSettingsRect.top, closeTo(detailsRect.top, 0.01));
-      expect(lyricSettingsRect.left, lessThan(detailsRect.left));
+      expect(lyricSettingsRect.bottom, closeTo(detailsRect.top, 0.01));
+      expect(lyricSettingsRect.left, closeTo(detailsRect.left, 0.01));
       for (final key in const [
         'player-more-action-floatingLyric',
         'player-more-action-sleepTimer',
@@ -4067,7 +3908,7 @@ void main() {
       ]) {
         expect(
           tester.getRect(find.byKey(ValueKey(key))).bottom,
-          lessThan(lyricSettingsRect.top),
+          lessThanOrEqualTo(lyricSettingsRect.top),
         );
       }
       final moreMenu = find
@@ -4087,6 +3928,32 @@ void main() {
       expect(find.byKey(const ValueKey('lyric-search-field')), findsOneWidget);
     },
   );
+
+  testWidgets('more keeps its header fixed while scrolling the audio actions', (
+    tester,
+  ) async {
+    await _pumpPlayer(tester, const Size(390, 844), textScale: 1.6);
+    await tester.tap(find.byKey(const ValueKey('player-more-button')));
+    await tester.pumpAndSettle();
+    final sheet = find.byKey(const ValueKey('responsive-sheet-surface'));
+    final header = find.descendant(
+      of: sheet,
+      matching: find.byType(BottomSheetHeader),
+    );
+    final initialHeaderRect = tester.getRect(header);
+    final scrollable = find
+        .descendant(of: sheet, matching: find.byType(Scrollable))
+        .first;
+    final scrollPosition = tester.state<ScrollableState>(scrollable).position;
+    expect(scrollPosition.maxScrollExtent, greaterThan(0));
+    scrollPosition.jumpTo(scrollPosition.maxScrollExtent);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(header), initialHeaderRect);
+    expect(
+      find.descendant(of: header, matching: find.text('More')).hitTestable(),
+      findsOneWidget,
+    );
+  });
 
   testWidgets(
     'keyboard lifts only lyric controls and clips the lyric viewport',
@@ -4627,34 +4494,6 @@ void main() {
   });
 }
 
-Finder _mainArtworkHero() => find.byWidgetPredicate(
-  (widget) =>
-      widget is Hero &&
-      widget.tag ==
-          playerArtworkHeroTag(_track.id, PlayerArtworkFlightTarget.main),
-  skipOffstage: false,
-);
-
-HeroMode _playerRouteHeroMode(WidgetTester tester) => tester.widget<HeroMode>(
-  find.ancestor(
-    of: find.byKey(const ValueKey('player-route-vertical-translation')),
-    matching: find.byType(HeroMode),
-  ),
-);
-
-void _expectMainArtworkHeroState(WidgetTester tester, {required bool enabled}) {
-  expect(_mainArtworkHero(), findsOneWidget);
-  final modes = tester.widgetList<HeroMode>(
-    find.ancestor(
-      of: _mainArtworkHero(),
-      matching: find.byType(HeroMode, skipOffstage: false),
-    ),
-  );
-  expect(modes.isNotEmpty, isTrue);
-  expect(modes.every((mode) => mode.enabled), enabled);
-  expect(_playerRouteHeroMode(tester).enabled, enabled);
-}
-
 void _expectSecondaryPageRouteGeometry(WidgetTester tester) {
   final route =
       ModalRoute.of<void>(tester.element(find.byType(AudioPlayerScreen)))!
@@ -4665,12 +4504,6 @@ void _expectSecondaryPageRouteGeometry(WidgetTester tester) {
 
   expect(route.debugDismissVisualMode, PlayerDismissVisualMode.secondary);
   expect(route.debugRouteTravelDistance, closeTo(viewportHeight, 0.001));
-  final compactHeader = find.byKey(
-    const ValueKey('compact-player-cover-header-opacity'),
-  );
-  if (compactHeader.evaluate().isNotEmpty) {
-    expect(tester.widget<Opacity>(compactHeader).opacity, 1);
-  }
 }
 
 Future<void> _pumpPlayer(

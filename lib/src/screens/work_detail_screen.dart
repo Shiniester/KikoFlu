@@ -22,6 +22,7 @@ import '../utils/audio_source_headers.dart';
 import '../widgets/file_explorer_widget.dart';
 import '../widgets/file_selection_dialog.dart';
 import '../widgets/app_bottom_dock_transition.dart';
+import '../widgets/app_navigation_scope.dart';
 import '../widgets/global_audio_player_wrapper.dart';
 import '../widgets/responsive_dialog.dart';
 import '../widgets/work_bookmark_manager.dart';
@@ -904,7 +905,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
     final brightness = Theme.of(context).brightness;
     final systemOverlayStyle = transparentSystemBarsForBrightness(brightness);
 
-    return GlobalAudioPlayerWrapper.workDetails(
+    return GlobalAudioPlayerWrapper(
       child: Scaffold(
         floatingActionButton: const DownloadFab(),
         appBar: ScrollableAppBar(
@@ -1014,6 +1015,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
+                  settings: appImmersiveRouteSettings,
                   builder: (context) => WorkImageReader(
                     title: _currentWork.title,
                     images: [

@@ -37,6 +37,7 @@ import '../utils/string_utils.dart';
 import 'file_tree_actions.dart';
 import 'file_tree_view.dart';
 import 'file_explorer_tree_panel.dart';
+import 'app_navigation_scope.dart';
 import 'audio_subtitle_generation_sheet.dart';
 import 'lyric_translation_confirmation.dart';
 import 'work_image_reader.dart';
@@ -46,6 +47,7 @@ import 'manual_subtitle_load_flow.dart';
 import 'text_preview_screen.dart';
 import 'pdf_preview_screen.dart';
 import 'video_open_failure_dialog.dart';
+import 'responsive_dialog.dart';
 
 final _log = LogService.instance;
 
@@ -420,6 +422,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     AudioTapPlaylistMode? modeOverride,
     List<dynamic>? audioFiles,
   }) async {
+    if (!mounted) return;
     final l10n = S.of(context);
     final authState = ref.read(authProvider);
     final host = authState.host ?? '';
@@ -518,6 +521,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   }
 
   Future<void> _generateSubtitles(List<PlayerAudioVariant> variants) async {
+    if (!mounted) return;
     try {
       if (!await confirmLyricTranslationIfNeeded(
         context,
@@ -550,6 +554,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
   }
 
   Future<void> _downloadSingleFile(dynamic file, String parentPath) async {
+    if (!mounted) return;
     final l10n = S.of(context);
     final title = FileTreeUtils.titleOf(file, defaultValue: l10n.unknown);
     final hash = FileTreeUtils.property(file, 'hash')?.toString();
@@ -654,12 +659,11 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
               variant.parentPath == parentPath,
         )
         .firstOrNull;
-    await showModalBottomSheet<void>(
+    await showBottomSheetMenu<void>(
       context: context,
-      showDragHandle: false,
-      builder: (sheetContext) => SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
+      children: [
+        Builder(
+          builder: (sheetContext) => Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (isAudio) ...[
@@ -753,7 +757,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
             ],
           ),
         ),
-      ),
+      ],
     );
   }
 
@@ -804,6 +808,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
         final target = result.requireTarget;
         Navigator.of(context).push(
           MaterialPageRoute(
+            settings: appImmersiveRouteSettings,
             builder: (context) => WorkImageReader(
               title: _work.title,
               images: target.toGalleryMaps(),

@@ -117,6 +117,7 @@ class ProxyConfig {
     } catch (_) {
       // 保存失败不影响本次会话
     }
+    await _syncAndroidWebViewProxy();
   }
 
   /// Compatibility API for callers using the old boolean setting.
@@ -150,6 +151,22 @@ class ProxyConfig {
     _systemHttpsProxy ??= _proxyFromEnvironment(
       Uri.parse('https://api.asmr-200.com/'),
     );
+    await _syncAndroidWebViewProxy();
+  }
+
+  static Future<void> _syncAndroidWebViewProxy() async {
+    if (!Platform.isAndroid) return;
+    final proxyUrl = httpsProxyUrl;
+    try {
+      await _systemProxyChannel.invokeMethod<void>('updateWebViewProxy', {
+        'mode': mode == ProxyMode.manual && proxyUrl == null
+            ? ProxyMode.direct.name
+            : mode.name,
+        'proxyUrl': proxyUrl,
+      });
+    } on MissingPluginException {
+      // The native bridge may not be attached during platform bootstrap.
+    }
   }
 
   /// 生成 dart:io findProxy 指令

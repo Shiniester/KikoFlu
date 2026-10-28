@@ -1,6 +1,11 @@
+import 'dart:convert';
+import 'dart:developer' as developer;
+import 'dart:io';
+
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
+
+import '../performance/performance_recorder.dart';
 import 'log_service.dart';
 
 class StorageService {
@@ -41,7 +46,7 @@ class StorageService {
     }
   }
 
-  /// Opens the saved-account box after the first frame.
+  /// Opens saved-account storage during deferred startup or on first access.
   static Future<void> initSecondary() {
     if (_secondaryInitialized) return Future.value();
     return _secondaryInitFuture ??= _initializeSecondary();
@@ -49,10 +54,36 @@ class StorageService {
 
   static Future<void> _initializeSecondary() async {
     try {
+      await _initializeHiveBackend();
       _userBox = await Hive.openBox('users');
       _secondaryInitialized = true;
     } finally {
       _secondaryInitFuture = null;
+    }
+  }
+
+  static Future<void> _initializeHiveBackend() async {
+    final stopwatch = Stopwatch()..start();
+    final timeline = developer.TimelineTask()
+      ..start('app.bootstrap.hive-backend');
+    var failed = false;
+    try {
+      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        await Hive.initFlutter('KikoFlu');
+      } else {
+        await Hive.initFlutter();
+      }
+    } catch (_) {
+      failed = true;
+      rethrow;
+    } finally {
+      stopwatch.stop();
+      final elapsedMs = stopwatch.elapsedMicroseconds / 1000;
+      timeline.finish(arguments: {'durationMs': elapsedMs, 'failed': failed});
+      PerformanceRecorder.instance.recordMetric(
+        'bootstrapHiveBackendMs',
+        elapsedMs,
+      );
     }
   }
 

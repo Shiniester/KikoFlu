@@ -73,6 +73,33 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
 
+  const flutter::MethodChannel<> video_channel(
+      flutter_controller_->engine()->messenger(),
+      "com.meteor.kikoeruflutter/video_player",
+      &flutter::StandardMethodCodec::GetInstance());
+  video_channel.SetMethodCallHandler(
+      [](const flutter::MethodCall<>& call,
+         const std::unique_ptr<flutter::MethodResult<>>& result) {
+        if (call.method_name() == "setKeepScreenOn" || call.method_name() == "dispose") {
+          bool enabled = false;
+          const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
+          if (args && call.method_name() != "dispose") {
+            const auto value = args->find(flutter::EncodableValue("enabled"));
+            if (value != args->end()) {
+              const auto* flag = std::get_if<bool>(&value->second);
+              enabled = flag && *flag;
+            }
+          }
+          if (SetThreadExecutionState(ES_CONTINUOUS | (enabled ? ES_DISPLAY_REQUIRED : 0)) == 0) {
+            result->Error("screen_awake_failed", "Unable to update display sleep state.");
+          } else {
+            result->Success();
+          }
+          return;
+        }
+        result->NotImplemented();
+      });
+
   const flutter::MethodChannel<> system_proxy_channel(
       flutter_controller_->engine()->messenger(),
       "com.meteor.kikoeruflutter/system_proxy",

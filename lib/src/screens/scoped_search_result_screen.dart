@@ -15,7 +15,6 @@ import '../providers/auth_provider.dart';
 import '../providers/collection_layout_provider.dart';
 import '../providers/download_provider.dart';
 import '../providers/my_reviews_provider.dart';
-import '../providers/work_card_display_provider.dart';
 import '../providers/works_provider.dart' show LayoutType;
 import '../services/download_service.dart';
 import '../services/history_database.dart';
@@ -695,9 +694,6 @@ class _ScopedSearchResultScreenState
       ),
     );
     final layoutType = _currentLayout();
-    final cardSize = ref.watch(
-      workCardDisplayProvider.select((settings) => settings.cardSize),
-    );
     final entries = _matchingEntries.values.toList(growable: false);
 
     return Scaffold(
@@ -718,12 +714,31 @@ class _ScopedSearchResultScreenState
           final metrics = resolveCollectionGridMetrics(
             context,
             layoutType: layoutType,
-            cardSize: cardSize,
             availableWidth: constraints.maxWidth,
             availableHeight: constraints.maxHeight,
           );
+          final listCoverSize = layoutType == LayoutType.list
+              ? collectionListCoverSizeForTitle(
+                  context,
+                  titleStyle: widget.query.scope == SearchScope.history
+                      ? historyWorkCardTitleStyle(context)
+                      : enhancedWorkCardListTitleStyle(context),
+                )
+              : null;
+          final listCoverCacheWidth = listCoverSize == null
+              ? null
+              : resolveWorkCoverCacheWidth(
+                  context,
+                  crossAxisCount: 1,
+                  listCoverWidth: listCoverSize.width,
+                );
           return WorkCoverPrefetchScope(
-            sourceKey: (auth, widget.query.scope, widget.query.progressFilter),
+            sourceKey: (
+              auth,
+              widget.query.scope,
+              widget.query.progressFilter,
+              listCoverCacheWidth,
+            ),
             builder: (context, coverPrefetch) => VirtualizedSliverCollection(
               retainedItemCount: 100,
               key: ValueKey(widget.query.scope),
@@ -750,8 +765,10 @@ class _ScopedSearchResultScreenState
                 host: auth.$1,
                 token: auth.$2,
                 crossAxisCount: metrics.crossAxisCount,
+                listCoverWidth: listCoverSize?.width,
                 isListCard: layoutType == LayoutType.list,
               ),
+              prefetchKey: listCoverCacheWidth,
               itemBuilder: (context, entry, index) =>
                   _buildEntryCard(context, entry, metrics, layoutType),
               emptyBuilder: (context) {

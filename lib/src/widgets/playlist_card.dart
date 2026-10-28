@@ -33,12 +33,17 @@ class PlaylistCard extends ConsumerWidget {
     );
     final theme = Theme.of(context);
     final isList = layoutType == LayoutType.list;
+    final titleStyle = theme.textTheme.titleSmall?.copyWith(
+      fontWeight: FontWeight.w600,
+      height: 1.2,
+    );
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final coverWidth = isList
-            ? collectionListCoverSize.width
-            : constraints.maxWidth;
+        final listCoverSize = isList
+            ? collectionListCoverSizeForTitle(context, titleStyle: titleStyle)
+            : null;
+        final coverWidth = isList ? listCoverSize!.width : constraints.maxWidth;
         final radius = collectionCoverRadius(coverWidth);
         final cover = ClipRRect(
           borderRadius: BorderRadius.circular(radius),
@@ -72,12 +77,12 @@ class PlaylistCard extends ConsumerWidget {
             ),
           ),
         );
-        final info = _buildInfo(context, theme, onDelete != null);
+        final info = _buildInfo(context, theme, onDelete != null, titleStyle);
 
         return Card(
           elevation: 1,
           margin: isList
-              ? const EdgeInsets.symmetric(horizontal: 12, vertical: 4)
+              ? const EdgeInsets.symmetric(vertical: 4)
               : EdgeInsets.zero,
           clipBehavior: Clip.antiAlias,
           shape: RoundedRectangleBorder(
@@ -92,8 +97,8 @@ class PlaylistCard extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         SizedBox(
-                          width: collectionListCoverSize.width,
-                          height: collectionListCoverSize.height,
+                          width: listCoverSize!.width,
+                          height: listCoverSize.height,
                           child: cover,
                         ),
                         Expanded(child: info),
@@ -117,7 +122,12 @@ class PlaylistCard extends ConsumerWidget {
     );
   }
 
-  Widget _buildInfo(BuildContext context, ThemeData theme, bool canDelete) {
+  Widget _buildInfo(
+    BuildContext context,
+    ThemeData theme,
+    bool canDelete,
+    TextStyle? titleStyle,
+  ) {
     final authorAndCount = LayoutBuilder(
       builder: (context, constraints) {
         final personIcon = Icon(
@@ -217,11 +227,8 @@ class PlaylistCard extends ConsumerWidget {
               Expanded(
                 child: Text(
                   playlist.displayName,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    height: 1.2,
-                  ),
-                  maxLines: 2,
+                  style: titleStyle,
+                  maxLines: collectionCardTitleMaxLines,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),

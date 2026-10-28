@@ -1496,9 +1496,6 @@ class SJa extends S {
   String get showPrice => '価格を表示';
 
   @override
-  String get cardSize => 'カードサイズ';
-
-  @override
   String get compact => 'コンパクト';
 
   @override
@@ -3607,37 +3604,16 @@ class SJa extends S {
   String get showWorkCircle => '作品のサークルを表示';
 
   @override
-  String get workCardSizeSubtitle => 'グリッド密度を調整して、カバーを大きくするか現在のサイズを保ちます';
-
-  @override
-  String get workCardFontSize => 'カード文字サイズ';
-
-  @override
-  String get workCardFontSizeSubtitle => '作品カードのタイトルと情報テキストのサイズを調整します';
-
-  @override
-  String get cardSizeNormal => '標準';
-
-  @override
-  String get cardSizeLarge => '大';
-
-  @override
-  String get cardSizeExtraLarge => '特大';
-
-  @override
-  String get fontSizeNormal => '標準';
-
-  @override
-  String get fontSizeLarge => '大';
-
-  @override
-  String get fontSizeExtraLarge => '特大';
-
-  @override
   String get showSubtitleTagOnCard => '作品カードに字幕タグを表示';
 
   @override
   String get showAgeRatingOnCard => '作品カードに年齢区分を表示';
+
+  @override
+  String get userAddedTagsLabel => 'ユーザー追加タグ';
+
+  @override
+  String get showUserAddedTagsOnCard => '作品カードにユーザー追加タグを表示';
 
   @override
   String get showOnlineMarks => 'オンラインマークの作品を表示';
@@ -4289,6 +4265,460 @@ class SJa extends S {
 
   @override
   String get installFailed => 'インストーラーの起動に失敗しました';
+
+  @override
+  String get navVideos => '動画';
+
+  @override
+  String get videoSettings => '動画設定';
+
+  @override
+  String get videoCardMakers => 'メーカー';
+
+  @override
+  String get videoCardLabels => 'レーベル';
+
+  @override
+  String get videoCardDirectors => '監督';
+
+  @override
+  String get videoDetailActors => '出演者';
+
+  @override
+  String get videoDetailCreators => 'メーカー | レーベル | シリーズ';
+
+  @override
+  String get videoSearchHint => '動画を検索';
+
+  @override
+  String get videoSourceAccount => 'MissAV アカウント';
+
+  @override
+  String get videoCatalog => '動画一覧';
+
+  @override
+  String get videoContent => 'コンテンツ';
+
+  @override
+  String get videoRecentlyUpdated => '最近の更新';
+
+  @override
+  String get videoNewReleases => '新作';
+
+  @override
+  String get videoChineseSubtitles => '中国語字幕';
+
+  @override
+  String get videoWeeklyHot => '今週の人気';
+
+  @override
+  String get videoUncensoredLeak => '無修正流出';
+
+  @override
+  String get videoRecommendedForYou => 'あなたにおすすめ';
+
+  @override
+  String get videoFilterGenre => 'ジャンル';
+
+  @override
+  String get videoFilterActor => '女優';
+
+  @override
+  String get videoFilterStudio => 'メーカー';
+
+  @override
+  String get videoFilterSeries => 'シリーズ';
+
+  @override
+  String get videoFavorites => '動画のお気に入り';
+
+  @override
+  String get videoActorFavorites => '出演者のお気に入り';
+
+  @override
+  String get videoWatchHistory => '視聴履歴';
+
+  @override
+  String get videoDownloads => '動画のダウンロード';
+
+  @override
+  String get videoSourceUnavailable => 'この機能はアプリ内で利用できません。MissAV で開いてください。';
+
+  @override
+  String get videoVerificationRequired =>
+      'MissAV でブラウザー認証が必要です。アクセスを確認してから再試行してください。';
+
+  @override
+  String get videoVerifyAccess => 'アクセス認証';
+
+  @override
+  String get videoVerificationHelp => 'MissAV で認証を完了してから「アクセスを確認」を選択してください。';
+
+  @override
+  String get videoVerificationContinue => 'アクセスを確認';
+
+  @override
+  String get videoVerificationFailed =>
+      'アクセスを確認できませんでした。ブラウザー認証を完了してから再試行してください。';
+
+  @override
+  String get videoVerificationSystemProxyRequired =>
+      'ブラウザー認証にはシステムプロキシモードが必要です。ネットワーク設定を変更してから再試行してください。';
+
+  @override
+  String get videoLoginRequired => 'この機能を使うには MissAV にログインしてください。';
+
+  @override
+  String get videoLoadFailed => '動画を読み込めません。再試行するか、MissAV を開いてください。';
+
+  @override
+  String get videoPlaybackFailed => '再生できません。再試行するか、MissAV を開いてください。';
+
+  @override
+  String get videoDownloadFailed => 'ダウンロードできません。動画のダウンロード画面で再試行してください。';
+
+  @override
+  String get videoEmail => 'メールアドレス';
+
+  @override
+  String get videoRegisterOnSource => 'MissAV で登録';
+
+  @override
+  String get videoResetPasswordOnSource => 'MissAV でパスワードを再設定';
+
+  @override
+  String get videoPasswordOnSource => 'MissAV でパスワードを変更';
+
+  @override
+  String get videoAccountSourceHint =>
+      '以下の操作は MissAV を開きます。サイトで登録またはパスワード管理を選択してください。';
+
+  @override
+  String get videoQuality => '画質';
+
+  @override
+  String get videoRelated => '関連動画';
+
+  @override
+  String get videoDownloadQueued => '待機中';
+
+  @override
+  String get videoDownloadPaused => '一時停止中';
+
+  @override
+  String get videoDownloadFailedStatus => '失敗';
+
+  @override
+  String get videoDownloadCompleted => 'ダウンロード済み';
+
+  @override
+  String get videoDownloadInProgress => 'ダウンロード中';
+
+  @override
+  String get videoNoStreams => '再生可能な動画が見つかりません。MissAV で開いてください。';
+
+  @override
+  String get videoPlaylistName => 'プレイリスト名';
+
+  @override
+  String get videoAddToPlaylist => 'プレイリストに追加';
+
+  @override
+  String get videoCreatePlaylist => 'プレイリストを作成';
+
+  @override
+  String get videoRenamePlaylist => 'プレイリスト名を変更';
+
+  @override
+  String get videoDeletePlaylist => 'プレイリストを削除';
+
+  @override
+  String get videoOpenSource => 'MissAV を開く';
+
+  @override
+  String get videoDownloadDeleteConfirm => 'ダウンロードを削除するとオフラインで再生できなくなります。';
+
+  @override
+  String get videoPlay => '再生';
+
+  @override
+  String get videoFullscreen => '全画面表示';
+
+  @override
+  String get videoSubtitle => '字幕';
+
+  @override
+  String get videoUncensored => '無修正';
+
+  @override
+  String get videoFavoriteActor => '出演者をお気に入りに追加';
+
+  @override
+  String get videoUnfavoriteActor => '出演者のお気に入りを解除';
+
+  @override
+  String get videoPlayerSettings => 'プレーヤー設定';
+
+  @override
+  String get videoPlayerMoreOptions => 'その他のオプション';
+
+  @override
+  String get videoPlayerLockControls => '操作をロック';
+
+  @override
+  String get videoPlayerUnlockControls => '操作ロックを解除';
+
+  @override
+  String get videoPlayerTakeScreenshot => 'スクリーンショット';
+
+  @override
+  String get videoPlayerBrightness => '明るさ';
+
+  @override
+  String get videoPlayerAspectRatio => 'アスペクト比';
+
+  @override
+  String get videoPlayerFitContain => '自動調整';
+
+  @override
+  String get videoPlayerFitFill => '引き伸ばす';
+
+  @override
+  String get videoPlayerFitCover => '切り抜き';
+
+  @override
+  String get videoPlayerFitWidth => '幅に合わせる';
+
+  @override
+  String get videoPlayerFitHeight => '高さに合わせる';
+
+  @override
+  String get videoPlayerFitOriginal => '元のサイズ';
+
+  @override
+  String get videoPlayerFitScaleDown => 'サイズを制限';
+
+  @override
+  String get videoPlayerFitFourThree => '4:3';
+
+  @override
+  String get videoPlayerFitSixteenNine => '16:9';
+
+  @override
+  String get videoPlayerAudioTrack => '音声トラック';
+
+  @override
+  String get videoPlayerSubtitleTrack => '字幕トラック';
+
+  @override
+  String get videoPlayerSubtitleOffset => '字幕のタイミング';
+
+  @override
+  String get videoPlayerSubtitleStyle => '字幕スタイル';
+
+  @override
+  String get videoPlayerSubtitleFontSize => '字幕サイズ';
+
+  @override
+  String get videoPlayerSubtitleBackground => '字幕の背景';
+
+  @override
+  String get videoPlayerDoubleTapSeek => 'ダブルタップで早送り・巻き戻し';
+
+  @override
+  String get videoPlayerDoubleTapSeekDuration => 'ダブルタップの移動秒数';
+
+  @override
+  String get videoPlayerLongPressSpeed => '長押し再生速度';
+
+  @override
+  String get videoPlayerDynamicLongPressSpeed => '長押しで現在の速度の2倍';
+
+  @override
+  String get videoPlayerBackgroundPlayback => 'バックグラウンド再生';
+
+  @override
+  String get videoPlayerPictureInPicture => 'ピクチャーインピクチャー';
+
+  @override
+  String get videoPlayerExtendedControlTime => '操作ボタンの表示時間を延長';
+
+  @override
+  String get videoPlayerRepeatOnce => '1回再生';
+
+  @override
+  String get videoPlayerRepeatSingle => '1本リピート';
+
+  @override
+  String get videoPlayerRepeatRelated => '関連動画を連続再生';
+
+  @override
+  String get videoPlayerAutoPlay => '自動再生';
+
+  @override
+  String get videoPlayerAutoFullscreen => '自動で全画面表示';
+
+  @override
+  String get videoPlayerAutoExitFullscreen => '自動で全画面表示を終了';
+
+  @override
+  String get videoPlayerAutoPip => '自動でピクチャーインピクチャーに移行';
+
+  @override
+  String get videoPlayerSideSwipeAdjust => 'スワイプで明るさと音量を調整';
+
+  @override
+  String get videoPlayerFullscreenGesture => 'スワイプで全画面表示を切り替え';
+
+  @override
+  String get videoPlayerRelativeSwipeSeek => '動画の長さに応じてシーク';
+
+  @override
+  String get videoPlayerSwipeSeekDuration => '画面幅いっぱいのスワイプ移動秒数';
+
+  @override
+  String get videoPlayerExpandVertical => '縦向き動画を拡大';
+
+  @override
+  String get videoPlayerKeyboardControl => 'キーボード操作';
+
+  @override
+  String get videoPlayerReverseFullscreenGesture => '全画面切り替えジェスチャーを反転';
+
+  @override
+  String get videoPlayerFullscreenOrientation => '全画面の向き';
+
+  @override
+  String get videoPlayerOrientationAuto => '自動';
+
+  @override
+  String get videoPlayerOrientationNone => '向きを維持';
+
+  @override
+  String get videoPlayerOrientationPortrait => '縦向き';
+
+  @override
+  String get videoPlayerOrientationLandscape => '横向き';
+
+  @override
+  String get videoPlayerOrientationRatio => '動画の比率に合わせる';
+
+  @override
+  String get videoPlayerOrientationGravity => '端末の回転に合わせる';
+
+  @override
+  String get videoPlayerBottomProgressMode => '下部のシークバー';
+
+  @override
+  String get videoPlayerBottomProgressAlways => '常に表示';
+
+  @override
+  String get videoPlayerBottomProgressNever => '表示しない';
+
+  @override
+  String get videoPlayerBottomProgressFullscreenOnly => '全画面時のみ表示';
+
+  @override
+  String get videoPlayerBottomProgressInlineOnly => '通常表示時のみ表示';
+
+  @override
+  String get videoPlayerShowFullscreenLockButton => '全画面ロックボタンを表示';
+
+  @override
+  String get videoPlayerShowFullscreenScreenshotButton => '全画面スクリーンショットボタンを表示';
+
+  @override
+  String get videoPlayerSystemBrightness => 'システムの明るさを調整';
+
+  @override
+  String get videoPlayerSystemBrightnessPermission =>
+      'システムの明るさを調整するには、システム設定の変更を許可してください。';
+
+  @override
+  String get videoPlayerSpeedList => '再生速度の一覧';
+
+  @override
+  String get videoPlayerAddSpeed => '再生速度を追加';
+
+  @override
+  String get videoPlayerDefaultSpeed => '既定の再生速度';
+
+  @override
+  String get videoPlayerInvalidSpeed => '0 より大きい有効な再生速度を入力してください。';
+
+  @override
+  String get videoPlayerShowFullscreenBattery => '全画面でバッテリー残量を表示';
+
+  @override
+  String get videoPlayerAlwaysOnTop => '最前面に固定';
+
+  @override
+  String get videoPlayerCancelAlwaysOnTop => '最前面の固定を解除';
+
+  @override
+  String get videoPlayerRestoreScreen => '画面を元に戻す';
+
+  @override
+  String get videoPlayerFlipHorizontal => '左右反転';
+
+  @override
+  String get videoPlayerFlipVertical => '上下反転';
+
+  @override
+  String get videoPlayerReload => '動画を再読み込み';
+
+  @override
+  String get videoPlayerPlaybackInfo => '再生情報';
+
+  @override
+  String get videoPlayerSuperResolution => '超解像';
+
+  @override
+  String get videoPlayerSuperResolutionOff => '無効';
+
+  @override
+  String get videoPlayerSuperResolutionEfficiency => '効率';
+
+  @override
+  String get videoPlayerSuperResolutionQuality => '画質';
+
+  @override
+  String get videoPlayerSleepTimer => 'スリープタイマー';
+
+  @override
+  String videoPlayerTimerMinutes(int minutes) {
+    return '$minutes 分';
+  }
+
+  @override
+  String get videoPlayerTimerCustom => '時間を指定';
+
+  @override
+  String get videoPlayerTimerHourUnit => '時間';
+
+  @override
+  String get videoPlayerTimerMinuteUnit => '分';
+
+  @override
+  String get videoPlayerExitApp => 'アプリを終了';
+
+  @override
+  String get videoPlayerInfoResolution => '解像度';
+
+  @override
+  String get videoPlayerInfoVideoCodec => '動画コーデック';
+
+  @override
+  String get videoPlayerInfoFrameRate => 'フレームレート';
+
+  @override
+  String get videoPlayerInfoVideoBitrate => '動画ビットレート';
+
+  @override
+  String get videoPlayerInfoAudioCodec => '音声コーデック';
+
+  @override
+  String get videoPlayerInfoAudioFormat => '音声形式';
 
   @override
   String get audioSlices => '音声スライス';

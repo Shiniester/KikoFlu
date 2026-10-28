@@ -2,18 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../l10n/app_localizations.dart';
-import '../providers/audio_provider.dart';
-import '../providers/update_provider.dart';
-import '../providers/auth_provider.dart';
-import '../widgets/app_bottom_dock_transition.dart';
-import '../widgets/app_bottom_dock.dart';
-import '../widgets/mini_player.dart';
+import '../widgets/app_navigation_scope.dart';
 import '../widgets/tab_page_motion.dart';
 import 'audio_screen.dart';
 import '../comics/ui/comic_screen.dart';
+import '../videos/ui/video_screen.dart';
 import 'settings_screen.dart';
-import '../providers/settings_provider.dart';
 
 class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
@@ -23,18 +17,13 @@ class MainScreen extends ConsumerStatefulWidget {
 }
 
 class _MainScreenState extends ConsumerState<MainScreen> {
-  final _pages = PageController();
-  // Preserve the pager while portrait and landscape layouts reparent it.
+  late final PageController _pages;
   final _pagesKey = GlobalKey();
-  bool _reduceMotion = false;
-
-  int _currentIndex = 0;
   final _selection = ValueNotifier<int?>(0);
-  static const int _settingsTabIndex = 2;
-
-  // 使用 PageStorageBucket 来保存页面状态
   final PageStorageBucket _bucket = PageStorageBucket();
-
+  AppNavigationController? _navigation;
+  bool _reduceMotion = false;
+  int _currentIndex = 0;
   late final List<Widget> _screens;
 
   @override
@@ -49,8 +38,37 @@ class _MainScreenState extends ConsumerState<MainScreen> {
           active: index == 1,
         ),
       ),
+      ValueListenableBuilder<int?>(
+        valueListenable: _selection,
+        builder: (context, index, child) => VideoScreen(
+          key: const PageStorageKey('video_screen'),
+          active: index == 2,
+        ),
+      ),
       const SettingsScreen(key: PageStorageKey('settings_screen')),
     ];
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final navigation = AppNavigationScope.of(context);
+    final index = navigation.selectedIndex;
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (_navigation == null) {
+      _currentIndex = index;
+      _selection.value = index;
+      _pages = PageController(initialPage: index);
+    } else if (_currentIndex != index) {
+      _currentIndex = index;
+      _selection.value = index;
+      moveToTabPage(_pages, index, reduceMotion: reduceMotion);
+    }
+    if (reduceMotion && !_reduceMotion && _pages.hasClients) {
+      _pages.jumpToPage(_currentIndex);
+    }
+    _navigation = navigation;
+    _reduceMotion = reduceMotion;
   }
 
   @override
@@ -60,384 +78,35 @@ class _MainScreenState extends ConsumerState<MainScreen> {
     super.dispose();
   }
 
-  Widget _buildPages() => TabPageWarmup(
-    key: _pagesKey,
-    pages: _pages,
-    target: _selection,
-    builder: (cacheExtent) => PageView(
-      key: const ValueKey('main-tab-pages'),
-      controller: _pages,
-      physics: const NeverScrollableScrollPhysics(),
-      allowImplicitScrolling: cacheExtent > 0,
-      scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
-      children: [
-        for (var i = 0; i < _screens.length; i++)
-          LazyTabPage(
-            key: ValueKey(i),
-            index: i,
-            target: _selection,
-            pages: _pages,
-            child: ValueListenableBuilder<int?>(
-              valueListenable: _selection,
-              child: _screens[i],
-              builder: (context, index, child) =>
-                  HeroMode(enabled: index == i, child: child!),
-            ),
-          ),
-      ],
-    ),
-  );
-
-  List<NavigationDestination> _buildDestinations(
-    BuildContext context,
-    bool showUpdateBadge,
-  ) {
-    final s = S.of(context);
-    return [
-      NavigationDestination(
-        icon: const Icon(Icons.library_music_outlined),
-        selectedIcon: const Icon(Icons.library_music),
-        label: s.navMy,
-      ),
-      NavigationDestination(
-        icon: const Icon(Icons.menu_book_outlined),
-        selectedIcon: const Icon(Icons.menu_book),
-        label: s.navComics,
-      ),
-      NavigationDestination(
-        icon: Badge(
-          isLabelVisible: showUpdateBadge,
-          child: const Icon(Icons.settings_outlined),
-        ),
-        selectedIcon: Badge(
-          isLabelVisible: showUpdateBadge,
-          child: const Icon(Icons.settings),
-        ),
-        label: s.navSettings,
-      ),
-    ];
-  }
-
-  void _handleDestinationSelected(int index) {
-    if (_currentIndex == index) {
-      return;
-    }
-
-    setState(() {
-      _currentIndex = index;
-    });
-
-    _selection.value = index;
-    moveToTabPage(_pages, index, reduceMotion: _reduceMotion);
-
-    if (index == _settingsTabIndex) {
-      ref.read(settingsCacheRefreshTriggerProvider.notifier).state++;
-    }
-  }
-
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
-    if (reduceMotion && !_reduceMotion && _pages.hasClients) {
-      _pages.jumpToPage(_currentIndex);
-    }
-    _reduceMotion = reduceMotion;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isLandscape =
-        MediaQuery.of(context).orientation == Orientation.landscape;
-    final showUpdateBadge = ref.watch(showUpdateRedDotProvider);
-    final destinations = _buildDestinations(context, showUpdateBadge);
-
-    if (isLandscape) {
-      // 横屏布局：使用 NavigationRail
-      final landscapeScaffold = Scaffold(
-        body: Stack(
-          children: [
-            // 主内容区域
-            Row(
-              children: [
-                // 侧边导航栏
-                SafeArea(
-                  child: SingleChildScrollView(
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        minHeight:
-                            MediaQuery.of(context).size.height -
-                            MediaQuery.of(context).padding.top -
-                            MediaQuery.of(context).padding.bottom,
-                      ),
-                      child: IntrinsicHeight(
-                        child: _buildNavigationRail(destinations),
-                      ),
-                    ),
-                  ),
-                ),
-                const VerticalDivider(thickness: 1, width: 1),
-                // 页面内容
-                Expanded(
-                  child: Consumer(
-                    builder: (context, ref, child) {
-                      final authState = ref.watch(authProvider);
-                      final isOfflineMode =
-                          _currentIndex == 0 &&
-                          authState.currentUser != null &&
-                          !authState.isLoggedIn &&
-                          authState.error != null;
-
-                      final pages = PageStorage(
-                        bucket: _bucket,
-                        child: _buildPages(),
-                      );
-                      final miniPlayer = Consumer(
-                        builder: (context, ref, child) {
-                          final currentTrack = ref.watch(currentTrackProvider);
-                          return currentTrack.when(
-                            data: (track) => track != null
-                                ? const MiniPlayer()
-                                : const SizedBox.shrink(),
-                            loading: () => const SizedBox.shrink(),
-                            error: (_, __) => const SizedBox.shrink(),
-                          );
-                        },
-                      );
-
-                      final content = Column(
-                        children: [
-                          Expanded(child: pages),
-                          miniPlayer,
-                        ],
-                      );
-
-                      return Padding(
-                        padding: EdgeInsets.only(top: isOfflineMode ? 30 : 0),
-                        child: SafeArea(
-                          top: false,
-                          bottom: true,
-                          child: content,
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-            // 离线模式提示横幅（覆盖在顶部）
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: Consumer(
-                builder: (context, ref, child) {
-                  final authState = ref.watch(authProvider);
-                  final isOfflineMode =
-                      _currentIndex == 0 &&
-                      authState.currentUser != null &&
-                      !authState.isLoggedIn &&
-                      authState.error != null;
-
-                  if (!isOfflineMode) {
-                    return const SizedBox.shrink();
-                  }
-
-                  final topPadding = MediaQuery.of(context).padding.top;
-
-                  return Container(
-                    width: double.infinity,
-                    padding: EdgeInsets.fromLTRB(12, topPadding + 4, 12, 4),
-                    color: Colors.orange.shade800,
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.cloud_off,
-                          size: 14,
-                          color: Colors.white,
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            S.of(context).offlineModeMessage,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: () async {
-                            final notifier = ref.read(authProvider.notifier);
-                            await notifier.retryConnection();
-                          },
-                          style: TextButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            minimumSize: Size.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                          child: Text(
-                            S.of(context).retry,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
+  Widget build(BuildContext context) => PageStorage(
+    bucket: _bucket,
+    child: TabPageWarmup(
+      key: _pagesKey,
+      pages: _pages,
+      target: _selection,
+      builder: (cacheExtent) => PageView(
+        key: const ValueKey('main-tab-pages'),
+        controller: _pages,
+        physics: const NeverScrollableScrollPhysics(),
+        allowImplicitScrolling: cacheExtent > 0,
+        scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
+        children: [
+          for (var i = 0; i < _screens.length; i++)
+            LazyTabPage(
+              key: ValueKey(i),
+              index: i,
+              target: _selection,
+              pages: _pages,
+              child: ValueListenableBuilder<int?>(
+                valueListenable: _selection,
+                child: _screens[i],
+                builder: (context, index, child) =>
+                    HeroMode(enabled: index == i, child: child!),
               ),
             ),
-          ],
-        ),
-      );
-      return AppBottomDockTransitionScope(child: landscapeScaffold);
-    }
-
-    // 竖屏布局：播放条和应用标签栏共同组成底部 Dock。
-    final miniPlayer = ref
-        .watch(currentTrackProvider)
-        .when<Widget?>(
-          data: (track) => track != null ? const MiniPlayer() : null,
-          loading: () => null,
-          error: (_, __) => null,
-        );
-    final bottomDock = AppBottomDock(
-      selectedIndex: _currentIndex,
-      onDestinationSelected: _handleDestinationSelected,
-      destinations: destinations,
-      miniPlayer: miniPlayer,
-    );
-
-    final portraitScaffold = Scaffold(
-      extendBody: true,
-      body: Stack(
-        children: [
-          // 主内容
-          Consumer(
-            builder: (context, ref, child) {
-              final authState = ref.watch(authProvider);
-              final isOfflineMode =
-                  _currentIndex == 0 &&
-                  authState.currentUser != null &&
-                  !authState.isLoggedIn &&
-                  authState.error != null;
-
-              final mediaQuery = MediaQuery.of(context);
-              // Keep nested Scaffold controls above the Dock.
-              return MediaQuery(
-                data: mediaQuery.copyWith(
-                  viewPadding: mediaQuery.viewPadding.copyWith(
-                    bottom: mediaQuery.padding.bottom,
-                  ),
-                ),
-                child: Padding(
-                  padding: EdgeInsets.only(top: isOfflineMode ? 30 : 0),
-                  child: SafeArea(
-                    top: false,
-                    bottom: false,
-                    child: PageStorage(bucket: _bucket, child: _buildPages()),
-                  ),
-                ),
-              );
-            },
-          ),
-          // 离线模式提示横幅（覆盖在顶部）
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: Consumer(
-              builder: (context, ref, child) {
-                final authState = ref.watch(authProvider);
-                final isOfflineMode =
-                    _currentIndex == 0 &&
-                    authState.currentUser != null &&
-                    !authState.isLoggedIn &&
-                    authState.error != null;
-
-                if (!isOfflineMode) {
-                  return const SizedBox.shrink();
-                }
-
-                final topPadding = MediaQuery.of(context).padding.top;
-
-                return Container(
-                  width: double.infinity,
-                  padding: EdgeInsets.fromLTRB(12, topPadding + 4, 12, 4),
-                  color: Colors.orange.shade800,
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.cloud_off,
-                        size: 14,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          S.of(context).offlineModeMessage,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () async {
-                          final notifier = ref.read(authProvider.notifier);
-                          await notifier.retryConnection();
-                        },
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
-                          ),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        child: Text(
-                          S.of(context).retry,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
         ],
       ),
-      bottomNavigationBar: bottomDock,
-    );
-    return AppBottomDockTransitionScope(child: portraitScaffold);
-  }
-
-  Widget _buildNavigationRail(List<NavigationDestination> destinations) {
-    return NavigationRail(
-      selectedIndex: _currentIndex,
-      onDestinationSelected: _handleDestinationSelected,
-      labelType: NavigationRailLabelType.selected,
-      destinations: destinations
-          .map(
-            (dest) => NavigationRailDestination(
-              icon: dest.icon,
-              selectedIcon: dest.selectedIcon,
-              label: Text(dest.label),
-            ),
-          )
-          .toList(),
-    );
-  }
+    ),
+  );
 }

@@ -36,23 +36,23 @@ Future<void> _pumpAsyncPreferenceLoad(WidgetTester tester) async {
 
 void main() {
   setUp(() async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      'work_card_display_card_size': 'extra_large',
+      'work_card_display_font_scale': 'extra_large',
+    });
     await StorageService.initCritical(
       preferences: await SharedPreferences.getInstance(),
     );
   });
 
-  testWidgets(
-      'large card setting reduces grid column count without changing default',
-      (tester) async {
+  testWidgets('retired card size and font values do not affect cards', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       _testApp(
         const MediaQuery(
           data: MediaQueryData(size: Size(400, 800)),
-          child: WorksGridView(
-            works: [_work],
-            layoutType: LayoutType.bigGrid,
-          ),
+          child: WorksGridView(works: [_work], layoutType: LayoutType.bigGrid),
         ),
       ),
     );
@@ -62,28 +62,17 @@ void main() {
       tester
           .widget<SliverMasonryGrid>(find.byType(SliverMasonryGrid))
           .gridDelegate,
-      isA<SliverSimpleGridDelegateWithFixedCrossAxisCount>()
-          .having((delegate) => delegate.crossAxisCount, 'crossAxisCount', 2),
+      isA<SliverSimpleGridDelegateWithFixedCrossAxisCount>().having(
+        (delegate) => delegate.crossAxisCount,
+        'crossAxisCount',
+        2,
+      ),
     );
 
-    final container =
-        ProviderScope.containerOf(tester.element(find.byType(WorksGridView)));
-    await container
-        .read(workCardDisplayProvider.notifier)
-        .updateCardSize(WorkCardSize.large);
-    await tester.pump();
-
-    expect(
-      tester
-          .widget<SliverMasonryGrid>(find.byType(SliverMasonryGrid))
-          .gridDelegate,
-      isA<SliverSimpleGridDelegateWithFixedCrossAxisCount>()
-          .having((delegate) => delegate.crossAxisCount, 'crossAxisCount', 1),
-    );
+    expect(tester.widget<Text>(find.text(_work.title)).style?.fontSize, 12);
   });
 
-  testWidgets('small grid keeps a distinct layout with extra large cards',
-      (tester) async {
+  testWidgets('small grid keeps its default distinct layout', (tester) async {
     await tester.pumpWidget(
       _testApp(
         const MediaQuery(
@@ -97,24 +86,21 @@ void main() {
     );
     await _pumpAsyncPreferenceLoad(tester);
 
-    final container =
-        ProviderScope.containerOf(tester.element(find.byType(WorksGridView)));
-    await container
-        .read(workCardDisplayProvider.notifier)
-        .updateCardSize(WorkCardSize.extraLarge);
-    await tester.pump();
-
     expect(
       tester
           .widget<SliverMasonryGrid>(find.byType(SliverMasonryGrid))
           .gridDelegate,
-      isA<SliverSimpleGridDelegateWithFixedCrossAxisCount>()
-          .having((delegate) => delegate.crossAxisCount, 'crossAxisCount', 2),
+      isA<SliverSimpleGridDelegateWithFixedCrossAxisCount>().having(
+        (delegate) => delegate.crossAxisCount,
+        'crossAxisCount',
+        3,
+      ),
     );
   });
 
-  testWidgets('uses the actual constrained width for narrow grid windows',
-      (tester) async {
+  testWidgets('uses the actual constrained width for narrow grid windows', (
+    tester,
+  ) async {
     final originalPhysicalSize = tester.view.physicalSize;
     final originalDevicePixelRatio = tester.view.devicePixelRatio;
     addTearDown(() {
@@ -128,10 +114,7 @@ void main() {
       _testApp(
         const MediaQuery(
           data: MediaQueryData(size: Size(800, 600)),
-          child: WorksGridView(
-            works: [_work],
-            layoutType: LayoutType.bigGrid,
-          ),
+          child: WorksGridView(works: [_work], layoutType: LayoutType.bigGrid),
         ),
       ),
     );
@@ -141,8 +124,11 @@ void main() {
       tester
           .widget<SliverMasonryGrid>(find.byType(SliverMasonryGrid))
           .gridDelegate,
-      isA<SliverSimpleGridDelegateWithFixedCrossAxisCount>()
-          .having((delegate) => delegate.crossAxisCount, 'crossAxisCount', 1),
+      isA<SliverSimpleGridDelegateWithFixedCrossAxisCount>().having(
+        (delegate) => delegate.crossAxisCount,
+        'crossAxisCount',
+        1,
+      ),
     );
     expect(find.byType(AspectRatio), findsOneWidget);
     expect(
@@ -151,21 +137,96 @@ void main() {
     );
   });
 
-  testWidgets('settings screen updates card text size segmented control',
-      (tester) async {
+  testWidgets('collection cards align to responsive page padding', (
+    tester,
+  ) async {
+    final originalPhysicalSize = tester.view.physicalSize;
+    final originalDevicePixelRatio = tester.view.devicePixelRatio;
+    addTearDown(() {
+      tester.view.physicalSize = originalPhysicalSize;
+      tester.view.devicePixelRatio = originalDevicePixelRatio;
+    });
+
+    final works = List.generate(
+      40,
+      (index) => Work(id: index + 1, title: 'Collection work $index'),
+    );
+
+    for (final size in [const Size(320, 800), const Size(1280, 800)]) {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      final expectedPadding = size.width > size.height ? 24.0 : 8.0;
+
+      for (final layoutType in LayoutType.values) {
+        await tester.pumpWidget(
+          _testApp(
+            Scaffold(
+              body: WorksGridView(
+                works: works,
+                layoutType: layoutType,
+                padding: const EdgeInsets.all(16),
+              ),
+            ),
+          ),
+        );
+        await _pumpAsyncPreferenceLoad(tester);
+
+        final cards = find.byType(Card).hitTestable();
+        expect(cards, findsWidgets);
+        final rects = [
+          for (var index = 0; index < cards.evaluate().length; index++)
+            tester.getRect(cards.at(index)),
+        ];
+        final left = rects
+            .map((rect) => rect.left)
+            .reduce((first, second) => first < second ? first : second);
+        final right = rects
+            .map((rect) => rect.right)
+            .reduce((first, second) => first > second ? first : second);
+
+        expect(left, expectedPadding, reason: '$layoutType at $size');
+        expect(
+          right,
+          size.width - expectedPadding,
+          reason: '$layoutType at $size',
+        );
+      }
+    }
+  });
+
+  testWidgets('settings screen omits retired size and font controls', (
+    tester,
+  ) async {
     await tester.pumpWidget(_testApp(const WorkCardDisplaySettingsScreen()));
     await _pumpAsyncPreferenceLoad(tester);
 
-    await tester.tap(find.text('XL').last);
+    expect(find.text('Card Size'), findsNothing);
+    expect(find.text('Card Text Size'), findsNothing);
+    expect(find.text('XL'), findsNothing);
+    expect(
+      find.byWidgetPredicate((widget) => widget is SegmentedButton),
+      findsNothing,
+    );
+  });
+
+  testWidgets('settings screen toggles user-added tags on work cards', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_testApp(const WorkCardDisplaySettingsScreen()));
+    await _pumpAsyncPreferenceLoad(tester);
+
+    final setting = find.widgetWithText(SwitchListTile, 'User-added Tags');
+    expect(tester.widget<SwitchListTile>(setting).value, isFalse);
+
+    await tester.ensureVisible(setting);
+    await tester.pumpAndSettle();
+    await tester.tap(setting);
     await tester.pump();
 
+    expect(tester.widget<SwitchListTile>(setting).value, isTrue);
     final container = ProviderScope.containerOf(
       tester.element(find.byType(WorkCardDisplaySettingsScreen)),
     );
-
-    expect(
-      container.read(workCardDisplayProvider).fontScale,
-      WorkCardFontScale.extraLarge,
-    );
+    expect(container.read(workCardDisplayProvider).showUserAddedTags, isTrue);
   });
 }

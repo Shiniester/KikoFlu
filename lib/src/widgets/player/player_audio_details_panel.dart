@@ -571,142 +571,115 @@ class _AudioVariantFilterSheetState extends State<_AudioVariantFilterSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          10,
-          16,
-          12 + MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                S.of(context).audioFilterTitle,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontSize: 18,
-                  height: 1.1,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _keywordController,
-                decoration: InputDecoration(
-                  labelText: S.of(context).audioFilterKeyword,
-                  prefixIcon: const Icon(Icons.search, size: 20),
-                  prefixIconConstraints: const BoxConstraints(
-                    minWidth: 40,
-                    minHeight: 40,
-                  ),
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        BottomSheetHeader(title: S.of(context).audioFilterTitle),
+        Flexible(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: _keywordController,
+                  decoration: InputDecoration(
+                    labelText: S.of(context).audioFilterKeyword,
+                    prefixIcon: const Icon(Icons.search, size: 20),
+                    prefixIconConstraints: const BoxConstraints(
+                      minWidth: 40,
+                      minHeight: 40,
+                    ),
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              _chips<PlayerSubtitleLanguage>(
-                context,
-                title: S.of(context).audioSubtitleLanguage,
-                values: PlayerSubtitleLanguage.values.where(
-                  (value) => value != PlayerSubtitleLanguage.unknown,
-                ),
-                selected: _filter.subtitleLanguages,
-                label: (value) => _subtitleLabel(context, value),
-                onChanged: (values) => setState(
-                  () => _filter = _filter.copyWith(subtitleLanguages: values),
-                ),
-              ),
-              _chips<PlayerAudioFormat>(
-                context,
-                title: S.of(context).audioFormatLabel,
-                values: PlayerAudioFormat.values,
-                selected: _filter.formats,
-                label: (value) => _formatLabel(context, value),
-                onChanged: (values) =>
-                    setState(() => _filter = _filter.copyWith(formats: values)),
-              ),
-              _chips<PlayerBinaryTrait>(
-                context,
-                title: S.of(context).audioSoundEffects,
-                values: const [
-                  PlayerBinaryTrait.present,
-                  PlayerBinaryTrait.absent,
-                ],
-                selected: _filter.seValues,
-                label: (value) => _traitLabel(context, value),
-                onChanged: (values) => setState(
-                  () => _filter = _filter.copyWith(seValues: values),
-                ),
-              ),
-              _chips<PlayerBinaryTrait>(
-                context,
-                title: S.of(context).audioEjaculationSound,
-                values: const [
-                  PlayerBinaryTrait.present,
-                  PlayerBinaryTrait.absent,
-                ],
-                selected: _filter.ejaculationValues,
-                label: (value) => _traitLabel(context, value),
-                onChanged: (values) => setState(
-                  () => _filter = _filter.copyWith(ejaculationValues: values),
-                ),
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                visualDensity: const VisualDensity(vertical: -3),
-                value: _filter.includeUnknown,
-                title: Text(
-                  S.of(context).audioIncludeUnknown,
-                  style: const TextStyle(fontSize: 12.5, height: 1.1),
-                ),
-                onChanged: (value) => setState(
-                  () => _filter = _filter.copyWith(includeUnknown: value),
-                ),
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                visualDensity: const VisualDensity(vertical: -3),
-                value: _filter.showAll,
-                title: Text(
-                  S.of(context).audioShowAllCombinations,
-                  style: const TextStyle(fontSize: 12.5, height: 1.1),
-                ),
-                onChanged: (value) =>
-                    setState(() => _filter = _filter.copyWith(showAll: value)),
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.of(
-                      context,
-                    ).pop((resetToDefault: true, filter: widget.initial)),
-                    child: Text(S.of(context).reset),
+                const SizedBox(height: 10),
+                _chips<PlayerSubtitleLanguage>(
+                  context,
+                  title: S.of(context).audioSubtitleLanguage,
+                  values: PlayerSubtitleLanguage.values.where(
+                    (value) => value != PlayerSubtitleLanguage.unknown,
                   ),
-                  const Spacer(),
-                  FilledButton(
-                    onPressed: () => Navigator.of(context).pop((
-                      resetToDefault: false,
-                      filter: _filter.copyWith(
-                        keyword: _keywordController.text,
-                      ),
-                    )),
-                    child: Text(S.of(context).audioFilterApply),
+                  selected: _filter.subtitleLanguages,
+                  label: (value) => _subtitleLabel(context, value),
+                  onChanged: (values) => setState(
+                    () => _filter = _filter.copyWith(subtitleLanguages: values),
                   ),
-                ],
-              ),
-            ],
+                ),
+                _chips<PlayerAudioFormat>(
+                  context,
+                  title: S.of(context).audioFormatLabel,
+                  values: PlayerAudioFormat.values,
+                  selected: _filter.formats,
+                  label: (value) => _formatLabel(context, value),
+                  onChanged: (values) => setState(
+                    () => _filter = _filter.copyWith(formats: values),
+                  ),
+                ),
+                _chips<PlayerBinaryTrait>(
+                  context,
+                  title: S.of(context).audioSoundEffects,
+                  values: const [
+                    PlayerBinaryTrait.present,
+                    PlayerBinaryTrait.absent,
+                  ],
+                  selected: _filter.seValues,
+                  label: (value) => _traitLabel(context, value),
+                  onChanged: (values) => setState(
+                    () => _filter = _filter.copyWith(seValues: values),
+                  ),
+                ),
+                _chips<PlayerBinaryTrait>(
+                  context,
+                  title: S.of(context).audioEjaculationSound,
+                  values: const [
+                    PlayerBinaryTrait.present,
+                    PlayerBinaryTrait.absent,
+                  ],
+                  selected: _filter.ejaculationValues,
+                  label: (value) => _traitLabel(context, value),
+                  onChanged: (values) => setState(
+                    () => _filter = _filter.copyWith(ejaculationValues: values),
+                  ),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _filter.includeUnknown,
+                  title: Text(S.of(context).audioIncludeUnknown),
+                  onChanged: (value) => setState(
+                    () => _filter = _filter.copyWith(includeUnknown: value),
+                  ),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _filter.showAll,
+                  title: Text(S.of(context).audioShowAllCombinations),
+                  onChanged: (value) => setState(
+                    () => _filter = _filter.copyWith(showAll: value),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
         ),
-      ),
+        BottomSheetActionBar(
+          secondaryLabel: S.of(context).reset,
+          onSecondaryPressed: () => Navigator.of(
+            context,
+          ).pop((resetToDefault: true, filter: widget.initial)),
+          primaryLabel: S.of(context).audioFilterApply,
+          onPrimaryPressed: () => Navigator.of(context).pop((
+            resetToDefault: false,
+            filter: _filter.copyWith(keyword: _keywordController.text),
+          )),
+        ),
+      ],
     );
   }
 

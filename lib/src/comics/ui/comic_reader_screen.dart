@@ -11,6 +11,7 @@ import '../../providers/audio_provider.dart';
 import '../../services/storage_service.dart';
 import '../../services/log_service.dart';
 import '../../widgets/animated_menu_anchor.dart';
+import '../../widgets/app_navigation_scope.dart';
 import '../../widgets/mini_player.dart';
 import '../../utils/snackbar_util.dart';
 import '../comic_models.dart';
@@ -1115,6 +1116,7 @@ class _ComicReaderScreenState extends ConsumerState<ComicReaderScreen>
                           icon: const Icon(Icons.more_vert),
                           onPressed: () => Navigator.of(context).push(
                             MaterialPageRoute(
+                              settings: appImmersiveRouteSettings,
                               builder: (_) => const ComicReaderSettingsScreen(),
                             ),
                           ),

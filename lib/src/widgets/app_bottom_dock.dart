@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'app_bottom_dock_transition.dart';
-
 class AppBottomDock extends StatelessWidget {
   const AppBottomDock({
     super.key,
@@ -11,11 +9,10 @@ class AppBottomDock extends StatelessWidget {
     this.miniPlayer,
   });
 
-  static const double navigationBarHeight = appBottomDockNavigationBarHeight;
+  static const double navigationBarHeight = 58;
 
   static double layoutExtent(BuildContext context) {
-    return navigationBarHeight +
-        AppBottomDockTransitionScope.bottomInsetOf(context);
+    return navigationBarHeight + MediaQuery.viewPaddingOf(context).bottom;
   }
 
   final int selectedIndex;
@@ -26,10 +23,7 @@ class AppBottomDock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final navigationBarExtent = layoutExtent(context);
-    final frozenBottomInset = AppBottomDockTransitionScope.handoffBottomInsetOf(
-      context,
-    );
-    Widget navigationBar = SizedBox(
+    final navigationBar = SizedBox(
       width: double.infinity,
       height: navigationBarExtent,
       child: NavigationBar(
@@ -41,19 +35,11 @@ class AppBottomDock extends StatelessWidget {
         destinations: destinations,
       ),
     );
-    if (frozenBottomInset != null) {
-      navigationBar = AppBottomDockTransitionScope.withHandoffBottomInset(
-        context,
-        bottomInset: frozenBottomInset,
-        child: navigationBar,
-      );
-    }
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (miniPlayer case final miniPlayer?)
-          AppBottomDockMiniPlayer.source(child: miniPlayer),
-        AppBottomDockTabBar.source(child: navigationBar),
+        if (miniPlayer case final miniPlayer?) miniPlayer,
+        navigationBar,
       ],
     );
   }

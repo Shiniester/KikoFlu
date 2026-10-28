@@ -2920,12 +2920,6 @@ abstract class S {
   /// **'Show Price'**
   String get showPrice;
 
-  /// No description provided for @cardSize.
-  ///
-  /// In en, this message translates to:
-  /// **'Card Size'**
-  String get cardSize;
-
   /// No description provided for @compact.
   ///
   /// In en, this message translates to:
@@ -6592,60 +6586,6 @@ abstract class S {
   /// **'Show work\'s circle'**
   String get showWorkCircle;
 
-  /// No description provided for @workCardSizeSubtitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Adjust grid density to make covers larger or keep the current size'**
-  String get workCardSizeSubtitle;
-
-  /// No description provided for @workCardFontSize.
-  ///
-  /// In en, this message translates to:
-  /// **'Card Text Size'**
-  String get workCardFontSize;
-
-  /// No description provided for @workCardFontSizeSubtitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Adjust title and metadata text on work cards'**
-  String get workCardFontSizeSubtitle;
-
-  /// No description provided for @cardSizeNormal.
-  ///
-  /// In en, this message translates to:
-  /// **'Normal'**
-  String get cardSizeNormal;
-
-  /// No description provided for @cardSizeLarge.
-  ///
-  /// In en, this message translates to:
-  /// **'Large'**
-  String get cardSizeLarge;
-
-  /// No description provided for @cardSizeExtraLarge.
-  ///
-  /// In en, this message translates to:
-  /// **'XL'**
-  String get cardSizeExtraLarge;
-
-  /// No description provided for @fontSizeNormal.
-  ///
-  /// In en, this message translates to:
-  /// **'Normal'**
-  String get fontSizeNormal;
-
-  /// No description provided for @fontSizeLarge.
-  ///
-  /// In en, this message translates to:
-  /// **'Large'**
-  String get fontSizeLarge;
-
-  /// No description provided for @fontSizeExtraLarge.
-  ///
-  /// In en, this message translates to:
-  /// **'XL'**
-  String get fontSizeExtraLarge;
-
   /// No description provided for @showSubtitleTagOnCard.
   ///
   /// In en, this message translates to:
@@ -6657,6 +6597,18 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Show age rating on work card'**
   String get showAgeRatingOnCard;
+
+  /// Setting title for showing user-added audio work tags on cards.
+  ///
+  /// In en, this message translates to:
+  /// **'User-added Tags'**
+  String get userAddedTagsLabel;
+
+  /// Setting subtitle for showing user-added audio work tags on cards.
+  ///
+  /// In en, this message translates to:
+  /// **'Show user-added tags on work cards'**
+  String get showUserAddedTagsOnCard;
 
   /// No description provided for @showOnlineMarks.
   ///
@@ -7851,6 +7803,900 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Failed to launch installer'**
   String get installFailed;
+
+  /// No description provided for @navVideos.
+  ///
+  /// In en, this message translates to:
+  /// **'Videos'**
+  String get navVideos;
+
+  /// No description provided for @videoSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Video settings'**
+  String get videoSettings;
+
+  /// No description provided for @videoCardMakers.
+  ///
+  /// In en, this message translates to:
+  /// **'Studio'**
+  String get videoCardMakers;
+
+  /// No description provided for @videoCardLabels.
+  ///
+  /// In en, this message translates to:
+  /// **'Label'**
+  String get videoCardLabels;
+
+  /// No description provided for @videoCardDirectors.
+  ///
+  /// In en, this message translates to:
+  /// **'Directors'**
+  String get videoCardDirectors;
+
+  /// Heading for actors on a video details screen
+  ///
+  /// In en, this message translates to:
+  /// **'Actors'**
+  String get videoDetailActors;
+
+  /// Combined heading for linked studios, labels, and series on video details
+  ///
+  /// In en, this message translates to:
+  /// **'Studio | Label | Series'**
+  String get videoDetailCreators;
+
+  /// No description provided for @videoSearchHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Search videos'**
+  String get videoSearchHint;
+
+  /// No description provided for @videoSourceAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'MissAV account'**
+  String get videoSourceAccount;
+
+  /// No description provided for @videoCatalog.
+  ///
+  /// In en, this message translates to:
+  /// **'Browse videos'**
+  String get videoCatalog;
+
+  /// Heading for video feeds and content directory entries in the video drawer.
+  ///
+  /// In en, this message translates to:
+  /// **'Content'**
+  String get videoContent;
+
+  /// No description provided for @videoRecentlyUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'Recently updated'**
+  String get videoRecentlyUpdated;
+
+  /// No description provided for @videoNewReleases.
+  ///
+  /// In en, this message translates to:
+  /// **'New releases'**
+  String get videoNewReleases;
+
+  /// No description provided for @videoChineseSubtitles.
+  ///
+  /// In en, this message translates to:
+  /// **'Chinese subtitles'**
+  String get videoChineseSubtitles;
+
+  /// No description provided for @videoWeeklyHot.
+  ///
+  /// In en, this message translates to:
+  /// **'Popular this week'**
+  String get videoWeeklyHot;
+
+  /// No description provided for @videoUncensoredLeak.
+  ///
+  /// In en, this message translates to:
+  /// **'Uncensored leaks'**
+  String get videoUncensoredLeak;
+
+  /// Entry for the personalized recommendation feed in the video drawer.
+  ///
+  /// In en, this message translates to:
+  /// **'Recommended for you'**
+  String get videoRecommendedForYou;
+
+  /// No description provided for @videoFilterGenre.
+  ///
+  /// In en, this message translates to:
+  /// **'Genre'**
+  String get videoFilterGenre;
+
+  /// No description provided for @videoFilterActor.
+  ///
+  /// In en, this message translates to:
+  /// **'Actor'**
+  String get videoFilterActor;
+
+  /// No description provided for @videoFilterStudio.
+  ///
+  /// In en, this message translates to:
+  /// **'Studio'**
+  String get videoFilterStudio;
+
+  /// No description provided for @videoFilterSeries.
+  ///
+  /// In en, this message translates to:
+  /// **'Series'**
+  String get videoFilterSeries;
+
+  /// No description provided for @videoFavorites.
+  ///
+  /// In en, this message translates to:
+  /// **'Video favorites'**
+  String get videoFavorites;
+
+  /// No description provided for @videoActorFavorites.
+  ///
+  /// In en, this message translates to:
+  /// **'Actor favorites'**
+  String get videoActorFavorites;
+
+  /// No description provided for @videoWatchHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Watch history'**
+  String get videoWatchHistory;
+
+  /// No description provided for @videoDownloads.
+  ///
+  /// In en, this message translates to:
+  /// **'Video downloads'**
+  String get videoDownloads;
+
+  /// No description provided for @videoSourceUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'This source feature is unavailable in the app. Open it on MissAV.'**
+  String get videoSourceUnavailable;
+
+  /// No description provided for @videoVerificationRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'MissAV requires browser verification. Verify access, then retry.'**
+  String get videoVerificationRequired;
+
+  /// No description provided for @videoVerifyAccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Verify access'**
+  String get videoVerifyAccess;
+
+  /// No description provided for @videoVerificationHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Complete verification on MissAV, then select Check access.'**
+  String get videoVerificationHelp;
+
+  /// No description provided for @videoVerificationContinue.
+  ///
+  /// In en, this message translates to:
+  /// **'Check access'**
+  String get videoVerificationContinue;
+
+  /// No description provided for @videoVerificationFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Access check failed. Complete browser verification, then retry.'**
+  String get videoVerificationFailed;
+
+  /// No description provided for @videoVerificationSystemProxyRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Browser verification requires the system proxy mode. Change the network settings, then retry.'**
+  String get videoVerificationSystemProxyRequired;
+
+  /// No description provided for @videoLoginRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to a MissAV account to use this feature.'**
+  String get videoLoginRequired;
+
+  /// No description provided for @videoLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Videos could not be loaded. Retry or open MissAV.'**
+  String get videoLoadFailed;
+
+  /// No description provided for @videoPlaybackFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback failed. Retry or open MissAV.'**
+  String get videoPlaybackFailed;
+
+  /// No description provided for @videoDownloadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Download failed. Retry from video downloads.'**
+  String get videoDownloadFailed;
+
+  /// No description provided for @videoEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'Email'**
+  String get videoEmail;
+
+  /// No description provided for @videoRegisterOnSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Register on MissAV'**
+  String get videoRegisterOnSource;
+
+  /// No description provided for @videoResetPasswordOnSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset password on MissAV'**
+  String get videoResetPasswordOnSource;
+
+  /// No description provided for @videoPasswordOnSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Change password on MissAV'**
+  String get videoPasswordOnSource;
+
+  /// Explains that account actions open the source website, where the user selects the corresponding form.
+  ///
+  /// In en, this message translates to:
+  /// **'These actions open MissAV. Select registration or password management on the website.'**
+  String get videoAccountSourceHint;
+
+  /// No description provided for @videoQuality.
+  ///
+  /// In en, this message translates to:
+  /// **'Quality'**
+  String get videoQuality;
+
+  /// No description provided for @videoRelated.
+  ///
+  /// In en, this message translates to:
+  /// **'Related videos'**
+  String get videoRelated;
+
+  /// No description provided for @videoDownloadQueued.
+  ///
+  /// In en, this message translates to:
+  /// **'Queued'**
+  String get videoDownloadQueued;
+
+  /// No description provided for @videoDownloadPaused.
+  ///
+  /// In en, this message translates to:
+  /// **'Paused'**
+  String get videoDownloadPaused;
+
+  /// No description provided for @videoDownloadFailedStatus.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get videoDownloadFailedStatus;
+
+  /// No description provided for @videoDownloadCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloaded'**
+  String get videoDownloadCompleted;
+
+  /// No description provided for @videoDownloadInProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading'**
+  String get videoDownloadInProgress;
+
+  /// No description provided for @videoNoStreams.
+  ///
+  /// In en, this message translates to:
+  /// **'No playable stream was found. Open MissAV to play this video.'**
+  String get videoNoStreams;
+
+  /// No description provided for @videoPlaylistName.
+  ///
+  /// In en, this message translates to:
+  /// **'Playlist name'**
+  String get videoPlaylistName;
+
+  /// No description provided for @videoAddToPlaylist.
+  ///
+  /// In en, this message translates to:
+  /// **'Add to playlist'**
+  String get videoAddToPlaylist;
+
+  /// No description provided for @videoCreatePlaylist.
+  ///
+  /// In en, this message translates to:
+  /// **'Create playlist'**
+  String get videoCreatePlaylist;
+
+  /// No description provided for @videoRenamePlaylist.
+  ///
+  /// In en, this message translates to:
+  /// **'Rename playlist'**
+  String get videoRenamePlaylist;
+
+  /// No description provided for @videoDeletePlaylist.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete playlist'**
+  String get videoDeletePlaylist;
+
+  /// No description provided for @videoOpenSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Open MissAV'**
+  String get videoOpenSource;
+
+  /// No description provided for @videoDownloadDeleteConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete this video download? Offline playback will no longer be available.'**
+  String get videoDownloadDeleteConfirm;
+
+  /// No description provided for @videoPlay.
+  ///
+  /// In en, this message translates to:
+  /// **'Play'**
+  String get videoPlay;
+
+  /// No description provided for @videoFullscreen.
+  ///
+  /// In en, this message translates to:
+  /// **'Fullscreen'**
+  String get videoFullscreen;
+
+  /// No description provided for @videoSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitles'**
+  String get videoSubtitle;
+
+  /// Tooltip for the uncensored video cover badge.
+  ///
+  /// In en, this message translates to:
+  /// **'Uncensored'**
+  String get videoUncensored;
+
+  /// No description provided for @videoFavoriteActor.
+  ///
+  /// In en, this message translates to:
+  /// **'Favorite actor'**
+  String get videoFavoriteActor;
+
+  /// No description provided for @videoUnfavoriteActor.
+  ///
+  /// In en, this message translates to:
+  /// **'Unfavorite actor'**
+  String get videoUnfavoriteActor;
+
+  /// Video player control or preference: Player settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Player settings'**
+  String get videoPlayerSettings;
+
+  /// Video player control or preference: More options.
+  ///
+  /// In en, this message translates to:
+  /// **'More options'**
+  String get videoPlayerMoreOptions;
+
+  /// Video player control or preference: Lock controls.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock controls'**
+  String get videoPlayerLockControls;
+
+  /// Video player control or preference: Unlock controls.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock controls'**
+  String get videoPlayerUnlockControls;
+
+  /// Video player control or preference: Take screenshot.
+  ///
+  /// In en, this message translates to:
+  /// **'Take screenshot'**
+  String get videoPlayerTakeScreenshot;
+
+  /// Video player control or preference: Brightness.
+  ///
+  /// In en, this message translates to:
+  /// **'Brightness'**
+  String get videoPlayerBrightness;
+
+  /// Video player control or preference: Aspect ratio.
+  ///
+  /// In en, this message translates to:
+  /// **'Aspect ratio'**
+  String get videoPlayerAspectRatio;
+
+  /// Video player control or preference: Auto fit.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto fit'**
+  String get videoPlayerFitContain;
+
+  /// Video player control or preference: Stretch.
+  ///
+  /// In en, this message translates to:
+  /// **'Stretch'**
+  String get videoPlayerFitFill;
+
+  /// Video player control or preference: Crop.
+  ///
+  /// In en, this message translates to:
+  /// **'Crop'**
+  String get videoPlayerFitCover;
+
+  /// Video player control or preference: Fit width.
+  ///
+  /// In en, this message translates to:
+  /// **'Fit width'**
+  String get videoPlayerFitWidth;
+
+  /// Video player control or preference: Fit height.
+  ///
+  /// In en, this message translates to:
+  /// **'Fit height'**
+  String get videoPlayerFitHeight;
+
+  /// Video player control or preference: Original size.
+  ///
+  /// In en, this message translates to:
+  /// **'Original size'**
+  String get videoPlayerFitOriginal;
+
+  /// Video player control or preference: Limit size.
+  ///
+  /// In en, this message translates to:
+  /// **'Limit size'**
+  String get videoPlayerFitScaleDown;
+
+  /// Video player control or preference: 4:3.
+  ///
+  /// In en, this message translates to:
+  /// **'4:3'**
+  String get videoPlayerFitFourThree;
+
+  /// Video player control or preference: 16:9.
+  ///
+  /// In en, this message translates to:
+  /// **'16:9'**
+  String get videoPlayerFitSixteenNine;
+
+  /// Video player control or preference: Audio track.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio track'**
+  String get videoPlayerAudioTrack;
+
+  /// Video player control or preference: Subtitle track.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle track'**
+  String get videoPlayerSubtitleTrack;
+
+  /// Video player control or preference: Subtitle offset.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle offset'**
+  String get videoPlayerSubtitleOffset;
+
+  /// Video player control or preference: Subtitle style.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle style'**
+  String get videoPlayerSubtitleStyle;
+
+  /// Video player control or preference: Subtitle size.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle size'**
+  String get videoPlayerSubtitleFontSize;
+
+  /// Video player control or preference: Subtitle background.
+  ///
+  /// In en, this message translates to:
+  /// **'Subtitle background'**
+  String get videoPlayerSubtitleBackground;
+
+  /// Video player control or preference: Double tap to seek.
+  ///
+  /// In en, this message translates to:
+  /// **'Double tap to seek'**
+  String get videoPlayerDoubleTapSeek;
+
+  /// Video player control or preference: Double-tap seek duration.
+  ///
+  /// In en, this message translates to:
+  /// **'Double-tap seek duration'**
+  String get videoPlayerDoubleTapSeekDuration;
+
+  /// Video player control or preference: Long-press speed.
+  ///
+  /// In en, this message translates to:
+  /// **'Long-press speed'**
+  String get videoPlayerLongPressSpeed;
+
+  /// Video player control or preference: Dynamic long-press speed.
+  ///
+  /// In en, this message translates to:
+  /// **'Dynamic long-press speed'**
+  String get videoPlayerDynamicLongPressSpeed;
+
+  /// Video player control or preference: Background playback.
+  ///
+  /// In en, this message translates to:
+  /// **'Background playback'**
+  String get videoPlayerBackgroundPlayback;
+
+  /// Video player control or preference: Picture-in-picture.
+  ///
+  /// In en, this message translates to:
+  /// **'Picture-in-picture'**
+  String get videoPlayerPictureInPicture;
+
+  /// Video player control or preference: Extend control display time.
+  ///
+  /// In en, this message translates to:
+  /// **'Extend control display time'**
+  String get videoPlayerExtendedControlTime;
+
+  /// Video player control or preference: Play once.
+  ///
+  /// In en, this message translates to:
+  /// **'Play once'**
+  String get videoPlayerRepeatOnce;
+
+  /// Video player control or preference: Repeat one.
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat one'**
+  String get videoPlayerRepeatSingle;
+
+  /// Video player control or preference: Play related videos.
+  ///
+  /// In en, this message translates to:
+  /// **'Play related videos'**
+  String get videoPlayerRepeatRelated;
+
+  /// Video player control or preference: Auto play.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto play'**
+  String get videoPlayerAutoPlay;
+
+  /// Video player control or preference: Enter fullscreen automatically.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter fullscreen automatically'**
+  String get videoPlayerAutoFullscreen;
+
+  /// Video player control or preference: Exit fullscreen automatically.
+  ///
+  /// In en, this message translates to:
+  /// **'Exit fullscreen automatically'**
+  String get videoPlayerAutoExitFullscreen;
+
+  /// Video player control or preference: Enter picture-in-picture automatically.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter picture-in-picture automatically'**
+  String get videoPlayerAutoPip;
+
+  /// Video player control or preference: Swipe to adjust brightness and volume.
+  ///
+  /// In en, this message translates to:
+  /// **'Swipe to adjust brightness and volume'**
+  String get videoPlayerSideSwipeAdjust;
+
+  /// Video player control or preference: Swipe to toggle fullscreen.
+  ///
+  /// In en, this message translates to:
+  /// **'Swipe to toggle fullscreen'**
+  String get videoPlayerFullscreenGesture;
+
+  /// Video player control or preference: Seek relative to video length.
+  ///
+  /// In en, this message translates to:
+  /// **'Seek relative to video length'**
+  String get videoPlayerRelativeSwipeSeek;
+
+  /// Video player control or preference: Full-width swipe seek duration.
+  ///
+  /// In en, this message translates to:
+  /// **'Full-width swipe seek duration'**
+  String get videoPlayerSwipeSeekDuration;
+
+  /// Video player control or preference: Expand vertical videos.
+  ///
+  /// In en, this message translates to:
+  /// **'Expand vertical videos'**
+  String get videoPlayerExpandVertical;
+
+  /// Video player control or preference: Keyboard controls.
+  ///
+  /// In en, this message translates to:
+  /// **'Keyboard controls'**
+  String get videoPlayerKeyboardControl;
+
+  /// Video player control or preference: Reverse fullscreen gesture.
+  ///
+  /// In en, this message translates to:
+  /// **'Reverse fullscreen gesture'**
+  String get videoPlayerReverseFullscreenGesture;
+
+  /// Video player control or preference: Fullscreen orientation.
+  ///
+  /// In en, this message translates to:
+  /// **'Fullscreen orientation'**
+  String get videoPlayerFullscreenOrientation;
+
+  /// Video player control or preference: Auto.
+  ///
+  /// In en, this message translates to:
+  /// **'Auto'**
+  String get videoPlayerOrientationAuto;
+
+  /// Video player control or preference: Keep orientation.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep orientation'**
+  String get videoPlayerOrientationNone;
+
+  /// Video player control or preference: Portrait.
+  ///
+  /// In en, this message translates to:
+  /// **'Portrait'**
+  String get videoPlayerOrientationPortrait;
+
+  /// Video player control or preference: Landscape.
+  ///
+  /// In en, this message translates to:
+  /// **'Landscape'**
+  String get videoPlayerOrientationLandscape;
+
+  /// Video player control or preference: Match video aspect ratio.
+  ///
+  /// In en, this message translates to:
+  /// **'Match video aspect ratio'**
+  String get videoPlayerOrientationRatio;
+
+  /// Video player control or preference: Follow device rotation.
+  ///
+  /// In en, this message translates to:
+  /// **'Follow device rotation'**
+  String get videoPlayerOrientationGravity;
+
+  /// Video player control or preference: Bottom progress bar.
+  ///
+  /// In en, this message translates to:
+  /// **'Bottom progress bar'**
+  String get videoPlayerBottomProgressMode;
+
+  /// Video player control or preference: Always show.
+  ///
+  /// In en, this message translates to:
+  /// **'Always show'**
+  String get videoPlayerBottomProgressAlways;
+
+  /// Video player control or preference: Never show.
+  ///
+  /// In en, this message translates to:
+  /// **'Never show'**
+  String get videoPlayerBottomProgressNever;
+
+  /// Video player control or preference: Fullscreen only.
+  ///
+  /// In en, this message translates to:
+  /// **'Fullscreen only'**
+  String get videoPlayerBottomProgressFullscreenOnly;
+
+  /// Video player control or preference: Inline only.
+  ///
+  /// In en, this message translates to:
+  /// **'Inline only'**
+  String get videoPlayerBottomProgressInlineOnly;
+
+  /// Video player control or preference: Show fullscreen lock button.
+  ///
+  /// In en, this message translates to:
+  /// **'Show fullscreen lock button'**
+  String get videoPlayerShowFullscreenLockButton;
+
+  /// Video player control or preference: Show fullscreen screenshot button.
+  ///
+  /// In en, this message translates to:
+  /// **'Show fullscreen screenshot button'**
+  String get videoPlayerShowFullscreenScreenshotButton;
+
+  /// Video player control or preference: Adjust system brightness.
+  ///
+  /// In en, this message translates to:
+  /// **'Adjust system brightness'**
+  String get videoPlayerSystemBrightness;
+
+  /// Video player control or preference: Allow changing system settings to adjust system brightness..
+  ///
+  /// In en, this message translates to:
+  /// **'Allow changing system settings to adjust system brightness.'**
+  String get videoPlayerSystemBrightnessPermission;
+
+  /// Video player control or preference: Speed list
+  ///
+  /// In en, this message translates to:
+  /// **'Speed list'**
+  String get videoPlayerSpeedList;
+
+  /// Video player control or preference: Add speed
+  ///
+  /// In en, this message translates to:
+  /// **'Add speed'**
+  String get videoPlayerAddSpeed;
+
+  /// Video player control or preference: Default speed
+  ///
+  /// In en, this message translates to:
+  /// **'Default speed'**
+  String get videoPlayerDefaultSpeed;
+
+  /// Video player control or preference: Enter a valid speed greater than 0.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a valid speed greater than 0.'**
+  String get videoPlayerInvalidSpeed;
+
+  /// Video player control or preference: Show battery level in fullscreen
+  ///
+  /// In en, this message translates to:
+  /// **'Show battery level in fullscreen'**
+  String get videoPlayerShowFullscreenBattery;
+
+  /// Keep the video player window above other desktop windows.
+  ///
+  /// In en, this message translates to:
+  /// **'Always on top'**
+  String get videoPlayerAlwaysOnTop;
+
+  /// Stop keeping the video player window above other desktop windows.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop keeping on top'**
+  String get videoPlayerCancelAlwaysOnTop;
+
+  /// Restore the video picture after zooming or panning.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset view'**
+  String get videoPlayerRestoreScreen;
+
+  /// No description provided for @videoPlayerFlipHorizontal.
+  ///
+  /// In en, this message translates to:
+  /// **'Flip horizontally'**
+  String get videoPlayerFlipHorizontal;
+
+  /// No description provided for @videoPlayerFlipVertical.
+  ///
+  /// In en, this message translates to:
+  /// **'Flip vertically'**
+  String get videoPlayerFlipVertical;
+
+  /// No description provided for @videoPlayerReload.
+  ///
+  /// In en, this message translates to:
+  /// **'Reload video'**
+  String get videoPlayerReload;
+
+  /// No description provided for @videoPlayerPlaybackInfo.
+  ///
+  /// In en, this message translates to:
+  /// **'Playback information'**
+  String get videoPlayerPlaybackInfo;
+
+  /// No description provided for @videoPlayerSuperResolution.
+  ///
+  /// In en, this message translates to:
+  /// **'Super resolution'**
+  String get videoPlayerSuperResolution;
+
+  /// No description provided for @videoPlayerSuperResolutionOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Disabled'**
+  String get videoPlayerSuperResolutionOff;
+
+  /// No description provided for @videoPlayerSuperResolutionEfficiency.
+  ///
+  /// In en, this message translates to:
+  /// **'Efficiency'**
+  String get videoPlayerSuperResolutionEfficiency;
+
+  /// No description provided for @videoPlayerSuperResolutionQuality.
+  ///
+  /// In en, this message translates to:
+  /// **'Quality'**
+  String get videoPlayerSuperResolutionQuality;
+
+  /// No description provided for @videoPlayerSleepTimer.
+  ///
+  /// In en, this message translates to:
+  /// **'Sleep timer'**
+  String get videoPlayerSleepTimer;
+
+  /// Video sleep timer duration in minutes.
+  ///
+  /// In en, this message translates to:
+  /// **'{minutes} min'**
+  String videoPlayerTimerMinutes(int minutes);
+
+  /// No description provided for @videoPlayerTimerCustom.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom duration'**
+  String get videoPlayerTimerCustom;
+
+  /// No description provided for @videoPlayerTimerHourUnit.
+  ///
+  /// In en, this message translates to:
+  /// **'h'**
+  String get videoPlayerTimerHourUnit;
+
+  /// No description provided for @videoPlayerTimerMinuteUnit.
+  ///
+  /// In en, this message translates to:
+  /// **'min'**
+  String get videoPlayerTimerMinuteUnit;
+
+  /// No description provided for @videoPlayerExitApp.
+  ///
+  /// In en, this message translates to:
+  /// **'Exit app'**
+  String get videoPlayerExitApp;
+
+  /// No description provided for @videoPlayerInfoResolution.
+  ///
+  /// In en, this message translates to:
+  /// **'Resolution'**
+  String get videoPlayerInfoResolution;
+
+  /// No description provided for @videoPlayerInfoVideoCodec.
+  ///
+  /// In en, this message translates to:
+  /// **'Video codec'**
+  String get videoPlayerInfoVideoCodec;
+
+  /// No description provided for @videoPlayerInfoFrameRate.
+  ///
+  /// In en, this message translates to:
+  /// **'Frame rate'**
+  String get videoPlayerInfoFrameRate;
+
+  /// No description provided for @videoPlayerInfoVideoBitrate.
+  ///
+  /// In en, this message translates to:
+  /// **'Video bitrate'**
+  String get videoPlayerInfoVideoBitrate;
+
+  /// No description provided for @videoPlayerInfoAudioCodec.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio codec'**
+  String get videoPlayerInfoAudioCodec;
+
+  /// No description provided for @videoPlayerInfoAudioFormat.
+  ///
+  /// In en, this message translates to:
+  /// **'Audio format'**
+  String get videoPlayerInfoAudioFormat;
 
   /// Audio player slice control: audioSlices
   ///

@@ -5,7 +5,6 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import '../../models/audio_source.dart';
 import '../../models/work.dart';
 import '../../providers/recommendation_provider.dart';
-import '../../providers/work_card_display_provider.dart';
 import '../../providers/work_detail_display_provider.dart';
 import '../../providers/settings_provider.dart'
     show blockedItemsBySourceProvider;
@@ -86,9 +85,6 @@ class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
           return work.name == null || !blockedItems.circles.contains(work.name);
         })
         .toList(growable: false);
-    final cardSize = ref.watch(
-      workCardDisplayProvider.select((s) => s.cardSize),
-    );
     return SliverLayoutBuilder(
       builder: (context, constraints) {
         if (!state.isLoading && recommendations.isEmpty) {
@@ -97,7 +93,6 @@ class _RecommendationSectionState extends ConsumerState<RecommendationSection> {
         final metrics = resolveCollectionGridMetrics(
           context,
           layoutType: LayoutType.bigGrid,
-          cardSize: cardSize,
           availableWidth: constraints.crossAxisExtent,
           padding: const EdgeInsets.only(bottom: 16),
         );

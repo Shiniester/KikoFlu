@@ -31,14 +31,12 @@ class ComicSearchScreen extends ConsumerStatefulWidget {
     this.libraryTab,
     this.onlineFavorites = false,
     this.category,
-    this.dockHandoff = false,
   });
   final String? initialSource;
   final String initialQuery;
   final int? libraryTab;
   final bool onlineFavorites;
   final ComicCategory? category;
-  final bool dockHandoff;
   @override
   ConsumerState<ComicSearchScreen> createState() => _ComicSearchScreenState();
 }
@@ -712,9 +710,7 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
         ],
       ),
     );
-    return widget.dockHandoff
-        ? GlobalAudioPlayerWrapper.workDetails(child: screen)
-        : GlobalAudioPlayerWrapper(child: screen);
+    return GlobalAudioPlayerWrapper(child: screen);
   }
 }
 

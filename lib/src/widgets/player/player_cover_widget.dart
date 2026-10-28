@@ -13,134 +13,6 @@ import '../../utils/audio_source_headers.dart';
 import '../../utils/local_file_url.dart';
 import '../privacy_blur_cover.dart';
 
-const double playerArtworkAttachmentStart = 0.20;
-const double playerArtworkAttachmentEnd = 0.85;
-const double playerCoverHeaderFadeStart = 0.55;
-const double playerCoverHeaderFadeEnd = 0.85;
-
-double _smoothStep(double value) => value * value * (3 - 2 * value);
-
-@visibleForTesting
-double playerArtworkAttachment(double visualProgress) {
-  final progress = visualProgress.clamp(0.0, 1.0);
-  if (progress <= playerArtworkAttachmentStart) return 0;
-  if (progress >= playerArtworkAttachmentEnd) return 1;
-  final intervalProgress =
-      (progress - playerArtworkAttachmentStart) /
-      (playerArtworkAttachmentEnd - playerArtworkAttachmentStart);
-  return _smoothStep(intervalProgress);
-}
-
-double playerCoverHeaderOpacity(double visualProgress) {
-  final progress = visualProgress.clamp(0.0, 1.0);
-  if (progress <= playerCoverHeaderFadeStart) return 0;
-  if (progress >= playerCoverHeaderFadeEnd) return 1;
-  final intervalProgress =
-      (progress - playerCoverHeaderFadeStart) /
-      (playerCoverHeaderFadeEnd - playerCoverHeaderFadeStart);
-  return _smoothStep(intervalProgress);
-}
-
-Tween<Rect?> createPlayerArtworkRectTween(
-  Rect? begin,
-  Rect? end, {
-  double viewportHeight = 0,
-  bool reverse = false,
-}) => _PlayerArtworkRectTween(
-  begin: begin,
-  end: end,
-  viewportHeight: viewportHeight,
-  reverse: reverse,
-);
-
-class _PlayerArtworkRectTween extends RectTween {
-  _PlayerArtworkRectTween({
-    required super.begin,
-    required super.end,
-    required this.viewportHeight,
-    required this.reverse,
-  });
-
-  final double viewportHeight;
-  final bool reverse;
-
-  @override
-  Rect? lerp(double t) {
-    final source = reverse ? end : begin;
-    final target = reverse ? begin : end;
-    if (source == null || target == null) return super.lerp(t);
-    final visualProgress = reverse ? 1 - t : t;
-    final maxTargetShift = math.max(0.0, source.bottom - target.bottom);
-    final targetShift = math.min(
-      viewportHeight * (1 - visualProgress),
-      maxTargetShift,
-    );
-    final movingTarget = target.shift(Offset(0, targetShift));
-    return Rect.lerp(
-      source,
-      movingTarget,
-      playerArtworkAttachment(visualProgress),
-    );
-  }
-}
-
-enum PlayerArtworkFlightTarget { main, none }
-
-Object playerArtworkHeroTag(String trackId, PlayerArtworkFlightTarget target) =>
-    'audio_player_artwork_${target.name}_$trackId';
-
-class PlayerArtworkHero extends StatelessWidget {
-  const PlayerArtworkHero({
-    super.key,
-    required this.trackId,
-    required this.target,
-    required this.cornerRadius,
-    required this.child,
-    this.enabled = true,
-    this.isPlayerPageTarget = false,
-    this.flightChild,
-  });
-
-  final String trackId;
-  final PlayerArtworkFlightTarget target;
-  final double cornerRadius;
-  final Widget child;
-  final bool enabled;
-  final bool isPlayerPageTarget;
-  final Widget? flightChild;
-
-  @override
-  Widget build(BuildContext context) {
-    Widget result;
-    if (!enabled ||
-        target == PlayerArtworkFlightTarget.none ||
-        MediaQuery.disableAnimationsOf(context)) {
-      result = child;
-    } else {
-      result = Hero(
-        tag: playerArtworkHeroTag(trackId, target),
-        createRectTween: (begin, end) => createPlayerArtworkRectTween(
-          begin,
-          end,
-          viewportHeight: MediaQuery.sizeOf(context).height,
-          reverse: !isPlayerPageTarget,
-        ),
-        transitionOnUserGestures: true,
-        curve: Curves.linear,
-        reverseCurve: Curves.linear,
-        flightShuttleBuilder: _playerCoverFlightShuttle,
-        child: _PlayerCoverHeroPayload(
-          flightFrameKey: const ValueKey('player-artwork-flight-frame'),
-          cornerRadius: cornerRadius,
-          flightChild: flightChild ?? child,
-          child: child,
-        ),
-      );
-    }
-    return result;
-  }
-}
-
 class _PlayerCoverHeroPayload extends StatelessWidget {
   const _PlayerCoverHeroPayload({
     required this.flightFrameKey,
@@ -232,7 +104,6 @@ class PlayerCompactArtwork extends StatelessWidget {
     super.key,
     required this.track,
     required this.url,
-    this.forFlight = false,
     this.decodeSize,
   });
 
@@ -242,16 +113,13 @@ class PlayerCompactArtwork extends StatelessWidget {
 
   final AudioTrack track;
   final String? url;
-  final bool forFlight;
 
   /// Physical-pixel bounds to cover when decoding; null keeps original size.
   final Size? decodeSize;
 
   @override
   Widget build(BuildContext context) {
-    final radius = forFlight
-        ? BorderRadius.zero
-        : BorderRadius.circular(cornerRadius);
+    final radius = BorderRadius.circular(cornerRadius);
     const fallback = Center(child: Icon(Icons.album, size: 30));
     final Widget artwork;
     if (url == null) {
@@ -283,23 +151,17 @@ class PlayerCompactArtwork extends StatelessWidget {
           : OctoImage(
               image: provider,
               fit: BoxFit.cover,
-              fadeInDuration: forFlight
-                  ? Duration.zero
-                  : const Duration(milliseconds: 220),
+              fadeInDuration: const Duration(milliseconds: 220),
               fadeInCurve: Curves.easeOutCubic,
-              fadeOutDuration: forFlight
-                  ? Duration.zero
-                  : const Duration(milliseconds: 220),
+              fadeOutDuration: const Duration(milliseconds: 220),
               fadeOutCurve: Curves.easeOutCubic,
               gaplessPlayback: true,
               errorBuilder: (_, __, ___) => fallback,
               placeholderBuilder: (_) => fallback,
             );
       artwork = PrivacyBlurCover(
-        borderRadius: forFlight ? null : radius,
-        child: forFlight
-            ? image
-            : ClipRRect(borderRadius: radius, child: image),
+        borderRadius: radius,
+        child: ClipRRect(borderRadius: radius, child: image),
       );
     }
     return SizedBox(
@@ -376,8 +238,6 @@ class PlayerCoverWidget extends StatefulWidget {
   final String? workCoverUrl;
   final bool isLandscape;
   final VoidCallback? onTap;
-  final bool heroEnabled;
-  final PlayerArtworkFlightTarget heroTarget;
   final Object? previewHeroTag;
   final bool previewHeroEnabled;
   final LayerLink? artworkLayerLink;
@@ -391,8 +251,6 @@ class PlayerCoverWidget extends StatefulWidget {
     this.workCoverUrl,
     this.isLandscape = false,
     this.onTap,
-    this.heroEnabled = true,
-    this.heroTarget = PlayerArtworkFlightTarget.main,
     this.previewHeroTag,
     this.previewHeroEnabled = false,
     this.artworkLayerLink,
@@ -781,19 +639,7 @@ class _PlayerCoverWidgetState extends State<PlayerCoverWidget>
                     link: widget.artworkLayerLink!,
                     child: previewArtwork,
                   );
-            return PlayerArtworkHero(
-              trackId: _displayed.track.id,
-              target: widget.heroTarget,
-              cornerRadius: PlayerCoverWidget.cornerRadius,
-              enabled: widget.heroEnabled && !transitionBusy,
-              isPlayerPageTarget: true,
-              flightChild: PlayerCompactArtwork(
-                track: _displayed.track,
-                url: _displayed.url,
-                forFlight: true,
-              ),
-              child: linkedArtwork,
-            );
+            return linkedArtwork;
           },
         ),
       ),
