@@ -15,6 +15,7 @@ import 'package:kikoeru_flutter/src/widgets/enhanced_work_card.dart';
 import 'package:kikoeru_flutter/src/widgets/history_work_card.dart';
 import 'package:kikoeru_flutter/src/widgets/playlist_card.dart';
 import 'package:kikoeru_flutter/src/widgets/tag_chip.dart';
+import 'package:kikoeru_flutter/src/widgets/va_chip.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _work = Work(
@@ -322,6 +323,182 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('audio card information order and spacing are shared by layout', (
+    tester,
+  ) async {
+    final work = _work.copyWith(
+      title: 'Audio card',
+      name: 'Circle',
+      vas: const [Va(id: 'va-1', name: 'Voice actor')],
+      tags: const [Tag(id: 21, name: 'Healing')],
+      duration: 3600,
+      price: 700,
+      rateAverage: 4.2,
+      rateCount: 15,
+      dlCount: 123,
+    );
+    final variants = [
+      (
+        name: 'compact',
+        crossAxisCount: 3,
+        isListLayout: false,
+        width: 120.0,
+        showsSales: true,
+      ),
+      (
+        name: 'medium',
+        crossAxisCount: 2,
+        isListLayout: false,
+        width: 180.0,
+        showsSales: false,
+      ),
+      (
+        name: 'list',
+        crossAxisCount: 1,
+        isListLayout: true,
+        width: 320.0,
+        showsSales: true,
+      ),
+    ];
+
+    for (final variant in variants) {
+      SharedPreferences.setMockInitialValues({
+        'work_card_display_duration': true,
+      });
+      await tester.pumpWidget(
+        _testApp(
+          EnhancedWorkCard(
+            work: work,
+            crossAxisCount: variant.crossAxisCount,
+            isListLayout: variant.isListLayout,
+          ),
+          contentWidth: variant.width,
+          windowSize: const Size(390, 844),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final durationRow = find
+          .ancestor(
+            of: find.byIcon(Icons.access_time),
+            matching: find.byType(Row),
+          )
+          .first;
+      final durationTop = tester.getRect(durationRow).top;
+      final informationStart = variant.isListLayout
+          ? tester.getRect(find.byType(ClipRRect).first).bottom
+          : tester.getRect(find.text(work.title)).bottom;
+      expect(
+        durationTop - informationStart,
+        collectionCardInfoSpacing,
+        reason: variant.name,
+      );
+
+      final actor = find.text('Voice actor');
+      final tag = find.text('Healing');
+      final circle = find.text('Circle');
+      final price = find.text(S.of(tester.element(actor)).priceInYen(700));
+      final rating = find.text('4.2 (15)');
+      final infoRects = [
+        tester.getRect(durationRow),
+        tester.getRect(actor),
+        tester.getRect(tag),
+        tester.getRect(circle),
+        tester.getRect(price),
+        tester.getRect(rating),
+      ];
+      for (var index = 0; index < infoRects.length - 1; index++) {
+        expect(
+          infoRects[index].top,
+          lessThan(infoRects[index + 1].top),
+          reason: variant.name,
+        );
+      }
+
+      final actorChip = tester.widget<VaChip>(find.byType(VaChip).first);
+      expect(actorChip.borderRadius, 6, reason: variant.name);
+      expect(
+        actorChip.padding,
+        const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+        reason: variant.name,
+      );
+      final strings = S.of(tester.element(actor));
+      expect(
+        find.text(strings.soldCount('123')),
+        variant.showsSales ? findsOneWidget : findsNothing,
+        reason: variant.name,
+      );
+      expect(
+        tester.getRect(find.byType(Card).first).bottom,
+        greaterThan(tester.getRect(find.byType(ClipRRect).first).bottom),
+        reason: variant.name,
+      );
+      expect(tester.takeException(), isNull, reason: variant.name);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+  });
+
+  testWidgets(
+    'compact audio card shows enabled fields and removes hidden rows',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({
+        'work_card_display_duration': true,
+      });
+      final work = _work.copyWith(
+        title: 'Audio card',
+        name: 'Circle',
+        vas: const [Va(id: 'va-1', name: 'Voice actor')],
+        tags: const [Tag(id: 21, name: 'Healing')],
+        duration: 3600,
+        price: 700,
+        rateAverage: 4.2,
+        rateCount: 15,
+        dlCount: 123,
+      );
+      await tester.pumpWidget(
+        _testApp(
+          EnhancedWorkCard(work: work, crossAxisCount: 3),
+          contentWidth: 120,
+          windowSize: const Size(390, 844),
+          textScaler: const TextScaler.linear(2),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final actor = find.text('Voice actor');
+      final strings = S.of(tester.element(actor));
+      final price = strings.priceInYen(700);
+      final cardSizeWithAllFields = tester.getSize(find.byType(Card).first);
+      final actorTopWithDuration = tester.getRect(actor).top;
+      expect(find.text(strings.soldCount('123')), findsOneWidget);
+      expect(find.text('Circle'), findsOneWidget);
+      expect(find.text('4.2 (15)'), findsOneWidget);
+
+      final notifier = ProviderScope.containerOf(
+        tester.element(find.byType(EnhancedWorkCard)),
+      ).read(workCardDisplayProvider.notifier);
+      await notifier.toggleDuration();
+      await tester.pump();
+      expect(find.byIcon(Icons.access_time), findsNothing);
+      expect(tester.getRect(actor).top, lessThan(actorTopWithDuration));
+
+      await notifier.toggleSales();
+      await notifier.toggleCircle();
+      await notifier.togglePrice();
+      await notifier.toggleRating();
+      await tester.pump();
+      expect(find.text(strings.soldCount('123')), findsNothing);
+      expect(find.text('Circle'), findsNothing);
+      expect(find.text(price), findsNothing);
+      expect(find.text('4.2 (15)'), findsNothing);
+      expect(
+        tester.getSize(find.byType(Card).first).height,
+        lessThan(cardSizeWithAllFields.height),
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('audio work titles use four-line ellipsis in every layout', (
     tester,
   ) async {
@@ -417,42 +594,6 @@ void main() {
       expect(find.text('Catalogue label'), findsOneWidget);
       expect(find.text('Unclassified label'), findsOneWidget);
       expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-    }
-  });
-
-  testWidgets('list duration only has spacing after a visible rating', (
-    tester,
-  ) async {
-    for (final rating in [
-      (enabled: false, count: 15),
-      (enabled: true, count: 0),
-      (enabled: true, count: 15),
-    ]) {
-      SharedPreferences.setMockInitialValues({
-        'work_card_display_rating': rating.enabled,
-        'work_card_display_duration': true,
-      });
-      final work = _work.copyWith(
-        duration: 3600,
-        rateAverage: 4.2,
-        rateCount: rating.count,
-      );
-      await tester.pumpWidget(
-        _testApp(
-          EnhancedWorkCard(work: work, crossAxisCount: 1, isListLayout: true),
-          contentWidth: 320,
-          windowSize: const Size(360, 800),
-        ),
-      );
-      await tester.pump(const Duration(milliseconds: 300));
-
-      final durationLeft = tester.getRect(find.byIcon(Icons.access_time)).left;
-      if (rating.enabled && rating.count > 0) {
-        expect(durationLeft, tester.getRect(find.text('4.2 (15)')).right + 8);
-      } else {
-        expect(durationLeft, tester.getRect(find.byType(ClipRRect).first).left);
-      }
       await tester.pumpWidget(const SizedBox.shrink());
     }
   });
@@ -572,6 +713,24 @@ void main() {
           .toggleAgeRating();
       await tester.pump();
 
+      final compactCover = find.byType(ClipRRect).first;
+      final compactScale = collectionCoverInfoScale(
+        tester.getSize(compactCover).width,
+      );
+      final compactId = find.text(work.displayId);
+      final compactIdPosition = tester.widget<Positioned>(
+        find.ancestor(of: compactId, matching: find.byType(Positioned)).first,
+      );
+      expect(compactIdPosition.top, closeTo(6 * compactScale, 0.01));
+      expect(compactIdPosition.left, closeTo(6 * compactScale, 0.01));
+      final compactRelease = find.text(work.release!);
+      final compactReleasePosition = tester.widget<Positioned>(
+        find
+            .ancestor(of: compactRelease, matching: find.byType(Positioned))
+            .first,
+      );
+      expect(compactReleasePosition.bottom, closeTo(6 * compactScale, 0.01));
+      expect(compactReleasePosition.right, closeTo(6 * compactScale, 0.01));
       expect(tester.takeException(), isNull);
     },
   );

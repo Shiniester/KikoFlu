@@ -56,6 +56,7 @@ import 'package:kikoeru_flutter/src/widgets/library_page_scaffold.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
+import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/volume_control.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/models/audio_source.dart' as audio_source;
@@ -241,6 +242,7 @@ Future<void> _pumpAudioScreen(
   Widget screen = const AudioScreen(),
   bool settle = true,
   AudioTrack? track,
+  Stream<AudioTrack?>? currentTrackStream,
   ThemeData? theme,
   VoidCallback? onHistoryCreated,
   GlobalKey? sceneKey,
@@ -274,7 +276,9 @@ Future<void> _pumpAudioScreen(
         (ref) => Stream.value(const DownloadTaskSummary.empty()),
       ),
       downloadTaskIdsProvider.overrideWith((ref) => Stream.value(<String>[])),
-      currentTrackProvider.overrideWith((ref) => Stream.value(track)),
+      currentTrackProvider.overrideWith(
+        (ref) => currentTrackStream ?? Stream.value(track),
+      ),
       if (track != null) ...[
         isTrackLoadingProvider.overrideWith((ref) => Stream.value(false)),
         positionProvider.overrideWith((ref) => Stream.value(Duration.zero)),
@@ -2176,6 +2180,225 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  for (final size in [const Size(390, 844), const Size(1280, 720)]) {
+    testWidgets(
+      'Mini Player preview cancel and fast handoff preserve navigation at $size',
+      (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final reduced = ValueNotifier(false);
+        addTearDown(reduced.dispose);
+        await _pumpAudioScreen(
+          tester,
+          reduced,
+          screen: const MainScreen(),
+          track: AudioTrack(
+            id: 'interactive-player-dock-track-$size',
+            title: 'Audio',
+            url: 'https://example.invalid/audio.mp3',
+          ),
+        );
+
+        final landscape = size.width > size.height;
+        final dock = find.byType(AppBottomDock, skipOffstage: false);
+        final rail = find.byType(NavigationRail, skipOffstage: false);
+        final navigation = landscape ? rail : dock;
+        final mini = find.byType(MiniPlayer, skipOffstage: false);
+        final launcher = find.byKey(
+          const ValueKey('mini-player-upward-launcher'),
+        );
+        final initialNavigationRect = tester.getRect(navigation);
+        final initialMiniRect = tester.getRect(mini);
+        final miniState = tester.state(mini);
+
+        final cancelledGesture = await tester.startGesture(
+          tester.getCenter(launcher),
+        );
+        await cancelledGesture.moveBy(const Offset(0, -120));
+        await tester.pump();
+        await tester.pump();
+        expect(
+          find.byType(AudioPlayerScreen, skipOffstage: false),
+          findsOneWidget,
+        );
+        await tester.pump(const Duration(milliseconds: 240));
+        expect(navigation, findsOneWidget);
+        expect(tester.state(mini), same(miniState));
+        if (landscape) {
+          expect(tester.getRect(rail).right, lessThanOrEqualTo(0));
+          expect(tester.getTopLeft(mini).dy, greaterThan(initialMiniRect.top));
+        } else {
+          expect(tester.getTopLeft(dock).dy, closeTo(size.height, 0.01));
+        }
+        expect(mini.hitTestable(), findsNothing);
+
+        await cancelledGesture.cancel();
+        await tester.pumpAndSettle();
+        expect(navigation.hitTestable(), findsOneWidget);
+        expect(launcher.hitTestable(), findsOneWidget);
+        final restoredNavigationRect = tester.getRect(navigation);
+        expect(
+          restoredNavigationRect.left,
+          closeTo(initialNavigationRect.left, 0.01),
+        );
+        expect(
+          restoredNavigationRect.top,
+          closeTo(initialNavigationRect.top, 0.01),
+        );
+        expect(
+          restoredNavigationRect.size.width,
+          closeTo(initialNavigationRect.width, 0.01),
+        );
+        expect(
+          restoredNavigationRect.size.height,
+          closeTo(initialNavigationRect.height, 0.01),
+        );
+        final restoredMiniRect = tester.getRect(mini);
+        expect(restoredMiniRect.left, closeTo(initialMiniRect.left, 0.01));
+        expect(restoredMiniRect.top, closeTo(initialMiniRect.top, 0.01));
+        expect(
+          restoredMiniRect.size.width,
+          closeTo(initialMiniRect.width, 0.01),
+        );
+        expect(
+          restoredMiniRect.size.height,
+          closeTo(initialMiniRect.height, 0.01),
+        );
+        expect(tester.state(mini), same(miniState));
+
+        final gesture = await tester.startGesture(tester.getCenter(launcher));
+        await gesture.moveBy(const Offset(0, -600));
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
+        final preview = find.byType(AudioPlayerScreen, skipOffstage: false);
+        final previewState = tester.state(preview);
+        expect(
+          (ModalRoute.of(tester.element(preview))!
+                  as AudioPlayerPageRoute<void>)
+              .skipInitialTransition,
+          isFalse,
+        );
+
+        await gesture.up();
+        var handedOff = false;
+        for (var frame = 0; frame < 30; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          final player = find.byType(AudioPlayerScreen, skipOffstage: false);
+          if (player.evaluate().isEmpty) continue;
+          final route = ModalRoute.of(tester.element(player));
+          if (route is! AudioPlayerPageRoute<void> ||
+              !route.skipInitialTransition) {
+            continue;
+          }
+          expect(tester.state(player), same(previewState));
+          expect(
+            tester
+                .widget<Transform>(
+                  find.byKey(
+                    const ValueKey('player-route-vertical-translation'),
+                    skipOffstage: false,
+                  ),
+                )
+                .transform
+                .entry(1, 3),
+            closeTo(0, 0.01),
+          );
+          expect(dock, findsNothing);
+          expect(rail, findsNothing);
+          handedOff = true;
+          break;
+        }
+        expect(handedOff, isTrue);
+        await tester.pumpAndSettle();
+        expect(find.byType(AudioPlayerScreen), findsOneWidget);
+        expect(dock, findsNothing);
+        expect(rail, findsNothing);
+
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(find.byType(AudioPlayerScreen), findsNothing);
+        expect(navigation.hitTestable(), findsOneWidget);
+        expect(launcher.hitTestable(), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets(
+    'interactive preview aborts cleanly when its Mini Player changes',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(false);
+      addTearDown(reduced.dispose);
+      final tracks = StreamController<AudioTrack?>();
+      addTearDown(tracks.close);
+      const firstTrack = AudioTrack(
+        id: 'preview-track-first',
+        title: 'First track',
+        url: 'https://example.invalid/first.mp3',
+      );
+      const secondTrack = AudioTrack(
+        id: 'preview-track-second',
+        title: 'Second track',
+        url: 'https://example.invalid/second.mp3',
+      );
+      await _pumpAudioScreen(
+        tester,
+        reduced,
+        screen: const MainScreen(),
+        track: firstTrack,
+        currentTrackStream: tracks.stream,
+      );
+      tracks.add(firstTrack);
+      await tester.pumpAndSettle();
+
+      final launcher = find.byKey(
+        const ValueKey('mini-player-upward-launcher'),
+      );
+      final gesture = await tester.startGesture(tester.getCenter(launcher));
+      await gesture.moveBy(const Offset(0, -120));
+      await tester.pump();
+      await tester.pump();
+      expect(
+        find.byType(AudioPlayerScreen, skipOffstage: false),
+        findsOneWidget,
+      );
+
+      tracks.add(secondTrack);
+      await tester.pumpAndSettle();
+      await gesture.cancel();
+      await tester.pumpAndSettle();
+      expect(find.byType(AudioPlayerScreen, skipOffstage: false), findsNothing);
+      expect(find.text('Second track'), findsOneWidget);
+      expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      final removingGesture = await tester.startGesture(
+        tester.getCenter(launcher),
+      );
+      await removingGesture.moveBy(const Offset(0, -120));
+      await tester.pump();
+      await tester.pump();
+      expect(
+        find.byType(AudioPlayerScreen, skipOffstage: false),
+        findsOneWidget,
+      );
+
+      tracks.add(null);
+      await tester.pumpAndSettle();
+      await removingGesture.cancel();
+      await tester.pumpAndSettle();
+      expect(find.byType(AudioPlayerScreen, skipOffstage: false), findsNothing);
+      expect(find.byType(MiniPlayer, skipOffstage: false), findsNothing);
+      expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'detail tab switch keeps Dock usable during the longer player close',

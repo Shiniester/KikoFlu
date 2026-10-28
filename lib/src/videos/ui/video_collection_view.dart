@@ -173,7 +173,9 @@ class VideoCard extends ConsumerWidget {
         );
         return Card(
           margin: isList
-              ? const EdgeInsets.symmetric(vertical: 4)
+              ? const EdgeInsets.symmetric(
+                  vertical: collectionListCardVerticalMargin,
+                )
               : EdgeInsets.zero,
           shape: layoutType != LayoutType.smallGrid
               ? null
@@ -231,7 +233,9 @@ class VideoCard extends ConsumerWidget {
                         ),
                       ),
                       Padding(
-                        padding: const EdgeInsets.all(8),
+                        padding: const EdgeInsets.all(
+                          collectionGridInfoPadding,
+                        ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
@@ -264,40 +268,38 @@ class VideoCard extends ConsumerWidget {
   }) => LayoutBuilder(
     builder: (context, constraints) {
       final colors = Theme.of(context).colorScheme;
-      Widget chip(String label, bool isActor, VoidCallback? onPressed) =>
-          ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: constraints.maxWidth),
-            child: Material(
-              color: isActor
-                  ? colors.tertiaryContainer
-                  : colors.primaryContainer,
-              borderRadius: BorderRadius.circular(isActor && isList ? 12 : 6),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(isActor && isList ? 12 : 6),
-                onTap: onPressed,
-                child: Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isActor && isList ? 6 : 4,
-                    vertical: isActor && isList ? 2 : 1,
-                  ),
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: chipFontSize,
-                      fontWeight: FontWeight.w500,
-                      color: isActor
-                          ? colors.onTertiaryContainer
-                          : colors.onPrimaryContainer,
-                    ),
-                  ),
+      Widget chip(
+        String label,
+        bool isActor,
+        VoidCallback? onPressed,
+      ) => ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+        child: Material(
+          color: isActor ? colors.tertiaryContainer : colors.primaryContainer,
+          borderRadius: BorderRadius.circular(6),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(6),
+            onTap: onPressed,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: chipFontSize,
+                  fontWeight: FontWeight.w500,
+                  color: isActor
+                      ? colors.onTertiaryContainer
+                      : colors.onPrimaryContainer,
                 ),
               ),
             ),
-          );
+          ),
+        ),
+      );
       Widget metadataLine(String label, List<String> values) => Padding(
-        padding: const EdgeInsets.only(top: 3),
+        padding: const EdgeInsets.only(top: collectionCardInfoSpacing),
         child: Text(
           '$label: ${values.join(', ')}',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -313,16 +315,62 @@ class VideoCard extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (subtitle != null) ...[
-            const SizedBox(height: 3),
-            Text(
-              subtitle!,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Colors.grey[600],
-                fontSize: bodyFontSize,
+          VideoDurationInfo(
+            videoId: video.id,
+            seconds: video.durationSeconds,
+            isList: isList,
+          ),
+          if (actors.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: collectionCardInfoSpacing),
+              child: Wrap(
+                spacing: 3,
+                runSpacing: 2,
+                children: [
+                  for (final actor in actors.take(2))
+                    chip(
+                      actor.label,
+                      true,
+                      onOpenLink == null ? null : () => onOpenLink!(actor),
+                    ),
+                  if (actors.length > 2)
+                    Tooltip(
+                      message: actors
+                          .skip(2)
+                          .map((link) => link.label)
+                          .join('、'),
+                      child: chip('+${actors.length - 2}', true, onTap),
+                    ),
+                ],
               ),
             ),
-          ],
+          if (tags.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: collectionCardInfoSpacing),
+              child: Wrap(
+                spacing: 3,
+                runSpacing: 2,
+                children: [
+                  for (final tag in tags)
+                    chip(
+                      tag.label,
+                      false,
+                      onOpenLink == null ? null : () => onOpenLink!(tag),
+                    ),
+                ],
+              ),
+            ),
+          if (subtitle != null)
+            Padding(
+              padding: const EdgeInsets.only(top: collectionCardInfoSpacing),
+              child: Text(
+                subtitle!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.grey[600],
+                  fontSize: bodyFontSize,
+                ),
+              ),
+            ),
           if (visibleFields.contains(VideoCardField.makers) &&
               video.cardMakers.isNotEmpty)
             metadataLine(S.of(context).videoCardMakers, video.cardMakers),
@@ -335,46 +383,6 @@ class VideoCard extends ConsumerWidget {
           if (visibleFields.contains(VideoCardField.directors) &&
               video.cardDirectors.isNotEmpty)
             metadataLine(S.of(context).videoCardDirectors, video.cardDirectors),
-          VideoDurationInfo(
-            videoId: video.id,
-            seconds: video.durationSeconds,
-            isList: isList,
-          ),
-          if (actors.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: isList ? 4 : 3,
-              runSpacing: isList ? 4 : 2,
-              children: [
-                for (final actor in actors.take(2))
-                  chip(
-                    actor.label,
-                    true,
-                    onOpenLink == null ? null : () => onOpenLink!(actor),
-                  ),
-                if (actors.length > 2)
-                  Tooltip(
-                    message: actors.skip(2).map((link) => link.label).join('、'),
-                    child: chip('+${actors.length - 2}', true, onTap),
-                  ),
-              ],
-            ),
-          ],
-          if (tags.isNotEmpty) ...[
-            const SizedBox(height: 2),
-            Wrap(
-              spacing: 3,
-              runSpacing: 2,
-              children: [
-                for (final tag in tags)
-                  chip(
-                    tag.label,
-                    false,
-                    onOpenLink == null ? null : () => onOpenLink!(tag),
-                  ),
-              ],
-            ),
-          ],
         ],
       );
     },
@@ -408,7 +416,7 @@ class VideoDurationInfo extends ConsumerWidget {
         ? (isLandscape ? 13.0 : 11.0)
         : (isLandscape ? 13.5 : 10.0);
     return Padding(
-      padding: const EdgeInsets.only(top: 3),
+      padding: const EdgeInsets.only(top: collectionCardInfoSpacing),
       child: Row(
         key: ValueKey('video-duration-$videoId'),
         mainAxisSize: MainAxisSize.min,

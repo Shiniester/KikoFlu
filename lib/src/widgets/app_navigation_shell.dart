@@ -10,7 +10,7 @@ import 'app_bottom_dock.dart';
 import 'app_navigation_scope.dart';
 import 'mini_player.dart';
 
-class AppNavigationShell extends StatelessWidget {
+class AppNavigationShell extends StatefulWidget {
   const AppNavigationShell({
     super.key,
     required this.controller,
@@ -21,13 +21,104 @@ class AppNavigationShell extends StatelessWidget {
   final Widget child;
 
   @override
+  State<AppNavigationShell> createState() => _AppNavigationShellState();
+}
+
+class _AppNavigationShellState extends State<AppNavigationShell>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _navigationMotion;
+  late bool _navigationVisible;
+  late bool _playerLaunchPreviewActive;
+  bool _animateNavigation = false;
+  bool _reduceMotion = false;
+
+  AppNavigationController get controller => widget.controller;
+  Widget get child => widget.child;
+
+  @override
+  void initState() {
+    super.initState();
+    _navigationVisible = controller.navigationVisible;
+    _playerLaunchPreviewActive = controller.playerLaunchPreviewActive;
+    _navigationMotion = AnimationController(
+      vsync: this,
+      value: _navigationVisible ? 0 : 1,
+      duration: const Duration(milliseconds: 240),
+    );
+    controller.addListener(_syncNavigation);
+  }
+
+  @override
+  void didUpdateWidget(covariant AppNavigationShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != controller) {
+      oldWidget.controller.removeListener(_syncNavigation);
+      controller.addListener(_syncNavigation);
+      _playerLaunchPreviewActive = controller.playerLaunchPreviewActive;
+      _syncNavigation();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    if (reduceMotion && !_reduceMotion) {
+      _navigationMotion.value = controller.navigationVisible ? 0 : 1;
+    }
+    _reduceMotion = reduceMotion;
+  }
+
+  void _syncNavigation() {
+    final visible = controller.navigationVisible;
+    final previewActive = controller.playerLaunchPreviewActive;
+    final handoffCompleted =
+        _playerLaunchPreviewActive &&
+        !previewActive &&
+        !visible &&
+        controller.fullscreenTransition == null;
+    _playerLaunchPreviewActive = previewActive;
+    if (handoffCompleted) {
+      _navigationVisible = visible;
+      _animateNavigation = true;
+      _navigationMotion.value = 1;
+      return;
+    }
+    if (_navigationVisible == visible) return;
+    _navigationVisible = visible;
+    if (!visible) {
+      _animateNavigation =
+          previewActive || controller.fullscreenTransition == null;
+    }
+    final target = visible ? 0.0 : 1.0;
+    if (_reduceMotion || !_animateNavigation) {
+      _navigationMotion.value = target;
+    } else {
+      _navigationMotion.animateTo(target, curve: Curves.easeOutCubic);
+    }
+  }
+
+  @override
+  void dispose() {
+    controller.removeListener(_syncNavigation);
+    _navigationMotion.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => Overlay.wrap(
     child: AppNavigationScope(
       controller: controller,
       child: ListenableBuilder(
         listenable: controller,
-        builder: (context, _) =>
-            Consumer(builder: (context, ref, _) => _buildShell(context, ref)),
+        builder: (context, _) => AnimatedBuilder(
+          animation: Listenable.merge([
+            _navigationMotion,
+            controller.fullscreenTransition,
+          ]),
+          builder: (context, _) =>
+              Consumer(builder: (context, ref, _) => _buildShell(context, ref)),
+        ),
       ),
     ),
   );
@@ -74,17 +165,13 @@ class AppNavigationShell extends StatelessWidget {
         !auth.isLoggedIn &&
         auth.error != null;
     final transition = controller.fullscreenTransition;
-    final layoutVisible =
-        visible || (transition != null && transition.value < 1);
-    final miniPlayer = layoutVisible
-        ? ref
-              .watch(currentTrackProvider)
-              .when<Widget?>(
-                data: (track) => track == null ? null : const MiniPlayer(),
-                loading: () => null,
-                error: (_, __) => null,
-              )
-        : null;
+    final miniPlayer = ref
+        .watch(currentTrackProvider)
+        .when<Widget?>(
+          data: (track) => track == null ? null : const MiniPlayer(),
+          loading: () => null,
+          error: (_, __) => null,
+        );
     void selectTab(int index) {
       if (index == controller.selectedIndex) return;
       controller.selectTab(index);
@@ -93,8 +180,8 @@ class AppNavigationShell extends StatelessWidget {
       }
     }
 
-    final safePadding = MediaQuery.paddingOf(context);
-    Widget buildFrame(BuildContext context) => _buildShellFrame(
+    final explicitTransition = !_animateNavigation && transition != null;
+    return _buildShellFrame(
       context,
       isLandscape: isLandscape,
       offline: offline,
@@ -102,12 +189,9 @@ class AppNavigationShell extends StatelessWidget {
       destinations: destinations,
       selectTab: selectTab,
       ref: ref,
-      progress: transition?.value ?? 0,
-      safePadding: safePadding,
-    );
-    return AnimatedBuilder(
-      animation: transition ?? const AlwaysStoppedAnimation<double>(0),
-      builder: (context, _) => buildFrame(context),
+      progress: explicitTransition ? transition.value : _navigationMotion.value,
+      explicitTransition: explicitTransition,
+      safePadding: MediaQuery.paddingOf(context),
     );
   }
 
@@ -120,56 +204,61 @@ class AppNavigationShell extends StatelessWidget {
     required ValueChanged<int> selectTab,
     required WidgetRef ref,
     required double progress,
+    required bool explicitTransition,
     required EdgeInsets safePadding,
   }) {
     final visible = controller.navigationVisible;
     final layoutVisible =
-        visible || (controller.fullscreenTransition != null && progress < 1);
+        visible ||
+        (isLandscape && controller.playerLaunchPreviewActive) ||
+        (explicitTransition && progress < 1);
+    final navigationOnstage =
+        visible || progress < 1 || controller.playerLaunchPreviewActive;
     final showOffline = offline && visible;
-    Widget content = child;
+    // An immersive route keeps its viewport while the Dock slides out.
+    Widget content = MediaQuery(data: MediaQuery.of(context), child: child);
+    final rail = isLandscape && navigationOnstage
+        ? _protectNavigation(
+            _buildNavigationRail(context, destinations, selectTab),
+            enabled: visible,
+          )
+        : null;
+    final playback = miniPlayer == null
+        ? null
+        : _protectNavigation(
+            ClipRect(
+              child: explicitTransition
+                  ? Align(
+                      alignment: Alignment.bottomCenter,
+                      heightFactor: 1 - progress,
+                      child: miniPlayer,
+                    )
+                  : FractionalTranslation(
+                      translation: Offset(0, progress),
+                      child: miniPlayer,
+                    ),
+            ),
+            enabled: visible,
+          );
     if (layoutVisible && isLandscape) {
-      final showRail = progress < 1;
+      final showRail = !explicitTransition || progress < 1;
+      final paddingFactor = explicitTransition ? 1 - progress : 1.0;
       content = Row(
         children: [
           if (showRail)
             ClipRect(
               child: Align(
                 alignment: AlignmentDirectional.centerStart,
-                widthFactor: 1 - progress,
-                child: _protectNavigation(
-                  SafeArea(
-                    child: SingleChildScrollView(
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          minHeight:
-                              MediaQuery.sizeOf(context).height -
-                              MediaQuery.paddingOf(context).vertical,
-                        ),
-                        child: IntrinsicHeight(
-                          child: NavigationRail(
-                            selectedIndex: controller.selectedIndex,
-                            onDestinationSelected: selectTab,
-                            labelType: NavigationRailLabelType.selected,
-                            destinations: [
-                              for (final destination in destinations)
-                                NavigationRailDestination(
-                                  icon: destination.icon,
-                                  selectedIcon: destination.selectedIcon,
-                                  label: Text(destination.label),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  enabled: visible,
+                widthFactor: explicitTransition ? 1 - progress : 1,
+                child: FractionalTranslation(
+                  translation: Offset(explicitTransition ? 0 : -progress, 0),
+                  child: rail,
                 ),
               ),
             ),
           if (showRail)
             SizedBox(
-              width: 1 - progress,
+              width: explicitTransition ? 1 - progress : 1,
               child: const VerticalDivider(thickness: 1, width: 1),
             ),
           Expanded(
@@ -180,25 +269,15 @@ class AppNavigationShell extends StatelessWidget {
               removeBottom: true,
               child: Padding(
                 padding: EdgeInsets.fromLTRB(
-                  safePadding.left * (1 - progress),
+                  safePadding.left * paddingFactor,
                   0,
-                  safePadding.right * (1 - progress),
-                  safePadding.bottom * (1 - progress),
+                  safePadding.right * paddingFactor,
+                  safePadding.bottom * paddingFactor,
                 ),
                 child: Column(
                   children: [
                     Expanded(child: child),
-                    if (miniPlayer != null)
-                      _protectNavigation(
-                        ClipRect(
-                          child: Align(
-                            alignment: Alignment.bottomCenter,
-                            heightFactor: 1 - progress,
-                            child: miniPlayer,
-                          ),
-                        ),
-                        enabled: visible,
-                      ),
+                    if (playback != null) playback,
                   ],
                 ),
               ),
@@ -221,15 +300,53 @@ class AppNavigationShell extends StatelessWidget {
         },
       );
     }
+    final dock = AppBottomDock(
+      selectedIndex: controller.selectedIndex,
+      onDestinationSelected: selectTab,
+      destinations: destinations,
+      miniPlayer: miniPlayer,
+    );
 
     return Scaffold(
       extendBody: !isLandscape,
+      resizeToAvoidBottomInset: visible,
       body: Stack(
         children: [
           Padding(
             padding: EdgeInsets.only(top: showOffline ? 30 : 0),
             child: content,
           ),
+          if (!layoutVisible && rail != null)
+            Positioned.fill(
+              child: Row(
+                children: [
+                  FractionalTranslation(
+                    translation: Offset(-progress, 0),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        rail,
+                        const VerticalDivider(thickness: 1, width: 1),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        safePadding.left,
+                        0,
+                        safePadding.right,
+                        safePadding.bottom,
+                      ),
+                      child: Align(
+                        alignment: Alignment.bottomCenter,
+                        child: playback,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           if (showOffline)
             Positioned(
               top: 0,
@@ -239,25 +356,56 @@ class AppNavigationShell extends StatelessWidget {
             ),
         ],
       ),
-      bottomNavigationBar: layoutVisible && !isLandscape
+      bottomNavigationBar: navigationOnstage && !isLandscape
           ? _protectNavigation(
               ClipRect(
-                child: Align(
-                  alignment: Alignment.bottomCenter,
-                  heightFactor: 1 - progress,
-                  child: AppBottomDock(
-                    selectedIndex: controller.selectedIndex,
-                    onDestinationSelected: selectTab,
-                    destinations: destinations,
-                    miniPlayer: miniPlayer,
-                  ),
-                ),
+                child: explicitTransition
+                    ? Align(
+                        alignment: Alignment.bottomCenter,
+                        heightFactor: 1 - progress,
+                        child: dock,
+                      )
+                    : FractionalTranslation(
+                        translation: Offset(0, progress),
+                        child: dock,
+                      ),
               ),
               enabled: visible,
             )
           : null,
     );
   }
+
+  Widget _buildNavigationRail(
+    BuildContext context,
+    List<NavigationDestination> destinations,
+    ValueChanged<int> selectTab,
+  ) => SafeArea(
+    child: SingleChildScrollView(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          minHeight:
+              MediaQuery.sizeOf(context).height -
+              MediaQuery.paddingOf(context).vertical,
+        ),
+        child: IntrinsicHeight(
+          child: NavigationRail(
+            selectedIndex: controller.selectedIndex,
+            onDestinationSelected: selectTab,
+            labelType: NavigationRailLabelType.selected,
+            destinations: [
+              for (final destination in destinations)
+                NavigationRailDestination(
+                  icon: destination.icon,
+                  selectedIcon: destination.selectedIcon,
+                  label: Text(destination.label),
+                ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 
   Widget _protectNavigation(Widget navigation, {bool enabled = true}) {
     final popup = controller.popupRoute;

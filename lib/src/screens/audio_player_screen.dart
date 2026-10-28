@@ -946,6 +946,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     final outerPadding = width >= 1200 ? 48.0 : 24.0;
     final gap = width >= 1200 ? 40.0 : 20.0;
     return SafeArea(
+      maintainBottomViewPadding: true,
       minimum: EdgeInsets.fromLTRB(outerPadding, 18, outerPadding, 18),
       child: Row(
         key: const ValueKey('wide-player-layout'),
@@ -1215,6 +1216,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     required PlayerVisualPalette previewPalette,
   }) {
     return SafeArea(
+      maintainBottomViewPadding: true,
       minimum: const EdgeInsets.fromLTRB(0, 10, 0, 8),
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -3445,13 +3447,23 @@ class _PlayerPageBoundaryState extends State<_PlayerPageBoundary>
 Widget _withEarlierPlayerPageGestureStart(BuildContext context, Widget child) {
   final mediaQuery = MediaQuery.of(context);
   final touchSlop = mediaQuery.gestureSettings.touchSlop ?? kTouchSlop;
-  return MediaQuery(
-    data: mediaQuery.copyWith(
-      gestureSettings: DeviceGestureSettings(touchSlop: touchSlop * 0.85),
+  // Gesture overrides must retain the padding already consumed by SafeArea.
+  return Builder(
+    builder: (context) => MediaQuery(
+      data: MediaQuery.of(context).copyWith(
+        gestureSettings: DeviceGestureSettings(touchSlop: touchSlop * 0.85),
+      ),
+      child: child,
     ),
-    child: child,
   );
 }
 
-Widget _withOriginalPlayerGestureSettings(BuildContext context, Widget child) =>
-    MediaQuery(data: MediaQuery.of(context), child: child);
+Widget _withOriginalPlayerGestureSettings(BuildContext context, Widget child) {
+  final gestureSettings = MediaQuery.gestureSettingsOf(context);
+  return Builder(
+    builder: (context) => MediaQuery(
+      data: MediaQuery.of(context).copyWith(gestureSettings: gestureSettings),
+      child: child,
+    ),
+  );
+}

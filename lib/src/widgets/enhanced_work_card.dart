@@ -214,6 +214,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
             hasLocalSubtitle,
             coverRadius,
             coverInfoScale,
+            visibleTags,
             coverCacheWidth,
           );
         }
@@ -243,11 +244,19 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     bool hasLocalSubtitle,
     double coverRadius,
     double coverInfoScale,
+    List<Tag> visibleTags,
     int coverCacheWidth,
   ) {
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     final titleFontSize = isLandscape ? 13.5 : 11.0;
+    final information = _buildCardInformation(
+      context,
+      displaySettings: displaySettings,
+      visibleTags: visibleTags,
+      isList: false,
+      showSales: true,
+    );
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -279,7 +288,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                     context,
                     displaySettings,
                     coverInfoScale,
-                    inset: 4 * coverInfoScale,
+                    inset: 6 * coverInfoScale,
                   ),
                   if ((displaySettings.showSubtitleTag &&
                           (widget.work.hasSubtitle == true ||
@@ -291,14 +300,14 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                       displaySettings,
                       hasLocalSubtitle,
                       coverInfoScale,
-                      inset: 4 * coverInfoScale,
+                      inset: 6 * coverInfoScale,
                     ),
                 ],
               ),
             ),
             // 信息区域 - 自适应高度
             Padding(
-              padding: const EdgeInsets.all(6.0),
+              padding: const EdgeInsets.all(collectionGridInfoPadding),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -314,6 +323,9 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                       fontSize: titleFontSize,
                     ),
                   ),
+                  if (information.isNotEmpty)
+                    const SizedBox(height: collectionCardInfoSpacing),
+                  ...information,
                 ],
               ),
             ),
@@ -339,10 +351,13 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     final isLandscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     final titleFontSize = isLandscape ? 14.5 : 12.0;
-    final bodyFontSize = isLandscape ? 13.5 : 10.0;
-    final priceFontSize = isLandscape ? 13.5 : 10.0;
-    final ratingFontSize = isLandscape ? 13.0 : 9.0;
-    final iconSize = isLandscape ? 14.0 : 12.0;
+    final information = _buildCardInformation(
+      context,
+      displaySettings: displaySettings,
+      visibleTags: visibleTags,
+      isList: false,
+      showSales: false,
+    );
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -393,7 +408,7 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
             ),
             // 信息区域 - 自适应高度
             Padding(
-              padding: const EdgeInsets.all(8.0),
+              padding: const EdgeInsets.all(collectionGridInfoPadding),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -409,89 +424,9 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                       fontSize: titleFontSize,
                     ),
                   ),
-                  const SizedBox(height: 3),
-                  // 社团名称
-                  if (displaySettings.showCircle)
-                    Text(
-                      widget.work.name ?? '',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.grey[600],
-                        fontSize: bodyFontSize,
-                      ),
-                    ),
-                  if (displaySettings.showCircle) const SizedBox(height: 3),
-                  // 价格
-                  if (displaySettings.showPrice && widget.work.price != null)
-                    Text(
-                      S.of(context).priceInYen(widget.work.price!),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.red[700],
-                        fontWeight: FontWeight.w600,
-                        fontSize: priceFontSize,
-                      ),
-                    ),
-                  // 评分信息
-                  if (displaySettings.showRating &&
-                      widget.work.rateAverage != null &&
-                      widget.work.rateCount != null &&
-                      (widget.work.rateCount! > 0 ||
-                          widget.work.rateAverage! != 0)) ...[
-                    const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.star,
-                          color: Colors.amber[700],
-                          size: iconSize,
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          '${widget.work.rateAverage!.toStringAsFixed(1)} (${widget.work.rateCount})',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Colors.amber[700],
-                                fontWeight: FontWeight.w500,
-                                fontSize: ratingFontSize,
-                              ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  // 时长信息
-                  if (displaySettings.showDuration &&
-                      widget.work.duration != null &&
-                      widget.work.duration! > 0) ...[
-                    const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.access_time,
-                          color: Colors.blue,
-                          size: iconSize,
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          formatDuration(
-                            Duration(seconds: widget.work.duration!),
-                          ),
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Colors.blue[700],
-                                fontSize: bodyFontSize,
-                                fontWeight: FontWeight.w500,
-                              ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  const SizedBox(height: 4),
-                  if (widget.work.vas != null && widget.work.vas!.isNotEmpty)
-                    _buildVoiceActorsRow(context),
-                  if (visibleTags.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    _buildTagsRow(context, tags: visibleTags),
-                  ],
-                  const SizedBox(height: 2),
+                  if (information.isNotEmpty)
+                    const SizedBox(height: collectionCardInfoSpacing),
+                  ...information,
                 ],
               ),
             ),
@@ -516,19 +451,18 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     TextStyle? titleStyle,
     int coverCacheWidth,
   ) {
-    final isLandscape =
-        MediaQuery.orientationOf(context) == Orientation.landscape;
-    final bodyFontSize = isLandscape ? 14.0 : 12.0;
-    final metaFontSize = isLandscape ? 13.0 : 11.0;
-    final tagFontSize = isLandscape ? 13.0 : 11.0;
-    final showRating =
-        displaySettings.showRating &&
-        widget.work.rateAverage != null &&
-        widget.work.rateCount != null &&
-        widget.work.rateCount! > 0;
+    final information = _buildCardInformation(
+      context,
+      displaySettings: displaySettings,
+      visibleTags: visibleTags,
+      isList: true,
+      showSales: true,
+    );
 
     return Card(
-      margin: const EdgeInsets.symmetric(vertical: 8),
+      margin: const EdgeInsets.symmetric(
+        vertical: collectionListCardVerticalMargin,
+      ),
       elevation: 4,
       child: InkWell(
         onTap: cardOnTap,
@@ -591,112 +525,142 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              // 第二行：其他信息
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // 社团和价格行
-                  Row(
-                    children: [
-                      if (displaySettings.showCircle)
-                        Expanded(
-                          child: Text(
-                            widget.work.name ?? '',
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  color: Colors.grey[600],
-                                  fontSize: bodyFontSize,
-                                ),
-                          ),
-                        ),
-                      if (displaySettings.showPrice &&
-                          widget.work.price != null)
-                        Text(
-                          S.of(context).priceInYen(widget.work.price!),
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Colors.red[700],
-                                fontWeight: FontWeight.w600,
-                                fontSize: metaFontSize,
-                              ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  // 评分和下载数
-                  Row(
-                    children: [
-                      // 评分信息
-                      if (showRating) ...[
-                        Icon(Icons.star, color: Colors.amber[700], size: 14),
-                        const SizedBox(width: 2),
-                        Text(
-                          '${widget.work.rateAverage!.toStringAsFixed(1)} (${widget.work.rateCount})',
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Colors.amber[700],
-                                fontWeight: FontWeight.w500,
-                                fontSize: metaFontSize,
-                              ),
-                        ),
-                      ],
-                      // 时长信息
-                      if (displaySettings.showDuration &&
-                          widget.work.duration != null &&
-                          widget.work.duration! > 0) ...[
-                        if (showRating) const SizedBox(width: 8),
-                        const Icon(
-                          Icons.access_time,
-                          color: Colors.blue,
-                          size: 14,
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          formatDuration(
-                            Duration(seconds: widget.work.duration!),
-                          ),
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Colors.blue[700],
-                                fontWeight: FontWeight.w500,
-                                fontSize: metaFontSize,
-                              ),
-                        ),
-                      ],
-                      const Spacer(),
-                      if (displaySettings.showSales &&
-                          widget.work.dlCount != null)
-                        Text(
-                          S.of(context).soldCount('${widget.work.dlCount}'),
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Colors.grey[500],
-                                fontSize: metaFontSize,
-                              ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  // 声优
-                  if (widget.work.vas != null && widget.work.vas!.isNotEmpty)
-                    _buildVoiceActorsWrap(context, fontSize: tagFontSize),
-                  // 标签
-                  if (visibleTags.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    _buildTagsWrap(
-                      context,
-                      fontSize: tagFontSize,
-                      tags: visibleTags,
-                    ),
-                  ],
-                ],
-              ),
+              if (information.isNotEmpty)
+                const SizedBox(height: collectionCardInfoSpacing),
+              ...information,
             ],
           ),
         ),
       ),
     );
+  }
+
+  List<Widget> _buildCardInformation(
+    BuildContext context, {
+    required WorkCardDisplaySettings displaySettings,
+    required List<Tag> visibleTags,
+    required bool isList,
+    required bool showSales,
+  }) {
+    final isLandscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    final bodyFontSize = isList
+        ? (isLandscape ? 14.0 : 12.0)
+        : (isLandscape ? 13.5 : 10.0);
+    final priceFontSize = isList
+        ? (isLandscape ? 13.0 : 11.0)
+        : (isLandscape ? 13.5 : 10.0);
+    final ratingFontSize = isList
+        ? (isLandscape ? 13.0 : 11.0)
+        : (isLandscape ? 13.0 : 9.0);
+    final tagFontSize = isList
+        ? (isLandscape ? 13.0 : 11.0)
+        : (isLandscape ? 13.0 : 10.0);
+    final iconSize = isList ? 14.0 : (isLandscape ? 14.0 : 12.0);
+    final information = <Widget>[];
+    void addField(Widget field) {
+      if (information.isNotEmpty) {
+        information.add(const SizedBox(height: collectionCardInfoSpacing));
+      }
+      information.add(field);
+    }
+
+    final work = widget.work;
+    if (displaySettings.showDuration &&
+        work.duration != null &&
+        work.duration! > 0) {
+      addField(
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.access_time, color: Colors.blue, size: iconSize),
+            const SizedBox(width: 2),
+            Flexible(
+              child: Text(
+                formatDuration(Duration(seconds: work.duration!)),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.blue[700],
+                  fontSize: priceFontSize,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (work.vas?.isNotEmpty == true) {
+      addField(_buildVoiceActorsRow(context, fontSize: tagFontSize));
+    }
+    if (visibleTags.isNotEmpty) {
+      addField(
+        _buildTagsRow(context, tags: visibleTags, fontSize: tagFontSize),
+      );
+    }
+    if (displaySettings.showCircle && work.name?.isNotEmpty == true) {
+      addField(
+        Text(
+          work.name!,
+          style:
+              (isList
+                      ? Theme.of(context).textTheme.bodyMedium
+                      : Theme.of(context).textTheme.bodySmall)
+                  ?.copyWith(color: Colors.grey[600], fontSize: bodyFontSize),
+        ),
+      );
+    }
+    if (displaySettings.showPrice && work.price != null) {
+      addField(
+        Text(
+          S.of(context).priceInYen(work.price!),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Colors.red[700],
+            fontWeight: FontWeight.w600,
+            fontSize: priceFontSize,
+          ),
+        ),
+      );
+    }
+    if (displaySettings.showRating &&
+        work.rateAverage != null &&
+        work.rateCount != null &&
+        (work.rateCount! > 0 || work.rateAverage! != 0)) {
+      addField(
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.star, color: Colors.amber[700], size: iconSize),
+            const SizedBox(width: 2),
+            Flexible(
+              child: Text(
+                '${work.rateAverage!.toStringAsFixed(1)} (${work.rateCount})',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.amber[700],
+                  fontWeight: FontWeight.w500,
+                  fontSize: ratingFontSize,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (showSales && displaySettings.showSales && work.dlCount != null) {
+      addField(
+        Text(
+          S.of(context).soldCount('${work.dlCount}'),
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Colors.grey[500],
+            fontSize: isList ? priceFontSize : bodyFontSize,
+          ),
+        ),
+      );
+    }
+    return information;
   }
 
   Widget _buildCoverImage(
@@ -949,11 +913,11 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     );
   }
 
-  Widget _buildTagsRow(BuildContext context, {required List<Tag> tags}) {
-    final isLandscape =
-        MediaQuery.orientationOf(context) == Orientation.landscape;
-    final fontSize = isLandscape ? 13.0 : 10.0;
-
+  Widget _buildTagsRow(
+    BuildContext context, {
+    required List<Tag> tags,
+    required double fontSize,
+  }) {
     return Container(
       constraints: const BoxConstraints(minHeight: 14),
       child: Wrap(
@@ -972,11 +936,10 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     );
   }
 
-  Widget _buildVoiceActorsRow(BuildContext context) {
-    final isLandscape =
-        MediaQuery.orientationOf(context) == Orientation.landscape;
-    final fontSize = isLandscape ? 13.0 : 10.0;
-
+  Widget _buildVoiceActorsRow(
+    BuildContext context, {
+    required double fontSize,
+  }) {
     return Container(
       constraints: const BoxConstraints(minHeight: 14),
       child: Wrap(
@@ -992,45 +955,6 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
           );
         }).toList(),
       ),
-    );
-  }
-
-  Widget _buildTagsWrap(
-    BuildContext context, {
-    required double fontSize,
-    required List<Tag> tags,
-  }) {
-    return Wrap(
-      spacing: 3,
-      runSpacing: 2,
-      children: tags.map((tag) {
-        return TagChip(
-          tag: tag,
-          fontSize: fontSize,
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-          borderRadius: 6,
-          fontWeight: FontWeight.w500,
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildVoiceActorsWrap(
-    BuildContext context, {
-    required double fontSize,
-  }) {
-    return Wrap(
-      spacing: 4,
-      runSpacing: 4,
-      children: widget.work.vas!.map((va) {
-        return VaChip(
-          va: va,
-          fontSize: fontSize,
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-          borderRadius: 12,
-          fontWeight: FontWeight.w500,
-        );
-      }).toList(),
     );
   }
 }

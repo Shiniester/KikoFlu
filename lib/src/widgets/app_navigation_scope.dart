@@ -10,12 +10,14 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
   final Map<Route<dynamic>, Animation<double>> _fullscreenTransitions = {};
   int _selectedIndex = 0;
   bool _navigationVisible = true;
+  bool _playerLaunchPreviewActive = false;
   Animation<double>? _fullscreenTransition;
   PopupRoute<dynamic>? _popupRoute;
   PageRoute<dynamic>? _outgoing;
 
   int get selectedIndex => _selectedIndex;
   bool get navigationVisible => _navigationVisible;
+  bool get playerLaunchPreviewActive => _playerLaunchPreviewActive;
   Animation<double>? get fullscreenTransition => _fullscreenTransition;
   PopupRoute<dynamic>? get popupRoute => _popupRoute;
 
@@ -42,6 +44,12 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
       _fullscreenTransitions[route] = transition;
     }
     _refresh();
+  }
+
+  void setPlayerLaunchPreview(bool active) {
+    if (_playerLaunchPreviewActive == active) return;
+    _playerLaunchPreviewActive = active;
+    _refresh(forceNotify: true);
   }
 
   @override
@@ -95,10 +103,11 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
     _refresh();
   }
 
-  void _refresh() {
+  void _refresh({bool forceNotify = false}) {
     final page =
         _outgoing ?? _routes.whereType<PageRoute<dynamic>>().lastOrNull;
     final visible =
+        !_playerLaunchPreviewActive &&
         page?.settings.name != appImmersiveRouteSettings.name &&
         !_fullscreenRoutes.contains(page);
     final transition = page == null ? null : _fullscreenTransitions[page];
@@ -106,7 +115,8 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
     final popup = lastRoute is PopupRoute<dynamic> ? lastRoute : null;
     if (_navigationVisible == visible &&
         identical(_fullscreenTransition, transition) &&
-        _popupRoute == popup) {
+        _popupRoute == popup &&
+        !forceNotify) {
       return;
     }
     _navigationVisible = visible;

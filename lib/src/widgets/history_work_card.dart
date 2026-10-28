@@ -175,7 +175,7 @@ class HistoryWorkCard extends ConsumerWidget {
           ),
         );
         final info = Container(
-          padding: const EdgeInsets.all(12),
+          padding: EdgeInsets.all(isList ? 12 : collectionGridInfoPadding),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
@@ -274,7 +274,9 @@ class HistoryWorkCard extends ConsumerWidget {
 
         return Card(
           margin: isList
-              ? const EdgeInsets.symmetric(vertical: 4)
+              ? const EdgeInsets.symmetric(
+                  vertical: collectionListCardVerticalMargin,
+                )
               : EdgeInsets.zero,
           clipBehavior: Clip.antiAlias,
           elevation: 2,

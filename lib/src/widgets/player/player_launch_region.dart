@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../app_navigation_scope.dart';
 import 'player_route.dart';
@@ -197,6 +198,7 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
   void _startInteractiveSession() {
     if (!mounted || _interactiveSession != null || _launchInProgress) return;
     final rootNavigator = AppNavigationScope.navigatorOf(context);
+    final navigationController = AppNavigationScope.maybeOf(context);
     final overlay = Overlay.of(context, rootOverlay: true);
     final configuration = widget.createConfiguration();
     final generation = ++_sessionGeneration;
@@ -204,6 +206,7 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
     final session = _InteractivePlayerOpenSession(
       overlay: overlay,
       rootNavigator: rootNavigator,
+      navigationController: navigationController,
       configuration: configuration,
       onRootRouteClosed: () {
         if (!mounted || generation != _sessionGeneration) return;
@@ -241,7 +244,7 @@ class _PlayerLaunchRegionState extends State<PlayerLaunchRegion>
   void _abortInteractiveSession() {
     if (_interactiveSession == null) return;
     ++_sessionGeneration;
-    _interactiveSession?.abort();
+    _interactiveSession?.abort(deferPreviewRelease: true);
     _interactiveSession = null;
     _launchInProgress = false;
   }
@@ -278,12 +281,14 @@ class _InteractivePlayerOpenSession {
   _InteractivePlayerOpenSession({
     required this.overlay,
     required this.rootNavigator,
+    required this.navigationController,
     required this.configuration,
     required this.onRootRouteClosed,
   });
 
   final OverlayState overlay;
   final NavigatorState rootNavigator;
+  final AppNavigationController? navigationController;
   final AudioPlayerOpenConfiguration configuration;
   final VoidCallback onRootRouteClosed;
 
@@ -297,10 +302,15 @@ class _InteractivePlayerOpenSession {
   bool _started = false;
   bool _disposed = false;
   bool _settling = false;
+  bool _playerLaunchPreviewActive = false;
 
   Future<void> start() async {
     if (_started || _disposed) return;
     _started = true;
+    if (navigationController?.navigationVisible == true) {
+      navigationController?.setPlayerLaunchPreview(true);
+      _playerLaunchPreviewActive = true;
+    }
     _entry = OverlayEntry(
       builder: (context) => Positioned.fill(
         child: IgnorePointer(
@@ -389,6 +399,7 @@ class _InteractivePlayerOpenSession {
     if (_disposed) return false;
     if (!opened) {
       _removeOverlay();
+      _endPlayerLaunchPreview();
       return false;
     }
 
@@ -398,14 +409,31 @@ class _InteractivePlayerOpenSession {
     );
     _removeOverlay();
     unawaited(rootNavigator.push<void>(rootRoute));
+    _endPlayerLaunchPreview();
     unawaited(rootRoute.completed.whenComplete(onRootRouteClosed));
     return true;
   }
 
-  void abort() {
+  void abort({bool deferPreviewRelease = false}) {
     if (_disposed) return;
     if (!_routeReady.isCompleted) _routeReady.complete();
     _removeOverlay();
+    if (deferPreviewRelease &&
+        SchedulerBinding.instance.schedulerPhase ==
+            SchedulerPhase.persistentCallbacks) {
+      _playerLaunchPreviewActive = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        navigationController?.setPlayerLaunchPreview(false);
+      });
+    } else {
+      _endPlayerLaunchPreview();
+    }
+  }
+
+  void _endPlayerLaunchPreview() {
+    if (!_playerLaunchPreviewActive) return;
+    _playerLaunchPreviewActive = false;
+    navigationController?.setPlayerLaunchPreview(false);
   }
 
   void _removeOverlay() {
