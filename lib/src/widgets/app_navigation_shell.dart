@@ -9,6 +9,7 @@ import '../providers/update_provider.dart';
 import 'app_bottom_dock.dart';
 import 'app_navigation_scope.dart';
 import 'mini_player.dart';
+import 'responsive_dialog.dart';
 
 class AppNavigationShell extends StatefulWidget {
   const AppNavigationShell({
@@ -31,6 +32,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
   late bool _playerLaunchPreviewActive;
   bool _animateNavigation = false;
   bool _reduceMotion = false;
+  final _dockClipKey = GlobalKey();
 
   AppNavigationController get controller => widget.controller;
   Widget get child => widget.child;
@@ -109,16 +111,11 @@ class _AppNavigationShellState extends State<AppNavigationShell>
   Widget build(BuildContext context) => Overlay.wrap(
     child: AppNavigationScope(
       controller: controller,
+      mediaQuery: MediaQuery.of(context),
       child: ListenableBuilder(
         listenable: controller,
-        builder: (context, _) => AnimatedBuilder(
-          animation: Listenable.merge([
-            _navigationMotion,
-            controller.fullscreenTransition,
-          ]),
-          builder: (context, _) =>
-              Consumer(builder: (context, ref, _) => _buildShell(context, ref)),
-        ),
+        builder: (context, _) =>
+            Consumer(builder: (context, ref, _) => _buildShell(context, ref)),
       ),
     ),
   );
@@ -181,17 +178,38 @@ class _AppNavigationShellState extends State<AppNavigationShell>
     }
 
     final explicitTransition = !_animateNavigation && transition != null;
-    return _buildShellFrame(
-      context,
-      isLandscape: isLandscape,
-      offline: offline,
-      miniPlayer: miniPlayer,
+    final dock = AppBottomDock(
+      selectedIndex: controller.selectedIndex,
+      onDestinationSelected: selectTab,
       destinations: destinations,
-      selectTab: selectTab,
-      ref: ref,
-      progress: explicitTransition ? transition.value : _navigationMotion.value,
-      explicitTransition: explicitTransition,
-      safePadding: MediaQuery.paddingOf(context),
+      miniPlayer: miniPlayer,
+    );
+    final sheets = controller.sheetRoutes
+        .whereType<ResponsiveBottomSheetRoute<dynamic>>()
+        .toList();
+    final rail = isLandscape
+        ? _protectNavigation(
+            _buildNavigationRail(context, destinations, selectTab),
+            enabled: visible,
+          )
+        : null;
+    return AnimatedBuilder(
+      animation: Listenable.merge([_navigationMotion, transition]),
+      builder: (context, _) => _buildShellFrame(
+        context,
+        isLandscape: isLandscape,
+        offline: offline,
+        miniPlayer: miniPlayer,
+        dock: dock,
+        rail: rail,
+        sheets: sheets,
+        ref: ref,
+        progress: explicitTransition
+            ? transition.value
+            : _navigationMotion.value,
+        explicitTransition: explicitTransition,
+        safePadding: MediaQuery.paddingOf(context),
+      ),
     );
   }
 
@@ -200,8 +218,9 @@ class _AppNavigationShellState extends State<AppNavigationShell>
     required bool isLandscape,
     required bool offline,
     required Widget? miniPlayer,
-    required List<NavigationDestination> destinations,
-    required ValueChanged<int> selectTab,
+    required Widget dock,
+    required Widget? rail,
+    required List<ResponsiveBottomSheetRoute<dynamic>> sheets,
     required WidgetRef ref,
     required double progress,
     required bool explicitTransition,
@@ -214,15 +233,10 @@ class _AppNavigationShellState extends State<AppNavigationShell>
         (explicitTransition && progress < 1);
     final navigationOnstage =
         visible || progress < 1 || controller.playerLaunchPreviewActive;
+    final railOnstage = navigationOnstage ? rail : null;
     final showOffline = offline && visible;
     // An immersive route keeps its viewport while the Dock slides out.
     Widget content = MediaQuery(data: MediaQuery.of(context), child: child);
-    final rail = isLandscape && navigationOnstage
-        ? _protectNavigation(
-            _buildNavigationRail(context, destinations, selectTab),
-            enabled: visible,
-          )
-        : null;
     final playback = miniPlayer == null
         ? null
         : _protectNavigation(
@@ -245,14 +259,14 @@ class _AppNavigationShellState extends State<AppNavigationShell>
       final paddingFactor = explicitTransition ? 1 - progress : 1.0;
       content = Row(
         children: [
-          if (showRail)
+          if (showRail && railOnstage != null)
             ClipRect(
               child: Align(
                 alignment: AlignmentDirectional.centerStart,
                 widthFactor: explicitTransition ? 1 - progress : 1,
                 child: FractionalTranslation(
                   translation: Offset(explicitTransition ? 0 : -progress, 0),
-                  child: rail,
+                  child: railOnstage,
                 ),
               ),
             ),
@@ -300,13 +314,6 @@ class _AppNavigationShellState extends State<AppNavigationShell>
         },
       );
     }
-    final dock = AppBottomDock(
-      selectedIndex: controller.selectedIndex,
-      onDestinationSelected: selectTab,
-      destinations: destinations,
-      miniPlayer: miniPlayer,
-    );
-
     return Scaffold(
       extendBody: !isLandscape,
       resizeToAvoidBottomInset: visible,
@@ -316,7 +323,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
             padding: EdgeInsets.only(top: showOffline ? 30 : 0),
             child: content,
           ),
-          if (!layoutVisible && rail != null)
+          if (!layoutVisible && railOnstage != null)
             Positioned.fill(
               child: Row(
                 children: [
@@ -325,7 +332,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        rail,
+                        railOnstage,
                         const VerticalDivider(thickness: 1, width: 1),
                       ],
                     ),
@@ -357,20 +364,25 @@ class _AppNavigationShellState extends State<AppNavigationShell>
         ],
       ),
       bottomNavigationBar: navigationOnstage && !isLandscape
-          ? _protectNavigation(
-              ClipRect(
-                child: explicitTransition
-                    ? Align(
-                        alignment: Alignment.bottomCenter,
-                        heightFactor: 1 - progress,
-                        child: dock,
-                      )
-                    : FractionalTranslation(
-                        translation: Offset(0, progress),
-                        child: dock,
-                      ),
+          ? ClipPath(
+              key: _dockClipKey,
+              clipBehavior: sheets.isEmpty ? Clip.none : Clip.hardEdge,
+              clipper: _DockSheetClipper(_dockClipKey, sheets),
+              child: _protectNavigation(
+                ClipRect(
+                  child: explicitTransition
+                      ? Align(
+                          alignment: Alignment.bottomCenter,
+                          heightFactor: 1 - progress,
+                          child: dock,
+                        )
+                      : FractionalTranslation(
+                          translation: Offset(0, progress),
+                          child: dock,
+                        ),
+                ),
+                enabled: visible,
               ),
-              enabled: visible,
             )
           : null,
     );
@@ -430,7 +442,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
               ),
               dismissible: popup.barrierDismissible,
               onDismiss: () {
-                if (popup.isCurrent) controller.navigator?.maybePop();
+                if (popup.isCurrent) popup.navigator?.maybePop();
               },
               semanticsLabel: popup.barrierLabel,
             ),
@@ -476,4 +488,39 @@ class _AppNavigationShellState extends State<AppNavigationShell>
       ],
     ),
   );
+}
+
+class _DockSheetClipper extends CustomClipper<Path> {
+  _DockSheetClipper(this.dockKey, this.sheets)
+    : super(
+        reclip: Listenable.merge([
+          for (final sheet in sheets) sheet.animation,
+          for (final sheet in sheets) sheet.panelSizeChanges,
+        ]),
+      );
+
+  final GlobalKey dockKey;
+  final List<ResponsiveBottomSheetRoute<dynamic>> sheets;
+
+  @override
+  Path getClip(Size size) {
+    var visible = Path()..addRect(Offset.zero & size);
+    final dock = dockKey.currentContext?.findRenderObject();
+    if (dock is! RenderBox || !dock.attached || !dock.hasSize) return visible;
+    final origin = dock.localToGlobal(Offset.zero);
+    for (final sheet in sheets) {
+      final panelPath = sheet.panelPath;
+      if (panelPath == null) continue;
+      // The Navigator paints before the Dock, so expose the sheet beneath it.
+      visible = Path.combine(
+        PathOperation.difference,
+        visible,
+        panelPath.shift(-origin),
+      );
+    }
+    return visible;
+  }
+
+  @override
+  bool shouldReclip(_DockSheetClipper oldClipper) => true;
 }

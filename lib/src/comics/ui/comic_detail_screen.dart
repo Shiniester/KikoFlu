@@ -314,7 +314,7 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
             (progress?.chapterId == chapter.id ? progress!.page : 0),
       ),
     );
-    await Navigator.of(context).push(route);
+    await AppNavigationScope.navigatorOf(context).push(route);
     await route.completed;
     if (mounted) {
       setState(() => _readerReturning = true);

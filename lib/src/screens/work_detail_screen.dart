@@ -126,8 +126,9 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _translationSourceLanguage.value =
-        TranslationService.sourceLanguageForWork(widget.work.lang);
+    _translationSourceLanguage.value = TranslationService.sourceLanguageForWork(
+      widget.work.lang,
+    );
     // 初始化收藏状态（从传入的work中获取）
     _currentProgress = widget.work.progress;
     _currentRating = widget.work.userRating;
@@ -1013,7 +1014,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
             showAgeRating: displaySettings.showAgeRating,
             age: _currentWork.age,
             onTap: () {
-              Navigator.of(context).push(
+              AppNavigationScope.navigatorOf(context).push(
                 MaterialPageRoute(
                   settings: appImmersiveRouteSettings,
                   builder: (context) => WorkImageReader(

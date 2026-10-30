@@ -6,6 +6,7 @@ import 'package:kikoeru_flutter/src/comics/ui/comic_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_screen.dart';
 import 'package:kikoeru_flutter/src/videos/video_providers.dart';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/rendering.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -22,6 +23,7 @@ import 'package:kikoeru_flutter/src/providers/my_reviews_provider.dart';
 import 'package:kikoeru_flutter/src/providers/playlists_provider.dart';
 import 'package:kikoeru_flutter/src/providers/works_provider.dart';
 import 'package:kikoeru_flutter/src/providers/subtitle_library_provider.dart';
+import 'package:kikoeru_flutter/src/providers/player_work_details_provider.dart';
 import 'package:kikoeru_flutter/src/screens/audio_screen.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
 import 'package:kikoeru_flutter/src/screens/search_screen.dart';
@@ -43,6 +45,8 @@ import 'package:kikoeru_flutter/src/models/search_query.dart';
 import 'package:kikoeru_flutter/src/providers/my_tabs_display_provider.dart';
 import 'package:kikoeru_flutter/src/providers/settings_provider.dart';
 import 'package:kikoeru_flutter/src/screens/main_screen.dart';
+import 'package:kikoeru_flutter/src/screens/llm_settings_screen.dart';
+import 'package:kikoeru_flutter/src/screens/preferences_screen.dart';
 import 'package:kikoeru_flutter/src/screens/works_screen.dart';
 import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
 import 'package:kikoeru_flutter/src/screens/history_screen.dart';
@@ -59,6 +63,7 @@ import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/volume_control.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
+import 'package:kikoeru_flutter/src/providers/artwork_theme_provider.dart';
 import 'package:kikoeru_flutter/src/models/audio_source.dart' as audio_source;
 import 'package:kikoeru_flutter/src/providers/audio_source_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
@@ -226,6 +231,26 @@ class _PendingCoverCache extends Fake implements RemoteAssetImageCacheManager {
   }) => _PendingCoverLease();
 }
 
+class _ImmediateArtworkSeedLoader implements ArtworkSeedLoader {
+  @override
+  Future<Color> load(ArtworkSeedRequest request) async => Colors.blue;
+}
+
+class _PendingSubtitleFolderPicker extends FilePicker {
+  final result = Completer<String?>();
+  int calls = 0;
+
+  @override
+  Future<String?> getDirectoryPath({
+    String? dialogTitle,
+    bool lockParentWindow = false,
+    String? initialDirectory,
+  }) {
+    calls++;
+    return result.future;
+  }
+}
+
 class _NoImageCache extends Fake implements BaseCacheManager {
   @override
   Stream<FileResponse> getFileStream(
@@ -247,6 +272,8 @@ Future<void> _pumpAudioScreen(
   VoidCallback? onHistoryCreated,
   GlobalKey? sceneKey,
   KikoeruApiService? detailApi,
+  PlayerWorkDetailsData? playerWorkDetails,
+  ArtworkSeedLoader? artworkSeedLoader,
 }) async {
   final navigationController = screen is MainScreen
       ? AppNavigationController()
@@ -260,6 +287,12 @@ Future<void> _pumpAudioScreen(
         kikoeruApiServiceProvider.overrideWithValue(detailApi),
       if (detailApi != null)
         workDetailCoverCacheProvider.overrideWithValue(_PendingCoverCache()),
+      if (playerWorkDetails != null)
+        playerWorkDetailsProvider.overrideWith(
+          (ref) async => playerWorkDetails,
+        ),
+      if (artworkSeedLoader != null)
+        artworkSeedLoaderProvider.overrideWithValue(artworkSeedLoader),
       authProvider.overrideWith(
         (ref) => _AuthenticatedAudio(
           host: detailApi == null ? 'https://api.asmr-200.com' : '',
@@ -1997,7 +2030,7 @@ void main() {
   }
 
   testWidgets(
-    'top-level tab changes return to each home and retain audio scroll state',
+    'top-level tab changes preserve browsing routes and retain audio scroll state',
     (tester) async {
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
@@ -2055,6 +2088,10 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(tester.widget<NavigationBar>(navigation).selectedIndex, 0);
+      expect(find.text('Audio detail'), findsOneWidget);
+      expect(find.text('Comic detail'), findsNothing);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
       expect(find.text('Audio detail'), findsNothing);
       expect(find.text('Comic detail'), findsNothing);
       expect(tester.state(find.byType(AudioScreen)), same(audioState));
@@ -2063,6 +2100,67 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  for (final size in [const Size(390, 844), const Size(844, 390)]) {
+    testWidgets('app tab switches release hidden input focus ($size)', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(true);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+      final navigation = find.byType(
+        size.width > size.height ? NavigationRail : NavigationBar,
+      );
+
+      Future<void> selectTab(IconData icon) async {
+        await tester.tap(
+          find.descendant(of: navigation, matching: find.byIcon(icon)),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      await selectTab(Icons.settings_outlined);
+      await selectTab(Icons.library_music_outlined);
+      const draftKey = ValueKey('tab-focus-draft');
+      unawaited(
+        pushWorkDetailRoute(
+          tester.element(find.byType(AudioScreen)),
+          builder: (_) => const Scaffold(
+            body: Center(child: TextField(key: draftKey)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(draftKey), 'unsaved note');
+      final input = tester.widget<EditableText>(
+        find.descendant(
+          of: find.byKey(draftKey),
+          matching: find.byType(EditableText),
+        ),
+      );
+      expect(input.focusNode.hasFocus, isTrue);
+      expect(tester.testTextInput.hasAnyClients, isTrue);
+
+      await selectTab(Icons.settings_outlined);
+      expect(find.byType(SettingsScreen), findsOneWidget);
+      expect(input.focusNode.hasFocus, isFalse);
+      expect(tester.testTextInput.hasAnyClients, isFalse);
+      input.focusNode.requestFocus();
+      await tester.pump();
+      expect(input.focusNode.hasFocus, isFalse);
+      expect(input.controller.text, 'unsaved note');
+
+      await selectTab(Icons.library_music_outlined);
+      expect(find.text('unsaved note'), findsOneWidget);
+      await tester.enterText(find.byKey(draftKey), 'edited note');
+      expect(input.controller.text, 'edited note');
+      expect(input.focusNode.hasFocus, isTrue);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets(
     'landscape NavigationRail remains selected after a tab detail returns',
@@ -2104,6 +2202,484 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('LLM configuration stays in the Settings tab history', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('llm_settings_prompt', 'Test translation prompt');
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+    final navBar = find.byType(NavigationBar);
+    await tester.tap(
+      find.descendant(
+        of: navBar,
+        matching: find.byIcon(Icons.settings_outlined),
+      ),
+    );
+    await tester.pumpAndSettle();
+    unawaited(
+      Navigator.of(tester.element(find.byType(SettingsScreen))).push<void>(
+        MaterialPageRoute<void>(builder: (_) => const PreferencesScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final pageContext = tester.element(find.byType(PreferencesScreen));
+    final strings = S.of(pageContext);
+    await tester.tap(find.text(strings.translationSource));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.text(TranslationSource.llm.localizedName(pageContext)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(strings.goToConfigure));
+    await tester.pumpAndSettle();
+    expect(find.byType(LLMSettingsScreen), findsOneWidget);
+    final apiKey = find.widgetWithText(TextFormField, 'API Key');
+    await tester.enterText(apiKey, 'draft-api-key');
+
+    await tester.tap(
+      find.descendant(
+        of: navBar,
+        matching: find.byIcon(Icons.menu_book_outlined),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(ComicScreen), findsOneWidget);
+    expect(find.byType(LLMSettingsScreen), findsNothing);
+
+    await tester.tap(
+      find.descendant(
+        of: navBar,
+        matching: find.byIcon(Icons.settings_outlined),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(LLMSettingsScreen), findsOneWidget);
+    expect(
+      tester.widget<TextFormField>(apiKey).controller!.text,
+      'draft-api-key',
+    );
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(PreferencesScreen), findsOneWidget);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(SettingsScreen), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'app tab switches preserve the Audio route stack and system back',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(true);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+      final l10n = S.of(tester.element(find.byType(AudioScreen)));
+
+      void pushPage(BuildContext context, String label, {Key? inputKey}) {
+        unawaited(
+          pushWorkDetailRoute(
+            context,
+            builder: (_) => Scaffold(
+              body: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(label),
+                    if (inputKey != null) TextField(key: inputKey),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
+      pushPage(tester.element(find.byType(AudioScreen)), 'Search');
+      await tester.pumpAndSettle();
+      pushPage(tester.element(find.text('Search')), 'Work A');
+      await tester.pumpAndSettle();
+      const draftKey = ValueKey('work-b-draft');
+      pushPage(
+        tester.element(find.text('Work A')),
+        'Work B',
+        inputKey: draftKey,
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(draftKey), 'unsaved note');
+      expect(find.text('Work B'), findsOneWidget);
+
+      await tester.tap(find.text(l10n.navSettings));
+      await tester.pumpAndSettle();
+      expect(find.byType(SettingsScreen), findsOneWidget);
+      await tester.tap(find.text(l10n.navMy));
+      await tester.pumpAndSettle();
+      expect(find.text('Work B'), findsOneWidget);
+      expect(
+        tester
+            .widget<EditableText>(
+              find.descendant(
+                of: find.byKey(draftKey),
+                matching: find.byType(EditableText),
+              ),
+            )
+            .controller
+            .text,
+        'unsaved note',
+      );
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Work A'), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Search'), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(AudioScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('Comic and Video tabs preserve their route state', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+
+    final mainScreen = tester.element(find.byType(MainScreen));
+    final navigation = AppNavigationScope.of(mainScreen);
+    final navigationBar = find.byType(NavigationBar);
+
+    Future<void> selectTab(IconData icon) async {
+      await tester.tap(
+        find.descendant(of: navigationBar, matching: find.byIcon(icon)),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    await selectTab(Icons.menu_book_outlined);
+    final comicNavigator = navigation.tabNavigator(1)!;
+    comicNavigator.push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(
+          body: Center(child: TextField(key: ValueKey('comic-detail-draft'))),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('comic-detail-draft')),
+      'comic note',
+    );
+
+    await selectTab(Icons.video_library_outlined);
+    final videoNavigator = navigation.tabNavigator(appVideoTabIndex)!;
+    videoNavigator.push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(
+          body: Center(child: TextField(key: ValueKey('video-detail-draft'))),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('video-detail-draft')),
+      'video note',
+    );
+
+    await selectTab(Icons.menu_book_outlined);
+    expect(
+      tester
+          .widget<EditableText>(
+            find.descendant(
+              of: find.byKey(const ValueKey('comic-detail-draft')),
+              matching: find.byType(EditableText),
+            ),
+          )
+          .controller
+          .text,
+      'comic note',
+    );
+    await selectTab(Icons.video_library_outlined);
+    expect(videoNavigator.canPop(), isTrue);
+    expect(
+      tester
+          .widget<EditableText>(
+            find.descendant(
+              of: find.byKey(const ValueKey('video-detail-draft')),
+              matching: find.byType(EditableText),
+            ),
+          )
+          .controller
+          .text,
+      'video note',
+    );
+    await selectTab(Icons.menu_book_outlined);
+    expect(comicNavigator.canPop(), isTrue);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(ComicScreen), findsOneWidget);
+    expect(comicNavigator.canPop(), isFalse);
+    expect(videoNavigator.canPop(), isTrue);
+
+    await selectTab(Icons.video_library_outlined);
+    expect(
+      tester
+          .widget<EditableText>(
+            find.descendant(
+              of: find.byKey(const ValueKey('video-detail-draft')),
+              matching: find.byType(EditableText),
+            ),
+          )
+          .controller
+          .text,
+      'video note',
+    );
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(VideoScreen), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'iOS edge back pops only the active tab detail',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(false);
+      addTearDown(reduced.dispose);
+      await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+
+      final navigation = AppNavigationScope.of(
+        tester.element(find.byType(MainScreen)),
+      );
+      final navigationBar = find.byType(NavigationBar);
+      final audioNavigator = navigation.tabNavigator(appAudioTabIndex)!;
+
+      unawaited(
+        pushWorkDetailRoute(
+          tester.element(find.byType(AudioScreen)),
+          builder: (_) => const Scaffold(body: Text('Audio search')),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      unawaited(
+        pushWorkDetailRoute(
+          tester.element(find.text('Audio search')),
+          builder: (_) => const Scaffold(body: Text('Audio work A')),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(
+        ModalRoute.of(tester.element(find.text('Audio work A')))?.navigator,
+        same(audioNavigator),
+      );
+
+      await tester.tap(
+        find.descendant(
+          of: navigationBar,
+          matching: find.byIcon(Icons.menu_book_outlined),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      unawaited(
+        pushWorkDetailRoute(
+          tester.element(find.byType(ComicScreen)),
+          builder: (_) => const Scaffold(body: Text('Comic detail')),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      await tester.tap(
+        find.descendant(
+          of: navigationBar,
+          matching: find.byIcon(Icons.library_music_outlined),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      final gesture = await tester.startGesture(const Offset(2, 400));
+      await gesture.moveBy(const Offset(180, 0));
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(audioNavigator.userGestureInProgress, isTrue);
+      await gesture.moveBy(const Offset(150, 0));
+      await tester.pump(const Duration(milliseconds: 16));
+      await gesture.up();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump();
+      expect(find.text('Audio search'), findsOneWidget);
+      expect(navigation.selectedIndex, appAudioTabIndex);
+
+      await tester.tap(
+        find.descendant(
+          of: navigationBar,
+          matching: find.byIcon(Icons.menu_book_outlined),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Comic detail'), findsOneWidget);
+      expect(
+        ModalRoute.of(tester.element(find.text('Comic detail')))?.isCurrent,
+        isTrue,
+      );
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.byType(ComicScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+
+  testWidgets('player details return from an immersive root route to Audio', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    const track = AudioTrack(
+      id: 'handoff-track',
+      title: 'Handoff work',
+      url: 'https://example.invalid/handoff.mp3',
+      workId: 42,
+    );
+    const work = Work(id: 42, title: 'Handoff work');
+    await _pumpAudioScreen(
+      tester,
+      reduced,
+      screen: const MainScreen(),
+      track: track,
+      playerWorkDetails: const PlayerWorkDetailsData(
+        track: track,
+        work: work,
+        fileTree: [],
+        variants: [],
+        fileTreeId: '42:handoff',
+      ),
+      artworkSeedLoader: _ImmediateArtworkSeedLoader(),
+    );
+
+    final navigation = AppNavigationScope.of(
+      tester.element(find.byType(MainScreen)),
+    );
+    unawaited(
+      pushWorkDetailRoute(
+        tester.element(find.byType(AudioScreen)),
+        builder: (_) => const Scaffold(body: Text('Audio before player')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final navBar = find.byType(NavigationBar);
+    await tester.tap(
+      find.descendant(
+        of: navBar,
+        matching: find.byIcon(Icons.menu_book_outlined),
+      ),
+    );
+    await tester.pump();
+    expect(navigation.selectedIndex, 1);
+    unawaited(
+      AppNavigationScope.navigatorOf(
+        tester.element(find.byType(ComicScreen)),
+      ).push<void>(
+        MaterialPageRoute<void>(
+          settings: appImmersiveRouteSettings,
+          builder: (_) => const Scaffold(body: Text('Comic reader')),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    unawaited(openAudioPlayer(tester.element(find.text('Comic reader'))));
+    await tester.pumpAndSettle();
+    expect(find.byType(AudioPlayerScreen), findsOneWidget);
+    expect(navigation.selectedIndex, 1);
+    final playerContext = tester.element(find.byType(AudioPlayerScreen));
+    expect(navigation.tabNavigator(appAudioTabIndex), isNotNull);
+    expect(ModalRoute.of(playerContext)?.isCurrent, isTrue);
+    expect(
+      ProviderScope.containerOf(
+        playerContext,
+      ).read(playerWorkDetailsProvider).valueOrNull?.work.id,
+      work.id,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('player-track-title-button')));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byType(WorkDetailScreen), findsOneWidget);
+    expect(find.byType(AudioPlayerScreen), findsNothing);
+    expect(find.text('Comic reader'), findsNothing);
+    expect(navigation.selectedIndex, appAudioTabIndex);
+
+    await tester.binding.handlePopRoute();
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('Audio before player'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('subtitle import progress closes on the Audio tab navigator', (
+    tester,
+  ) async {
+    final picker = _PendingSubtitleFolderPicker();
+    FilePicker.platform = picker;
+    final reduced = ValueNotifier(true);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(tester, reduced, screen: const MainScreen());
+    final navigation = AppNavigationScope.of(
+      tester.element(find.byType(MainScreen)),
+    );
+    navigation
+        .tabNavigator(appAudioTabIndex)!
+        .push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => const SubtitleLibraryScreen(),
+          ),
+        );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final library = tester.state<SubtitleLibraryScreenState>(
+      find.byType(SubtitleLibraryScreen),
+    );
+    library.importFromDrawer();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    final l10n = S.of(tester.element(find.byType(SubtitleLibraryScreen)));
+    await tester.tap(find.text(l10n.importFolder));
+    await tester.pump();
+    expect(picker.calls, 1);
+    expect(find.byType(AlertDialog), findsOneWidget);
+
+    picker.result.complete(null);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(SubtitleLibraryScreen), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('full audio player hides the Dock and restores it on return', (
     tester,
@@ -2296,14 +2872,13 @@ void main() {
           expect(tester.state(player), same(previewState));
           expect(
             tester
-                .widget<Transform>(
+                .getTopLeft(
                   find.byKey(
                     const ValueKey('player-route-vertical-translation'),
                     skipOffstage: false,
                   ),
                 )
-                .transform
-                .entry(1, 3),
+                .dy,
             closeTo(0, 0.01),
           );
           expect(dock, findsNothing);

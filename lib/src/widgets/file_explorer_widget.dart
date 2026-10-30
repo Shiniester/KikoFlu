@@ -806,7 +806,7 @@ class _FileExplorerWidgetState extends ConsumerState<FileExplorerWidget> {
     switch (result.status) {
       case PreviewImageGalleryStatus.ready:
         final target = result.requireTarget;
-        Navigator.of(context).push(
+        AppNavigationScope.navigatorOf(context).push(
           MaterialPageRoute(
             settings: appImmersiveRouteSettings,
             builder: (context) => WorkImageReader(

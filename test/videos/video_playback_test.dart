@@ -34,6 +34,8 @@ import 'package:kikoeru_flutter/src/videos/video_player_platform.dart';
 import 'package:kikoeru_flutter/src/videos/video_super_resolution.dart';
 import 'package:kikoeru_flutter/src/videos/video_sleep_timer.dart';
 import 'package:kikoeru_flutter/src/videos/video_providers.dart';
+import 'package:kikoeru_flutter/src/screens/main_screen.dart';
+import 'package:kikoeru_flutter/src/videos/ui/video_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
 import 'package:kikoeru_flutter/src/widgets/app_navigation_scope.dart';
 import 'package:kikoeru_flutter/src/widgets/app_navigation_shell.dart';
@@ -68,6 +70,11 @@ void _testPlayerWidget(
       debugDefaultTargetPlatformOverride = null;
     }
   });
+}
+
+Future<void> _pumpRouteTransition(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 500));
 }
 
 void main() {
@@ -547,9 +554,12 @@ void main() {
         await tester.pumpAndSettle();
         expect(navigation.selectedIndex, 0);
 
-        expect(session.snapshot.value.playing, isTrue);
+        expect(session.snapshot.value.playing, isFalse);
         expect(navigationWidget, findsOneWidget);
 
+        await tester.tap(find.byTooltip(l10n.videoPlay));
+        await tester.pumpAndSettle();
+        expect(session.snapshot.value.playing, isTrue);
         await tester.tap(
           find.byKey(const ValueKey('video-fullscreen-control')),
         );
@@ -571,6 +581,418 @@ void main() {
         expect(navigation.navigationVisible, isTrue);
         expect(navigationWidget, findsOneWidget);
       }
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  _testPlayerWidget(
+    'video tab switch saves and pauses playback even while iOS PiP is active',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final client = _TestMissavClient(_details());
+      final library = await _testLibrary();
+      await StorageService.initCritical(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final session = _FakePlaybackSession();
+      final platform = _FakeDesktopPiPPlatform(
+        platform: TargetPlatform.iOS,
+        initiallyInPip: false,
+      );
+      final navigation = AppNavigationController();
+      addTearDown(navigation.dispose);
+
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          const MainScreen(),
+          appNavigationController: navigation,
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      final navBar = find.byType(NavigationBar);
+      await tester.tap(
+        find.descendant(
+          of: navBar,
+          matching: find.byIcon(Icons.video_library_outlined),
+        ),
+      );
+      await _pumpRouteTransition(tester);
+      unawaited(
+        pushWorkDetailRoute(
+          tester.element(find.byType(VideoScreen)),
+          builder: (_) => _testVideoDetailsScreen(
+            video: _video(),
+            sessionFactory: () => session,
+            platform: platform,
+          ),
+        ),
+      );
+      await _pumpRouteTransition(tester);
+      expect(navigation.tabNavigator(appVideoTabIndex)!.canPop(), isTrue);
+      for (
+        var frame = 0;
+        (client.detailsCalls == 0 || session.loadStreamCount == 0) &&
+            frame < 40;
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(client.detailsCalls, 1);
+      expect(session.loadStreamCount, 1);
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byTooltip(l10n.videoPlay));
+      await _pumpRouteTransition(tester);
+      expect(session.snapshot.value.playing, isTrue);
+      await session.seek(const Duration(seconds: 37));
+      platform.startPictureInPicture();
+      await _pumpRouteTransition(tester);
+      expect(session.snapshot.value.playing, isTrue);
+
+      await tester.tap(
+        find.descendant(
+          of: navBar,
+          matching: find.byIcon(Icons.library_music_outlined),
+        ),
+      );
+      await _pumpRouteTransition(tester);
+      for (
+        var i = 0;
+        i < 20 && library.positionFor('dvd-1') != const Duration(seconds: 37);
+        i++
+      ) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+      expect(session.snapshot.value.playing, isFalse);
+      expect(library.positionFor('dvd-1'), const Duration(seconds: 37));
+
+      await tester.tap(
+        find.descendant(
+          of: navBar,
+          matching: find.byIcon(Icons.video_library_outlined),
+        ),
+      );
+      await _pumpRouteTransition(tester);
+      expect(find.byType(VideoDetailsScreen), findsOneWidget);
+      expect(session.snapshot.value.playing, isFalse);
+      await platform.exitPictureInPicture();
+      await tester.pump();
+      await tester.tap(find.byTooltip(l10n.videoPlay));
+      await _pumpRouteTransition(tester);
+      expect(session.snapshot.value.playing, isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  _testPlayerWidget(
+    'leaving Video pauses iOS PiP when a root player route covers tabs',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final client = _TestMissavClient(_details());
+      final library = await _testLibrary();
+      await StorageService.initCritical(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final session = _FakePlaybackSession();
+      final platform = _FakeDesktopPiPPlatform(
+        platform: TargetPlatform.iOS,
+        initiallyInPip: false,
+      );
+      final navigation = AppNavigationController();
+      addTearDown(navigation.dispose);
+
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          const MainScreen(),
+          appNavigationController: navigation,
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      final navBar = find.byType(NavigationBar);
+      await tester.tap(
+        find.descendant(
+          of: navBar,
+          matching: find.byIcon(Icons.video_library_outlined),
+        ),
+      );
+      await _pumpRouteTransition(tester);
+      unawaited(
+        pushWorkDetailRoute(
+          tester.element(find.byType(VideoScreen)),
+          builder: (_) => _testVideoDetailsScreen(
+            video: _video(),
+            sessionFactory: () => session,
+            platform: platform,
+          ),
+        ),
+      );
+      await _pumpRouteTransition(tester);
+      for (
+        var frame = 0;
+        (client.detailsCalls == 0 || session.loadStreamCount == 0) &&
+            frame < 40;
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(client.detailsCalls, 1);
+      expect(session.loadStreamCount, 1);
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byTooltip(l10n.videoPlay));
+      await _pumpRouteTransition(tester);
+      platform.startPictureInPicture();
+      await _pumpRouteTransition(tester);
+      expect(session.snapshot.value.playing, isTrue);
+
+      final videoNavigator = navigation.tabNavigator(appVideoTabIndex)!;
+      final videoDetailsRoute = ModalRoute.of(
+        tester.element(find.byType(VideoDetailsScreen)),
+      )!;
+      expect(videoDetailsRoute.navigator, same(videoNavigator));
+      final rootNavigator = AppNavigationScope.navigatorOf(
+        tester.element(find.byType(VideoDetailsScreen)),
+      );
+      final rootRoute = MaterialPageRoute<void>(
+        settings: appImmersiveRouteSettings,
+        builder: (_) => const Scaffold(body: Text('Full audio player')),
+      );
+      var rootRouteCompleted = false;
+      unawaited(rootRoute.completed.then((_) => rootRouteCompleted = true));
+      expect(rootNavigator, isNot(same(videoNavigator)));
+      unawaited(rootNavigator.push<void>(rootRoute));
+      await tester.pump();
+      expect(rootNavigator.canPop(), isTrue);
+      expect(rootRoute.animation?.status, AnimationStatus.forward);
+      expect(navigation.rootRouteCoversTabs, isTrue);
+      expect(session.snapshot.value.playing, isTrue);
+
+      navigation.selectTab(appAudioTabIndex);
+      navigation
+          .tabNavigator(appAudioTabIndex)!
+          .push<void>(
+            MaterialPageRoute<void>(
+              builder: (_) => const Scaffold(body: Text('Audio work details')),
+            ),
+          );
+      rootNavigator.popUntil((route) => route.isFirst);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump();
+      expect(rootNavigator.canPop(), isFalse);
+      expect(rootRoute.isActive, isFalse);
+      expect(
+        rootRouteCompleted,
+        isTrue,
+        reason: 'route animation status=${rootRoute.animation?.status}',
+      );
+      expect(navigation.rootRouteCoversTabs, isFalse);
+      expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
+      expect(find.text('Audio work details'), findsOneWidget);
+      expect(session.snapshot.value.playing, isFalse);
+
+      await tester.tap(
+        find.descendant(
+          of: navBar,
+          matching: find.byIcon(Icons.video_library_outlined),
+        ),
+      );
+      await _pumpRouteTransition(tester);
+      expect(find.byType(VideoDetailsScreen), findsOneWidget);
+      expect(session.snapshot.value.playing, isFalse);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  _testPlayerWidget(
+    'Android PiP exit pops its root route and preserves the Video tab detail',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final client = _TestMissavClient(_details());
+      final library = await _testLibrary();
+      await StorageService.initCritical(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final session = _FakePlaybackSession();
+      final platform = _FakeDesktopPiPPlatform(
+        platform: TargetPlatform.android,
+        initiallyInPip: false,
+      );
+      final navigation = AppNavigationController();
+      addTearDown(navigation.dispose);
+
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          const MainScreen(),
+          appNavigationController: navigation,
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      final navBar = find.byType(NavigationBar);
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(
+        find.descendant(
+          of: navBar,
+          matching: find.byIcon(Icons.video_library_outlined),
+        ),
+      );
+      await _pumpRouteTransition(tester);
+      unawaited(
+        pushWorkDetailRoute(
+          tester.element(find.byType(VideoScreen)),
+          builder: (_) => _testVideoDetailsScreen(
+            video: _video(),
+            sessionFactory: () => session,
+            platform: platform,
+          ),
+        ),
+      );
+      await _pumpRouteTransition(tester);
+      for (
+        var frame = 0;
+        (client.detailsCalls == 0 || session.loadStreamCount == 0) &&
+            frame < 40;
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(client.detailsCalls, 1);
+      expect(session.loadStreamCount, 1);
+      await tester.tap(find.byTooltip(l10n.videoPlay));
+      await _pumpRouteTransition(tester);
+
+      platform.startPictureInPicture();
+      await _pumpRouteTransition(tester);
+      expect(session.snapshot.value.playing, isTrue);
+      expect(find.byType(VideoDetailsScreen), findsNothing);
+      expect(
+        find.byType(VideoDetailsScreen, skipOffstage: false),
+        findsOneWidget,
+      );
+
+      await platform.exitPictureInPicture();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.byType(VideoDetailsScreen), findsOneWidget);
+      expect(navigation.rootRouteCoversTabs, isFalse);
+      expect(session.snapshot.value.playing, isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  _testPlayerWidget(
+    'Video tab fullscreen updates the Shell from its child Navigator',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final client = _TestMissavClient(_details());
+      final library = await _testLibrary();
+      await StorageService.initCritical(
+        preferences: await SharedPreferences.getInstance(),
+      );
+      final downloads = _TestVideoDownloads(client: client, library: library);
+      final session = _FakePlaybackSession();
+      final navigation = AppNavigationController();
+      addTearDown(navigation.dispose);
+
+      await tester.pumpWidget(
+        _app(
+          client,
+          library,
+          downloads,
+          const MainScreen(),
+          appNavigationController: navigation,
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      final navBar = find.byType(NavigationBar);
+      await tester.tap(
+        find.descendant(
+          of: navBar,
+          matching: find.byIcon(Icons.video_library_outlined),
+        ),
+      );
+      await _pumpRouteTransition(tester);
+      unawaited(
+        pushWorkDetailRoute(
+          tester.element(find.byType(VideoScreen)),
+          builder: (_) => _testVideoDetailsScreen(
+            video: _video(),
+            sessionFactory: () => session,
+            platform: _TestVideoPlayerPlatform(),
+          ),
+        ),
+      );
+      await _pumpRouteTransition(tester);
+      for (
+        var frame = 0;
+        (client.detailsCalls == 0 || session.loadStreamCount == 0) &&
+            frame < 40;
+        frame++
+      ) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(client.detailsCalls, 1);
+      expect(session.loadStreamCount, 1);
+
+      final detailRoute = ModalRoute.of(
+        tester.element(find.byType(VideoDetailsScreen)),
+      )!;
+      expect(
+        detailRoute.navigator,
+        same(navigation.tabNavigator(appVideoTabIndex)),
+      );
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byTooltip(l10n.videoPlay));
+      await _pumpRouteTransition(tester);
+      expect(session.snapshot.value.playing, isTrue);
+      expect(navigation.navigationVisible, isTrue);
+
+      await tester.tap(find.byKey(const ValueKey('video-fullscreen-control')));
+      await _pumpRouteTransition(tester);
+      expect(navigation.rootRouteCoversTabs, isFalse);
+      expect(navigation.navigationVisible, isFalse);
+      expect(navigation.fullscreenTransition, isNotNull);
+      expect(navBar.hitTestable(), findsNothing);
+      expect(session.snapshot.value.playing, isTrue);
+
+      await tester.tap(find.byKey(const ValueKey('video-fullscreen-control')));
+      await _pumpRouteTransition(tester);
+      await tester.pump();
+      expect(navigation.navigationVisible, isTrue);
+      expect(navBar.hitTestable(), findsOneWidget);
+      expect(session.snapshot.value.playing, isTrue);
       expect(tester.takeException(), isNull);
     },
   );
@@ -3316,6 +3738,266 @@ void main() {
             .opacity,
         0,
       );
+    },
+  );
+
+  for (final backwards in [false, true]) {
+    _testPlayerWidget(
+      'slider keeps the dragged position until playback confirms the seek (backwards=$backwards)',
+      (tester) async {
+        final session = _DelayedSeekPlaybackSession();
+        await _pumpStandalonePlayer(tester, session);
+        final oldPosition = Duration(seconds: backwards ? 150 : 20);
+        session.emitSnapshot(position: oldPosition);
+        await tester.pump();
+        final sliderFinder = find.byKey(
+          const ValueKey('video-position-slider'),
+        );
+        final rect = tester.getRect(sliderFinder);
+        final gesture = await tester.startGesture(
+          Offset(
+            rect.left + rect.width * (backwards ? .75 : .25),
+            rect.center.dy,
+          ),
+          kind: PointerDeviceKind.touch,
+        );
+        await gesture.moveTo(
+          Offset(
+            rect.left + rect.width * (backwards ? .25 : .75),
+            rect.center.dy,
+          ),
+        );
+        await tester.pump();
+        final preview = tester.widget<Slider>(sliderFinder).value;
+        expect(preview, backwards ? lessThan(50000) : greaterThan(100000));
+
+        session.emitSnapshot(
+          position: oldPosition + const Duration(seconds: 1),
+        );
+        await tester.pump();
+        expect(tester.widget<Slider>(sliderFinder).value, preview);
+        expect(session.seekCount, 0);
+
+        await gesture.up();
+        await tester.pump();
+        expect(session.seekCount, 1);
+        expect(tester.widget<Slider>(sliderFinder).value, preview);
+
+        session.emitSnapshot(
+          position: oldPosition + const Duration(seconds: 2),
+        );
+        await tester.pump();
+        expect(tester.widget<Slider>(sliderFinder).value, preview);
+
+        session.emitSnapshot(position: session.lastPosition);
+        await tester.pump();
+        session.emitSnapshot(
+          position: session.lastPosition + const Duration(seconds: 1),
+        );
+        await tester.pump();
+        expect(tester.widget<Slider>(sliderFinder).value, preview + 1000);
+      },
+    );
+  }
+
+  for (final backwards in [false, true]) {
+    _testPlayerWidget(
+      'short slider seek ignores old playback snapshots (backwards=$backwards)',
+      (tester) async {
+        final session = _DelayedSeekPlaybackSession();
+        await _pumpStandalonePlayer(tester, session);
+        session.emitSnapshot(position: const Duration(seconds: 20));
+        await tester.pump();
+        final sliderFinder = find.byKey(
+          const ValueKey('video-position-slider'),
+        );
+        final targetMs = backwards ? 19200.0 : 20800.0;
+        final slider = tester.widget<Slider>(sliderFinder);
+        slider.onChanged!(targetMs);
+        slider.onChangeEnd!(targetMs);
+        await tester.pump();
+
+        session.emitSnapshot(bufferPosition: const Duration(seconds: 50));
+        await tester.pump();
+        expect(tester.widget<Slider>(sliderFinder).value, targetMs);
+        session.emitSnapshot(position: const Duration(milliseconds: 20100));
+        await tester.pump();
+        expect(tester.widget<Slider>(sliderFinder).value, targetMs);
+
+        final confirmed = Duration(milliseconds: targetMs.toInt() + 20);
+        session.emitSnapshot(position: confirmed);
+        await tester.pump();
+        expect(
+          tester.widget<Slider>(sliderFinder).value,
+          confirmed.inMilliseconds,
+        );
+        session.emitSnapshot(position: confirmed + const Duration(seconds: 1));
+        await tester.pump();
+        expect(
+          tester.widget<Slider>(sliderFinder).value,
+          confirmed.inMilliseconds + 1000,
+        );
+      },
+    );
+  }
+
+  for (final input in ['keyboard', 'double tap', 'surface swipe']) {
+    _testPlayerWidget('relative $input seek starts from the pending target', (
+      tester,
+    ) async {
+      final session = _DelayedSeekPlaybackSession();
+      await _pumpStandalonePlayer(tester, session);
+      final surface = find.byKey(const ValueKey('video-gesture-surface'));
+      final rect = tester.getRect(surface);
+      await tester.tapAt(Offset(rect.center.dx, rect.top + 10));
+      await tester.pump(const Duration(milliseconds: 400));
+      session.emitSnapshot(position: const Duration(seconds: 20));
+      await tester.pump();
+      final sliderFinder = find.byKey(const ValueKey('video-position-slider'));
+      final slider = tester.widget<Slider>(sliderFinder);
+      slider.onChanged!(120000);
+      slider.onChangeEnd!(120000);
+      await tester.pump();
+
+      for (var step = 1; step <= 2; step++) {
+        switch (input) {
+          case 'keyboard':
+            await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+          case 'double tap':
+            final point = Offset(rect.left + rect.width * .8, rect.top + 60);
+            await tester.tapAt(point);
+            await tester.pump(const Duration(milliseconds: 50));
+            await tester.tapAt(point);
+            await tester.pump(const Duration(milliseconds: 350));
+          case 'surface swipe':
+            await tester.dragFrom(
+              Offset(rect.center.dx, rect.top + 60),
+              Offset(rect.width * .1, 0),
+            );
+        }
+        await tester.pump();
+        final expected = Duration(
+          seconds: 120 + step * (input == 'surface swipe' ? 9 : 10),
+        );
+        expect(session.lastPosition, expected);
+        expect(session.seekCount, step + 1);
+        expect(
+          tester.widget<Slider>(sliderFinder).value,
+          expected.inMilliseconds,
+        );
+        session.emitSnapshot(position: const Duration(seconds: 21));
+        await tester.pump();
+      }
+    });
+  }
+
+  _testPlayerWidget('unconfirmed seek returns to playback after timeout', (
+    tester,
+  ) async {
+    final session = _DelayedSeekPlaybackSession();
+    await _pumpStandalonePlayer(tester, session);
+    final sliderFinder = find.byKey(const ValueKey('video-position-slider'));
+    final slider = tester.widget<Slider>(sliderFinder);
+    slider.onChanged!(120000);
+    slider.onChangeEnd!(120000);
+    await tester.pump(const Duration(seconds: 2));
+    expect(tester.widget<Slider>(sliderFinder).value, 120000);
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.widget<Slider>(sliderFinder).value, 0);
+    session.emitSnapshot(position: const Duration(seconds: 4));
+    await tester.pump();
+    expect(tester.widget<Slider>(sliderFinder).value, 4000);
+  });
+
+  _testPlayerWidget('new slider drag survives the previous seek timeout', (
+    tester,
+  ) async {
+    final session = _DelayedSeekPlaybackSession();
+    await _pumpStandalonePlayer(tester, session);
+    final sliderFinder = find.byKey(const ValueKey('video-position-slider'));
+    var slider = tester.widget<Slider>(sliderFinder);
+    slider.onChanged!(120000);
+    slider.onChangeEnd!(120000);
+    await tester.pump(const Duration(seconds: 2));
+
+    slider = tester.widget<Slider>(sliderFinder);
+    slider.onChanged!(60000);
+    await tester.pump(const Duration(seconds: 2));
+    session.emitSnapshot(position: const Duration(seconds: 120));
+    await tester.pump();
+    expect(tester.widget<Slider>(sliderFinder).value, 60000);
+    expect(session.seekCount, 1);
+
+    tester.widget<Slider>(sliderFinder).onChangeEnd!(60000);
+    await tester.pump();
+    expect(session.seekCount, 2);
+    expect(tester.widget<Slider>(sliderFinder).value, 60000);
+    session.emitSnapshot(position: const Duration(seconds: 60));
+    await tester.pump();
+    session.emitSnapshot(position: const Duration(seconds: 61));
+    await tester.pump();
+    expect(tester.widget<Slider>(sliderFinder).value, 61000);
+  });
+
+  _testPlayerWidget(
+    'failed seek can retry without retaining the target position',
+    (tester) async {
+      final seek = Completer<void>();
+      final session = _DelayedSeekPlaybackSession()..nextSeekCompleter = seek;
+      await _pumpStandalonePlayer(tester, session);
+      final sliderFinder = find.byKey(const ValueKey('video-position-slider'));
+      final slider = tester.widget<Slider>(sliderFinder);
+      slider.onChanged!(120000);
+      slider.onChangeEnd!(120000);
+      await tester.pump();
+      seek.completeError(StateError('Fixture seek error'));
+      await tester.pumpAndSettle();
+      final l10n = await S.delegate.load(const Locale('en'));
+      expect(find.text(l10n.videoPlaybackFailed), findsOneWidget);
+      await tester.tap(find.byTooltip(l10n.retry));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Slider>(sliderFinder).value, 0);
+    },
+  );
+
+  _testPlayerWidget(
+    'unconfirmed slider seek survives taps and fullscreen changes',
+    (tester) async {
+      final session = _DelayedSeekPlaybackSession();
+      await _pumpStandalonePlayer(tester, session);
+      final sliderFinder = find.byKey(const ValueKey('video-position-slider'));
+      final slider = tester.widget<Slider>(sliderFinder);
+      slider.onChanged!(120000);
+      slider.onChangeEnd!(120000);
+      await tester.pump();
+
+      await _tapGestureSurface(
+        tester,
+        find.byKey(const ValueKey('video-gesture-surface')),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(tester.widget<Slider>(sliderFinder).value, 120000);
+      await _tapGestureSurface(
+        tester,
+        find.byKey(const ValueKey('video-gesture-surface')),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byTooltip(l10n.videoFullscreen));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Slider>(sliderFinder).value, 120000);
+      await tester.tap(find.byTooltip(l10n.videoFullscreen));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Slider>(sliderFinder).value, 120000);
+
+      session.emitSnapshot(position: const Duration(seconds: 120));
+      await tester.pump();
+      session.emitSnapshot(position: const Duration(seconds: 121));
+      await tester.pump();
+      expect(tester.widget<Slider>(sliderFinder).value, 121000);
+      expect(session.surfaceMountCount, 1);
+      expect(session.seekCount, 1);
     },
   );
 
@@ -6113,6 +6795,7 @@ class _FakePlaybackSession implements VideoPlaybackSession {
   }
 
   void emitSnapshot({
+    Duration? position,
     bool? playing,
     bool? buffering,
     Duration? bufferPosition,
@@ -6121,6 +6804,7 @@ class _FakePlaybackSession implements VideoPlaybackSession {
     List<VideoPlaybackTrack>? subtitleTracks,
   }) {
     _snapshot.value = _snapshot.value.copyWith(
+      position: position,
       playing: playing,
       buffering: buffering,
       bufferPosition: bufferPosition,
@@ -6237,6 +6921,19 @@ class _FakePlaybackSession implements VideoPlaybackSession {
     disposeCount++;
     _snapshot.dispose();
     if (!disposed.isCompleted) disposed.complete();
+  }
+}
+
+class _DelayedSeekPlaybackSession extends _FakePlaybackSession {
+  Completer<void>? nextSeekCompleter;
+
+  @override
+  Future<void> seek(Duration position) async {
+    seekCount++;
+    lastPosition = position;
+    final completer = nextSeekCompleter;
+    nextSeekCompleter = null;
+    if (completer != null) await completer.future;
   }
 }
 

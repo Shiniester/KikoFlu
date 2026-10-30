@@ -296,6 +296,7 @@ class SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
   void _showSimpleLoadingDialog(String message) {
     showDialog(
       context: context,
+      useRootNavigator: false,
       barrierDismissible: false,
       builder: (context) => PopScope(
         canPop: false,
@@ -384,6 +385,7 @@ class SubtitleLibraryScreenState extends ConsumerState<SubtitleLibraryScreen> {
 
     showDialog(
       context: context,
+      useRootNavigator: false,
       barrierDismissible: false,
       builder: (context) => PopScope(
         canPop: false,

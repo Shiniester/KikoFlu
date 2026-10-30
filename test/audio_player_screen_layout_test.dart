@@ -3223,20 +3223,14 @@ void main() {
     final routeTranslationFinder = find.byKey(
       const ValueKey('player-route-vertical-translation'),
     );
-    final outward = tester
-        .widget<Transform>(routeTranslationFinder)
-        .transform
-        .entry(1, 3);
+    final outward = tester.getTopLeft(routeTranslationFinder).dy;
     expect(outward, greaterThan(80));
 
     for (var index = 0; index < 7; index++) {
       await gesture.moveBy(const Offset(0, -16));
       await tester.pump();
     }
-    expect(
-      tester.widget<Transform>(routeTranslationFinder).transform.entry(1, 3),
-      lessThan(outward),
-    );
+    expect(tester.getTopLeft(routeTranslationFinder).dy, lessThan(outward));
     await gesture.up();
     await tester.pumpAndSettle();
     expect(find.byType(AudioPlayerScreen), findsOneWidget);

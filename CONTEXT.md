@@ -13,6 +13,8 @@ _Avoid_: Player bar
 
 **App Tab Bar (应用标签栏)**:
 The primary app navigation containing Audio, Comics, Videos, and Settings.
+Audio, Comics, and Videos each retain their browsing history when another entry
+is selected.
 _Avoid_: Player navigation, bottom menu
 
 **Video Screen (视频页)**:
@@ -71,6 +73,8 @@ _Avoid_: Video account login
 **Video Details Screen (视频详情页)**:
 The app page containing one video's inline Video Player, information, and related
 recommendations.
+Switching to another App Tab Bar entry pauses the Video Player. The Video Player
+remains paused on return until playback is resumed manually.
 _Avoid_: Video Screen, source website
 
 **Video Basic Information (视频基础信息)**:
@@ -200,6 +204,8 @@ _避免_：低愿力标签、低票数标签
 **Work Details Screen (作品详情页)**:
 The online or offline screen describing a work and its available resource files.
 It is distinct from the Player Audio Details Page for the current track.
+Opening a Work Details Screen from the full-screen audio player closes the
+full-screen player, shows the Mini Player, and switches to Audio.
 _Avoid_: Player details page, audio details page
 
 **Work Audio Chapter (作品音频章节)**:

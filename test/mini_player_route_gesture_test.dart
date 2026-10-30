@@ -98,15 +98,12 @@ void main() {
       const ValueKey('player-route-vertical-translation'),
       skipOffstage: false,
     );
-    final openingOffset = tester
-        .widget<Transform>(routeTranslationFinder)
-        .transform
-        .entry(1, 3);
+    final openingOffset = tester.getTopLeft(routeTranslationFinder).dy;
     expect(openingOffset, lessThan(844));
     await cancelledGesture.moveBy(const Offset(0, 60));
     await tester.pump();
     expect(
-      tester.widget<Transform>(routeTranslationFinder).transform.entry(1, 3),
+      tester.getTopLeft(routeTranslationFinder).dy,
       greaterThan(openingOffset),
     );
     await cancelledGesture.cancel();
@@ -131,14 +128,14 @@ void main() {
           find.byType(AudioPlayerScreen, skipOffstage: false),
           findsOneWidget,
         );
-        final interactiveTranslation = tester.widget<Transform>(
+        final interactiveTranslation = tester.getTopLeft(
           find.byKey(
             const ValueKey('player-route-vertical-translation'),
             skipOffstage: false,
           ),
         );
-        expect(interactiveTranslation.transform.entry(1, 3), greaterThan(0));
-        expect(interactiveTranslation.transform.entry(1, 3), lessThan(844));
+        expect(interactiveTranslation.dy, greaterThan(0));
+        expect(interactiveTranslation.dy, lessThan(844));
       }
     }
     final previewState = tester.state(find.byType(AudioPlayerScreen));

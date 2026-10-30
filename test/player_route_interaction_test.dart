@@ -167,10 +167,10 @@ void main() {
     await tester.pump();
     expect(route.debugTransitionValue, closeTo(0.8, 0.001));
     expect(route.debugTransitionStatus, AnimationStatus.reverse);
-    final translation = tester.widget<Transform>(
+    final translation = tester.getTopLeft(
       find.byKey(const ValueKey('player-route-vertical-translation')),
     );
-    expect(translation.transform.entry(1, 3), closeTo(160, 0.001));
+    expect(translation.dy, closeTo(160, 0.001));
     final heroMode = tester.widget<HeroMode>(
       find.ancestor(
         of: find.byKey(const ValueKey('player-route-vertical-translation')),
@@ -233,26 +233,20 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 80));
     expect(
-      1 -
-          tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
-              route.debugRouteTranslation,
+      1 - tester.getTopLeft(translationFinder).dy / route.debugRouteTranslation,
       closeTo(route.animation!.value, 0.001),
     );
     final firstOpeningDistance =
         1 -
-        tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
-            route.debugRouteTranslation;
+        tester.getTopLeft(translationFinder).dy / route.debugRouteTranslation;
     await tester.pump(const Duration(milliseconds: 80));
     expect(
-      1 -
-          tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
-              route.debugRouteTranslation,
+      1 - tester.getTopLeft(translationFinder).dy / route.debugRouteTranslation,
       closeTo(route.animation!.value, 0.001),
     );
     final halfwayOpeningDistance =
         1 -
-        tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
-            route.debugRouteTranslation;
+        tester.getTopLeft(translationFinder).dy / route.debugRouteTranslation;
     expect(
       firstOpeningDistance,
       greaterThan(halfwayOpeningDistance - firstOpeningDistance),
@@ -263,24 +257,18 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
     expect(
-      1 -
-          tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
-              route.debugRouteTranslation,
+      1 - tester.getTopLeft(translationFinder).dy / route.debugRouteTranslation,
       closeTo(route.animation!.value, 0.001),
     );
     final firstClosingDistance =
-        tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
-        route.debugRouteTranslation;
+        tester.getTopLeft(translationFinder).dy / route.debugRouteTranslation;
     await tester.pump(const Duration(milliseconds: 80));
     expect(
-      1 -
-          tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
-              route.debugRouteTranslation,
+      1 - tester.getTopLeft(translationFinder).dy / route.debugRouteTranslation,
       closeTo(route.animation!.value, 0.001),
     );
     final halfwayClosingDistance =
-        tester.widget<Transform>(translationFinder).transform.entry(1, 3) /
-        route.debugRouteTranslation;
+        tester.getTopLeft(translationFinder).dy / route.debugRouteTranslation;
     expect(
       firstClosingDistance,
       greaterThan(halfwayClosingDistance - firstClosingDistance),
@@ -345,7 +333,7 @@ void main() {
       expect(route.debugTransitionValue, closeTo(progress, 0.001));
       expect(route.animation!.value, closeTo(progress, 0.001));
       expect(
-        tester.widget<Transform>(translationFinder).transform.entry(1, 3),
+        tester.getTopLeft(translationFinder).dy,
         closeTo(800 * (1 - progress), 0.001),
       );
     }
@@ -415,10 +403,10 @@ void main() {
     unawaited(navigatorKey.currentState!.push<void>(route));
     await tester.pumpAndSettle();
 
-    final translation = tester.widget<Transform>(
+    final translation = tester.getTopLeft(
       find.byKey(const ValueKey('player-route-vertical-translation')),
     );
-    expect(translation.transform.entry(1, 3), 0);
+    expect(translation.dy, 0);
     final heroMode = tester.widget<HeroMode>(
       find.ancestor(
         of: find.byKey(const ValueKey('player-route-vertical-translation')),

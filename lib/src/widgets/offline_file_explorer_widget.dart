@@ -564,7 +564,7 @@ class _OfflineFileExplorerWidgetState
     switch (result.status) {
       case PreviewImageGalleryStatus.ready:
         final target = result.requireTarget;
-        Navigator.of(context).push(
+        AppNavigationScope.navigatorOf(context).push(
           MaterialPageRoute(
             settings: appImmersiveRouteSettings,
             builder: (context) => WorkImageReader(
@@ -925,9 +925,12 @@ class _OfflineFileExplorerWidgetState
       if (mounted) {
         showDialog(
           context: context,
+          useRootNavigator: false,
           barrierDismissible: false,
-          builder: (context) =>
-              const Center(child: CircularProgressIndicator()),
+          builder: (context) => const Center(
+            key: ValueKey('offline-file-delete-progress'),
+            child: CircularProgressIndicator(),
+          ),
         );
       }
 

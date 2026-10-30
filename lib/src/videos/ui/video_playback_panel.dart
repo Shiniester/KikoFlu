@@ -615,12 +615,15 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   Future<void> _loopModeTail = Future<void>.value();
   Timer? _saveTimer;
   Timer? _controlsTimer;
+  Timer? _seekPreviewClearTimer;
   Timer? _keyboardRightTimer;
   Duration? _pendingLoadPosition;
   Duration? _seekPreview;
+  Duration? _pendingSeekPosition;
   Duration? _dragStartPosition;
   double? _dragStartX;
   Duration _pendingLoadBasePosition = Duration.zero;
+  Duration _pendingSeekBasePosition = Duration.zero;
   ModalRoute<dynamic>? _route;
   PageRoute<void>? _pictureInPictureRoute;
   double? _temporaryRate;
@@ -676,6 +679,8 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   Orientation? _fullscreenExitInitialOrientation;
   bool _disposed = false;
   bool _sourceLoaded = false;
+  bool? _appTabWasVisible;
+  bool? _appTabWasVideoSelected;
   int _pauseGeneration = 0;
   int _loadGeneration = 0;
   String? _error;
@@ -849,7 +854,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       _openPictureInPictureRoute(showExitControl: _isDesktop);
     } else if (needsVideoOnlyRoute && !_platform.pictureInPicture.value) {
       final route = _pictureInPictureRoute;
-      if (route?.isCurrent == true && mounted) Navigator.of(context).pop();
+      if (route?.isCurrent == true && mounted) route!.navigator?.pop();
     }
     if (!_platform.pictureInPicture.value &&
         _appSuspended &&
@@ -893,23 +898,26 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     );
     _pictureInPictureRoute = route;
     unawaited(
-      Navigator.of(context).push<void>(route).whenComplete(() async {
-        if (!identical(_pictureInPictureRoute, route)) return;
-        if (_platform.pictureInPicture.value) {
-          await _platform.exitPictureInPicture();
-        }
-        await route.completed;
-        _pictureInPictureRoute = null;
-        _pictureInPictureRouteOpen = false;
-        if (mounted) _updatePlayerState(() {});
-        _onSnapshotChanged();
-      }),
+      AppNavigationScope.navigatorOf(context).push<void>(route).whenComplete(
+        () async {
+          if (!identical(_pictureInPictureRoute, route)) return;
+          if (_platform.pictureInPicture.value) {
+            await _platform.exitPictureInPicture();
+          }
+          await route.completed;
+          _pictureInPictureRoute = null;
+          _pictureInPictureRouteOpen = false;
+          if (mounted) _updatePlayerState(() {});
+          _onSnapshotChanged();
+        },
+      ),
     );
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _syncAppTabVisibility();
     final route = ModalRoute.of(context);
     if (identical(route, _route)) return;
     _route?.secondaryAnimation?.removeListener(_onRouteTransition);
@@ -1035,6 +1043,8 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   }
 
   Future<void> _loadSource({required Duration position, bool resume = false}) {
+    _clearPendingSeek();
+    _cancelSeekPreview();
     final generation = ++_loadGeneration;
     final pauseGeneration = _pauseGeneration;
     final firstSourceLoad = !_sourceLoaded;
@@ -1089,12 +1099,14 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       _onSnapshotChanged();
       if ((resume || autoPlay) &&
           pauseGeneration == _pauseGeneration &&
+          _isAppTabVisible &&
           !_routeCovered &&
           !_appSuspended) {
         await _session.play();
         autoPlayStarted =
             autoPlay &&
             pauseGeneration == _pauseGeneration &&
+            _isAppTabVisible &&
             !_routeCovered &&
             !_appSuspended &&
             _session.snapshot.value.playing;
@@ -1120,6 +1132,34 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       });
     });
     return _loadTail;
+  }
+
+  bool get _isAppTabVisible {
+    final navigation = AppNavigationScope.maybeOf(context);
+    return navigation == null ||
+        (navigation.selectedIndex == appVideoTabIndex &&
+            (!navigation.rootRouteCoversTabs || _pictureInPictureRouteOpen));
+  }
+
+  void _syncAppTabVisibility() {
+    final videoTabSelected = _isVideoTabSelected;
+    final wasVideoTabSelected = _appTabWasVideoSelected;
+    final visible = _isAppTabVisible;
+    final wasVisible = _appTabWasVisible;
+    _appTabWasVideoSelected = videoTabSelected;
+    _appTabWasVisible = visible;
+    if (wasVideoTabSelected == true && !videoTabSelected) {
+      _stopTemporaryRate();
+      unawaited(_pauseAndSave(force: true));
+    } else if (wasVisible == true && !visible) {
+      _stopTemporaryRate();
+      unawaited(_pauseAndSave());
+    }
+  }
+
+  bool get _isVideoTabSelected {
+    final navigation = AppNavigationScope.maybeOf(context);
+    return navigation == null || navigation.selectedIndex == appVideoTabIndex;
   }
 
   Future<void> _invoke(Future<void> Function() action) async {
@@ -1180,7 +1220,8 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
       snapshot.error == null &&
       _error == null &&
       _temporaryRate == null &&
-      _seekPreview == null;
+      _seekPreview == null &&
+      _pendingSeekPosition == null;
 
   void _scheduleControlsHide() {
     _controlsTimer?.cancel();
@@ -1236,6 +1277,9 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         .toInt(),
   );
 
+  Duration _effectivePosition(VideoPlaybackSnapshot snapshot) =>
+      _seekPreview ?? _pendingSeekPosition ?? snapshot.position;
+
   void _startSurfaceSeek() {
     _previewSeek(_dragStartPosition);
   }
@@ -1279,13 +1323,38 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   void _finishSeek([Duration? position]) {
     final target = position ?? _seekPreview;
     if (target == null) return;
-    final clamped = _clampPosition(target, _session.snapshot.value.duration);
+    final snapshot = _session.snapshot.value;
+    final clamped = _clampPosition(target, snapshot.duration);
+    _seekPreviewClearTimer?.cancel();
     _updatePlayerState(() {
       _seekPreview = null;
+      _pendingSeekPosition = clamped;
+      _pendingSeekBasePosition = snapshot.position;
       _dragStartX = null;
       _dragStartPosition = null;
     });
-    unawaited(_invoke(() => _session.seek(clamped)));
+    // Seek completion acknowledges the command before position feedback arrives.
+    // shortcut: preview expires after 3s; use seek-end feedback if slow seeks need longer.
+    final clearTimer = Timer(const Duration(seconds: 3), _clearPendingSeek);
+    _seekPreviewClearTimer = clearTimer;
+    unawaited(
+      _invoke(() async {
+        try {
+          await _session.seek(clamped);
+        } catch (_) {
+          if (_seekPreviewClearTimer == clearTimer) _clearPendingSeek();
+          rethrow;
+        }
+      }),
+    );
+    _scheduleControlsHide();
+  }
+
+  void _clearPendingSeek() {
+    _seekPreviewClearTimer?.cancel();
+    _seekPreviewClearTimer = null;
+    if (_pendingSeekPosition == null) return;
+    _updatePlayerState(() => _pendingSeekPosition = null);
     _scheduleControlsHide();
   }
 
@@ -1307,20 +1376,21 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     }
     final x = _doubleTapX;
     final snapshot = _session.snapshot.value;
+    final currentPosition = _effectivePosition(snapshot);
     if (x == null || width <= 0) {
       _togglePlayback();
       return;
     }
     if (x < width / 3) {
       final target = _clampPosition(
-        snapshot.position - Duration(seconds: _settings.doubleTapSeekSeconds),
+        currentPosition - Duration(seconds: _settings.doubleTapSeekSeconds),
         snapshot.duration,
       );
       _showGestureValue('−${_settings.doubleTapSeekSeconds}s');
       _finishSeek(target);
     } else if (x > width * 2 / 3) {
       final target = _clampPosition(
-        snapshot.position + Duration(seconds: _settings.doubleTapSeekSeconds),
+        currentPosition + Duration(seconds: _settings.doubleTapSeekSeconds),
         snapshot.duration,
       );
       _showGestureValue('+${_settings.doubleTapSeekSeconds}s');
@@ -1621,7 +1691,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     if (snapshot.duration <= Duration.zero) return;
     _finishSeek(
       _clampPosition(
-        snapshot.position + Duration(seconds: seconds),
+        _effectivePosition(snapshot) + Duration(seconds: seconds),
         snapshot.duration,
       ),
     );
@@ -1833,6 +1903,16 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   void _onSnapshotChanged() {
     if (_disposed || !mounted) return;
     final snapshot = _session.snapshot.value;
+    final pendingSeek = _pendingSeekPosition;
+    final positionConfirmed =
+        pendingSeek != null &&
+        (snapshot.position - pendingSeek).abs() <= const Duration(seconds: 1) &&
+        (pendingSeek >= _pendingSeekBasePosition
+            ? snapshot.position >= pendingSeek
+            : snapshot.position < _pendingSeekBasePosition);
+    if (pendingSeek != null && (snapshot.error != null || positionConfirmed)) {
+      _clearPendingSeek();
+    }
     if (snapshot.playing != _lastPlaying) {
       _lastPlaying = snapshot.playing;
       if (_platformReady) {
@@ -1944,9 +2024,9 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     }
   }
 
-  Future<void> _pauseAndSave() async {
-    if (_platform.pictureInPicture.value ||
-        _enteringPictureInPicture ||
+  Future<void> _pauseAndSave({bool force = false}) async {
+    if ((!force &&
+            (_platform.pictureInPicture.value || _enteringPictureInPicture)) ||
         (_appSuspended && _settings.backgroundPlayback)) {
       await _savePosition();
       return;
@@ -2389,7 +2469,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                           _dragStartX = event.localPosition.dx;
                           _dragStartPosition = snapshot.duration > Duration.zero
                               ? _clampPosition(
-                                  snapshot.position,
+                                  _effectivePosition(snapshot),
                                   snapshot.duration,
                                 )
                               : null;
@@ -3384,7 +3464,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     required VideoPlaybackSnapshot snapshot,
   }) {
     final durationMs = snapshot.duration.inMilliseconds;
-    final currentPosition = _seekPreview ?? snapshot.position;
+    final currentPosition = _effectivePosition(snapshot);
     final position = _clampPosition(currentPosition, snapshot.duration);
     final positionMs = position.inMilliseconds.toDouble();
     final s = S.of(context);
@@ -3721,6 +3801,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     _loadGeneration++;
     _saveTimer?.cancel();
     _controlsTimer?.cancel();
+    _seekPreviewClearTimer?.cancel();
     _fullscreenStatusTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _route?.secondaryAnimation?.removeListener(_onRouteTransition);

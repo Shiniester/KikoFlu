@@ -79,34 +79,58 @@ class _MainScreenState extends ConsumerState<MainScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => PageStorage(
-    bucket: _bucket,
-    child: TabPageWarmup(
-      key: _pagesKey,
-      pages: _pages,
-      target: _selection,
-      builder: (cacheExtent) => PageView(
-        key: const ValueKey('main-tab-pages'),
-        controller: _pages,
-        physics: const NeverScrollableScrollPhysics(),
-        allowImplicitScrolling: cacheExtent > 0,
-        scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
-        children: [
-          for (var i = 0; i < _screens.length; i++)
-            LazyTabPage(
-              key: ValueKey(i),
-              index: i,
-              target: _selection,
-              pages: _pages,
-              child: ValueListenableBuilder<int?>(
-                valueListenable: _selection,
-                child: _screens[i],
-                builder: (context, index, child) =>
-                    HeroMode(enabled: index == i, child: child!),
+  Widget build(BuildContext context) {
+    final navigation = _navigation!;
+    return PageStorage(
+      bucket: _bucket,
+      child: TabPageWarmup(
+        key: _pagesKey,
+        pages: _pages,
+        target: _selection,
+        builder: (cacheExtent) => PageView(
+          key: const ValueKey('main-tab-pages'),
+          controller: _pages,
+          physics: const NeverScrollableScrollPhysics(),
+          allowImplicitScrolling: cacheExtent > 0,
+          scrollCacheExtent: ScrollCacheExtent.viewport(cacheExtent),
+          children: [
+            for (var i = 0; i < _screens.length; i++)
+              LazyTabPage(
+                key: ValueKey(i),
+                index: i,
+                target: _selection,
+                pages: _pages,
+                child: ValueListenableBuilder<int?>(
+                  valueListenable: _selection,
+                  child: _screens[i],
+                  builder: (context, index, child) => HeroMode(
+                    enabled: index == i,
+                    child: NavigatorPopHandler<void>(
+                      enabled: navigation.selectedIndex == i,
+                      onPopWithResult: (_) {
+                        if (navigation.selectedIndex == i) {
+                          navigation.tabNavigator(i)?.maybePop<void>();
+                        }
+                      },
+                      child: ExcludeFocus(
+                        excluding: index != i,
+                        child: Navigator(
+                          key: navigation.tabNavigatorKey(i),
+                          observers: [navigation.tabObserver(i)],
+                          onGenerateRoute: (settings) =>
+                              MaterialPageRoute<void>(
+                                settings: settings,
+                                builder: (_) => child!,
+                              ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }

@@ -181,6 +181,7 @@ class _OfflineWorkDetailScreenState
       if (!mounted) return;
       showDialog(
         context: context,
+        useRootNavigator: false,
         barrierDismissible: false,
         builder: (context) => PopScope(
           canPop: false,
@@ -512,7 +513,7 @@ class _OfflineWorkDetailScreenState
           showAgeRating: displaySettings.showAgeRating,
           age: work.age,
           onTap: () {
-            Navigator.of(context).push(
+            AppNavigationScope.navigatorOf(context).push(
               MaterialPageRoute(
                 settings: appImmersiveRouteSettings,
                 builder: (context) => WorkImageReader(

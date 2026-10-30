@@ -142,7 +142,7 @@ class PreferencesScreen extends ConsumerWidget {
                         final navigator = Navigator.of(configContext);
                         navigator.pop();
                         navigator.pop();
-                        await navigator.push(
+                        await Navigator.of(pageContext).push(
                           MaterialPageRoute(
                             builder: (context) => const LLMSettingsScreen(),
                           ),

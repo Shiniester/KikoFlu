@@ -14,10 +14,13 @@ import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
 import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
 import 'package:kikoeru_flutter/src/screens/offline_work_detail_screen.dart';
+import 'package:kikoeru_flutter/src/screens/main_screen.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart';
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
 import 'package:kikoeru_flutter/src/utils/theme.dart';
 import 'package:kikoeru_flutter/src/widgets/offline_file_explorer_widget.dart';
+import 'package:kikoeru_flutter/src/widgets/app_navigation_scope.dart';
+import 'package:kikoeru_flutter/src/widgets/app_navigation_shell.dart';
 
 class _NoImageCache extends Fake implements BaseCacheManager {
   @override
@@ -303,5 +306,150 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
+  });
+
+  testWidgets('offline progress dialogs close on the Audio tab navigator', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final directory = Directory.systemTemp.createTempSync(
+      'offline-tab-progress-',
+    );
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final explorerDirectory = Directory('${directory.path}/explorer')
+      ..createSync();
+    File('${explorerDirectory.path}/track.mp3').writeAsBytesSync(const []);
+    SharedPreferences.setMockInitialValues({
+      'custom_download_path': directory.path,
+    });
+    await StorageService.initCritical(
+      preferences: await SharedPreferences.getInstance(),
+    );
+    final container = ProviderContainer(
+      overrides: [
+        authProvider.overrideWith((ref) => _Auth()),
+        currentTrackProvider.overrideWith((ref) => Stream.value(null)),
+      ],
+    );
+    addTearDown(container.dispose);
+    final navigation = AppNavigationController();
+    addTearDown(navigation.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.lightTheme(null),
+          localizationsDelegates: S.localizationsDelegates,
+          supportedLocales: S.supportedLocales,
+          navigatorObservers: [navigation],
+          builder: (context, child) =>
+              AppNavigationShell(controller: navigation, child: child!),
+          home: const MainScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    navigation
+        .tabNavigator(0)!
+        .push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => OfflineWorkDetailScreen(
+              work: const Work(id: 803, title: 'Missing export'),
+              localWorkDirPath: '${directory.path}/missing-export',
+              fileTree: const [],
+            ),
+          ),
+        );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    final l10n = S.of(tester.element(find.byType(OfflineWorkDetailScreen)));
+    await tester.tap(find.byTooltip(l10n.exportAsZip));
+    await tester.pump();
+    for (
+      var i = 0;
+      i < 20 && find.byType(AlertDialog).evaluate().isNotEmpty;
+      i++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
+    expect(find.byType(OfflineWorkDetailScreen), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+
+    navigation
+        .tabNavigator(0)!
+        .push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => Scaffold(
+              body: CustomScrollView(
+                slivers: [
+                  OfflineFileExplorerWidget(
+                    work: const Work(id: 804, title: 'Delete file'),
+                    fileTree: const [
+                      {
+                        'type': 'audio',
+                        'title': 'track.mp3',
+                        'localRelativePath': 'track.mp3',
+                        'hash': 'delete-track',
+                      },
+                    ],
+                    localWorkDirPath: explorerDirectory.path,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+    await tester.pump(const Duration(milliseconds: 300));
+    for (var i = 0; i < 30 && find.text('track.mp3').evaluate().isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
+    final trackPath = '${explorerDirectory.path}/track.mp3';
+    tester
+        .widget<IconButton>(
+          find.ancestor(
+            of: find.byTooltip(l10n.delete),
+            matching: find.byType(IconButton),
+          ),
+        )
+        .onPressed!
+        .call();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text(l10n.delete),
+      ),
+    );
+    await tester.pump();
+    for (var i = 0; i < 30 && File(trackPath).existsSync(); i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
+    expect(File(trackPath).existsSync(), isFalse);
+    final progressDialog = find.byKey(
+      const ValueKey('offline-file-delete-progress'),
+    );
+    for (var i = 0; i < 100 && progressDialog.evaluate().isNotEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
+    expect(find.byType(OfflineFileExplorerWidget), findsOneWidget);
+    expect(progressDialog, findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }

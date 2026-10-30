@@ -168,7 +168,7 @@ void main() {
       final stage = find.byKey(
         const ValueKey('player-route-vertical-translation'),
       );
-      double offset() => tester.widget<Transform>(stage).transform.storage[13];
+      double offset() => tester.getTopLeft(stage).dy;
       final height =
           tester.view.physicalSize.height / tester.view.devicePixelRatio;
       expect(offset(), reduceMotion ? 0 : height);
@@ -249,7 +249,7 @@ void main() {
         for (var frame = 0; frame < 40; frame++) {
           await tester.pump(const Duration(milliseconds: 16));
           if (queue.evaluate().isEmpty || row.evaluate().isEmpty) continue;
-          final routeY = tester.widget<Transform>(route).transform.storage[13];
+          final routeY = tester.getTopLeft(route).dy;
           final queuePages = tester.widget<PageView>(
             find.byKey(const ValueKey('compact-vertical-player-pages')),
           );

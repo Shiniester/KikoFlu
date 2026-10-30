@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
+
+import 'app_navigation_scope.dart';
 
 /// 响应式对话框封装
 /// 横屏时限制最大宽度，避免过宽
@@ -160,6 +163,8 @@ class ResponsiveBottomSheet extends StatelessWidget {
   final VoidCallback? _onClosing;
   final BottomSheetDragStartHandler? _onDragStart;
   final BottomSheetDragEndHandler? _onDragEnd;
+  final GlobalKey? _panelKey;
+  final VoidCallback? _onPanelSizeChanged;
 
   const ResponsiveBottomSheet({
     super.key,
@@ -174,7 +179,9 @@ class ResponsiveBottomSheet extends StatelessWidget {
        _slideAnimation = null,
        _onClosing = null,
        _onDragStart = null,
-       _onDragEnd = null;
+       _onDragEnd = null,
+       _panelKey = null,
+       _onPanelSizeChanged = null;
 
   const ResponsiveBottomSheet._modal({
     required this.child,
@@ -189,6 +196,8 @@ class ResponsiveBottomSheet extends StatelessWidget {
     required this._onClosing,
     required this._onDragStart,
     required this._onDragEnd,
+    required this._panelKey,
+    required this._onPanelSizeChanged,
   });
 
   @override
@@ -242,6 +251,7 @@ class ResponsiveBottomSheet extends StatelessWidget {
             }
 
             final panel = SizedBox(
+              key: _panelKey,
               width: sheetMaxWidth,
               child: BottomSheet(
                 key: const ValueKey('responsive-sheet-surface'),
@@ -267,19 +277,27 @@ class ResponsiveBottomSheet extends StatelessWidget {
               alignment: isLandscape
                   ? Alignment.centerRight
                   : Alignment.bottomCenter,
-              child: _slideAnimation == null
-                  ? panel
-                  : SlideTransition(
-                      position: _slideAnimation.drive(
-                        Tween<Offset>(
-                          begin: isLandscape
-                              ? const Offset(1, 0)
-                              : const Offset(0, 1),
-                          end: Offset.zero,
+              child: NotificationListener<SizeChangedLayoutNotification>(
+                onNotification: (_) {
+                  _onPanelSizeChanged?.call();
+                  return false;
+                },
+                child: SizeChangedLayoutNotifier(
+                  child: _slideAnimation == null
+                      ? panel
+                      : SlideTransition(
+                          position: _slideAnimation.drive(
+                            Tween<Offset>(
+                              begin: isLandscape
+                                  ? const Offset(1, 0)
+                                  : const Offset(0, 1),
+                              end: Offset.zero,
+                            ),
+                          ),
+                          child: panel,
                         ),
-                      ),
-                      child: panel,
-                    ),
+                ),
+              ),
             );
           },
         ),
@@ -458,24 +476,29 @@ Future<T?> showResponsiveBottomSheet<T>({
     to: navigator.context,
   );
 
-  return navigator.push<T>(
-    _ResponsiveBottomSheetRoute<T>(
-      builder: builder,
-      capturedThemes: capturedThemes,
-      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
-      maxWidth: maxWidth,
-      maxHeight: maxHeight,
-      maxHeightListenable: maxHeightListenable,
-      isScrollControlled: isScrollControlled,
-      isDismissible: isDismissible,
-      enableDrag: enableDrag,
-      disableAnimations: MediaQuery.disableAnimationsOf(context),
-    ),
+  final route = ResponsiveBottomSheetRoute<T>(
+    builder: builder,
+    capturedThemes: capturedThemes,
+    barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+    maxWidth: maxWidth,
+    maxHeight: maxHeight,
+    maxHeightListenable: maxHeightListenable,
+    isScrollControlled: isScrollControlled,
+    isDismissible: isDismissible,
+    enableDrag: enableDrag,
+    disableAnimations: MediaQuery.disableAnimationsOf(context),
   );
+  final shell = AppNavigationScope.maybeOf(context);
+  final result = navigator.push<T>(route);
+  if (shell != null) {
+    shell.registerSheet(route, navigator, route.coveredByPage);
+    unawaited(route.completed.then((_) => shell.unregisterSheet(route)));
+  }
+  return result;
 }
 
-class _ResponsiveBottomSheetRoute<T> extends PopupRoute<T> {
-  _ResponsiveBottomSheetRoute({
+class ResponsiveBottomSheetRoute<T> extends PopupRoute<T> {
+  ResponsiveBottomSheetRoute({
     required this.builder,
     required this.capturedThemes,
     required this.barrierLabel,
@@ -501,6 +524,24 @@ class _ResponsiveBottomSheetRoute<T> extends PopupRoute<T> {
   CurvedAnimation? _curvedAnimation;
   CurvedAnimation? _dragCurvedAnimation;
   ProxyAnimation? _sheetAnimation;
+  ShapeBorderClipper _panelClipper = const ShapeBorderClipper(
+    shape: RoundedRectangleBorder(),
+  );
+  final _panelKey = GlobalKey();
+  final _panelSizeChanges = ValueNotifier(0);
+  final coveredByPage = ValueNotifier(false);
+
+  Listenable get panelSizeChanges => _panelSizeChanges;
+
+  Path? get panelPath {
+    final context = _panelKey.currentContext;
+    if (context is! RenderObjectElement || !context.mounted) return null;
+    final panel = context.renderObject;
+    if (panel is! RenderBox || !panel.attached || !panel.hasSize) return null;
+    return _panelClipper
+        .getClip(panel.size)
+        .transform(panel.getTransformTo(null).storage);
+  }
 
   @override
   final String barrierLabel;
@@ -510,6 +551,18 @@ class _ResponsiveBottomSheetRoute<T> extends PopupRoute<T> {
 
   @override
   bool get barrierDismissible => isDismissible;
+
+  @override
+  void didChangeNext(Route<dynamic>? nextRoute) {
+    super.didChangeNext(nextRoute);
+    coveredByPage.value = nextRoute is PageRoute<dynamic>;
+  }
+
+  @override
+  void didPopNext(Route<dynamic> nextRoute) {
+    super.didPopNext(nextRoute);
+    if (nextRoute is PageRoute<dynamic>) coveredByPage.value = false;
+  }
 
   @override
   Duration get transitionDuration =>
@@ -537,29 +590,59 @@ class _ResponsiveBottomSheetRoute<T> extends PopupRoute<T> {
     Animation<double> secondaryAnimation,
   ) {
     final sheetAnimation = _getSheetAnimation(animation);
+    final mediaQuery = MediaQuery.of(context);
+    final shellMediaQuery = context
+        .dependOnInheritedWidgetOfExactType<AppNavigationScope>()
+        ?.mediaQuery;
     return capturedThemes.wrap(
       Semantics(
         scopesRoute: true,
         namesRoute: true,
         label: MaterialLocalizations.of(context).dialogLabel,
         explicitChildNodes: true,
-        child: ResponsiveBottomSheet._modal(
-          animationController: controller!,
-          slideAnimation: sheetAnimation,
-          onClosing: () {
-            if (isCurrent) {
-              navigator?.pop<T>();
-            }
-          },
-          onDragStart: _handleDragStart,
-          onDragEnd: _handleDragEnd,
-          isScrollControlled: isScrollControlled,
-          enableDrag: enableDrag,
-          disableAnimations: disableAnimations,
-          maxWidth: maxWidth,
-          maxHeight: maxHeight,
-          maxHeightListenable: maxHeightListenable,
-          child: Builder(builder: builder),
+        child: MediaQuery(
+          data:
+              shellMediaQuery == null ||
+                  mediaQuery.orientation == Orientation.landscape
+              ? mediaQuery
+              : mediaQuery.copyWith(
+                  padding: mediaQuery.padding.copyWith(
+                    bottom: shellMediaQuery.padding.bottom,
+                  ),
+                  viewPadding: mediaQuery.viewPadding.copyWith(
+                    bottom: shellMediaQuery.viewPadding.bottom,
+                  ),
+                ),
+          child: ResponsiveBottomSheet._modal(
+            animationController: controller!,
+            slideAnimation: sheetAnimation,
+            onClosing: () {
+              if (isCurrent) {
+                navigator?.pop<T>();
+              }
+            },
+            onDragStart: _handleDragStart,
+            onDragEnd: _handleDragEnd,
+            panelKey: _panelKey,
+            onPanelSizeChanged: () => _panelSizeChanges.value++,
+            isScrollControlled: isScrollControlled,
+            enableDrag: enableDrag,
+            disableAnimations: disableAnimations,
+            maxWidth: maxWidth,
+            maxHeight: maxHeight,
+            maxHeightListenable: maxHeightListenable,
+            child: Builder(
+              builder: (context) {
+                final material = context
+                    .findAncestorWidgetOfExactType<Material>()!;
+                _panelClipper = ShapeBorderClipper(
+                  shape: material.shape ?? const RoundedRectangleBorder(),
+                  textDirection: Directionality.of(context),
+                );
+                return builder(context);
+              },
+            ),
+          ),
         ),
       ),
     );
@@ -613,6 +696,8 @@ class _ResponsiveBottomSheetRoute<T> extends PopupRoute<T> {
 
   @override
   void dispose() {
+    coveredByPage.dispose();
+    _panelSizeChanges.dispose();
     _sheetAnimation?.parent = null;
     _dragCurvedAnimation?.dispose();
     _curvedAnimation?.dispose();

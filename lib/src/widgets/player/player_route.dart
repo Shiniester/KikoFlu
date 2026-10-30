@@ -449,29 +449,23 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
       child: child,
       builder: (context, mode, child) => HeroMode(
         enabled: !reduceMotion && mode == PlayerDismissVisualMode.main,
-        child: _buildVerticalSlide(context, routeAnimation, child!),
+        child: _buildVerticalSlide(routeAnimation, child!),
       ),
     );
   }
 
-  Widget _buildVerticalSlide(
-    BuildContext context,
-    Animation<double> animation,
-    Widget child,
-  ) {
+  Widget _buildVerticalSlide(Animation<double> animation, Widget child) {
     return ClipRect(
-      child: AnimatedBuilder(
-        animation: animation,
-        child: RepaintBoundary(child: child),
-        builder: (context, child) {
-          final height = MediaQuery.sizeOf(context).height;
-          return Transform.translate(
-            key: const ValueKey('player-route-vertical-translation'),
-            offset: Offset(0, height * (1 - animation.value)),
-            transformHitTests: false,
-            child: child,
-          );
-        },
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 1),
+          end: Offset.zero,
+        ).animate(animation),
+        transformHitTests: false,
+        child: RepaintBoundary(
+          key: const ValueKey('player-route-vertical-translation'),
+          child: child,
+        ),
       ),
     );
   }

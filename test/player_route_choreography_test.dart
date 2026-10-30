@@ -185,11 +185,8 @@ void _expectQueueArtworkAttachedToPage(WidgetTester tester, double progress) {
 }
 
 double _routeTranslation(WidgetTester tester) => tester
-    .widget<Transform>(
-      find.byKey(const ValueKey('player-route-vertical-translation')),
-    )
-    .transform
-    .entry(1, 3);
+    .getTopLeft(find.byKey(const ValueKey('player-route-vertical-translation')))
+    .dy;
 
 class _PlayerPageFixture extends StatelessWidget {
   const _PlayerPageFixture();
