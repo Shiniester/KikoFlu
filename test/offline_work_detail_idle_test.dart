@@ -123,6 +123,12 @@ void main() {
       expect(find.text('Known VA', skipOffstage: false), findsOneWidget);
       expect(find.text('Known tag', skipOffstage: false), findsOneWidget);
       expect(find.text('2026-09-30', skipOffstage: false), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('2026-09-30', skipOffstage: false)).dy,
+        lessThan(
+          tester.getTopLeft(find.text('Known circle', skipOffstage: false)).dy,
+        ),
+      );
       expect(container.read(fileListControllerProvider).workId, isNull);
       expect(
         find.byType(OfflineWorkDetailScreen, skipOffstage: false),

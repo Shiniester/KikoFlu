@@ -1314,8 +1314,10 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   void _previewSeek(Duration? position) {
     if (position == null) return;
     _controlsTimer?.cancel();
+    _gestureOverlayTimer?.cancel();
     _updatePlayerState(() {
       _seekPreview = position;
+      _gestureValueLabel = null;
       _controlsVisible = true;
     });
   }
@@ -2593,6 +2595,10 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                         final hasError =
                             _error != null || snapshot.error != null;
                         final controlsVisible = _controlsVisible;
+                        final seekPreview = _seekPreview;
+                        final gestureLabel = seekPreview == null
+                            ? _gestureValueLabel
+                            : '${_formatTime(seekPreview)} / ${_formatTime(snapshot.duration)}';
                         // Android can briefly report tiny bounds when leaving PiP.
                         if (!pipMode && constraints.maxWidth < 240) {
                           return const SizedBox.shrink();
@@ -2783,8 +2789,9 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                                   ),
                                 ),
                               ),
-                            if (_gestureValueLabel != null)
-                              Center(
+                            if (gestureLabel != null)
+                              Align(
+                                alignment: const Alignment(0, -.25),
                                 child: IgnorePointer(
                                   child: DecoratedBox(
                                     decoration: BoxDecoration(
@@ -2799,7 +2806,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                                         vertical: 12,
                                       ),
                                       child: Text(
-                                        _gestureValueLabel!,
+                                        gestureLabel,
                                         style: const TextStyle(
                                           color: Colors.white,
                                           fontSize: 18,

@@ -5,7 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -3741,6 +3741,155 @@ void main() {
     },
   );
 
+  for (final view in [
+    (width: 400.0, height: 800.0, fullscreen: false),
+    (width: 1200.0, height: 720.0, fullscreen: true),
+  ]) {
+    _testPlayerWidget(
+      'seek feedback follows surface and slider drags (fullscreen=${view.fullscreen})',
+      (tester) async {
+        final session = _FakePlaybackSession();
+        await _pumpStandalonePlayer(
+          tester,
+          session,
+          width: view.width,
+          height: view.height,
+        );
+        if (view.fullscreen) {
+          final l10n = await S.delegate.load(const Locale('en'));
+          await tester.tap(find.byTooltip(l10n.videoFullscreen));
+          await tester.pumpAndSettle();
+        }
+        session.emitSnapshot(position: const Duration(minutes: 1));
+        await tester.pump();
+
+        final surface = find.byKey(const ValueKey('video-gesture-surface'));
+        final rect = tester.getRect(surface);
+        final slider = find.byKey(const ValueKey('video-position-slider'));
+        Finder preview() {
+          final seconds = tester.widget<Slider>(slider).value ~/ 1000;
+          final minutesText = (seconds ~/ 60).toString().padLeft(2, '0');
+          final secondsText = (seconds % 60).toString().padLeft(2, '0');
+          return find.text('$minutesText:$secondsText / 03:00');
+        }
+
+        final drag = await tester.startGesture(
+          Offset(rect.left + rect.width * .4, rect.top + rect.height * .45),
+        );
+        await drag.moveBy(Offset(rect.width * .1, 0));
+        await drag.moveBy(Offset(rect.width * .1, 0));
+        await tester.pump();
+        expect(tester.widget<Slider>(slider).value, greaterThan(60000));
+        expect(preview(), findsOneWidget);
+        final previewCenter = tester.getCenter(preview());
+        expect(previewCenter.dx, closeTo(rect.center.dx, 1));
+        expect(previewCenter.dy, greaterThan(rect.top + rect.height * .3));
+        expect(previewCenter.dy, lessThan(rect.center.dy));
+
+        await tester.pump(const Duration(seconds: 1));
+        expect(preview(), findsOneWidget);
+        await drag.moveBy(Offset(-rect.width * .4, 0));
+        await tester.pump();
+        expect(tester.widget<Slider>(slider).value, lessThan(60000));
+        expect(preview(), findsOneWidget);
+        await drag.cancel();
+        await tester.pump();
+        expect(find.textContaining(' / 03:00'), findsNothing);
+        expect(session.seekCount, 0);
+
+        final sliderRect = tester.getRect(slider);
+        final sliderDrag = await tester.startGesture(
+          Offset(sliderRect.left + sliderRect.width * .4, sliderRect.center.dy),
+        );
+        await sliderDrag.moveBy(Offset(sliderRect.width * .2, 0));
+        await tester.pump();
+        expect(preview(), findsOneWidget);
+        await sliderDrag.cancel();
+        await tester.pump();
+        expect(find.textContaining(' / 03:00'), findsNothing);
+        expect(session.seekCount, 0);
+
+        final committed = await tester.startGesture(
+          Offset(rect.left + rect.width * .4, rect.top + rect.height * .45),
+        );
+        await committed.moveBy(Offset(rect.width * .1, 0));
+        await committed.moveBy(Offset(rect.width * .1, 0));
+        await tester.pump();
+        expect(preview(), findsOneWidget);
+        await committed.up();
+        await tester.pump();
+        expect(find.textContaining(' / 03:00'), findsNothing);
+        expect(session.seekCount, 1);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  _testPlayerWidget('gesture feedback shares one position', (tester) async {
+    final session = _FakePlaybackSession();
+    await _pumpStandalonePlayer(tester, session);
+    session.emitSnapshot(position: const Duration(minutes: 1));
+    await tester.pump();
+    final surface = find.byKey(const ValueKey('video-gesture-surface'));
+    final rect = tester.getRect(surface);
+
+    Future<void> doubleTapAt(double x) async {
+      final point = Offset(
+        rect.left + rect.width * x,
+        rect.top + rect.height * .45,
+      );
+      await tester.tapAt(point);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tapAt(point);
+      await tester.pump();
+    }
+
+    await doubleTapAt(.8);
+    expect(find.text('+10s'), findsOneWidget);
+    final feedbackCenter = tester.getCenter(find.text('+10s'));
+    expect(feedbackCenter.dy, greaterThan(rect.top + rect.height * .3));
+    expect(feedbackCenter.dy, lessThan(rect.center.dy));
+
+    final drag = await tester.startGesture(
+      Offset(rect.center.dx, rect.top + rect.height * .45),
+    );
+    await drag.moveBy(Offset(rect.width * .1, 0));
+    await drag.moveBy(Offset(rect.width * .1, 0));
+    await tester.pump();
+    expect(find.text('+10s'), findsNothing);
+    expect(find.textContaining(' / 03:00'), findsOneWidget);
+    await drag.cancel();
+    await tester.pump();
+    expect(find.text('+10s'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 901));
+    expect(find.text('+10s'), findsNothing);
+    await doubleTapAt(.2);
+    expect(find.text('−10s'), findsOneWidget);
+    expect(tester.getCenter(find.text('−10s')), feedbackCenter);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump();
+    await tester.pump();
+    final l10n = await S.delegate.load(const Locale('en'));
+    final volume = find.textContaining('${l10n.volume}:');
+    expect(volume, findsOneWidget);
+    expect(tester.getCenter(volume), feedbackCenter);
+
+    final brightnessDrag = await tester.startGesture(
+      Offset(rect.left + rect.width * .15, rect.top + rect.height * .45),
+    );
+    await brightnessDrag.moveBy(Offset(0, rect.height * .1));
+    await brightnessDrag.moveBy(Offset(0, rect.height * .1));
+    await tester.pump();
+    final brightness = find.textContaining('${l10n.videoPlayerBrightness}:');
+    expect(brightness, findsOneWidget);
+    expect(tester.getCenter(brightness), feedbackCenter);
+    await brightnessDrag.up();
+    await tester.pump(const Duration(milliseconds: 901));
+    expect(brightness, findsNothing);
+  });
+
   for (final backwards in [false, true]) {
     _testPlayerWidget(
       'slider keeps the dragged position until playback confirms the seek (backwards=$backwards)',
@@ -4746,8 +4895,7 @@ void main() {
       kind: VideoLinkKind.actor,
     );
     final details = VideoDetails(
-      video: _video(),
-      actors: [actor],
+      video: _video(actors: const [actor]),
       streams: _details().streams,
     );
     final client = _TestMissavClient(details)
@@ -4804,8 +4952,7 @@ void main() {
       );
       final client = _TestMissavClient(
         VideoDetails(
-          video: _video(),
-          actors: [actor],
+          video: _video(actors: const [actor]),
           streams: _details().streams,
         ),
         loggedIn: true,
@@ -4908,6 +5055,7 @@ void main() {
         pageUrl: 'https://missav.ai/cn/metadata-video',
         actors: [actor, linklessActor],
         tags: [
+          pageGenre,
           apiGenre,
           shortMakerLink,
           makerLink,
@@ -4924,17 +5072,6 @@ void main() {
       );
       final details = VideoDetails(
         video: video,
-        actors: const [actor, linklessActor],
-        tags: [
-          pageGenre,
-          shortMakerLink,
-          makerLink,
-          labelLink,
-          seriesLink,
-          directorLink,
-          linklessTag,
-          ...extraGenres,
-        ],
         metadata: const {
           'Director': 'Raw director',
           'Maker': 'Linkless maker',
@@ -5212,20 +5349,16 @@ void main() {
       makers: ['Name only maker'],
       labels: ['Name only label'],
       series: ['Name only series'],
+      actors: [
+        VideoLink(label: 'Name only actor', url: '', kind: VideoLinkKind.actor),
+      ],
+      tags: [
+        VideoLink(label: 'Name only tag', url: ' ', kind: VideoLinkKind.tag),
+      ],
     );
     final client = _TestMissavClient(
       const VideoDetails(
         video: video,
-        actors: [
-          VideoLink(
-            label: 'Name only actor',
-            url: '',
-            kind: VideoLinkKind.actor,
-          ),
-        ],
-        tags: [
-          VideoLink(label: 'Name only tag', url: ' ', kind: VideoLinkKind.tag),
-        ],
         metadata: {'Director': 'Name only director', 'Duration': '128 minutes'},
       ),
     );
@@ -5264,12 +5397,6 @@ void main() {
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.reset);
 
-        const video = VideoItem(
-          id: 'layout-video',
-          title:
-              'A complete video title that wraps across several lines on a narrow screen',
-          pageUrl: 'https://missav.ai/cn/layout-video',
-        );
         const actor = VideoLink(
           label: 'Fixture actor',
           url: 'https://missav.ai/cn/actress/fixture',
@@ -5279,6 +5406,14 @@ void main() {
           label: 'Fixture tag',
           url: 'https://missav.ai/cn/genre/fixture',
           kind: VideoLinkKind.tag,
+        );
+        const video = VideoItem(
+          id: 'layout-video',
+          title:
+              'A complete video title that wraps across several lines on a narrow screen',
+          pageUrl: 'https://missav.ai/cn/layout-video',
+          actors: [actor],
+          tags: [tag],
         );
         const related = VideoItem(
           id: 'layout-related',
@@ -5294,8 +5429,6 @@ void main() {
             'Duration': '128 minutes',
           },
           description: description,
-          actors: const [actor],
-          tags: const [tag],
           related: const [related],
           streams: _details().streams,
         );
@@ -5365,32 +5498,46 @@ void main() {
           expect(playerRect.top, closeTo(listRect.top + 4, .1));
         }
 
-        final bodyTitle = find
-            .descendant(
-              of: detailsList,
-              matching: find.text(video.title, findRichText: true),
-            )
-            .last;
-        expect(bodyTitle, findsOneWidget);
-        final titleRect = tester.getRect(bodyTitle);
-        expect(
-          titleRect.top,
-          greaterThanOrEqualTo(
-            isLandscape ? listRect.top + 4 : playerRect.bottom + 16,
-          ),
-        );
-        expect(titleRect.left, closeTo(listRect.left + 16, .1));
-        expect(titleRect.right, closeTo(listRect.right - 16, .1));
         expect(
           find.descendant(
-            of: detailsList,
-            matching: find.text(
-              'Source note: A source note long enough to wrap while preserving the complete metadata value',
-              findRichText: true,
-            ),
+            of: find.byType(AppBar),
+            matching: find.text(video.title),
           ),
           findsOneWidget,
         );
+        final informationTitles = find
+            .descendant(
+              of: detailsList,
+              matching: find.byWidgetPredicate(
+                (widget) =>
+                    widget is RichText &&
+                    widget.text.toPlainText() == video.title,
+              ),
+            )
+            .evaluate()
+            .where(
+              (element) =>
+                  element.findAncestorWidgetOfExactType<VideoPlaybackPanel>() ==
+                  null,
+            );
+        expect(informationTitles, hasLength(1));
+        final titleRender =
+            informationTitles.single.renderObject! as RenderParagraph;
+        expect(titleRender.didExceedMaxLines, isFalse);
+        final titleRect = tester.getRect(
+          find.byWidget(informationTitles.single.widget),
+        );
+        final sourceNote = find.descendant(
+          of: detailsList,
+          matching: find.text(
+            'Source note: A source note long enough to wrap while preserving the complete metadata value',
+            findRichText: true,
+          ),
+        );
+        expect(sourceNote, findsOneWidget);
+        final sourceNoteRect = tester.getRect(sourceNote);
+        expect(sourceNoteRect.top, closeTo(titleRect.bottom + 8, .1));
+        expect(sourceNoteRect.left, closeTo(listRect.left + 16, .1));
         expect(
           find.descendant(
             of: detailsList,
@@ -5882,23 +6029,24 @@ void main() {
     (tester) async {
       final client = _TestMissavClient(
         VideoDetails(
-          video: _video(),
+          video: _video(
+            actors: const [
+              VideoLink(
+                label: 'A performer with a long name',
+                url: 'https://missav.ai/cn/actress/fixture',
+                kind: VideoLinkKind.actor,
+              ),
+            ],
+            tags: const [
+              VideoLink(
+                label: 'A category with a longer name',
+                url: 'https://missav.ai/cn/genre/fixture',
+                kind: VideoLinkKind.category,
+              ),
+            ],
+          ),
           description: 'A fixture description that exercises wrapping.',
           metadata: const {'Studio': 'A studio with a longer name'},
-          actors: const [
-            VideoLink(
-              label: 'A performer with a long name',
-              url: 'https://missav.ai/cn/actress/fixture',
-              kind: VideoLinkKind.actor,
-            ),
-          ],
-          tags: const [
-            VideoLink(
-              label: 'A category with a longer name',
-              url: 'https://missav.ai/cn/genre/fixture',
-              kind: VideoLinkKind.category,
-            ),
-          ],
           related: [
             for (var index = 0; index < 4; index++)
               VideoItem(
@@ -6574,10 +6722,15 @@ Future<VideoLibrary> _testLibrary({double? volume, Duration? position}) async {
   return library;
 }
 
-VideoItem _video() => const VideoItem(
+VideoItem _video({
+  List<VideoLink> actors = const [],
+  List<VideoLink> tags = const [],
+}) => VideoItem(
   id: 'dvd-1',
   title: 'Fixture video',
   pageUrl: 'https://missav.ai/cn/dvd-1',
+  actors: actors,
+  tags: tags,
 );
 
 VideoDetails _details({
@@ -6585,9 +6738,8 @@ VideoDetails _details({
   String description = '',
   List<VideoLink> tags = const [],
 }) => VideoDetails(
-  video: _video(),
+  video: _video(tags: tags),
   description: description,
-  tags: tags,
   streams: const [
     VideoStream(label: 'Auto', url: 'https://cdn.example/video.m3u8'),
     VideoStream(label: '720p', url: 'https://cdn.example/video-720.m3u8'),

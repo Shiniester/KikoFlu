@@ -150,15 +150,35 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
   final KikoeruApiService _apiService;
   final Ref _ref;
   final PagedRequestGate _requestGate = PagedRequestGate();
+  int? _pendingPage;
   final _layoutPreference = PersistentEnumPreference<SearchLayoutType>(
     key: layoutPreferenceKey,
     values: SearchLayoutType.values,
     fallback: SearchLayoutType.bigGrid,
   );
 
-  SearchResultNotifier(this._apiService, this._ref, {int initialPageSize = 20})
-    : super(SearchResultState(basePageSize: initialPageSize)) {
+  SearchResultNotifier(
+    this._apiService,
+    this._ref, {
+    int initialPageSize = 20,
+    SearchResultState? initialState,
+  }) : super(initialState ?? SearchResultState(basePageSize: initialPageSize)) {
     _loadLayoutPreference();
+  }
+
+  int? cancelPendingPage() {
+    final page = _pendingPage;
+    if (page == null) return null;
+    _requestGate.invalidate();
+    _pendingPage = null;
+    state = state.copyWith(
+      isLoading: false,
+      isRefreshing: false,
+      isLoadingMore: false,
+      error: state.error,
+      loadMoreError: state.loadMoreError,
+    );
+    return page;
   }
 
   Future<void> _loadLayoutPreference() async {
@@ -205,6 +225,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
     if (requestToken == null) return;
 
     final page = targetPage ?? state.currentPage;
+    _pendingPage = page;
     state = state.copyWith(
       isLoading: true,
       isRefreshing: !append,
@@ -314,6 +335,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
         loadMoreError: append ? message : null,
       );
     } finally {
+      if (_requestGate.isCurrent(requestToken)) _pendingPage = null;
       _requestGate.complete(requestToken);
     }
   }

@@ -468,6 +468,10 @@ class _OfflineWorkDetailScreenState
                     onCopy: (title) =>
                         _copyToClipboard(title, S.of(context).titleLabel),
                   ),
+                  if (work.release?.isNotEmpty == true) ...[
+                    const SizedBox(height: 8),
+                    WorkReleaseDateSection(release: work.release),
+                  ],
                   const SizedBox(height: 16),
                   WorkCreatorChipsSection(work: work, onCopy: _copyToClipboard),
                   WorkTagChipsSection(
@@ -475,7 +479,6 @@ class _OfflineWorkDetailScreenState
                     onTagLongPress: (tag) =>
                         _copyToClipboard(tag.name, S.of(context).tagLabel),
                   ),
-                  WorkReleaseDateSection(release: work.release),
                 ],
               ),
             ),

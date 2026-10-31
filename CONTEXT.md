@@ -106,6 +106,10 @@ The Video Player's title bar, progress control, and playback actions shown over
 the viewing surface.
 _Avoid_: Video picture, Video Playback Settings
 
+**Video Playback Feedback (视频播放操作提示)**:
+A temporary indication inside the Video Player describing an operation, such as
+seeking or adjusting volume or brightness. It is separate from Video Controls.
+
 **Video Side Bars (视频左右黑边)**:
 The areas to the left and right of the video picture inside the Video Player
 when the picture is narrower than the viewing surface.
@@ -206,6 +210,8 @@ The online or offline screen describing a work and its available resource files.
 It is distinct from the Player Audio Details Page for the current track.
 Opening a Work Details Screen from the full-screen audio player closes the
 full-screen player, shows the Mini Player, and switches to Audio.
+The same applies when opening a Work Details Screen from a search started in the
+player. Returning to the search preserves its filters, page, and scroll position.
 _Avoid_: Player details page, audio details page
 
 **Work Audio Chapter (作品音频章节)**:
@@ -309,6 +315,8 @@ A two-image spread requires choosing one visible image before saving.
 The persistent Mini Player and app navigation shared by browsing pages.
 App navigation stays below the content in portrait and on the left in landscape.
 Full-screen audio playback, comic reading, and full-screen video hide this surface.
+The Bottom Dock stays hidden while the full-screen audio player remains open,
+including when Cover Preview, metadata search, or a lyric text preview is open.
 _Avoid_: Mini Player, App Tab Bar
 
 **Player Cover Page (播放器封面页)**:
@@ -544,6 +552,10 @@ One built-in provider of comic metadata, chapter images and optional account
 features. Comic identity is sourceKey + comicId; chapter identity adds chapterId.
 Credentials, capabilities, and network parsing belong to the source.
 _Avoid_: audio server, custom script
+
+**Comic Tag (漫画标签)**:
+A source-provided classification of a comic. A translated name refers to the
+same Comic Tag; searches use the name supplied by the Comic Source.
 
 **Local Favorite (本地收藏)**:
 A comic saved in the device's comic database, independent of all accounts.

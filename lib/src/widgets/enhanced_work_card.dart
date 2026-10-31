@@ -38,6 +38,7 @@ TextStyle? enhancedWorkCardListTitleStyle(BuildContext context) {
 class EnhancedWorkCard extends ConsumerStatefulWidget {
   final Work work;
   final VoidCallback? onTap;
+  final void Function(WidgetBuilder)? onOpenWorkDetail;
   final int crossAxisCount;
   final bool? isListLayout;
   final String? localCoverPath;
@@ -46,6 +47,7 @@ class EnhancedWorkCard extends ConsumerStatefulWidget {
     super.key,
     required this.work,
     this.onTap,
+    this.onOpenWorkDetail,
     this.crossAxisCount = 2,
     this.isListLayout,
     this.localCoverPath,
@@ -160,13 +162,15 @@ class _EnhancedWorkCardState extends ConsumerState<EnhancedWorkCard> {
     final cardOnTap =
         widget.onTap ??
         () {
-          pushWorkDetailRoute(
-            context,
-            builder: (context) => WorkDetailScreen(
-              work: widget.work,
-              initialCoverImageProvider: initialCoverImageProvider,
-            ),
+          Widget builder(BuildContext context) => WorkDetailScreen(
+            work: widget.work,
+            initialCoverImageProvider: initialCoverImageProvider,
           );
+          if (widget.onOpenWorkDetail case final open?) {
+            open(builder);
+          } else {
+            pushWorkDetailRoute(context, builder: builder);
+          }
         };
 
     final isLandscape =

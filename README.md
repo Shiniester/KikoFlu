@@ -135,6 +135,9 @@ flutter pub get
 
 [GPL-3.0 License](LICENSE)
 
+ExHentai 中文标签使用 [EhTagTranslation 译文数据库](https://github.com/EhTagTranslation/Database)。
+数据库文本通常采用 [CC BY-NC-SA 3.0 中国大陆](https://github.com/EhTagTranslation/Database/blob/master/LICENSE.md)许可，个别内容可能另有声明。
+
 ## 联系方式
 
 - **问题反馈**：[Issues](https://github.com/pa-jesusf/KikoFlu/issues)

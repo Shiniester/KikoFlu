@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/work.dart';
+import 'package:kikoeru_flutter/src/widgets/work_detail/work_extra_sections.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_stats_section.dart';
 
 Widget _testApp(Widget child) {
@@ -29,6 +30,7 @@ const _work = Work(
   price: 770,
   duration: 65,
   dlCount: 12345,
+  release: '2024-01-02T15:30:00Z',
 );
 
 void main() {
@@ -54,6 +56,9 @@ void main() {
     expect(find.textContaining('770'), findsOneWidget);
     expect(find.text('01:05'), findsOneWidget);
     expect(find.textContaining('1.2k'), findsOneWidget);
+    expect(find.text('2024-01-02'), findsOneWidget);
+    expect(find.text('Release Date'), findsOneWidget);
+    expect(find.byTooltip('Release Date'), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.info_outline));
     await tester.tap(find.byIcon(Icons.person));
@@ -72,6 +77,7 @@ void main() {
           showPrice: false,
           showDuration: false,
           showSales: false,
+          showReleaseDate: false,
         ),
       ),
     );
@@ -80,6 +86,44 @@ void main() {
     expect(find.byIcon(Icons.access_time), findsNothing);
     expect(find.textContaining('770'), findsNothing);
     expect(find.textContaining('1.2k'), findsNothing);
+    expect(find.text('2024-01-02'), findsNothing);
+  });
+
+  testWidgets('release date stays visible as statistics wrap', (tester) async {
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    for (final width in [320.0, 1000.0]) {
+      await tester.binding.setSurfaceSize(Size(width, 600));
+      await tester.pumpWidget(_testApp(const WorkStatsSection(work: _work)));
+
+      final date = find.text('2024-01-02');
+      expect(date, findsOneWidget);
+      expect(find.text('4.5'), findsOneWidget);
+      expect(tester.getRect(date).right, lessThanOrEqualTo(width - 16));
+      final ratingCenter = tester.getCenter(find.byIcon(Icons.star)).dy;
+      final dateCenter = tester
+          .getCenter(find.byType(WorkReleaseDateSection))
+          .dy;
+      if (width == 1000) {
+        expect(dateCenter, closeTo(ratingCenter, 1));
+      } else {
+        expect(dateCenter, greaterThan(ratingCenter));
+      }
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets('release date is shown without other statistics', (tester) async {
+    await tester.pumpWidget(
+      _testApp(
+        const WorkStatsSection(
+          work: Work(id: 3, title: 'Date only', release: '2024-01-02'),
+          showRating: false,
+        ),
+      ),
+    );
+
+    expect(find.text('2024-01-02'), findsOneWidget);
+    expect(find.byIcon(Icons.star), findsNothing);
   });
 
   testWidgets('rating without details is not tappable', (tester) async {

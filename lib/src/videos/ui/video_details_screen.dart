@@ -194,8 +194,6 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
           _downloadedTask = task;
           _details = VideoDetails(
             video: task!.video,
-            actors: task.video.actors,
-            tags: task.video.tags,
             metadata: {
               if (task.video.releaseDate != null)
                 S.of(context).releaseDateInfo: task.video.releaseDate!,
@@ -486,7 +484,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
     final makers = <VideoLink>[];
     final labels = <VideoLink>[];
     final series = <VideoLink>[];
-    for (final link in [...details.tags, ...details.video.tags]) {
+    for (final link in details.video.tags) {
       switch (link.cardMetadataRoute) {
         case 'makers':
           makers.add(link);
@@ -524,7 +522,7 @@ class _VideoDetailsScreenState extends ConsumerState<VideoDetailsScreen>
       _VideoMetadataSection(
         s.videoDetailActors,
         _VideoMetadataTone.tertiary,
-        entries([...details.actors, ...details.video.actors]),
+        entries(details.video.actors),
         isActors: true,
       ),
       _VideoMetadataSection(

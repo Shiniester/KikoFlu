@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,18 +10,29 @@ import 'package:just_audio/just_audio.dart';
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
 import 'package:kikoeru_flutter/src/models/audio_track.dart';
 import 'package:kikoeru_flutter/src/models/lyric.dart';
+import 'package:kikoeru_flutter/src/models/work.dart';
 import 'package:kikoeru_flutter/src/providers/audio_provider.dart';
+import 'package:kikoeru_flutter/src/providers/auth_provider.dart';
 import 'package:kikoeru_flutter/src/providers/lyric_provider.dart';
+import 'package:kikoeru_flutter/src/providers/search_result_provider.dart';
 import 'package:kikoeru_flutter/src/providers/update_provider.dart';
 import 'package:kikoeru_flutter/src/services/audio_player_service.dart';
+import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
+    hide kikoeruApiServiceProvider;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
+import 'package:kikoeru_flutter/src/screens/search_result_screen.dart';
+import 'package:kikoeru_flutter/src/screens/work_detail_screen.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
 import 'package:kikoeru_flutter/src/widgets/app_navigation_scope.dart';
 import 'package:kikoeru_flutter/src/widgets/app_navigation_shell.dart';
+import 'package:kikoeru_flutter/src/widgets/cover_preview_dialog.dart';
+import 'package:kikoeru_flutter/src/widgets/enhanced_work_card.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_lyrics_surface.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/responsive_dialog.dart';
+import 'package:kikoeru_flutter/src/widgets/tag_chip.dart';
+import 'package:kikoeru_flutter/src/widgets/works_grid_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _track = AudioTrack(
@@ -29,11 +41,68 @@ const _track = AudioTrack(
   url: 'https://example.invalid/audio.mp3',
 );
 
+class _EmptyTagSearchApi extends KikoeruApiService {
+  _EmptyTagSearchApi({this.withResults = false});
+
+  final bool withResults;
+  int searchCalls = 0;
+  Completer<void>? nextPageGate;
+  CancelToken? blockedToken;
+
+  @override
+  Future<Map<String, dynamic>> getWorksByTag({
+    required int tagId,
+    int page = 1,
+    int pageSize = 40,
+    String? order,
+    String? sort,
+    int? subtitle,
+    int? seed,
+    CancelToken? cancelToken,
+  }) async {
+    searchCalls++;
+    final gate = nextPageGate;
+    if (page == 2 && gate != null) {
+      nextPageGate = null;
+      blockedToken = cancelToken;
+      await gate.future;
+    }
+    return {
+      'works': withResults
+          ? List.generate(
+              30,
+              (index) => {
+                'id': page * 100 + index,
+                'title': 'Match $page-$index',
+              },
+            )
+          : <dynamic>[],
+      'pagination': {'totalCount': withResults ? 60 : 0},
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> getWork(
+    int id, {
+    bool forceRefresh = false,
+    CancelToken? cancelToken,
+  }) async => {'id': id, 'title': 'Match $id'};
+
+  @override
+  Future<List<dynamic>> getWorkTracks(
+    int id, {
+    bool forceRefresh = false,
+  }) async => [];
+}
+
 Future<AppNavigationController> _pumpShell(
   WidgetTester tester, {
   Size size = const Size(390, 844),
   bool reducedMotion = false,
   bool withTrack = true,
+  bool fakeTagSearch = false,
+  bool tagSearchResults = false,
+  int initialTabIndex = 0,
   ThemeData? theme,
   FakeViewPadding safePadding = FakeViewPadding.zero,
   Widget Function(AppNavigationController)? homeBuilder,
@@ -44,10 +113,15 @@ Future<AppNavigationController> _pumpShell(
   tester.view.viewPadding = safePadding;
   addTearDown(tester.view.reset);
   final navigation = AppNavigationController();
+  navigation.selectTab(initialTabIndex);
   addTearDown(navigation.dispose);
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        if (fakeTagSearch)
+          kikoeruApiServiceProvider.overrideWith(
+            (ref) => _EmptyTagSearchApi(withResults: tagSearchResults),
+          ),
         currentTrackProvider.overrideWith(
           (ref) => Stream.value(withTrack ? _track : null),
         ),
@@ -114,6 +188,7 @@ AudioPlayerPageRoute<void> _openPlayer(
   AppNavigationController navigation, {
   bool lyrics = false,
   bool handoff = false,
+  Widget? child,
 }) {
   final route = AudioPlayerPageRoute<void>(
     skipInitialTransition: handoff,
@@ -125,7 +200,10 @@ AudioPlayerPageRoute<void> _openPlayer(
               onFullscreen: () {},
               translateButton: const Icon(Icons.translate),
             )
-          : const SizedBox.expand(key: ValueKey('player-viewport')),
+          : SizedBox.expand(
+              key: const ValueKey('player-viewport'),
+              child: child,
+            ),
     ),
   );
   unawaited(navigation.navigator!.push(route));
@@ -1026,6 +1104,260 @@ void main() {
     expect(tester.getTopLeft(dock).dy, greaterThan(dockTop));
     await tester.pumpAndSettle();
     expect(tester.getTopLeft(dock).dy, closeTo(dockTop, 0.01));
+  });
+
+  for (final size in [const Size(390, 844), const Size(1280, 720)]) {
+    for (final page in ['cover preview', 'tag search', 'lyric preview']) {
+      testWidgets('player keeps its viewport under $page at $size', (
+        tester,
+      ) async {
+        final navigation = await _pumpShell(
+          tester,
+          size: size,
+          fakeTagSearch: page == 'tag search',
+        );
+        _openPlayer(
+          navigation,
+          child: page == 'tag search'
+              ? const Center(
+                  child: TagChip(tag: Tag(id: 999999, name: 'Test tag')),
+                )
+              : null,
+        );
+        await tester.pumpAndSettle();
+        final player = find.byKey(
+          const ValueKey('player-viewport'),
+          skipOffstage: false,
+        );
+        final playerContext = tester.element(player);
+        if (page == 'cover preview') {
+          unawaited(
+            CoverPreviewDialog.show(playerContext, localPath: 'missing.jpg'),
+          );
+        } else if (page == 'tag search') {
+          await tester.tap(find.text('Test tag'));
+        } else {
+          unawaited(
+            Navigator.of(playerContext).push<void>(
+              MaterialPageRoute<void>(
+                builder: (_) => const Scaffold(body: Text('Lyric preview')),
+              ),
+            ),
+          );
+        }
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 80));
+        expect(navigation.navigationVisible, isFalse);
+        expect(tester.getSize(player), size);
+        await tester.pumpAndSettle();
+        expect(
+          page == 'cover preview'
+              ? find.byType(CoverPreviewDialog)
+              : page == 'tag search'
+              ? find.byType(SearchResultScreen)
+              : find.text('Lyric preview'),
+          findsOneWidget,
+        );
+        if (page == 'tag search') {
+          expect(
+            tester
+                .widget<SearchResultScreen>(find.byType(SearchResultScreen))
+                .searchParams?['tagId'],
+            999999,
+          );
+        }
+        expect(find.byType(AppBottomDock), findsNothing);
+        expect(find.byType(NavigationRail), findsNothing);
+        expect(tester.getSize(player), size);
+
+        navigation.navigator!.pop();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 80));
+        expect(navigation.navigationVisible, isFalse);
+        expect(tester.getSize(player), size);
+        await tester.pumpAndSettle();
+        expect(navigation.navigationVisible, isFalse);
+        expect(tester.getSize(player), size);
+        navigation.navigator!.pop();
+        await tester.pumpAndSettle();
+        expect(navigation.navigationVisible, isTrue);
+        expect(
+          size.width > size.height
+              ? find.byType(NavigationRail)
+              : find.byType(AppBottomDock),
+          findsOneWidget,
+        );
+      });
+    }
+  }
+
+  testWidgets('rapid back keeps the Dock hidden until the player closes', (
+    tester,
+  ) async {
+    final navigation = await _pumpShell(tester);
+    _openPlayer(navigation);
+    await tester.pumpAndSettle();
+    final player = find.byKey(const ValueKey('player-viewport'));
+    unawaited(
+      CoverPreviewDialog.show(tester.element(player), localPath: 'missing.jpg'),
+    );
+    await tester.pumpAndSettle();
+
+    navigation.navigator!.pop();
+    await tester.pump();
+    navigation.navigator!.pop();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(navigation.navigationVisible, isFalse);
+    expect(find.byType(AppBottomDock), findsNothing);
+    expect(tester.getSize(player), const Size(390, 844));
+
+    await tester.pumpAndSettle();
+    expect(navigation.navigationVisible, isTrue);
+    expect(find.byType(AppBottomDock), findsOneWidget);
+  });
+
+  for (final pending in [false, true]) {
+    testWidgets('player search preserves results (pending=$pending)', (
+      tester,
+    ) async {
+      var audioVisited = false;
+      final navigation = await _pumpShell(
+        tester,
+        fakeTagSearch: true,
+        tagSearchResults: true,
+        initialTabIndex: 2,
+        homeBuilder: (navigation) => ListenableBuilder(
+          listenable: navigation,
+          builder: (_, __) {
+            audioVisited |= navigation.selectedIndex == appAudioTabIndex;
+            return IndexedStack(
+              index: navigation.selectedIndex,
+              children: [
+                for (var index = 0; index < appTabCount; index++)
+                  if (index == appAudioTabIndex && !audioVisited)
+                    const SizedBox.shrink()
+                  else
+                    Navigator(
+                      key: navigation.tabNavigatorKey(index),
+                      observers: [navigation.tabObserver(index)],
+                      onGenerateRoute: (_) => MaterialPageRoute<void>(
+                        builder: (_) => Scaffold(body: Text('Tab $index')),
+                      ),
+                    ),
+              ],
+            );
+          },
+        ),
+      );
+      expect(navigation.tabNavigator(appAudioTabIndex), isNull);
+      _openPlayer(
+        navigation,
+        child: const Center(
+          child: TagChip(tag: Tag(id: 999999, name: 'Test tag')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Test tag'));
+      await tester.pumpAndSettle();
+
+      var grid = tester.widget<WorksGridView>(find.byType(WorksGridView));
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(WorksGridView)),
+      );
+      final api =
+          container.read(kikoeruApiServiceProvider) as _EmptyTagSearchApi;
+      final gate = Completer<void>();
+      addTearDown(() {
+        if (!gate.isCompleted) gate.complete();
+      });
+      if (pending) {
+        api.nextPageGate = gate;
+        unawaited(container.read(searchResultProvider.notifier).goToPage(2));
+        await tester.pump();
+      } else {
+        await container.read(searchResultProvider.notifier).goToPage(2);
+        await tester.pumpAndSettle();
+      }
+      grid = tester.widget<WorksGridView>(find.byType(WorksGridView));
+      grid.scrollController!.jumpTo(250);
+      if (pending) {
+        await tester.pump();
+      } else {
+        await tester.pumpAndSettle();
+      }
+      final offset = grid.scrollController!.offset;
+      final calls = api.searchCalls;
+      await tester.tap(find.byType(EnhancedWorkCard).hitTestable().first);
+      await tester.pump();
+      await tester.pump();
+      if (pending) expect(api.blockedToken!.isCancelled, isTrue);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(WorkDetailScreen), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('player-viewport'), skipOffstage: false),
+        findsNothing,
+      );
+      expect(navigation.selectedIndex, appAudioTabIndex);
+      expect(find.byType(AppBottomDock), findsOneWidget);
+      navigation.selectTab(1);
+      await tester.pumpAndSettle();
+      expect(find.text('Tab 1'), findsOneWidget);
+      navigation.selectTab(appAudioTabIndex);
+      await tester.pumpAndSettle();
+      expect(find.byType(WorkDetailScreen), findsOneWidget);
+
+      navigation.tabNavigator(appAudioTabIndex)!.pop();
+      await tester.pumpAndSettle();
+      expect(find.byType(SearchResultScreen), findsOneWidget);
+      final restoredContext = tester.element(find.byType(WorksGridView));
+      expect(
+        ProviderScope.containerOf(
+          restoredContext,
+        ).read(searchResultProvider).currentPage,
+        2,
+      );
+      expect(
+        tester
+            .widget<WorksGridView>(find.byType(WorksGridView))
+            .scrollController!
+            .offset,
+        closeTo(offset, 0.1),
+      );
+      expect(api.searchCalls, calls + (pending ? 1 : 0));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('work search without a player keeps its normal return path', (
+    tester,
+  ) async {
+    final navigation = await _pumpShell(
+      tester,
+      fakeTagSearch: true,
+      tagSearchResults: true,
+      homeBuilder: (_) => const Scaffold(
+        body: Center(
+          child: TagChip(tag: Tag(id: 999999, name: 'Test tag')),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Test tag'));
+    await tester.pumpAndSettle();
+    final grid = tester.widget<WorksGridView>(find.byType(WorksGridView));
+    grid.scrollController!.jumpTo(250);
+    await tester.pumpAndSettle();
+    final offset = grid.scrollController!.offset;
+    await tester.tap(find.byType(EnhancedWorkCard).hitTestable().first);
+    await tester.pumpAndSettle();
+    expect(find.byType(WorkDetailScreen), findsOneWidget);
+    expect(find.byType(AppBottomDock), findsOneWidget);
+    navigation.navigator!.pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(SearchResultScreen), findsOneWidget);
+    expect(grid.scrollController!.offset, closeTo(offset, 0.1));
+    expect(tester.takeException(), isNull);
   });
 
   for (final size in [const Size(390, 844), const Size(1280, 720)]) {

@@ -112,6 +112,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
     child: AppNavigationScope(
       controller: controller,
       mediaQuery: MediaQuery.of(context),
+      navigationMotion: _navigationMotion,
       child: ListenableBuilder(
         listenable: controller,
         builder: (context, _) =>

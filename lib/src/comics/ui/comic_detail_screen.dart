@@ -11,6 +11,7 @@ import '../../widgets/metadata_search_chip.dart';
 import '../../widgets/work_detail/work_cover_frame.dart';
 import '../../widgets/work_detail/work_title_header.dart';
 import '../../widgets/work_detail/work_detail_section_title.dart';
+import '../../widgets/work_detail/work_detail_date.dart';
 import '../../providers/works_provider.dart' show LayoutType;
 import '../../utils/collection_grid_layout.dart';
 import '../../utils/system_ui_style.dart';
@@ -20,6 +21,7 @@ import 'comic_search_screen.dart';
 import '../../utils/snackbar_util.dart';
 import '../comic_models.dart';
 import '../comic_providers.dart';
+import '../eh_tag_translations.dart';
 import 'comic_widgets.dart';
 import 'comic_reader_screen.dart';
 import 'comic_page_preview.dart';
@@ -186,6 +188,11 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.comic.source == 'ehentai') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) retryEhTagTranslations(ref);
+      });
+    }
     _load();
     unawaited(_refreshProgress());
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -435,6 +442,11 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   Widget _buildBody(BuildContext context) {
     final s = S.of(context);
     final comic = _readyComic;
+    final tagTranslations =
+        comic.source == 'ehentai' &&
+            Localizations.localeOf(context).languageCode == 'zh'
+        ? ref.watch(ehTagTranslationsProvider).valueOrNull
+        : null;
     final showThumbnails =
         StorageService.getBool('comic_chapter_thumbnails') ?? true;
     final hasComments = ref
@@ -488,8 +500,6 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
         final info = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            WorkTitleHeader(title: comic.title, showTranslateButton: false),
-            const SizedBox(height: 8),
             Text(
               ref
                   .read(comicSourcesProvider)
@@ -505,6 +515,25 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                   Text('${comic.extra['likes']}'),
                 ],
               ),
+            if (comic.publishedDate != null || comic.updatedDate != null) ...[
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 16,
+                runSpacing: 8,
+                children: [
+                  if (comic.publishedDate != null)
+                    WorkDetailDate(
+                      label: s.releaseDate,
+                      date: comic.publishedDate!,
+                    ),
+                  if (comic.updatedDate != null)
+                    WorkDetailDate(
+                      label: s.lastUpdated,
+                      date: comic.updatedDate!,
+                    ),
+                ],
+              ),
+            ],
             const SizedBox(height: 16),
             LayoutBuilder(
               builder: (context, constraints) => Align(
@@ -605,6 +634,11 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                                   Expanded(child: info),
                                 ],
                               ),
+                            const SizedBox(height: 16),
+                            WorkTitleHeader(
+                              title: comic.title,
+                              showTranslateButton: false,
+                            ),
                             const SizedBox(height: 16),
                             if (_busy)
                               const RepaintBoundary(
@@ -720,62 +754,41 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
                                     children: comic.tags
                                         .toSet()
                                         .map(
-                                          (tag) => MetadataSearchChip(
-                                            label: tag,
-                                            searchKeyword: tag,
-                                            searchTypeLabel: s.tagLabel,
-                                            searchParams: const {},
-                                            chipTone: MetadataChipTone.primary,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w500,
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 4,
-                                            ),
-                                            borderRadius: 6,
-                                            onTap: () => pushBottomDockRoute(
-                                              context,
-                                              builder: (_) => ComicSearchScreen(
-                                                initialSource: comic.source,
-                                                initialQuery: tag,
-                                              ),
-                                            ),
+                                          (tag) => buildEhTagLabel(
+                                            context: context,
+                                            tag: tag,
+                                            translations: tagTranslations,
+                                            builder: (label) =>
+                                                MetadataSearchChip(
+                                                  label: label,
+                                                  searchKeyword: tag,
+                                                  searchTypeLabel: s.tagLabel,
+                                                  searchParams: const {},
+                                                  chipTone:
+                                                      MetadataChipTone.primary,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w500,
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 8,
+                                                        vertical: 4,
+                                                      ),
+                                                  borderRadius: 6,
+                                                  onTap: () =>
+                                                      pushBottomDockRoute(
+                                                        context,
+                                                        builder: (_) =>
+                                                            ComicSearchScreen(
+                                                              initialSource:
+                                                                  comic.source,
+                                                              initialQuery: tag,
+                                                            ),
+                                                      ),
+                                                ),
                                           ),
                                         )
                                         .toList(),
                                   ),
-                                  const SizedBox(height: 16),
-                                ],
-                                if (comic.publishedDate != null ||
-                                    comic.updatedDate != null) ...[
-                                  if (comic.publishedDate != null &&
-                                      comic.updatedDate != null)
-                                    Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          child: _comicDateColumn(
-                                            s.releaseDate,
-                                            comic.publishedDate!,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 16),
-                                        Expanded(
-                                          child: _comicDateColumn(
-                                            s.lastUpdated,
-                                            comic.updatedDate!,
-                                          ),
-                                        ),
-                                      ],
-                                    )
-                                  else
-                                    _comicDateColumn(
-                                      comic.publishedDate != null
-                                          ? s.releaseDate
-                                          : s.lastUpdated,
-                                      comic.publishedDate ?? comic.updatedDate!,
-                                    ),
                                   const SizedBox(height: 16),
                                 ],
                               ],
@@ -836,18 +849,6 @@ class _ComicDetailScreenState extends ConsumerState<ComicDetailScreen> {
   Widget _retryBanner(Object error, VoidCallback retry) => MaterialBanner(
     content: Text('$error'),
     actions: [TextButton(onPressed: retry, child: Text(S.of(context).retry))],
-  );
-
-  Widget _comicDateColumn(String title, String date) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      WorkDetailSectionTitle(title),
-      const SizedBox(height: 8),
-      Text(
-        date.split('T').first,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 14),
-      ),
-    ],
   );
 }
 

@@ -59,6 +59,7 @@ import 'package:kikoeru_flutter/src/widgets/app_navigation_shell.dart';
 import 'package:kikoeru_flutter/src/widgets/library_page_scaffold.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock.dart';
 import 'package:kikoeru_flutter/src/widgets/app_bottom_dock_transition.dart';
+import 'package:kikoeru_flutter/src/widgets/file_explorer_widget.dart';
 import 'package:kikoeru_flutter/src/widgets/mini_player.dart';
 import 'package:kikoeru_flutter/src/widgets/player/player_route.dart';
 import 'package:kikoeru_flutter/src/widgets/volume_control.dart';
@@ -198,12 +199,16 @@ class _EmptyPlaylistsApi extends KikoeruApiService {
 
 class _PendingDetailsApi extends KikoeruApiService {
   final metadata = Completer<Map<String, dynamic>>();
+  int metadataRequests = 0;
   @override
   Future<Map<String, dynamic>> getWork(
     int id, {
     bool forceRefresh = false,
     dynamic cancelToken,
-  }) => metadata.future;
+  }) {
+    metadataRequests++;
+    return metadata.future;
+  }
 
   @override
   Future<List<dynamic>> getWorkTracks(
@@ -2551,13 +2556,140 @@ void main() {
     variant: TargetPlatformVariant.only(TargetPlatform.iOS),
   );
 
+  for (final size in [const Size(390, 844), const Size(1280, 720)]) {
+    testWidgets('player work details preserve navigation animation at $size', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(false);
+      addTearDown(reduced.dispose);
+      const track = AudioTrack(
+        id: 'prompt-dock-track',
+        title: 'Prompt dock work',
+        url: 'https://example.invalid/prompt.mp3',
+        workId: 42,
+      );
+      final detailApi = _PendingDetailsApi();
+      await _pumpAudioScreen(
+        tester,
+        reduced,
+        screen: const MainScreen(),
+        track: track,
+        detailApi: detailApi,
+        playerWorkDetails: const PlayerWorkDetailsData(
+          track: track,
+          work: Work(id: 42, title: 'Prompt dock work'),
+          fileTree: [],
+          variants: [],
+          fileTreeId: '42:prompt',
+        ),
+        artworkSeedLoader: _ImmediateArtworkSeedLoader(),
+      );
+      final navigation = size.width > size.height
+          ? find.byType(NavigationRail)
+          : find.byType(AppBottomDock);
+      final navigationRect = tester.getRect(navigation);
+      final miniRect = tester.getRect(find.byType(MiniPlayer));
+      var playerExitCompleted = false;
+      var requestsBeforeDetail = 0;
+      Future<({int playerGone, int navigationShown})> measureTransition({
+        bool checkDetailReadiness = false,
+      }) async {
+        int? playerGone;
+        int? navigationShown;
+        for (var frame = 0; frame < 50; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          if (checkDetailReadiness && !playerExitCompleted) {
+            expect(detailApi.metadataRequests, requestsBeforeDetail);
+          }
+          final player = find.byType(AudioPlayerScreen);
+          if (playerGone == null &&
+              (player.evaluate().isEmpty ||
+                  tester.getTopLeft(player).dy >= size.height - 8)) {
+            playerGone = frame;
+          }
+          if (navigationShown == null && navigation.evaluate().isNotEmpty) {
+            final bounds = tester.getRect(navigation);
+            if (size.width > size.height
+                ? bounds.right > 1
+                : bounds.top < size.height - 1) {
+              navigationShown = frame;
+            }
+          }
+          if (playerGone != null && navigationShown != null) {
+            return (playerGone: playerGone, navigationShown: navigationShown);
+          }
+        }
+        throw TestFailure(
+          'Player or navigation did not complete the transition',
+        );
+      }
+
+      unawaited(
+        openAudioPlayer<void>(tester.element(find.byType(AudioScreen))),
+      );
+      await tester.pumpAndSettle();
+      Navigator.of(tester.element(find.byType(AudioPlayerScreen))).pop();
+      await tester.pump();
+      final normalTransition = await measureTransition();
+      await tester.pumpAndSettle();
+      unawaited(
+        openAudioPlayer<void>(tester.element(find.byType(AudioScreen))),
+      );
+      await tester.pumpAndSettle();
+      final playerRoute =
+          ModalRoute.of(tester.element(find.byType(AudioPlayerScreen)))!
+              as TransitionRoute<dynamic>;
+      unawaited(playerRoute.completed.then((_) => playerExitCompleted = true));
+      requestsBeforeDetail = detailApi.metadataRequests;
+
+      await tester.tap(
+        find.byKey(
+          ValueKey(
+            size.width >= playerWideLayoutBreakpoint
+                ? 'player-track-title-button-wide'
+                : 'player-track-title-button',
+          ),
+        ),
+      );
+      await tester.pump();
+      final detailTransition = await measureTransition(
+        checkDetailReadiness: true,
+      );
+      expect(
+        detailTransition.navigationShown - detailTransition.playerGone,
+        lessThanOrEqualTo(
+          normalTransition.navigationShown - normalTransition.playerGone + 1,
+        ),
+      );
+      expect(find.byType(WorkDetailScreen), findsOneWidget);
+      for (
+        var frame = 0;
+        frame < 50 && tester.getRect(navigation) != navigationRect;
+        frame++
+      ) {
+        expect(detailApi.metadataRequests, requestsBeforeDetail);
+        expect(find.byType(FileExplorerWidget), findsNothing);
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.pumpAndSettle();
+      expect(tester.getRect(navigation), navigationRect);
+      expect(tester.getRect(find.byType(MiniPlayer)), miniRect);
+      expect(detailApi.metadataRequests, greaterThan(requestsBeforeDetail));
+      expect(find.byType(FileExplorerWidget), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('player details return from an immersive root route to Audio', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final reduced = ValueNotifier(true);
+    final reduced = ValueNotifier(false);
     addTearDown(reduced.dispose);
     const track = AudioTrack(
       id: 'handoff-track',
@@ -2600,6 +2732,8 @@ void main() {
     );
     await tester.pump();
     expect(navigation.selectedIndex, 1);
+    await tester.pump(const Duration(milliseconds: 500));
+    final dockTop = tester.getTopLeft(find.byType(AppBottomDock)).dy;
     unawaited(
       AppNavigationScope.navigatorOf(
         tester.element(find.byType(ComicScreen)),
@@ -2617,6 +2751,10 @@ void main() {
     expect(find.byType(AudioPlayerScreen), findsOneWidget);
     expect(navigation.selectedIndex, 1);
     final playerContext = tester.element(find.byType(AudioPlayerScreen));
+    final playerRoute =
+        ModalRoute.of(playerContext)! as TransitionRoute<dynamic>;
+    var playerExitCompleted = false;
+    unawaited(playerRoute.completed.then((_) => playerExitCompleted = true));
     expect(navigation.tabNavigator(appAudioTabIndex), isNotNull);
     expect(ModalRoute.of(playerContext)?.isCurrent, isTrue);
     expect(
@@ -2628,7 +2766,20 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('player-track-title-button')));
     await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(playerExitCompleted, isFalse);
+    expect(find.byType(AppBottomDock), findsNothing);
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pump();
+    expect(playerExitCompleted, isTrue);
+    expect(tester.getTopLeft(find.byType(AppBottomDock)).dy, closeTo(844, 1));
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(
+      tester.getTopLeft(find.byType(AppBottomDock)).dy,
+      greaterThan(dockTop),
+    );
+    expect(tester.getTopLeft(find.byType(AppBottomDock)).dy, lessThan(844));
+    await tester.pump(const Duration(milliseconds: 520));
     expect(find.byType(WorkDetailScreen), findsOneWidget);
     expect(find.byType(AudioPlayerScreen), findsNothing);
     expect(find.text('Comic reader'), findsNothing);
@@ -2636,6 +2787,7 @@ void main() {
 
     await tester.binding.handlePopRoute();
     await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
     expect(find.text('Audio before player'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -2727,8 +2879,8 @@ void main() {
     _pushGlobalAudioDetail(playerContext, 'Player work detail');
     await tester.pumpAndSettle();
     expect(find.text('Player work detail'), findsOneWidget);
-    expect(find.byType(NavigationBar).hitTestable(), findsOneWidget);
-    expect(find.byType(MiniPlayer, skipOffstage: false), findsOneWidget);
+    expect(find.byType(NavigationBar).hitTestable(), findsNothing);
+    expect(find.byType(MiniPlayer, skipOffstage: false), findsNothing);
     Navigator.of(playerContext).pop();
     await tester.pumpAndSettle();
     expect(find.byType(AudioPlayerScreen), findsOneWidget);
@@ -2975,51 +3127,53 @@ void main() {
     },
   );
 
-  testWidgets(
-    'detail tab switch keeps Dock usable during the longer player close',
-    (tester) async {
-      tester.view.physicalSize = const Size(390, 844);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      final reduced = ValueNotifier(false);
-      addTearDown(reduced.dispose);
-      await _pumpAudioScreen(
-        tester,
-        reduced,
-        screen: const MainScreen(),
-        theme: AppTheme.lightTheme(null),
-        track: const AudioTrack(
-          id: 'player-close-dock-track',
-          title: 'Audio',
-          url: 'https://example.invalid/audio.mp3',
-        ),
-      );
+  testWidgets('Dock tab switch remains usable after the player closes', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final reduced = ValueNotifier(false);
+    addTearDown(reduced.dispose);
+    await _pumpAudioScreen(
+      tester,
+      reduced,
+      screen: const MainScreen(),
+      theme: AppTheme.lightTheme(null),
+      track: const AudioTrack(
+        id: 'player-close-dock-track',
+        title: 'Audio',
+        url: 'https://example.invalid/audio.mp3',
+      ),
+    );
 
-      await tester.tap(
-        find.byKey(const ValueKey('mini-player-upward-launcher')),
-      );
-      await tester.pumpAndSettle();
-      final playerContext = tester.element(find.byType(AudioPlayerScreen));
-      _pushGlobalAudioDetail(playerContext, 'Player work detail');
-      await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('mini-player-upward-launcher')));
+    await tester.pumpAndSettle();
+    final playerContext = tester.element(find.byType(AudioPlayerScreen));
+    _pushGlobalAudioDetail(playerContext, 'Player work detail');
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsNothing);
+    Navigator.of(playerContext).pop();
+    await tester.pumpAndSettle();
+    Navigator.of(playerContext).pop();
+    await tester.pumpAndSettle();
 
-      final navigation = find.byType(NavigationBar);
-      await tester.tap(
-        find.descendant(
-          of: navigation,
-          matching: find.byIcon(Icons.settings_outlined),
-        ),
-      );
-      await tester.pump();
-      for (var frame = 0; frame < 20; frame++) {
-        await tester.pump(const Duration(milliseconds: 20));
-        expect(navigation.hitTestable(), findsOneWidget);
-        expect(tester.widget<NavigationBar>(navigation).selectedIndex, 3);
-      }
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-    },
-  );
+    final navigation = find.byType(NavigationBar);
+    await tester.tap(
+      find.descendant(
+        of: navigation,
+        matching: find.byIcon(Icons.settings_outlined),
+      ),
+    );
+    await tester.pump();
+    for (var frame = 0; frame < 20; frame++) {
+      await tester.pump(const Duration(milliseconds: 20));
+      expect(navigation.hitTestable(), findsOneWidget);
+      expect(tester.widget<NavigationBar>(navigation).selectedIndex, 3);
+    }
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('modal routes block Dock tab changes until dismissed', (
     tester,

@@ -32,7 +32,6 @@ import 'package:kikoeru_flutter/src/widgets/work_detail/work_stats_section.dart'
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_title_header.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_progress_action_button.dart';
 import 'package:kikoeru_flutter/src/widgets/work_detail/work_metadata_sections.dart';
-import 'package:kikoeru_flutter/src/widgets/work_detail/work_extra_sections.dart';
 
 class _Api extends KikoeruApiService {
   _Api({this.events});
@@ -1458,6 +1457,13 @@ void main() {
     expect(find.text('Known circle'), findsOneWidget);
     expect(find.text('Known VA'), findsOneWidget);
     expect(find.text('Known tag'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(WorkStatsSection),
+        matching: find.text('2026-09-30'),
+      ),
+      findsOneWidget,
+    );
     await _pumpUntil(tester, () => api.workRequests == 1);
     api.metadata.complete({
       'id': 660,
@@ -1478,12 +1484,7 @@ void main() {
           .name,
       isNull,
     );
-    expect(
-      tester
-          .widget<WorkReleaseDateSection>(find.byType(WorkReleaseDateSection))
-          .release,
-      isNull,
-    );
+    expect(find.text('2026-09-30'), findsNothing);
     expect(api.workRequests, 1);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());

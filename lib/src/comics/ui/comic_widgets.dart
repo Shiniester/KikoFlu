@@ -16,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import '../../../l10n/app_localizations.dart';
 import '../comic_models.dart';
+import '../eh_tag_translations.dart';
 
 import '../comic_providers.dart';
 import 'comic_settings_screen.dart';
@@ -730,6 +731,11 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
   void didUpdateWidget(ComicGrid oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!_sameComicPage(oldWidget.comics, widget.comics)) {
+      if (widget.comics.any((comic) => comic.source == 'ehentai')) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) retryEhTagTranslations(ref);
+        });
+      }
       _initialCoverGateReleased = _openedCoverPages.contains(
         _coverPageKey(widget.comics),
       );
@@ -1185,15 +1191,28 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
   @override
   Widget build(BuildContext context) {
     final layoutType = ref.watch(comicLayoutProvider);
+    final tagTranslations =
+        layoutType == LayoutType.list &&
+            widget.comics.any(
+              (comic) => comic.source == 'ehentai' && comic.tags.isNotEmpty,
+            ) &&
+            Localizations.localeOf(context).languageCode == 'zh'
+        ? ref.watch(ehTagTranslationsProvider).valueOrNull
+        : null;
     return DeferredTabContent(
-      builder: (context) =>
-          _withInitialCoverGate(_buildContent(context, layoutType)),
+      builder: (context) => _withInitialCoverGate(
+        _buildContent(context, layoutType, tagTranslations),
+      ),
       prepareDuringMotion: true,
       onActivityChanged: _onCoverActivityChanged,
     );
   }
 
-  Widget _buildContent(BuildContext context, LayoutType layoutType) {
+  Widget _buildContent(
+    BuildContext context,
+    LayoutType layoutType,
+    Map<String, String>? tagTranslations,
+  ) {
     final comics = widget.comics;
     final padding = widget.padding;
     final controller = widget.controller;
@@ -1358,29 +1377,42 @@ class _ComicGridState extends ConsumerState<ComicGrid> {
                                             children: comics[i].tags
                                                 .map(
                                                   (tag) => IgnorePointer(
-                                                    child: MetadataSearchChip(
-                                                      label: tag,
-                                                      searchKeyword: tag,
-                                                      searchTypeLabel: S
-                                                          .of(context)
-                                                          .searchTypeTag,
-                                                      searchParams: const {},
-                                                      chipTone: MetadataChipTone
-                                                          .secondary,
-                                                      customTone:
-                                                          MetadataChipTone
-                                                              .primary,
-                                                      fontSize: isLandscape
-                                                          ? 13
-                                                          : 11,
-                                                      padding:
-                                                          const EdgeInsets.symmetric(
-                                                            horizontal: 4,
-                                                            vertical: 1,
+                                                    child: buildEhTagLabel(
+                                                      context: context,
+                                                      tag: tag,
+                                                      translations:
+                                                          comics[i].source ==
+                                                              'ehentai'
+                                                          ? tagTranslations
+                                                          : null,
+                                                      builder: (label) =>
+                                                          MetadataSearchChip(
+                                                            label: label,
+                                                            searchKeyword: tag,
+                                                            searchTypeLabel: S
+                                                                .of(context)
+                                                                .searchTypeTag,
+                                                            searchParams:
+                                                                const {},
+                                                            chipTone:
+                                                                MetadataChipTone
+                                                                    .secondary,
+                                                            customTone:
+                                                                MetadataChipTone
+                                                                    .primary,
+                                                            fontSize:
+                                                                isLandscape
+                                                                ? 13
+                                                                : 11,
+                                                            padding:
+                                                                const EdgeInsets.symmetric(
+                                                                  horizontal: 4,
+                                                                  vertical: 1,
+                                                                ),
+                                                            borderRadius: 6,
+                                                            fontWeight:
+                                                                FontWeight.w500,
                                                           ),
-                                                      borderRadius: 6,
-                                                      fontWeight:
-                                                          FontWeight.w500,
                                                     ),
                                                   ),
                                                 )

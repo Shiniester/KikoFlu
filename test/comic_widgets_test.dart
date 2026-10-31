@@ -46,6 +46,7 @@ import 'package:kikoeru_flutter/src/comics/comic_http.dart';
 import 'package:kikoeru_flutter/src/comics/sources/pica_source.dart';
 import 'package:kikoeru_flutter/src/comics/comic_library.dart';
 import 'package:kikoeru_flutter/src/comics/comic_providers.dart';
+import 'package:kikoeru_flutter/src/comics/eh_tag_translations.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_settings_screen.dart';
 import 'package:kikoeru_flutter/src/comics/ui/comic_detail_screen.dart';
@@ -57,6 +58,7 @@ import 'package:kikoeru_flutter/src/widgets/pagination_bar.dart';
 import 'package:kikoeru_flutter/src/widgets/settings_option_dialog.dart';
 import 'package:kikoeru_flutter/src/widgets/work_image_reader.dart';
 import 'package:kikoeru_flutter/src/utils/local_file_url.dart';
+import 'package:kikoeru_flutter/src/utils/chinese_script_converter.dart';
 
 Finder readerPageValue(String value) => find.byWidgetPredicate(
   (widget) => widget is Semantics && widget.properties.value == value,
@@ -83,6 +85,7 @@ class _Source extends ComicSource {
     ComicComment('Reader', 'Existing comment'),
   ];
   final pageRequests = <String>[];
+  final searchQueries = <String>[];
   int searches = 0, favoriteWrites = 0, favoriteReads = 0;
   int detailRequests = 0, chapterRequests = 0;
   final searchGates = <int, Completer<ComicResult>>{};
@@ -117,6 +120,7 @@ class _Source extends ComicSource {
     String? sort,
   }) async {
     searches++;
+    searchQueries.add(query);
     if (fail) throw const ComicSourceException('fixture error');
     final gate = searchGates.remove(searches);
     if (gate != null) return gate.future;
@@ -563,6 +567,12 @@ Future<void> expectComicCoverDecodeMatchesDisplay(
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() async {
+    // Keep the cached dictionary future outside widget tests' fake clocks.
+    await convertChineseScript('', toTraditional: true);
+  });
+
   setUp(() async {
     SharedPreferences.setMockInitialValues({
       'comic_grid': false,
@@ -589,6 +599,8 @@ void main() {
     ThemeData? theme,
     ComicDownloads? downloads,
     bool appNavigation = false,
+    Map<String, String>? ehTagTranslations,
+    Stream<Map<String, String>> Function()? ehTagTranslationStream,
   }) async {
     final navigation = appNavigation ? AppNavigationController() : null;
     if (navigation != null) addTearDown(navigation.dispose);
@@ -598,6 +610,12 @@ void main() {
           source,
           if (other != null) other,
         ]),
+        if (ehTagTranslations != null || ehTagTranslationStream != null)
+          ehTagTranslationsProvider.overrideWith(
+            (ref) =>
+                ehTagTranslationStream?.call() ??
+                Stream.value(ehTagTranslations!),
+          ),
         comicLibraryProvider.overrideWith((ref) => library),
         if (downloads != null)
           comicDownloadsProvider.overrideWith((ref) => downloads),
@@ -6505,13 +6523,8 @@ void main() {
         find.byKey(const ValueKey('comic-detail-cover')),
       );
       final title = tester.getRect(find.byType(WorkTitleHeader));
-      if (size.width == 320) {
-        expect(cover.left, closeTo(title.left, 0.1));
-        expect(cover.bottom, lessThan(title.top));
-      } else {
-        expect(cover.left, lessThan(title.left));
-        expect((cover.top - title.top).abs(), lessThan(24));
-      }
+      expect(cover.left, closeTo(title.left, 0.1));
+      expect(cover.bottom, lessThan(title.top));
       expect(cover.width, closeTo(size.width == 320 ? 304 : 904 / 3, 0.1));
       expect(
         tester
@@ -6534,7 +6547,7 @@ void main() {
         button.right,
         closeTo(size.width - (size.width == 320 ? 8 : 16) - 8, 0.1),
       );
-      expect(button.top, greaterThan(title.bottom));
+      expect(button.bottom, lessThan(title.top));
       if (size.width == 320) {
         expect(button.top, greaterThan(cover.bottom));
       } else {
@@ -6561,7 +6574,7 @@ void main() {
       expect(find.text('Start reading'), findsNothing);
       expect(
         tester.getTopLeft(find.byIcon(Icons.history)).dx,
-        closeTo(tester.getTopLeft(find.byType(WorkTitleHeader)).dx, 0.1),
+        closeTo(size.width == 320 ? cover.left : cover.right + 16, 0.1),
       );
       await tester.tap(find.byTooltip('Download'));
       await tester.pumpAndSettle();
@@ -6570,8 +6583,12 @@ void main() {
     });
   }
 
-  for (final size in [const Size(320, 640), const Size(1000, 600)]) {
-    testWidgets('comic release and update dates share a row at $size', (
+  for (final size in [
+    const Size(320, 640),
+    const Size(390, 844),
+    const Size(1000, 600),
+  ]) {
+    testWidgets('comic dates appear above the reading action at $size', (
       tester,
     ) async {
       tester.view.physicalSize = size;
@@ -6593,22 +6610,80 @@ void main() {
         _Source()..detailResult = comic,
       );
       final labels = S.of(tester.element(find.byType(ComicDetailScreen)));
-      await tester.scrollUntilVisible(
-        find.text(labels.releaseDate),
-        200,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.pumpAndSettle();
       final release = find.text(labels.releaseDate);
       final updated = find.text(labels.lastUpdated);
-      expect(
-        tester.getTopLeft(release).dy,
-        closeTo(tester.getTopLeft(updated).dy, 0.1),
+      final cover = tester.getRect(
+        find.byKey(const ValueKey('comic-detail-cover')),
+      );
+      final button = tester.getRect(
+        find.ancestor(
+          of: find.text('Start reading'),
+          matching: find.byType(FilledButton),
+        ),
       );
       expect(find.text('2020-01-02'), findsOneWidget);
       expect(find.text('2024-03-04'), findsOneWidget);
+      expect(tester.getBottomLeft(release).dy, lessThan(button.top));
+      expect(tester.getBottomLeft(updated).dy, lessThan(button.top));
+      expect(
+        tester.getBottomLeft(find.text('2020-01-02')).dy,
+        lessThan(button.top),
+      );
+      expect(
+        tester.getBottomLeft(find.text('2024-03-04')).dy,
+        lessThan(button.top),
+      );
+      if (size.width == 320) {
+        expect(tester.getTopLeft(release).dy, greaterThan(cover.bottom));
+      } else {
+        expect(tester.getTopLeft(release).dx, greaterThan(cover.right));
+        expect(tester.getTopLeft(updated).dx, greaterThan(cover.right));
+      }
       expect(tester.takeException(), isNull);
     });
+  }
+
+  for (final published in [true, false]) {
+    testWidgets(
+      'comic details show the ${published ? 'release' : 'update'} date above reading',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final comic = Comic(
+          source: 'fixture',
+          id: 'single-date-book',
+          title: 'Single date',
+          extra: {published ? 'publishedAt' : 'updatedAt': '2024-03-04'},
+        );
+        await pump(
+          tester,
+          ComicDetailScreen(comic: comic),
+          _Library(),
+          _Source()..detailResult = comic,
+        );
+        final labels = S.of(tester.element(find.byType(ComicDetailScreen)));
+        expect(
+          find.text(published ? labels.releaseDate : labels.lastUpdated),
+          findsOneWidget,
+        );
+        expect(
+          find.text(published ? labels.lastUpdated : labels.releaseDate),
+          findsNothing,
+        );
+        final button = tester.getRect(
+          find.ancestor(
+            of: find.text('Start reading'),
+            matching: find.byType(FilledButton),
+          ),
+        );
+        expect(
+          tester.getBottomLeft(find.text('2024-03-04')).dy,
+          lessThan(button.top),
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
   }
 
   testWidgets(
@@ -7112,6 +7187,242 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('EH labels translate without changing the tag search', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const comic = Comic(
+      source: 'ehentai',
+      id: 'book',
+      title: 'EH book',
+      tags: ['language:english', 'other:missing'],
+      chapters: [ComicChapter('one', 'Chapter 1')],
+    );
+    final source = _Source('ehentai')..detailResult = comic;
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: comic),
+      _Library(),
+      source,
+      locale: const Locale('zh'),
+      ehTagTranslations: {'rows:language': '语言', 'language:english': '英语'},
+    );
+
+    expect(find.text('语言:英语'), findsOneWidget);
+    expect(find.text('other:missing'), findsOneWidget);
+    await tester.tap(find.text('语言:英语'));
+    await tester.pumpAndSettle();
+    final search = tester.widget<ComicSearchScreen>(
+      find.byType(ComicSearchScreen),
+    );
+    expect(search.initialSource, 'ehentai');
+    expect(search.initialQuery, 'language:english');
+    expect(source.searchQueries, contains('language:english'));
+  });
+
+  testWidgets('EH list labels translate without affecting other sources', (
+    tester,
+  ) async {
+    const ehComic = Comic(
+      source: 'ehentai',
+      id: 'book',
+      title: 'EH book',
+      cover: 'eh-cover',
+      tags: ['language:english'],
+    );
+    const otherComic = Comic(
+      source: 'fixture',
+      id: 'other',
+      title: 'Other book',
+      cover: 'other-cover',
+      tags: ['language:english'],
+    );
+    await pump(
+      tester,
+      const Scaffold(body: ComicGrid(comics: [ehComic, otherComic])),
+      _Library(),
+      _Source('ehentai'),
+      other: _Source(),
+      locale: const Locale('zh'),
+      ehTagTranslations: {'rows:language': '语言', 'language:english': '英语'},
+      loadImage: (_) async => Uint8List.fromList(_png),
+      settle: false,
+    );
+
+    await waitForFinder(tester, find.text('语言:英语'));
+    expect(find.text('language:english'), findsOneWidget);
+  });
+
+  testWidgets('EH detail labels use Traditional Chinese and keep the search', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const comic = Comic(
+      source: 'ehentai',
+      id: 'book',
+      title: 'EH book',
+      tags: ['language:english', 'other:missing'],
+      chapters: [ComicChapter('one', 'Chapter 1')],
+    );
+    final source = _Source('ehentai')..detailResult = comic;
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: comic),
+      _Library(),
+      source,
+      locale: const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+      ehTagTranslations: {'rows:language': '语言', 'language:english': '英语'},
+    );
+
+    await waitForFinder(tester, find.text('語言:英語'));
+    expect(find.text('語言:英語'), findsOneWidget);
+    expect(find.text('other:missing'), findsOneWidget);
+    await tester.tap(find.text('語言:英語'));
+    await tester.pumpAndSettle();
+    final search = tester.widget<ComicSearchScreen>(
+      find.byType(ComicSearchScreen),
+    );
+    expect(search.initialQuery, 'language:english');
+    expect(source.searchQueries, contains('language:english'));
+  });
+
+  testWidgets('EH list labels use Traditional Chinese', (tester) async {
+    final locale = ValueNotifier(
+      const Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hant'),
+    );
+    addTearDown(locale.dispose);
+    const ehComic = Comic(
+      source: 'ehentai',
+      id: 'book',
+      title: 'EH book',
+      cover: 'eh-cover',
+      tags: ['language:english'],
+    );
+    const otherComic = Comic(
+      source: 'fixture',
+      id: 'other',
+      title: 'Other book',
+      cover: 'other-cover',
+      tags: ['language:english'],
+    );
+    await pump(
+      tester,
+      Builder(
+        builder: (context) => ValueListenableBuilder<Locale>(
+          valueListenable: locale,
+          builder: (context, locale, child) => Localizations.override(
+            context: context,
+            locale: locale,
+            child: child!,
+          ),
+          child: const Scaffold(body: ComicGrid(comics: [ehComic, otherComic])),
+        ),
+      ),
+      _Library(),
+      _Source('ehentai'),
+      other: _Source(),
+      locale: const Locale('zh'),
+      ehTagTranslations: {'rows:language': '语言', 'language:english': '英语'},
+      loadImage: (_) async => Uint8List.fromList(_png),
+      settle: false,
+    );
+
+    await waitForFinder(tester, find.text('語言:英語'));
+    expect(find.text('語言:英語'), findsOneWidget);
+    expect(find.text('language:english'), findsOneWidget);
+
+    locale.value = const Locale('zh');
+    await tester.pumpAndSettle();
+    expect(find.text('语言:英语'), findsOneWidget);
+    locale.value = const Locale('en');
+    await tester.pumpAndSettle();
+    expect(find.text('language:english'), findsNWidgets(2));
+  });
+
+  testWidgets('EH tags keep their original text in a non-Chinese locale', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const comic = Comic(
+      source: 'ehentai',
+      id: 'book',
+      title: 'EH book',
+      tags: ['language:english'],
+      chapters: [ComicChapter('one', 'Chapter 1')],
+    );
+    await pump(
+      tester,
+      const ComicDetailScreen(comic: comic),
+      _Library(),
+      _Source('ehentai')..detailResult = comic,
+      ehTagTranslations: {'language:english': '英语'},
+    );
+
+    expect(find.text('language:english'), findsOneWidget);
+    expect(find.text('英语'), findsNothing);
+  });
+
+  testWidgets('EH tags retry after an offline request when details open', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const comic = Comic(
+      source: 'ehentai',
+      id: 'book',
+      title: 'EH retry book',
+      cover: 'eh-cover',
+      tags: ['language:english'],
+      chapters: [ComicChapter('one', 'Chapter 1')],
+    );
+    var attempts = 0;
+    final pending = StreamController<Map<String, String>>.broadcast();
+    addTearDown(pending.close);
+    await pump(
+      tester,
+      Consumer(
+        builder: (context, ref, _) {
+          ref.watch(ehTagTranslationsProvider);
+          return Scaffold(
+            body: FilledButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const ComicDetailScreen(comic: comic),
+                ),
+              ),
+              child: const Text('Open EH details'),
+            ),
+          );
+        },
+      ),
+      _Library(),
+      _Source('ehentai')..detailResult = comic,
+      locale: const Locale('zh'),
+      ehTagTranslationStream: () =>
+          ++attempts == 1 ? Stream.value(<String, String>{}) : pending.stream,
+    );
+
+    expect(attempts, 1);
+    await tester.tap(find.text('Open EH details'));
+    await tester.pumpAndSettle();
+    expect(attempts, 2);
+    Navigator.of(tester.element(find.byType(ComicDetailScreen))).pop();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open EH details'));
+    await tester.pumpAndSettle();
+    expect(attempts, 2);
+    pending.add({'rows:language': '语言', 'language:english': '英语'});
+    await tester.pumpAndSettle();
+    expect(find.text('语言:英语'), findsOneWidget);
+  });
+
   testWidgets('comic comments display avatars and localized creation times', (
     tester,
   ) async {
@@ -7341,7 +7652,8 @@ void main() {
           button.right,
           closeTo(size.width - (size.width == 320 ? 8 : 16) - 8, 0.1),
         );
-        expect(button.top, greaterThan(title.bottom));
+        expect(button.bottom, lessThan(title.top));
+        expect(cover.bottom, lessThan(title.top));
         if (size.width == 320) {
           expect(button.top, greaterThan(cover.bottom));
         } else {

@@ -87,7 +87,7 @@ class AudioPlayerPageRoute<T> extends PageRoute<T>
        _prepareInitialFrame =
            !skipInitialTransition &&
            initialDismissVisualMode == PlayerDismissVisualMode.secondary,
-       super(settings: appImmersiveRouteSettings);
+       super(settings: appAudioPlayerRouteSettings);
 
   final WidgetBuilder builder;
   final bool skipInitialTransition;

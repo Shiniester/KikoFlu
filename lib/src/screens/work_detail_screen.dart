@@ -143,9 +143,15 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
       _hdImageProvider.value = null;
     }
     _hdPixelSize = size;
+    final navigator = Navigator.maybeOf(context);
+    final navigation = AppNavigationScope.maybeOf(context);
     _routeReadiness.bind(
       route: ModalRoute.of(context),
-      navigator: Navigator.maybeOf(context),
+      navigator: navigator,
+      navigationMotion:
+          identical(navigator, navigation?.tabNavigator(appAudioTabIndex))
+          ? AppNavigationScope.navigationMotionOf(context)
+          : null,
     );
     final animation = ModalRoute.of(context)?.animation;
     if (_routeAnimation != animation) {
@@ -1106,7 +1112,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
         ),
         const SizedBox(height: 8),
         WorkDetailErrorBanner(message: _errorMessage, onRetry: _loadWorkDetail),
-        // 评分信息、价格、时长和销量
+        // 评分信息、价格、时长、销量和发售日
         Consumer(
           builder: (context, ref, _) {
             final displaySettings = ref.watch(workDetailDisplayProvider);
@@ -1117,6 +1123,7 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
               showPrice: displaySettings.showPrice,
               showDuration: displaySettings.showDuration,
               showSales: displaySettings.showSales,
+              showReleaseDate: displaySettings.showReleaseDate,
               onShowRatingDetails: () => _showRatingDetailDialog(work),
               onShowProgress: work.isJapaneseAsmr ? null : _showProgressDialog,
             );
@@ -1129,15 +1136,6 @@ class _WorkDetailScreenState extends ConsumerState<WorkDetailScreen> {
           onTagLongPress: work.isJapaneseAsmr ? null : _showTagInfo,
           onTagSecondaryTap: work.isJapaneseAsmr ? null : _showTagInfo,
           onAddTag: work.isJapaneseAsmr ? null : _showAddTagDialog,
-        ),
-        Consumer(
-          builder: (context, ref, _) {
-            final displaySettings = ref.watch(workDetailDisplayProvider);
-            return WorkReleaseDateSection(
-              release: work.release,
-              visible: displaySettings.showReleaseDate,
-            );
-          },
         ),
         Builder(
           builder: (context) => OtherLanguageEditionsSection(

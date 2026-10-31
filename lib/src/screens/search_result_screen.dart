@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -13,6 +15,8 @@ import '../widgets/works_grid_view.dart';
 import '../widgets/virtualized_sliver_collection.dart';
 import '../widgets/sort_dialog.dart';
 import '../widgets/global_audio_player_wrapper.dart';
+import '../widgets/app_bottom_dock_transition.dart';
+import '../widgets/app_navigation_scope.dart';
 import '../widgets/download_fab.dart';
 import '../utils/l10n_extensions.dart';
 import '../utils/subtitle_filter.dart';
@@ -27,9 +31,23 @@ class SearchResultScreen extends StatelessWidget {
   final String keyword;
   final String? searchTypeLabel;
   final Map<String, dynamic>? searchParams;
+  final SearchResultState? _initialState;
+  final double _initialScrollOffset;
+  final int? _pendingPage;
 
   const SearchResultScreen({
     super.key,
+    required this.keyword,
+    this.searchTypeLabel,
+    this.searchParams,
+  }) : _initialState = null,
+       _initialScrollOffset = 0,
+       _pendingPage = null;
+
+  const SearchResultScreen._restore(
+    this._initialState,
+    this._initialScrollOffset,
+    this._pendingPage, {
     required this.keyword,
     this.searchTypeLabel,
     this.searchParams,
@@ -46,6 +64,7 @@ class SearchResultScreen extends StatelessWidget {
             apiService,
             ref,
             initialPageSize: pageSize,
+            initialState: _initialState,
           );
 
           ref.listen(pageSizeProvider, (previous, next) {
@@ -65,6 +84,9 @@ class SearchResultScreen extends StatelessWidget {
         keyword: keyword,
         searchTypeLabel: searchTypeLabel,
         searchParams: searchParams,
+        restored: _initialState != null,
+        initialScrollOffset: _initialScrollOffset,
+        pendingPage: _pendingPage,
       ),
     );
   }
@@ -74,11 +96,17 @@ class _SearchResultContent extends ConsumerStatefulWidget {
   final String keyword;
   final String? searchTypeLabel;
   final Map<String, dynamic>? searchParams;
+  final bool restored;
+  final double initialScrollOffset;
+  final int? pendingPage;
 
   const _SearchResultContent({
     required this.keyword,
     this.searchTypeLabel,
     this.searchParams,
+    required this.restored,
+    required this.initialScrollOffset,
+    required this.pendingPage,
   });
 
   @override
@@ -87,16 +115,28 @@ class _SearchResultContent extends ConsumerStatefulWidget {
 }
 
 class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
-  final ScrollController _scrollController = ScrollController();
+  late final ScrollController _scrollController;
+  bool _openingWorkDetail = false;
 
   @override
   void initState() {
     super.initState();
+    _scrollController = ScrollController(
+      initialScrollOffset: widget.initialScrollOffset,
+    );
     logOutput(
       '[SearchResult] Screen initialized with keyword: ${widget.keyword}, type: ${widget.searchTypeLabel}',
     );
     // Load initial data
+    if (widget.restored && widget.pendingPage == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (widget.restored) {
+        unawaited(
+          ref.read(searchResultProvider.notifier).goToPage(widget.pendingPage!),
+        );
+        return;
+      }
       logOutput(
         '[SearchResult] Starting search with params: ${widget.searchParams}',
       );
@@ -113,6 +153,67 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
   void dispose() {
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _openWorkDetail(WidgetBuilder builder) async {
+    final navigation = AppNavigationScope.maybeOf(context);
+    final playerRoute = navigation?.audioPlayerRoute;
+    final rootNavigator = navigation?.navigator;
+    if (navigation == null || playerRoute == null || rootNavigator == null) {
+      await pushWorkDetailRoute(context, builder: builder);
+      return;
+    }
+    if (_openingWorkDetail) return;
+    _openingWorkDetail = true;
+    try {
+      navigation.selectTab(appAudioTabIndex);
+      var audioNavigator = navigation.tabNavigator(appAudioTabIndex);
+      if (audioNavigator == null) {
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted) return;
+        audioNavigator = navigation.tabNavigator(appAudioTabIndex);
+      }
+      if (ModalRoute.of(context)?.isCurrent != true) return;
+      if (navigation.audioPlayerRoute != playerRoute) {
+        await pushWorkDetailRoute(context, builder: builder);
+        return;
+      }
+      if (audioNavigator == null) {
+        rootNavigator.removeRoute(playerRoute);
+        await pushWorkDetailRoute(context, builder: builder);
+        return;
+      }
+      final offset = _scrollController.hasClients
+          ? _scrollController.offset
+          : 0.0;
+      final pendingPage = ref
+          .read(searchResultProvider.notifier)
+          .cancelPendingPage();
+      final restoredState = ref.read(searchResultProvider);
+      unawaited(
+        pushBottomDockRoute(
+          context,
+          navigator: audioNavigator,
+          builder: (_) => SearchResultScreen._restore(
+            restoredState,
+            offset,
+            pendingPage,
+            keyword: widget.keyword,
+            searchTypeLabel: widget.searchTypeLabel,
+            searchParams: widget.searchParams,
+          ),
+        ),
+      );
+      final result = pushWorkDetailRoute(
+        context,
+        navigator: audioNavigator,
+        builder: builder,
+      );
+      rootNavigator.popUntil((route) => route.isFirst);
+      await result;
+    } finally {
+      if (mounted) _openingWorkDetail = false;
+    }
   }
 
   void _showSortDialog(BuildContext context) {
@@ -460,6 +561,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
 
     return WorksGridView(
       works: searchState.works,
+      onOpenWorkDetail: (builder) => unawaited(_openWorkDetail(builder)),
       layoutType: searchState.layoutType.toWorksLayoutType(),
       scrollController: _scrollController,
       isLoading: searchState.isLoading,

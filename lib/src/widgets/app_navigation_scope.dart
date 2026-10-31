@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
 const appImmersiveRouteSettings = RouteSettings(name: 'app-immersive');
+const appAudioPlayerRouteSettings = RouteSettings(name: 'app-audio-player');
 const appAudioTabIndex = 0;
 const appVideoTabIndex = 2;
 const appTabCount = 4;
@@ -35,6 +36,7 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
   >
   _sheetRoutes = {};
   final Set<Route<dynamic>> _fullscreenRoutes = {};
+  final Set<Route<dynamic>> _closingAudioPlayerRoutes = {};
   final Map<Route<dynamic>, Animation<double>> _fullscreenTransitions = {};
   final List<GlobalKey<NavigatorState>> _tabNavigatorKeys;
   final List<_AppTabNavigatorObserver> _tabObservers;
@@ -48,6 +50,9 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
   int get selectedIndex => _selectedIndex;
   bool get navigationVisible => _navigationVisible;
   bool get playerLaunchPreviewActive => _playerLaunchPreviewActive;
+  Route<dynamic>? get audioPlayerRoute => _routes
+      .where((route) => route.settings.name == appAudioPlayerRouteSettings.name)
+      .lastOrNull;
   Animation<double>? get fullscreenTransition => _fullscreenTransition;
   PopupRoute<dynamic>? get popupRoute => _popupRoute ?? sheetRoutes.lastOrNull;
   Iterable<PopupRoute<dynamic>> get popupRoutes => {
@@ -192,6 +197,9 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
   @override
   void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
     if (route is PageRoute<dynamic>) {
+      if (route.settings.name == appAudioPlayerRouteSettings.name) {
+        _closingAudioPlayerRoutes.add(route);
+      }
       _routes.remove(route);
       _outgoing ??= route;
     }
@@ -237,6 +245,7 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
 
   void _forgetRoute(Route<dynamic> route) {
     _fullscreenRoutes.remove(route);
+    _closingAudioPlayerRoutes.remove(route);
     _fullscreenTransitions.remove(route);
   }
 
@@ -248,6 +257,8 @@ class AppNavigationController extends NavigatorObserver with ChangeNotifier {
         : _tabObservers[_selectedIndex].currentPage ?? rootPage;
     final visible =
         !_playerLaunchPreviewActive &&
+        _closingAudioPlayerRoutes.isEmpty &&
+        audioPlayerRoute == null &&
         page?.settings.name != appImmersiveRouteSettings.name &&
         !_fullscreenRoutes.contains(page);
     final transition = page == null ? null : _fullscreenTransitions[page];
@@ -352,22 +363,29 @@ class AppNavigationScope extends InheritedNotifier<AppNavigationController> {
     super.key,
     required AppNavigationController controller,
     required this.mediaQuery,
+    required this.navigationMotion,
     required super.child,
   }) : super(notifier: controller);
 
   final MediaQueryData mediaQuery;
+  final Animation<double> navigationMotion;
 
   @override
   bool updateShouldNotify(AppNavigationScope oldWidget) =>
       super.updateShouldNotify(oldWidget) ||
       mediaQuery.padding != oldWidget.mediaQuery.padding ||
-      mediaQuery.viewPadding != oldWidget.mediaQuery.viewPadding;
+      mediaQuery.viewPadding != oldWidget.mediaQuery.viewPadding ||
+      navigationMotion != oldWidget.navigationMotion;
 
   static AppNavigationController? maybeOf(BuildContext context) => context
       .dependOnInheritedWidgetOfExactType<AppNavigationScope>()
       ?.notifier;
 
   static AppNavigationController of(BuildContext context) => maybeOf(context)!;
+
+  static Animation<double>? navigationMotionOf(BuildContext context) => context
+      .dependOnInheritedWidgetOfExactType<AppNavigationScope>()
+      ?.navigationMotion;
 
   static NavigatorState navigatorOf(BuildContext context) =>
       maybeOf(context)?.navigator ?? Navigator.of(context);

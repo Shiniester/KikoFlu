@@ -803,8 +803,6 @@ class MissavClient extends ChangeNotifier {
       video: video,
       description: _parseDescription(document),
       metadata: metadata,
-      actors: video.actors,
-      tags: video.tags,
       related: related,
       streams: _parseStreams(document, uri, userAgent: _userAgent).map((
         stream,
@@ -896,8 +894,6 @@ class MissavClient extends ChangeNotifier {
         initialDetails.metadata,
         detailedVideo,
       ),
-      actors: detailedVideo.actors,
-      tags: detailedVideo.tags,
       related: enriched.skip(1).toList(),
       streams: initialDetails.streams,
       sourceId: sourceId,

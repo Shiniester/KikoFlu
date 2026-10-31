@@ -25,6 +25,7 @@ class WorksGridView extends ConsumerWidget {
     this.onLoadMore,
     this.onRetry,
     this.onPrefetch,
+    this.onOpenWorkDetail,
     this.emptyBuilder,
     this.loadingBuilder,
     this.errorBuilder,
@@ -52,6 +53,7 @@ class WorksGridView extends ConsumerWidget {
   final Future<void> Function()? onLoadMore;
   final VoidCallback? onRetry;
   final ValueChanged<List<Work>>? onPrefetch;
+  final void Function(WidgetBuilder)? onOpenWorkDetail;
   final WidgetBuilder? emptyBuilder;
   final WidgetBuilder? loadingBuilder;
   final VirtualizedErrorBuilder? errorBuilder;
@@ -124,6 +126,7 @@ class WorksGridView extends ConsumerWidget {
                 itemBuilder: (context, work, index) => EnhancedWorkCard(
                   key: ValueKey(work.id),
                   work: work,
+                  onOpenWorkDetail: onOpenWorkDetail,
                   crossAxisCount: crossAxisCount,
                   isListLayout: layoutType == LayoutType.list,
                 ),

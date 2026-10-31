@@ -331,6 +331,18 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
                   onTap: () => _showLicenseDialog(data.license),
                 ),
               ),
+              const SizedBox(height: 16),
+              SettingsSectionCard(
+                child: SettingsListTile(
+                  icon: Icons.link,
+                  iconColor: primaryColor,
+                  title: 'EhTagTranslation',
+                  subtitle: 'CC BY-NC-SA 3.0',
+                  trailing: const Icon(Icons.open_in_new),
+                  onTap: () =>
+                      _openUrl('https://github.com/EhTagTranslation/Database'),
+                ),
+              ),
             ],
           );
         },

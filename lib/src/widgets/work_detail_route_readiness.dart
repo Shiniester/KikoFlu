@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 class WorkDetailRouteReadiness {
   ModalRoute<dynamic>? _route;
   NavigatorState? _navigator;
+  Animation<double>? _navigationMotion;
   Completer<void>? _changed;
   int _revision = 0;
   int _bindingGeneration = 0;
@@ -19,25 +20,31 @@ class WorkDetailRouteReadiness {
     if (!_bound || _disposed || _popped) return false;
     final route = _route;
     final navigator = _navigator;
+    final navigationMotion = _navigationMotion;
     final primaryStatus = route?.animation?.status;
     final secondaryStatus = route?.secondaryAnimation?.status;
+    // The shell's animateTo(0) ends with AnimationStatus.completed.
     return (route == null || route.isCurrent) &&
         (primaryStatus == null || primaryStatus == AnimationStatus.completed) &&
         (secondaryStatus == null ||
             secondaryStatus == AnimationStatus.dismissed) &&
+        (navigationMotion == null ||
+            (navigationMotion.value == 0 && !navigationMotion.isAnimating)) &&
         !(navigator?.userGestureInProgress ?? false);
   }
 
   void bind({
     required ModalRoute<dynamic>? route,
     required NavigatorState? navigator,
+    Animation<double>? navigationMotion,
   }) {
     if (_disposed) {
       return;
     }
     if (_bound &&
         identical(_route, route) &&
-        identical(_navigator, navigator)) {
+        identical(_navigator, navigator) &&
+        identical(_navigationMotion, navigationMotion)) {
       final current = route?.isCurrent ?? true;
       if (_lastObservedCurrent != current) {
         _lastObservedCurrent = current;
@@ -48,16 +55,19 @@ class WorkDetailRouteReadiness {
 
     _route?.animation?.removeStatusListener(_onAnimationStatus);
     _route?.secondaryAnimation?.removeStatusListener(_onAnimationStatus);
+    _navigationMotion?.removeStatusListener(_onAnimationStatus);
     _navigator?.userGestureInProgressNotifier.removeListener(_onGestureChanged);
 
     _route = route;
     _navigator = navigator;
+    _navigationMotion = navigationMotion;
     _lastObservedCurrent = route?.isCurrent ?? true;
     _popped = false;
     _bound = true;
     final generation = ++_bindingGeneration;
     route?.animation?.addStatusListener(_onAnimationStatus);
     route?.secondaryAnimation?.addStatusListener(_onAnimationStatus);
+    navigationMotion?.addStatusListener(_onAnimationStatus);
     navigator?.userGestureInProgressNotifier.addListener(_onGestureChanged);
     if (route != null) {
       unawaited(
@@ -97,6 +107,7 @@ class WorkDetailRouteReadiness {
     _disposed = true;
     _route?.animation?.removeStatusListener(_onAnimationStatus);
     _route?.secondaryAnimation?.removeStatusListener(_onAnimationStatus);
+    _navigationMotion?.removeStatusListener(_onAnimationStatus);
     _navigator?.userGestureInProgressNotifier.removeListener(_onGestureChanged);
     _notifyChanged();
   }
