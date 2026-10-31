@@ -191,8 +191,9 @@ _Avoid_: scoped search
 
 **Scoped Search (范围搜索)**:
 The shared search interface opened from a library page. Its results are limited
-to that page's complete collection, such as one online-mark state, history,
-playlists, or completed downloads.
+to that page's complete collection, such as an audio online-mark state, history,
+playlists, or completed downloads; comic favorites; or video downloads. The
+collection remains the search scope until the search closes.
 _Avoid_: global works search
 
 **Audio Search Catalog (音声搜索目录)**:
@@ -210,8 +211,8 @@ The online or offline screen describing a work and its available resource files.
 It is distinct from the Player Audio Details Page for the current track.
 Opening a Work Details Screen from the full-screen audio player closes the
 full-screen player, shows the Mini Player, and switches to Audio.
-The same applies when opening a Work Details Screen from a search started in the
-player. Returning to the search preserves its filters, page, and scroll position.
+Returning from a Work Details Screen to a search started in the player preserves
+the search's filters, page, and scroll position.
 _Avoid_: Player details page, audio details page
 
 **Work Audio Chapter (作品音频章节)**:
@@ -316,7 +317,7 @@ The persistent Mini Player and app navigation shared by browsing pages.
 App navigation stays below the content in portrait and on the left in landscape.
 Full-screen audio playback, comic reading, and full-screen video hide this surface.
 The Bottom Dock stays hidden while the full-screen audio player remains open,
-including when Cover Preview, metadata search, or a lyric text preview is open.
+including when Cover Preview or a lyric text preview is open.
 _Avoid_: Mini Player, App Tab Bar
 
 **Player Cover Page (播放器封面页)**:
@@ -337,6 +338,8 @@ _Avoid_: Playlist Add Mode, 播放列表添加模式
 **Player Audio Details Page (播放器音频详情页)**:
 The full-screen player page containing details for the current audio track. It
 is distinct from the Work Details Screen for the containing work.
+Opening a metadata search closes the player, shows the Mini Player, and switches
+to Audio.
 _Avoid_: Player details page, work details page
 
 **Audio Subtitle Language (音频字幕语言)**:

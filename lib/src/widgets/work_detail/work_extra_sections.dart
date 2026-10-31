@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../models/work.dart';
-import 'work_detail_date.dart';
 import 'work_detail_section_title.dart';
 
 class WorkReleaseDateSection extends StatelessWidget {
@@ -20,9 +19,20 @@ class WorkReleaseDateSection extends StatelessWidget {
     }
 
     final label = S.of(context).releaseDate;
+    final style = Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: Colors.grey[600],
+          fontSize: 12,
+        );
     return Tooltip(
       message: label,
-      child: WorkDetailDate(label: label, date: release!),
+      child: Wrap(
+        spacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(label, style: style),
+          Text(release!.split('T').first, style: style),
+        ],
+      ),
     );
   }
 }

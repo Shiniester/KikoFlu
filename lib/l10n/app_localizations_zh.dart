@@ -365,6 +365,21 @@ class SZh extends S {
   String get searchHistory => '搜索历史';
 
   @override
+  String get searchUpdating => '正在更新搜索结果…';
+
+  @override
+  String get searchUpdateFailedShowingPrevious => '更新失败，显示上一次的搜索结果。';
+
+  @override
+  String get searchLegacyHistory => '旧搜索历史（范围未知）';
+
+  @override
+  String get searchHistoryNotSaved => '搜索历史无法保存，新增内容只保留到应用关闭。';
+
+  @override
+  String get clearCurrentSearchHistoryConfirm => '确定清除当前范围的搜索历史吗？';
+
+  @override
   String get clearSearchHistory => '清除搜索历史';
 
   @override
@@ -5162,6 +5177,21 @@ class SZhHant extends SZh {
 
   @override
   String get searchHistory => '搜尋歷史';
+
+  @override
+  String get searchUpdating => '正在更新搜尋結果…';
+
+  @override
+  String get searchUpdateFailedShowingPrevious => '更新失敗，顯示上一次的搜尋結果。';
+
+  @override
+  String get searchLegacyHistory => '舊搜尋歷史（範圍未知）';
+
+  @override
+  String get searchHistoryNotSaved => '搜尋歷史無法儲存，新增內容只保留到應用程式關閉。';
+
+  @override
+  String get clearCurrentSearchHistoryConfirm => '確定清除目前範圍的搜尋歷史嗎？';
 
   @override
   String get clearSearchHistory => '清除搜尋歷史';

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:kikoeru_flutter/l10n/app_localizations.dart';
+import 'package:kikoeru_flutter/src/providers/unified_search_history_provider.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_search_screen.dart';
 import 'package:kikoeru_flutter/src/videos/ui/video_collection_view.dart';
 import 'package:kikoeru_flutter/src/videos/missav_client.dart';
@@ -79,6 +81,511 @@ void main() {
     await tester.tap(find.byTooltip(l10n.clear));
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.history), findsNothing);
+  });
+
+  testWidgets('history can be opened without clearing the current search', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Video search',
+          search: (_, _, _) async => const VideoSearchResults.collection([
+            VideoItem(
+              id: 'one',
+              title: 'Video result',
+              pageUrl: 'https://example.test/one',
+            ),
+          ]),
+          browsePage: (url) async =>
+              VideoCatalogPage(title: 'Results', url: url),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('video-search-input')),
+      'actor',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('video-search-history-toggle')));
+    await tester.pumpAndSettle();
+    expect(find.text('Video result'), findsNothing);
+    expect(find.text('actor'), findsWidgets);
+    await tester.tap(find.byKey(const ValueKey('video-search-history-toggle')));
+    await tester.pumpAndSettle();
+    expect(find.text('Video result'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('video-search-input')))
+          .controller!
+          .text,
+      'actor',
+    );
+  });
+
+  testWidgets('source history shows and clears migrated legacy entries', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'video_search_history': ['legacy query'],
+    });
+
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Video search',
+          search: (_, _, _) async => const VideoSearchResults.collection([]),
+          browsePage: (url) async =>
+              VideoCatalogPage(title: 'Results', url: url),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final l10n = await S.delegate.load(const Locale('en'));
+    expect(find.text('legacy query'), findsOneWidget);
+    expect(find.text(l10n.searchLegacyHistory), findsOneWidget);
+    await tester.tap(find.byTooltip(l10n.clearSearchHistory));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.confirm));
+    await tester.pumpAndSettle();
+
+    expect(find.text('legacy query'), findsNothing);
+  });
+
+  testWidgets('non-directory history does not include legacy video entries', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'video_search_history': ['legacy query'],
+    });
+
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Favorites search',
+          historyContext: const UnifiedSearchHistoryContext(
+            contentType: 'video',
+            entryScope: 'favorites',
+            source: 'missav',
+          ),
+          search: (_, _, _) async => const VideoSearchResults.collection([]),
+          browsePage: (url) async =>
+              VideoCatalogPage(title: 'Results', url: url),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('legacy query'), findsNothing);
+  });
+
+  testWidgets('new download searches do not write the legacy video history', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Downloads search',
+          historyContext: const UnifiedSearchHistoryContext(
+            contentType: 'video',
+            entryScope: 'downloads',
+            source: 'missav',
+          ),
+          search: (_, _, _) async => const VideoSearchResults.collection([]),
+          browsePage: (url) async =>
+              VideoCatalogPage(title: 'Results', url: url),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('video-search-input')),
+      'download query',
+    );
+    final l10n = await S.delegate.load(const Locale('en'));
+    await tester.tap(find.byTooltip(l10n.search));
+    await tester.pumpAndSettle();
+
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getStringList('video_search_history'), isNull);
+  });
+
+  testWidgets('account history follows the active account name', (
+    tester,
+  ) async {
+    final history = [
+      UnifiedSearchHistoryEntry(
+        id: 'account-a',
+        context: const UnifiedSearchHistoryContext(
+          contentType: 'video',
+          entryScope: 'favorites',
+          source: 'missav:Account A',
+        ),
+        payload: {'keyword': 'Account A query', 'filters': <String>[]},
+        timestamp: DateTime.utc(2026, 10, 31, 10),
+      ),
+      UnifiedSearchHistoryEntry(
+        id: 'account-b',
+        context: const UnifiedSearchHistoryContext(
+          contentType: 'video',
+          entryScope: 'favorites',
+          source: 'missav:Account B',
+        ),
+        payload: {'keyword': 'Account B query', 'filters': <String>[]},
+        timestamp: DateTime.utc(2026, 10, 31, 11),
+      ),
+    ];
+    SharedPreferences.setMockInitialValues({
+      'unified_search_history': jsonEncode({
+        'version': 1,
+        'legacyMigrationComplete': true,
+        'records': history.map((entry) => entry.toJson()).toList(),
+      }),
+    });
+    final client = _TestAccountClient();
+    addTearDown(client.dispose);
+
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Favorites search',
+          accountClient: client,
+          historyContext: const UnifiedSearchHistoryContext(
+            contentType: 'video',
+            entryScope: 'favorites',
+            source: 'missav',
+          ),
+          search: (_, _, _) async => const VideoSearchResults.collection([]),
+          browsePage: (url) async =>
+              VideoCatalogPage(title: 'Results', url: url),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Account A query'), findsOneWidget);
+    expect(find.text('Account B query'), findsNothing);
+
+    client.changeAccount('Account B');
+    await tester.pumpAndSettle();
+    expect(find.text('Account A query'), findsNothing);
+    expect(find.text('Account B query'), findsOneWidget);
+  });
+
+  testWidgets('successful empty search replaces the previous results', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    var attempts = 0;
+    const oldResult = VideoItem(
+      id: 'old-result',
+      title: 'Old result',
+      pageUrl: 'https://missav.ai/old-result',
+    );
+
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Video search',
+          search: (_, _, _) async {
+            attempts++;
+            return attempts == 1
+                ? const VideoSearchResults.collection([oldResult])
+                : const VideoSearchResults.collection([]);
+          },
+          browsePage: (url) async =>
+              VideoCatalogPage(title: 'Results', url: url),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('video-search-input')),
+      'first query',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    expect(find.text('Old result'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('video-search-input')),
+      'empty query',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    final l10n = await S.delegate.load(const Locale('en'));
+    expect(find.text('Old result'), findsNothing);
+    expect(find.text(l10n.noResults), findsOneWidget);
+  });
+
+  testWidgets(
+    'search updates keep prior results open through loading, failure, and retry',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final delayedUpdate = Completer<VideoSearchResults>();
+      var attempts = 0;
+      var verifiedSource = '';
+      var openedTitle = '';
+      const oldResult = VideoItem(
+        id: 'old-result',
+        title: 'Old result',
+        pageUrl: 'https://missav.ai/old-result',
+      );
+      final oldResults = [
+        for (var index = 0; index < 40; index++)
+          VideoItem(
+            id: 'old-page-$index',
+            title: 'Old page item $index',
+            pageUrl: 'https://missav.ai/old-page-$index',
+          ),
+        oldResult,
+      ];
+      const updatedResult = VideoItem(
+        id: 'updated-result',
+        title: 'Updated result',
+        pageUrl: 'https://missav.ai/updated-result',
+      );
+
+      await tester.pumpWidget(
+        _app(
+          VideoSearchScreen(
+            title: 'Video search',
+            search: (_, _, _) {
+              attempts++;
+              return switch (attempts) {
+                1 => Future.value(VideoSearchResults.collection(oldResults)),
+                2 => delayedUpdate.future,
+                3 => throw const MissavVerificationRequiredException(
+                  sourceUrl: 'https://missav.ai/en/search?q=updated',
+                ),
+                _ => Future.value(
+                  const VideoSearchResults.collection([updatedResult]),
+                ),
+              };
+            },
+            browsePage: (url) async =>
+                VideoCatalogPage(title: 'Results', url: url),
+            onOpenVideo: (_, video) => openedTitle = video.title,
+            verifyAccess: (_, error) async {
+              verifiedSource = error.sourceUrl ?? '';
+              return true;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('video-search-input')),
+        'first query',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle();
+      expect(find.text('Old page item 0'), findsOneWidget);
+      final l10n = await S.delegate.load(const Locale('en'));
+      await _scrollToPagination(tester);
+      await tester.tap(find.text(l10n.nextPage));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<PaginationBar>(find.byType(PaginationBar)).currentPage,
+        2,
+      );
+
+      final oldPageStorageKey = tester
+          .widget<VideoCollectionView<VideoItem>>(
+            find.byType(VideoCollectionView<VideoItem>),
+          )
+          .pageStorageKey;
+      await tester.enterText(
+        find.byKey(const ValueKey('video-search-input')),
+        'updated query',
+      );
+      await tester.pump();
+      expect(
+        tester
+            .widget<VideoCollectionView<VideoItem>>(
+              find.byType(VideoCollectionView<VideoItem>),
+            )
+            .pageStorageKey,
+        oldPageStorageKey,
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pump();
+      expect(find.text(l10n.searchUpdating), findsOneWidget);
+      expect(find.text('Old result'), findsOneWidget);
+      await _scrollToPagination(tester, settle: false);
+      expect(
+        tester.widget<PaginationBar>(find.byType(PaginationBar)).currentPage,
+        2,
+      );
+      await tester.tap(find.text('Old result'));
+      expect(openedTitle, 'Old result');
+
+      delayedUpdate.completeError(StateError('temporary failure'));
+      await tester.pumpAndSettle();
+      expect(find.text('Old result'), findsOneWidget);
+      expect(find.text(l10n.searchUpdateFailedShowingPrevious), findsOneWidget);
+      await _scrollToPagination(tester);
+      expect(
+        tester.widget<PaginationBar>(find.byType(PaginationBar)).currentPage,
+        2,
+      );
+      await tester.tap(find.text(l10n.retry));
+      await tester.pumpAndSettle();
+      expect(attempts, 3);
+      expect(find.text('Old result'), findsOneWidget);
+      expect(find.text(l10n.videoVerificationRequired), findsOneWidget);
+      await _scrollToPagination(tester);
+      expect(
+        tester.widget<PaginationBar>(find.byType(PaginationBar)).currentPage,
+        2,
+      );
+      await tester.tap(find.text(l10n.videoVerifyAccess));
+      await tester.pumpAndSettle();
+
+      expect(verifiedSource, 'https://missav.ai/en/search?q=updated');
+      expect(attempts, 4);
+      expect(find.text('Old result'), findsNothing);
+      expect(find.text('Updated result'), findsOneWidget);
+    },
+  );
+
+  testWidgets('replaying a search restores filters and preserves its history', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final submitted = <({String query, List<String> filterUrls})>[];
+
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Video search',
+          search: (query, filters, _) async {
+            submitted.add((
+              query: query,
+              filterUrls: filters.map((filter) => filter.url).toList(),
+            ));
+            return const VideoSearchResults.collection([]);
+          },
+          loadFilters: (kind, _) async => _filterPage(kind),
+          browsePage: (url) async =>
+              VideoCatalogPage(title: 'Results', url: url),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _chooseFilter(tester, VideoSearchFilterKind.genre, 'Genre filter');
+    await tester.enterText(
+      find.byKey(const ValueKey('video-search-input')),
+      'history keyword',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    final l10n = await S.delegate.load(const Locale('en'));
+    await tester.tap(find.byTooltip(l10n.clear));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('history keyword · Genre filter'));
+    await tester.pumpAndSettle();
+
+    expect(submitted.last.query, 'history keyword');
+    expect(submitted.last.filterUrls, [
+      _filterUrl(VideoSearchFilterKind.genre),
+    ]);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('video-search-input')))
+          .controller
+          ?.text,
+      'history keyword',
+    );
+    expect(
+      find.byKey(
+        ValueKey(
+          'selected-video-filter-${_filterUrl(VideoSearchFilterKind.genre)}',
+        ),
+      ),
+      findsOneWidget,
+    );
+
+    await _chooseFilter(tester, VideoSearchFilterKind.actor, 'Actor filter');
+    expect(submitted, hasLength(3));
+    expect(submitted.last.query, 'history keyword');
+    expect(submitted.last.filterUrls, [
+      _filterUrl(VideoSearchFilterKind.genre),
+      _filterUrl(VideoSearchFilterKind.actor),
+    ]);
+
+    await tester.tap(find.byTooltip(l10n.clear));
+    await tester.pumpAndSettle();
+    expect(find.text('history keyword · Genre filter'), findsOneWidget);
+    expect(
+      find.text('history keyword · Genre filter · Actor filter'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('failed catalog paging labels the retained page and retries', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    var pageAttempts = 0;
+    const oldResult = VideoItem(
+      id: 'catalog-page-one',
+      title: 'Catalog page one',
+      pageUrl: 'https://missav.ai/catalog-page-one',
+    );
+    const nextResult = VideoItem(
+      id: 'catalog-page-two',
+      title: 'Catalog page two',
+      pageUrl: 'https://missav.ai/catalog-page-two',
+    );
+
+    await tester.pumpWidget(
+      _app(
+        VideoSearchScreen(
+          title: 'Video search',
+          initialQuery: 'actor',
+          search: (_, _, _) async => VideoSearchResults.catalog(
+            const VideoCatalogPage(
+              title: 'Catalog',
+              url: 'https://missav.ai/catalog?page=1',
+              videos: [oldResult],
+              nextUrl: 'https://missav.ai/catalog?page=2',
+            ),
+          ),
+          browsePage: (url) async {
+            pageAttempts++;
+            if (pageAttempts == 1) throw StateError('page unavailable');
+            return VideoCatalogPage(
+              title: 'Catalog',
+              url: url,
+              videos: [nextResult],
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final l10n = await S.delegate.load(const Locale('en'));
+    await tester.tap(find.text(l10n.nextPage));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Catalog page one'), findsOneWidget);
+    expect(find.text(l10n.searchUpdateFailedShowingPrevious), findsOneWidget);
+    await tester.tap(find.text(l10n.retry));
+    await tester.pumpAndSettle();
+
+    expect(pageAttempts, 2);
+    expect(find.text('Catalog page one'), findsNothing);
+    expect(find.text('Catalog page two'), findsOneWidget);
   });
 
   testWidgets(
@@ -189,6 +696,200 @@ void main() {
   });
 
   testWidgets(
+    'account search keeps a 401 prompt and retry after clearing old results',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final client = _TestAccountClient();
+      var attempts = 0;
+      const oldResult = VideoItem(
+        id: 'account-old-result',
+        title: 'Old account result',
+        pageUrl: 'https://missav.ai/account-old-result',
+      );
+      const recoveredResult = VideoItem(
+        id: 'account-recovered-result',
+        title: 'Recovered account result',
+        pageUrl: 'https://missav.ai/account-recovered-result',
+      );
+
+      await tester.pumpWidget(
+        _app(
+          VideoSearchScreen(
+            title: 'Favorites search',
+            historyContext: const UnifiedSearchHistoryContext(
+              contentType: 'video',
+              entryScope: 'favorites',
+              source: 'missav',
+            ),
+            initialQuery: 'actor',
+            accountClient: client,
+            search: (_, _, _) async {
+              attempts++;
+              if (attempts == 1) {
+                return const VideoSearchResults.collection([oldResult]);
+              }
+              if (attempts == 2) {
+                client.expireSession();
+                throw const MissavAuthenticationException(
+                  sourceUrl: 'https://missav.ai/favorites',
+                );
+              }
+              return const VideoSearchResults.collection([recoveredResult]);
+            },
+            browsePage: (url) async =>
+                VideoCatalogPage(title: 'Results', url: url),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(oldResult.title), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('video-search-input')),
+        'updated actor',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle();
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      expect(find.text(oldResult.title), findsNothing);
+      expect(find.text(l10n.videoLoginRequired), findsOneWidget);
+      expect(find.text(l10n.videoLoadFailed), findsNothing);
+      expect(find.text(l10n.retry), findsOneWidget);
+
+      await tester.tap(find.text(l10n.retry));
+      await tester.pumpAndSettle();
+
+      expect(attempts, 3);
+      expect(find.text(l10n.videoLoginRequired), findsNothing);
+      expect(find.text(recoveredResult.title), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      client.dispose();
+    },
+  );
+
+  testWidgets(
+    'account changes ignore late search results and authentication failures',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final client = _TestAccountClient();
+      final oldAccountSuccess = Completer<VideoSearchResults>();
+      final oldAccountFailure = Completer<VideoSearchResults>();
+      final logoutFailure = Completer<VideoSearchResults>();
+      var attempts = 0;
+      const accountBResult = VideoItem(
+        id: 'account-b-result',
+        title: 'Account B result',
+        pageUrl: 'https://missav.ai/account-b-result',
+      );
+      const accountCResult = VideoItem(
+        id: 'account-c-result',
+        title: 'Account C result',
+        pageUrl: 'https://missav.ai/account-c-result',
+      );
+
+      await tester.pumpWidget(
+        _app(
+          VideoSearchScreen(
+            title: 'Favorites search',
+            historyContext: const UnifiedSearchHistoryContext(
+              contentType: 'video',
+              entryScope: 'favorites',
+              source: 'missav',
+            ),
+            initialQuery: 'actor',
+            accountClient: client,
+            search: (_, _, _) {
+              attempts++;
+              return switch (attempts) {
+                1 => oldAccountSuccess.future,
+                2 => Future.value(
+                  const VideoSearchResults.collection([accountBResult]),
+                ),
+                3 => oldAccountFailure.future,
+                4 => Future.value(
+                  const VideoSearchResults.collection([accountCResult]),
+                ),
+                _ => logoutFailure.future,
+              };
+            },
+            browsePage: (url) async =>
+                VideoCatalogPage(title: 'Results', url: url),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final l10n = await S.delegate.load(const Locale('en'));
+      client.changeAccount('Account B');
+      await tester.pump();
+      await tester.tap(find.byTooltip(l10n.search));
+      await tester.pumpAndSettle();
+      expect(find.text(accountBResult.title), findsOneWidget);
+
+      oldAccountSuccess.complete(
+        const VideoSearchResults.collection([
+          VideoItem(
+            id: 'account-a-result',
+            title: 'Account A result',
+            pageUrl: 'https://missav.ai/account-a-result',
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(accountBResult.title), findsOneWidget);
+      expect(find.text('Account A result'), findsNothing);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('video-search-input')),
+        'account C query',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pump();
+      client.changeAccount('Account C');
+      await tester.pump();
+      await tester.tap(find.byTooltip(l10n.search));
+      await tester.pumpAndSettle();
+      expect(find.text(accountCResult.title), findsOneWidget);
+
+      oldAccountFailure.completeError(
+        const MissavAuthenticationException(
+          sourceUrl: 'https://missav.ai/favorites',
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(accountCResult.title), findsOneWidget);
+      expect(find.text(l10n.videoLoginRequired), findsNothing);
+      expect(find.text(l10n.retry), findsNothing);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('video-search-input')),
+        'logout query',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pump();
+      client.expireSession();
+      await tester.pump();
+      expect(find.text(l10n.videoLoginRequired), findsOneWidget);
+      expect(find.text(l10n.retry), findsOneWidget);
+      logoutFailure.completeError(
+        const MissavAuthenticationException(
+          sourceUrl: 'https://missav.ai/favorites',
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.videoLoginRequired), findsOneWidget);
+      expect(find.text(l10n.retry), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      client.dispose();
+    },
+  );
+
+  testWidgets(
     'account collection results clear on account change while covered',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
@@ -204,6 +905,11 @@ void main() {
         _app(
           VideoSearchScreen(
             title: 'Favorites search',
+            historyContext: const UnifiedSearchHistoryContext(
+              contentType: 'video',
+              entryScope: 'favorites',
+              source: 'missav',
+            ),
             initialQuery: 'actor',
             accountClient: client,
             search: (_, _, _) async {
@@ -332,25 +1038,31 @@ void main() {
     await tester.pumpAndSettle();
 
     await _chooseFilter(tester, VideoSearchFilterKind.genre, 'Genre filter');
-    expect(submitted.last.query, isEmpty);
-    expect(submitted.last.filterUrls, [
-      _filterUrl(VideoSearchFilterKind.genre),
-    ]);
+    expect(submitted, isEmpty);
+    await _toggleFilterPanel(tester);
+    expect(find.byKey(const ValueKey('video-filter-genre')), findsNothing);
+    expect(
+      find.byKey(
+        ValueKey(
+          'selected-video-filter-${_filterUrl(VideoSearchFilterKind.genre)}',
+        ),
+      ),
+      findsOneWidget,
+    );
+    await _toggleFilterPanel(tester);
 
     await _chooseFilter(tester, VideoSearchFilterKind.actor, 'Actor filter');
-    expect(submitted.last.query, isEmpty);
-    expect(submitted.last.filterUrls, [
-      _filterUrl(VideoSearchFilterKind.genre),
-      _filterUrl(VideoSearchFilterKind.actor),
-    ]);
+    expect(submitted, isEmpty);
 
     await tester.enterText(
       find.byKey(const ValueKey('video-search-input')),
       'live keyword',
     );
-    await tester.testTextInput.receiveAction(TextInputAction.search);
+    final l10n = await S.delegate.load(const Locale('en'));
+    await tester.tap(find.byTooltip(l10n.search));
     await tester.pumpAndSettle();
 
+    expect(submitted, hasLength(1));
     expect(submitted.last.query, 'live keyword');
     expect(submitted.last.filterUrls, [
       _filterUrl(VideoSearchFilterKind.genre),
@@ -358,7 +1070,33 @@ void main() {
     ]);
     expect(find.text('Filtered result'), findsOneWidget);
 
-    final l10n = await S.delegate.load(const Locale('en'));
+    await _chooseFilter(tester, VideoSearchFilterKind.studio, 'Studio filter');
+    expect(submitted, hasLength(2));
+    expect(submitted.last.query, 'live keyword');
+    expect(submitted.last.filterUrls, [
+      _filterUrl(VideoSearchFilterKind.genre),
+      _filterUrl(VideoSearchFilterKind.actor),
+      _filterUrl(VideoSearchFilterKind.studio),
+    ]);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(
+          ValueKey(
+            'selected-video-filter-${_filterUrl(VideoSearchFilterKind.studio)}',
+          ),
+        ),
+        matching: find.byIcon(Icons.close),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(submitted, hasLength(3));
+    expect(submitted.last.query, 'live keyword');
+    expect(submitted.last.filterUrls, [
+      _filterUrl(VideoSearchFilterKind.genre),
+      _filterUrl(VideoSearchFilterKind.actor),
+    ]);
+
     await tester.tap(find.byTooltip(l10n.clear));
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.history), findsOneWidget);
@@ -434,19 +1172,17 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await _chooseFilter(
-      tester,
-      VideoSearchFilterKind.genre,
-      'Genre filter',
-      settle: false,
+    await tester.enterText(
+      find.byKey(const ValueKey('video-search-input')),
+      'stale query',
     );
-    await _chooseFilter(
-      tester,
-      VideoSearchFilterKind.actor,
-      'Actor filter',
-      settle: false,
-    );
+    await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pump();
+    await _chooseFilter(tester, VideoSearchFilterKind.genre, 'Genre filter');
+    expect(submitted.last.query, 'stale query');
+    expect(submitted.last.filterUrls, [
+      _filterUrl(VideoSearchFilterKind.genre),
+    ]);
     expect(find.text('Fresh result 0'), findsOneWidget);
 
     staleSearch.complete(const VideoSearchResults.collection([staleResult]));
@@ -469,7 +1205,7 @@ void main() {
       find.descendant(
         of: find.byKey(
           ValueKey(
-            'selected-video-filter-${_filterUrl(VideoSearchFilterKind.actor)}',
+            'selected-video-filter-${_filterUrl(VideoSearchFilterKind.genre)}',
           ),
         ),
         matching: find.byIcon(Icons.close),
@@ -481,10 +1217,8 @@ void main() {
       tester.widget<PaginationBar>(find.byType(PaginationBar)).currentPage,
       1,
     );
-    expect(submitted.last.query, isEmpty);
-    expect(submitted.last.filterUrls, [
-      _filterUrl(VideoSearchFilterKind.genre),
-    ]);
+    expect(submitted.last.query, 'stale query');
+    expect(submitted.last.filterUrls, isEmpty);
     tester
         .widget<CustomScrollView>(find.byType(CustomScrollView))
         .controller!
@@ -514,6 +1248,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await _expandFilterPanel(tester);
     await tester.tap(find.byKey(const ValueKey('video-filter-genre')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
@@ -582,6 +1317,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _expandFilterPanel(tester);
     await tester.tap(find.byKey(const ValueKey('video-filter-genre')));
     await tester.pumpAndSettle();
     expect(find.text('Comedy'), findsOneWidget);
@@ -698,7 +1434,10 @@ void main() {
   });
 }
 
-Future<void> _scrollToPagination(WidgetTester tester) async {
+Future<void> _scrollToPagination(
+  WidgetTester tester, {
+  bool settle = true,
+}) async {
   await tester.scrollUntilVisible(
     find.byType(PaginationBar),
     500,
@@ -708,23 +1447,25 @@ Future<void> _scrollToPagination(WidgetTester tester) async {
     ),
   );
   await tester.ensureVisible(find.byType(PaginationBar));
-  await tester.pumpAndSettle();
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    await tester.pump();
+  }
 }
 
 Future<void> _chooseFilter(
   WidgetTester tester,
   VideoSearchFilterKind kind,
-  String label, {
-  bool settle = true,
-}) async {
-  await tester.tap(find.byKey(ValueKey('video-filter-${kind.name}')));
-  if (settle) {
-    await tester.pumpAndSettle();
-  } else {
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 250));
-    await tester.pump();
-  }
+  String label,
+) async {
+  await _expandFilterPanel(tester);
+  final filterButton = find.byKey(ValueKey('video-filter-${kind.name}'));
+  await tester.ensureVisible(filterButton);
+  await tester.pump();
+  await tester.tap(filterButton);
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 350));
   final filterOption = find.descendant(
     of: find.byKey(const ValueKey('responsive-sheet-surface')),
     matching: find.byKey(ValueKey('video-filter-option-${_filterUrl(kind)}')),
@@ -734,13 +1475,32 @@ Future<void> _chooseFilter(
     findsOneWidget,
   );
   await tester.tap(filterOption);
-  if (settle) {
-    await tester.pumpAndSettle();
-  } else {
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 250));
-    await tester.pump();
+  await tester.pumpAndSettle();
+}
+
+Future<void> _expandFilterPanel(WidgetTester tester) async {
+  if (find.byKey(const ValueKey('video-filter-genre')).evaluate().isNotEmpty) {
+    return;
   }
+  final l10n = await S.delegate.load(const Locale('en'));
+  await tester.tap(
+    find.descendant(
+      of: find.byKey(const ValueKey('video-search-filter-panel')),
+      matching: find.text(l10n.filter),
+    ),
+  );
+  await tester.pump();
+}
+
+Future<void> _toggleFilterPanel(WidgetTester tester) async {
+  final l10n = await S.delegate.load(const Locale('en'));
+  await tester.tap(
+    find.descendant(
+      of: find.byKey(const ValueKey('video-search-filter-panel')),
+      matching: find.text(l10n.filter),
+    ),
+  );
+  await tester.pump();
 }
 
 VideoCatalogPage _filterPage(VideoSearchFilterKind kind, {String? label}) =>
@@ -798,7 +1558,14 @@ class _TestAccountClient extends MissavClient {
   String? get accountName => name;
 
   void changeAccount(String accountName) {
+    loggedIn = true;
     name = accountName;
+    notifyListeners();
+  }
+
+  void expireSession() {
+    loggedIn = false;
+    name = null;
     notifyListeners();
   }
 

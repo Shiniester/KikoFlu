@@ -898,6 +898,61 @@ void main() {
     expect(tester.getTopLeft(dock).dy, closeTo(initialTop, 0.01));
   });
 
+  for (final size in [const Size(640, 360), const Size(1280, 720)]) {
+    testWidgets(
+      'landscape Dock keeps playback beside evenly spaced tabs at $size',
+      (tester) async {
+        final navigation = await _pumpShell(
+          tester,
+          size: size,
+          safePadding: const FakeViewPadding(left: 44, right: 12, bottom: 20),
+        );
+
+        final rail = tester.getRect(find.byType(NavigationRail));
+        final mini = tester.getRect(find.byType(MiniPlayer));
+        expect(mini.left, closeTo(rail.right + 1, 0.01));
+        expect(mini.right, closeTo(size.width - 12, 0.01));
+        expect(mini.bottom, closeTo(size.height - 20, 0.01));
+
+        final iconCenters = [
+          Icons.library_music,
+          Icons.menu_book_outlined,
+          Icons.video_library_outlined,
+          Icons.settings_outlined,
+        ].map((icon) => tester.getCenter(find.byIcon(icon)).dy).toList();
+        final gaps = [
+          for (var i = 1; i < iconCenters.length; i++)
+            iconCenters[i] - iconCenters[i - 1],
+        ];
+        expect(
+          iconCenters.last - iconCenters.first,
+          greaterThan(rail.height / 2),
+        );
+        for (final gap in gaps.skip(1)) {
+          expect(gap, closeTo(gaps.first, 24));
+        }
+        await tester.tap(find.byIcon(Icons.video_library_outlined));
+        await tester.pumpAndSettle();
+        expect(navigation.selectedIndex, 2);
+        expect(find.byIcon(Icons.video_library), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('landscape navigation scrolls when height is limited', (
+    tester,
+  ) async {
+    final navigation = await _pumpShell(tester, size: const Size(640, 240));
+    final settings = find.byIcon(Icons.settings_outlined);
+    await tester.ensureVisible(settings);
+    await tester.pumpAndSettle();
+    await tester.tap(settings);
+    await tester.pumpAndSettle();
+    expect(navigation.selectedIndex, 3);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('landscape playback and navigation slide out of the viewport', (
     tester,
   ) async {
@@ -1107,23 +1162,12 @@ void main() {
   });
 
   for (final size in [const Size(390, 844), const Size(1280, 720)]) {
-    for (final page in ['cover preview', 'tag search', 'lyric preview']) {
+    for (final page in ['cover preview', 'lyric preview']) {
       testWidgets('player keeps its viewport under $page at $size', (
         tester,
       ) async {
-        final navigation = await _pumpShell(
-          tester,
-          size: size,
-          fakeTagSearch: page == 'tag search',
-        );
-        _openPlayer(
-          navigation,
-          child: page == 'tag search'
-              ? const Center(
-                  child: TagChip(tag: Tag(id: 999999, name: 'Test tag')),
-                )
-              : null,
-        );
+        final navigation = await _pumpShell(tester, size: size);
+        _openPlayer(navigation);
         await tester.pumpAndSettle();
         final player = find.byKey(
           const ValueKey('player-viewport'),
@@ -1134,8 +1178,6 @@ void main() {
           unawaited(
             CoverPreviewDialog.show(playerContext, localPath: 'missing.jpg'),
           );
-        } else if (page == 'tag search') {
-          await tester.tap(find.text('Test tag'));
         } else {
           unawaited(
             Navigator.of(playerContext).push<void>(
@@ -1153,19 +1195,9 @@ void main() {
         expect(
           page == 'cover preview'
               ? find.byType(CoverPreviewDialog)
-              : page == 'tag search'
-              ? find.byType(SearchResultScreen)
               : find.text('Lyric preview'),
           findsOneWidget,
         );
-        if (page == 'tag search') {
-          expect(
-            tester
-                .widget<SearchResultScreen>(find.byType(SearchResultScreen))
-                .searchParams?['tagId'],
-            999999,
-          );
-        }
         expect(find.byType(AppBottomDock), findsNothing);
         expect(find.byType(NavigationRail), findsNothing);
         expect(tester.getSize(player), size);
@@ -1217,6 +1249,62 @@ void main() {
     expect(find.byType(AppBottomDock), findsOneWidget);
   });
 
+  testWidgets('player metadata search exits without an Audio tab navigator', (
+    tester,
+  ) async {
+    final navigation = await _pumpShell(tester, fakeTagSearch: true);
+    final player = _openPlayer(
+      navigation,
+      child: const Center(
+        child: TagChip(tag: Tag(id: 999999, name: 'Test tag')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Test tag'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(player.animation!.value, lessThan(1));
+    expect(navigation.navigationVisible, isFalse);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('player-viewport')), findsNothing);
+    expect(find.byType(SearchResultScreen), findsOneWidget);
+    expect(find.byType(AppBottomDock), findsOneWidget);
+    navigation.navigator!.pop();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('home-viewport')), findsOneWidget);
+  });
+
+  testWidgets('player metadata search respects reduced motion', (tester) async {
+    final navigation = await _pumpShell(
+      tester,
+      reducedMotion: true,
+      fakeTagSearch: true,
+      homeBuilder: (navigation) => Navigator(
+        key: navigation.tabNavigatorKey(appAudioTabIndex),
+        observers: [navigation.tabObserver(appAudioTabIndex)],
+        onGenerateRoute: (_) => MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('Audio tab')),
+        ),
+      ),
+    );
+    final dockRect = tester.getRect(find.byType(AppBottomDock));
+    _openPlayer(
+      navigation,
+      child: const Center(
+        child: TagChip(tag: Tag(id: 999999, name: 'Test tag')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Test tag'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump();
+    expect(find.byType(SearchResultScreen), findsOneWidget);
+    expect(tester.getRect(find.byType(AppBottomDock)), dockRect);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final pending in [false, true]) {
     testWidgets('player search preserves results (pending=$pending)', (
       tester,
@@ -1259,7 +1347,11 @@ void main() {
       );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Test tag'));
+      if (!pending) await tester.tap(find.text('Test tag'));
       await tester.pumpAndSettle();
+      expect(navigation.audioPlayerRoute, isNull);
+      expect(navigation.selectedIndex, appAudioTabIndex);
+      expect(find.byType(AppBottomDock), findsOneWidget);
 
       var grid = tester.widget<WorksGridView>(find.byType(WorksGridView));
       final container = ProviderScope.containerOf(
@@ -1267,6 +1359,7 @@ void main() {
       );
       final api =
           container.read(kikoeruApiServiceProvider) as _EmptyTagSearchApi;
+      expect(api.searchCalls, 1);
       final gate = Completer<void>();
       addTearDown(() {
         if (!gate.isCompleted) gate.complete();
@@ -1291,7 +1384,10 @@ void main() {
       await tester.tap(find.byType(EnhancedWorkCard).hitTestable().first);
       await tester.pump();
       await tester.pump();
-      if (pending) expect(api.blockedToken!.isCancelled, isTrue);
+      if (pending) {
+        expect(api.blockedToken!.isCancelled, isFalse);
+        gate.complete();
+      }
       await tester.pumpAndSettle();
 
       expect(find.byType(WorkDetailScreen), findsOneWidget);
@@ -1325,7 +1421,7 @@ void main() {
             .offset,
         closeTo(offset, 0.1),
       );
-      expect(api.searchCalls, calls + (pending ? 1 : 0));
+      expect(api.searchCalls, calls);
       expect(tester.takeException(), isNull);
     });
   }

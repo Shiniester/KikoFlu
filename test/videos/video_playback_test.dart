@@ -3784,7 +3784,7 @@ void main() {
         final previewCenter = tester.getCenter(preview());
         expect(previewCenter.dx, closeTo(rect.center.dx, 1));
         expect(previewCenter.dy, greaterThan(rect.top + rect.height * .3));
-        expect(previewCenter.dy, lessThan(rect.center.dy));
+        expect(previewCenter.dy, lessThan(rect.top + rect.height * .37));
 
         await tester.pump(const Duration(seconds: 1));
         expect(preview(), findsOneWidget);
@@ -3825,70 +3825,169 @@ void main() {
     );
   }
 
-  _testPlayerWidget('gesture feedback shares one position', (tester) async {
-    final session = _FakePlaybackSession();
-    await _pumpStandalonePlayer(tester, session);
-    session.emitSnapshot(position: const Duration(minutes: 1));
-    await tester.pump();
-    final surface = find.byKey(const ValueKey('video-gesture-surface'));
-    final rect = tester.getRect(surface);
-
-    Future<void> doubleTapAt(double x) async {
-      final point = Offset(
-        rect.left + rect.width * x,
-        rect.top + rect.height * .45,
-      );
-      await tester.tapAt(point);
-      await tester.pump(const Duration(milliseconds: 50));
-      await tester.tapAt(point);
+  _testPlayerWidget(
+    'double-tap feedback marks its side and other feedback stays centered',
+    (tester) async {
+      final session = _FakePlaybackSession();
+      await _pumpStandalonePlayer(tester, session, doubleTapSeekSeconds: 15);
+      final l10n = await S.delegate.load(const Locale('en'));
+      final semantics = tester.ensureSemantics();
+      session.emitSnapshot(position: const Duration(minutes: 1), playing: true);
       await tester.pump();
-    }
+      final surface = find.byKey(const ValueKey('video-gesture-surface'));
+      final rect = tester.getRect(surface);
+      await tester.pump(const Duration(seconds: 4));
+      expect(
+        tester
+            .widget<AnimatedOpacity>(
+              find.byKey(const ValueKey('video-controls')),
+            )
+            .opacity,
+        0,
+      );
 
-    await doubleTapAt(.8);
-    expect(find.text('+10s'), findsOneWidget);
-    final feedbackCenter = tester.getCenter(find.text('+10s'));
-    expect(feedbackCenter.dy, greaterThan(rect.top + rect.height * .3));
-    expect(feedbackCenter.dy, lessThan(rect.center.dy));
+      Future<void> doubleTapAt(double x) async {
+        final point = Offset(
+          rect.left + rect.width * x,
+          rect.top + rect.height * .45,
+        );
+        await tester.tapAt(point);
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.tapAt(point);
+        await tester.pump();
+      }
 
-    final drag = await tester.startGesture(
-      Offset(rect.center.dx, rect.top + rect.height * .45),
-    );
-    await drag.moveBy(Offset(rect.width * .1, 0));
-    await drag.moveBy(Offset(rect.width * .1, 0));
-    await tester.pump();
-    expect(find.text('+10s'), findsNothing);
-    expect(find.textContaining(' / 03:00'), findsOneWidget);
-    await drag.cancel();
-    await tester.pump();
-    expect(find.text('+10s'), findsNothing);
+      await doubleTapAt(.8);
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(find.byIcon(Icons.fast_forward), findsOneWidget);
+      expect(find.text(l10n.preloadOptionSeconds(15)), findsOneWidget);
+      expect(
+        tester.getCenter(find.byIcon(Icons.fast_forward)).dx,
+        greaterThan(rect.left + rect.width * 2 / 3),
+      );
+      final forwardGradientWidget = tester.widget<DecoratedBox>(
+        find.byKey(const ValueKey('video-double-tap-feedback-gradient')),
+      );
+      final forwardGradient = forwardGradientWidget.decoration as BoxDecoration;
+      final forwardLinearGradient = forwardGradient.gradient! as LinearGradient;
+      expect(forwardLinearGradient.begin, Alignment.centerLeft);
+      expect(forwardLinearGradient.end, Alignment.centerRight);
+      expect(forwardLinearGradient.colors, [
+        const Color(0x00767676),
+        const Color(0x88767676),
+      ]);
+      expect(
+        tester
+            .getRect(
+              find.byKey(const ValueKey('video-double-tap-feedback-gradient')),
+            )
+            .left,
+        closeTo(rect.left + rect.width * 2 / 3, 1),
+      );
+      expect(
+        tester
+            .getSemantics(
+              find.byKey(const ValueKey('video-double-tap-feedback-semantics')),
+            )
+            .label,
+        '+${l10n.preloadOptionSeconds(15)}',
+      );
+      final forwardIconRect = tester.getRect(find.byIcon(Icons.fast_forward));
+      final forwardSecondsRect = tester.getRect(
+        find.text(l10n.preloadOptionSeconds(15)),
+      );
+      expect(forwardIconRect.center.dy, lessThan(forwardSecondsRect.center.dy));
+      expect(
+        (forwardIconRect.top + forwardSecondsRect.bottom) / 2,
+        closeTo(rect.center.dy, 20),
+      );
 
-    await tester.pump(const Duration(milliseconds: 901));
-    expect(find.text('+10s'), findsNothing);
-    await doubleTapAt(.2);
-    expect(find.text('−10s'), findsOneWidget);
-    expect(tester.getCenter(find.text('−10s')), feedbackCenter);
+      final drag = await tester.startGesture(
+        Offset(rect.center.dx, rect.top + rect.height * .45),
+      );
+      await drag.moveBy(Offset(rect.width * .1, 0));
+      await drag.moveBy(Offset(rect.width * .1, 0));
+      await tester.pump();
+      expect(find.byIcon(Icons.fast_forward), findsNothing);
+      expect(find.text(l10n.preloadOptionSeconds(15)), findsNothing);
+      expect(find.textContaining(' / 03:00'), findsOneWidget);
+      final previewCenter = tester.getCenter(find.textContaining(' / 03:00'));
+      expect(previewCenter.dx, closeTo(rect.center.dx, 1));
+      expect(previewCenter.dy, greaterThan(rect.top + rect.height * .3));
+      expect(previewCenter.dy, lessThan(rect.top + rect.height * .37));
+      await drag.cancel();
+      await tester.pump();
+      expect(find.text(l10n.preloadOptionSeconds(15)), findsNothing);
 
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-    await tester.pump();
-    await tester.pump();
-    final l10n = await S.delegate.load(const Locale('en'));
-    final volume = find.textContaining('${l10n.volume}:');
-    expect(volume, findsOneWidget);
-    expect(tester.getCenter(volume), feedbackCenter);
+      await tester.pump(const Duration(milliseconds: 901));
+      expect(find.byIcon(Icons.fast_forward), findsNothing);
+      await doubleTapAt(.2);
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(find.byIcon(Icons.fast_rewind), findsOneWidget);
+      expect(find.text(l10n.preloadOptionSeconds(15)), findsOneWidget);
+      expect(
+        tester.getCenter(find.byIcon(Icons.fast_rewind)).dx,
+        lessThan(rect.left + rect.width / 3),
+      );
+      final backwardGradientWidget = tester.widget<DecoratedBox>(
+        find.byKey(const ValueKey('video-double-tap-feedback-gradient')),
+      );
+      final backwardGradient =
+          backwardGradientWidget.decoration as BoxDecoration;
+      final backwardLinearGradient =
+          backwardGradient.gradient! as LinearGradient;
+      expect(backwardLinearGradient.begin, Alignment.centerRight);
+      expect(backwardLinearGradient.end, Alignment.centerLeft);
+      expect(backwardLinearGradient.colors, [
+        const Color(0x00767676),
+        const Color(0x88767676),
+      ]);
+      expect(
+        tester
+            .getRect(
+              find.byKey(const ValueKey('video-double-tap-feedback-gradient')),
+            )
+            .right,
+        closeTo(rect.left + rect.width / 3, 1),
+      );
+      expect(
+        tester
+            .getSemantics(
+              find.byKey(const ValueKey('video-double-tap-feedback-semantics')),
+            )
+            .label,
+        '−${l10n.preloadOptionSeconds(15)}',
+      );
 
-    final brightnessDrag = await tester.startGesture(
-      Offset(rect.left + rect.width * .15, rect.top + rect.height * .45),
-    );
-    await brightnessDrag.moveBy(Offset(0, rect.height * .1));
-    await brightnessDrag.moveBy(Offset(0, rect.height * .1));
-    await tester.pump();
-    final brightness = find.textContaining('${l10n.videoPlayerBrightness}:');
-    expect(brightness, findsOneWidget);
-    expect(tester.getCenter(brightness), feedbackCenter);
-    await brightnessDrag.up();
-    await tester.pump(const Duration(milliseconds: 901));
-    expect(brightness, findsNothing);
-  });
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await tester.pump();
+      await tester.pump();
+      expect(find.byIcon(Icons.fast_rewind), findsNothing);
+      final volume = find.textContaining('${l10n.volume}:');
+      expect(volume, findsOneWidget);
+      final genericFeedbackCenter = tester.getCenter(volume);
+      expect(genericFeedbackCenter.dx, closeTo(rect.center.dx, 1));
+      expect(
+        genericFeedbackCenter.dy,
+        greaterThan(rect.top + rect.height * .3),
+      );
+      expect(genericFeedbackCenter.dy, lessThan(rect.top + rect.height * .37));
+
+      final brightnessDrag = await tester.startGesture(
+        Offset(rect.left + rect.width * .15, rect.top + rect.height * .45),
+      );
+      await brightnessDrag.moveBy(Offset(0, rect.height * .1));
+      await brightnessDrag.moveBy(Offset(0, rect.height * .1));
+      await tester.pump();
+      final brightness = find.textContaining('${l10n.videoPlayerBrightness}:');
+      expect(brightness, findsOneWidget);
+      expect(tester.getCenter(brightness), genericFeedbackCenter);
+      await brightnessDrag.up();
+      await tester.pump(const Duration(milliseconds: 901));
+      expect(brightness, findsNothing);
+      semantics.dispose();
+    },
+  );
 
   for (final backwards in [false, true]) {
     _testPlayerWidget(
@@ -4237,17 +4336,27 @@ void main() {
       await _pumpStandalonePlayer(tester, session);
       final l10n = await S.delegate.load(const Locale('en'));
 
-      await tester.tap(find.byTooltip(l10n.videoPlay));
-      await tester.pumpAndSettle();
-      await _chooseSetting(tester, '${l10n.playbackSpeed}: 1.5×');
-      expect(session.lastRate, 1.5);
-
       final surface = find.byKey(const ValueKey('video-gesture-surface'));
       final surfaceRect = tester.getRect(surface);
       final center = Offset(
         surfaceRect.center.dx,
         surfaceRect.top + surfaceRect.height * .25,
       );
+      final paused = await tester.startGesture(
+        center,
+        kind: PointerDeviceKind.touch,
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.text(l10n.videoPlayerLongPressSpeed), findsNothing);
+      expect(session.lastRate, 1);
+      await paused.cancel();
+      await tester.pump();
+
+      await tester.tap(find.byTooltip(l10n.videoPlay));
+      await tester.pumpAndSettle();
+      await _chooseSetting(tester, '${l10n.playbackSpeed}: 1.5×');
+      expect(session.lastRate, 1.5);
+
       final delayedRate = Completer<void>();
       session.nextRateCompleter = delayedRate;
       final cancelled = await tester.startGesture(
@@ -4256,8 +4365,14 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 600));
       expect(session.rateChanges, [1.5]);
+      expect(find.text(l10n.videoPlayerLongPressSpeed), findsOneWidget);
+      expect(find.text('3.0×'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text(l10n.videoPlayerLongPressSpeed), findsOneWidget);
+      expect(find.text('3.0×'), findsOneWidget);
       await cancelled.cancel();
       await tester.pump();
+      expect(find.text(l10n.videoPlayerLongPressSpeed), findsNothing);
       delayedRate.complete();
       await tester.pumpAndSettle();
       expect(session.rateChanges, [1.5, 3, 1.5]);
@@ -4269,9 +4384,11 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 600));
       expect(session.lastRate, 3);
+      expect(find.text(l10n.videoPlayerLongPressSpeed), findsOneWidget);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       await tester.pumpAndSettle();
       expect(session.lastRate, 1.5);
+      expect(find.text(l10n.videoPlayerLongPressSpeed), findsNothing);
       await backgrounded.cancel();
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pump();
@@ -4297,6 +4414,83 @@ void main() {
       await tester.sendKeyEvent(LogicalKeyboardKey.escape);
       await tester.pumpAndSettle();
       expect(Navigator.of(tester.element(videoSurface)).canPop(), isFalse);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(find.text(l10n.videoPlayerLongPressSpeed), findsOneWidget);
+      expect(find.text('3.0×'), findsOneWidget);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit2);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump();
+      expect(session.lastRate, 2);
+      expect(find.text('2.0×'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text(l10n.videoPlayerLongPressSpeed), findsOneWidget);
+      expect(find.text('2.0×'), findsOneWidget);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.videoPlayerLongPressSpeed), findsNothing);
+      expect(session.lastRate, 1.5);
+
+      await _openSettings(tester);
+      final playerSettings = find.text(l10n.videoPlayerSettings);
+      await _ensureMoreMenuItemVisible(tester, playerSettings);
+      await tester.tap(playerSettings);
+      await tester.pumpAndSettle();
+      final dynamicSpeed = find.text(l10n.videoPlayerDynamicLongPressSpeed);
+      await tester.scrollUntilVisible(
+        dynamicSpeed,
+        240,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.tap(
+        find.ancestor(of: dynamicSpeed, matching: find.byType(SwitchListTile)),
+      );
+      await tester.pumpAndSettle();
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      await _chooseSetting(tester, '${l10n.playbackSpeed}: 1.75×');
+      expect(session.lastRate, 1.75);
+
+      final dynamicRateGesture = await tester.startGesture(
+        center,
+        kind: PointerDeviceKind.touch,
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.text('3.5×'), findsOneWidget);
+      await dynamicRateGesture.up();
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.videoPlayerLongPressSpeed), findsNothing);
+      expect(session.lastRate, 1.75);
+    },
+  );
+
+  _testPlayerWidget(
+    'removing the player during long press restores the selected rate',
+    (tester) async {
+      final session = _FakePlaybackSession();
+      await _pumpStandalonePlayer(tester, session);
+      final l10n = await S.delegate.load(const Locale('en'));
+      await tester.tap(find.byTooltip(l10n.videoPlay));
+      await tester.pumpAndSettle();
+
+      final surface = find.byKey(const ValueKey('video-gesture-surface'));
+      final rect = tester.getRect(surface);
+      final gesture = await tester.startGesture(
+        Offset(rect.center.dx, rect.center.dy),
+        kind: PointerDeviceKind.touch,
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(session.lastRate, 3);
+      expect(find.text(l10n.videoPlayerLongPressSpeed), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await session.disposed.future.timeout(const Duration(seconds: 5));
+      await tester.pump();
+      expect(session.lastRate, 1);
+      expect(tester.takeException(), isNull);
+      await gesture.cancel();
     },
   );
 
@@ -6484,12 +6678,19 @@ Future<void> _pumpStandalonePlayer(
   double height = 800,
   VideoPlayerPlatform? platform,
   bool bounded = false,
+  int? doubleTapSeekSeconds,
 }) async {
   tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
   final library = await _testLibrary();
+  if (doubleTapSeekSeconds != null) {
+    await (await SharedPreferences.getInstance()).setInt(
+      'video_player_v1_double_tap_seek',
+      doubleTapSeekSeconds,
+    );
+  }
   final playerPlatform = platform ?? _TestVideoPlayerPlatform();
   var fullscreen = false;
   final playerKey = GlobalKey();

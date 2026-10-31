@@ -37,7 +37,6 @@ import '../widgets/player/player_page_scroll_physics.dart';
 import '../widgets/text_preview_screen.dart';
 import '../widgets/work_bookmark_manager.dart';
 import '../widgets/app_bottom_dock_transition.dart';
-import '../widgets/app_navigation_scope.dart';
 import '../widgets/cover_preview_dialog.dart';
 import '../widgets/responsive_dialog.dart';
 import '../widgets/lyric_translation_confirmation.dart';
@@ -2357,20 +2356,7 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     final initialCover = _initialWorkDetailCover(work);
     Widget builder(BuildContext context) =>
         WorkDetailScreen(work: work, initialCoverImageProvider: initialCover);
-    final navigation = AppNavigationScope.maybeOf(context);
-    final audioNavigator = navigation?.tabNavigator(appAudioTabIndex);
-    if (audioNavigator == null || ModalRoute.of(context)?.isCurrent != true) {
-      return pushWorkDetailRoute(context, builder: builder);
-    }
-    navigation!.selectTab(appAudioTabIndex);
-    final rootNavigator = AppNavigationScope.navigatorOf(context);
-    final route = pushWorkDetailRoute(
-      context,
-      navigator: audioNavigator,
-      builder: builder,
-    );
-    rootNavigator.popUntil((route) => route.isFirst);
-    return route;
+    return pushAudioPlayerHandoffRoute(context, builder: builder);
   }
 
   ImageProvider<Object>? _initialWorkDetailCover(Work work) {

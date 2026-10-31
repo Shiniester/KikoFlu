@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../screens/search_result_screen.dart';
+import '../screens/search_screen.dart';
 import 'app_bottom_dock_transition.dart';
+import 'global_audio_player_wrapper.dart';
 
 enum MetadataChipTone {
   primary,
@@ -164,12 +165,14 @@ class MetadataSearchChip extends StatelessWidget {
       debugPrint('[MetadataSearchChip] Clicked $logName: $label, id: $logId');
     }
 
-    pushBottomDockRoute(
+    pushAudioPlayerHandoffRoute(
       context,
-      builder: (context) => SearchResultScreen(
-        keyword: searchKeyword,
-        searchTypeLabel: searchTypeLabel,
-        searchParams: searchParams,
+      builder: (context) => GlobalAudioPlayerWrapper(
+        child: SearchScreen(
+          showBackButton: true,
+          initialKeyword: searchKeyword,
+          initialSearchParams: searchParams,
+        ),
       ),
     );
   }

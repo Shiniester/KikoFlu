@@ -4,12 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../l10n/app_localizations.dart';
+import '../../providers/unified_search_history_provider.dart';
 import '../../utils/snackbar_util.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/works_provider.dart';
 import '../../widgets/app_bottom_dock_transition.dart';
 import '../../widgets/responsive_dialog.dart';
+import '../../widgets/search_filter_panel.dart';
 import '../../widgets/search_condition_chip.dart';
+import '../../widgets/search_history_section.dart';
+import '../../widgets/search_input_decoration.dart';
 import '../../widgets/virtualized_sliver_collection.dart';
 import '../video_browse_preferences.dart';
 import '../missav_client.dart';
@@ -70,6 +74,11 @@ class VideoSearchScreen extends ConsumerStatefulWidget {
     this.loadFilters,
     this.verifyAccess,
     this.accountClient,
+    this.historyContext = const UnifiedSearchHistoryContext(
+      contentType: 'video',
+      entryScope: 'source-directory',
+      source: 'missav',
+    ),
   });
 
   final String title;
@@ -82,24 +91,53 @@ class VideoSearchScreen extends ConsumerStatefulWidget {
   final VideoSearchFilterLoader? loadFilters;
   final VideoSearchAccessVerifier? verifyAccess;
   final MissavClient? accountClient;
+  final UnifiedSearchHistoryContext historyContext;
 
   @override
   ConsumerState<VideoSearchScreen> createState() => _VideoSearchScreenState();
 }
 
 class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
+  static const _legacyVideoHistoryContext = UnifiedSearchHistoryContext(
+    contentType: 'video',
+    entryScope: 'source-directory',
+    source: 'legacy-unknown',
+  );
+
   final TextEditingController _query = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<VideoLink> _filters = [];
   VideoSearchResults? _results;
+  String _resultsQuery = '';
   int _localPage = 1;
-  String? _error;
+  Object? _error;
   MissavVerificationRequiredException? _verificationError;
   bool _loading = false;
   bool _verifyingAccess = false;
+  bool _updateFailedShowingPrevious = false;
+  bool _showHistory = false;
   int _request = 0;
   Future<void> Function()? _retryAction;
   ({bool loggedIn, String? accountName})? _accountIdentity;
+  late final UnifiedSearchHistorySession _historySession =
+      UnifiedSearchHistorySession(
+        ref.read(unifiedSearchHistoryProvider.notifier),
+      );
+
+  UnifiedSearchHistoryContext get _historyContext {
+    final historyContext = widget.historyContext;
+    final accountClient = widget.accountClient;
+    if (accountClient == null ||
+        (historyContext.entryScope != 'favorites' &&
+            historyContext.entryScope != 'history')) {
+      return historyContext;
+    }
+    return UnifiedSearchHistoryContext(
+      contentType: historyContext.contentType,
+      entryScope: historyContext.entryScope,
+      source: '${historyContext.source}:${accountClient.accountName ?? ''}',
+    );
+  }
 
   @override
   void initState() {
@@ -135,21 +173,35 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   void _onAccountClientChanged() {
     final identity = _readAccountIdentity(widget.accountClient);
     if (identity == _accountIdentity) return;
+    final authenticationRequired =
+        _accountIdentity?.loggedIn == true &&
+        identity?.loggedIn == false &&
+        _loading;
+    final retryAction = _retryAction;
     _accountIdentity = identity;
-    _invalidateAccountResults();
+    _invalidateAccountResults(
+      error: authenticationRequired
+          ? const MissavAuthenticationException()
+          : null,
+    );
+    if (authenticationRequired && mounted) {
+      _retryAction = retryAction;
+    }
   }
 
-  void _invalidateAccountResults() {
+  void _invalidateAccountResults({Object? error}) {
     _request++;
     _retryAction = null;
     if (!mounted) return;
     setState(() {
       _results = null;
+      _resultsQuery = '';
       _localPage = 1;
-      _error = null;
+      _error = error;
       _verificationError = null;
       _loading = false;
       _verifyingAccess = false;
+      _updateFailedShowingPrevious = false;
     });
   }
 
@@ -162,7 +214,12 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     super.dispose();
   }
 
-  Future<void> _runSearch(String value, {List<VideoLink>? filters}) async {
+  Future<void> _runSearch(
+    String value, {
+    List<VideoLink>? filters,
+    bool updateHistory = false,
+    bool recordHistory = true,
+  }) async {
     final query = value.trim();
     final filtersSnapshot = List<VideoLink>.unmodifiable(filters ?? _filters);
     if (query.isEmpty && filtersSnapshot.isEmpty) {
@@ -170,25 +227,31 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
       _retryAction = null;
       setState(() {
         _results = null;
+        _resultsQuery = '';
         _localPage = 1;
         _error = null;
         _verificationError = null;
         _loading = false;
+        _updateFailedShowingPrevious = false;
       });
       if (_scrollController.hasClients) _scrollController.jumpTo(0);
       return;
     }
-    _retryAction = () => _runSearch(query, filters: filtersSnapshot);
+    _retryAction = () =>
+        _runSearch(query, filters: filtersSnapshot, recordHistory: false);
     final request = ++_request;
-    if (query.isNotEmpty) {
-      unawaited(ref.read(videoSearchHistoryProvider.notifier).add(query));
+    final historyPayload = _historyPayload(query, filtersSnapshot);
+    if (recordHistory) {
+      unawaited(_historySession.submit(_historyContext, historyPayload));
+    } else if (updateHistory) {
+      unawaited(_historySession.update(_historyContext, historyPayload));
     }
     setState(() {
       _loading = true;
       _error = null;
       _verificationError = null;
-      _results = null;
-      _localPage = 1;
+      _updateFailedShowingPrevious = false;
+      _showHistory = false;
     });
     if (_scrollController.hasClients) _scrollController.jumpTo(0);
     try {
@@ -200,18 +263,34 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
       if (!mounted || request != _request) return;
       setState(() {
         _results = results;
+        _resultsQuery = query;
+        _localPage = 1;
         _loading = false;
       });
     } catch (error) {
       if (!mounted || request != _request) return;
       setState(() {
-        _error = error.toString();
+        _error = error;
         _verificationError = error is MissavVerificationRequiredException
             ? error
             : null;
         _loading = false;
+        _updateFailedShowingPrevious = _results != null;
       });
     }
+  }
+
+  Map<String, Object?> _historyPayload(String query, List<VideoLink> filters) =>
+      {
+        'keyword': query,
+        'filters': filters.map((filter) => filter.toJson()).toList(),
+      };
+
+  void _searchAfterFilterChange() {
+    if (_results == null && !_loading) return;
+    unawaited(
+      _runSearch(_query.text, updateHistory: true, recordHistory: false),
+    );
   }
 
   void _clearInput() {
@@ -221,10 +300,13 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     _filters.clear();
     setState(() {
       _results = null;
+      _resultsQuery = '';
       _localPage = 1;
       _error = null;
       _verificationError = null;
       _loading = false;
+      _updateFailedShowingPrevious = false;
+      _showHistory = true;
     });
     if (_scrollController.hasClients) _scrollController.jumpTo(0);
   }
@@ -261,81 +343,81 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
       return;
     }
     setState(() => _filters.add(selected));
-    unawaited(_runSearch(_query.text));
+    _searchAfterFilterChange();
   }
 
   void _removeFilter(VideoLink filter) {
     setState(() => _filters.removeWhere((item) => item.url == filter.url));
-    unawaited(_runSearch(_query.text));
+    _searchAfterFilterChange();
   }
 
   Widget _filterControls(S s) {
     final loadFilters = widget.loadFilters;
     if (loadFilters == null) return const SizedBox.shrink();
     final colorScheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 4,
-            children: [
-              for (final kind in VideoSearchFilterKind.values)
-                OutlinedButton.icon(
-                  key: ValueKey('video-filter-${kind.name}'),
-                  onPressed: () => _openFilterPicker(kind),
-                  icon: Icon(_filterIcon(kind), size: 18),
-                  label: Text(
-                    _filterTitle(kind, s),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-            ],
-          ),
-          if (_filters.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return Wrap(
-                    spacing: 8,
-                    runSpacing: 0,
-                    children: [
-                      for (final filter in _filters)
-                        ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: constraints.maxWidth,
-                          ),
-                          child: Tooltip(
-                            message: filter.label,
-                            child: Semantics(
-                              label: filter.label,
-                              child: SearchConditionChip(
-                                key: ValueKey(
-                                  'selected-video-filter-${filter.url}',
-                                ),
-                                label: filter.label,
-                                maxLines: 1,
-                                avatar: Icon(
-                                  _iconForLink(filter),
-                                  size: 16,
-                                  color: colorScheme.onSecondaryContainer,
-                                ),
-                                backgroundColor: colorScheme.secondaryContainer,
-                                onDeleted: () => _removeFilter(filter),
+    final selected = _filters.isEmpty
+        ? null
+        : Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return Wrap(
+                  spacing: 8,
+                  runSpacing: 0,
+                  children: [
+                    for (final filter in _filters)
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: constraints.maxWidth,
+                        ),
+                        child: Tooltip(
+                          message: filter.label,
+                          child: Semantics(
+                            label: filter.label,
+                            child: SearchConditionChip(
+                              key: ValueKey(
+                                'selected-video-filter-${filter.url}',
                               ),
+                              label: filter.label,
+                              maxLines: 1,
+                              avatar: Icon(
+                                _iconForLink(filter),
+                                size: 16,
+                                color: colorScheme.onSecondaryContainer,
+                              ),
+                              backgroundColor: colorScheme.secondaryContainer,
+                              onDeleted: () => _removeFilter(filter),
                             ),
                           ),
                         ),
-                    ],
-                  );
-                },
-              ),
+                      ),
+                  ],
+                );
+              },
             ),
-        ],
+          );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      child: SearchFilterPanel(
+        key: const ValueKey('video-search-filter-panel'),
+        selected: selected,
+        filters: Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          children: [
+            for (final kind in VideoSearchFilterKind.values)
+              OutlinedButton.icon(
+                key: ValueKey('video-filter-${kind.name}'),
+                onPressed: () => _openFilterPicker(kind),
+                icon: Icon(_filterIcon(kind), size: 18),
+                label: Text(
+                  _filterTitle(kind, s),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -365,6 +447,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
       _loading = true;
       _error = null;
       _verificationError = null;
+      _updateFailedShowingPrevious = false;
     });
     try {
       final nextPage = await widget.browsePage(url);
@@ -383,6 +466,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
             ? error
             : null;
         _loading = false;
+        _updateFailedShowingPrevious = _results != null;
       });
     }
   }
@@ -431,37 +515,124 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
     }
   }
 
-  Widget _history(VideoSearchHistoryState history) {
+  List<UnifiedSearchHistoryEntry> _historyEntries(
+    UnifiedSearchHistoryState history,
+  ) {
+    final context = _historyContext;
+    final entries = [
+      ...history.itemsFor(context),
+      if (context.entryScope == 'source-directory' &&
+          context != _legacyVideoHistoryContext)
+        ...history.itemsFor(_legacyVideoHistoryContext),
+    ]..sort((left, right) => right.timestamp.compareTo(left.timestamp));
+    return entries;
+  }
+
+  String _historyLabel(UnifiedSearchHistoryEntry entry) {
+    final keyword = entry.payload['keyword'];
+    final labels = [
+      if (keyword is String && keyword.isNotEmpty) keyword,
+      if (entry.payload['filters'] case final List filters)
+        for (final filter in filters)
+          if (filter is Map && filter['label'] is String)
+            filter['label'] as String,
+    ];
+    return labels.join(' · ');
+  }
+
+  List<VideoLink> _historyFilters(UnifiedSearchHistoryEntry entry) {
+    final filters = entry.payload['filters'];
+    if (filters is! List) return const [];
+    return [
+      for (final filter in filters)
+        if (filter is Map)
+          VideoLink.fromJson(Map<String, dynamic>.from(filter)),
+    ];
+  }
+
+  void _replayHistory(UnifiedSearchHistoryEntry entry) {
+    final keyword = entry.payload['keyword'];
+    final query = keyword is String ? keyword : '';
+    final filters = _historyFilters(entry);
+    setState(() {
+      _query.text = query;
+      _filters
+        ..clear()
+        ..addAll(filters);
+    });
+    unawaited(
+      _historySession.replay(
+        context: _historyContext,
+        payload: _historyPayload(query, filters),
+        entry: entry,
+      ),
+    );
+    unawaited(_runSearch(query, filters: filters, recordHistory: false));
+  }
+
+  void _removeHistoryEntry(UnifiedSearchHistoryEntry entry) {
+    unawaited(
+      ref
+          .read(unifiedSearchHistoryProvider.notifier)
+          .remove(entry.context, entry.id),
+    );
+    final keyword = entry.payload['keyword'];
+    if (entry.context == _legacyVideoHistoryContext && keyword is String) {
+      unawaited(ref.read(videoSearchHistoryProvider.notifier).remove(keyword));
+    }
+  }
+
+  Future<void> _confirmClearSearchHistory() async {
     final s = S.of(context);
-    if (history.isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (history.queries.isEmpty) {
-      return Center(child: Text(s.searchHistory));
-    }
-    return ListView.separated(
-      key: const PageStorageKey<String>('video-search-history'),
-      controller: _scrollController,
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: history.queries.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (context, index) {
-        final query = history.queries[index];
-        return ListTile(
-          leading: const Icon(Icons.history),
-          title: Text(query, maxLines: 1, overflow: TextOverflow.ellipsis),
-          onTap: () {
-            _query.text = query;
-            unawaited(_runSearch(query));
-          },
-          trailing: IconButton(
-            tooltip: S.of(context).delete,
-            icon: const Icon(Icons.close),
-            onPressed: () =>
-                ref.read(videoSearchHistoryProvider.notifier).remove(query),
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(s.clearSearchHistory),
+        content: Text(s.clearCurrentSearchHistoryConfirm),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(s.cancel),
           ),
-        );
-      },
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(s.confirm),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) await _clearSearchHistory();
+  }
+
+  Future<void> _clearSearchHistory() async {
+    final history = ref.read(unifiedSearchHistoryProvider.notifier);
+    final historyContext = _historyContext;
+    await history.clear(historyContext);
+    if (historyContext.entryScope == 'source-directory') {
+      await history.clear(_legacyVideoHistoryContext);
+      await ref.read(videoSearchHistoryProvider.notifier).clear();
+    }
+    if (mounted) {
+      SnackBarUtil.showFromSnackBar(
+        context,
+        SnackBar(content: Text(S.of(context).searchHistoryCleared)),
+      );
+    }
+  }
+
+  Widget _history(UnifiedSearchHistoryState history) {
+    final entries = _historyEntries(history);
+    return SingleChildScrollView(
+      controller: _scrollController,
+      child: SearchHistorySection(
+        entries: entries,
+        labelFor: _historyLabel,
+        onSelect: _replayHistory,
+        onRemove: _removeHistoryEntry,
+        onClear: () => unawaited(_clearSearchHistory()),
+        isLoading: history.isLoading,
+        canPersist: ref.read(unifiedSearchHistoryProvider.notifier).canPersist,
+      ),
     );
   }
 
@@ -550,7 +721,7 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
             itemId: (video) => video.id,
             controller: _scrollController,
             pageStorageKey: PageStorageKey<String>(
-              'video-search-results-${_query.text}',
+              'video-search-results-$_resultsQuery',
             ),
             emptyBuilder: (_) => Center(child: Text(s.noResults)),
             itemBuilder: (context, video, _) =>
@@ -565,45 +736,25 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final history = ref.watch(videoSearchHistoryProvider);
+    final history = ref.watch(unifiedSearchHistoryProvider);
+    final historyEntries = _historyEntries(history);
     final layout = ref.watch(videoBrowseLayoutProvider);
-    final searchHistory = ref.read(videoSearchHistoryProvider.notifier);
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
         actions: [
-          if (history.queries.isNotEmpty)
+          if (_results != null || _loading)
+            IconButton(
+              key: const ValueKey('video-search-history-toggle'),
+              tooltip: _showHistory ? s.close : s.searchHistory,
+              icon: Icon(_showHistory ? Icons.close : Icons.history),
+              onPressed: () => setState(() => _showHistory = !_showHistory),
+            ),
+          if (!_showHistory && _results != null && historyEntries.isNotEmpty)
             IconButton(
               tooltip: s.clearSearchHistory,
               icon: const Icon(Icons.delete_sweep_outlined),
-              onPressed: () async {
-                final confirmed = await showDialog<bool>(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: Text(s.clearSearchHistory),
-                    content: Text(s.clearSearchHistoryConfirm),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.of(context).pop(false),
-                        child: Text(s.cancel),
-                      ),
-                      FilledButton(
-                        onPressed: () => Navigator.of(context).pop(true),
-                        child: Text(s.confirm),
-                      ),
-                    ],
-                  ),
-                );
-                if (confirmed == true) {
-                  await searchHistory.clear();
-                  if (context.mounted) {
-                    SnackBarUtil.showFromSnackBar(
-                      context,
-                      SnackBar(content: Text(s.searchHistoryCleared)),
-                    );
-                  }
-                }
-              },
+              onPressed: _confirmClearSearchHistory,
             ),
         ],
       ),
@@ -619,56 +770,84 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
                   children: [
                     Padding(
                       padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                      child: TextField(
-                        key: const ValueKey('video-search-input'),
-                        controller: _query,
-                        autofocus: widget.initialQuery == null,
-                        textInputAction: TextInputAction.search,
-                        onSubmitted: _runSearch,
-                        onChanged: (_) => setState(() {}),
-                        decoration: InputDecoration(
-                          hintText: s.videoSearchHint,
-                          prefixIcon: const Icon(Icons.search),
-                          suffixIcon: IconButton(
-                            tooltip: s.clear,
-                            onPressed: _query.text.isEmpty && _filters.isEmpty
-                                ? null
-                                : _clearInput,
-                            icon: const Icon(Icons.clear),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              key: const ValueKey('video-search-input'),
+                              controller: _query,
+                              autofocus: widget.initialQuery == null,
+                              textInputAction: TextInputAction.search,
+                              onSubmitted: _runSearch,
+                              onChanged: (_) => setState(() {}),
+                              decoration: searchInputDecoration(
+                                hintText: s.videoSearchHint,
+                                suffixIcon: IconButton(
+                                  tooltip: s.clear,
+                                  onPressed:
+                                      _query.text.isEmpty && _filters.isEmpty
+                                      ? null
+                                      : _clearInput,
+                                  icon: const Icon(Icons.clear),
+                                ),
+                              ),
+                            ),
                           ),
-                          border: const OutlineInputBorder(),
-                        ),
+                          IconButton(
+                            tooltip: s.search,
+                            onPressed: () => unawaited(_runSearch(_query.text)),
+                            icon: const Icon(Icons.search),
+                          ),
+                        ],
                       ),
                     ),
                     _filterControls(s),
                     if (_error != null)
                       Padding(
                         padding: const EdgeInsets.all(12),
-                        child: Row(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: Text(
-                                _verificationError == null
-                                    ? s.videoLoadFailed
-                                    : s.videoVerificationRequired,
-                              ),
+                            Text(
+                              _error is MissavAuthenticationException
+                                  ? s.videoLoginRequired
+                                  : _updateFailedShowingPrevious &&
+                                        _results != null
+                                  ? s.searchUpdateFailedShowingPrevious
+                                  : _verificationError == null
+                                  ? s.videoLoadFailed
+                                  : s.videoVerificationRequired,
                             ),
-                            if (_verificationError != null &&
-                                widget.verifyAccess != null)
-                              TextButton.icon(
-                                onPressed: _verifyingAccess
-                                    ? null
-                                    : _verifyAndRetry,
-                                icon: const Icon(Icons.verified_user_outlined),
-                                label: Text(s.videoVerifyAccess),
+                            if (_updateFailedShowingPrevious &&
+                                _results != null &&
+                                _verificationError != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(s.videoVerificationRequired),
                               ),
-                            TextButton(
-                              onPressed: _loading
-                                  ? null
-                                  : () =>
-                                        _retryAction?.call() ??
-                                        _runSearch(_query.text),
-                              child: Text(s.retry),
+                            Wrap(
+                              alignment: WrapAlignment.end,
+                              children: [
+                                if (_verificationError != null &&
+                                    widget.verifyAccess != null)
+                                  TextButton.icon(
+                                    onPressed: _verifyingAccess
+                                        ? null
+                                        : _verifyAndRetry,
+                                    icon: const Icon(
+                                      Icons.verified_user_outlined,
+                                    ),
+                                    label: Text(s.videoVerifyAccess),
+                                  ),
+                                TextButton(
+                                  onPressed: _loading
+                                      ? null
+                                      : () =>
+                                            _retryAction?.call() ??
+                                            _runSearch(_query.text),
+                                  child: Text(s.retry),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -677,9 +856,22 @@ class _VideoSearchScreenState extends ConsumerState<VideoSearchScreen> {
                 ),
               ),
             ),
+            if (_loading && _results != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(s.searchUpdating),
+                ),
+              ),
             if (_loading) const LinearProgressIndicator(minHeight: 2),
             Expanded(
-              child: _results != null
+              child: _showHistory
+                  ? _history(history)
+                  : _results != null
                   ? _resultsView(_results!, layout)
                   : _loading
                   ? const Center(child: CircularProgressIndicator())

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -31,6 +32,14 @@ class SearchResultScreen extends StatelessWidget {
   final String keyword;
   final String? searchTypeLabel;
   final Map<String, dynamic>? searchParams;
+  final bool embedded;
+  final int queryRevision;
+  final SortOrder? initialSortOption;
+  final SortDirection? initialSortDirection;
+  final int initialSubtitleFilter;
+  final void Function(SortOrder option, SortDirection direction)?
+  onSortRequested;
+  final ValueChanged<int>? onSubtitleFilterRequested;
   final SearchResultState? _initialState;
   final double _initialScrollOffset;
   final int? _pendingPage;
@@ -40,6 +49,13 @@ class SearchResultScreen extends StatelessWidget {
     required this.keyword,
     this.searchTypeLabel,
     this.searchParams,
+    this.embedded = false,
+    this.queryRevision = 0,
+    this.initialSortOption,
+    this.initialSortDirection,
+    this.initialSubtitleFilter = 0,
+    this.onSortRequested,
+    this.onSubtitleFilterRequested,
   }) : _initialState = null,
        _initialScrollOffset = 0,
        _pendingPage = null;
@@ -51,7 +67,13 @@ class SearchResultScreen extends StatelessWidget {
     required this.keyword,
     this.searchTypeLabel,
     this.searchParams,
-  });
+  }) : embedded = false,
+       queryRevision = 0,
+       initialSortOption = null,
+       initialSortDirection = null,
+       initialSubtitleFilter = 0,
+       onSortRequested = null,
+       onSubtitleFilterRequested = null;
 
   @override
   Widget build(BuildContext context) {
@@ -64,7 +86,14 @@ class SearchResultScreen extends StatelessWidget {
             apiService,
             ref,
             initialPageSize: pageSize,
-            initialState: _initialState,
+            initialState:
+                _initialState ??
+                SearchResultState(
+                  basePageSize: pageSize,
+                  sortOption: initialSortOption ?? SortOrder.release,
+                  sortDirection: initialSortDirection ?? SortDirection.desc,
+                  subtitleFilter: initialSubtitleFilter,
+                ),
           );
 
           ref.listen(pageSizeProvider, (previous, next) {
@@ -87,6 +116,13 @@ class SearchResultScreen extends StatelessWidget {
         restored: _initialState != null,
         initialScrollOffset: _initialScrollOffset,
         pendingPage: _pendingPage,
+        embedded: embedded,
+        queryRevision: queryRevision,
+        initialSortOption: initialSortOption,
+        initialSortDirection: initialSortDirection,
+        initialSubtitleFilter: initialSubtitleFilter,
+        onSortRequested: onSortRequested,
+        onSubtitleFilterRequested: onSubtitleFilterRequested,
       ),
     );
   }
@@ -99,6 +135,14 @@ class _SearchResultContent extends ConsumerStatefulWidget {
   final bool restored;
   final double initialScrollOffset;
   final int? pendingPage;
+  final bool embedded;
+  final int queryRevision;
+  final SortOrder? initialSortOption;
+  final SortDirection? initialSortDirection;
+  final int initialSubtitleFilter;
+  final void Function(SortOrder option, SortDirection direction)?
+  onSortRequested;
+  final ValueChanged<int>? onSubtitleFilterRequested;
 
   const _SearchResultContent({
     required this.keyword,
@@ -107,6 +151,13 @@ class _SearchResultContent extends ConsumerStatefulWidget {
     required this.restored,
     required this.initialScrollOffset,
     required this.pendingPage,
+    required this.embedded,
+    required this.queryRevision,
+    required this.initialSortOption,
+    required this.initialSortDirection,
+    required this.initialSubtitleFilter,
+    required this.onSortRequested,
+    required this.onSubtitleFilterRequested,
   });
 
   @override
@@ -155,7 +206,38 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
     super.dispose();
   }
 
+  @override
+  void didUpdateWidget(covariant _SearchResultContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.restored ||
+        (oldWidget.queryRevision == widget.queryRevision &&
+            oldWidget.keyword == widget.keyword &&
+            mapEquals(oldWidget.searchParams, widget.searchParams))) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_scrollController.hasClients) _scrollController.jumpTo(0);
+      unawaited(
+        ref
+            .read(searchResultProvider.notifier)
+            .initializeSearch(
+              keyword: widget.keyword,
+              searchParams: widget.searchParams,
+              preserveResults: widget.embedded,
+              sortOption: widget.initialSortOption,
+              sortDirection: widget.initialSortDirection,
+              subtitleFilter: widget.initialSubtitleFilter,
+            ),
+      );
+    });
+  }
+
   Future<void> _openWorkDetail(WidgetBuilder builder) async {
+    if (widget.embedded) {
+      await pushWorkDetailRoute(context, builder: builder);
+      return;
+    }
     final navigation = AppNavigationScope.maybeOf(context);
     final playerRoute = navigation?.audioPlayerRoute;
     final rootNavigator = navigation?.navigator;
@@ -231,7 +313,13 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
             )
             .toList(),
         onSort: (option, direction) {
-          ref.read(searchResultProvider.notifier).updateSort(option, direction);
+          final onSortRequested = widget.onSortRequested;
+          if (onSortRequested != null) {
+            onSortRequested(option, direction);
+            return;
+          }
+          final notifier = ref.read(searchResultProvider.notifier);
+          notifier.updateSort(option, direction);
         },
         autoClose: true,
       ),
@@ -281,78 +369,95 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
 
     final horizontalPadding = FloatingToolbarLayout.horizontalPadding(context);
 
-    final topPadding = MediaQuery.paddingOf(context).top;
+    final topPadding = widget.embedded
+        ? 0.0
+        : MediaQuery.paddingOf(context).top;
     final systemOverlayStyle = transparentSystemBarsForBrightness(
       Theme.of(context).brightness,
     );
 
-    return GlobalAudioPlayerWrapper(
-      child: AnnotatedRegion(
-        value: systemOverlayStyle,
-        child: Scaffold(
-          floatingActionButton: const DownloadFab(),
-          body: Stack(
+    final resultBody = Stack(
+      children: [
+        Positioned.fill(child: _buildBody(searchState)),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: ProgressiveTopScrim(height: topPadding + 72),
+        ),
+        Positioned(
+          top: topPadding + 8,
+          left: horizontalPadding,
+          right: horizontalPadding,
+          child: FloatingToolbarRow(
             children: [
-              Positioned.fill(child: _buildBody(searchState)),
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: ProgressiveTopScrim(height: topPadding + 72),
-              ),
-              Positioned(
-                top: topPadding + 8,
-                left: horizontalPadding,
-                right: horizontalPadding,
-                child: FloatingToolbarRow(
+              if (!widget.embedded)
+                FloatingToolbarSurface(
+                  child: FloatingToolbarIconButton(
+                    icon: Icons.arrow_back,
+                    tooltip: S.of(context).back,
+                    onPressed: () => Navigator.of(context).maybePop(),
+                  ),
+                ),
+              FloatingToolbarSurface(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    FloatingToolbarSurface(
-                      child: FloatingToolbarIconButton(
-                        icon: Icons.arrow_back,
-                        tooltip: S.of(context).back,
-                        onPressed: () => Navigator.of(context).maybePop(),
-                      ),
+                    FloatingToolbarIconButton(
+                      icon: _getLayoutIcon(searchState.layoutType),
+                      tooltip: _getLayoutTooltip(searchState.layoutType),
+                      onPressed: () => ref
+                          .read(searchResultProvider.notifier)
+                          .toggleLayoutType(),
                     ),
-                    FloatingToolbarSurface(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          FloatingToolbarIconButton(
-                            icon: _getLayoutIcon(searchState.layoutType),
-                            tooltip: _getLayoutTooltip(searchState.layoutType),
-                            onPressed: () => ref
-                                .read(searchResultProvider.notifier)
-                                .toggleLayoutType(),
-                          ),
-                          if (!isJapaneseAsmr)
-                            FloatingToolbarIconButton(
-                              icon: _getSubtitleFilterIcon(
-                                searchState.subtitleFilter,
-                              ),
-                              tooltip: SubtitleFilterMode.fromValue(
-                                searchState.subtitleFilter,
-                              ).localizedTooltip(context),
-                              isSelected: SubtitleFilterMode.fromValue(
-                                searchState.subtitleFilter,
-                              ).isActive,
-                              onPressed: () => ref
-                                  .read(searchResultProvider.notifier)
-                                  .toggleSubtitleFilter(),
-                            ),
-                          if (!isJapaneseAsmr)
-                            FloatingToolbarIconButton(
-                              icon: Icons.sort,
-                              tooltip: S.of(context).sort,
-                              onPressed: () => _showSortDialog(context),
-                            ),
-                        ],
+                    if (!isJapaneseAsmr)
+                      FloatingToolbarIconButton(
+                        icon: _getSubtitleFilterIcon(
+                          searchState.subtitleFilter,
+                        ),
+                        tooltip: SubtitleFilterMode.fromValue(
+                          searchState.subtitleFilter,
+                        ).localizedTooltip(context),
+                        isSelected: SubtitleFilterMode.fromValue(
+                          searchState.subtitleFilter,
+                        ).isActive,
+                        onPressed: () {
+                          final nextFilter = SubtitleFilterMode.fromValue(
+                            searchState.subtitleFilter,
+                          ).next.value;
+                          final onSubtitleFilterRequested =
+                              widget.onSubtitleFilterRequested;
+                          if (onSubtitleFilterRequested != null) {
+                            onSubtitleFilterRequested(nextFilter);
+                            return;
+                          }
+                          ref
+                              .read(searchResultProvider.notifier)
+                              .toggleSubtitleFilter();
+                        },
                       ),
-                    ),
+                    if (!isJapaneseAsmr)
+                      FloatingToolbarIconButton(
+                        icon: Icons.sort,
+                        tooltip: S.of(context).sort,
+                        onPressed: () => _showSortDialog(context),
+                      ),
                   ],
                 ),
               ),
             ],
           ),
+        ),
+      ],
+    );
+
+    if (widget.embedded) return resultBody;
+    return GlobalAudioPlayerWrapper(
+      child: AnnotatedRegion(
+        value: systemOverlayStyle,
+        child: Scaffold(
+          floatingActionButton: const DownloadFab(),
+          body: resultBody,
         ),
       ),
     );
@@ -501,7 +606,7 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
   }
 
   Widget _buildBody(SearchResultState searchState) {
-    if (searchState.error != null) {
+    if (searchState.error != null && searchState.works.isEmpty) {
       final error = searchState.error!;
       if (error.contains('[jp-asmr-verification-required]') &&
           _isJapaneseQuery) {
@@ -529,8 +634,8 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
         message: Text(
           searchState.error!,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
           textAlign: TextAlign.center,
         ),
         action: ElevatedButton.icon(
@@ -568,16 +673,14 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
       isRefreshing: false,
       isLoadingMore: searchState.isLoadingMore,
       hasMore: searchState.hasMore,
-      error: searchState.error,
+      error: searchState.works.isEmpty ? searchState.error : null,
       loadMoreError: searchState.loadMoreError,
       onRetry: () => ref.read(searchResultProvider.notifier).refresh(),
       showInlineLoadingIndicator: searchState.isLoading,
       pagination: VirtualizedPagination(
         currentPage: searchState.currentPage,
         pageSize: searchState.pageSize,
-        totalCount: searchState.totalCountKnown
-            ? searchState.totalCount
-            : null,
+        totalCount: searchState.totalCountKnown ? searchState.totalCount : null,
         hasMore: searchState.hasMore,
         isLoading: searchState.isLoading || searchState.isRefreshing,
         onPreviousPage: () => ref
@@ -593,34 +696,83 @@ class _SearchResultContentState extends ConsumerState<_SearchResultContent> {
         endMessage: S.of(context).reachedEnd,
         extraBuilder: searchState.rawWorks.length > searchState.works.length
             ? (context) => Text(
-                  '${searchState.rawWorks.length - searchState.works.length} filtered',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontSize: 12,
-                  ),
-                )
+                '${searchState.rawWorks.length - searchState.works.length} filtered',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 12,
+                ),
+              )
             : null,
       ),
       sliversBefore: [
         SliverToBoxAdapter(
-          child: Padding(
-            padding: EdgeInsets.only(
-              top: MediaQuery.paddingOf(context).top + 64,
-              left: MediaQuery.orientationOf(context) == Orientation.landscape
-                  ? 24
-                  : 8,
-              right: MediaQuery.orientationOf(context) == Orientation.landscape
-                  ? 24
-                  : 8,
-              bottom: 8,
-            ),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: _buildSearchInfo(context, searchState),
-            ),
+          child: SizedBox(
+            height:
+                (widget.embedded ? 0.0 : MediaQuery.paddingOf(context).top) +
+                64,
           ),
         ),
+        if (searchState.isRefreshing && searchState.works.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: Semantics(
+                liveRegion: true,
+                child: Text(S.of(context).searchUpdating),
+              ),
+            ),
+          ),
+        if (searchState.error != null && searchState.works.isNotEmpty)
+          SliverToBoxAdapter(child: _buildUpdateError(searchState.error!)),
+        if (!widget.embedded ||
+            (searchState.totalCountKnown && searchState.totalCount > 0))
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: MediaQuery.orientationOf(context) == Orientation.landscape
+                    ? 24
+                    : 8,
+                right:
+                    MediaQuery.orientationOf(context) == Orientation.landscape
+                    ? 24
+                    : 8,
+                bottom: 8,
+              ),
+              child: widget.embedded
+                  ? Text(S.of(context).totalNWorks(searchState.totalCount))
+                  : SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: _buildSearchInfo(context, searchState),
+                    ),
+            ),
+          ),
       ],
+    );
+  }
+
+  Widget _buildUpdateError(String error) {
+    if (error.contains('[jp-asmr-verification-required]') && _isJapaneseQuery) {
+      return JapaneseAsmrAccessPrompt(
+        onRetry: () => ref.read(searchResultProvider.notifier).refresh(),
+        onVerified: () => ref.read(searchResultProvider.notifier).refresh(),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              S.of(context).searchUpdateFailedShowingPrevious,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+          TextButton(
+            onPressed: () => ref.read(searchResultProvider.notifier).refresh(),
+            child: Text(S.of(context).retry),
+          ),
+        ],
+      ),
     );
   }
 

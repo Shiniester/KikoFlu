@@ -3171,6 +3171,52 @@ eval(function(p,a,c,k,e,d){return p}('A="B://C.D/G/E.F";',62,43,'${words.join('|
     },
   );
 
+  for (final failingLogin in [false, true]) {
+    test(
+      'authentication failure updates account state (login=$failingLogin)',
+      () async {
+        var loginRequests = 0;
+        final adapter = _Adapter((options) {
+          if (options.uri.path.endsWith('/api/login') && ++loginRequests == 1) {
+            return _response('{"user":{"name":"Saved account"}}');
+          }
+          return _response('{}', statusCode: HttpStatus.unauthorized);
+        });
+        final storage = _MemorySecureStorage()..cookie = 'clearance=verified';
+        final client = MissavClient(
+          metadataDio: _emptyMetadataDio(),
+          dio: Dio()..httpClientAdapter = adapter,
+          secureStorage: storage,
+        );
+        addTearDown(client.dispose);
+        await client.login(email: 'viewer@example.test', password: 'sample');
+        expect(client.isLoggedIn, isTrue);
+
+        final operation = failingLogin
+            ? client.login(email: 'other@example.test', password: 'wrong')
+            : client.setVideoFavorite(
+                const VideoDetails(
+                  video: VideoItem(
+                    id: 'sample',
+                    title: 'Sample',
+                    pageUrl: 'https://missav.ai/cn/sample',
+                  ),
+                  sourceId: 'source-123',
+                ),
+                true,
+              );
+        await expectLater(
+          operation,
+          throwsA(isA<MissavAuthenticationException>()),
+        );
+
+        expect(client.isLoggedIn, failingLogin);
+        expect(client.accountName, failingLogin ? 'Saved account' : isNull);
+        expect(storage.cookie, 'clearance=verified');
+      },
+    );
+  }
+
   test(
     'updates video favorites through the observed source endpoint',
     () async {

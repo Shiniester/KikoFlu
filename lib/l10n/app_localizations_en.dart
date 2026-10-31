@@ -367,6 +367,24 @@ class SEn extends S {
   String get searchHistory => 'Search History';
 
   @override
+  String get searchUpdating => 'Updating search results…';
+
+  @override
+  String get searchUpdateFailedShowingPrevious =>
+      'Update failed. Showing previous search results.';
+
+  @override
+  String get searchLegacyHistory => 'Older searches (scope unknown)';
+
+  @override
+  String get searchHistoryNotSaved =>
+      'Search history cannot be saved. New entries remain only until the app closes.';
+
+  @override
+  String get clearCurrentSearchHistoryConfirm =>
+      'Clear search history for this scope?';
+
+  @override
   String get clearSearchHistory => 'Clear Search History';
 
   @override

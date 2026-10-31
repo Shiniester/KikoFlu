@@ -196,13 +196,20 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
   Future<void> initializeSearch({
     required String keyword,
     Map<String, dynamic>? searchParams,
+    bool preserveResults = false,
+    SortOrder? sortOption,
+    SortDirection? sortDirection,
+    int? subtitleFilter,
   }) async {
     state = state.copyWith(
       keyword: keyword,
       searchParams: searchParams,
       currentPage: 1,
-      works: [],
-      rawWorks: [],
+      sortOption: sortOption,
+      sortDirection: sortDirection,
+      subtitleFilter: subtitleFilter,
+      works: preserveResults ? null : [],
+      rawWorks: preserveResults ? null : [],
     );
     await loadResults(targetPage: 1, supersede: true);
   }
@@ -355,7 +362,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
   void onSourceChanged() {
     if (!hasActiveQuery) return;
     if (_isPinnedJapaneseQuery) return;
-    state = state.copyWith(currentPage: 1, works: [], rawWorks: []);
+    state = state.copyWith(currentPage: 1);
     loadResults(targetPage: 1, supersede: true);
   }
 
@@ -460,12 +467,7 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
     final newFilterMode = oldFilterMode.next;
     final newFilter = newFilterMode.value;
 
-    state = state.copyWith(
-      subtitleFilter: newFilter,
-      currentPage: 1,
-      works: [],
-      rawWorks: [],
-    );
+    state = state.copyWith(subtitleFilter: newFilter, currentPage: 1);
     loadResults(targetPage: 1, supersede: true);
   }
 
@@ -474,8 +476,6 @@ class SearchResultNotifier extends StateNotifier<SearchResultState> {
       sortOption: option,
       sortDirection: direction,
       currentPage: 1,
-      works: [],
-      rawWorks: [],
     );
     refresh();
   }

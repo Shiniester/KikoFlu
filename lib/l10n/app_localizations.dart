@@ -790,6 +790,36 @@ abstract class S {
   /// **'Search History'**
   String get searchHistory;
 
+  /// Shown while previous search results remain visible during an update.
+  ///
+  /// In en, this message translates to:
+  /// **'Updating search results…'**
+  String get searchUpdating;
+
+  /// Explains that visible results are from the previous search after an update failed.
+  ///
+  /// In en, this message translates to:
+  /// **'Update failed. Showing previous search results.'**
+  String get searchUpdateFailedShowingPrevious;
+
+  /// Labels old video search history that did not record its original scope.
+  ///
+  /// In en, this message translates to:
+  /// **'Older searches (scope unknown)'**
+  String get searchLegacyHistory;
+
+  /// Warns that search history storage is unavailable and new entries are temporary.
+  ///
+  /// In en, this message translates to:
+  /// **'Search history cannot be saved. New entries remain only until the app closes.'**
+  String get searchHistoryNotSaved;
+
+  /// Confirmation when clearing search history for the current scope and source.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear search history for this scope?'**
+  String get clearCurrentSearchHistoryConfirm;
+
   /// No description provided for @clearSearchHistory.
   ///
   /// In en, this message translates to:

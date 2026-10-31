@@ -627,6 +627,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   ModalRoute<dynamic>? _route;
   PageRoute<void>? _pictureInPictureRoute;
   double? _temporaryRate;
+  double? _temporaryRateDisplay;
   double? _runtimeRate;
   bool _controlsVisible = true;
   bool _keyboardRightDown = false;
@@ -655,6 +656,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   Offset _pinchStartFocalPoint = Offset.zero;
   double _lastNonZeroVolume = 100;
   double? _doubleTapX;
+  ({bool forward, int seconds})? _surfaceSeekFeedback;
   double? _verticalDragStart;
   double? _brightnessStart;
   double? _volumeStart;
@@ -1190,24 +1192,41 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
 
   void _startTemporaryRate() {
     if (_temporaryRate != null || !_session.snapshot.value.playing) return;
-    _temporaryRate = _session.snapshot.value.rate;
-    _showControls();
+    final currentRate = _session.snapshot.value.rate;
     final rate = _settings.dynamicLongPressRate
-        ? (_temporaryRate! * 2).clamp(1.5, 4).toDouble()
+        ? (currentRate * 2).clamp(1.5, 4).toDouble()
         : _settings.longPressRate;
+    _gestureOverlayTimer?.cancel();
+    _gestureOverlayTimer = null;
+    _controlsTimer?.cancel();
+    _updatePlayerState(() {
+      _temporaryRate = currentRate;
+      _temporaryRateDisplay = rate;
+      _gestureValueLabel = null;
+      _surfaceSeekFeedback = null;
+      _controlsVisible = true;
+    });
     unawaited(_queueRate(rate));
   }
 
-  void _stopTemporaryRate() {
+  void _stopTemporaryRate({bool updateUi = true}) {
     _keyboardRightTimer?.cancel();
     _keyboardRightTimer = null;
     _keyboardRightDown = false;
     _keyboardRightTemporary = false;
     final rate = _temporaryRate;
     if (rate == null) return;
-    _temporaryRate = null;
+    if (updateUi) {
+      _updatePlayerState(() {
+        _temporaryRate = null;
+        _temporaryRateDisplay = null;
+      });
+    } else {
+      _temporaryRate = null;
+      _temporaryRateDisplay = null;
+    }
     unawaited(_queueRate(rate));
-    _scheduleControlsHide();
+    if (updateUi) _scheduleControlsHide();
   }
 
   bool _canHideControls(VideoPlaybackSnapshot snapshot) =>
@@ -1318,6 +1337,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
     _updatePlayerState(() {
       _seekPreview = position;
       _gestureValueLabel = null;
+      _surfaceSeekFeedback = null;
       _controlsVisible = true;
     });
   }
@@ -1388,14 +1408,14 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
         currentPosition - Duration(seconds: _settings.doubleTapSeekSeconds),
         snapshot.duration,
       );
-      _showGestureValue('−${_settings.doubleTapSeekSeconds}s');
+      _showSurfaceSeekFeedback(forward: false);
       _finishSeek(target);
     } else if (x > width * 2 / 3) {
       final target = _clampPosition(
         currentPosition + Duration(seconds: _settings.doubleTapSeekSeconds),
         snapshot.duration,
       );
-      _showGestureValue('+${_settings.doubleTapSeekSeconds}s');
+      _showSurfaceSeekFeedback(forward: true);
       _finishSeek(target);
     } else {
       _togglePlayback();
@@ -1479,9 +1499,30 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
 
   void _showGestureValue(String label) {
     _gestureOverlayTimer?.cancel();
-    if (mounted) _updatePlayerState(() => _gestureValueLabel = label);
+    if (mounted) {
+      _updatePlayerState(() {
+        _gestureValueLabel = label;
+        _surfaceSeekFeedback = null;
+      });
+    }
     _gestureOverlayTimer = Timer(const Duration(milliseconds: 900), () {
       if (mounted) _updatePlayerState(() => _gestureValueLabel = null);
+    });
+  }
+
+  void _showSurfaceSeekFeedback({required bool forward}) {
+    _gestureOverlayTimer?.cancel();
+    final seconds = _settings.doubleTapSeekSeconds;
+    if (mounted) {
+      _updatePlayerState(() {
+        _gestureValueLabel = null;
+        _surfaceSeekFeedback = (forward: forward, seconds: seconds);
+      });
+    }
+    _gestureOverlayTimer = Timer(const Duration(milliseconds: 900), () {
+      if (mounted) {
+        _updatePlayerState(() => _surfaceSeekFeedback = null);
+      }
     });
   }
 
@@ -1711,6 +1752,9 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
 
   void _setRuntimeRate(double rate) {
     _runtimeRate = rate;
+    if (_temporaryRate != null) {
+      _updatePlayerState(() => _temporaryRateDisplay = rate);
+    }
     unawaited(_queueRate(rate));
     _showControls();
   }
@@ -2596,6 +2640,14 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                             _error != null || snapshot.error != null;
                         final controlsVisible = _controlsVisible;
                         final seekPreview = _seekPreview;
+                        final surfaceSeekFeedback = _surfaceSeekFeedback;
+                        final temporaryRateDisplay = snapshot.playing
+                            ? _temporaryRateDisplay
+                            : null;
+                        final feedbackDuration =
+                            MediaQuery.disableAnimationsOf(context)
+                            ? Duration.zero
+                            : const Duration(milliseconds: 120);
                         final gestureLabel = seekPreview == null
                             ? _gestureValueLabel
                             : '${_formatTime(seekPreview)} / ${_formatTime(snapshot.duration)}';
@@ -2667,6 +2719,84 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                                   ),
                                 ),
                               ),
+                            IgnorePointer(
+                              child: AnimatedOpacity(
+                                opacity: surfaceSeekFeedback == null ? 0 : 1,
+                                duration: feedbackDuration,
+                                child: Align(
+                                  alignment:
+                                      surfaceSeekFeedback?.forward == true
+                                      ? Alignment.centerRight
+                                      : Alignment.centerLeft,
+                                  child: surfaceSeekFeedback == null
+                                      ? const SizedBox.shrink()
+                                      : SizedBox(
+                                          width: constraints.maxWidth / 3,
+                                          height: constraints.maxHeight,
+                                          child: DecoratedBox(
+                                            key: const ValueKey(
+                                              'video-double-tap-feedback-gradient',
+                                            ),
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                begin:
+                                                    surfaceSeekFeedback.forward
+                                                    ? Alignment.centerLeft
+                                                    : Alignment.centerRight,
+                                                end: surfaceSeekFeedback.forward
+                                                    ? Alignment.centerRight
+                                                    : Alignment.centerLeft,
+                                                colors: const [
+                                                  Color(0x00767676),
+                                                  Color(0x88767676),
+                                                ],
+                                              ),
+                                            ),
+                                            child: Semantics(
+                                              key: const ValueKey(
+                                                'video-double-tap-feedback-semantics',
+                                              ),
+                                              label:
+                                                  '${surfaceSeekFeedback.forward ? '+' : '−'}${S.of(context).preloadOptionSeconds(surfaceSeekFeedback.seconds)}',
+                                              container: true,
+                                              explicitChildNodes: true,
+                                              child: ExcludeSemantics(
+                                                child: Center(
+                                                  child: Column(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      Icon(
+                                                        surfaceSeekFeedback
+                                                                .forward
+                                                            ? Icons.fast_forward
+                                                            : Icons.fast_rewind,
+                                                        color: Colors.white,
+                                                        size: 24,
+                                                      ),
+                                                      const SizedBox(height: 4),
+                                                      Text(
+                                                        S
+                                                            .of(context)
+                                                            .preloadOptionSeconds(
+                                                              surfaceSeekFeedback
+                                                                  .seconds,
+                                                            ),
+                                                        style: const TextStyle(
+                                                          color: Colors.white,
+                                                          fontSize: 12,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                ),
+                              ),
+                            ),
                             if (hasError)
                               Positioned(
                                 top: fullscreen ? 0 : 4,
@@ -2733,6 +2863,67 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                                     ),
                                   ),
                                 ),
+                            Align(
+                              alignment: Alignment.topCenter,
+                              child: SafeArea(
+                                top: fullscreen,
+                                left: false,
+                                right: false,
+                                bottom: false,
+                                child: Padding(
+                                  padding: const EdgeInsets.only(top: 12),
+                                  child: IgnorePointer(
+                                    child: AnimatedOpacity(
+                                      opacity: temporaryRateDisplay == null
+                                          ? 0
+                                          : 1,
+                                      duration: feedbackDuration,
+                                      child: temporaryRateDisplay == null
+                                          ? const SizedBox.shrink()
+                                          : DecoratedBox(
+                                              decoration: BoxDecoration(
+                                                color: Colors.black.withValues(
+                                                  alpha: .68,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(20),
+                                              ),
+                                              child: Padding(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 12,
+                                                      vertical: 8,
+                                                    ),
+                                                child: Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Text(
+                                                      S
+                                                          .of(context)
+                                                          .videoPlayerLongPressSpeed,
+                                                      style: const TextStyle(
+                                                        color: Colors.white,
+                                                        fontSize: 14,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 6),
+                                                    Text(
+                                                      '$temporaryRateDisplay×',
+                                                      style: const TextStyle(
+                                                        color: Colors.white,
+                                                        fontSize: 14,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                             if (controlsVisible &&
                                 !_controlsLocked &&
                                 !pipMode &&
@@ -2791,7 +2982,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
                               ),
                             if (gestureLabel != null)
                               Align(
-                                alignment: const Alignment(0, -.25),
+                                alignment: const Alignment(0, -.4),
                                 child: IgnorePointer(
                                   child: DecoratedBox(
                                     decoration: BoxDecoration(
@@ -3801,7 +3992,7 @@ class _VideoPlaybackPanelState extends State<VideoPlaybackPanel>
   @override
   void dispose() {
     _controlsInteracting = false;
-    _stopTemporaryRate();
+    _stopTemporaryRate(updateUi: false);
     _disposed = true;
     _fullscreenMetricsChanged?.complete();
     _fullscreenMetricsChanged = null;

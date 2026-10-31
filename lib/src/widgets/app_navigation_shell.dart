@@ -284,14 +284,21 @@ class _AppNavigationShellState extends State<AppNavigationShell>
               removeBottom: true,
               child: Padding(
                 padding: EdgeInsets.fromLTRB(
-                  safePadding.left * paddingFactor,
+                  0,
                   0,
                   safePadding.right * paddingFactor,
                   safePadding.bottom * paddingFactor,
                 ),
                 child: Column(
                   children: [
-                    Expanded(child: child),
+                    Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          left: safePadding.left * paddingFactor,
+                        ),
+                        child: child,
+                      ),
+                    ),
                     if (playback != null) playback,
                   ],
                 ),
@@ -341,7 +348,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
                   Expanded(
                     child: Padding(
                       padding: EdgeInsets.fromLTRB(
-                        safePadding.left,
+                        0,
                         0,
                         safePadding.right,
                         safePadding.bottom,
@@ -394,6 +401,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
     List<NavigationDestination> destinations,
     ValueChanged<int> selectTab,
   ) => SafeArea(
+    right: false,
     child: SingleChildScrollView(
       child: ConstrainedBox(
         constraints: BoxConstraints(
@@ -406,6 +414,7 @@ class _AppNavigationShellState extends State<AppNavigationShell>
             selectedIndex: controller.selectedIndex,
             onDestinationSelected: selectTab,
             labelType: NavigationRailLabelType.selected,
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             destinations: [
               for (final destination in destinations)
                 NavigationRailDestination(

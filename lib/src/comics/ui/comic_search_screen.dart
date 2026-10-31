@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../../widgets/app_bottom_dock_transition.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,6 +7,11 @@ import '../../../l10n/app_localizations.dart';
 import '../../widgets/global_audio_player_wrapper.dart';
 import '../../widgets/pagination_bar.dart';
 import '../../widgets/animated_menu_anchor.dart';
+import '../../widgets/search_condition_chip.dart';
+import '../../widgets/search_filter_panel.dart';
+import '../../widgets/search_history_section.dart';
+import '../../widgets/search_input_decoration.dart';
+import '../../providers/unified_search_history_provider.dart';
 import '../comic_models.dart';
 import '../comic_pagination.dart';
 import '../comic_providers.dart';
@@ -46,6 +53,10 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
   late String _source =
       widget.initialSource ?? ref.read(comicSelectedSourceProvider);
   ComicSearchMode _mode = ComicSearchMode.single;
+  ComicSearchMode _displayMode = ComicSearchMode.single;
+  Set<String>? _selectedSourceKeys;
+  List<ComicSource> _displaySources = [];
+  String _displayQuery = '';
   String? _sort;
   final _results = <String, List<Comic>>{};
   final _errors = <String, Object>{};
@@ -63,7 +74,18 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
   int? _interruptedScrollRequest;
   ModalRoute<dynamic>? _route;
   bool _submitted = false;
+  bool _userSearchSubmitted = false;
+  bool _historySessionActive = false;
+  bool _showHistory = false;
+  bool _searchUpdateFailed = false;
   final _scroll = ScrollController();
+  late final _historySession = UnifiedSearchHistorySession(
+    ref.read(unifiedSearchHistoryProvider.notifier),
+  );
+
+  bool get _hasVisibleResults => _displayMode == ComicSearchMode.grouped
+      ? _results.values.any((items) => items.isNotEmpty)
+      : _pageItems.isNotEmpty;
 
   void _routeStatusChanged(AnimationStatus _) {
     final request = _pageTurnRequest;
@@ -99,7 +121,15 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
     if (widget.initialQuery.isNotEmpty ||
         widget.category != null ||
         widget.libraryTab != null) {
-      Future.microtask(_search);
+      Future.microtask(() {
+        if (!mounted) return;
+        if (widget.initialQuery.trim().isNotEmpty) {
+          _userSearchSubmitted = true;
+          _historySessionActive = true;
+          unawaited(_historySession.submit(_historyContext, _historyPayload));
+        }
+        unawaited(_search());
+      });
     }
   }
 
@@ -116,7 +146,183 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
     final all = ref.read(enabledComicSourcesProvider);
     return _mode == ComicSearchMode.single
         ? all.where((s) => s.key == _source).toList()
-        : all;
+        : all
+              .where(
+                (source) =>
+                    _selectedSourceKeys == null ||
+                    _selectedSourceKeys!.contains(source.key),
+              )
+              .toList();
+  }
+
+  String get _historyEntryScope => switch (widget.libraryTab) {
+    1 when widget.onlineFavorites => 'online-favorites',
+    1 => 'local-favorites',
+    2 => 'history',
+    3 => 'downloads',
+    _ => 'source-directory',
+  };
+
+  String get _historySource => switch (_historyEntryScope) {
+    'local-favorites' || 'history' || 'downloads' => 'local',
+    _ => _mode == ComicSearchMode.single ? _source : 'multi',
+  };
+
+  UnifiedSearchHistoryContext get _historyContext =>
+      UnifiedSearchHistoryContext(
+        contentType: 'comic',
+        entryScope: _historyEntryScope,
+        source: _historySource,
+      );
+
+  Map<String, Object?> get _historyPayload {
+    final sources = switch (_historyEntryScope) {
+      'local-favorites' || 'history' || 'downloads' => ['local'],
+      'online-favorites' => [_source],
+      _ when _mode == ComicSearchMode.single => [_source],
+      _ =>
+        _selectedSourceKeys?.toList() ??
+            _targets.map((source) => source.key).toList(),
+    };
+    return {
+      'keyword': _query.text.trim(),
+      'mode': _mode.name,
+      'source': _historySource,
+      'sources': sources,
+      'sort': _sort,
+    };
+  }
+
+  void _submitSearch() {
+    _userSearchSubmitted = true;
+    _historySessionActive = true;
+    if (_showHistory) setState(() => _showHistory = false);
+    unawaited(_historySession.submit(_historyContext, _historyPayload));
+    unawaited(_search());
+  }
+
+  void _clearSearch() {
+    _generation++;
+    _pageTurnRequest = null;
+    _cancelledPageTurnRequest = null;
+    setState(() {
+      _query.clear();
+      _mode = ComicSearchMode.single;
+      _selectedSourceKeys = null;
+      _sort = null;
+      _submitted = false;
+      _userSearchSubmitted = false;
+      _historySessionActive = false;
+      _showHistory = true;
+      _searchUpdateFailed = false;
+      _pageLoading = false;
+      _hasMore = false;
+      _page = 1;
+      _pendingPage = 1;
+      _buffer = null;
+      _pageItems = [];
+      _pageErrors = {};
+      _results.clear();
+      _errors.clear();
+      _pending.clear();
+      _displayMode = ComicSearchMode.single;
+      _displaySources = [];
+      _displayQuery = '';
+      _visitedPages.reset();
+    });
+  }
+
+  void _onFilterChanged() {
+    if (_showHistory) setState(() => _showHistory = false);
+    if (!_userSearchSubmitted) return;
+    if (_historySessionActive) {
+      unawaited(_historySession.update(_historyContext, _historyPayload));
+    }
+    unawaited(_search());
+  }
+
+  String _historyLabel(UnifiedSearchHistoryEntry entry) {
+    final s = S.of(context);
+    final payload = entry.payload;
+    final rawMode = payload['mode'];
+    final mode = ComicSearchMode.values.firstWhere(
+      (value) => value.name == rawMode,
+      orElse: () => ComicSearchMode.single,
+    );
+    final modeLabel = [
+      s.comicSearchSingle,
+      s.comicSearchGrouped,
+      s.comicSearchMerged,
+    ][mode.index];
+    final rawSources = payload['sources'];
+    final sourceKeys = rawSources is List
+        ? rawSources.whereType<String>().toList()
+        : const <String>[];
+    final sources = ref.read(comicSourcesProvider);
+    final sourceLabel = sourceKeys
+        .map(
+          (key) =>
+              sources.where((source) => source.key == key).firstOrNull?.name ??
+              key,
+        )
+        .join(', ');
+    final keyword = payload['keyword'];
+    final sort = payload['sort'];
+    return [
+      if (keyword is String && keyword.isNotEmpty) keyword,
+      modeLabel,
+      if (sourceLabel.isNotEmpty) sourceLabel,
+      if (sort is String) _sortLabel(sort),
+    ].join(' · ');
+  }
+
+  void _replayHistory(UnifiedSearchHistoryEntry entry) {
+    final payload = entry.payload;
+    final modeName = payload['mode'];
+    final mode = ComicSearchMode.values.firstWhere(
+      (value) => value.name == modeName,
+      orElse: () => ComicSearchMode.single,
+    );
+    final sourceValue = payload['source'];
+    final rawSources = payload['sources'];
+    final sourceKeys = rawSources is List
+        ? rawSources.whereType<String>().toList()
+        : const <String>[];
+    final keyword = payload['keyword'];
+    final sort = payload['sort'];
+    setState(() {
+      _query.text = keyword is String ? keyword : '';
+      _mode = mode;
+      _source = sourceValue is String
+          ? sourceValue
+          : sourceKeys.firstOrNull ?? _source;
+      _selectedSourceKeys = mode == ComicSearchMode.single
+          ? null
+          : sourceKeys.toSet();
+      if (mode != ComicSearchMode.single && sourceKeys.isNotEmpty) {
+        _source = sourceKeys.first;
+      }
+      _sort = sort is String ? sort : null;
+      _showHistory = false;
+    });
+    _userSearchSubmitted = true;
+    _historySessionActive = true;
+    unawaited(
+      _historySession.replay(
+        context: _historyContext,
+        payload: _historyPayload,
+        entry: entry,
+      ),
+    );
+    unawaited(_search());
+  }
+
+  void _removeHistoryEntry(UnifiedSearchHistoryEntry entry) {
+    unawaited(
+      ref
+          .read(unifiedSearchHistoryProvider.notifier)
+          .remove(entry.context, entry.id),
+    );
   }
 
   ComicPageBuffer _sourceBuffer(List<ComicSource> sources, String query) {
@@ -188,7 +394,11 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
     bool reset = false,
     bool retryFailures = false,
   }) async {
-    if (!mounted || (_pageLoading && !reset)) return;
+    if (!mounted ||
+        (_pageLoading && !reset) ||
+        (_pending.isNotEmpty && !reset)) {
+      return;
+    }
     final generation = ++_generation;
     final previousPage = _page;
     final pageTurnRequest = !reset && page != previousPage;
@@ -200,19 +410,22 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
       _cancelledPageTurnRequest = null;
     }
     final query = _query.text.trim();
+    final keepPrevious = reset && _hasVisibleResults;
     setState(() {
       _submitted = true;
       _pageLoading = true;
       _pendingPage = page;
       if (reset) {
         _buffer = null;
-        _pageItems = [];
+        if (!keepPrevious) {
+          _pageItems = [];
+          _results.clear();
+          _displayMode = _mode;
+        }
         _pageErrors = {};
         _errors.clear();
         _pending.clear();
-        _page = 1;
-        _hasMore = false;
-        _visitedPages.reset();
+        _searchUpdateFailed = false;
       }
     });
     try {
@@ -260,8 +473,12 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
       setState(() {
         _buffer = buffer;
         _pageErrors = result.errors;
-        if (result.errors.isEmpty) {
+        if (result.errors.isEmpty || (reset && result.items.isNotEmpty)) {
           _pageItems = result.items;
+          _results.clear();
+          _displayMode = _mode;
+          _displaySources = _targets;
+          _displayQuery = query;
           _page = displayPage;
           _pendingPage = displayPage;
           if (reset) {
@@ -269,16 +486,21 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
           } else {
             _visitedPages.markDisplayed(displayPage);
           }
-          _hasMore = result.hasMore;
+          _hasMore = result.errors.isEmpty && result.hasMore;
         } else if (_pageItems.isEmpty && result.items.isNotEmpty) {
           _pageItems = result.items;
           _page = displayPage;
           _hasMore = false;
+        } else if (keepPrevious) {
+          _searchUpdateFailed = true;
         }
       });
     } catch (error) {
       if (mounted && generation == _generation) {
-        setState(() => _pageErrors = {'search': error});
+        setState(() {
+          _pageErrors = {'search': error};
+          _searchUpdateFailed = keepPrevious;
+        });
       }
     } finally {
       if (_pageTurnRequest == generation) _pageTurnRequest = null;
@@ -327,31 +549,42 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
 
   Future<void> _search({Set<String>? retrySources}) async {
     if (!mounted) return;
-    if (_mode != ComicSearchMode.grouped ||
-        widget.category != null ||
-        widget.libraryTab != null) {
+    final append = retrySources != null;
+    if (append && (_pageLoading || _pending.isNotEmpty)) return;
+    if (!append &&
+        (_mode != ComicSearchMode.grouped ||
+            widget.category != null ||
+            widget.libraryTab != null)) {
       await _loadPage(1, reset: true);
       return;
     }
-    final append = retrySources != null;
     final generation = append ? _generation : ++_generation;
-    final query = _query.text.trim();
+    final query = append ? _displayQuery : _query.text.trim();
+    final targets = append ? _displaySources : _targets;
+    final keepPrevious = !append && _hasVisibleResults;
+    final nextResults = <String, List<Comic>>{};
+    final nextErrors = <String, Object>{};
     setState(() {
       _submitted = true;
       if (!append) {
         _pageLoading = false;
         _pendingPage = 1;
-        _hasMore = false;
-        _results.clear();
         _errors.clear();
         _pending.clear();
         _buffer = null;
-        _pageItems = [];
         _pageErrors = {};
+        _searchUpdateFailed = false;
+        if (!keepPrevious) {
+          _results.clear();
+          _pageItems = [];
+          _displayMode = ComicSearchMode.grouped;
+          _displaySources = targets;
+          _displayQuery = query;
+        }
       }
     });
     await Future.wait(
-      _targets
+      targets
           .where(
             (s) => retrySources != null ? retrySources.contains(s.key) : true,
           )
@@ -361,12 +594,22 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
               final result = await source.search(query);
               if (!mounted || generation != _generation) return;
               setState(() {
-                _results.putIfAbsent(source.key, () => []).addAll(result.items);
-                _errors.remove(source.key);
+                if (append) {
+                  _results[source.key] = result.items;
+                  _errors.remove(source.key);
+                } else {
+                  nextResults[source.key] = result.items;
+                }
               });
             } catch (e) {
               if (mounted && generation == _generation) {
-                setState(() => _errors[source.key] = e);
+                setState(() {
+                  if (append) {
+                    _errors[source.key] = e;
+                  } else {
+                    nextErrors[source.key] = e;
+                  }
+                });
               }
             } finally {
               if (mounted && generation == _generation) {
@@ -375,6 +618,23 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
             }
           }),
     );
+    if (!mounted || generation != _generation || append) return;
+    setState(() {
+      if (keepPrevious && nextResults.isEmpty && nextErrors.isNotEmpty) {
+        _searchUpdateFailed = true;
+        return;
+      }
+      _results
+        ..clear()
+        ..addAll(nextResults);
+      _errors
+        ..clear()
+        ..addAll(nextErrors);
+      _pageItems = [];
+      _displayMode = ComicSearchMode.grouped;
+      _displaySources = targets;
+      _displayQuery = query;
+    });
   }
 
   String _sortLabel(String sort) {
@@ -407,7 +667,7 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                 context,
                 builder: (_) => ComicSearchScreen(
                   initialSource: source.key,
-                  initialQuery: _query.text,
+                  initialQuery: _displayQuery,
                 ),
               ),
             ),
@@ -420,7 +680,7 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                 children: [
                   Text('${_errors[source.key]}'),
                   TextButton(
-                    onPressed: _pending.contains(source.key)
+                    onPressed: _pending.isNotEmpty || _pageLoading
                         ? null
                         : () => _search(retrySources: {source.key}),
                     child: Text(S.of(context).retry),
@@ -485,152 +745,263 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
     final pageSize = ref.watch(comicPageSizeProvider);
     final s = S.of(context);
     final sources = ref.watch(enabledComicSourcesProvider);
+    final searchHistory = ref.watch(unifiedSearchHistoryProvider);
+    final historyContext = _historyContext;
+    final historyEntries = searchHistory.itemsFor(historyContext);
+    final historyNotifier = ref.read(unifiedSearchHistoryProvider.notifier);
     final selected = sources.where((s) => s.key == _source).firstOrNull;
     final groupedItems = interleaveComicResults(
       widget.libraryTab != null
           ? _results.values.toList()
-          : _targets.map((s) => _results[s.key] ?? <Comic>[]).toList(),
+          : _displaySources.map((s) => _results[s.key] ?? <Comic>[]).toList(),
     );
-    final items = _mode == ComicSearchMode.grouped ? groupedItems : _pageItems;
+    final items = _displayMode == ComicSearchMode.grouped
+        ? groupedItems
+        : _pageItems;
+    final scopeLabel = switch (widget.libraryTab) {
+      1 =>
+        widget.onlineFavorites ? s.comicOnlineFavorites : s.comicLocalFavorites,
+      2 => s.libraryHistory,
+      null => null,
+      _ => s.libraryDownloads,
+    };
     final screen = Scaffold(
-      appBar: AppBar(title: Text(widget.category?.title ?? s.search)),
+      appBar: AppBar(
+        title: Text(
+          widget.category?.title ??
+              (scopeLabel == null ? s.search : s.searchInScope(scopeLabel)),
+        ),
+        actions: [
+          if (_submitted && widget.category == null)
+            IconButton(
+              key: const ValueKey('comic-search-history-toggle'),
+              tooltip: _showHistory ? s.close : s.searchHistory,
+              icon: Icon(_showHistory ? Icons.close : Icons.history),
+              onPressed: () => setState(() => _showHistory = !_showHistory),
+            ),
+        ],
+      ),
       body: Column(
         children: [
           if (widget.category == null)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: TextField(
-                controller: _query,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _search(),
-                decoration: InputDecoration(
-                  hintText: s.search,
-                  prefixIcon: const Icon(Icons.search),
-                  suffixIcon: IconButton(
-                    onPressed: () => _search(),
-                    icon: const Icon(Icons.arrow_forward),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      key: const ValueKey('comic-search-input'),
+                      controller: _query,
+                      textInputAction: TextInputAction.search,
+                      onSubmitted: (_) => _submitSearch(),
+                      onChanged: (_) => setState(() {}),
+                      decoration: searchInputDecoration(
+                        hintText: s.search,
+                        suffixIcon: IconButton(
+                          tooltip: s.clear,
+                          onPressed: _clearSearch,
+                          icon: const Icon(Icons.clear),
+                        ),
+                      ),
+                    ),
                   ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
+                  IconButton(
+                    key: const ValueKey('comic-search-submit'),
+                    tooltip: s.search,
+                    onPressed: _submitSearch,
+                    icon: const Icon(Icons.search),
                   ),
-                ),
+                ],
               ),
             ),
           if (widget.libraryTab == null && widget.category == null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        for (final mode in ComicSearchMode.values)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: ChoiceChip(
-                              label: Text(
-                                [
-                                  s.comicSearchSingle,
-                                  s.comicSearchGrouped,
-                                  s.comicSearchMerged,
-                                ][mode.index],
-                              ),
-                              selected: _mode == mode,
-                              onSelected: (_) {
-                                setState(() => _mode = mode);
-                                if (_submitted) _search();
-                              },
-                            ),
-                          ),
-                      ],
+              child: SearchFilterPanel(
+                selected: Wrap(
+                  spacing: 8,
+                  children: [
+                    SearchConditionChip(
+                      label: [
+                        s.comicSearchSingle,
+                        s.comicSearchGrouped,
+                        s.comicSearchMerged,
+                      ][_mode.index],
+                      avatar: const Icon(Icons.search, size: 16),
+                      backgroundColor: Theme.of(
+                        context,
+                      ).colorScheme.secondaryContainer,
                     ),
-                  ),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        for (final source in sources)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: ChoiceChip(
-                              label: Text(source.name),
-                              selected:
-                                  _mode != ComicSearchMode.single ||
-                                  source.key == _source,
-                              onSelected: _mode != ComicSearchMode.single
-                                  ? null
-                                  : (_) {
-                                      setState(() {
-                                        _source = source.key;
-                                        _sort = null;
-                                      });
-                                      if (_submitted) _search();
-                                    },
-                            ),
-                          ),
-                        if (_mode == ComicSearchMode.single &&
-                            (selected?.searchSorts.isNotEmpty ?? false))
-                          AnimatedMenuAnchor(
-                            menuStyle: const MenuStyle(
-                              alignment: AlignmentDirectional.bottomStart,
-                              maximumSize: WidgetStatePropertyAll(
-                                Size(360, double.infinity),
+                    if (_mode == ComicSearchMode.single && selected != null)
+                      SearchConditionChip(
+                        label: selected.name,
+                        avatar: const Icon(Icons.source_outlined, size: 16),
+                        maxLines: 1,
+                        backgroundColor: Theme.of(
+                          context,
+                        ).colorScheme.secondaryContainer,
+                      ),
+                    if (_mode != ComicSearchMode.single && _targets.isNotEmpty)
+                      SearchConditionChip(
+                        label: _targets.map((source) => source.name).join(', '),
+                        avatar: const Icon(Icons.source_outlined, size: 16),
+                        maxLines: 1,
+                        backgroundColor: Theme.of(
+                          context,
+                        ).colorScheme.secondaryContainer,
+                      ),
+                    if (_sort != null)
+                      SearchConditionChip(
+                        label: _sortLabel(_sort!),
+                        avatar: const Icon(Icons.sort, size: 16),
+                        backgroundColor: Theme.of(
+                          context,
+                        ).colorScheme.secondaryContainer,
+                      ),
+                  ],
+                ),
+                filters: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (final mode in ComicSearchMode.values)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: ChoiceChip(
+                                label: Text(
+                                  [
+                                    s.comicSearchSingle,
+                                    s.comicSearchGrouped,
+                                    s.comicSearchMerged,
+                                  ][mode.index],
+                                ),
+                                selected: _mode == mode,
+                                onSelected: (_) {
+                                  setState(() {
+                                    if (_mode == ComicSearchMode.single &&
+                                        mode != ComicSearchMode.single) {
+                                      _selectedSourceKeys = null;
+                                    }
+                                    _mode = mode;
+                                  });
+                                  _onFilterChanged();
+                                },
                               ),
                             ),
-                            crossAxisUnconstrained: false,
-                            menuChildren: [
-                              for (final sort in selected!.searchSorts)
-                                Semantics(
-                                  selected:
-                                      sort ==
-                                      (_sort ?? selected.searchSorts.first),
-                                  child: MenuItemButton(
-                                    autofocus:
+                        ],
+                      ),
+                    ),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (final source in sources)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: ChoiceChip(
+                                label: Text(source.name),
+                                selected:
+                                    _mode != ComicSearchMode.single ||
+                                    source.key == _source,
+                                onSelected: _mode != ComicSearchMode.single
+                                    ? null
+                                    : (_) {
+                                        setState(() {
+                                          _source = source.key;
+                                          _sort = null;
+                                        });
+                                        _onFilterChanged();
+                                      },
+                              ),
+                            ),
+                          if (_mode == ComicSearchMode.single &&
+                              (selected?.searchSorts.isNotEmpty ?? false))
+                            AnimatedMenuAnchor(
+                              menuStyle: const MenuStyle(
+                                alignment: AlignmentDirectional.bottomStart,
+                                maximumSize: WidgetStatePropertyAll(
+                                  Size(360, double.infinity),
+                                ),
+                              ),
+                              crossAxisUnconstrained: false,
+                              menuChildren: [
+                                for (final sort in selected!.searchSorts)
+                                  Semantics(
+                                    selected:
                                         sort ==
                                         (_sort ?? selected.searchSorts.first),
-                                    style: AnimatedMenuAnchor.selectedItemStyle(
-                                      context,
-                                      sort ==
+                                    child: MenuItemButton(
+                                      autofocus:
+                                          sort ==
                                           (_sort ?? selected.searchSorts.first),
-                                    ),
-                                    onPressed: () {
-                                      setState(() => _sort = sort);
-                                      if (_submitted) _search();
-                                    },
-                                    child: Text(
-                                      _sortLabel(sort),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
+                                      style:
+                                          AnimatedMenuAnchor.selectedItemStyle(
+                                            context,
+                                            sort ==
+                                                (_sort ??
+                                                    selected.searchSorts.first),
+                                          ),
+                                      onPressed: () {
+                                        setState(() => _sort = sort);
+                                        _onFilterChanged();
+                                      },
+                                      child: Text(
+                                        _sortLabel(sort),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
                                   ),
-                                ),
-                            ],
-                            builder: (context, controller, _) => IconButton(
-                              tooltip: s.comicSort,
-                              icon: const Icon(Icons.sort),
-                              onPressed: () => controller.isOpen
-                                  ? controller.close()
-                                  : controller.open(),
+                              ],
+                              builder: (context, controller, _) => IconButton(
+                                tooltip: s.comicSort,
+                                icon: const Icon(Icons.sort),
+                                onPressed: () => controller.isOpen
+                                    ? controller.close()
+                                    : controller.open(),
+                              ),
                             ),
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          if (_pending.isNotEmpty || _pageLoading)
+          if (_pending.isNotEmpty || _pageLoading) ...[
+            if (_hasVisibleResults)
+              Semantics(liveRegion: true, child: Text(s.searchUpdating)),
             const LinearProgressIndicator(),
+          ],
+          if (_searchUpdateFailed)
+            MaterialBanner(
+              content: Text(s.searchUpdateFailedShowingPrevious),
+              actions: [TextButton(onPressed: _search, child: Text(s.retry))],
+            ),
           Expanded(
-            child: !_submitted
+            child: _showHistory || (!_submitted && widget.category == null)
+                ? SingleChildScrollView(
+                    child: SearchHistorySection(
+                      entries: historyEntries,
+                      labelFor: _historyLabel,
+                      onSelect: _replayHistory,
+                      onRemove: _removeHistoryEntry,
+                      onClear: () =>
+                          unawaited(historyNotifier.clear(historyContext)),
+                      isLoading: searchHistory.isLoading,
+                      canPersist: historyNotifier.canPersist,
+                    ),
+                  )
+                : !_submitted
                 ? const SizedBox.shrink()
-                : _mode == ComicSearchMode.grouped
+                : _displayMode == ComicSearchMode.grouped
                 ? ListView(
                     controller: _scroll,
                     padding: const EdgeInsets.all(16),
-                    children: _targets.map(_group).toList(),
+                    children: _displaySources.map(_group).toList(),
                   )
                 : NotificationListener<ScrollStartNotification>(
                     onNotification: (notification) {
@@ -657,7 +1028,9 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (_pageErrors.isNotEmpty && items.isNotEmpty)
+                            if (_pageErrors.isNotEmpty &&
+                                items.isNotEmpty &&
+                                !_searchUpdateFailed)
                               MaterialBanner(
                                 content: Text(
                                   _pageErrors.entries
@@ -690,7 +1063,10 @@ class _ComicSearchScreenState extends ConsumerState<ComicSearchScreen> {
                               totalCount: null,
                               jumpMaxPage: _visitedPages.maximum,
                               hasMore: _hasMore && _pageErrors.isEmpty,
-                              isLoading: _pageLoading,
+                              isLoading:
+                                  _pageLoading ||
+                                  _pending.isNotEmpty ||
+                                  _searchUpdateFailed,
                               onPreviousPage: _page > 1
                                   ? () => _loadPage(_page - 1)
                                   : null,

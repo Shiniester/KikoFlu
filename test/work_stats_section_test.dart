@@ -59,6 +59,9 @@ void main() {
     expect(find.text('2024-01-02'), findsOneWidget);
     expect(find.text('Release Date'), findsOneWidget);
     expect(find.byTooltip('Release Date'), findsOneWidget);
+    final salesStyle = tester.widget<Text>(find.textContaining('1.2k')).style;
+    expect(tester.widget<Text>(find.text('Release Date')).style, salesStyle);
+    expect(tester.widget<Text>(find.text('2024-01-02')).style, salesStyle);
 
     await tester.tap(find.byIcon(Icons.info_outline));
     await tester.tap(find.byIcon(Icons.person));

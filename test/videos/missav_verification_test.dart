@@ -406,6 +406,79 @@ void main() {
     }
   });
 
+  for (final (status, challenge) in <(int?, bool)>[
+    (401, false),
+    (403, false),
+    (500, false),
+    (200, false),
+    (0, false),
+    (null, false),
+    (403, true),
+  ]) {
+    test(
+      'browser collection honors document HTTP $status (challenge=$challenge)',
+      () async {
+        final client = MissavClient(secureStorage: _MemorySecureStorage());
+        addTearDown(client.dispose);
+        late final MissavBrowserAdapter adapter;
+        adapter = MissavBrowserAdapter(
+          runJavaScript: (script) async {
+            final match = RegExp(r'const request = (.*);').firstMatch(script)!;
+            final request = jsonDecode(match.group(1)!) as Map;
+            adapter.receiveMessage({
+              'id': request['id'],
+              'nonce': request['nonce'],
+              'origin': MissavClient.origin,
+              'status': 200,
+              'url': request['url'],
+              'headers': {'content-type': 'application/json'},
+              'body': '{"user":{"name":"viewer"}}',
+            });
+          },
+          currentUrl: () async => 'https://missav.ai/cn',
+          navigateDocument: (uri, cancelled) => navigateMissavDocument(
+            uri,
+            cancelled,
+            navigate: (_) async {},
+            read: (_) async => {
+              'url': uri.toString(),
+              'html': challenge
+                  ? '<html><title>Just a moment...</title></html>'
+                  : '<html><body><main></main></body></html>',
+              'responseStatus': status,
+            },
+            stop: () async {},
+          ),
+          disposeBrowser: () async {},
+        );
+        client.useVerifiedBrowserTransport(adapter);
+        await client.login(email: 'viewer@example.test', password: 'sample');
+        expect(client.isLoggedIn, isTrue);
+
+        final collection = client.browse(client.collectionUrl('favorites'));
+        if (status != null && status >= 400) {
+          await expectLater(
+            collection,
+            throwsA(
+              challenge
+                  ? isA<MissavVerificationRequiredException>()
+                  : status == 401
+                  ? isA<MissavAuthenticationException>()
+                  : isA<MissavException>().having(
+                      (error) => error.message,
+                      'message',
+                      contains('HTTP $status'),
+                    ),
+            ),
+          );
+        } else {
+          expect((await collection).videos, isEmpty);
+        }
+        expect(client.isLoggedIn, status != 401);
+      },
+    );
+  }
+
   test(
     'does not treat an invalid browser document as a verification challenge',
     () async {

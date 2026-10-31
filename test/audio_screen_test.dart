@@ -27,6 +27,7 @@ import 'package:kikoeru_flutter/src/providers/player_work_details_provider.dart'
 import 'package:kikoeru_flutter/src/screens/audio_screen.dart';
 import 'package:kikoeru_flutter/src/screens/audio_player_screen.dart';
 import 'package:kikoeru_flutter/src/screens/search_screen.dart';
+import 'package:kikoeru_flutter/src/screens/search_result_screen.dart';
 import 'package:kikoeru_flutter/src/services/kikoeru_api_service.dart'
     hide kikoeruApiServiceProvider;
 import 'package:kikoeru_flutter/src/services/storage_service.dart';
@@ -215,6 +216,18 @@ class _PendingDetailsApi extends KikoeruApiService {
     int id, {
     bool forceRefresh = false,
   }) async => [];
+
+  @override
+  Future<Map<String, dynamic>> getWorksByTag({
+    required int tagId,
+    int page = 1,
+    int pageSize = 40,
+    String? order,
+    String? sort,
+    int? subtitle,
+    int? seed,
+    dynamic cancelToken,
+  }) async => {'works': <dynamic>[]};
 }
 
 class _PendingCoverLease extends Fake implements RemoteAssetLease {
@@ -2679,6 +2692,145 @@ void main() {
       expect(tester.getRect(find.byType(MiniPlayer)), miniRect);
       expect(detailApi.metadataRequests, greaterThan(requestsBeforeDetail));
       expect(find.byType(FileExplorerWidget), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  for (final size in [const Size(390, 844), const Size(1280, 720)]) {
+    testWidgets('player tag search matches work detail transition at $size', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final reduced = ValueNotifier(false);
+      addTearDown(reduced.dispose);
+      const track = AudioTrack(
+        id: 'tag-handoff-track',
+        title: 'Tag handoff work',
+        url: 'https://example.invalid/tag-handoff.mp3',
+        workId: 42,
+      );
+      await _pumpAudioScreen(
+        tester,
+        reduced,
+        screen: const MainScreen(),
+        track: track,
+        detailApi: _PendingDetailsApi(),
+        playerWorkDetails: const PlayerWorkDetailsData(
+          track: track,
+          work: Work(
+            id: 42,
+            title: 'Tag handoff work',
+            tags: [Tag(id: 999999, name: 'Player test tag')],
+          ),
+          fileTree: [],
+          variants: [],
+          fileTreeId: '42:tag-handoff',
+        ),
+        artworkSeedLoader: _ImmediateArtworkSeedLoader(),
+      );
+      final navigation = size.width > size.height
+          ? find.byType(NavigationRail)
+          : find.byType(AppBottomDock);
+
+      Future<List<({double player, double page, Rect? navigation})>> sample(
+        TransitionRoute<dynamic> player,
+        TransitionRoute<dynamic> page,
+      ) async {
+        final playerAnimation = player.animation!;
+        final pageAnimation = page.animation!;
+        final frames = <({double player, double page, Rect? navigation})>[];
+        for (var frame = 0; frame < 48; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+          frames.add((
+            player: playerAnimation.value,
+            page: pageAnimation.value,
+            navigation: navigation.evaluate().isEmpty
+                ? null
+                : tester.getRect(navigation),
+          ));
+        }
+        return frames;
+      }
+
+      Future<TransitionRoute<dynamic>> openPlayer() async {
+        unawaited(
+          openAudioPlayer<void>(tester.element(find.byType(AudioScreen))),
+        );
+        await tester.pumpAndSettle();
+        return ModalRoute.of(tester.element(find.byType(AudioPlayerScreen)))!
+            as TransitionRoute<dynamic>;
+      }
+
+      final titlePlayer = await openPlayer();
+      await tester.tap(
+        find.byKey(
+          ValueKey(
+            size.width >= playerWideLayoutBreakpoint
+                ? 'player-track-title-button-wide'
+                : 'player-track-title-button',
+          ),
+        ),
+      );
+      await tester.pump();
+      final detailRoute =
+          ModalRoute.of(
+                tester.element(
+                  find.byType(WorkDetailScreen, skipOffstage: false),
+                ),
+              )!
+              as TransitionRoute<dynamic>;
+      final detailNavigator = detailRoute.navigator;
+      final detailFrames = await sample(titlePlayer, detailRoute);
+      await tester.pumpAndSettle();
+      Navigator.of(tester.element(find.byType(WorkDetailScreen))).pop();
+      await tester.pumpAndSettle();
+
+      final tagPlayer = await openPlayer();
+      await tester.drag(
+        find.byKey(
+          ValueKey(
+            size.width >= playerWideLayoutBreakpoint
+                ? 'wide-left-pages'
+                : 'compact-player-pages',
+          ),
+        ),
+        Offset(size.width >= playerWideLayoutBreakpoint ? 450 : 320, 0),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Player test tag'));
+      await tester.tap(find.text('Player test tag'));
+      await tester.pump();
+      final searchRoute =
+          ModalRoute.of(
+                tester.element(
+                  find.byType(SearchResultScreen, skipOffstage: false),
+                ),
+              )!
+              as TransitionRoute<dynamic>;
+      final searchFrames = await sample(tagPlayer, searchRoute);
+
+      for (var frame = 0; frame < detailFrames.length; frame++) {
+        final detail = detailFrames[frame];
+        final search = searchFrames[frame];
+        expect(
+          search.player,
+          closeTo(detail.player, 0.02),
+          reason: 'frame $frame',
+        );
+        expect(search.page, closeTo(detail.page, 0.02), reason: 'frame $frame');
+        if (detail.navigation == null) {
+          expect(search.navigation, isNull, reason: 'frame $frame');
+        } else {
+          expect(search.navigation, isNotNull, reason: 'frame $frame');
+          expect(search.navigation!.left, closeTo(detail.navigation!.left, 1));
+          expect(search.navigation!.top, closeTo(detail.navigation!.top, 1));
+        }
+      }
+      await tester.pumpAndSettle();
+      expect(find.byType(AudioPlayerScreen, skipOffstage: false), findsNothing);
+      expect(searchRoute.navigator, same(detailNavigator));
       expect(tester.takeException(), isNull);
     });
   }

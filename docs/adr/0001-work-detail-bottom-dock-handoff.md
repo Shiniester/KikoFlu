@@ -14,11 +14,11 @@ Browsing pages need persistent app navigation and shared audio playback access. 
 
 `AppNavigationController` observes the root stack and the tab stacks, and owns the selected app tab. Ordinary pages show navigation. Comic reader, work-image reader, reader settings, and dedicated video presentation routes use `appImmersiveRouteSettings`. Inline video retains navigation; the existing video fullscreen callback hides navigation only while fullscreen is active. Popup routes retain the underlying page presentation, and their barriers, focus restrictions, and semantics also cover shell controls.
 
-The full-screen audio player uses `appAudioPlayerRouteSettings`. The Bottom Dock stays hidden while the player route is open or its closing transition is running, including when Cover Preview, metadata search, or a lyric text preview is open.
+The full-screen audio player uses `appAudioPlayerRouteSettings`. The Bottom Dock stays hidden while the player route is open or its closing transition is running, including when Cover Preview or a lyric text preview is open.
 
 `AppNavigationScope` shares this state and resolves the root Navigator for shell controls. Audio entry and interactive drag handoff use that Navigator; their temporary overlay uses the shell's outer Overlay. Page-local `GlobalAudioPlayerWrapper` uses the shell's existing playback surface instead of adding a second Mini Player.
 
-Online and offline Work Details navigation continues to use `pushWorkDetailRoute`, which delegates to `pushBottomDockRoute`. Other browsing routes keep their current Navigator calls. Opening Work Details from the full-screen audio player closes the player to the Mini Player, selects Audio, and opens the details in its browsing history. Automatic Work Details replacement uses a zero-duration entry without adding a return step. The original navigation Future waits for the final replacement page to close and finish its return transition. Repeated taps only push while the source route is still current.
+Online and offline Work Details navigation continues to use `pushWorkDetailRoute`, which delegates to `pushBottomDockRoute`. Opening Work Details or a metadata search from the full-screen audio player uses the same handoff: close the player to the Mini Player, select Audio, and open the page in its browsing history. Automatic Work Details replacement uses a zero-duration entry without adding a return step. The original navigation Future waits for the final replacement page to close and finish its return transition. Repeated taps only push while the source route is still current.
 
 ## Consequences
 

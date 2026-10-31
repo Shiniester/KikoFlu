@@ -366,6 +366,21 @@ class SJa extends S {
   String get searchHistory => '検索履歴';
 
   @override
+  String get searchUpdating => '検索結果を更新中…';
+
+  @override
+  String get searchUpdateFailedShowingPrevious => '更新に失敗しました。前回の検索結果を表示しています。';
+
+  @override
+  String get searchLegacyHistory => '以前の検索（範囲不明）';
+
+  @override
+  String get searchHistoryNotSaved => '検索履歴を保存できません。新しい履歴はアプリを閉じるまで保持されます。';
+
+  @override
+  String get clearCurrentSearchHistoryConfirm => '現在の範囲の検索履歴を消去しますか？';
+
+  @override
   String get clearSearchHistory => '検索履歴をクリア';
 
   @override

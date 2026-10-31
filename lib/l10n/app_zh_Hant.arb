@@ -133,6 +133,11 @@
   "minRatingStars": "{stars} 星",
 
   "searchHistory": "搜尋歷史",
+  "searchUpdating": "正在更新搜尋結果…",
+  "searchUpdateFailedShowingPrevious": "更新失敗，顯示上一次的搜尋結果。",
+  "searchLegacyHistory": "舊搜尋歷史（範圍未知）",
+  "searchHistoryNotSaved": "搜尋歷史無法儲存，新增內容只保留到應用程式關閉。",
+  "clearCurrentSearchHistoryConfirm": "確定清除目前範圍的搜尋歷史嗎？",
   "clearSearchHistory": "清除搜尋歷史",
   "clearSearchHistoryConfirm": "確定要清除所有搜尋歷史嗎？",
   "clear": "清除",
